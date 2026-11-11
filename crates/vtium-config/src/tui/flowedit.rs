@@ -1,239 +1,19 @@
-//! The Flow view's changes to the draft (ADR-1403 D7), as the state
-//! machine's: the opened card's keys, connecting tags, the actions View,
-//! Install, Revert, Restore, New and Delete draft with their questions,
-//! the pager, and the devices read again at a hotplug or on `d`. Every
-//! change is made through [`super::edit::Change`] on the draft's text and
-//! handed to the desk to write, and the flow is rebuilt from what the desk
-//! answers, with the selection kept where it was.
+//! The Flow view's changes to the draft (ADR-1403 D7, D8), as the state
+//! machine's: the actions View file, Install, Revert, Restore and New with
+//! their questions, the file view, and the devices read again at a hotplug
+//! or on `d`. Every change is made through [`super::edit::Change`] on the
+//! draft's text and handed to the desk to write, and the flow is rebuilt
+//! from what the desk answers.
 
 use super::desk::{Done, Op};
-use super::edit::{self, Change, Field, What};
-use super::flow::{Device, Draft, Flow, Item, Kind, New};
+use super::edit::Change;
+use super::flow::{Device, Draft, Flow, Item, New};
 use super::input::Key;
-use super::model::{App, Card, Confirm, Effect, Pager, Then, step};
+use super::model::{App, Confirm, Effect, Pager, Then, step};
 use super::words;
 use crate::flowmodel::Present;
 
 impl App {
-    /// The frits a look may name: the fonts the TUI lists that read.
-    fn frit_names(&self) -> Vec<String> {
-        self.inputs
-            .fonts
-            .iter()
-            .filter(|f| !matches!(f.state, super::model::FontState::Refused(_)))
-            .map(|f| f.name.clone())
-            .collect()
-    }
-
-    /// The fields of the selected item's card; none without a draft,
-    /// whose card only shows the item.
-    pub fn fields(&self) -> Vec<Field> {
-        if self.draft.is_none() {
-            return Vec::new();
-        }
-        edit::fields(
-            &self.inputs.flow,
-            self.flow_at,
-            &self.card.values,
-            &self.frit_names(),
-        )
-    }
-
-    /// Opens the selected item's card, its cursor on the first field's
-    /// value now.
-    pub(crate) fn open_card(&mut self) {
-        self.opened = true;
-        self.card = Card::default();
-        self.card_to_current();
-    }
-
-    /// Puts the cursor on the value the field under it has now.
-    fn card_to_current(&mut self) {
-        let fields = self.fields();
-        if let Some(f) = fields.get(self.card.field) {
-            self.card.pick = f.options.iter().position(|o| *o == f.current).unwrap_or(0);
-        }
-        self.card.typed = None;
-    }
-
-    /// A key on the opened card; `None` passes it to the flow, as for a
-    /// card with nothing to edit.
-    pub(crate) fn card_key(&mut self, key: Key) -> Option<Vec<Effect>> {
-        let fields = self.fields();
-        let field = fields.get(self.card.field)?.clone();
-        if let Some(typed) = self.card.typed.clone() {
-            return Some(match key {
-                Key::Enter => self.choose(&field, &typed),
-                Key::Escape => {
-                    self.card.typed = None;
-                    Vec::new()
-                }
-                _ => Vec::new(),
-            });
-        }
-        let slots = field.options.len().saturating_add(usize::from(field.typed));
-        match key {
-            Key::Up | Key::Down | Key::PageUp | Key::PageDown | Key::Home | Key::End => {
-                self.card.field = step(self.card.field, fields.len(), key);
-                self.card_to_current();
-                Some(Vec::new())
-            }
-            Key::Left => {
-                self.card.pick = self.card.pick.saturating_sub(1);
-                Some(Vec::new())
-            }
-            Key::Right => {
-                self.card.pick = self
-                    .card
-                    .pick
-                    .saturating_add(1)
-                    .min(slots.saturating_sub(1));
-                Some(Vec::new())
-            }
-            // `t` tries the frit under the cursor on the live console
-            // (ADR-1201 D4)
-            Key::Char('t') => match (&field.what, field.options.get(self.card.pick)) {
-                (What::LookKey(_, "font-name"), Some(name)) => Some(self.try_live(name.clone())),
-                _ => None,
-            },
-            Key::Enter => Some(match field.options.get(self.card.pick) {
-                Some(value) => {
-                    let value = value.clone();
-                    self.choose(&field, &value)
-                }
-                None if field.typed => {
-                    self.card.typed = Some(field.current.clone());
-                    Vec::new()
-                }
-                None => Vec::new(),
-            }),
-            Key::Escape => {
-                self.opened = false;
-                Some(Vec::new())
-            }
-            _ => None,
-        }
-    }
-
-    /// Picks `value` in `field`: a form keeps it and moves on, an action
-    /// acts, and any other field changes the draft.
-    fn choose(&mut self, field: &Field, value: &str) -> Vec<Effect> {
-        self.card.typed = None;
-        match field.what {
-            What::Form(i) => {
-                if self.card.values.len() <= i {
-                    self.card.values.resize(i.saturating_add(1), String::new());
-                }
-                if let Some(v) = self.card.values.get_mut(i) {
-                    value.clone_into(v);
-                }
-                self.card.field = self.card.field.saturating_add(1);
-                self.card_to_current();
-                Vec::new()
-            }
-            What::Actions => self.card_action(value),
-            _ => match edit::pick(&self.inputs.flow, field, value) {
-                Some(change) => self.make(vec![change], None),
-                None => Vec::new(),
-            },
-        }
-    }
-
-    /// An action on the card's last row: move a rule, add a `new…` form,
-    /// or delete the item, asking first.
-    fn card_action(&mut self, action: &str) -> Vec<Effect> {
-        let flow = &self.inputs.flow;
-        match (action, self.flow_at) {
-            (edit::UP | edit::DOWN, Item::Rule(r)) => {
-                let Some(kind) = flow.rules.get(r).map(|x| x.kind) else {
-                    return Vec::new();
-                };
-                let same: Vec<usize> = flow.rules_of(kind).map(|(i, _)| i).collect();
-                let at = same.iter().position(|i| *i == r).unwrap_or(0);
-                let (to, before) = if action == edit::UP {
-                    match at.checked_sub(1).and_then(|p| same.get(p)) {
-                        Some(&p) => (p, p.saturating_add(1)),
-                        None => return self.say(words::rule_first(kind)),
-                    }
-                } else {
-                    match same.get(at.saturating_add(1)) {
-                        Some(&n) => (n, n.saturating_add(2)),
-                        None => return self.say(words::rule_last(kind)),
-                    }
-                };
-                self.make(
-                    vec![Change::RuleMove {
-                        number: r.saturating_add(1),
-                        before,
-                    }],
-                    Some(Item::Rule(to)),
-                )
-            }
-            (edit::ADD, Item::New(new)) => match edit::add(new, &self.card.values) {
-                Ok(change) => {
-                    self.card = Card::default();
-                    self.opened = false;
-                    self.make(vec![change], None)
-                }
-                Err(why) => self.say(&why),
-            },
-            (edit::DELETE, item) => {
-                let Some((question, change)) = self.delete_question(item) else {
-                    return Vec::new();
-                };
-                self.ask(question, Then::Change(change));
-                Vec::new()
-            }
-            _ => Vec::new(),
-        }
-    }
-
-    /// The question a delete of `item` asks, naming what still uses it,
-    /// and the change a yes makes.
-    fn delete_question(&self, item: Item) -> Option<(String, Change)> {
-        let flow = &self.inputs.flow;
-        match item {
-            Item::Rule(r) => {
-                flow.rules.get(r)?;
-                let n = r.saturating_add(1);
-                Some((
-                    words::delete_rule(n, &rule_line(flow, r)),
-                    Change::RuleRm(n),
-                ))
-            }
-            Item::Head(h) => {
-                let head = flow.heads.get(h)?;
-                Some((
-                    words::delete_head(&head.name, &edit::rules_to(flow, &head.name)),
-                    Change::HeadRm(head.name.clone()),
-                ))
-            }
-            Item::HeadLook(_) | Item::Look(_) => {
-                let look = edit::look_at(flow, item).and_then(|l| flow.looks.get(l))?;
-                let users: Vec<String> = flow
-                    .heads
-                    .iter()
-                    .filter(|h| h.look == look.name)
-                    .map(|h| h.name.clone())
-                    .collect();
-                Some((
-                    words::delete_look(&look.name, &users),
-                    Change::LookRm(look.name.clone()),
-                ))
-            }
-            Item::Display(_) | Item::Input(_) => {
-                let r = edit::placeholder_rule(flow, item)?;
-                let n = r.saturating_add(1);
-                Some((
-                    words::delete_placeholder(&flow.name(item), n, &rule_line(flow, r)),
-                    Change::RuleRm(n),
-                ))
-            }
-            _ => None,
-        }
-    }
-
-    /// Asks `question`, which a yes answers with `then`.
     fn ask(&mut self, question: String, then: Then) {
         self.message = Some(question.clone());
         self.confirm = Some(Confirm { question, then });
@@ -249,6 +29,14 @@ impl App {
         let Some(confirm) = self.confirm.take() else {
             return Vec::new();
         };
+        if let Then::Quit(status) = confirm.then {
+            self.message = None;
+            return match key {
+                Key::Char('y') => self.save_and_leave(status),
+                Key::Char('n') => self.leave(status),
+                _ => self.say(words::NOT_LEFT),
+            };
+        }
         if let Then::Leave(status) = confirm.then {
             self.message = None;
             return match key {
@@ -264,7 +52,7 @@ impl App {
         match confirm.then {
             Then::Change(change) => self.make(vec![change], None),
             Then::Desk(op) => vec![Effect::Desk(op)],
-            Then::Leave(_) => Vec::new(),
+            Then::Leave(_) | Then::Quit(_) => Vec::new(),
             Then::Install(plan) => {
                 self.installing = true;
                 self.message = Some(words::INSTALLING.to_owned());
@@ -277,6 +65,10 @@ impl App {
     /// for an install, asks first, since leaving loses them (ADR-1403
     /// D7): `i` installs, `l` leaves anyway, any other key goes back.
     pub(crate) fn quit(&mut self, status: u8) -> Vec<Effect> {
+        if self.pending.is_empty() && self.unsaved > 0 {
+            self.ask(words::quit_question(self.unsaved), Then::Quit(status));
+            return Vec::new();
+        }
         if self.pending.is_empty() {
             return self.leave(status);
         }
@@ -286,54 +78,65 @@ impl App {
         Vec::new()
     }
 
+    /// Leaves with `status`, writing the unsaved changes into the draft
+    /// first: Ctrl-C, a signal, and `y` to the question `q` asks (ADR-1403
+    /// D7).
+    pub(crate) fn save_and_leave(&mut self, status: u8) -> Vec<Effect> {
+        // a TUI already leaving has answered for its changes
+        if self.leaving.is_some() {
+            return self.leave(status);
+        }
+        let mut out = self.save_effect();
+        out.extend(self.leave(status));
+        out
+    }
+
+    /// The desk's write of the unsaved changes, where there are any.
+    fn save_effect(&self) -> Vec<Effect> {
+        match &self.draft {
+            Some(d) if self.unsaved > 0 => vec![Effect::Desk(Op::Write(d.text.clone()))],
+            _ => Vec::new(),
+        }
+    }
+
+    /// `s`: writes the unsaved changes into the draft (ADR-1403 D7).
+    pub(crate) fn save(&mut self) -> Vec<Effect> {
+        if self.draft.is_none() {
+            return self.say(words::NO_DESK);
+        }
+        if self.unsaved == 0 {
+            return self.say(words::NOTHING_TO_SAVE);
+        }
+        self.save_effect()
+    }
+
     /// Makes `changes` on the draft, in order, and hands the result to the
-    /// desk to write; all of them or, when one cannot be made, none. The
-    /// message line shows the commands that make the same changes, and
-    /// `select` is the item to select once the draft is written.
+    /// desk to check; all of them or, when one cannot be made, none. The
+    /// changes wait for Save (ADR-1403 D7). The message line shows the
+    /// commands that make the same changes, and `select` is the item to
+    /// select once the draft is checked.
     pub(crate) fn make(&mut self, changes: Vec<Change>, select: Option<Item>) -> Vec<Effect> {
         let Some(draft) = &self.draft else {
             return self.say(words::NO_DESK);
         };
-        let mut text = draft.text.clone();
-        for change in &changes {
-            match change.apply(&text) {
-                Ok(next) => text = next,
-                Err(fail) => return self.say(fail.text()),
-            }
-        }
+        let text = match super::edit::apply_all(&draft.text, &changes) {
+            Ok(text) => text,
+            Err(fail) => return self.say(fail.text()),
+        };
         let commands: Vec<String> = changes.iter().map(Change::command).collect();
         self.message = Some(commands.join("\n"));
         self.select_after = select;
-        vec![Effect::Desk(Op::Write(text))]
-    }
-
-    /// `c`: turns the tags into changes in the draft, writes them, and
-    /// clears the tags; or says what is missing or does not fit.
-    pub(crate) fn connect(&mut self) -> Vec<Effect> {
-        match edit::connect(&self.inputs.flow, &self.tags) {
-            Err(why) => self.say(&why),
-            Ok(changes) if changes.is_empty() => {
-                self.tags.clear();
-                self.say(words::CONNECT_NO_CHANGE)
-            }
-            Ok(mut changes) => {
-                // a new rule shifts the numbers of the rules after it, so
-                // the changes to rules by number go first
-                changes.sort_by_key(|c| match c {
-                    Change::RuleSet { .. } => 0,
-                    Change::RuleAdd(_) => 1,
-                    _ => 2,
-                });
-                let out = self.make(changes, None);
-                if !out.is_empty() {
-                    self.tags.clear();
-                }
-                out
-            }
+        // one action of the person's is one change, whatever it edits
+        self.unsaved = self.unsaved.saturating_add(1);
+        // the draft holds the change at once, so a key that comes before
+        // the check answers, such as `i` or `s`, acts on it
+        if let Some(d) = self.draft.as_mut() {
+            d.text.clone_from(&text);
         }
+        vec![Effect::Desk(Op::Check(text))]
     }
 
-    /// The action keys `i`, `d`, `v`, `r`, `o`, `n` and `x` (ADR-1403 D7).
+    /// The action keys `i`, `d`, `v`, `r`, `o` and `n` (ADR-1403 D7).
     pub(crate) fn action(&mut self, key: char) -> Vec<Effect> {
         if self.draft.is_none() {
             return self.say(words::NO_DESK);
@@ -344,7 +147,12 @@ impl App {
             .map(|d| (d.added, d.removed))
             .unwrap_or_default();
         match key {
-            'i' => vec![Effect::Desk(Op::Prepare)],
+            // Install saves first (ADR-1403 D7, D8)
+            'i' => {
+                let mut out = self.save_effect();
+                out.push(Effect::Desk(Op::Prepare));
+                out
+            }
             'd' => vec![Effect::Desk(Op::Devices)],
             'o' => vec![Effect::Desk(Op::History)],
             'v' => {
@@ -353,19 +161,15 @@ impl App {
             }
             'r' => {
                 self.ask(
-                    words::revert_question(lost.0, lost.1),
+                    words::losing_unsaved(words::revert_question(lost.0, lost.1), self.unsaved),
                     Then::Desk(Op::Revert),
                 );
                 Vec::new()
             }
             'n' => {
-                self.ask(words::NEW_QUESTION.to_owned(), Then::Desk(Op::New));
-                Vec::new()
-            }
-            'x' => {
                 self.ask(
-                    words::delete_draft_question(lost.0, lost.1),
-                    Then::Desk(Op::Delete),
+                    words::losing_unsaved(words::NEW_QUESTION.to_owned(), self.unsaved),
+                    Then::Desk(Op::New),
                 );
                 Vec::new()
             }
@@ -388,6 +192,16 @@ impl App {
                     self.present = present;
                 }
                 self.came = None;
+                // a check keeps the unsaved changes; every other op leaves
+                // the draft as the store holds it
+                match op {
+                    Op::Check(_) => {}
+                    Op::Write(_) if self.unsaved > 0 => {
+                        self.message = Some(words::saved_draft(self.unsaved, &opened.name));
+                        self.unsaved = 0;
+                    }
+                    _ => self.unsaved = 0,
+                }
                 match op {
                     Op::Revert => self.message = Some(words::REVERTED.to_owned()),
                     Op::New => self.message = Some(words::NEW_DONE.to_owned()),
@@ -398,8 +212,13 @@ impl App {
                 self.draft = Some(opened);
                 let select = self.select_after.take();
                 self.rebuild(select);
-                if *op == Op::Open {
+                // the draft read at start, or one that replaces it: the
+                // highlight goes to the first box of CONFIGURATION
+                // (ADR-1403 D7, "This screen")
+                if matches!(op, Op::Open | Op::Revert | Op::New | Op::Restore(_)) {
                     self.flow_at = super::model::first_item(&self.inputs.flow);
+                    self.flow_view.at = None;
+                    self.flow_view.top = 0;
                 }
             }
             Done::Plan(mut plan) => {
@@ -425,10 +244,14 @@ impl App {
                         .unwrap_or_default(),
                     _ => (0, 0),
                 };
-                self.ask(
-                    words::install_question(added, removed, n),
-                    Then::Install(plan),
-                );
+                // a draft whose only problem is that it wires no complete
+                // route installs only after this question (ADR-1403 D7)
+                let question = if plan.no_route {
+                    words::no_route_question(added, removed, n)
+                } else {
+                    words::install_question(added, removed, n)
+                };
+                self.ask(question, Then::Install(plan));
             }
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];
@@ -488,7 +311,7 @@ impl App {
     }
 
     /// Builds the flow again from the draft and the devices present, and
-    /// keeps the selection and the tags on the items they were on.
+    /// keeps the item the file view marks on the item it was on.
     fn rebuild(&mut self, select: Option<Item>) {
         let Some(d) = &self.draft else {
             return;
@@ -504,17 +327,7 @@ impl App {
         let at = select
             .filter(|i| new.has(*i))
             .unwrap_or_else(|| carry(&old, new, self.flow_at));
-        let tags: Vec<Item> = self
-            .tags
-            .iter()
-            .filter_map(|t| Some(carry(&old, new, *t)).filter(|n| new.has(*n)))
-            .collect();
         self.flow_at = at;
-        self.tags = tags;
-        if !self.fields().is_empty() {
-            let fields = self.fields().len();
-            self.card.field = self.card.field.min(fields.saturating_sub(1));
-        }
     }
 
     /// Opens the pager at the line of the card selected in the flow.
@@ -536,7 +349,8 @@ impl App {
     /// page, `q` and Esc back to the flow.
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
-        let room = self.rows.saturating_sub(4).max(1);
+        // the draft's lines run from row 4 to the row above the key line
+        let room = self.rows.saturating_sub(5).max(1);
         let last = lines.saturating_sub(room);
         let half = (room / 2).max(1);
         let Some(p) = self.pager.as_mut() else {
@@ -575,7 +389,7 @@ impl App {
                 let (added, removed) = crate::drafts::counts(&restored, &now);
                 self.restore = None;
                 self.ask(
-                    words::restore_question(n, added, removed),
+                    words::losing_unsaved(words::restore_question(n, added, removed), self.unsaved),
                     Then::Desk(Op::Restore(n)),
                 );
             }
@@ -585,20 +399,9 @@ impl App {
     }
 }
 
-/// Rule `r`'s line as the file writes it, `KIND SELECTOR -> TARGET`.
-fn rule_line(flow: &Flow, r: usize) -> String {
-    flow.rules.get(r).map_or_else(String::new, |rule| {
-        let kind = match rule.kind {
-            Kind::Display => "display",
-            Kind::Input => "input",
-        };
-        format!("{kind} {} -> {}", rule.selector, rule.target)
-    })
-}
-
-/// The line of the draft `text`, counted from 1, that `item`'s card
-/// shows: a rule's own line, a head's or a look's section heading, and
-/// the first line for anything else.
+/// The line of the draft `text`, counted from 1, that the file view opens
+/// at for `item`: a rule's own line, a head's or a look's section heading,
+/// and the first line for anything else.
 fn item_line(flow: &Flow, text: &str, item: Item) -> usize {
     let heading = |want: String| {
         text.lines()
@@ -611,8 +414,13 @@ fn item_line(flow: &Flow, text: &str, item: Item) -> usize {
             .heads
             .get(h)
             .map_or(1, |h| heading(format!("[head {}]", h.name))),
-        Item::HeadLook(_) | Item::Look(_) => edit::look_at(flow, item)
+        Item::HeadLook(h) => flow
+            .look_of(h)
             .and_then(|l| flow.looks.get(l))
+            .map_or(1, |l| heading(format!("[look {}]", l.name))),
+        Item::Look(l) => flow
+            .looks
+            .get(l)
             .map_or(1, |l| heading(format!("[look {}]", l.name))),
         Item::Display(_) | Item::Input(_) => {
             let rule = match item {

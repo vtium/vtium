@@ -100,6 +100,7 @@ impl Fixture {
                 new: new.to_owned(),
             }],
             removals: Vec::new(),
+            no_route: false,
         }
     }
 }
@@ -224,6 +225,7 @@ fn a_file_that_fails_its_check_stops_the_apply_before_anything_is_written() {
             },
         ],
         removals: Vec::new(),
+        no_route: false,
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -313,6 +315,7 @@ fn a_draft_with_a_frit_and_no_frits_directory_is_refused() {
             new: "source=builtin:unifont\n".to_owned(),
         }],
         removals: Vec::new(),
+        no_route: false,
     };
     let draft = f.draft(&plan);
     let mut bare = f.targets.clone();
@@ -446,6 +449,7 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
             path: fonts.join(format!("{name}.vtfrit")),
             old: std::fs::read(fonts.join(format!("{name}.vtfrit"))).expect("the frit"),
         }],
+        no_route: false,
     };
     for (name, says) in [
         ("tiny", "font-name in vtium.conf uses it"),
@@ -673,6 +677,7 @@ fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
             new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
         }],
         removals: Vec::new(),
+        no_route: false,
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");

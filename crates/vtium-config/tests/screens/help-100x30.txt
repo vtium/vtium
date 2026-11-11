@@ -1,4 +1,4 @@
- Flow  Looks  Fonts  Settings  Help               View  Install  Revert  Restore  New  Delete draft
+ Flow  Looks  Fonts  Settings  Help
  draft workstation · 1 change · no problems                              text preview · t: try live
 ----------------------------------------------------------------------------------------------------
  Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The
@@ -9,8 +9,8 @@
  Flow shows how the console is set up, from the displays to the input devices: each display, the
  rule that sends it to a head (a screen with its own consoles), the head and its look (its font and
  size), and each input device with the rule that sends its typing to a head.
-     ←→ columns  ↑↓ move  Tab next view  Enter open  Space tag  c connect  f follow  d devices  ?
-     route  v view  i install  r revert  o restore  n new  x delete  q quit
+     ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o
+     restore  n new  p preview  t trial  PgUp PgDn scroll  q quit
 
  Looks lists the console's font sizes, automatic first, with a preview of each. Later it will
  manage the looks, each a font set and a size.

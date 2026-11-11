@@ -1,6 +1,14 @@
 //! Where each device lands: the first-match walk of one device (ADR-1401
 //! D3) and the guards over a set of devices (D9), under the file's policy.
 //!
+//! Each vtium places devices for its own VT (D2). [`Config::walk_on`] and
+//! [`Config::place_on`] take that VT and follow D3's four steps: a rule
+//! whose head runs on other VTs only notes the head and reads on, and once
+//! a head is noted only a rule whose head's `vt` names this VT places the
+//! device; else it stays with the noted head, [`Place::Elsewhere`].
+//! [`Config::walk`] and [`Config::place`] name no VT and read every head as
+//! running, as vtium placed devices before heads had a `vt`.
+//!
 //! The walk reads only the device's own [`Identity`] and the rules, so a
 //! hotplugged device lands where it would at start. The guards read the
 //! set of devices present and never their order, so a placement is the
@@ -32,8 +40,11 @@ pub enum Place {
     /// The head at this index of [`Config::heads`].
     Head(usize),
     /// The default head, `[head console]` of the compiled-in
-    /// configuration, which the display guard lights under open when the
-    /// file declares no head.
+    /// configuration, which vtium builds as its only head: under open, the
+    /// display guard of [`Config::place`] lights it when the file declares
+    /// no head, and [`Config::place_on`] puts every display in it when the
+    /// file defines nothing ([`Config::uses_builtin_on`]). It is never a
+    /// head of the file.
     DefaultHead,
     /// An input that roams, typing into the active head.
     Roaming,
@@ -46,6 +57,19 @@ pub enum Place {
     /// notice alone: no head holds it, and no input reaches a session
     /// through it.
     Notice,
+    /// A device that stays with the head at this index of
+    /// [`Config::heads`], which runs on other VTs only (ADR-1401 D3, step
+    /// 4). On the VT placed for, a display stays dark and a keyboard types
+    /// nowhere, though under open vtium watches a keyboard for the rescue
+    /// key. Only [`Config::walk_on`] and [`Config::place_on`] give it.
+    Elsewhere(usize),
+    /// Under open, a display that no path catches on the VT placed for, and
+    /// that no rule turns off, which shows a notice that says why there is
+    /// no terminal on it (ADR-1401 D3): it is configured for the head at
+    /// this index of [`Config::heads`], whose `vt` names other VTs, or with
+    /// `None` for no terminal. Only [`Config::place_on`] gives it; under
+    /// closed such a display stays blank.
+    Unused(Option<usize>),
 }
 
 impl Place {
@@ -69,6 +93,10 @@ pub enum By {
     NeverDark,
     /// The anti-lockout guard made a keyboard roam.
     AntiLockout,
+    /// The file defines nothing, so under open the built-in default placed
+    /// the device on its VT: a display in the default head, and an input by
+    /// the shipped rules' input rules (ADR-1401 D3).
+    Builtin,
 }
 
 /// A device's place and what put it there.
@@ -133,13 +161,19 @@ fn boot_order(a: &Identity, b: &Identity) -> Ordering {
 /// card (D9), else, the team lead's decision of 2026-10-29 so that a
 /// connected display always lights, the first connected one on the other
 /// cards in the kernel's order.
-pub(crate) fn boot_display(devices: &[Identity]) -> Option<usize> {
+///
+/// A display that `placed` ties to a head on another VT is never the boot
+/// display (ADR-1401 D3, step 4).
+fn boot_display(devices: &[Identity], placed: &[Placed]) -> Option<usize> {
     let pick = |keep: fn(&Identity) -> bool| {
         devices
             .iter()
+            .zip(placed)
             .enumerate()
-            .filter(|(_, d)| d.kind == Kind::Display && keep(d))
-            .min_by(|(_, a), (_, b)| boot_order(a, b))
+            .filter(|(_, (d, p))| {
+                d.kind == Kind::Display && !matches!(p.place, Place::Elsewhere(_)) && keep(d)
+            })
+            .min_by(|(_, (a, _)), (_, (b, _))| boot_order(a, b))
             .map(|(i, _)| i)
     };
     // `boot_order` puts the boot card's connectors before every other card's
@@ -179,38 +213,157 @@ impl Config {
                 .is_some_and(|h| h.isolated.unwrap_or(unset))
     }
 
-    /// Whether a head placed at `place` can be the active head: a head the
-    /// file declares that is not isolated, or the default head of a file
-    /// that declares none, which is never isolated (D5).
-    fn can_be_active(&self, place: Place) -> bool {
+    /// Whether the head at `head` runs on `vt`, where `None` names no VT
+    /// and every head runs (ADR-1401 D2).
+    fn runs(&self, head: usize, vt: Option<u16>) -> bool {
+        vt.is_none_or(|vt| self.heads.get(head).is_some_and(|h| h.runs_on(vt)))
+    }
+
+    /// The heads that run on `vt`, by index, in the file's order.
+    fn heads_on(&self, vt: Option<u16>) -> impl Iterator<Item = usize> + '_ {
+        (0..self.heads.len()).filter(move |&i| self.runs(i, vt))
+    }
+
+    /// The heads the vtium on VT `vt` builds, by their index in
+    /// [`Config::heads`], in the file's order: each head whose `vt` names
+    /// `vt`, and each head with no `vt` (ADR-1401 D2). When
+    /// [`Config::uses_builtin_on`] holds, vtium builds the default head
+    /// alone instead.
+    pub fn heads_on_vt(&self, vt: u16) -> Vec<usize> {
+        self.heads_on(Some(vt)).collect()
+    }
+
+    /// Whether the vtium on VT `vt` runs the built-in default terminal:
+    /// under open, when the file defines nothing, no head and no rule (the
+    /// maintainer's table, ADR-1401 D3). vtium then builds the default head
+    /// alone, [`Place::DefaultHead`], and [`Config::walk_on`] places every
+    /// display in it and every input by the shipped rules' input rules. A
+    /// file that defines paths never runs it, even on a VT where none of its
+    /// heads runs: there each display shows its notice under open
+    /// ([`Place::Unused`]) and stays blank under closed.
+    pub fn uses_builtin_on(&self, vt: u16) -> bool {
+        self.builtin_at(Some(vt))
+    }
+
+    /// [`Config::uses_builtin_on`] for `vt`; a walk that names no VT never
+    /// runs it.
+    fn builtin_at(&self, vt: Option<u16>) -> bool {
+        vt.is_some()
+            && self.policy == Policy::Open
+            && !self.survivors
+            && self.heads.is_empty()
+            && self.rules.is_empty()
+    }
+
+    /// Whether a head placed at `place` can be the active head on `vt`: a
+    /// head the file declares that runs on `vt` and is not isolated, or the
+    /// default head where no declared head runs on `vt`, which is never
+    /// isolated (D5).
+    fn can_be_active(&self, place: Place, vt: Option<u16>) -> bool {
         match place {
-            Place::Head(i) => i < self.heads.len() && !self.isolated(i),
-            // the display guard lights the default head under open alone
+            Place::Head(i) => i < self.heads.len() && self.runs(i, vt) && !self.isolated(i),
+            // the default head runs under open alone, for a file with no head
             Place::DefaultHead => self.heads.is_empty() && self.policy == Policy::Open,
-            Place::Roaming | Place::Ignore | Place::Off | Place::Notice => false,
+            Place::Roaming
+            | Place::Ignore
+            | Place::Off
+            | Place::Notice
+            | Place::Elsewhere(_)
+            | Place::Unused(_) => false,
+        }
+    }
+
+    /// Where the shipped rules' input rules place the input `id`, with the
+    /// file's `mouse` shorthand applied: roaming or ignored. The rules name
+    /// no head, and what they would not place stays closed.
+    fn shipped_input(&self, id: &Identity) -> Place {
+        let tail = self.tail.as_deref().unwrap_or(&SHIPPED.rules);
+        let shipped = tail
+            .iter()
+            .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
+        match shipped.map(|r| r.target) {
+            Some(Target::Roaming) => Place::Roaming,
+            Some(Target::Head(_) | Target::Ignore | Target::Off) | None => Place::Ignore,
         }
     }
 
     /// Places one device by the first rule of its kind that matches it,
-    /// reading nothing but `id` and the rules. With no match a display goes
+    /// reading nothing but `id` and the rules, with every head running, as
+    /// [`Config::walk_on`] places for a VT. With no match a display goes
     /// off; an input roams under open and is ignored under closed (D3),
     /// and what survives of an open file with errors walks the shipped
     /// rules' input rules instead, which roam the keyboard, pointer and key
     /// classes and ignore every other input (D7).
     pub fn walk(&self, id: &Identity) -> Placed {
-        let first = self
+        self.walk_at(id, None)
+    }
+
+    /// Places one device for the vtium on VT `vt` by the four steps of
+    /// ADR-1401 D3, reading nothing but `id`, the rules and `vt`:
+    ///
+    /// 1. A rule that does not match the device is read past.
+    /// 2. A rule that matches, and whose target runs on `vt`, places the
+    ///    device. Once step 3 has noted a head, only a rule whose head's
+    ///    `vt` names `vt` can: a head with no `vt`, `roaming`, `ignore` and
+    ///    `off` leave the device alone, and the walk reads on.
+    /// 3. A rule that matches, but whose head's `vt` names other VTs only,
+    ///    notes that the device belongs to that head, and the walk reads on.
+    /// 4. When the rules end with no rule placing the device, a device with
+    ///    a noted head stays with the first head noted,
+    ///    [`Place::Elsewhere`], by the rule that noted it. One with none
+    ///    falls to the policy, as [`Config::walk`] says.
+    ///
+    /// On a VT where [`Config::uses_builtin_on`] holds, the built-in
+    /// default places the device instead, by [`By::Builtin`].
+    pub fn walk_on(&self, id: &Identity, vt: u16) -> Placed {
+        self.walk_at(id, Some(vt))
+    }
+
+    /// [`Config::walk_on`] for `vt`, where `None` names no VT and every
+    /// head runs.
+    fn walk_at(&self, id: &Identity, vt: Option<u16>) -> Placed {
+        if self.builtin_at(vt) {
+            return Placed {
+                place: match id.kind {
+                    Kind::Display => Place::DefaultHead,
+                    Kind::Input => self.shipped_input(id),
+                },
+                by: By::Builtin,
+            };
+        }
+        // the first head step 3 noted, with the line of its rule
+        let mut noted: Option<(usize, usize)> = None;
+        for rule in self
             .rules
             .iter()
-            .find(|r| r.kind == id.kind && r.matcher.matches(id));
-        if let Some(rule) = first {
+            .filter(|r| r.kind == id.kind && r.matcher.matches(id))
+        {
+            let place = match rule.target {
+                Target::Head(i) if !self.runs(i, vt) => {
+                    noted.get_or_insert((i, rule.line));
+                    continue;
+                }
+                Target::Head(i) => Place::Head(i),
+                Target::Roaming => Place::Roaming,
+                Target::Ignore => Place::Ignore,
+                Target::Off => Place::Off,
+            };
+            // the exception in step 2: a device tied to a head on another
+            // VT goes only to a head whose `vt` names this one
+            let names_vt =
+                |i: usize| vt.is_some_and(|vt| self.heads.get(i).is_some_and(|h| h.names_vt(vt)));
+            if noted.is_some() && !matches!(place, Place::Head(i) if names_vt(i)) {
+                continue;
+            }
             return Placed {
-                place: match rule.target {
-                    Target::Head(i) => Place::Head(i),
-                    Target::Roaming => Place::Roaming,
-                    Target::Ignore => Place::Ignore,
-                    Target::Off => Place::Off,
-                },
+                place,
                 by: By::Rule(rule.line),
+            };
+        }
+        if let Some((head, line)) = noted {
+            return Placed {
+                place: Place::Elsewhere(head),
+                by: By::Rule(line),
             };
         }
         match id.kind {
@@ -218,23 +371,10 @@ impl Config {
                 place: Place::Off,
                 by: By::NoMatch,
             },
-            Kind::Input if self.tail() => {
-                let tail = self.tail.as_deref().unwrap_or(&SHIPPED.rules);
-                let shipped = tail
-                    .iter()
-                    .find(|r| r.kind == Kind::Input && r.matcher.matches(id));
-                Placed {
-                    // the tail names no head, and what it would not place
-                    // stays closed
-                    place: match shipped.map(|r| r.target) {
-                        Some(Target::Roaming) => Place::Roaming,
-                        Some(Target::Head(_) | Target::Ignore | Target::Off) | None => {
-                            Place::Ignore
-                        }
-                    },
-                    by: By::Tail,
-                }
-            }
+            Kind::Input if self.tail() => Placed {
+                place: self.shipped_input(id),
+                by: By::Tail,
+            },
             Kind::Input => Placed {
                 place: match self.policy {
                     Policy::Open => Place::Roaming,
@@ -251,6 +391,39 @@ impl Config {
     /// moved.
     pub fn place(&self, devices: &[Identity], focus: Option<Place>) -> Placement {
         self.place_rescued(devices, &[], focus)
+    }
+
+    /// [`Config::place`] for the vtium on VT `vt`: each device walks the
+    /// rules by [`Config::walk_on`], and the guards act for `vt`, as
+    /// [`Config::place_rescued_on`] says.
+    pub fn place_on(&self, devices: &[Identity], focus: Option<Place>, vt: u16) -> Placement {
+        self.place_rescued_on(devices, &[], focus, vt)
+    }
+
+    /// [`Config::place_rescued`] for the vtium on VT `vt` (ADR-1401 D2,
+    /// D3). Each device walks the rules by [`Config::walk_on`], and only a
+    /// head that runs on `vt` can be the active head. A device that stays
+    /// with a head on another VT, [`Place::Elsewhere`], is left where it
+    /// is: the anti-lockout guard never makes such a keyboard roam, so it
+    /// types nowhere on `vt` (ADR-1403 D7, path tests 5 to 7). Under open
+    /// the rescue key still moves it.
+    ///
+    /// For a valid file, the maintainer's table replaces the display guard
+    /// (D3, D9). Under open, each display that no path catches on `vt`,
+    /// and that no rule turns off, shows a notice that says why,
+    /// [`Place::Unused`]: a display tied to a head on another VT names that
+    /// head, and one no rule claims names none. Under closed, such a
+    /// display stays blank. A file that defines nothing runs the built-in
+    /// default under open ([`Config::uses_builtin_on`]). What survives of
+    /// a file with errors keeps the display guard (D7).
+    pub fn place_rescued_on(
+        &self,
+        devices: &[Identity],
+        rescued: &[Identity],
+        focus: Option<Place>,
+        vt: u16,
+    ) -> Placement {
+        self.place_at(devices, rescued, focus, Some(vt))
     }
 
     /// Places every device of `devices`, then runs the guards over the
@@ -277,7 +450,19 @@ impl Config {
         rescued: &[Identity],
         focus: Option<Place>,
     ) -> Placement {
-        let mut placed: Vec<Placed> = devices.iter().map(|d| self.walk(d)).collect();
+        self.place_at(devices, rescued, focus, None)
+    }
+
+    /// [`Config::place_rescued_on`] for `vt`, where `None` names no VT and
+    /// every head runs.
+    fn place_at(
+        &self,
+        devices: &[Identity],
+        rescued: &[Identity],
+        focus: Option<Place>,
+        vt: Option<u16>,
+    ) -> Placement {
+        let mut placed: Vec<Placed> = devices.iter().map(|d| self.walk_at(d, vt)).collect();
         let lit_heads = |placed: &[Placed]| -> BTreeSet<Place> {
             devices
                 .iter()
@@ -287,17 +472,21 @@ impl Config {
                 .collect()
         };
         let mut never_dark = false;
-        if lit_heads(&placed).is_empty() {
-            // under open the first head, else the default head; under
-            // closed a notice alone, for a file with heads or one that
-            // failed, and nothing for a valid closed file with no head
+        // on a VT, the maintainer's table replaces the display guard for a
+        // valid file; what survives of a file with errors keeps it (D7)
+        let table = vt.is_some() && !self.survivors;
+        if !table && lit_heads(&placed).is_empty() {
+            // under open the first head of this VT, else the default head;
+            // under closed a notice alone, for a file with heads, on this VT
+            // or not, or one that failed, and nothing for a valid closed
+            // file with no head
+            let first = self.heads_on(vt).next();
             let place = match self.policy {
-                Policy::Open if self.heads.is_empty() => Some(Place::DefaultHead),
-                Policy::Open => Some(Place::Head(0)),
+                Policy::Open => Some(first.map_or(Place::DefaultHead, Place::Head)),
                 Policy::Closed if self.heads.is_empty() && !self.survivors => None,
                 Policy::Closed => Some(Place::Notice),
             };
-            let boot = boot_display(devices).and_then(|i| placed.get_mut(i));
+            let boot = boot_display(devices, &placed).and_then(|i| placed.get_mut(i));
             if let (Some(place), Some(p)) = (place, boot) {
                 *p = Placed {
                     place,
@@ -309,16 +498,22 @@ impl Config {
         let lit = lit_heads(&placed);
         // the boot display's head, else the first lit head in the file, of
         // the heads that can be the active head
-        let start = boot_display(devices)
+        let start = boot_display(devices, &placed)
             .and_then(|i| placed.get(i))
             .map(|p| p.place)
-            .filter(|&place| lit.contains(&place) && self.can_be_active(place))
-            .or_else(|| lit.iter().copied().find(|&p| self.can_be_active(p)));
-        let mut focus = focus.filter(|&f| self.can_be_active(f)).or(start);
+            .filter(|&place| lit.contains(&place) && self.can_be_active(place, vt))
+            .or_else(|| lit.iter().copied().find(|&p| self.can_be_active(p, vt)));
+        let mut focus = focus.filter(|&f| self.can_be_active(f, vt)).or(start);
         let mut anti_lockout = false;
         if self.policy.unset(SwitchKey::AntiLockout) {
             let focus_lit = focus.is_some_and(|f| lit.contains(&f));
-            let present = devices.iter().any(keyboard_class) || rescued.iter().any(keyboard_class);
+            // a keyboard that stays with a head on another VT is that
+            // head's, and the guard neither counts nor moves it
+            let movable = |(d, p): (&Identity, &Placed)| {
+                keyboard_class(d) && !matches!(p.place, Place::Elsewhere(_))
+            };
+            let present =
+                devices.iter().zip(&placed).any(movable) || rescued.iter().any(keyboard_class);
             let reaches = rescued.iter().any(counts) && focus_lit
                 || devices.iter().zip(&placed).any(|(d, p)| {
                     counts(d)
@@ -332,7 +527,7 @@ impl Config {
             // into it unlit (D8)
             if present && !reaches && start.is_some() {
                 for (d, p) in devices.iter().zip(placed.iter_mut()) {
-                    if keyboard_class(d) && p.place != Place::Roaming {
+                    if movable((d, p)) && p.place != Place::Roaming {
                         *p = Placed {
                             place: Place::Roaming,
                             by: By::AntiLockout,
@@ -346,6 +541,21 @@ impl Config {
                 }
             }
         }
+        if table && self.policy == Policy::Open {
+            // under open, each display that no path catches on this VT, and
+            // that no rule turns off, shows a notice that says why; under
+            // closed it stays blank (ADR-1401 D3)
+            for (d, p) in devices.iter().zip(placed.iter_mut()) {
+                if d.kind != Kind::Display {
+                    continue;
+                }
+                match (p.place, p.by) {
+                    (Place::Elsewhere(head), _) => p.place = Place::Unused(Some(head)),
+                    (Place::Off, By::NoMatch) => p.place = Place::Unused(None),
+                    _ => {}
+                }
+            }
+        }
         Placement {
             placed,
             never_dark,
@@ -356,29 +566,34 @@ impl Config {
 
     /// Whether `Ctrl-Alt-F<n>` for the shown VT, pressed on a keyboard
     /// placed so, makes it roam for the rest of the boot (D9): under open,
-    /// from a head that is not isolated, the default head or `ignore`.
+    /// from a head that is not isolated, the default head, `ignore`, or a
+    /// head on another VT that the keyboard stays with.
     /// Under closed the rescue key is off.
     pub fn rescue(&self, placed: &Placed) -> bool {
         self.policy.unset(SwitchKey::RescueKey)
             && match placed.place {
                 Place::Head(i) => i < self.heads.len() && !self.isolated(i),
-                Place::DefaultHead | Place::Ignore => true,
-                Place::Roaming | Place::Off | Place::Notice => false,
+                // a keyboard that types nowhere on this VT, as an ignored
+                // one does (ADR-1401 D3, step 4)
+                Place::DefaultHead | Place::Ignore | Place::Elsewhere(_) => true,
+                Place::Roaming | Place::Off | Place::Notice | Place::Unused(_) => false,
             }
     }
 
     /// Whether vtium opens an input placed so: under open an ignored
-    /// keyboard-class device is opened for the rescue key alone; every
-    /// other ignored device, and under closed every ignored one, stays
-    /// closed (D9).
+    /// keyboard-class device, or one that stays with a head on another VT,
+    /// is opened for the rescue key alone; every other such device, and
+    /// under closed every one, stays closed (D3, D9).
     pub fn disposition(&self, placed: &Placed, id: &Identity) -> Disposition {
         match placed.place {
-            Place::Ignore
+            Place::Ignore | Place::Elsewhere(_)
                 if self.policy.unset(SwitchKey::RescueKey) && id.classes.has(Class::Keyboard) =>
             {
                 Disposition::RescueOnly
             }
-            Place::Ignore | Place::Off | Place::Notice => Disposition::Closed,
+            Place::Ignore | Place::Elsewhere(_) | Place::Off | Place::Notice | Place::Unused(_) => {
+                Disposition::Closed
+            }
             Place::Head(_) | Place::DefaultHead | Place::Roaming => Disposition::Deliver,
         }
     }

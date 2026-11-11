@@ -601,6 +601,8 @@ pub fn scope(problem: &Problem, within: Within) -> Result<Scope, Read> {
         | Problem::OutOfRange { .. }
         | Problem::NotHere { .. }
         | Problem::TooLong(_)
+        | Problem::BadVt(_)
+        | Problem::RepeatedVt(_)
         | Problem::Renamed(_) => None,
     };
     Ok(match fixed {

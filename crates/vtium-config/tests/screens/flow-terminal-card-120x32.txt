@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench  ›  desk   All devices are in a path · no changes · no problems
+
+ TERMINAL desk · every VT
+
+   Name                            desk   Enter types a new name
+   Font set                       proof
+   Size                           automatic
+   Consoles                       1
+   Login                          Default: /bin/login -p
+   When its screen is unplugged   keep the sessions running
+
+   Which displays and inputs this path joins change only when you revise it: press e.
+
+ WHAT THIS TERMINAL DRAWS
+   Font set proof  →  look big  →  All displays
+   Filters and requirements: vtium-config does not read a look's vtlook file yet, so this card names the look and shows
+   no filters.
+
+
+
+
+
+
+
+
+
+
+
+
+
+ ↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit

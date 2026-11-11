@@ -15,7 +15,6 @@ use std::time::Duration;
 
 use vtium_font::Cell;
 
-use super::edit::What;
 use super::input::Key;
 use super::model::{App, Effect, FontState, Live, View};
 use super::words;
@@ -31,6 +30,111 @@ pub const TICK: Duration = Duration::from_secs(1);
 /// The display a picture shows where vtium-config finds none connected:
 /// the VGA console's 640 by 480.
 pub const ASSUMED_DISPLAY: (u32, u32) = (640, 480);
+
+/// The screen the Looks view's preview draws, in pixels, whatever the real
+/// display's size: a nominal screen of sample content from its top left.
+/// The preview shows it as the Fonts view shows the detailed specimen: one
+/// pixel of the console to one pixel of the picture, as many whole
+/// character cells of the sample content as the preview area holds, so a
+/// bigger size gives a bigger picture. The glyphs keep the cell the look
+/// gets on the real display.
+pub const PREVIEW_SCREEN: (u32, u32) = (1024, 768);
+
+/// The sample content of the Looks view's preview, one line a row, each
+/// run of text with its style: a shell prompt, a short listing, the eight
+/// colors and their bright forms, bold and italic text, box drawing and
+/// accented letters. It holds no wide character: the picture of a screen
+/// gives each character one cell, and a wide one needs two. It stays fixed, so the pictures stay comparable.
+fn sample_rows() -> Vec<Vec<(&'static str, super::color::Style)>> {
+    use super::color::Color;
+    use super::color::Style;
+    let c = Style::text;
+    let bold = Style {
+        bold: true,
+        ..Style::PLAIN
+    };
+    let italic = Style {
+        italic: true,
+        ..Style::PLAIN
+    };
+    vec![
+        vec![
+            ("user@desk", c(Color::BrightGreen)),
+            (":", Style::PLAIN),
+            ("~/notes", c(Color::Cyan)),
+            ("$ ls -l", Style::PLAIN),
+        ],
+        vec![
+            ("drwxr-xr-x  2 user user 4096 Nov 10 09:12 ", Style::PLAIN),
+            ("drafts", c(Color::Cyan)),
+        ],
+        vec![(
+            "-rw-r--r--  1 user user 1823 Nov 10 09:14 plan.txt",
+            Style::PLAIN,
+        )],
+        vec![
+            ("-rwxr-xr-x  1 user user  512 Nov  9 17:40 ", Style::PLAIN),
+            ("build.sh", c(Color::BrightGreen)),
+        ],
+        vec![
+            ("user@desk", c(Color::BrightGreen)),
+            (":", Style::PLAIN),
+            ("~/notes", c(Color::Cyan)),
+            ("$ colors", Style::PLAIN),
+        ],
+        vec![
+            ("red ", c(Color::Red)),
+            ("green ", c(Color::Green)),
+            ("yellow ", c(Color::Yellow)),
+            ("magenta ", c(Color::Magenta)),
+            ("cyan ", c(Color::Cyan)),
+            ("white ", c(Color::White)),
+        ],
+        vec![
+            ("grey ", c(Color::Grey)),
+            ("red ", c(Color::BrightRed)),
+            ("green ", c(Color::BrightGreen)),
+            ("yellow ", c(Color::BrightYellow)),
+            ("magenta ", c(Color::BrightMagenta)),
+            ("cyan ", c(Color::BrightCyan)),
+            ("white", c(Color::BrightWhite)),
+        ],
+        vec![
+            ("Bold text", bold),
+            (" and ", Style::PLAIN),
+            ("italic text", italic),
+            (" beside plain text.", Style::PLAIN),
+        ],
+        vec![("┌──────────┬──────────┐", Style::PLAIN)],
+        vec![("│ name     │ size     │", Style::PLAIN)],
+        vec![("├──────────┼──────────┤", Style::PLAIN)],
+        vec![("│ plan.txt │ 1.8 KiB  │", Style::PLAIN)],
+        vec![("└──────────┴──────────┘", Style::PLAIN)],
+        vec![(
+            "Accents: café, naïve, Ångström, Straße, žluťoučký",
+            Style::PLAIN,
+        )],
+        vec![
+            ("user@desk", c(Color::BrightGreen)),
+            (":", Style::PLAIN),
+            ("~/notes", c(Color::Cyan)),
+            ("$ ", Style::PLAIN),
+        ],
+    ]
+}
+
+/// The Looks view's preview screen laid out at `grid`, its sample content
+/// from the top left.
+fn sample_screen((cols, rows): (usize, usize)) -> Vec<super::canvas::Row> {
+    let mut canvas = super::canvas::Canvas::new(cols, rows);
+    for (y, line) in sample_rows().into_iter().enumerate().take(rows) {
+        let mut x = 0usize;
+        for (text, style) in line {
+            x = canvas.put(x, y, text, style);
+        }
+    }
+    canvas.into_rows()
+}
 
 /// The most columns and rows a picture's screen is laid out at, whatever
 /// the cell: past this the screen's text is more than a picture holds.
@@ -116,7 +220,6 @@ impl App {
                     detail: false,
                 })
             }
-            View::Flow => self.look_wanted().filter(|w| readable(&w.font)),
             _ => None,
         }
     }
@@ -175,59 +278,6 @@ impl App {
             .and_then(|s| s.parse::<u32>().ok())
             .filter(|s| *s > 0)
             .unwrap_or(crate::preview::POINTS)
-    }
-
-    /// The look the opened card shows, with the value under its cursor,
-    /// while the cursor is on the look's frit, size or cell.
-    fn look_wanted(&self) -> Option<Wanted> {
-        if !self.opened
-            || self.confirm.is_some()
-            || self.route.is_some()
-            || self.pager.is_some()
-            || self.restore.is_some()
-        {
-            return None;
-        }
-        let fields = self.fields();
-        let field = fields.get(self.card.field)?;
-        let What::LookKey(name, key @ ("font-name" | "font-size" | "cell")) = &field.what else {
-            return None;
-        };
-        let look = self.inputs.flow.looks.iter().find(|l| l.name == *name)?;
-        let under = self
-            .card
-            .typed
-            .clone()
-            .or_else(|| field.options.get(self.card.pick).cloned())
-            .unwrap_or_else(|| field.current.clone());
-        let mut font = look.frit.clone();
-        let mut points = look.points;
-        let mut cell = look
-            .keys
-            .iter()
-            .find(|(k, _)| k == "cell")
-            .and_then(|(_, v)| crate::frit::parse_cell(v));
-        match *key {
-            "font-name" => font = under,
-            "font-size" => points = under.trim().parse().unwrap_or(0),
-            _ => cell = crate::frit::parse_cell(&under),
-        }
-        if font.is_empty() {
-            return None;
-        }
-        // the look's own size wins over its cell; an automatic size with
-        // no cell is drawn as `preview` draws it
-        if points > 0 {
-            cell = None;
-        } else if cell.is_none() {
-            points = crate::preview::POINTS;
-        }
-        Some(Wanted {
-            font,
-            points,
-            cell,
-            detail: false,
-        })
     }
 
     /// The display the picture shows, and whether it is assumed.
@@ -368,7 +418,17 @@ impl App {
             cell,
             grid,
         });
-        let screen = self.screen_at(grid);
+        // the Looks view draws a nominal screen of sample content at the
+        // look's cell; the caption still counts the real display's grid
+        let (display, grid, screen) = if self.view == View::Looks {
+            let shown = (
+                across(PREVIEW_SCREEN.0, cell.width).min(GRID_MAX.0),
+                across(PREVIEW_SCREEN.1, cell.height).min(GRID_MAX.1),
+            );
+            (PREVIEW_SCREEN, shown, sample_screen(shown))
+        } else {
+            (display, grid, self.screen_at(grid))
+        };
         let palette = self
             .conf_text()
             .and_then(|c| vtium_settings::setting(c, "palette"))

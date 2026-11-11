@@ -131,6 +131,25 @@ pub struct Picture {
     pub rgba: Vec<u8>,
 }
 
+impl Picture {
+    /// Sets pixel (`x`, `y`) to `color`, where the picture has it.
+    fn put(&mut self, x: u32, y: u32, color: [u8; 3]) {
+        if x >= self.width || y >= self.height {
+            return;
+        }
+        let at = usize::try_from(
+            u64::from(y)
+                .saturating_mul(u64::from(self.width))
+                .saturating_add(u64::from(x))
+                .saturating_mul(4),
+        )
+        .unwrap_or(usize::MAX);
+        if let Some(px) = self.rgba.get_mut(at..at.saturating_add(3)) {
+            px.copy_from_slice(&color);
+        }
+    }
+}
+
 /// How to start the glyph helper the console starts, `vtium-config serve`:
 /// its program, and the options before `serve` that name where it finds
 /// sources, as the command line named them.
@@ -572,7 +591,9 @@ fn sample_of(
 
 /// A picture of the console with a change applied (ADR-1201 D4): the TUI's
 /// screen laid out at the grid the change gives on the display, drawn in
-/// the change's font at its cell, and scaled down to fit `max`.
+/// the change's font at its cell, one pixel of the console to one pixel of
+/// the picture, as many whole character cells of its content as `max`
+/// holds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shot {
     /// The font, a frit's name or a built-in font's.
@@ -592,8 +613,63 @@ pub struct Shot {
     /// draws color at all.
     pub palette: String,
     pub color: bool,
-    /// The most pixels the picture takes, across and down.
+    /// The most pixels the picture takes, across and down: the preview
+    /// area.
     pub max: (u32, u32),
+}
+
+/// The size of the picture of `shot`, as the detailed specimen is sized:
+/// whole character cells of the screen's content, from its top left, as
+/// many columns and rows as the shot's `max` holds and at most
+/// [`PICTURE_MAX`] (see [`whole_cells`]). Each glyph keeps its own pixel
+/// size, so a bigger cell gives a bigger picture.
+pub fn shown(shot: &Shot) -> Result<(u32, u32), String> {
+    let (cell, (dw, dh)) = (shot.cell, shot.display);
+    if cell.width == 0 || cell.height == 0 || dw == 0 || dh == 0 {
+        return Err(TOO_LARGE.to_owned());
+    }
+    whole_cells(cell, content(shot), shot.max)
+}
+
+/// The columns and rows of `shot`'s screen that hold something to see:
+/// to the last character that is not a blank, or that has a background of
+/// its own, on any row, and to the last row with one; at least one of
+/// each, and at most the grid.
+fn content(shot: &Shot) -> (u32, u32) {
+    let (mut cols, mut rows) = (0usize, 0usize);
+    for (row, line) in shot.screen.iter().take(shot.grid.1).enumerate() {
+        let mut col = 0usize;
+        for span in line {
+            let filled = span.style.bg.is_some() || span.style.reverse;
+            for c in shown_text(span).chars() {
+                col = col.saturating_add(crate::tui::canvas::width(&c.to_string()).clamp(1, 2));
+                if filled || (c != ' ' && !c.is_control()) {
+                    cols = cols.max(col);
+                    rows = row.saturating_add(1);
+                }
+            }
+        }
+    }
+    let side = |n: usize, most: usize| u32::try_from(n.clamp(1, most.max(1))).unwrap_or(u32::MAX);
+    (side(cols, shot.grid.0), side(rows, shot.grid.1))
+}
+
+/// The size of a picture of `content` columns and rows of `cell`, the
+/// detailed specimen's and the picture of the console's alike: as many
+/// whole columns and rows of it as `max` holds, and at most
+/// [`PICTURE_MAX`], one pixel of the console to one pixel of the picture.
+/// There is no picture where not one character cell fits.
+fn whole_cells(cell: Cell, content: (u32, u32), max: (u32, u32)) -> Result<(u32, u32), String> {
+    let room = |side: u32, most: u32, of: u32| side.min(most).checked_div(of).unwrap_or(0);
+    let cols = content.0.min(room(max.0, PICTURE_MAX.0, cell.width));
+    let rows = content.1.min(room(max.1, PICTURE_MAX.1, cell.height));
+    if cols == 0 || rows == 0 {
+        return Err(NO_LINE.to_owned());
+    }
+    Ok((
+        cols.saturating_mul(cell.width),
+        rows.saturating_mul(cell.height),
+    ))
 }
 
 /// The picture `shot` asks for, its glyphs drawn by the helper at
@@ -722,47 +798,48 @@ impl Sample {
 
     /// The picture `shot` asks for: its screen laid out cell by cell in its
     /// cell on its display, each cell in its colors from the palette the
-    /// shot names, the rest of the display in the palette's background,
-    /// and the whole averaged down to fit the shot's `max`, keeping the
-    /// display's shape (ADR-1201 D4).
+    /// shot names, the rest of the display in the palette's background.
+    /// One pixel of the console is one pixel of the picture, and the
+    /// picture is as many whole character cells of the screen's content,
+    /// from its top left, as the shot's `max` holds: the sizing of the
+    /// detailed specimen, [`shown`] (ADR-1201 D4).
     pub fn screen(&self, shot: &Shot) -> Result<Picture, String> {
+        let (width, height) = shown(shot)?;
         let faces = self.faces();
         let cell = shot.cell;
-        let (dw, dh) = shot.display;
-        if cell.width == 0 || cell.height == 0 || dw == 0 || dh == 0 {
-            return Err(TOO_LARGE.to_owned());
-        }
-        let (ow, oh) = fit(shot.display, shot.max);
-        if ow == 0 || oh == 0 {
-            return Err(TOO_LARGE.to_owned());
-        }
         let palette = vtium_term::Palette::named(&shot.palette).unwrap_or_default();
         let rgb = |c: vtium_term::Rgb| [c.r, c.g, c.b];
-        let mut sums = Shrink::new((dw, dh), (ow, oh));
+        // the grid's last column and row, and the display past them, are
+        // the background, as is a cell the screen has no text for
+        let paper = rgb(palette.bg());
+        let mut picture = Picture {
+            width,
+            height,
+            rgba: std::iter::repeat_n([paper[0], paper[1], paper[2], 255], {
+                usize::try_from(u64::from(width).saturating_mul(u64::from(height))).unwrap_or(0)
+            })
+            .flatten()
+            .collect(),
+        };
         let (grid_w, grid_h) = (
             u32::try_from(shot.grid.0)
                 .unwrap_or(0)
                 .saturating_mul(cell.width)
-                .min(dw),
+                .min(width),
             u32::try_from(shot.grid.1)
                 .unwrap_or(0)
                 .saturating_mul(cell.height)
-                .min(dh),
+                .min(height),
         );
-        // the display past the grid's last column and row
-        let paper = rgb(palette.bg());
-        for y in 0..dh {
-            let from = if y < grid_h { grid_w } else { 0 };
-            for x in from..dw {
-                sums.add(x, y, paper);
-            }
-        }
         let mut drawn: std::collections::BTreeMap<char, Option<vtium_font::Glyph>> =
             std::collections::BTreeMap::new();
         for (row, line) in shot.screen.iter().take(shot.grid.1).enumerate() {
             let top = u32::try_from(row)
                 .unwrap_or(u32::MAX)
                 .saturating_mul(cell.height);
+            if top >= grid_h {
+                break;
+            }
             let mut col = 0usize;
             let mut cells: Vec<(char, [u8; 3], [u8; 3], usize)> = Vec::new();
             for span in line {
@@ -782,13 +859,13 @@ impl Sample {
                 }
             }
             for (c, ink, back, wide) in cells {
-                if col >= shot.grid.0 {
-                    break;
-                }
-                let span = cell.width.saturating_mul(u32::try_from(wide).unwrap_or(1));
                 let left = u32::try_from(col)
                     .unwrap_or(u32::MAX)
                     .saturating_mul(cell.width);
+                if col >= shot.grid.0 || left >= grid_w {
+                    break;
+                }
+                let span = cell.width.saturating_mul(u32::try_from(wide).unwrap_or(1));
                 let glyph = drawn.entry(c).or_insert_with(|| {
                     if c == ' ' || c.is_control() {
                         return None;
@@ -805,31 +882,13 @@ impl Sample {
                             continue;
                         }
                         let color = glyph.as_ref().map_or(back, |g| over(g, x, y, ink, back));
-                        sums.add(px, py, color);
+                        picture.put(px, py, color);
                     }
                 }
                 col = col.saturating_add(wide);
             }
-            // a row shorter than the grid has the background to its end
-            let left = u32::try_from(col)
-                .unwrap_or(u32::MAX)
-                .saturating_mul(cell.width);
-            for y in top..top.saturating_add(cell.height).min(grid_h) {
-                for x in left.min(grid_w)..grid_w {
-                    sums.add(x, y, paper);
-                }
-            }
         }
-        // rows of the grid the screen has no line for
-        let below = u32::try_from(shot.screen.len().min(shot.grid.1))
-            .unwrap_or(u32::MAX)
-            .saturating_mul(cell.height);
-        for y in below.min(grid_h)..grid_h {
-            for x in 0..grid_w {
-                sums.add(x, y, paper);
-            }
-        }
-        Ok(sums.picture())
+        Ok(picture)
     }
 
     /// The specimen as text for a terminal that draws no pictures: its
@@ -855,25 +914,6 @@ impl Sample {
             of: chars.len(),
         }
     }
-}
-
-/// The size a picture of a display of `display` pixels takes to fit in
-/// `max`, and at most [`PICTURE_MAX`], keeping the display's shape and
-/// never larger than the display.
-pub fn fit(display: (u32, u32), max: (u32, u32)) -> (u32, u32) {
-    let (dw, dh) = (u64::from(display.0), u64::from(display.1));
-    let mw = u64::from(max.0.min(PICTURE_MAX.0)).min(dw);
-    let mh = u64::from(max.1.min(PICTURE_MAX.1)).min(dh);
-    if dw == 0 || dh == 0 {
-        return (0, 0);
-    }
-    // the side that binds: across when the display is wider than the room
-    let (w, h) = if dw.saturating_mul(mh) > dh.saturating_mul(mw) {
-        (mw, dh.saturating_mul(mw) / dw)
-    } else {
-        (dw.saturating_mul(mh) / dh, mh)
-    };
-    (u32::try_from(w).unwrap_or(0), u32::try_from(h).unwrap_or(0))
 }
 
 /// The color of pixel (`x`, `y`) of a cell that draws `glyph` in `ink` on
@@ -910,73 +950,14 @@ fn over(glyph: &vtium_font::Glyph, x: u32, y: u32, ink: [u8; 3], back: [u8; 3]) 
     out
 }
 
-/// A picture of `to` pixels made from one of `from` pixels by averaging
-/// each block of the larger picture that falls in a pixel of the smaller.
-struct Shrink {
-    from: (u32, u32),
-    to: (u32, u32),
-    /// Each pixel's sums of red, green and blue, and how many pixels.
-    sums: Vec<[u32; 4]>,
-}
-
-impl Shrink {
-    fn new(from: (u32, u32), to: (u32, u32)) -> Shrink {
-        let n = usize::try_from(u64::from(to.0).saturating_mul(u64::from(to.1))).unwrap_or(0);
-        Shrink {
-            from,
-            to,
-            sums: vec![[0; 4]; n],
-        }
-    }
-
-    /// Adds the larger picture's pixel (`x`, `y`) of `color`.
-    fn add(&mut self, x: u32, y: u32, color: [u8; 3]) {
-        let scale = |v: u32, from: u32, to: u32| {
-            u32::try_from(u64::from(v).saturating_mul(u64::from(to)) / u64::from(from.max(1)))
-                .unwrap_or(0)
-                .min(to.saturating_sub(1))
-        };
-        let (tx, ty) = (
-            scale(x, self.from.0, self.to.0),
-            scale(y, self.from.1, self.to.1),
-        );
-        let at = usize::try_from(
-            u64::from(ty)
-                .saturating_mul(u64::from(self.to.0))
-                .saturating_add(u64::from(tx)),
-        )
-        .unwrap_or(usize::MAX);
-        if let Some(sum) = self.sums.get_mut(at) {
-            let [r, g, b, n] = sum;
-            for (s, c) in [r, g, b].into_iter().zip(color) {
-                *s = s.saturating_add(u32::from(c));
-            }
-            *n = n.saturating_add(1);
-        }
-    }
-
-    /// The smaller picture, each pixel the average of what was added to
-    /// it.
-    fn picture(self) -> Picture {
-        let rgba = self
-            .sums
-            .iter()
-            .flat_map(|[r, g, b, n]| {
-                let n = (*n).max(1);
-                let avg = |v: u32| u8::try_from(v / n).unwrap_or(255);
-                [avg(*r), avg(*g), avg(*b), 255]
-            })
-            .collect();
-        Picture {
-            width: self.to.0,
-            height: self.to.1,
-            rgba,
-        }
-    }
-}
-
-/// Why a size has no picture when one line of it does not fit.
+/// Why a size has no picture: the font has no cell at that size, or its
+/// cell is taller than the room the specimen is asked for.
 const TOO_LARGE: &str = "this size is larger than the preview area";
+
+/// Why the picture of the console has none: the preview area cannot show
+/// one line of its text at the font's cell, and a sliver of a line would
+/// not show the font.
+const NO_LINE: &str = "the preview area is too small to show one line of text at this size. Make this terminal larger, or choose a smaller size.";
 
 /// Where `c` is drawn from among `faces`, of which the first `own` are
 /// the frit's.
@@ -1047,14 +1028,12 @@ fn lay_out(
         .map(|l| l.iter().map(|p| p.cells).sum::<u32>())
         .max()
         .unwrap_or(0);
-    let shown = u32::try_from(laid.len())
-        .unwrap_or(0)
-        .min(max.1.checked_div(cell.height).unwrap_or(0));
-    if cols == 0 || shown == 0 {
-        return Err(TOO_LARGE.to_owned());
-    }
-    let width = cell.width.saturating_mul(cols);
-    let height = cell.height.saturating_mul(shown);
+    let (width, height) = whole_cells(
+        cell,
+        (cols, u32::try_from(laid.len()).unwrap_or(u32::MAX)),
+        max,
+    )?;
+    let shown = height.checked_div(cell.height).unwrap_or(0);
     let stride = usize::try_from(width).unwrap_or(0).saturating_mul(4);
     let mut rgba: Vec<u8> = std::iter::repeat_n([PAPER[0], PAPER[1], PAPER[2], 255], {
         usize::try_from(width.saturating_mul(height)).unwrap_or(0)
@@ -1294,16 +1273,16 @@ mod tests {
                 raw: false,
             },
         ];
-        // a 24x20 display holds 3 by 1 cells of 8x16
+        // a 24x40 display holds 3 by 2 cells of 8x16, and the second row's
+        // text takes all 3 columns
         let p = builtin_only(cell)
-            .screen(&shot((24, 20), (3, 1), vec![row], (24, 20)))
+            .screen(&shot((24, 40), (3, 2), vec![row, plain("abc")], (24, 40)))
             .expect("a picture");
-        assert_eq!((p.width, p.height), (24, 20));
-        // vga's green, its red, then the background, and below the grid
+        assert_eq!((p.width, p.height), (24, 32));
+        // vga's green, its red, then the background past the short row
         assert_eq!(px(&p, 4, 8), [0, 170, 0]);
         assert_eq!(px(&p, 12, 8), [170, 0, 0]);
         assert_eq!(px(&p, 20, 8), [0, 0, 0]);
-        assert_eq!(px(&p, 4, 18), [0, 0, 0]);
         // with no color, the block is the default colors
         let mut plain = shot((24, 20), (3, 1), Vec::new(), (24, 20));
         plain.color = false;
@@ -1368,38 +1347,137 @@ mod tests {
         assert_eq!(px(&p, 9, 8), PAPER);
     }
 
-    /// The picture keeps the display's shape inside its room, and each of
-    /// its pixels is the average of the display's pixels it covers.
+    /// A row of the screen: `text` in the default colors.
+    fn plain(text: &str) -> crate::tui::canvas::Row {
+        vec![crate::tui::canvas::Span {
+            text: text.to_owned(),
+            style: crate::tui::color::Style::PLAIN,
+            raw: false,
+        }]
+    }
+
+    /// A 1024x768 screen of 8x16 cells: a full block in column 3 of row 1,
+    /// and letters around it, so that glyphs of several shapes are drawn.
+    /// Its content is 19 columns by 4 rows.
+    fn sample_shot(max: (u32, u32)) -> Shot {
+        let rows = vec![
+            plain("vtium ABC xyz 0123"),
+            plain("abc\u{2588}defghij"),
+            plain("{[(|)]} @#%&"),
+            plain("The quick brown fox"),
+        ];
+        shot((1024, 768), (128, 48), rows, max)
+    }
+
+    /// The picture is the screen at one pixel of the console to one pixel
+    /// of the picture: where the preview area is smaller than the screen's
+    /// content, each pixel of the picture is the screen's pixel at the same
+    /// place, from the screen's top left, and a glyph's ink lands where the
+    /// console draws it.
     #[test]
-    fn a_picture_of_the_console_is_the_display_averaged_down() {
-        use crate::tui::canvas::Span;
-        use crate::tui::color::{Color, Style};
-        assert_eq!(fit((1920, 1080), (480, 480)), (480, 270));
-        assert_eq!(fit((640, 480), (1000, 100)), (133, 100));
-        assert_eq!(fit((640, 480), (4000, 4000)), (640, 480), "never larger");
-        assert_eq!(fit((4000, 3000), (4000, 4000)), PICTURE_MAX);
+    fn a_picture_of_the_console_shows_its_pixels_one_to_one_from_the_top_left() {
         let cell = Cell {
             width: 8,
             height: 16,
         };
-        // one white cell and one black, averaged into one pixel: grey
-        let row = vec![
-            Span {
-                text: " ".to_owned(),
-                style: Style::block(Color::BrightWhite),
-                raw: false,
-            },
-            Span {
-                text: " ".to_owned(),
-                style: Style::PLAIN,
-                raw: false,
-            },
-        ];
+        let sample = builtin_only(cell);
+        let whole = sample
+            .screen(&sample_shot((1024, 768)))
+            .expect("the whole screen");
+        let part = sample
+            .screen(&sample_shot((100, 40)))
+            .expect("the part that fits");
+        // the full block in column 3 of row 1 covers pixels 24 to 31
+        // across and 16 to 31 down, in the default ink, on the console and
+        // in the picture alike
+        let ink = [170, 170, 170];
+        assert_eq!(px(&whole, 28, 24), ink);
+        assert_eq!(px(&part, 28, 24), ink);
+        assert_eq!(px(&part, 24, 16), ink);
+        assert_eq!(px(&part, 31, 31), ink);
+        assert_eq!(px(&part, 32, 24), px(&whole, 32, 24));
+        // 100x40 holds 12 columns and 2 rows of the content
+        assert_eq!((part.width, part.height), (96, 32));
+        // every pixel of the part is the screen's pixel at the same place
+        for y in 0..part.height {
+            for x in 0..part.width {
+                assert_eq!(px(&part, x, y), px(&whole, x, y), "at {x},{y}");
+            }
+        }
+        // the letters have ink: the comparison above is not of paper alone
+        let lit = (0..part.height)
+            .flat_map(|y| (0..part.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| px(&part, x, y) == ink)
+            .count();
+        assert!(lit > 16 * 8 * 2, "{lit}");
+    }
+
+    /// The picture is sized as the detailed specimen is: whole character
+    /// cells of the screen's content, as many columns and rows as the
+    /// preview area holds, and at most [`PICTURE_MAX`]. A bigger cell gives
+    /// a bigger picture of the same content.
+    #[test]
+    fn a_picture_of_the_console_is_whole_cells_of_its_content_and_grows_with_the_cell() {
+        let at = |cell: (u32, u32), rows: Vec<crate::tui::canvas::Row>, max: (u32, u32)| {
+            let mut s = shot((4000, 3000), (500, 200), rows, max);
+            s.cell = Cell {
+                width: cell.0,
+                height: cell.1,
+            };
+            shown(&s)
+        };
+        let line = || plain(&"x".repeat(60));
+        // one character is one cell, whatever room is left
+        assert_eq!(at((8, 16), vec![plain("A")], (440, 224)), Ok((8, 16)));
+        // the same content at twice the cell is twice the picture
+        let three = || vec![plain("abcde"), plain("fg"), plain("hij")];
+        assert_eq!(at((8, 16), three(), (440, 224)), Ok((40, 48)));
+        assert_eq!(at((16, 32), three(), (440, 224)), Ok((80, 96)));
+        // trailing blanks are not content
+        assert_eq!(
+            at((8, 16), vec![plain("ab   "), plain("")], (440, 224)),
+            Ok((16, 16))
+        );
+        // content larger than the area: the whole cells the area holds
+        assert_eq!(at((8, 16), vec![line(); 20], (440, 224)), Ok((440, 224)));
+        assert_eq!(at((8, 16), vec![line(); 20], (300, 100)), Ok((296, 96)));
+        assert_eq!(at((14, 32), vec![line(); 20], (440, 240)), Ok((434, 224)));
+        // never past the cap
+        let wide = || plain(&"x".repeat(300));
+        assert_eq!(
+            at((8, 16), vec![wide(); 100], (4000, 4000)),
+            Ok(PICTURE_MAX)
+        );
+        // the picture drawn has that size
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
         let p = builtin_only(cell)
-            .screen(&shot((16, 16), (2, 1), vec![row], (1, 1)))
+            .screen(&shot((1024, 768), (128, 48), three(), (440, 224)))
             .expect("a picture");
-        assert_eq!((p.width, p.height), (1, 1));
-        assert_eq!(px(&p, 0, 0), [127, 127, 127]);
+        assert_eq!((p.width, p.height), (40, 48));
+        assert_eq!(p.rgba.len(), 40 * 48 * 4);
+    }
+
+    /// Where the preview area is less than one line of text high, or less
+    /// than one character wide, there is no picture, and the reason says
+    /// so.
+    #[test]
+    fn a_preview_area_smaller_than_one_line_of_text_has_no_picture() {
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let sample = builtin_only(cell);
+        let screen =
+            |max: (u32, u32)| sample.screen(&shot((1024, 768), (1, 1), vec![plain("A")], max));
+        for max in [(440, 15), (7, 224), (0, 0)] {
+            assert_eq!(screen(max), Err(NO_LINE.to_owned()), "{max:?}");
+        }
+        // one line high and one character wide is enough
+        let p = screen((8, 16)).expect("one character");
+        assert_eq!((p.width, p.height), (8, 16));
     }
 
     #[test]

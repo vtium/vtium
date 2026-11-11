@@ -82,6 +82,14 @@ const CONSOLES: Bound = Bound {
     cite: "a starting value; ADR-1401 D10 and its probe 6 set the caps",
 };
 
+const VT: Bound = Bound {
+    name: "VT_MAX",
+    value: 63,
+    what: "The highest VT number a head's `vt` names; the lowest is 1",
+    past: "The head is dropped, with every rule naming it, the line named",
+    cite: "ADR-1403 D4; the kernel's last VT, `MAX_NR_CONSOLES` in `include/uapi/linux/vt.h`, as vtium's `LAST_VT` (`crates/vtium/src/console.rs`)",
+};
+
 const ERRORS: Bound = Bound {
     name: "ERRORS_MAX",
     value: 64,
@@ -100,8 +108,8 @@ const QUOTE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 10] = [
-    FILE, LINE, NAME, HEADS, LOOKS, RULES, TOKENS, CONSOLES, ERRORS, QUOTE,
+pub(crate) const BOUNDS: [Bound; 11] = [
+    FILE, LINE, NAME, HEADS, LOOKS, RULES, TOKENS, CONSOLES, VT, ERRORS, QUOTE,
 ];
 
 /// Bytes of vtium.conf; past them every section is dropped but for the
@@ -141,6 +149,10 @@ pub const HEAD_CONSOLES_DEFAULT: u32 = 4;
 /// `consoles-max` is unset (ADR-1401 D10).
 pub const CONSOLES_TOTAL_DEFAULT: u32 = 8;
 
+/// The highest VT number a head's `vt` names (ADR-1403 D4); the lowest
+/// is 1.
+pub const VT_MAX: u16 = 63;
+
 /// Errors, warnings and notes kept, each kind apart; past it they are
 /// counted.
 pub const ERRORS_MAX: usize = ERRORS.value as usize;
@@ -169,6 +181,11 @@ mod tests {
         }
         out.push_str(END);
         out
+    }
+
+    #[test]
+    fn the_vt_bound_is_its_rows_value() {
+        assert_eq!(u32::from(VT_MAX), VT.value);
     }
 
     #[test]

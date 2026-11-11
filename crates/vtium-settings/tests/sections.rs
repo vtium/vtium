@@ -162,20 +162,27 @@ fn the_writer_refuses_only_what_it_cannot_place() {
 }
 
 /// Where each new rule goes among `FILE`'s five rules: before the rule of
-/// this number, 6 for after the last.
+/// this number, 6 for after the last. A new rule goes just before the first
+/// rule of its kind whose rank is lower, by ADR-1403 D8's ranks: one
+/// device, a port, a graphics card, a model, a device name, a device type
+/// or udev property, then the catch-all.
 #[test]
 fn a_new_rule_goes_where_what_it_names_puts_it() {
-    let table: [(&str, usize); 8] = [
-        // a rule naming one device goes before the first general rule of its kind
-        ("input serial:046d:c31c:ABC -> desk", 4),
+    let table: [(&str, usize); 10] = [
+        // one device goes before the port rule `path`
+        ("input serial:046d:c31c:ABC -> desk", 3),
+        ("input bluetooth:aa:bb:cc:dd:ee:ff -> desk", 3),
+        // a port goes after the port rule already there
+        ("input path:pci-0000:15:00.0-usb-0:3.4 -> desk", 4),
+        // a model and a device name go before the device type
+        ("input id:046d:c31c -> roaming", 4),
         ("input name:Logitech* -> desk", 4),
-        ("display connector:card0/DP-1 -> desk", 2),
-        ("display connector-path:mst:1-8 -> off", 2),
-        // a general rule goes before the first `*` of its kind
+        ("input udev:VTIUM_HEAD=desk -> desk", 5),
         ("input class:mouse -> roaming", 5),
-        ("input * -> roaming", 5),
+        // a catch-all goes after the last rule of its kind
+        ("input * -> roaming", 6),
+        ("display connector:card0/DP-1 -> desk", 2),
         ("display card:pci-0000:03:00.0 -> desk", 2),
-        ("input id:046d:c31c -> roaming", 5),
     ];
     let config = parse_sections(FILE).expect("valid").expect("a flow").config;
     for (rule, before) in table {
@@ -200,6 +207,79 @@ fn a_new_rule_goes_where_what_it_names_puts_it() {
     );
     let out = add_rule(devices_only, "display * -> desk", None).expect("the edit");
     assert_eq!(rules(&out), ["input path:a -> desk", "display * -> desk"]);
+}
+
+/// ADR-1403 D8's ranks among rules of one kind: a port before a graphics
+/// card, a card before a model, a model before a device name, a name
+/// before a device type or a udev property, and those before the
+/// catch-all. Each new rule goes after every rule of its rank or higher.
+#[test]
+fn the_ranks_follow_d8_from_one_device_to_the_catch_all() {
+    let file = "\
+version = 1
+[head desk]
+[rules]
+display edid:AAA:0x0001:S1 -> desk
+display connector:card0/DP-1 -> desk
+display card:card1 -> desk
+display name:panel* -> desk
+display * -> desk
+input serial:046d:c31c:A -> desk
+input path:usb-0:1 -> desk
+input id:046d:c31c -> desk
+input name:Logi* -> desk
+input class:keyboard -> roaming
+input * -> ignore
+";
+    let table: [(&str, usize); 10] = [
+        ("display edid:BBB:0x0002:S2 -> desk", 2),
+        ("display connector-path:mst:1-8 -> desk", 3),
+        ("display card:card2 -> desk", 4),
+        ("display name:other* -> desk", 5),
+        ("input serial:046d:c31c:B -> desk", 7),
+        ("input path:usb-0:2 -> desk", 8),
+        ("input id:1234:5678 -> desk", 9),
+        ("input name:Other* -> desk", 10),
+        ("input udev:VTIUM_HEAD=desk -> desk", 11),
+        ("input class:mouse -> roaming", 11),
+    ];
+    for (rule, before) in table {
+        let out = add_rule(file, rule, None).expect(rule);
+        let mut want = rules(file);
+        want.insert(before - 1, rule.to_owned());
+        assert_eq!(rules(&out), want, "{rule}");
+    }
+    // a graphics card ranks above a model: each goes before the other's
+    // rule only when the other ranks lower
+    let both =
+        "version = 1\n[head desk]\n[rules]\ninput card:card0 -> desk\ninput id:046d:c31c -> desk\n";
+    let out = add_rule(both, "input card:card1 -> desk", None).expect("card");
+    assert_eq!(
+        rules(&out),
+        [
+            "input card:card0 -> desk",
+            "input card:card1 -> desk",
+            "input id:046d:c31c -> desk"
+        ]
+    );
+    let out = add_rule(both, "input id:1234:5678 -> desk", None).expect("id");
+    assert_eq!(
+        rules(&out),
+        [
+            "input card:card0 -> desk",
+            "input id:046d:c31c -> desk",
+            "input id:1234:5678 -> desk"
+        ]
+    );
+    let swapped = "version = 1\n[head desk]\n[rules]\ninput id:046d:c31c -> desk\n";
+    let out = add_rule(swapped, "input card:card1 -> desk", None).expect("card first");
+    assert_eq!(
+        rules(&out),
+        ["input card:card1 -> desk", "input id:046d:c31c -> desk"]
+    );
+    // a match of several keys takes the rank of its most specific key
+    let out = add_rule(file, "input path:usb-0:3 class:keyboard -> desk", None).expect("two keys");
+    assert_eq!(rules(&out)[7], "input path:usb-0:3 class:keyboard -> desk");
 }
 
 /// The kind and match of a rule's text, read through a file that holds it.
@@ -237,10 +317,11 @@ fn a_rule_goes_before_the_rule_it_is_told_to() {
         add_rule(FILE, "input * desk", None),
         Err(SectionEdit::BadRule(_))
     ));
-    // a rule may send to a head the draft does not declare yet
+    // a rule may send to a head the draft does not declare yet; a
+    // catch-all goes after the last rule (ADR-1403 D8)
     let out = add_rule(FILE, "input * -> nowhere", None).expect("the edit");
     assert_eq!(
-        rules(&out).get(4).map(String::as_str),
+        rules(&out).get(5).map(String::as_str),
         Some("input * -> nowhere")
     );
 }

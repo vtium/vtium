@@ -113,6 +113,14 @@ pub enum Syntax {
     RuleMatch,
     /// `*` beside other tokens.
     StarAlone,
+    /// A label line that starts with neither kind.
+    LabelKind,
+    /// A label line with no `=` standing alone after its match.
+    LabelEquals,
+    /// A label line with nothing after its `=`.
+    LabelEmpty,
+    /// A label longer than [`LABEL_MAX`](crate::LABEL_MAX) characters.
+    LabelLong,
 }
 
 /// A name of the head file's first cut, which a later word replaced
@@ -230,6 +238,11 @@ pub enum Problem {
     },
     /// A value longer than [`TEXT_MAX`](crate::keys::TEXT_MAX) bytes.
     TooLong(&'static str),
+    /// A word of a head's `vt` that is not a VT number from 1 to
+    /// [`VT_MAX`](crate::VT_MAX), or an empty `vt` (ADR-1403 D4).
+    BadVt(Quoted),
+    /// A head's `vt` that names this VT twice.
+    RepeatedVt(u16),
 }
 
 /// Why vtium cannot read a policy line, a line above the first section

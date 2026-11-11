@@ -291,6 +291,100 @@ pub fn new_text(example: &str) -> String {
     out
 }
 
+/// `text` with vtium's compiled-in flow written out as its sections, when
+/// it has none. A draft with no section, as a copied kmscon.conf is, runs
+/// the compiled-in flow, and the Flow view shows that flow (ADR-1403 D3,
+/// D7). A change to a section must first write that flow into the file:
+/// a section alone, such as `[labels]`, would make the file one with
+/// sections, no `version` line and no rules, which turns every display
+/// off. A draft with sections is returned as it is.
+pub fn with_flow(text: &str) -> String {
+    if vtium_settings::sections(text.as_bytes()).is_some() {
+        return text.to_owned();
+    }
+    let mut out = text.trim_end().to_owned();
+    if !out.is_empty() {
+        out.push_str("\n\n");
+    }
+    out.push_str(vtium_settings::TEMPLATE);
+    out
+}
+
+/// The comment vtium-config writes above the `[labels]` section, wrapped
+/// at 78 columns as the shipped vtium.conf's comments are, in the words of
+/// ADR-1403 D4's example.
+pub const LABELS_COMMENT: &str = "\
+# The person's own names for displays and inputs. vtium shows a
+# display's label when vtium-config identifies the displays.
+";
+
+/// The longer comment the Flow view's try-out wrote above the section. A
+/// draft may still hold it, and it goes with the section as the comment
+/// above does.
+pub(crate) const LABELS_COMMENT_TRIED: &str = "\
+# Labels. A label is a name of your own for a display or an input, such as
+# \"desk keyboard\" or \"left screen\". vtium shows it on the on-screen
+# display, in place of the name the system gives the device.
+#
+# Each line reads \"display MATCH = LABEL\" or \"input MATCH = LABEL\". MATCH is
+# the same match the device's rule uses in [rules]. A label holds up to 40
+# characters, spaces included. vtium-config writes this section when you
+# label a part in its Flow view.
+";
+
+/// `text` with its `[labels]` section holding `lines`: the section, with
+/// the comment above it, goes after every other section, and with no lines
+/// it goes. vtium reads the section for its identify overlay (ADR-1401
+/// D12).
+pub fn labels(text: &str, lines: &[String]) -> String {
+    let mut kept: Vec<&str> = text.split_inclusive('\n').collect();
+    let is_heading = |l: &str| l.trim_start().starts_with('[');
+    if let Some(start) = kept.iter().position(|l| l.trim() == "[labels]") {
+        let end = kept
+            .iter()
+            .enumerate()
+            .skip(start.saturating_add(1))
+            .find(|(_, l)| is_heading(l))
+            .map_or(kept.len(), |(i, _)| i);
+        // the comment vtium-config wrote above the section, and the blank
+        // line before it, go with it
+        let mut from = start;
+        for written in [LABELS_COMMENT, LABELS_COMMENT_TRIED] {
+            let comment: Vec<&str> = written.split_inclusive('\n').collect();
+            if start >= comment.len()
+                && kept.get(start.saturating_sub(comment.len())..start) == Some(&comment[..])
+            {
+                from = start.saturating_sub(comment.len());
+            }
+        }
+        if from > 0
+            && kept
+                .get(from.saturating_sub(1))
+                .is_some_and(|l| l.trim().is_empty())
+        {
+            from = from.saturating_sub(1);
+        }
+        kept.drain(from..end);
+    }
+    let mut out: String = kept.concat();
+    if lines.is_empty() {
+        return out;
+    }
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
+    }
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str(LABELS_COMMENT);
+    out.push_str("[labels]\n");
+    for l in lines {
+        out.push_str(l);
+        out.push('\n');
+    }
+    out
+}
+
 #[cfg(test)]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {

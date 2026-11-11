@@ -25,7 +25,6 @@ use crate::parse::{
     CONF_HEAD_KEYS, RESERVED, VTLOOK, content, content_range, good_name, key_value, rule_line,
     rules_heading,
 };
-use crate::route::names_one_device;
 use crate::split::{VERSION_KEY, heading, split};
 
 /// A section of vtium.conf, by its kind and its name.
@@ -508,15 +507,11 @@ pub fn rename_section(text: &str, of: Of<'_>, new: &str) -> Result<String, Secti
 
 /// Where a new rule of `kind` that matches `matcher` goes among `rules`,
 /// as the index of the rule it goes before, or `rules.len()` for after
-/// the last (ADR-1403 D7), so that an earlier, wider rule does not match
-/// its devices first. A rule that names one device, by `edid`,
-/// `connector`, `connector-path`, `serial`, `path`, `bluetooth` or `name`,
-/// goes before the first general rule of its kind, one that names a kind
-/// of device by `class`, `id`, `card`, `udev` or `*`. A general rule goes
-/// before the first rule of its kind whose match is `*`. With nothing of
-/// the sort to go before, a rule goes after the last rule. The flow
-/// view's `new rule…`, connecting tags and `vtium config rule add`
-/// without `--before` all place a rule by this.
+/// the last (ADR-1403 D8): just before the first rule of its kind whose
+/// rank, [`Match::rank`], is lower, so that a wider rule does not match
+/// the new rule's devices first. With no such rule it goes after the last
+/// rule. The Flow view's writes and `vtium config rule add` without
+/// `--before` both place a rule by this.
 pub fn placement(rules: &[Rule], kind: Kind, matcher: &Match) -> usize {
     let read: Vec<Option<(Kind, Match)>> = rules
         .iter()
@@ -528,17 +523,14 @@ pub fn placement(rules: &[Rule], kind: Kind, matcher: &Match) -> usize {
 /// [`placement`] over rules each read alone, `None` for a rule line the
 /// writer cannot read, which no new rule goes before by its kind.
 fn place(rules: &[Option<(Kind, Match)>], kind: Kind, matcher: &Match) -> usize {
-    let of_kind = |r: &Option<(Kind, Match)>, wanted: &dyn Fn(&Match) -> bool| {
-        r.as_ref().is_some_and(|(k, m)| *k == kind && wanted(m))
-    };
-    let at = if names_one_device(matcher) {
-        rules
-            .iter()
-            .position(|r| of_kind(r, &|m| !names_one_device(m)))
-    } else {
-        rules.iter().position(|r| of_kind(r, &|m| *m == Match::Any))
-    };
-    at.unwrap_or(rules.len())
+    let rank = matcher.rank();
+    rules
+        .iter()
+        .position(|r| {
+            r.as_ref()
+                .is_some_and(|(k, m)| *k == kind && m.rank() > rank)
+        })
+        .unwrap_or(rules.len())
 }
 
 /// The rules of `lines`, each by its line and as it reads alone.
