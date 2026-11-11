@@ -162,6 +162,14 @@ const DEVICE_OPENS: Bound = Bound {
     cite: "About 2 s at `SEAT_RETRY_MS`: udev reports a device before the seat manager is ready to give it, which then answers `ENODEV`, `EACCES` or `EBUSY` for a short while",
 };
 
+const SCOPE_JOB: Bound = Bound {
+    name: "SCOPE_JOB_MS",
+    value: 2000,
+    what: "With `logind`, in the libseat build under logind: milliseconds vtium waits for systemd to finish the job that moves a login child into a scope of its own, after the call that queues it",
+    past: "vtium logs one line and lets the child run `login` in vtium's own session, as when systemd is not PID 1",
+    cite: "The 2 s bound vtium already gives logind's answer; systemd finishes a transient scope's job at once, since the scope only adopts a running process (ADR-1400 D3)",
+};
+
 const RESOURCE_READS: Bound = Bound {
     name: "RESOURCE_READS",
     value: 8,
@@ -244,7 +252,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 28] = [
+pub(crate) const BOUNDS: [Bound; 29] = [
     READ,
     READS,
     BUDGET,
@@ -263,6 +271,7 @@ pub(crate) const BOUNDS: [Bound; 28] = [
     SEAT_RETRY,
     SEAT_OPENS,
     DEVICE_OPENS,
+    SCOPE_JOB,
     RESOURCE_READS,
     BLOB,
     MODES,
@@ -351,6 +360,11 @@ pub(crate) const SEAT_OPENS_MAX: usize = SEAT_OPENS.value;
 /// Tries to open one device through the seat manager.
 #[cfg(feature = "libseat")]
 pub(crate) const DEVICE_OPENS_MAX: usize = DEVICE_OPENS.value;
+
+/// Milliseconds vtium waits for systemd to move a login child into a
+/// scope of its own.
+#[cfg(feature = "logind")]
+pub(crate) const SCOPE_JOB_MS: usize = SCOPE_JOB.value;
 
 /// Reads of a DRM card's CRTC and connector lists before one fails.
 pub const RESOURCE_READS_MAX: usize = RESOURCE_READS.value;

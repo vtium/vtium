@@ -11,6 +11,7 @@ use std::ptr;
 #[cfg(test)]
 mod library;
 mod localed;
+pub mod scope;
 
 pub(crate) use localed::layout;
 
