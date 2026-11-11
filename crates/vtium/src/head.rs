@@ -631,9 +631,7 @@ impl Head {
                 &self.ended_notice
             }
         });
-        let hint = (!self.kernel.is_empty()).then(|| {
-            crate::notice::key_hides(self.notices.len().saturating_add(self.kernel.len()))
-        });
+        let hint = (!self.kernel.is_empty()).then_some(crate::notice::KEY_DISMISSES);
         let text = ended
             .into_iter()
             .chain(&self.notices)
@@ -2228,18 +2226,18 @@ mod tests {
     }
 
     // ADR-1401 D15: the kernel's messages come under the notices, the
-    // newest KERNEL_MAX, and a line under them says that a key hides the
-    // box and still reaches the console, for one message or for several.
+    // newest KERNEL_MAX, and the line under them says that a key
+    // dismisses them, for one message or for several.
     #[test]
     #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
-    fn the_kernel_messages_end_with_the_line_a_key_hides_them() {
+    fn the_kernel_messages_end_with_the_line_a_key_dismisses_them() {
         let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
         let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
         let mut head = Head::new("h", &config, Vec::new(), term);
         head.add_kernel("k0");
         assert_eq!(
             head.notice(),
-            Some("k0\nPress a key to hide this message. The key also goes to the console.")
+            Some("k0\nPress any key to dismiss this message.")
         );
         head.add_notice("No keyboard found. Connect one to type.");
         for n in 1..=KERNEL_MAX {
@@ -2248,7 +2246,7 @@ mod tests {
         assert_eq!(
             head.notice(),
             Some(
-                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress a key to hide these messages. The key also goes to the console."
+                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress any key to dismiss this message."
             )
         );
         head.end_notices();

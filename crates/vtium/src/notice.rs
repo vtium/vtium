@@ -128,18 +128,11 @@ pub fn session_ended_console(bindings: &Bindings) -> String {
     )
 }
 
-/// The line under the kernel's messages (ADR-1401 D15). A key that
-/// reaches the head hides them, and vtium's notices with them, and then
-/// goes on to the console's program as any key does, so the line says so:
-/// a person typing at a login prompt loses no keystroke. `shown` is how
-/// many messages and notices the box holds.
-pub fn key_hides(shown: usize) -> &'static str {
-    if shown == 1 {
-        "Press a key to hide this message. The key also goes to the console."
-    } else {
-        "Press a key to hide these messages. The key also goes to the console."
-    }
-}
+/// The line under the kernel's messages (ADR-1401 D15), in the
+/// maintainer's words. A key that reaches the head hides the messages,
+/// and vtium's notices with them, and then goes on to the console's
+/// program as any key does.
+pub const KEY_DISMISSES: &str = "Press any key to dismiss this message.";
 
 /// What the boot display shows once a crash loop stopped every head under
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).

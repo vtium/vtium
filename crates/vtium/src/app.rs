@@ -6281,7 +6281,7 @@ mod tests {
         assert_eq!(
             box_text(&app).as_deref(),
             Some(
-                "usb 1-2: device descriptor read/64, error -71\nPress a key to hide this message. The key also goes to the console."
+                "usb 1-2: device descriptor read/64, error -71\nPress any key to dismiss this message."
             )
         );
         assert!(first_overlay(&app).problem, "in the notices' colors");
@@ -6337,9 +6337,7 @@ mod tests {
         settle_frames(&mut lp, &mut app, t);
         assert_eq!(
             box_text(&app).as_deref(),
-            Some(
-                "a third warning\nPress a key to hide this message. The key also goes to the console."
-            )
+            Some("a third warning\nPress any key to dismiss this message.")
         );
 
         // its time runs from the first frame that drew it
