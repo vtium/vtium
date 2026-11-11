@@ -346,8 +346,9 @@ impl Head {
         } else {
             self.hidden.iter().find(|c| c.id == id).map(|c| c.fit)
         };
-        let resized =
-            fit.is_some_and(|f| (f.points, f.auto_size) != self.configured || f.asked.is_some());
+        // A zoom and a program's grid both leave the fit at no points and
+        // no automatic size, which the configured size never is.
+        let resized = fit.is_some_and(|f| (f.points, f.auto_size) != self.configured);
         Returns {
             font,
             size: font || resized,
