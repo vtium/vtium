@@ -275,9 +275,10 @@ VARIANTS.update({
 POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
-# The seat variants (t3_seat): vtium built with libseat on the minspec
-# machine, on the seat manager "seat" names, which guest/setup holds libseat
-# to. Each logs in, draws two screens and switches VTs through the seat as
+# The seat variants (t3_seat): a tree built with libseat on the minspec
+# machine, with the unit's libseat drop-in and the PAM file /etc/pam.d/vtium
+# that make install-tree stages with it, on the seat manager "seat" names,
+# which guest/setup holds libseat to. Each logs in, draws two screens and switches VTs through the seat as
 # 2d-potato-min does, judged by its goldens (t3_evaluate.GOLDENS_OF), and
 # checks the console's log for the seat and the keyboards opened through it
 # (t3_seat.CHECKS "seat"). The panic variant crashes the kernel while vtium
@@ -293,7 +294,7 @@ SEAT = {
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
-    "features": "libseat",
+    "tree_features": ["libseat"],
     "screens": ["sgr", "cjk"],
     "checks": ["seat"],
 }
@@ -494,6 +495,12 @@ VARIANTS.update({
     "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
                           policy="closed", vt_switch=False, checks=["session-survives"]),
 })
+# heads-survive's check on the libseat tree on logind: the sessions that
+# survive a restart and a crash of vtium (ADR-1401 D13) under the libseat
+# drop-in's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
+VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"], tree_features=["libseat"],
+                                       seat="logind", checks=["seat", "session-survives"])
+SEAT_VARIANTS.append("seat-logind-survive")
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
                  "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]

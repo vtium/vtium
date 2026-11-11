@@ -5652,7 +5652,7 @@ class SeatTest(unittest.TestCase):
 
     def test_the_variants_run_their_checks(self):
         for name in ("seat-seatd", "seat-logind"):
-            self.assertEqual(t3_scenario.VARIANTS[name]["features"], "libseat")
+            self.assertEqual(t3_scenario.VARIANTS[name]["tree_features"], ["libseat"])
             self.assertEqual(t3_scenario.variant_cases(name)[-1], "seat")
             self.assertEqual(t3_evaluate.GOLDENS_OF[name], "2d-potato-min")
         self.assertEqual(t3_scenario.VARIANTS["seat-seatd"]["seat"], "seatd")
