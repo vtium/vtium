@@ -29,7 +29,13 @@
 //! ([`super::KeymapConfig::follow`]).
 //! When vconsole.conf names a keymap the table cannot translate, vtium logs
 //! one line that names it.
+//!
+//! vtium reads the layout at its start. A build with `logind` reads it again,
+//! in the same order, each time localed announces a new layout while vtium
+//! runs ([`crate::logind::LayoutFollow`]). [`find`] reads the sources and
+//! logs nothing, so that each caller logs what it needs.
 
+use std::convert::Infallible;
 use std::path::Path;
 
 use super::RuleNames;
@@ -61,40 +67,102 @@ fn localed() -> Option<fn() -> RuleNames> {
     }
 }
 
+/// Where the system's keyboard layout came from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Origin {
+    /// The console keymap of this name in vconsole.conf, through the table.
+    ConsoleKeymap(String),
+    /// Debian's keyboard file.
+    KeyboardFile,
+    /// localed's X11 layout.
+    Localed,
+    /// None of them: xkb's default names, which are empty.
+    Default,
+}
+
+/// The system's keyboard layout, where it came from, and the console
+/// keymap that the table could not translate, if there was one.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Found {
+    pub(crate) names: RuleNames,
+    pub(crate) origin: Origin,
+    pub(crate) untranslated: Option<String>,
+}
+
 /// The layout from the files under `root`, else from `localed` when the
-/// build has it, else xkb's default names, which are empty.
-pub(crate) fn layout_in(root: &Path, localed: Option<fn() -> RuleNames>) -> RuleNames {
+/// build has it, else xkb's default names, which are empty. It logs
+/// nothing, so that vtium can read it again while it runs and log only what
+/// changed. `Err` when localed is asked and cannot answer.
+pub(crate) fn find<E>(
+    root: &Path,
+    localed: Option<impl FnOnce() -> Result<RuleNames, E>>,
+) -> Result<Found, E> {
     let vconsole = std::fs::read_to_string(root.join(VCONSOLE)).unwrap_or_default();
+    let mut untranslated = None;
     if let Some(keymap) = keymap(&vconsole) {
         let table = std::fs::read_to_string(root.join(KBD_MODEL_MAP)).unwrap_or_default();
         if let Some(names) = translate(&table, &keymap) {
-            log::info!(
-                target: "input",
-                "the keyboard layout comes from the console keymap {keymap}: layout {:?}, model {:?}, variant {:?}, options {:?}",
-                names.layout, names.model, names.variant, names.options
-            );
-            return names;
+            return Ok(Found {
+                names,
+                origin: Origin::ConsoleKeymap(keymap),
+                untranslated,
+            });
         }
+        untranslated = Some(keymap);
+    }
+    let keyboard = std::fs::read_to_string(root.join(KEYBOARD)).unwrap_or_default();
+    let (names, origin) = if let Some(names) = xkb_names(&keyboard) {
+        (names, Origin::KeyboardFile)
+    } else if let Some(read) = localed {
+        (read()?, Origin::Localed)
+    } else {
+        (RuleNames::default(), Origin::Default)
+    };
+    Ok(Found {
+        names,
+        origin,
+        untranslated,
+    })
+}
+
+/// The layout [`find`] gives, with the lines that say where it came from
+/// logged. localed's reader logs its own line, and gives empty names when
+/// localed cannot answer.
+pub(crate) fn layout_in(root: &Path, localed: Option<fn() -> RuleNames>) -> RuleNames {
+    let asks_localed = localed.is_some();
+    let found = match find(
+        root,
+        localed.map(|read| move || Ok::<_, Infallible>(read())),
+    ) {
+        Ok(found) => found,
+        Err(never) => match never {},
+    };
+    if let Some(keymap) = &found.untranslated {
         log::info!(
             target: "input",
             "The console keymap {keymap} in /{VCONSOLE} has no row in /{KBD_MODEL_MAP}, so vtium cannot translate it to a keyboard layout. {}",
-            if localed.is_some() {
+            if asks_localed {
                 "vtium takes the layout from /etc/default/keyboard instead, else from localed."
             } else {
                 "vtium takes the layout from /etc/default/keyboard instead, else uses xkb's default layout unless vtium.conf sets one."
             }
         );
     }
-    let keyboard = std::fs::read_to_string(root.join(KEYBOARD)).unwrap_or_default();
-    if let Some(names) = xkb_names(&keyboard) {
-        log::info!(
+    let names = &found.names;
+    match &found.origin {
+        Origin::ConsoleKeymap(keymap) => log::info!(
+            target: "input",
+            "the keyboard layout comes from the console keymap {keymap}: layout {:?}, model {:?}, variant {:?}, options {:?}",
+            names.layout, names.model, names.variant, names.options
+        ),
+        Origin::KeyboardFile => log::info!(
             target: "input",
             "the keyboard layout comes from /{KEYBOARD}: layout {:?}, model {:?}, variant {:?}, options {:?}",
             names.layout, names.model, names.variant, names.options
-        );
-        return names;
+        ),
+        Origin::Localed | Origin::Default => {}
     }
-    localed.map(|read| read()).unwrap_or_default()
+    found.names
 }
 
 /// The X11 rules' names in the text of /etc/default/keyboard, or `None`
