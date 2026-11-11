@@ -1156,14 +1156,15 @@ impl Head {
     }
 
     /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), in each style a cell draws its glyph
-    /// in, bold, italic, both or neither (ADR-1200 D21): the characters,
-    /// every character of a cluster among them, and the clusters whole,
-    /// each sorted and once. The regular style comes first, shown or not,
-    /// and each other style only where a cell shows it.
+    /// scrolled back or not (#149), in each variant a cell draws its glyph
+    /// in, bold, italic, both or neither, and normal, superscript or
+    /// subscript (ADR-1200 D21, ADR-1202 D11): the characters, every
+    /// character of a cluster among them, and the clusters whole, each
+    /// sorted and once. The regular normal variant comes first, shown or
+    /// not, and each other variant only where a cell shows it.
     #[cfg(not(feature = "bidi"))]
     pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::{Age, Attrs, Glyph};
+        use vtium_term::{Age, Glyph};
         let palette = self.console.term.terminal.palette();
         let frame = self
             .console
@@ -1174,17 +1175,14 @@ impl Head {
         let mut all = vec![Shown::default()];
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
-                let style = vtium_font::Style {
-                    bold: cell.attrs.contains(Attrs::BOLD),
-                    italic: cell.attrs.contains(Attrs::ITALIC),
-                };
-                if !all.iter().any(|s| s.style == style) {
+                let variant = crate::deferred::variant_of(cell.attrs);
+                if !all.iter().any(|s| s.variant == variant) {
                     all.push(Shown {
-                        style,
+                        variant,
                         ..Shown::default()
                     });
                 }
-                let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+                let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
                     continue;
                 };
                 match cell.glyph {
@@ -1209,10 +1207,10 @@ impl Head {
 
     /// What the displays show, read from the view each buffer draws,
     /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
-    /// reads it: in each style a cell draws its glyph in, the characters
-    /// and the clusters, each sorted and once. The regular style comes
-    /// first, shown or not, and each other style only where a cell shows
-    /// it.
+    /// reads it: in each variant a cell draws its glyph in, the characters
+    /// and the clusters, each sorted and once. The regular normal variant
+    /// comes first, shown or not, and each other variant only where a cell
+    /// shows it.
     #[cfg(feature = "bidi")]
     pub(crate) fn visible(&self) -> Vec<Shown> {
         use vtium_term::Age;

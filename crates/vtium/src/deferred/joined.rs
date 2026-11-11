@@ -191,7 +191,7 @@ impl DeferredFace {
     /// else its own glyph, unjoined.
     pub(super) fn form(&self, sides: Sides, letter: char, style: Style) -> Option<Glyph> {
         let key: Text = sides.key(vec![letter]);
-        let held = lock(&self.generated).draw(self.at(), &key, style);
+        let held = lock(&self.generated).draw(self.at(), &key, style.into());
         held.or_else(|| self.presented_as(letter_form(letter, sides)?, letter, style))
             .or_else(|| self.single(letter, style))
     }
@@ -203,7 +203,7 @@ impl DeferredFace {
     /// another font.
     fn presented_as(&self, form: char, letter: char, style: Style) -> Option<Glyph> {
         let store = lock(&self.generated);
-        if let Some(g) = store.draw(self.at(), &[form], style) {
+        if let Some(g) = store.draw(self.at(), &[form], style.into()) {
             return Some(g);
         }
         if store.held_any(self.at(), &[letter]) || !self.builtin.has_glyph(form) {
@@ -257,7 +257,7 @@ mod tests {
     use std::sync::Arc;
     use vtium_font::set::{PixelFormat, Set, SetBuilder, StrikeBuilder};
     use vtium_font::spacing::SpacedCell;
-    use vtium_font::{Cell, Face, Font, Unifont};
+    use vtium_font::{Cell, Face, Font, Unifont, Variant};
 
     const CELL: Cell = Cell {
         width: 8,
@@ -287,7 +287,7 @@ mod tests {
         {
             let mut g: std::sync::MutexGuard<'_, Generated> = lock(&generated);
             let fresh = g
-                .fresh((SpacedCell::plain(CELL), Style::default()), set, &runs, 1)
+                .fresh((SpacedCell::plain(CELL), Variant::default()), set, &runs, 1)
                 .unwrap();
             g.add(fresh);
         }
