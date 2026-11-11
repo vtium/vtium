@@ -7,6 +7,3 @@ vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn
 rapid-blink-shown-unifont	#37: SGR 5's blink hidden and SGR 6's shown, drawn by vtium; not reviewed yet
 rapid-blink-hidden-unifont	#37: SGR 6's blink hidden and SGR 5's shown, drawn by vtium; not reviewed yet
 script-unifont	#37: superscript and subscript beside normal text in unifont, drawn by vtium; not reviewed yet
-link-overlay-unifont	#40: the hovered link's address on the overlay row, drawn by vtium; not reviewed yet
-link-overlay-cut-unifont	#40: the hovered link's address cut with … on the top row's overlay, drawn by vtium; not reviewed yet
-link-overlay-reverse-unifont	#40: the hovered link's address on the overlay row under reverse video, drawn by vtium; not reviewed yet
