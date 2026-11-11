@@ -202,9 +202,10 @@ impl Fallback {
     /// bitmap for a color glyph unifont has, and at 1 bit the 1-bit shape of
     /// a sprite of partial coverage, drawn at that size so it is not
     /// scaled, with the light lines the font's sprites have at that height
-    /// ([`sprite::light_line`]). A superscript or subscript glyph is the
-    /// stand-in scaled the same way, and a mask in either keeps its own
-    /// scaled shape.
+    /// ([`sprite::light_line`]). A superscript or subscript color glyph's
+    /// stand-in is unifont's small glyph, 1-bit (ADR-1202 D10), and a
+    /// script mask keeps its own small shape: a bitmap font's is 1-bit
+    /// already.
     pub(crate) fn glyph(
         &self,
         glyph: &Glyph,

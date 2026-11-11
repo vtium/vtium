@@ -38,7 +38,7 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, RangeCoverage, SpritePolicy, Style, Width,
+    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, SpritePolicy, Style, Width,
 };
 
 mod data;
@@ -1329,6 +1329,35 @@ impl Face for DeferredFace {
 
     fn band(&self) -> Band {
         self.band
+    }
+
+    /// For a character the store lacks, and for the last resort, the
+    /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
+    /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
+    /// glyphs come from the helper, and a longer cluster draws from several
+    /// glyphs, so their origin is the default, a smooth glyph over the text
+    /// band.
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        let glyph = match *cluster {
+            [] => self.builtin.last_resort(style),
+            [c] if lock(&self.generated).draw(self.at(), &[c], style).is_none() => {
+                self.builtin.draw(&[c], style)
+            }
+            _ => None,
+        };
+        let Some(glyph) = glyph else {
+            return Origin::default();
+        };
+        let text = self.text();
+        let to = (
+            text.width.saturating_mul(glyph.cells().cells()),
+            text.height,
+        );
+        self.builtin.origin(cluster, style).boxed(
+            (glyph.width(), glyph.height()),
+            to,
+            self.band.above,
+        )
     }
 
     /// The face's built-in font alone, fitted to its cell as it draws a
