@@ -69,6 +69,9 @@ considered:
   - operator: aaronsb
     said: "Having no aliasing and crisp text is the better half of the tradeoff"
     via: steering session, 2026-11-11, after accepting script-unifont
+  - operator: aaronsb
+    said: "the underline is not tracking the text position of an under item, and struck line tracking is not struck out, the line appears above it. (the underline and strike lines are likely following the font's conventional non-super or sub positioning. let's make sure we have a sane decision tree for the engine to plan where to draw the lines for under or struck. for reversed items, I think the text block is ok, because it fills the entire character box."
+    via: question tool, 2026-11-11, reviewing slice 3's tier 2 pictures
 observable:
   - "Tier 2's `script-unifont` screen shows every superscript and subscript pixel fully on or fully off, each small glyph two thirds of its cell's height, with the shapes the figure's last row shows"
   - "The same screen in 1-bit mode shows the same small glyphs, where today it shows broken strokes"
