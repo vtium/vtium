@@ -542,7 +542,7 @@ mod tests {
         ]));
         let mut read = |buf: &mut [u8]| match script.borrow_mut().pop_front() {
             Some(Ok(record)) => {
-                buf[..record.len()].copy_from_slice(record);
+                buf.get_mut(..record.len()).unwrap().copy_from_slice(record);
                 Ok(record.len())
             }
             Some(Err(e)) => Err(e),
