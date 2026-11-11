@@ -7962,3 +7962,38 @@ display card:mem-large -> here
         "head here keeps its display"
     );
 }
+
+/// ADR-1401 D3: a display unplugged and plugged in again shows its notice
+/// again on the screen it had, so toggling it adds no screen.
+#[test]
+fn a_notice_display_unplugged_and_plugged_again_adds_no_screen() {
+    let mut s = showing_a_notice(&[]);
+    let screens = s.app.screen_count();
+    for _ in 0..3 {
+        s.unplug("/dev/mem0", now());
+        assert!(s.until(BOUND, |a| a.display_notice("MEM-1").is_none()));
+        s.plug("/dev/mem0", now());
+        assert!(s.until(BOUND, |a| {
+            a.display_notice("MEM-1").is_some_and(|(_, on)| on)
+        }));
+    }
+    assert_eq!(s.app.screen_count(), screens);
+}
+
+/// ADR-1401 D5: a notice's screen is not a terminal, so under
+/// `osd = full` it shows no OSD when its display comes back.
+#[test]
+fn a_notice_shown_again_shows_no_osd() {
+    let mut s = showing_a_notice(&["--osd=full"]);
+    s.app.turn(now() + Duration::from_secs(4));
+    assert_eq!(s.memory("/dev/mem0").parks, 1);
+    s.type_on(KBD_A, "x");
+    assert!(s.until(BOUND, |a| {
+        a.display_notice("MEM-1").is_some_and(|(_, on)| on)
+    }));
+    let frames = s.memory("/dev/mem0").frames;
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames));
+    let head = s.app.notice_head("MEM-1").expect("the notice's screen");
+    assert!(!head.shows_osd(), "the notice's screen shows no OSD");
+    assert_eq!((head.status(), head.mark()), (None, None));
+}

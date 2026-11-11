@@ -638,6 +638,12 @@ impl Head {
         self.status.as_deref()
     }
 
+    /// Whether the head shows its on-screen display, or is to show it at
+    /// its next frame (ADR-1401 D5).
+    pub fn shows_osd(&self) -> bool {
+        self.osd_shown
+    }
+
     /// The on-screen display shows `line` as its brief line from the
     /// head's next frame, which answers one press (ADR-1401 D5). Under
     /// `osd = off`, which `osd` gives, vtium shows no brief line, so the

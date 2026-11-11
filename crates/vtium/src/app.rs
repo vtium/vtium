@@ -206,10 +206,12 @@ impl dyn SeatVt {
 #[derive(Debug)]
 struct Unused {
     /// The head of [`App::heads`] that draws the notice, after the heads
-    /// of this VT and the notice screen, kept for the rest of the run.
+    /// of this VT and the notice screen. It goes to
+    /// [`App::spare_notices`] when the display goes.
     head: usize,
     /// When the notice's time is up: `osd-timeout` from the first turn it
-    /// is on the display.
+    /// is on the display, or from the last switch back to this VT, wake
+    /// from the blank or key press since.
     due: Option<Instant>,
     /// Set off and its buffers freed once the time was up, until a key on
     /// this VT or a switch back to it.
@@ -245,6 +247,11 @@ pub struct App {
     /// Under open, the notice of each display that no path catches on this
     /// VT (ADR-1401 D3), by its device and its connector.
     notices: BTreeMap<(PathBuf, String), Unused>,
+    /// The heads of [`App::heads`] that drew the notice of a display that
+    /// has gone, or now has a path, each kept for the next display that
+    /// needs a notice, so a display unplugged and plugged in again adds no
+    /// head.
+    spare_notices: Vec<usize>,
     /// The displays a DRM card announces for their notices though the rules
     /// leave them dark, by device and connector, which each card's dark
     /// policy reads.
@@ -490,6 +497,7 @@ impl App {
             built,
             screen: None,
             notices: BTreeMap::new(),
+            spare_notices: Vec::new(),
             wanted: Rc::default(),
             stopped: false,
             focus: None,
@@ -571,6 +579,7 @@ impl App {
         self.heads = session::heads(&declared, &self.config, scrollback, caps, &self.clock);
         self.built = self.heads.len();
         self.notices.clear();
+        self.spare_notices.clear();
         self.wanted.borrow_mut().clear();
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -715,9 +724,22 @@ impl App {
     /// open, while no path catches it on this VT (ADR-1401 D3): its words,
     /// and whether it is on the display now.
     pub fn display_notice(&self, connector: &str) -> Option<(&str, bool)> {
-        let (_, n) = self.notices.iter().find(|((_, c), _)| c == connector)?;
-        let head = self.heads.get(n.head)?;
+        let head = self.notice_head(connector)?;
         Some((head.notice()?, !head.views.is_empty()))
+    }
+
+    /// The screen that draws the notice of the display named `connector`
+    /// ([`App::display_notice`]).
+    pub fn notice_head(&self, connector: &str) -> Option<&Head> {
+        let (_, n) = self.notices.iter().find(|((_, c), _)| c == connector)?;
+        self.heads.get(n.head)
+    }
+
+    /// How many screens vtium keeps: the heads of its VT, the notice
+    /// screen of a closed policy, and the screens that draw the notices
+    /// of displays no path catches.
+    pub fn screen_count(&self) -> usize {
+        self.heads.len()
     }
 
     /// The head the keys type into, else the first: the one whose session
@@ -1918,17 +1940,25 @@ impl App {
             .collect();
         for key in gone {
             self.wanted.borrow_mut().remove(&key);
-            if let Some(n) = self.notices.remove(&key) {
-                let views: Vec<(PathBuf, DisplayId)> = self
-                    .heads
-                    .get(n.head)
-                    .map(|h| h.views.keys().cloned().collect())
-                    .unwrap_or_default();
-                for view in views {
-                    self.unlight(view.clone());
-                    self.dark.remove(&view);
-                    self.add_display(&view.0, view.1);
-                }
+            let Some(n) = self.notices.remove(&key) else {
+                continue;
+            };
+            // A display that now has a path leaves the notice's head for
+            // the head its rules give it, lit as it was: it is never set
+            // off on the way.
+            let views: Vec<(PathBuf, DisplayId)> = self
+                .heads
+                .get_mut(n.head)
+                .map(|h| {
+                    let views: Vec<_> = h.views.keys().cloned().collect();
+                    h.drop_views(|_| true);
+                    views
+                })
+                .unwrap_or_default();
+            self.spare_notices.push(n.head);
+            for view in views {
+                self.lit.remove(&view);
+                self.add_display(&view.0, view.1);
             }
         }
         let Some(vt) = self.vt_heads.vt() else {
@@ -1947,12 +1977,26 @@ impl App {
                 Some(n) if n.parked => continue,
                 Some(n) => n.head,
                 None => {
-                    let term =
-                        crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
-                    let mut head = Head::notice_screen(&self.config, term);
-                    head.set_notice(&text);
-                    self.heads.push(head);
-                    let head = self.heads.len().saturating_sub(1);
+                    let spare = self
+                        .spare_notices
+                        .pop()
+                        .filter(|&h| self.heads.get(h).is_some_and(|h| h.views.is_empty()));
+                    let head = match spare {
+                        Some(h) => h,
+                        None => {
+                            let term = crate::head::terminal(
+                                &self.config,
+                                (0, 0),
+                                0,
+                                Rc::clone(&self.clock),
+                            );
+                            self.heads.push(Head::notice_screen(&self.config, term));
+                            self.heads.len().saturating_sub(1)
+                        }
+                    };
+                    if let Some(h) = self.heads.get_mut(head) {
+                        h.set_notice(&text);
+                    }
                     log::info!("display {}: {text}", key.1);
                     self.notices.insert(
                         key.clone(),
@@ -2603,7 +2647,7 @@ impl App {
     /// resizes the grid when its own differs, and stops the hang-up's
     /// time.
     fn attachment(&mut self, now: Instant) {
-        let several = self.heads.len() > 1;
+        let several = self.heads.iter().filter(|h| !h.notice_only).count() > 1;
         let full = self.osd.mode == osd::Mode::Full && self.osd.shows_on_change();
         let mut changed = false;
         for head in &mut self.heads {
@@ -2622,6 +2666,13 @@ impl App {
                 String::new()
             };
             match (head.attached, attached) {
+                // A screen that shows a notice alone is not a terminal: it
+                // has no session to hang up or keep, and no OSD.
+                (Attached::Yes, Attached::Gone) | (Attached::Gone, Attached::Yes)
+                    if head.notice_only =>
+                {
+                    changed = true;
+                }
                 (Attached::Yes, Attached::Gone) => {
                     head.drop_osd();
                     let hangup = match head.when_display_lost {
