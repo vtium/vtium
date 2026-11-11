@@ -1495,6 +1495,8 @@ The build made five choices of its own, each for the reason given:
 
 > Note 2026-11-10: in the libseat build, the unit opens a PAM session of vtium's own (ADR-1400 D3), and systemd refuses to load a unit that sets `PAMName=` together with `KillMode=process` (systemd 262, measured with `systemd-analyze verify`). So that build's drop-in sets `KillMode=mixed`, and the maintainer accepted that (`considered`, 2026-11-10, "Accept mixed (Recommended)"). The builds without libseat keep `KillMode=process`. On the libseat build, a login prompt nobody has used yet, and a program that vtium.conf's login key runs without a PAM session, live in the unit and end at a restart of vtium. The restarted vtium starts a fresh prompt as soon as it draws, so only a half-typed username is lost. A logged-in session is expected to survive, because `pam_systemd` moves it into a logind session scope of its own. That is not yet measured; tier 3 owes the measurement.
 
+> Note 2026-11-10, later: the survival of a logged-in session is measured. A shell was logged in on a vtium built with libseat, running under logind with the drop-in's `KillMode=mixed`, in a virtual machine. After a restart of vtium's unit, and again after vtium was killed with SIGKILL, a new vtium took the session back, and the shell answered a line typed in it.
+
 ### D14: each mode set resets the connector's color
 
 > Added 2026-11-04: the maintainer decided that vtium resets a connector's color properties to their defaults at each mode set (`basis`, 2026-11-03).
