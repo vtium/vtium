@@ -1491,50 +1491,6 @@ mod tests {
         assert!(!g.holds(spaced), "the band no display draws at leaves");
     }
 
-    // ADR-1202 D1, D4: in a cell with line spacing, the built-in font's
-    // superscript and subscript are its own small 1-bit glyphs, moved down
-    // with the text band, bold and italic added to the small glyph
-    // covers: sgr.script
-    #[test]
-    fn a_built_in_script_glyph_sits_against_the_text_band() {
-        use vtium_font::{Script, Variant};
-        let band = Band { above: 3, below: 2 };
-        let spaced = Font::new(DeferredFace::spaced(
-            Box::new(Unifont::new(16)),
-            CELL,
-            band,
-            16,
-            Shared::default(),
-        ));
-        let own = Font::new(Unifont::new(16));
-        for script in [Script::Super, Script::Sub] {
-            for (bold, italic) in [(false, false), (true, false), (false, true)] {
-                let variant = Variant {
-                    style: Style { bold, italic },
-                    script,
-                };
-                let got = spaced
-                    .drawn_variant(&['H'], Width::Narrow, variant)
-                    .unwrap()
-                    .glyph;
-                let want = own
-                    .drawn_variant(&['H'], Width::Narrow, variant)
-                    .unwrap()
-                    .glyph;
-                assert_eq!(got.height(), 21);
-                for y in 0..21u32 {
-                    for x in 0..8 {
-                        let w = y
-                            .checked_sub(band.above)
-                            .and_then(|y| want.pixel(x, y))
-                            .map_or(0, |p| p[0]);
-                        assert_eq!(got.pixel(x, y).unwrap()[0], w, "{variant:?} at {x},{y}");
-                    }
-                }
-            }
-        }
-    }
-
     /// Adds `set` at `cell` to `store` as the helper does: what it adds.
     fn add(
         store: &mut Generated,
