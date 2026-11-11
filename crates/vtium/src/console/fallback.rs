@@ -14,8 +14,9 @@
 //! queued, or is enabled, linked, an alias, enabled indirectly or
 //! generated holds the getty back: then vtium starts nothing,
 //! says why, and the VT is left without a console. vtium's own units on VT
-//! N, `vtium@ttyN` and `vtium-dev@ttyN`, do not hold it back: the getty
-//! takes the VT in their place, which is what the fallback is for. When
+//! N, `vtium@ttyN`, `vtium-seat@ttyN` and `vtium-dev@ttyN`, do not hold it
+//! back: the getty takes the VT in their place, which is what the fallback
+//! is for. When
 //! vtium cannot ask the manager, it cannot tell what the start would stop,
 //! so it starts nothing either.
 //!
@@ -31,7 +32,7 @@
 
 use std::collections::BTreeMap;
 
-use super::{DEV, GETTY, Run, Step, Stop, VTIUM, text};
+use super::{DEV, GETTY, Run, SEAT, Step, Stop, VTIUM, text};
 
 /// A unit's state, from `systemctl show -p Id -p ActiveState -p
 /// UnitFileState -p Job`.
@@ -83,6 +84,7 @@ impl Run<'_, '_, '_> {
         let getty = format!("{GETTY}@tty{n}.service");
         let ours = [
             format!("{VTIUM}@tty{n}.service"),
+            format!("{SEAT}@tty{n}.service"),
             format!("{DEV}@tty{n}.service"),
         ];
         let show = self

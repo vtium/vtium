@@ -783,9 +783,10 @@ mod tests {
         assert_eq!(
             lines,
             [
-                "argument 2: palette=\"frob\" is not one of legacy, custom, nord, solarized, \
-                 solarized-black, solarized-white, soft-black, base16-dark, base16-light, vga, \
-                 ignored"
+                "argument 2: palette=\"frob\" is not a value this setting takes. It takes legacy, \
+                 custom, nord, solarized, solarized-black, solarized-white, soft-black, \
+                 base16-dark, base16-light, or vga. Because of this error, vtium ignores this \
+                 setting."
             ]
         );
         for name in vtium_term::PALETTE_NAMES.iter().chain(&["custom"]) {
@@ -837,7 +838,20 @@ mod tests {
         let (lines, _) = run_with(&[], "display-buffers=4\n");
         assert_eq!(
             lines,
-            ["/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not one of 1, 2, 3, ignored"]
+            [
+                "/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not a value this setting takes. It takes 1, 2, or 3. Because of this error, vtium ignores this setting."
+            ]
+        );
+        // ADR-1401 D15: kernel-messages takes its two values alone.
+        assert_eq!(run_with(&[], "kernel-messages=always\n"), (Vec::new(), 0));
+        assert_eq!(
+            run_with(&[], "kernel-messages=sometimes\n"),
+            (
+                vec![
+                    "/etc/vtium/vtium.conf:1: kernel-messages=\"sometimes\" is not a value this setting takes. It takes after-plymouth or always. Because of this error, vtium ignores this setting.".to_owned()
+                ],
+                1
+            )
         );
     }
 

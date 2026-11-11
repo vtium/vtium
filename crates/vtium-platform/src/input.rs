@@ -27,9 +27,10 @@ mod event;
 mod keyboard;
 mod link;
 mod pointer;
+mod system;
 
 #[cfg(test)]
-mod fake;
+pub(crate) mod fake;
 #[cfg(test)]
 mod tests;
 
@@ -39,8 +40,9 @@ pub use event::{
     Button, DeviceId, DeviceInput, Disposition, InputEvent, KeyEvent, Mods, PointerEvent,
 };
 
-use evdev::EventDevice;
-pub use keyboard::{Keymap, KeymapConfig, Leds, locale};
+pub(crate) use evdev::EventDevice;
+pub use keyboard::{Keymap, KeymapConfig, Leds, RuleNames, locale};
+pub use system::system_layout;
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -48,7 +50,11 @@ use std::time::{Duration, Instant};
 
 use calloop::{LoopHandle, RegistrationToken};
 
-use evdev::{Capabilities, EVENTS_PER_READ, RawEvent};
+#[cfg(test)]
+pub(crate) use evdev::RawEvent;
+#[cfg(not(test))]
+use evdev::RawEvent;
+use evdev::{Capabilities, EVENTS_PER_READ};
 use keyboard::{KeyState, Keyboard, RepeatChange};
 use link::{Link, LoopLink};
 use pointer::Pointer;
@@ -107,13 +113,45 @@ impl InputConfig {
     }
 }
 
+/// What an open of a device gave.
+pub(crate) enum Opening<D> {
+    /// The device, open.
+    Open(D),
+    /// The device is not ready yet. [`Input`] keeps it and tries it again
+    /// from the loop's timer after [`Open::retry_every`].
+    #[cfg_attr(
+        not(feature = "libseat"),
+        expect(dead_code, reason = "only the seat manager answers it")
+    )]
+    Retry,
+    /// The device is refused until the seat is vtium's again. [`Input`]
+    /// keeps it and tries it again at its next wake-up.
+    #[cfg_attr(
+        not(feature = "libseat"),
+        expect(dead_code, reason = "only the seat manager answers it")
+    )]
+    Wake,
+}
+
 /// How the devices are opened: directly, or through the seat manager
 /// (vtium/vtium#34).
 pub(crate) trait Open {
     type Device: EventDevice;
-    fn open(&mut self, node: &Path) -> io::Result<Self::Device>;
-    fn close(&mut self, device: Self::Device) {
+    fn open(&mut self, node: &Path) -> io::Result<Opening<Self::Device>>;
+    /// Closes the device opened from `node`.
+    fn close(&mut self, node: &Path, device: Self::Device) {
+        let _ = node;
         drop(device);
+    }
+    /// How long [`Input`] waits before it tries a device again that
+    /// answered [`Opening::Retry`].
+    fn retry_every(&self) -> Duration {
+        Duration::from_millis(100)
+    }
+    /// The device at `node` is gone: what the opener kept of its opens goes
+    /// with it, since the kernel gives a later device the same node.
+    fn forget(&mut self, node: &Path) {
+        let _ = node;
     }
 }
 
@@ -123,8 +161,8 @@ pub struct Direct;
 
 impl Open for Direct {
     type Device = Evdev;
-    fn open(&mut self, node: &Path) -> io::Result<Evdev> {
-        Evdev::open(node)
+    fn open(&mut self, node: &Path) -> io::Result<Opening<Evdev>> {
+        Evdev::open(node).map(Opening::Open)
     }
 }
 
@@ -147,6 +185,17 @@ struct Device<E> {
     pointer_max: Option<(i32, i32)>,
     /// The modifiers the owner was last told this keyboard holds.
     told: Mods,
+    /// Closed, and waiting to be opened again (see [`Opening`]).
+    waiting: Option<Waiting>,
+}
+
+/// What a device that is not open yet waits for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Waiting {
+    /// The retry timer.
+    Timer,
+    /// The input's next wake-up.
+    Wake,
 }
 
 impl<E> Device<E> {
@@ -215,6 +264,11 @@ struct Probed {
 #[expect(private_bounds, reason = "the opener is Direct outside the crate")]
 pub struct Input<O: Open = Direct> {
     opener: O,
+    /// The seat manager, which opens every device in the opener's place
+    /// once [`Input::open_through`] gives it.
+    seat: Option<Box<dyn Open<Device = O::Device>>>,
+    /// The retry timer is set.
+    retry_armed: bool,
     keymap: Keymap,
     config: InputConfig,
     /// Wake-ups minus sleeps: the devices are open while it is above 0.
@@ -244,6 +298,8 @@ impl<O: Open + 'static> Input<O> {
     pub fn new(opener: O, keymap: Keymap, config: InputConfig) -> Input<O> {
         Input {
             opener,
+            seat: None,
+            retry_armed: false,
             keymap,
             config,
             awake: 0,
@@ -355,6 +411,7 @@ impl<O: Open + 'static> Input<O> {
             disposition,
             pointer_max: None,
             told: Mods::empty(),
+            waiting: None,
         });
         if self.awake > 0 && !self.wake_device(id) {
             return None;
@@ -365,6 +422,12 @@ impl<O: Open + 'static> Input<O> {
     /// A device udev reported gone.
     pub fn remove(&mut self, id: DeviceId) {
         self.close(id);
+        if let Some(device) = self.devices.iter().find(|d| d.id == id) {
+            match self.seat.as_mut() {
+                Some(seat) => seat.forget(&device.node),
+                None => self.opener.forget(&device.node),
+            }
+        }
         self.devices.retain(|d| d.id != id);
     }
 
@@ -463,13 +526,29 @@ impl<O: Open + 'static> Input<O> {
         if device.open.is_some() || device.disposition == Some(Disposition::Closed) {
             return true;
         }
-        let mut dev = match self.opener.open(&device.node) {
-            Ok(dev) => dev,
+        let opened = match self.seat.as_mut() {
+            Some(seat) => seat.open(&device.node),
+            None => self.opener.open(&device.node),
+        };
+        let mut dev = match opened {
+            Ok(Opening::Open(dev)) => dev,
+            Ok(Opening::Retry) => {
+                log::debug!(target: "input", "{} is not ready, trying again", device.node.display());
+                device.waiting = Some(Waiting::Timer);
+                self.arm_retry();
+                return true;
+            }
+            Ok(Opening::Wake) => {
+                log::debug!(target: "input", "{} waits for the seat", device.node.display());
+                device.waiting = Some(Waiting::Wake);
+                return true;
+            }
             Err(e) => {
                 log::warn!(target: "input", "cannot open {}: {e}", device.node.display());
                 return false;
             }
         };
+        device.waiting = None;
         let first = device.probed.is_none();
         if first {
             let disposition = device.disposition;
@@ -482,7 +561,7 @@ impl<O: Open + 'static> Input<O> {
             ) {
                 Some(probed) => device.probed = Some(probed),
                 None => {
-                    self.opener.close(dev);
+                    close_with(&mut self.opener, &mut self.seat, &device.node, dev);
                     return false;
                 }
             }
@@ -533,10 +612,64 @@ impl<O: Open + 'static> Input<O> {
         if let (Some(token), Some(link)) = (device.watch.take(), &self.link) {
             link.unwatch(token);
         }
+        device.waiting = None;
         if let Some(dev) = device.open.take() {
-            self.opener.close(dev);
+            close_with(&mut self.opener, &mut self.seat, &device.node, dev);
         }
         device.tell_mods(&mut self.queue);
+    }
+
+    /// Sets the retry timer, when the input is in a loop and the timer is
+    /// not set already.
+    fn arm_retry(&mut self) {
+        if self.retry_armed {
+            return;
+        }
+        let every = match &self.seat {
+            Some(seat) => seat.retry_every(),
+            None => self.opener.retry_every(),
+        };
+        if let Some(link) = &self.link {
+            self.retry_armed = link.retry(every);
+        }
+    }
+
+    /// The retry timer fired: each device waiting for it is tried again
+    /// while the input is awake. Returns when to fire again, while a device
+    /// still waits for the timer.
+    pub(crate) fn retry(&mut self) -> Option<Duration> {
+        // The timer that fired stays the one timer while the devices are
+        // tried, so a device that answers `Retry` again sets no other.
+        self.retry_armed = true;
+        if self.awake > 0 {
+            let ids: Vec<DeviceId> = self
+                .devices
+                .iter()
+                .filter(|d| d.waiting == Some(Waiting::Timer))
+                .map(|d| d.id)
+                .collect();
+            for id in ids {
+                self.wake_device(id);
+            }
+        }
+        let again = self.awake > 0
+            && self
+                .devices
+                .iter()
+                .any(|d| d.waiting == Some(Waiting::Timer));
+        self.retry_armed = again;
+        again.then(|| match &self.seat {
+            Some(seat) => seat.retry_every(),
+            None => self.opener.retry_every(),
+        })
+    }
+
+    /// Whether a device waits to be opened.
+    #[cfg(all(test, feature = "libseat"))]
+    pub(crate) fn waiting(&self, id: DeviceId) -> bool {
+        self.devices
+            .iter()
+            .any(|d| d.id == id && d.waiting.is_some())
     }
 
     /// Reads a device's events at `now` until none are waiting, at most
@@ -734,6 +867,50 @@ impl<O: Open + 'static> Input<O> {
                 device.watch = link.watch(id, fd);
             }
         }
+        if self
+            .devices
+            .iter()
+            .any(|d| d.waiting == Some(Waiting::Timer))
+        {
+            self.arm_retry();
+        }
+    }
+
+    /// From here on, every device opens through `seat`, the seat manager,
+    /// in place of the opener (ADR-1400's L2 layer). A device open already
+    /// is closed through the opener and opened again through the seat
+    /// while the input is awake.
+    #[cfg_attr(
+        not(feature = "libseat"),
+        expect(dead_code, reason = "only a libseat build opens through the seat")
+    )]
+    pub(crate) fn open_with(&mut self, seat: impl Open<Device = O::Device> + 'static) {
+        let open: Vec<DeviceId> = self
+            .devices
+            .iter()
+            .filter(|d| d.open.is_some())
+            .map(|d| d.id)
+            .collect();
+        for id in &open {
+            self.close(*id);
+        }
+        self.seat = Some(Box::new(seat));
+        if self.awake > 0 {
+            for id in open {
+                self.wake_device(id);
+            }
+        }
+    }
+}
+
+#[cfg(feature = "libseat")]
+impl Input<Direct> {
+    /// From here on, every keyboard and pointer opens through the seat
+    /// manager that `seat` comes from, in place of a direct open
+    /// (ADR-1400's L2 layer). vtium calls it once the seat manager has
+    /// answered, with [`crate::seat::LibseatVt::input`].
+    pub fn open_through(&mut self, seat: crate::seat::SeatInput) {
+        self.open_with(seat);
     }
 }
 
@@ -800,5 +977,19 @@ fn pixel(width: u32, height: u32) -> (i32, i32) {
 fn write_leds<E: EventDevice>(dev: &mut E, node: &Path, leds: Leds) {
     if let Err(e) = dev.write_leds(&leds.codes()) {
         log::warn!(target: "input", "cannot set the LEDs of {}: {e}", node.display());
+    }
+}
+
+/// Closes `dev`, opened from `node`, through whichever opened it: the seat
+/// manager once it opens the devices, else the opener.
+fn close_with<O: Open>(
+    opener: &mut O,
+    seat: &mut Option<Box<dyn Open<Device = O::Device>>>,
+    node: &Path,
+    dev: O::Device,
+) {
+    match seat {
+        Some(seat) => seat.close(node, dev),
+        None => opener.close(node, dev),
     }
 }

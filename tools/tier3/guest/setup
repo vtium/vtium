@@ -4,6 +4,18 @@
 # variant's config, its test fonts, its frits and the scenario screens.
 set -eu
 disc=$1
+# The boot-claim variant (t3_seat.py) starts the guest's userspace again
+# once vtium console has claimed the VTs, with systemctl soft-reboot, so
+# systemd starts vtium on the claimed VTs at boot from the links the claim
+# made, as on a machine rebooted after the claim. The first pass keeps its
+# report line in $claimed; on the second boot this setup runs again, and
+# then only reports that line and starts the agent.
+claimed=/var/lib/tier3/claimed
+if [ -f "$claimed" ]; then
+    cat "$claimed" > /dev/ttyS0
+    systemctl start --no-block t3-agent.service
+    exit 0
+fi
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
 tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 # A variant naming features runs vtium built with them in place of the
@@ -112,22 +124,40 @@ if [ -f "$disc"/t3-agent ]; then
     install -m755 "$disc"/t3-agent /usr/local/sbin/t3-agent
     install -m644 "$disc"/t3-agent.service /etc/systemd/system/t3-agent.service
 fi
+# The mode vtium runs in on the guest's VTs (ADR-1400 D3): direct, through
+# vtium@.service, unless the variant names seat mode, through
+# vtium-seat@.service, which a tree built with libseat and logind ships.
+mode=direct
+[ ! -f "$disc"/mode ] || mode=$(cat "$disc"/mode)
+unit=vtium@.service
+[ "$mode" != seat ] || unit=vtium-seat@.service
 # The console's log also goes to the serial console, so the harness can read
 # which video backend and text renderer drew the screens.
-mkdir -p /etc/systemd/system/vtium@.service.d
+mkdir -p /etc/systemd/system/$unit.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
-    > /etc/systemd/system/vtium@.service.d/tier3.conf
+    > /etc/systemd/system/$unit.d/tier3.conf
+# A seat variant (t3_seat.py) names the seat manager libseat must take:
+# seatd, which setup starts, or logind. LIBSEAT_BACKEND holds libseat to it,
+# so the variant fails rather than pass through another backend.
+if [ -f "$disc"/seat ]; then
+    backend=$(cat "$disc"/seat)
+    printf '[Service]\nEnvironment=LIBSEAT_BACKEND=%s\n' "$backend" \
+        > /etc/systemd/system/$unit.d/t3-seat.conf
+    if [ "$backend" = seatd ]; then
+        systemctl start --no-block seatd.service
+    fi
+fi
 # vtium takes the guest's VTs the way a user gives them to it. The base
 # image leaves autovt@.service, the unit logind starts on a VT the driver
 # switches to, linked as Arch's systemd package has it, to getty@.service.
 # The ln below states that link, so the guest starts from a stock install
-# whatever the image holds. The enable step then links it to vtium@.service,
-# recording the getty. It changes only what starts
+# whatever the image holds. The enable step then links it to the mode's
+# unit, recording the getty. It changes only what starts
 # next, and the boot's units are already queued, so tty1 keeps its getty and
 # logind starts vtium on tty2 at the driver's switch.
 ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
-if ! out=$(vtium console enable --all 2>&1); then
-    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\n' "$out" > /dev/ttyS0
+if ! out=$(vtium console enable --"$mode" --all 2>&1); then
+    printf 'TIER3-INSTALL-FAIL vtium console enable --%s --all: %s\n' "$mode" "$out" > /dev/ttyS0
     exit 1
 fi
 systemctl daemon-reload
@@ -139,14 +169,22 @@ install -m755 "$disc"/t3 /usr/local/bin/t3
 stty -F /dev/ttyS1 clocal
 chmod 0666 /dev/ttyS1
 echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
-if [ -f /etc/systemd/system/t3-agent.service ]; then
-    systemctl start --no-block t3-agent.service
-fi
 # Any kmscon, libtsm or vtium package installed, which must be none; the
 # kernel the guest runs, which the report records; the image helper and its
 # account; and the tree unpacked, so the log shows which build drew the
 # screens.
-echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+report=$(echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
     "kernel: $(uname -r);" \
     "images: $images;" \
-    "tree: $tree" > /dev/ttyS0
+    "tree: $tree")
+if [ -f "$disc"/soft-reboot ]; then
+    mkdir -p "${claimed%/*}"
+    printf '%s\n' "$report" > "$claimed"
+    echo "TIER3-SOFT-REBOOT the claim is made; the guest's userspace starts again" > /dev/ttyS0
+    systemctl --no-block soft-reboot
+    exit 0
+fi
+if [ -f /etc/systemd/system/t3-agent.service ]; then
+    systemctl start --no-block t3-agent.service
+fi
+echo "$report" > /dev/ttyS0

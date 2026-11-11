@@ -1,6 +1,6 @@
 # Install vtium and give it VTs
 
-This guide installs vtium and gives it the VTs you choose. A VT, or virtual terminal, is one of the full-screen text screens the Linux kernel keeps beside a desktop, and vtium runs on a VT in the place of the getty, the program that prints the login prompt there. If you have never run vtium, [Try vtium on one VT](tutorial-try-vtium.md) walks through a first install on one VT and back again.
+This guide installs vtium, says which VTs the package gives it, and shows how you choose other VTs. A VT, or virtual terminal, is one of the full-screen text screens the Linux kernel keeps beside a desktop, and vtium runs on a VT in the place of the getty, the program that prints the login prompt there. If you have never run vtium, [Try vtium on one VT](tutorial-try-vtium.md) walks through a first install on one VT and back again.
 
 In the commands below, `#` marks a command you run as root, for example with sudo, and `$` a command you run as your own user.
 
@@ -58,7 +58,7 @@ The packages install these files:
 | `/usr/share/licenses/<package>/COPYING` | vtium's authors and the notices for the third-party code and data vtium builds in, in each package except `vtium-fonts`, which carries only its own `LICENSE` |
 | `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to, the SIL Open Font License of the Unifont font and the license of X.Org's color names, in each console package |
 
-Installing the packages gives vtium no VT and starts nothing. [Giving vtium a VT](#giving-vtium-a-vt) does that.
+When you first install a console package, it gives vtium every free VT and starts nothing. [What the install does to your VTs](#what-the-install-does-to-your-vts) explains what that means.
 
 ### Build the minspec console
 
@@ -101,11 +101,74 @@ On another distribution, `make install DESTDIR=DIR PREFIX=/usr` stages under DIR
 
 A package build that runs with no network, as Debian's does, takes the crates vtium builds with from the release. Each GitHub release from v0.1.0-alpha.6 on carries `vtium-VERSION-vendor.tar.zst`, where VERSION is the release's version without its leading v, and the file's SHA-256 in `vtium-VERSION-vendor.tar.zst.sha256`. The archive holds the source of every outside crate in `Cargo.lock`, for every architecture, and a `.cargo/config.toml` that tells Cargo to read them from `vendor/`. Unpack it at the top of the release's source tree, beside `Cargo.toml`, with `tar -xf vtium-VERSION-vendor.tar.zst -C DIR`; it adds `vendor/` and `.cargo/config.toml` and replaces none of vtium's files. `make install` and `cargo build --offline --locked` then build with no network. A CI workflow packs the archive when a release is published and builds vtium offline from it before it attaches it to the release. In a checkout, `make vendor-archive` packs the same archive for the commit you have checked out, and `make vendor-archive-check` also builds vtium offline from it.
 
+With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. They run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
+
 `make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration and the frits. It also needs `tic`, which compiles the terminfo entry. Tier 3, vtium's test harness on a virtual machine, installs that tree in its guest.
+
+## What the install does to your VTs
+
+When you first install a console package, its install script runs `vtium console enable --direct --all`. That gives vtium every free VT: every VT that no display manager, greeter, graphical session or `kmscon` holds. The script starts nothing, so each VT changes at its next start:
+
+- On a machine with no display manager, vtium runs on VT 1 from the next boot, in place of its getty. VT 1 is where the kernel shows the boot messages, so vtium takes over the screen where the boot appeared.
+- On a machine with a display manager, VT 1 stays the display manager's, and vtium takes only the other free VTs.
+- On each other free VT from 2 to 6, vtium also runs from the next boot and waits at its login prompt there.
+
+Because a vtium holds each of these VTs open from boot, a display manager that puts a new desktop session on the first VT nobody holds open, as SDDM 0.20 and later does, passes them by and uses VT 7 or above. Each of those VTs runs one vtium from boot, and each vtium uses memory while it waits. See [the issue about the display manager that took vtium's VT](https://github.com/vtium/vtium/issues/370).
+
+The install message shows what `vtium console` did, and names each VT it left alone and why. An upgrade changes no VT, so if you gave the VTs back, they stay back. If vtium took your VTs before it started at boot on each of them, `vtium console status` names the VTs that nothing holds open at boot, and running `sudo vtium console enable --direct --all` again starts vtium at boot there. [Giving vtium a VT](#giving-vtium-a-vt) shows how you change the choice.
+
+`vtium console` refuses to change anything while `kmscon` holds the template link `/etc/systemd/system/autovt@.service`, while `loginctl` cannot say which sessions run, and on a machine not booted with systemd, such as a chroot that an installer prepares. The install still succeeds. Its message then says that vtium took no VT, gives the reason, and names the command to run once the reason is gone:
+
+```
+# vtium console enable --direct --all
+```
+
+On a machine where `kmscon` holds the template link, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) first.
+
+### Direct mode and seat mode
+
+vtium can run on a VT in two ways, and the install turns on the first:
+
+- In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a console built with `libseat` takes them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual. The unit is `vtium@.service`.
+- In seat mode, vtium takes the screen, the keyboards and VT switching from logind, the service that manages logins and seats, through libseat. Each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. The unit is `vtium-seat@.service`, which a console built with `libseat` and `logind` ships, as the `vtium` package is built.
+
+A VT runs one mode at a time. To ask which mode fits your machine, run `vtium console enable` with no mode. It changes nothing: it says what it finds, which mode it recommends and why, and the command to run. To move every VT vtium has to seat mode, and back:
+
+```
+# vtium console enable --seat --all
+# vtium console enable --direct --all
+```
+
+`vtium console enable --seat` refuses, and changes nothing, on a console built without `libseat` and `logind`, when `vtium-seat@.service` is missing or masked, when `/etc/pam.d/vtium` is missing, and on a machine where logind manages no seat0. On VT 6, logind's reserved VT, `vtium console enable` does not move a VT between modes while vtium runs there in the other mode, because the next switch to VT 6 would end its sessions. It tells you how to go ahead. See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
+
+### When vtium fails on a VT
+
+Each VT that vtium takes keeps its own getty as the fallback. If vtium fails on a VT, the VT's fallback starts that VT's getty, so you have a login prompt there. [VTs that other programs hold](#vts-that-other-programs-hold) describes the one case where the fallback starts nothing.
+
+vtium also steps aside for systemd's rescue and emergency modes, as a getty does. When systemd enters either mode, it stops vtium on every VT first, and the rescue shell asks for root's password on the VT that is shown.
+
+### Turning vtium off for one boot
+
+To start a machine once without vtium, add `vtium.enable=0` to the kernel command line in your boot loader. vtium then exits as soon as it starts, before it touches the screen, and each VT's getty fallback gives you a login prompt. The key works with or without systemd. Without systemd, what runs on the VT after vtium exits is your init system's choice. With systemd, `systemd.unit=rescue.target` on the kernel command line boots into rescue mode instead, and vtium steps aside for it.
+
+**Note:** Masking vtium's unit, as with `systemd.mask=vtium@tty2.service`, does not turn vtium off on every VT. logind starts vtium through the template link `autovt@.service`, and a mask does not reach a unit that systemd loads through a link. After the install, VT 1 also has no getty enabled, so a mask of `vtium@tty1.service` leaves VT 1 with no console.
+
+### The kernel's messages
+
+The kernel draws its own text on a VT through fbcon, the framebuffer console. vtium draws over fbcon on the VTs it holds, and leaves fbcon to draw every other VT, so a getty and the rescue shell still show their text. Because fbcon draws nothing on vtium's VT, vtium shows the kernel's messages itself. It shows each message from the kernel whose level is warning or more severe, on the boot display, over the console. It never writes them into a session's screen. `quiet` or `loglevel=3` on the kernel command line lets fewer messages through, and vtium then shows fewer too.
+
+Plymouth, the boot splash program, shows the kernel's messages itself while it runs. The vtium.conf key `kernel-messages` decides who shows them then:
+
+| Value | What vtium does |
+|---|---|
+| `after-plymouth` | the default: vtium leaves the messages to Plymouth while Plymouth runs, and shows them itself once Plymouth has quit. On a machine without Plymouth, vtium shows them from its start. |
+| `always` | vtium shows the messages whether Plymouth runs or not. |
+
+At a kernel panic, the kernel stops every program, vtium included. What the screen then shows is the kernel's own panic screen, on a kernel and a display driver that support one. Starting vtium earlier, from the initramfs, so that it shows the boot from its first second, is [the boot issue](https://github.com/vtium/vtium/issues/266).
 
 ## Giving vtium a VT
 
-`vtium console` gives a VT to vtium, or every VT, and takes them back. It changes which console systemd starts on a VT at boot, and which console logind starts when you switch to a VT where nothing runs. Each call of `enable` or `disable` takes one VT by its number, or `--all`. `enable` and `disable` need root, and `status` runs as any user.
+The package's install has already run `vtium console enable --direct --all`. `vtium console` gives a VT to vtium, or every VT, and takes them back, so you can change that choice at any time. It changes which console systemd starts on a VT at boot, and which console logind starts when you switch to a VT where nothing runs. Each call of `enable` or `disable` takes one VT by its number, or `--all`. `enable` and `disable` need root, and `status` runs as any user.
 
 See first what each VT runs now:
 
@@ -115,10 +178,10 @@ $ vtium console status
 
 [Reading vtium console status](troubleshooting.md#reading-vtium-console-status) explains its columns.
 
-To give vtium one VT, VT 3 here:
+To give vtium one VT alone, VT 3 here, first take every VT back with `disable --all` (below), then:
 
 ```
-# vtium console enable 3
+# vtium console enable --direct 3
 ```
 
 vtium is then VT 3's console from its next start: systemd starts `vtium@tty3` there at boot, in the place of the getty it disables. `enable` prints the command that starts vtium now. Log out of VT 3, run that command from another VT or over ssh, and press Ctrl+Alt+F3:
@@ -129,13 +192,13 @@ vtium is then VT 3's console from its next start: systemd starts `vtium@tty3` th
 
 **Note:** `vtium console` starts and stops nothing, because starting or stopping a console on a VT ends every session there, the one you type in included. Each verb prints the `systemctl` command that makes its change now.
 
-To give vtium every VT:
+To give vtium every free VT again, as the install does:
 
 ```
-# vtium console enable --all
+# vtium console enable --direct --all
 ```
 
-`enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It enables vtium at boot on VT 1, where logind never starts a console itself, and it disables the gettys on VTs 2 to 6, so logind starts vtium on each the first time you switch to it. It leaves these VTs alone and names each one:
+`enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It also does `enable N` on each free VT from 1 to 6, so systemd starts vtium on each of them at boot, in the place of the getty it disables, and vtium holds each of them open from boot. It leaves these VTs alone and names each one:
 
 - a VT another program uses now or will claim at the next boot (below);
 - a VT where `kmscon` is enabled, linked or running, and a VT the development install holds ([The development VT](vt-review.md#installing-vtium-on-a-vt));
@@ -168,7 +231,7 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 # vtium console disable --all
 ```
 
-`disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
+`disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. `disable --all` does that on every VT. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
 
 [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, the way your init system runs the getty, as [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows for sysvinit, OpenRC and runit.
 
@@ -180,10 +243,10 @@ A terminal that draws on a VT through DRM/KMS, as vtium does, such as `kmscon`, 
 # systemctl disable kmsconvt@.service
 $ systemctl list-units 'kmsconvt@*'
 # systemctl stop kmsconvt@tty2.service
-# vtium console enable --all
+# vtium console enable --direct --all
 ```
 
-Run the `stop` line for each VT that `list-units` shows. For another terminal, put its own unit's name in place of `kmsconvt@`. `systemctl disable` stops nothing, and logging out of a VT leaves the terminal running there. `vtium console enable --all` refuses while the template link names `kmscon`'s unit. When the template link names another terminal's unit, `enable --all` records the link before it points it at vtium, and `disable --all` points it back.
+Run the `stop` line for each VT that `list-units` shows. For another terminal, put its own unit's name in place of `kmsconvt@`. `systemctl disable` stops nothing, and logging out of a VT leaves the terminal running there. `vtium console enable --direct --all` refuses while the template link names `kmscon`'s unit, so on such a machine the package's install gives vtium no VT until you do this. When the template link names another terminal's unit, `enable --all` records the link before it points it at vtium, and `disable --all` points it back.
 
 Removing `kmscon` afterwards is up to you, with `pacman -R kmscon`; vtium needs nothing from it. vtium never reads `/etc/kmscon/kmscon.conf`. vtium takes the keys `kmscon` used, so you can copy that file to `/etc/vtium/vtium.conf` by hand and check it with `vtium check-config`; [config.md](config.md) lists every key vtium reads. [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#sharing-vts-with-kmscon) says when to keep `kmscon-terminfo`.
 
@@ -195,16 +258,15 @@ An upgrade restarts no running vtium, since a restart ends every session on its 
 # systemctl restart vtium@tty3.service
 ```
 
-Before you remove the package, give every VT back, and stop vtium where it runs ([the note above](#giving-vtium-a-vt) says why `disable` does not stop it):
+When you remove the package, its removal script first runs `vtium console disable --all`, which gives every VT back what it had. It stops nothing ([the note above](#giving-vtium-a-vt) says why), so stop vtium where it runs, from another VT or over ssh, before or after the removal:
 
 ```
-# vtium console disable --all
 $ systemctl list-units 'vtium@*'
 # systemctl stop vtium@tty3.service
 # pacman -R vtium
 ```
 
-`disable --all` puts back what each VT had and then forgets its record, so `/var/lib/vtium/console/` is left empty, and you can remove it. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
+`disable --all` puts back what each VT had and then forgets its record, so `/var/lib/vtium/console/` is left empty, and you can remove it. When you replace one console package with another, such as `vtium-minspec` in place of `vtium`, the old package gives the VTs back and the new one takes the free VTs again. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
 
 ## Sharing VTs with kmscon
 

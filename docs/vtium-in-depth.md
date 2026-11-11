@@ -71,7 +71,7 @@ To build vtium, you need Rust 1.88 or later, clang, and `tic` from ncurses. The 
 On Arch Linux, install the `vtium` package from the AUR. Installing the package does not start vtium automatically. To run it on VT 3 in place of getty, use:
 
 ```sh
-# vtium console enable 3
+# vtium console enable --direct 3
 ```
 
 To restore getty on VT 3, use:

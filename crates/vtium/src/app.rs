@@ -132,6 +132,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(test)]
+mod login_scope;
 mod survive;
 
 /// How long the loop is served at exit while the switch back is pending,
@@ -218,6 +220,40 @@ struct Unused {
     parked: bool,
 }
 
+/// How a session's child gets a systemd scope of its own: given the VT's
+/// or the seat's name and the child's process id, the scope's name, or why
+/// it has none.
+pub type LoginScope = Box<dyn FnMut(&str, u32) -> Result<String, String>>;
+
+/// Asks systemd's manager for the child's scope (ADR-1400 D3).
+#[cfg(feature = "logind")]
+fn login_scope(place: &str, pid: u32) -> Result<String, String> {
+    use vtium_platform::logind::scope;
+    let unit = scope::unit_name(place, pid);
+    scope::start(&unit, pid)
+        .map(|()| unit)
+        .map_err(|e| e.to_string())
+}
+
+/// A build without sd-bus cannot ask systemd's manager for the scope.
+#[cfg(not(feature = "logind"))]
+fn login_scope(_: &str, _: u32) -> Result<String, String> {
+    Err("this vtium is built without the logind feature, which asks systemd for it".to_owned())
+}
+
+/// The log's line for a session on `place` that runs in the scope `unit`.
+fn in_scope(place: &str, unit: &str) -> String {
+    format!("The session on {place} runs in the systemd scope {unit}.")
+}
+
+/// The log's line for a session on `place` that gets no scope, because of
+/// `why`.
+fn no_scope(place: &str, why: &str) -> String {
+    format!(
+        "The session on {place} gets no logind session of its own: vtium cannot move it into a systemd scope, because {why}. The session runs inside vtium's own logind session instead."
+    )
+}
+
 /// The seat, its devices and its heads.
 pub struct App {
     pub vt: Box<dyn SeatVt>,
@@ -301,6 +337,12 @@ pub struct App {
     /// is, a display the rules leave dark is announced for the display
     /// guard to light.
     any_lit: Rc<Cell<bool>>,
+    /// The kernel's messages, which vtium shows on the boot display's
+    /// head (ADR-1401 D15); `None` where vtium cannot read them.
+    kernel: Option<crate::kernel::Messages>,
+    /// Who shows them while Plymouth runs, vtium.conf's
+    /// `kernel-messages`.
+    kernel_deferral: crate::kernel::Deferral,
     /// The scrollback cap and length each console takes.
     scrollback: (usize, usize),
     /// The scrollback memory each console takes.
@@ -359,6 +401,10 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
+    /// Moves a session's child, by its place and process id, into a systemd
+    /// scope of its own on a seat that libseat's logind backend opened,
+    /// answering the scope's name or why not; the tests stand in for it.
+    pub login_scope: LoginScope,
     /// `oneshot`: a console's exit ends that console, and a head ends once
     /// every one of its consoles has.
     oneshot: bool,
@@ -498,6 +544,8 @@ impl App {
             screen: None,
             notices: BTreeMap::new(),
             spare_notices: Vec::new(),
+            kernel: None,
+            kernel_deferral: crate::kernel::Deferral::configured(&config),
             wanted: Rc::default(),
             stopped: false,
             focus: None,
@@ -545,6 +593,7 @@ impl App {
             leaving: None,
             // No session inherits systemd's word to vtium (ADR-1401 D13).
             inherited: crate::survive::session_env(inherited),
+            login_scope: Box::new(login_scope),
             survival: survive::Survival::default(),
         }
     }
@@ -624,6 +673,62 @@ impl App {
         }
     }
 
+    /// Shows the kernel's messages that `kernel` gives (ADR-1401 D15),
+    /// under vtium.conf's `kernel-messages`, each read at
+    /// [`App::kernel_ready`].
+    pub fn set_kernel(&mut self, kernel: Box<dyn crate::kernel::Kernel>) {
+        self.kernel = Some(crate::kernel::Messages::new(kernel, self.kernel_deferral));
+    }
+
+    /// The kernel has messages to read (ADR-1401 D15). vtium reads every
+    /// one, and shows those it keeps over the console of the head that
+    /// holds the boot display, while its VT is shown, as the kernel's own
+    /// console shows them on the VT that is shown. vtium never writes them
+    /// to a session's pty or into its screen. A message that arrives
+    /// while the VT is not shown, or while no head holds a display, is
+    /// never shown later. It returns false once vtium cannot read the
+    /// kernel's messages any more, and logs why.
+    pub fn kernel_ready(&mut self) -> bool {
+        let Some(messages) = self.kernel.as_mut() else {
+            return false;
+        };
+        let lines = match messages.take() {
+            Ok(lines) => lines,
+            Err(e) => {
+                log::warn!(
+                    "vtium cannot read the kernel's messages from {} any more: {e}. It shows no more of them on screen.",
+                    crate::kernel::KMSG
+                );
+                self.kernel = None;
+                return false;
+            }
+        };
+        if lines.is_empty() || !self.vt.is_active() {
+            return true;
+        }
+        if let Some(head) = self.kernel_head().and_then(|h| self.heads.get_mut(h)) {
+            for line in &lines {
+                head.add_kernel(line);
+            }
+        }
+        true
+    }
+
+    /// The head that holds the boot display (ADR-1401 D7, D9), the head
+    /// the kernel's messages show on: of the displays lit in a head, the
+    /// one lit at start, else the first on the boot card, else the first
+    /// on the other cards, in the kernel's order. The screen that shows a
+    /// notice alone draws no kernel message.
+    fn kernel_head(&self) -> Option<usize> {
+        let (key, _) = self
+            .lit
+            .iter()
+            .min_by_key(|(_, d)| (!d.lit_at_start, !d.on_boot_card, d.card_order, d.order))?;
+        self.heads
+            .iter()
+            .position(|h| !h.notice_only && h.views.contains_key(key))
+    }
+
     /// Puts the power keys' actions through `power`, a test's stand-in
     /// for PID 1, logind and the kernel.
     pub fn set_power(&mut self, power: Box<dyn Power>) {
@@ -681,6 +786,12 @@ impl App {
     /// Ctrl+Super+F12 that takes it back can arrive. A kernel VT's
     /// release closes them, and its acquire opens them again.
     pub fn set_input(&mut self, mut input: vtium_platform::input::Input) {
+        // a libseat build opens the keyboards and pointers through the
+        // seat manager that gave it the VT (ADR-1400's L2 layer)
+        #[cfg(feature = "libseat")]
+        if let Some(seat) = self.vt.get::<vtium_platform::seat::LibseatVt>() {
+            input.open_through(seat.input());
+        }
         if self.vt.get::<FakeVt>().is_some() {
             input.wake_up();
         }
@@ -888,6 +999,7 @@ impl App {
                 SessionDisplay::Fbdev
             },
             console: self.heads.get(h).map(|head| (head.name(), id)),
+            logind_seat: self.vt.logind_seat(),
         }
     }
 
@@ -923,8 +1035,23 @@ impl App {
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return Ok(());
         };
-        let mut pty = Pty::spawn(command, size, erase)
-            .map_err(|e| format!("cannot start the session: {e}"))?;
+        let spawned = if self.vt.logind_seat() {
+            // ADR-1400 D3, its note on each login's own session: the child
+            // waits before its exec until systemd has moved it into a scope
+            // of its own, outside vtium's logind session.
+            let place = match self.vt.number() {
+                Some(n) => format!("tty{n}"),
+                None => self.vt.seat().to_owned(),
+            };
+            let scope = &mut self.login_scope;
+            Pty::spawn_gated(command, size, erase, |pid| match scope(&place, pid) {
+                Ok(unit) => log::debug!(target: "login", "{}", in_scope(&place, &unit)),
+                Err(why) => log::warn!(target: "login", "{}", no_scope(&place, &why)),
+            })
+        } else {
+            Pty::spawn(command, size, erase)
+        };
+        let mut pty = spawned.map_err(|e| format!("cannot start the session: {e}"))?;
         self.watch(h, id, &mut pty)
             .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
         let pty_id = self.next_pty_id();
@@ -2944,13 +3071,18 @@ impl App {
         match event {
             InputEvent::Key(key) => {
                 // Only a key reaching a head settles the focus's start, and
-                // ends its notices.
+                // ends its notices. An Esc that dismisses the kernel's
+                // messages stays with vtium (ADR-1401 D15).
                 self.focus_settled |= h.is_some();
-                if let Some(head) = h.and_then(|h| self.heads.get_mut(h)) {
+                let kept = h.and_then(|h| self.heads.get_mut(h)).is_some_and(|head| {
+                    let dismissed = head.has_kernel() && dismisses(&key);
                     head.end_notices();
-                }
+                    dismissed
+                });
                 self.activity(now);
-                self.key(h, &key, from, now);
+                if !kept {
+                    self.key(h, &key, from, now);
+                }
             }
             InputEvent::Pointer(p) => {
                 let mods = match (&self.input, h) {
@@ -3874,8 +4006,9 @@ impl App {
         let awake = self.awake;
         for head in &mut self.heads {
             if head.notice_due.is_some_and(|d| d <= now) {
-                head.end_notices();
+                head.notices_timed_out();
             }
+            head.kernel_turn(now);
             if head.osd_due.is_some_and(|d| d <= now) {
                 head.osd_due = None;
                 head.osd_shown = false;
@@ -4218,6 +4351,7 @@ impl App {
             due.extend(head.figures.due);
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
+            due.extend(head.kernel_due());
             due.extend(head.osd_due);
             due.extend(head.brief_due());
             #[cfg(feature = "images")]
@@ -4292,6 +4426,14 @@ impl App {
     pub fn screen_text(&self) -> Vec<String> {
         self.shown().map(Head::screen_text).unwrap_or_default()
     }
+}
+
+/// Whether `key` is the Esc that dismisses the kernel's messages
+/// (ADR-1401 D15): Esc pressed, with Shift and Lock at most.
+fn dismisses(key: &KeyEvent) -> bool {
+    const ESCAPE: u32 = 0xff1b;
+    let held = [InputMods::CTRL, InputMods::ALT, InputMods::LOGO];
+    !key.repeat && key.keysyms.contains(&ESCAPE) && !held.iter().any(|&m| key.mods.contains(m))
 }
 
 /// What the device a key came from may do (ADR-1401 D5).
@@ -4391,6 +4533,7 @@ fn draw_head(
     {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
+    head.arm_kernel(now);
     let frame_end = std::mem::take(&mut head.console.term.present);
     let now_all = std::mem::take(&mut head.draw_now);
     let term = &mut head.console.term;
@@ -6151,6 +6294,277 @@ mod tests {
     /// The text of the box the first display draws next.
     fn box_text(app: &App) -> Option<String> {
         first_overlay(app).notice.map(|n| n.text().to_owned())
+    }
+
+    /// A stand-in for the kernel: the records the test queues, at the
+    /// console log level 7, with no Plymouth.
+    struct QueuedKernel(Rc<RefCell<Vec<Vec<u8>>>>);
+
+    impl crate::kernel::Kernel for QueuedKernel {
+        fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
+            Ok(std::mem::take(&mut *self.0.borrow_mut()))
+        }
+        fn console_level(&self) -> u8 {
+            7
+        }
+        fn plymouth_runs(&self) -> bool {
+            false
+        }
+    }
+
+    /// The records a test queues for its stand-in kernel.
+    type Queued = Rc<RefCell<Vec<Vec<u8>>>>;
+
+    /// Queues a kernel warning `text` on `queued`, as `/dev/kmsg` gives it.
+    fn kernel_log(queued: &RefCell<Vec<Vec<u8>>>, text: &str) {
+        queued
+            .borrow_mut()
+            .push(format!("4,1,2,-;{text}\n").into_bytes());
+    }
+
+    /// A seat on one display under `kernel-messages=always`, its kernel a
+    /// stand-in that reads `queued`, shown at the returned time. The
+    /// display reports no flip, so `display-wait=forever` keeps vtium from
+    /// giving up on it while the count runs, and `no-blink` arms no blink
+    /// timer, so the box's count is the loop's only timer.
+    fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
+        let queued: Queued = Rc::default();
+        let (mut lp, mut app) = seat_with(
+            &[
+                "--font-size=16",
+                "--kernel-messages=always",
+                "--display-wait=forever",
+                "--no-blink",
+            ],
+            None,
+            no_fonts(),
+        );
+        app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        let t = Instant::now();
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        (lp, app, queued, t)
+    }
+
+    /// `app` reads the kernel's messages and draws at `at`.
+    fn kernel_turn(lp: &mut Loop<App>, app: &mut App, at: Instant) {
+        assert!(app.kernel_ready());
+        app.turn(at);
+        settle_frames(lp, app, at);
+    }
+
+    /// A key press of `keysym` with no modifier.
+    fn press(keysym: u32) -> InputEvent {
+        InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::empty(),
+            keysyms: vec![keysym],
+            codepoints: char::from_u32(keysym)
+                .filter(|c| !c.is_control() && keysym < 0xff00)
+                .into_iter()
+                .map(Some)
+                .collect(),
+            repeat: false,
+        })
+    }
+
+    /// Whether the key `app` last took went on to the shown console's
+    /// program.
+    fn key_sent(app: &App) -> bool {
+        let head = app.heads.first().unwrap();
+        head.views.values().all(|v| v.after_key(&head.console.term))
+    }
+
+    // ADR-1401 D15: vtium shows a kernel warning over the console of the
+    // head on the boot display, in the notices' box, and never writes it
+    // into the console's screen or its pty. A message that arrives while
+    // the VT is not shown is never shown.
+    #[test]
+    fn a_kernel_warning_shows_over_the_console_and_never_in_it() {
+        let queued: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+        let (mut lp, mut app) = seat_with(
+            &["--font-size=16", "--kernel-messages=always"],
+            None,
+            no_fonts(),
+        );
+        app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        kernel_log(&queued, "before the VT is shown");
+        assert!(app.kernel_ready());
+        let t = Instant::now();
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "nothing from before the VT was shown");
+
+        kernel_log(&queued, "usb 1-2: device descriptor read/64, error -71");
+        kernel_turn(&mut lp, &mut app, t);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some(
+                "usb 1-2: device descriptor read/64, error -71\nPress Esc to dismiss this message (15)"
+            )
+        );
+        assert!(first_overlay(&app).problem, "in the notices' colors");
+        assert!(
+            app.screen_text().iter().all(|row| !row.contains("usb 1-2")),
+            "the console's screen holds no kernel message: {:?}",
+            app.screen_text()
+        );
+    }
+
+    // ADR-1401 D15: vtium shows the kernel's messages only while its VT
+    // is shown. A message that arrives while the VT is released, its
+    // display still lit, is never shown, not even once the VT comes back.
+    #[test]
+    fn a_kernel_message_while_the_vt_is_released_never_shows() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        // Ctrl+Super+F12, the fake VT's own key, releases it
+        let f12 = InputEvent::Key(KeyEvent {
+            keycode: 0,
+            ascii: 0,
+            mods: InputMods::CTRL.union(InputMods::LOGO),
+            keysyms: vec![0xffc9],
+            codepoints: vec![None],
+            repeat: false,
+        });
+        // it sleeps as a DRM card does, so the release is acknowledged
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        still
+            .as_any()
+            .downcast_mut::<Still>()
+            .unwrap()
+            .like_a_device = true;
+        app.focus = Some(0);
+        app.input_event(f12, t);
+        app.turn(t);
+        app.turn(t);
+        assert!(!app.vt.is_active(), "released");
+        assert!(
+            !app.heads.first().unwrap().views.is_empty(),
+            "the display stays lit"
+        );
+        kernel_log(&queued, "while released");
+        kernel_turn(&mut lp, &mut app, t);
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert!(app.vt.is_active(), "taken back");
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert_eq!(box_text(&app), None, "no stale box once the VT is back");
+    }
+
+    // ADR-1401 D15: the box's last line counts the seconds left, one a
+    // second on the loop's timer, and at 0 the box goes on its own.
+    #[test]
+    fn the_kernel_box_counts_down_each_second_and_goes_at_0() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        for n in 1..15u64 {
+            let at = t + Duration::from_secs(n);
+            assert_eq!(
+                app.heads.first().unwrap().kernel_due(),
+                Some(at),
+                "the box's timer is due at second {n}"
+            );
+            assert_eq!(
+                app.next_wake(at - Duration::from_secs(1)),
+                Some(Duration::from_secs(1)),
+                "the loop wakes for second {n}, on the box's timer alone"
+            );
+            app.turn(at);
+            settle_frames(&mut lp, &mut app, at);
+            assert_eq!(
+                box_text(&app),
+                Some(format!(
+                    "a warning\nPress Esc to dismiss this message ({})",
+                    15 - n
+                )),
+                "the frame after {n} ticks"
+            );
+        }
+        let gone = t + crate::head::KERNEL_SHOWN;
+        app.turn(gone);
+        settle_frames(&mut lp, &mut app, gone);
+        assert_eq!(box_text(&app), None, "gone at 0");
+    }
+
+    // ADR-1401 D15: a new message starts the count again from 15.
+    #[test]
+    fn a_new_kernel_message_restarts_the_count() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "first");
+        kernel_turn(&mut lp, &mut app, t);
+        let later = t + Duration::from_secs(5);
+        app.turn(later);
+        settle_frames(&mut lp, &mut app, later);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some("first\nPress Esc to dismiss this message (10)")
+        );
+        kernel_log(&queued, "second");
+        kernel_turn(&mut lp, &mut app, later);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some("first\nsecond\nPress Esc to dismiss these messages (15)")
+        );
+        let end = later + crate::head::KERNEL_SHOWN;
+        app.turn(end - Duration::from_secs(1));
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .kernel_messages()
+                .next()
+                .is_some()
+        );
+        app.turn(end);
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+    }
+
+    // ADR-1401 D15: Esc dismisses the kernel's messages, and vtium keeps
+    // that Esc from the console's program; the frame after it draws no box.
+    #[test]
+    fn esc_dismisses_the_kernel_box_and_stays_with_vtium() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        app.focus = Some(0);
+        app.input_event(press(0xff1b), t);
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert!(!key_sent(&app), "the Esc stays with vtium");
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "the frame after Esc draws no box");
+        // with no kernel message on screen, Esc is the program's again
+        app.input_event(press(0xff1b), t);
+        assert!(key_sent(&app), "an Esc with no box goes to the program");
+    }
+
+    // ADR-1401 D15: any other key dismisses the kernel's messages too, and
+    // goes on to the console's program.
+    #[test]
+    fn another_key_dismisses_the_kernel_box_and_reaches_the_program() {
+        let (mut lp, mut app, queued, t) = kernel_seat();
+        kernel_log(&queued, "a warning");
+        kernel_turn(&mut lp, &mut app, t);
+        app.focus = Some(0);
+        app.input_event(press(u32::from('x')), t);
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        assert!(key_sent(&app), "the key went on to the program");
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "the key's frame draws no box");
     }
 
     // ADR-1401 D5: under `render-timer=osd` the console measures each

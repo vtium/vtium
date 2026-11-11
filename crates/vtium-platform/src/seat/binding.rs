@@ -1,5 +1,6 @@
 //! libseat itself, through the `libseat` crate.
 
+use std::ffi::OsString;
 use std::io;
 use std::os::fd::{AsFd, AsRawFd, FromRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
@@ -11,6 +12,9 @@ use super::{Inbox, Manager, Seat, Told};
 /// Where seatd listens when `SEATD_SOCK` names no other socket, as libseat
 /// looks for it on Linux.
 const SEATD_SOCKET: &str = "/run/seatd.sock";
+
+/// The directory of logind's seats, which exists while logind runs.
+const LOGIND_SEATS: &str = "/run/systemd/seats";
 
 /// libseat, which opens the seat through the first seat manager that
 /// answers: seatd, logind, or the one `LIBSEAT_BACKEND` names.
@@ -54,6 +58,27 @@ impl Manager for Libseat {
         let path = std::env::var_os("SEATD_SOCK")
             .map_or_else(|| PathBuf::from(SEATD_SOCKET), PathBuf::from);
         UnixStream::connect(path).is_ok()
+    }
+
+    fn backend_named(&self) -> Option<OsString> {
+        std::env::var_os("LIBSEAT_BACKEND").filter(|name| !name.is_empty())
+    }
+
+    /// logind keeps a file for each seat in this directory while it runs,
+    /// which sd-login's `sd_get_seats` lists (systemd at 78ab4b10,
+    /// src/libsystemd/sd-login/sd-login.c:1111).
+    fn logind_runs(&self) -> bool {
+        Path::new(LOGIND_SEATS).is_dir()
+    }
+
+    /// libseat's logind backend takes the session `XDG_SESSION_ID` names
+    /// first, then the calling process's own (libseat/backend/logind.c,
+    /// `get_display_session`), which sd-login finds from the process's
+    /// control group ([`super::in_session_scope`]).
+    fn own_session(&self) -> bool {
+        std::env::var_os("XDG_SESSION_ID").is_some_and(|id| !id.is_empty())
+            || std::fs::read_to_string("/proc/self/cgroup")
+                .is_ok_and(|cgroup| super::in_session_scope(&cgroup))
     }
 }
 

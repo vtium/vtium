@@ -46,6 +46,7 @@ nav = [
           { "What vtium is" = "concepts/what-vtium-is.md" },
           { "The suite" = "concepts/suite.md" },
           { "Deployment and start-up" = "concepts/start-up.md" },
+          { "Seats and sessions" = "concepts/seats-and-sessions.md" },
           { "Heads" = "concepts/heads.md" },
           { "Fonts, generated at run time" = "concepts/fonts.md" },
           { "Using vtium" = "concepts/using-vtium.md" },

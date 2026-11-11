@@ -137,3 +137,9 @@ Ten screens of each default 2D variant are vtium's captures from the full `make 
 ## The screens' heading
 
 The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s box is headed `vtium tier 3`, and `sixel-bound`'s heading reads `One sixel with more work than vtium parses at once:`. No golden shows the old heading.
+
+## A kernel message (card 1b)
+
+| Golden | What it shows |
+|---|---|
+| `kmsg-notice/kernel-message.png` | 1366x768, the minimal configuration, once the kernel logged `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err while vtium showed its login prompt on tty2. The notice box spans the top of the boot display and holds that message, then the line `Press Esc to dismiss this message (15)`, the count at its first value, in black on pale red with a red border. It covers the row of the `tier3 login:` prompt, and the rest of the screen is black. Provisional. |

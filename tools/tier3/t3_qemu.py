@@ -283,6 +283,14 @@ class Qemu:
                                            % rel(self.serial)) from None
         return self._ask(request, timeout)
 
+    def tell(self, request):
+        """Sends `request` to the agent and reads no answer, for a request
+        after which the guest may not answer, such as `panic`. The agent
+        has answered `state` first, so it reads the request."""
+        self.ask("state")
+        self.asked += 1
+        self.agent_sock.sendall(b"%d %s\n" % (self.asked, request.encode()))
+
     def _ask(self, request, timeout):
         self.asked += 1
         n = self.asked

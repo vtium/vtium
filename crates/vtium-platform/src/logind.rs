@@ -10,6 +10,10 @@ use std::ptr;
 
 #[cfg(test)]
 mod library;
+mod localed;
+pub mod scope;
+
+pub(crate) use localed::layout;
 
 /// sd-bus's error, as `sd-bus.h` lays it out.
 #[repr(C)]
