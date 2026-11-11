@@ -221,6 +221,7 @@ CHECKS = {
     **t3_heads.CHECKS,
     **t3_images.CHECKS,
     **t3_seat.CHECKS,
+    **t3_seat.CAPTIONS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it

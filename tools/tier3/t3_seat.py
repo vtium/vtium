@@ -17,6 +17,11 @@ on the display: it is the evidence of what a person sees at a kernel panic
 while vtium holds the VT (ADR-1401 D15). The check judges nothing of the
 picture, and passes once the console shows the kernel's panic and the
 screen has settled after it.
+
+The kernel-message variant makes the guest's kernel log an error while vtium
+shows its login prompt, through the agent's request `kmsg`, and captures the
+screen once vtium has drawn it (ADR-1401 D15). The case `kernel-message` is
+judged by its golden: the message in vtium's notice box on the boot display.
 """
 
 import os
@@ -37,6 +42,22 @@ CHECKS = {
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
              "console shows the kernel's panic, and the screen settles after it.",
+}
+
+# The kernel's line for the agent's request `kmsg`: a mount of tmpfs with an
+# option tmpfs does not know, which fs/fs_context.c logs at level err when
+# the caller passed no log of its own, as mount(2) does.
+KMSG_LINE = "tmpfs: Unknown parameter 'vtium_tier3_warning'"
+# How long vtium shows a kernel message (crates/vtium/src/head.rs,
+# KERNEL_SHOWN); the capture must settle within it.
+KMSG_SHOWN = 15
+
+# The cases judged by a golden, and what each shows.
+CAPTIONS = {
+    "kernel-message": "The login prompt on tty2 after the kernel logged an error of its own, "
+                      "tmpfs: Unknown parameter 'vtium_tier3_warning', at level err. Correct: "
+                      "the message, alone, in vtium's notice box at the top of the boot display, "
+                      "drawn over the console; the console's screen around the box unchanged.",
 }
 
 # vtium's lines (crates/vtium-platform/src/seat.rs), after the log's target.
@@ -116,3 +137,23 @@ def crash(vm, work, caps, errors, notes, log):
     except (RuntimeError, OSError) as e:
         errors["kernel-panic"] = str(e)
         log("kernel-panic: %s" % e)
+
+
+def kernel_message(vm, work, caps, errors, log):
+    """Make the guest's kernel log an error while vtium shows its VT, and
+    capture the screen once it has changed from the login prompt and
+    settled, within the time vtium shows the message (CAPTIONS
+    "kernel-message")."""
+    before = os.path.join(work, "kernel-message-before.ppm")
+    path = os.path.join(work, "kernel-message.ppm")
+    try:
+        shown = wait_stable(vm, before, settle=2.0, timeout=90, want=not_blank)
+        answer = vm.ask("kmsg")
+        log("kmsg: %s" % "; ".join(answer))
+        vm.wait_serial(KMSG_LINE, timeout=30)
+        wait_stable(vm, path, settle=1.0, timeout=KMSG_SHOWN - 2,
+                    want=lambda img: not_blank(img) and img.data != shown.data)
+        caps["kernel-message"] = path
+    except (RuntimeError, OSError) as e:
+        errors["kernel-message"] = str(e)
+        log("kernel-message: %s" % e)

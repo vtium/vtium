@@ -27,6 +27,7 @@ mod event;
 mod keyboard;
 mod link;
 mod pointer;
+mod system;
 
 #[cfg(test)]
 pub(crate) mod fake;
@@ -41,6 +42,7 @@ pub use event::{
 
 pub(crate) use evdev::EventDevice;
 pub use keyboard::{Keymap, KeymapConfig, Leds, RuleNames, locale};
+pub use system::system_layout;
 
 use std::io;
 use std::path::{Path, PathBuf};

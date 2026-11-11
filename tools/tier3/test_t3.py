@@ -1156,9 +1156,10 @@ class VtiumGoldenTest(unittest.TestCase):
         # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
         # minimal variants recaptured with ADR-1302 D4's italic bands of
         # 2026-11-07 (vtium/vtium#273) on 2026-11-08, so the list in the tree
-        # is empty; a golden it names must be one a case draws.
+        # held none until card 1b's kernel-message golden, which waits for
+        # the maintainer's review; a golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        self.assertEqual(sorted(prov), ["kmsg-notice/kernel-message"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -5658,6 +5659,12 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
         self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])
         self.assertTrue(t3_scenario.VARIANTS["panic-sysrq"]["agent"])
+        self.assertEqual(t3_scenario.variant_cases("kmsg-notice"), ["kernel-message"])
+        self.assertTrue(t3_scenario.VARIANTS["kmsg-notice"]["agent"])
+        self.assertNotIn("kernel-message", t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.golden_for("kmsg-notice", "kernel-message",
+                                                t3_evaluate.GOLDEN)[0],
+                         os.path.join(t3_evaluate.GOLDEN, "kmsg-notice", "kernel-message.png"))
         for case in t3_seat.CHECKS:
             self.assertIn(case, t3_evaluate.NO_GOLDEN)
             self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))

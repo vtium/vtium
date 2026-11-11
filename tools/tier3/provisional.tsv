@@ -2,3 +2,4 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
+kmsg-notice/kernel-message	New with the check that vtium shows a kernel message (card 1b): the notice box at the top of the boot display holds "tmpfs: Unknown parameter 'vtium_tier3_warning'", in black on pale red with a red border, over the login prompt's row; the maintainer has not reviewed it.
