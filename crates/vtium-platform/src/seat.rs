@@ -1064,6 +1064,11 @@ impl<S: Seat, E: EventDevice> Open for SeatInput<S, E> {
     fn retry_every(&self) -> Duration {
         self.limit.every
     }
+
+    /// The tries at a device that goes while its retry waits go with it.
+    fn forget(&mut self, node: &Path) {
+        self.tries.remove(node);
+    }
 }
 
 /// libseat's answers while a seat is still being handed over from its
