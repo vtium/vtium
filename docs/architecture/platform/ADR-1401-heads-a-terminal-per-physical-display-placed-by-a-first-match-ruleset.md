@@ -1487,6 +1487,8 @@ The build made five choices of its own, each for the reason given:
 
 > Edited 2026-11-06: the maintainer took every lean the work that builds D13 had written for the choices D13 left open (`considered`, 2026-11-06), and the build's own choices are added with their reasons. The section was headed "The choices D13 leaves open" and gave each item as a lean pending the maintainer; the earlier text is in git at 7b555cdb.
 
+> Note 2026-11-10: in the libseat build, the unit opens a PAM session of vtium's own (ADR-1400 D3), and systemd refuses to load a unit that sets `PAMName=` together with `KillMode=process` (systemd 262, measured with `systemd-analyze verify`). So that build's drop-in sets `KillMode=mixed`. On that build, a login prompt nobody has used yet, and a program that vtium.conf's login key runs without a PAM session, live in the unit and do not survive a restart of vtium; a logged-in session, in its own logind scope, still does. Whether `pam_systemd` moves vtium itself out of its unit into a session scope is not yet measured. `KillMode=mixed` is the agent's call; the steering session puts it to the maintainer. The builds without libseat keep `KillMode=process`.
+
 ### D14: each mode set resets the connector's color
 
 > Added 2026-11-04: the maintainer decided that vtium resets a connector's color properties to their defaults at each mode set (`basis`, 2026-11-03).
