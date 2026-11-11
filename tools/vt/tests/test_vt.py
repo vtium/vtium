@@ -2046,7 +2046,7 @@ class Install(Case):
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
-        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf"):
+        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam"):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
@@ -3018,6 +3018,75 @@ exec "$@"
         self.assertEqual(read(self.at(self.IMAGE)), read(self.s.image))
         record = read(self.at(self.STATE + "/files")).splitlines()
         self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.PICTURES)))
+
+    # What vt-install writes beside FILES for a console built with libseat:
+    # the unit's drop-in and the PAM file it names (ADR-1400 D3).
+    DROPIN = "etc/systemd/system/vtium-dev@.service.d/libseat.conf"
+    PAM = "etc/pam.d/vtium-dev"
+    SEAT = (DROPIN, PAM)
+
+    def test_a_console_with_libseat_installs_its_pam_session_and_uninstall_removes_it(self):
+        # A build with libseat carries the line only seat.rs logs; vt-install
+        # then installs the drop-in and the PAM file for vtium-dev@, as make
+        # install stages them for vtium@, under the development install's
+        # own PAM name.
+        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        conf = [l for l in read(self.at(self.DROPIN)).splitlines() if l and not l.startswith("#")]
+        self.assertEqual(conf, ["[Service]", "User=root", "PAMName=vtium-dev", "KillMode=mixed"])
+        shipped_pam = read(os.path.join(ROOT, "crates", "vtium", "install", "vtium.pam"))
+        pam = read(self.at(self.PAM))
+        self.assertEqual([l for l in pam.splitlines() if not l.startswith("#")],
+                         [l for l in shipped_pam.splitlines() if not l.startswith("#")])
+        self.assertTrue(pam.startswith("#%PAM-1.0\n"), pam)
+        for f in self.SEAT:
+            self.assertEqual(stat.S_IMODE(os.stat(self.at(f)).st_mode), 0o644)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.SEAT)))
+        # The PAM file is in place before the drop-in that names it.
+        renames = [c.split()[4] for c in self.s.calls_of("sudo") if c.startswith("mv -fT -- ")]
+        self.assertLess(renames.index(self.at(self.PAM)), renames.index(self.at(self.DROPIN)))
+        # A reinstall of a build without libseat removes both, and the
+        # drop-in's directory with them.
+        write(self.s.bin, BIN)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
+        # Uninstall removes them too.
+        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+        self.assertEqual(self.vt_install("install", "4").returncode, 0)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
+
+    def test_a_console_without_libseat_installs_no_pam_session(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertNotIn("libseat", read(self.at(self.STATE + "/files")))
+
+    def test_the_line_that_marks_a_build_with_libseat_is_in_code_built_only_with_libseat(self):
+        # A reworded message would install no PAM session for a build with
+        # libseat, and the line anywhere else would give one to a build
+        # without it.
+        marker = next(l.split("=", 1)[1].strip('"') for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("libseat_marker="))
+        seat = os.path.join("crates", "vtium-platform", "src", "seat.rs")
+        self.assertIn(f'"{marker}{{e}}"', read(os.path.join(ROOT, seat)))
+        lib = read(os.path.join(ROOT, "crates", "vtium-platform", "src", "lib.rs"))
+        self.assertIn('#[cfg(feature = "libseat")]\npub mod seat;', lib)
+        found = []
+        for d, _, names in os.walk(os.path.join(ROOT, "crates")):
+            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
+                      if n.endswith(".rs") and marker in read(os.path.join(d, n))]
+        self.assertEqual(found, [seat])
 
     def test_a_sysusers_file_systemd_sysusers_cannot_read_fails_the_install(self):
         # systemd-sysusers refuses a line that is no u, g, m or r line, as it
