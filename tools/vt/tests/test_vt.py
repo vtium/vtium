@@ -3649,12 +3649,13 @@ class Package(Case):
                 pam = [l.split() for l in read(os.path.join(self.dest, "etc/pam.d/vtium")).splitlines()
                        if l and not l.startswith("#")]
                 # A greeter's stack: no password to start, and a session
-                # that pam_systemd registers with logind.
+                # that pam_systemd registers with logind as a greeter's, so
+                # StopIdleSessionSec= never stops vtium (ADR-1400 D3).
                 self.assertEqual(pam, [["auth", "required", "pam_env.so"], ["auth", "required", "pam_permit.so"],
                                        ["account", "required", "pam_permit.so"],
                                        ["password", "required", "pam_deny.so"],
                                        ["session", "required", "pam_unix.so"],
-                                       ["session", "optional", "pam_systemd.so"]])
+                                       ["session", "optional", "pam_systemd.so", "class=greeter"]])
         # Without both the unit opens no PAM session: libseat alone is a
         # console for seatd.
         for features in ("", "images logind gpu bidi", "libseat", "images,libseat,gpu"):

@@ -16,6 +16,12 @@ auth		required	pam_permit.so
 account		required	pam_permit.so
 # No password can be changed here.
 password	required	pam_deny.so
-# The session, registered with logind where pam_systemd is installed.
+# The session, registered with logind where pam_systemd is installed. Its
+# class is a greeter's, as a display manager's greeter session has (ADR-1400
+# D3). Without a class pam_systemd gives a root session on a tty the class
+# user-early, and logind stops an idle session of that class when
+# StopIdleSessionSec= is set. vtium never reads its tty, so logind would
+# always judge it idle and stop vtium. A greeter's session also does not
+# count as another user's session when the machine powers off.
 session		required	pam_unix.so
-session		optional	pam_systemd.so
+session		optional	pam_systemd.so class=greeter
