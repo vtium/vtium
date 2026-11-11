@@ -94,6 +94,9 @@ considered:
   - operator: aaronsb
     said: "I'm ok with just more instances in order to maintain scope per login."
     via: the question tool and chat in the steering session, 2026-11-10, on the libseat build's login sessions
+  - operator: aaronsb
+    said: "Yes and yes"
+    via: chat in the steering session, 2026-11-11, on reading /etc/default/keyboard for Debian and Ubuntu
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -153,6 +156,8 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 > Edited 2026-11-10: the maintainer decided the input devices and the keyboard layout (`considered`, 2026-11-10, card 1b questions Q10 and Q12). The `libseat` bullet read: "`libseat` takes devices and VT switching through libseat.", and the list named no keyboard layout.
 
 > Edited 2026-11-10, later: the maintainer asked what happens on a system without X, and put the console keymap before localed's X11 layout in every build (`considered`, 2026-11-10, on the keyboard layout's source). The layout bullet read: "`logind` also reads the system's keyboard layout from localed, the service behind `localectl`, through sd-bus. localed's X11 layout, model, variant and options give the layout an unconfigured vtium types with, on every VT it claims. vtium.conf's `xkb-*` keys win over localed's values where vtium.conf sets them … A build without the feature, the minspec build among them, uses xkb's default layout unless vtium.conf sets one."
+
+> Note 2026-11-11: Debian and Ubuntu keep the console's layout in `/etc/default/keyboard`, which console-setup reads, and not in `/etc/vconsole.conf`. The file holds the layout in XKB's own names, as `XKBMODEL`, `XKBLAYOUT`, `XKBVARIANT` and `XKBOPTIONS` (keyboard(5), keyboard-configuration 1.242~deb13u1). The maintainer approved reading it as a source of its own (`considered`, 2026-11-11, "Yes and yes"). It comes after the console keymap and before localed, in every build, and vtium takes its values as they are, with no translation. vtium reads the file as the shell that setupcon sources it with reads it: one assignment a line, a value bare or quoted, `#` comments, and the last assignment of a name winning. An empty value counts as unset, and a file with no `XKBLAYOUT` passes the choice on to localed. So the order is: vtium.conf's `xkb-*` keys, the console keymap through kbd-model-map, `/etc/default/keyboard`, localed in a build with `logind`, and xkb's default.
 
 - A feature turned on without the C library it binds fails the build with a message naming the library, as the C reference's minimal build refused an option without its dependency. The minspec build links none of them.
 
