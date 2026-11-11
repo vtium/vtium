@@ -2476,7 +2476,7 @@ fn enable_with_no_mode_advises_direct_mode_and_turns_nothing_on() {
     .unwrap();
     let (_, out, _) = m.console(&["enable"]);
     assert!(
-        out.contains("- The display manager sddm.service is enabled."),
+        out.contains("- The display manager sddm.service is enabled, so VT 1"),
         "{out}"
     );
 }
