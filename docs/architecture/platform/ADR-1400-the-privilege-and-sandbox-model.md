@@ -79,6 +79,9 @@ considered:
   - operator: aaronsb
     said: "Accept all five (Recommended) [vtium.conf's xkb-* keys win over localed; the PAM file is named vtium]"
     via: the question tool in the steering session, 2026-11-10, on the record agent's calls for card 1b
+  - operator: aaronsb
+    said: "Accept mixed (Recommended)"
+    via: the question tool in the steering session, 2026-11-10, on KillMode=mixed in the libseat build
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -199,7 +202,7 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 
 > Edited 2026-11-10: the maintainer confirmed that the libseat build's unit opens its own PAM session and that vtium ships the PAM file (`considered`, 2026-11-10, card 1b question Q12). The bullet read: "in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file." The file's name, `vtium`, is the agent's call, which the maintainer accepted on 2026-11-10.
 
-> Note 2026-11-10: systemd refuses to load a unit that sets `PAMName=` together with `KillMode=process`, the value the VT unit sets so that sessions survive a restart (ADR-1401 D13); systemd 262 says "Kill mode must be set to 'control-group' or 'mixed'" (measured with `systemd-analyze verify`). So the libseat build's drop-in, `vtium@.service.d/libseat.conf`, sets `KillMode=mixed` beside `User=root` and `PAMName=vtium`. systemd then still signals vtium alone when the unit stops or restarts, and afterwards ends the unit's other processes. On that build, a login prompt nobody has used yet does not survive a restart of vtium; a logged-in session, which lives in a logind scope of its own, does. Whether `pam_systemd` moves vtium itself out of its unit into a session scope is not yet measured. `KillMode=mixed` is the agent's call; the steering session puts it to the maintainer.
+> Note 2026-11-10: systemd refuses to load a unit that sets `PAMName=` together with `KillMode=process`, the value the VT unit sets so that sessions survive a restart (ADR-1401 D13). systemd 262 says "Kill mode must be set to 'control-group' or 'mixed'" (measured with `systemd-analyze verify`). So the libseat build's drop-in, `vtium@.service.d/libseat.conf`, sets `KillMode=mixed` beside `User=root` and `PAMName=vtium`, and the maintainer accepted that (`considered`, 2026-11-10, "Accept mixed (Recommended)"). systemd still signals vtium alone when the unit stops or restarts, and afterwards ends the unit's other processes. On that build, a login prompt nobody has used yet ends at a restart. The restarted vtium starts a fresh prompt as soon as it draws, so only a half-typed username is lost. A logged-in session is expected to survive, because `pam_systemd` moves it into a logind session scope of its own. That is not yet measured, and neither is whether `pam_systemd` moves vtium itself out of its unit; tier 3 owes both measurements.
 
 > Edited 2026-11-02: the units carry vtium's own names, after the maintainer's decision that kmscon is an independent product (ADR-1500). The first bullet named the fallback `kmsconvt-getty@%i`, and the second read: "the names tier 3 needs, `kmsconvt@.service` among them;".
 
