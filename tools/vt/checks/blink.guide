@@ -1,0 +1,25 @@
+# Text that blinks: SGR 5's slow blink and SGR 6's rapid blink, drawn by
+# vtium (vtium/vtium#37). SGR 6 changes phase every 200 ms, 150 times a
+# minute, the slowest rate ECMA-48 allows for it. Tier 2 pictures show
+# one phase at a time, so this guide shows the blinking itself.
+#
+#   make vt-check GUIDE=blink
+
+title: slow blink and rapid blink
+
+step: Slow and rapid blink side by side
+run: clear; printf '\033[5mslow\033[0m  \033[6mrapid\033[0m  \033[5;6mboth\033[0m  steady\n'; sleep 15
+expect: "slow" blinks at vtium's usual pace. "rapid" blinks clearly faster,
+expect: about two and a half times a second. "both" blinks at the rapid
+expect: pace, with "rapid". "steady" never blinks.
+
+step: Rapid blink with colors and other attributes
+run: clear; printf '\033[6;31;4mred underlined\033[0m \033[6;7mreversed\033[0m \033[6;1mbold\033[0m \033[6m中文\033[0m\n'; sleep 15
+expect: each of the four words blinks at the rapid pace. The red word keeps
+expect: its underline while its letters are hidden, and "reversed" keeps its
+expect: light background. Both wide characters blink together.
+
+step: Rapid blink stops with the text
+run: clear; printf '\033[6mrapid for five seconds\033[0m\n'; sleep 5; clear; echo "the rapid text is gone"; sleep 5
+expect: the line blinks rapidly for five seconds, then the screen clears and
+expect: shows "the rapid text is gone", which never blinks.

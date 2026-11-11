@@ -1615,7 +1615,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank chords daily restart start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily restart start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1904,7 +1904,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank chords daily restart start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily restart start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
