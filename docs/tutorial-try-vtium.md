@@ -34,7 +34,7 @@ Pick a VT that runs no graphical session and that nobody is logged in on. This t
 ## 3. Give vtium VT 3
 
 ```
-$ sudo vtium console enable 3
+$ sudo vtium console enable --direct 3
 ```
 
 This makes vtium the console that starts on VT 3. It takes effect the next time something starts on VT 3, so nothing changes yet. Before it changes anything, vtium writes down what VT 3 had, so that it can put it back in step 7. It refuses a VT that a desktop or a display manager is using, so it cannot take yours. It ends by printing the command that starts vtium on VT 3 now, which is the next step.
