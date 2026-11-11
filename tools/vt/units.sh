@@ -8,7 +8,7 @@
 # "Installing vtium on a VT").
 #
 #   units.sh --name NAME --exec PATH --by WHO [--conflicts UNIT]... [--note LINE]
-#            [--source DIR] OUTDIR
+#            [--seat] [--source DIR] OUTDIR
 #
 # It writes OUTDIR/NAME@.service, which is vtium@.service with these
 # changes (ADR-1500 D3, D4): for a NAME other than vtium, its name and
@@ -39,9 +39,15 @@
 # the shipped unit's, so Restart= and Alias=autovt@.service come through as
 # the shipped unit has them. Each unit opens with a comment that names WHO made
 # it, the commit it was made from and each change, and then LINE when --note
-# gives one. --source reads the shipped units from DIR in place of
-# crates/vtium/install, for the tests. It fails, and writes nothing, when the
-# shipped unit no longer has the lines it changes.
+# gives one. With --seat it also writes OUTDIR/NAME-seat@.service, the unit
+# of seat mode (ADR-1400 D3, ADR-1500 D3): NAME@.service as generated above,
+# under its own name and opening comment, with Conflicts= and After=
+# NAME@%i.service, so a VT runs one mode at a time, and with the [Service]
+# lines of vtium-libseat.conf, User=root, PAMName=vtium and KillMode=mixed,
+# in place of KillMode=process. Its OnFailure= names NAME-getty@, the
+# fallback both modes share. --source reads the shipped units from DIR in
+# place of crates/vtium/install, for the tests. It fails, and writes nothing,
+# when the shipped unit no longer has the lines it changes.
 set -euo pipefail
 
 usage() {
@@ -61,6 +67,7 @@ exec_path=
 by=
 note=
 conflicts=()
+seat=
 src=$checkout/crates/vtium/install
 out=
 while [ $# -gt 0 ]; do
@@ -70,6 +77,7 @@ while [ $# -gt 0 ]; do
 	--by) [ $# -ge 2 ] || usage; by=$2; shift ;;
 	--note) [ $# -ge 2 ] || usage; note=$2; shift ;;
 	--conflicts) [ $# -ge 2 ] || usage; conflicts+=("$2"); shift ;;
+	--seat) seat=1 ;;
 	--source) [ $# -ge 2 ] || usage; src=$2; shift ;;
 	-h | --help) usage ;;
 	-*) usage ;;
@@ -86,7 +94,9 @@ for c in "${conflicts[@]}"; do
 	[[ $c =~ ^[a-z][a-z0-9-]*@%i\.service$ ]] || die "--conflicts '$c' is not an instance unit on the same VT, NAME@%i.service"
 	[ "$c" != "$name@%i.service" ] || die "--conflicts '$c' names the unit itself"
 done
-for f in vtium@.service vtium-getty@.service; do
+sources=(vtium@.service vtium-getty@.service)
+[ -z "$seat" ] || sources+=(vtium-libseat.conf)
+for f in "${sources[@]}"; do
 	[ -f "$src/$f" ] || die "no $src/$f, which the units are generated from"
 done
 
@@ -102,6 +112,31 @@ header() {
 # body FILE: the shipped unit from its first section on, without the opening
 # comment that describes the shipped source.
 body() { awk 'started || /^\[/ { started = 1; print }' "$1"; }
+
+# unit_body NAME CONFLICTS SERVICE: the shipped vtium@.service from its first
+# section on, as the unit NAME@.service: ExecStart= running PATH, OnFailure=
+# naming the getty fallback of --name, a Conflicts= and an After= line for
+# each unit in CONFLICTS just above OnFailure=, the lines SERVICE in place of
+# KillMode= when SERVICE is not empty, and the refused DefaultInstance= in
+# place of the shipped one, at the end of [Install], the unit's last
+# section. The units and the lines reach awk through the environment.
+unit_body() {
+	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
+		-e "s|^OnFailure=vtium-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
+		-e '/^DefaultInstance=/d' <(body "$src/vtium@.service") |
+		UNITS_CONFLICTS="$2" UNITS_NAME="$1" UNITS_SERVICE="$3" awk '
+			/^OnFailure=/ {
+				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
+				for (i = 1; i <= n; i++) print "Conflicts=" c[i] "\nAfter=" c[i]
+			}
+			/^KillMode=/ && ENVIRON["UNITS_SERVICE"] != "" { print ENVIRON["UNITS_SERVICE"]; next }
+			{ print }
+			END {
+				print "# No VT: systemctl refuses it, so enabling " ENVIRON["UNITS_NAME"] "@.service with no VT"
+				print "# named fails and links nothing. Name the VT: " ENVIRON["UNITS_NAME"] "@tty3.service."
+				print "DefaultInstance=name-a-VT/" ENVIRON["UNITS_NAME"] "@ttyN"
+			}'
+}
 
 tmp=$(mktemp -d) || die "cannot create a scratch directory"
 trap 'rm -rf -- "$tmp"' EXIT
@@ -131,16 +166,19 @@ EOF
 	# D7); the development install's is enabled by make vt-install.
 	if [ "$name" = vtium ]; then
 		cat <<EOF
-# The package's install script gives vtium every free VT with
-#   vtium console enable --all
+# This is the unit of direct mode, in which vtium opens the screen and the
+# keyboards itself (ADR-1400 D3). The package's install script gives vtium
+# every free VT in direct mode with
+#   vtium console enable --direct --all
 # which enables vtium at boot on VT 1 when no display manager is enabled,
 # and links autovt@.service here, so logind starts vtium on each other free
 # VT. Its removal script gives them back with
 #   vtium console disable --all
 # To give vtium one VT alone, VT 3 here, and the way back:
 #   vtium console disable --all
-#   vtium console enable 3
+#   vtium console enable --direct 3
 #   vtium console disable 3
+# vtium console enable with no mode says which mode fits this machine.
 EOF
 	else
 		cat <<EOF
@@ -161,24 +199,7 @@ EOF
 # (ADR-1400, D3).
 
 EOF
-	# awk puts a Conflicts= and an After= line for each --conflicts unit,
-	# which reach it through the environment, just above OnFailure=, and
-	# puts the refused DefaultInstance= in place of the shipped one, at the
-	# end of [Install], the unit's last section.
-	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" \
-		-e "s|^OnFailure=vtium-getty@%i\\.service\$|OnFailure=$name-getty@%i.service|" \
-		-e '/^DefaultInstance=/d' <(body "$src/vtium@.service") |
-		UNITS_CONFLICTS="${conflicts[*]}" UNITS_NAME="$name" awk '
-			/^OnFailure=/ {
-				n = split(ENVIRON["UNITS_CONFLICTS"], c, " ")
-				for (i = 1; i <= n; i++) print "Conflicts=" c[i] "\nAfter=" c[i]
-			}
-			{ print }
-			END {
-				print "# No VT: systemctl refuses it, so enabling " ENVIRON["UNITS_NAME"] "@.service with no VT"
-				print "# named fails and links nothing. Name the VT: " ENVIRON["UNITS_NAME"] "@tty3.service."
-				print "DefaultInstance=name-a-VT/" ENVIRON["UNITS_NAME"] "@ttyN"
-			}'
+	unit_body "$name" "${conflicts[*]}" ""
 } >"$tmp/$unit"
 {
 	header crates/vtium/install/vtium-getty@.service "${renamed_fallback[@]}" \
@@ -197,6 +218,52 @@ EOF
 	sed -e "s|^ExecStart=/usr/bin/vtium |ExecStart=$exec_path |" <(body "$src/vtium-getty@.service")
 } >"$tmp/$fallback"
 
+seat_unit=$name-seat@.service
+if [ -n "$seat" ]; then
+	# The [Service] lines of vtium-libseat.conf, which make vtium's own PAM
+	# session, below a comment that says why KillMode= is not process.
+	seat_lines=$(awk '/^\[/ { s = ($0 == "[Service]"); next } s && !/^[[:space:]]*(#|$)/' "$src/vtium-libseat.conf")
+	[ "$(printf '%s\n' "$seat_lines" | sort)" = "$(printf '%s\n' KillMode=mixed PAMName=vtium User=root)" ] ||
+		die "the shipped vtium-libseat.conf's [Service] lines are not User=root, PAMName=vtium and KillMode=mixed"
+	seat_service="# Seat mode's lines, from vtium-libseat.conf (ADR-1400 D3). systemd runs
+# the PAM stack /etc/pam.d/vtium for vtium, and pam_systemd registers a
+# logind session of vtium's own, which libseat's logind backend takes the
+# seat from. systemd refuses PAMName= beside KillMode=process, so this unit
+# sets KillMode=mixed: systemd still signals vtium alone at a stop or a
+# restart, and then ends the unit's other processes, such as a login prompt
+# nobody has used yet. Each logged-in session runs in a scope of its own.
+$seat_lines"
+	{
+		header "crates/vtium/install/vtium@.service and vtium-libseat.conf" "the name, $name-seat@" \
+			"Description=vtium in seat mode on %I" "ExecStart runs $exec_path" "${changes[@]}" \
+			"Conflicts= and After= $name@%i.service" \
+			"User=root, PAMName=vtium and KillMode=mixed from vtium-libseat.conf in place of KillMode=process" \
+			"DefaultInstance=name-a-VT/$name-seat@ttyN, which is no VT"
+		cat <<EOF
+# vtium in seat mode on one VT of seat0, in place of its getty. The instance
+# is the VT's name, as getty@.service's is. In seat mode vtium opens a logind
+# session of its own, takes the screen, the keyboards and VT switching from
+# logind through libseat, and starts each login in a systemd scope of its
+# own, where the login gets a logind session with no seat (ADR-1400 D3). It
+# conflicts with $unit on the same VT, the unit of direct mode, so a
+# VT runs one mode at a time. To move every VT vtium has to seat mode, and
+# back to direct mode:
+#   vtium console enable --seat --all
+#   vtium console enable --direct --all
+# Enabling $seat_unit with no VT named fails and links nothing,
+# because its DefaultInstance= names no VT.
+# It conflicts with getty@ on the same VT. When vtium fails, its OnFailure=
+# starts $name-getty@, which starts getty@ on the VT unless the head file's
+# policy is closed (ADR-1401 D9), and its Restart= line starts vtium again
+# first. The unit sets no sandboxing directive: the login session vtium
+# starts would inherit it (ADR-1400, D3).
+
+EOF
+		unit_body "$name-seat" "${conflicts[*]} $name@%i.service" "$seat_service" |
+			sed 's/^Description=vtium on %I$/Description=vtium in seat mode on %I/'
+	} >"$tmp/$seat_unit"
+fi
+
 directives() { grep -v '^[[:space:]]*\(#\|$\)' "$1"; }
 [ "$(directives "$tmp/$unit" | grep -c '^ExecStart=')" = 1 ] &&
 	directives "$tmp/$unit" | grep -qF "ExecStart=$exec_path " &&
@@ -213,12 +280,24 @@ done
 	die "the shipped vtium-getty@.service has no one ExecStart=/usr/bin/vtium console fallback %i line to change"
 directives "$tmp/$unit" | grep -qxF "OnFailure=$name-getty@%i.service" ||
 	die "the shipped vtium@.service has no OnFailure=vtium-getty@%i.service line to change"
-for f in "$unit" "$fallback"; do
+made=("$unit" "$fallback")
+if [ -n "$seat" ]; then
+	made+=("$seat_unit")
+	for d in User=root PAMName=vtium KillMode=mixed "Conflicts=$name@%i.service" "After=$name@%i.service" \
+		"Description=vtium in seat mode on %I" \
+		"OnFailure=$name-getty@%i.service" "DefaultInstance=name-a-VT/$name-seat@ttyN"; do
+		directives "$tmp/$seat_unit" | grep -qxF "$d" || die "the generated $seat_unit has no $d line"
+	done
+	[ "$(directives "$tmp/$seat_unit" | grep -c '^KillMode=')" = 1 ] ||
+		die "the shipped vtium@.service has no one KillMode= line for seat mode's lines to replace"
+fi
+for f in "${made[@]}"; do
 	! directives "$tmp/$f" | grep -v '^\(Conflicts\|After\)=kmsconvt@%i\.service$' | grep -q 'kmsconvt' ||
 		die "the generated $f still names kmsconvt: the shipped unit changed shape"
 done
 
 mkdir -p -- "$out"
-mv -fT -- "$tmp/$unit" "$out/$unit"
-mv -fT -- "$tmp/$fallback" "$out/$fallback"
-chmod 0644 -- "$out/$unit" "$out/$fallback"
+for f in "${made[@]}"; do
+	mv -fT -- "$tmp/$f" "$out/$f"
+	chmod 0644 -- "$out/$f"
+done
