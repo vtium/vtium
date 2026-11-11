@@ -152,7 +152,7 @@ How many consoles the heads can have, and the VT vtium runs on.
 
 ## On-screen display and notices
 
-What vtium shows on top of the console to say which head and console you are looking at, and to report a problem, and their colors.
+What vtium shows on top of the console, and in which colors: which head and console you are looking at, a notice about a problem, and the kernel's warnings.
 
 | Key | Option | Type | Default | Bound | Read by | Set in | What | Source |
 |---|---|---|---|---|---|---|---|---|
@@ -165,6 +165,7 @@ What vtium shows on top of the console to say which head and console you are loo
 | `osd-foreground` | `--osd-foreground=VALUE` | color, `r,g,b` | `229,231,235` | each 0 to 255 | vtium | top level, command line | The text color of the on-screen display: the line of `osd = full` and the dot of `osd = minimal`. | [the on-screen display issue](https://github.com/vtium/vtium/issues/169) |
 | `osd-background` | `--osd-background=VALUE` | color, `r,g,b` | `31,41,51` | each 0 to 255 | vtium | top level, command line | The background color of the on-screen display: behind the line of `osd = full`, and in the character cell behind the dot of `osd = minimal`. | [the on-screen display issue](https://github.com/vtium/vtium/issues/169) |
 | `osd-border` | `--osd-border=VALUE` | color, `r,g,b` | `97,110,124` | each 0 to 255 | vtium | top level, command line | The border color of the on-screen display with `osd = full`. The dot of `osd = minimal` has no border. | [the on-screen display issue](https://github.com/vtium/vtium/issues/169) |
+| `kernel-messages` | `--kernel-messages=VALUE` | one of `after-plymouth`, `always` | `after-plymouth` | the choices | vtium | top level, command line | When vtium shows the kernel's warnings and errors on the screen. vtium shows each new kernel message whose level is warning or more severe, on top of the console, as long as the kernel's console log level lets it through. `quiet` and `loglevel=` on the kernel command line set that level. vtium never writes them into a console's session. `after-plymouth` leaves the messages to Plymouth, the boot splash program, while it runs, and vtium shows them once Plymouth has quit. Once Plymouth has quit, vtium does not go back and show the messages that came while it ran. On a machine without Plymouth, vtium shows them from its start. `always` shows them whether Plymouth runs or not. | [the boot messages issue](https://github.com/vtium/vtium/issues/266) |
 
 ## Displays
 
