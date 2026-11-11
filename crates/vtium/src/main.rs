@@ -329,6 +329,7 @@ fn run(
     vtium::blank::listen(&lp.handle())?;
     let vt = open(&mut lp)?;
     let clock = clock();
+    let deferral = vtium::kernel::Deferral::configured(&config);
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
     if let Some(font) = console {
         app.set_console_font(font);
@@ -336,6 +337,7 @@ fn run(
     app.set_config_reader(reread);
     app.set_heads(heads);
     app.set_survival(keeper, kept);
+    kernel_messages(&lp, &mut app, deferral);
 
     match start.input() {
         Some(mut input) => {
@@ -384,6 +386,39 @@ fn run(
     drop(app);
     drop(lp);
     Ok(exit.status())
+}
+
+/// Reads the kernel's messages from `/dev/kmsg` through the loop, for the
+/// app to show (ADR-1401 D15). Where vtium cannot open the device, it
+/// logs why and shows none.
+fn kernel_messages(lp: &Loop<App>, app: &mut App, deferral: vtium::kernel::Deferral) {
+    use vtium_platform::calloop::generic::Generic;
+    use vtium_platform::calloop::{Interest, Mode, PostAction};
+    let opened = vtium::kernel::System::open().and_then(|system| {
+        let fd = system.watched()?;
+        lp.handle()
+            .insert_source(
+                Generic::new(fd, Interest::READ, Mode::Level),
+                |_, _, app: &mut App| {
+                    Ok(if app.kernel_ready() {
+                        PostAction::Continue
+                    } else {
+                        PostAction::Remove
+                    })
+                },
+            )
+            .map_err(|e| e.error)?;
+        Ok(system)
+    });
+    match opened {
+        Ok(system) => {
+            app.set_kernel_messages(vtium::kernel::Messages::new(Box::new(system), deferral));
+        }
+        Err(e) => log::info!(
+            "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+            vtium::kernel::KMSG
+        ),
+    }
 }
 
 #[cfg(test)]

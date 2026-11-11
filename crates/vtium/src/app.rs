@@ -301,6 +301,9 @@ pub struct App {
     /// is, a display the rules leave dark is announced for the display
     /// guard to light.
     any_lit: Rc<Cell<bool>>,
+    /// The kernel's messages, which vtium shows on the boot display's
+    /// head (ADR-1401 D15); `None` where vtium cannot read them.
+    kernel: Option<crate::kernel::Messages>,
     /// The scrollback cap and length each console takes.
     scrollback: (usize, usize),
     /// The scrollback memory each console takes.
@@ -498,6 +501,7 @@ impl App {
             screen: None,
             notices: BTreeMap::new(),
             spare_notices: Vec::new(),
+            kernel: None,
             wanted: Rc::default(),
             stopped: false,
             focus: None,
@@ -622,6 +626,61 @@ impl App {
         for head in self.heads.iter_mut().filter(|h| !h.notice_only) {
             head.add_notice(text);
         }
+    }
+
+    /// Shows the kernel's messages that `messages` gives (ADR-1401 D15),
+    /// each read at [`App::kernel_ready`].
+    pub fn set_kernel_messages(&mut self, messages: crate::kernel::Messages) {
+        self.kernel = Some(messages);
+    }
+
+    /// The kernel has messages to read (ADR-1401 D15). vtium reads every
+    /// one, and shows those it keeps over the console of the head that
+    /// holds the boot display, while its VT is shown, as the kernel's own
+    /// console shows them on the VT that is shown. vtium never writes them
+    /// to a session's pty or into its screen. A message that arrives
+    /// while the VT is not shown, or while no head holds a display, is
+    /// never shown later. It returns false once vtium cannot read the
+    /// kernel's messages any more, and logs why.
+    pub fn kernel_ready(&mut self) -> bool {
+        let Some(messages) = self.kernel.as_mut() else {
+            return false;
+        };
+        let lines = match messages.take() {
+            Ok(lines) => lines,
+            Err(e) => {
+                log::warn!(
+                    "vtium cannot read the kernel's messages from {} any more: {e}. It shows no more of them on screen.",
+                    crate::kernel::KMSG
+                );
+                self.kernel = None;
+                return false;
+            }
+        };
+        if lines.is_empty() || !self.vt.is_active() {
+            return true;
+        }
+        if let Some(head) = self.kernel_head().and_then(|h| self.heads.get_mut(h)) {
+            for line in &lines {
+                head.add_kernel(line);
+            }
+        }
+        true
+    }
+
+    /// The head that holds the boot display (ADR-1401 D7, D9), the head
+    /// the kernel's messages show on: of the displays lit in a head, the
+    /// one lit at start, else the first on the boot card, else the first
+    /// on the other cards, in the kernel's order. The screen that shows a
+    /// notice alone draws no kernel message.
+    fn kernel_head(&self) -> Option<usize> {
+        let (key, _) = self
+            .lit
+            .iter()
+            .min_by_key(|(_, d)| (!d.lit_at_start, !d.on_boot_card, d.card_order, d.order))?;
+        self.heads
+            .iter()
+            .position(|h| !h.notice_only && h.views.contains_key(key))
     }
 
     /// Puts the power keys' actions through `power`, a test's stand-in
@@ -3874,8 +3933,9 @@ impl App {
         let awake = self.awake;
         for head in &mut self.heads {
             if head.notice_due.is_some_and(|d| d <= now) {
-                head.end_notices();
+                head.notices_timed_out();
             }
+            head.kernel_turn(now);
             if head.osd_due.is_some_and(|d| d <= now) {
                 head.osd_due = None;
                 head.osd_shown = false;
@@ -4218,6 +4278,7 @@ impl App {
             due.extend(head.figures.due);
             due.extend(head.hangup_due);
             due.extend(head.notice_due);
+            due.extend(head.kernel_due());
             due.extend(head.osd_due);
             due.extend(head.brief_due());
             #[cfg(feature = "images")]
@@ -4391,6 +4452,7 @@ fn draw_head(
     {
         head.notice_due = Some(after(now, crate::head::NOTICE_SHOWN));
     }
+    head.arm_kernel(now);
     let frame_end = std::mem::take(&mut head.console.term.present);
     let now_all = std::mem::take(&mut head.draw_now);
     let term = &mut head.console.term;
@@ -6151,6 +6213,124 @@ mod tests {
     /// The text of the box the first display draws next.
     fn box_text(app: &App) -> Option<String> {
         first_overlay(app).notice.map(|n| n.text().to_owned())
+    }
+
+    /// A stand-in for the kernel: the records the test queues, at the
+    /// console log level 7, with no Plymouth.
+    struct QueuedKernel(Rc<RefCell<Vec<Vec<u8>>>>);
+
+    impl crate::kernel::Kernel for QueuedKernel {
+        fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
+            Ok(std::mem::take(&mut *self.0.borrow_mut()))
+        }
+        fn console_level(&self) -> u8 {
+            7
+        }
+        fn plymouth_runs(&self) -> bool {
+            false
+        }
+    }
+
+    // ADR-1401 D15: vtium shows a kernel warning over the console of the
+    // head on the boot display, in the notices' box, and never writes it
+    // into the console's screen or its pty. A message that arrives while
+    // the VT is not shown is never shown. A message shows for
+    // KERNEL_SHOWN from its first frame, and a key reaching the head ends
+    // it sooner.
+    #[test]
+    fn a_kernel_warning_shows_over_the_console_and_never_in_it() {
+        let queued: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+        let log = |text: &str| {
+            queued
+                .borrow_mut()
+                .push(format!("4,1,2,-;{text}\n").into_bytes());
+        };
+        let (mut lp, mut app) = seat_with(&["--font-size=16"], None, no_fonts());
+        app.set_kernel_messages(crate::kernel::Messages::new(
+            Box::new(QueuedKernel(Rc::clone(&queued))),
+            crate::kernel::Deferral::Always,
+        ));
+        app.add_video(
+            PathBuf::from("/dev/mem0"),
+            Box::new(Still::new(&[(1, "A")])),
+        );
+        log("before the VT is shown");
+        assert!(app.kernel_ready());
+        let t = Instant::now();
+        app.vt.activate().unwrap();
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "nothing from before the VT was shown");
+
+        log("usb 1-2: device descriptor read/64, error -71");
+        assert!(app.kernel_ready());
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some("usb 1-2: device descriptor read/64, error -71")
+        );
+        assert!(first_overlay(&app).problem, "in the notices' colors");
+        let head = app.heads.first().unwrap();
+        assert_eq!(
+            head.kernel_messages().collect::<Vec<_>>(),
+            ["usb 1-2: device descriptor read/64, error -71"]
+        );
+        assert!(
+            app.screen_text().iter().all(|row| !row.contains("usb 1-2")),
+            "the console's screen holds no kernel message: {:?}",
+            app.screen_text()
+        );
+
+        // a key reaching the head ends them, the first and the second
+        log("a second warning");
+        assert!(app.kernel_ready());
+        app.turn(t);
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .kernel_messages()
+                .next()
+                .is_some()
+        );
+        app.focus = Some(0);
+        app.input_event(
+            InputEvent::Key(KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                mods: InputMods::empty(),
+                keysyms: vec![u32::from('x')],
+                codepoints: vec![Some('x')],
+                repeat: false,
+            }),
+            t,
+        );
+        assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        log("a third warning");
+        assert!(app.kernel_ready());
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app).as_deref(), Some("a third warning"));
+
+        // its time runs from the first frame that drew it
+        let gone = t + crate::head::KERNEL_SHOWN;
+        assert!(
+            app.next_wake(t)
+                .is_some_and(|w| w <= crate::head::KERNEL_SHOWN)
+        );
+        app.turn(gone - Duration::from_millis(1));
+        assert!(
+            app.heads
+                .first()
+                .unwrap()
+                .kernel_messages()
+                .next()
+                .is_some()
+        );
+        app.turn(gone);
+        settle_frames(&mut lp, &mut app, gone);
+        assert_eq!(box_text(&app), None, "gone after KERNEL_SHOWN");
     }
 
     // ADR-1401 D5: under `render-timer=osd` the console measures each

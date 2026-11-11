@@ -55,6 +55,14 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
 
+/// How long a kernel message shows, from the first frame that draws it,
+/// unless a key reaches its head first (ADR-1401 D15).
+pub const KERNEL_SHOWN: Duration = Duration::from_secs(15);
+
+/// The most kernel messages a head shows at once, the newest
+/// (ADR-1401 D15).
+pub const KERNEL_MAX: usize = 5;
+
 /// The most errors the panic screen lists, the file's first (ADR-1401
 /// D7); it counts the rest. `vtium check-config` lists them all.
 pub const PANIC_ERRORS_MAX: usize = 3;
@@ -136,8 +144,14 @@ pub struct Head {
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
     notices: Vec<String>,
+    /// The kernel's messages the head shows (ADR-1401 D15), oldest first,
+    /// at most [`KERNEL_MAX`], each with the time it goes, armed at the
+    /// first frame that draws it, [`KERNEL_SHOWN`] later. A key reaching
+    /// the head ends them with its notices.
+    kernel: Vec<(String, Option<Instant>)>,
     /// What the head shows of its own as one text, a line each: that the
-    /// shown console's session ended, above the notices.
+    /// shown console's session ended, above the notices, above the
+    /// kernel's messages.
     shown: String,
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
@@ -427,6 +441,7 @@ impl Head {
             ended_notice: crate::notice::session_ended(&bindings),
             ended_notice_console: crate::notice::session_ended_console(&bindings),
             notices: Vec::new(),
+            kernel: Vec::new(),
             shown: String::new(),
             notice_due: None,
             osd_shown: false,
@@ -620,6 +635,7 @@ impl Head {
             .into_iter()
             .chain(&self.notices)
             .map(String::as_str)
+            .chain(self.kernel.iter().map(|(text, _)| text.as_str()))
             .collect::<Vec<_>>()
             .join("\n");
         if text != self.shown {
@@ -718,11 +734,59 @@ impl Head {
         !self.notices.is_empty()
     }
 
-    /// The head's notices end: a key reached it, or their time ran out.
-    pub(crate) fn end_notices(&mut self) {
+    /// The head's notices end: their time ran out.
+    pub(crate) fn notices_timed_out(&mut self) {
         self.notice_due = None;
         self.notices.clear();
         self.compose_notices();
+    }
+
+    /// The head's notices and the kernel's messages on it end: a key
+    /// reached it.
+    pub(crate) fn end_notices(&mut self) {
+        self.kernel.clear();
+        self.notices_timed_out();
+    }
+
+    /// Adds the kernel's message `text` to the head (ADR-1401 D15), which
+    /// shows it from the head's next frame; the oldest goes once the head
+    /// shows [`KERNEL_MAX`].
+    pub(crate) fn add_kernel(&mut self, text: &str) {
+        if self.kernel.len() >= KERNEL_MAX {
+            self.kernel.remove(0);
+        }
+        self.kernel.push((text.to_owned(), None));
+        self.compose_notices();
+    }
+
+    /// The kernel's messages the head shows, oldest first.
+    pub fn kernel_messages(&self) -> impl Iterator<Item = &str> {
+        self.kernel.iter().map(|(text, _)| text.as_str())
+    }
+
+    /// Each kernel message's time starts at `now`, the first frame that
+    /// draws it on a display of the head.
+    pub(crate) fn arm_kernel(&mut self, now: Instant) {
+        if self.views.is_empty() {
+            return;
+        }
+        for (_, due) in self.kernel.iter_mut().filter(|(_, d)| d.is_none()) {
+            *due = Some(now.checked_add(KERNEL_SHOWN).unwrap_or(now));
+        }
+    }
+
+    /// The kernel's messages whose time has passed at `now` go.
+    pub(crate) fn kernel_turn(&mut self, now: Instant) {
+        let before = self.kernel.len();
+        self.kernel.retain(|(_, due)| due.is_none_or(|d| d > now));
+        if self.kernel.len() != before {
+            self.compose_notices();
+        }
+    }
+
+    /// When the next kernel message goes.
+    pub(crate) fn kernel_due(&self) -> Option<Instant> {
+        self.kernel.iter().filter_map(|(_, due)| *due).min()
     }
 
     /// What vtium draws over a display of the head: one box at the top

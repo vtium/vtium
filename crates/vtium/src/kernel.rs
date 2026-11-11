@@ -194,8 +194,9 @@ impl Deferral {
 /// them: the device in the binary, a stand-in in a test.
 pub trait Kernel {
     /// The records that arrived since the last call, each as one read of
-    /// `/dev/kmsg` returned it.
-    fn drain(&mut self) -> Vec<Vec<u8>>;
+    /// `/dev/kmsg` returned it. An error means that vtium cannot read the
+    /// kernel's messages any more.
+    fn drain(&mut self) -> io::Result<Vec<Vec<u8>>>;
     /// The kernel's console log level now.
     fn console_level(&self) -> u8;
     /// Whether Plymouth runs now.
@@ -217,20 +218,22 @@ impl Messages {
     /// The messages that arrived since the last call and that vtium
     /// shows now, oldest first. Under `after-plymouth`, while Plymouth
     /// runs, vtium reads the messages and shows none of them, so a message
-    /// that came while Plymouth ran is never shown later.
-    pub fn take(&mut self) -> Vec<String> {
-        let raw = self.kernel.drain();
+    /// that came while Plymouth ran is never shown later. The error is
+    /// why vtium cannot read the kernel's messages any more.
+    pub fn take(&mut self) -> io::Result<Vec<String>> {
+        let raw = self.kernel.drain()?;
         if raw.is_empty() || self.deferral == Deferral::AfterPlymouth && self.kernel.plymouth_runs()
         {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         let level = self.kernel.console_level();
-        raw.iter()
+        Ok(raw
+            .iter()
             .filter_map(|r| record(r))
             .filter(|r| shown(r, level))
             .map(|r| clipped(&r.text))
             .filter(|t| !t.is_empty())
-            .collect()
+            .collect())
     }
 }
 
@@ -276,7 +279,7 @@ impl System {
 }
 
 impl Kernel for System {
-    fn drain(&mut self) -> Vec<Vec<u8>> {
+    fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
         use rustix::io::Errno;
         let mut out = Vec::new();
         // The kernel refuses a read into a buffer smaller than the record,
@@ -290,13 +293,13 @@ impl Kernel for System {
                 // next read returns the oldest record still kept
                 Err(Errno::PIPE | Errno::INTR) => {}
                 Err(Errno::AGAIN) => break,
-                Err(e) => {
-                    log::debug!("cannot read the kernel's messages from {KMSG}: {e}");
-                    break;
-                }
+                // the records read so far are shown, and the next call
+                // meets the error again
+                Err(_) if !out.is_empty() => break,
+                Err(e) => return Err(e.into()),
             }
         }
-        out
+        Ok(out)
     }
 
     fn console_level(&self) -> u8 {
@@ -428,8 +431,8 @@ mod tests {
     }
 
     impl Kernel for StandIn {
-        fn drain(&mut self) -> Vec<Vec<u8>> {
-            std::mem::take(&mut *self.queued.borrow_mut())
+        fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
+            Ok(std::mem::take(&mut *self.queued.borrow_mut()))
         }
         fn console_level(&self) -> u8 {
             *self.level.borrow()
@@ -460,10 +463,10 @@ mod tests {
         // facility 3, daemon, at warning
         kernel.log(3 * 8 + 4, "a daemon's warning");
         assert_eq!(
-            m.take(),
+            m.take().unwrap(),
             ["Kernel panic - not syncing", "critical", "error", "warning"]
         );
-        assert_eq!(m.take(), Vec::<String>::new(), "each message once");
+        assert_eq!(m.take().unwrap(), Vec::<String>::new(), "each message once");
     }
 
     // ADR-1401 D15: the console log level hides what it hides from the
@@ -476,11 +479,11 @@ mod tests {
         kernel.log(2, "critical");
         kernel.log(3, "error");
         kernel.log(4, "warning");
-        assert_eq!(m.take(), ["critical"]);
+        assert_eq!(m.take().unwrap(), ["critical"]);
         *kernel.level.borrow_mut() = 5;
         kernel.log(4, "warning");
         assert_eq!(
-            m.take(),
+            m.take().unwrap(),
             ["warning"],
             "the level is read again for each batch"
         );
@@ -494,19 +497,19 @@ mod tests {
     fn after_plymouth_holds_the_messages_back_while_plymouth_runs_with_no_replay() {
         let (kernel, mut m) = messages(Deferral::AfterPlymouth);
         kernel.log(4, "before Plymouth");
-        assert_eq!(m.take(), ["before Plymouth"]);
+        assert_eq!(m.take().unwrap(), ["before Plymouth"]);
         *kernel.plymouth.borrow_mut() = true;
         kernel.log(3, "while Plymouth runs");
-        assert_eq!(m.take(), Vec::<String>::new());
+        assert_eq!(m.take().unwrap(), Vec::<String>::new());
         *kernel.plymouth.borrow_mut() = false;
-        assert_eq!(m.take(), Vec::<String>::new(), "no replay");
+        assert_eq!(m.take().unwrap(), Vec::<String>::new(), "no replay");
         kernel.log(3, "after Plymouth quit");
-        assert_eq!(m.take(), ["after Plymouth quit"]);
+        assert_eq!(m.take().unwrap(), ["after Plymouth quit"]);
 
         let (kernel, mut m) = messages(Deferral::Always);
         *kernel.plymouth.borrow_mut() = true;
         kernel.log(3, "while Plymouth runs");
-        assert_eq!(m.take(), ["while Plymouth runs"]);
+        assert_eq!(m.take().unwrap(), ["while Plymouth runs"]);
     }
 
     // ADR-1401 D15: `kernel-messages` is `after-plymouth` unset.
