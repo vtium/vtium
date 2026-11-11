@@ -142,6 +142,9 @@ pub struct DrawState {
     /// The text blink is in its off phase, which draws blinking text as
     /// [`Config::blink`] says.
     pub blink_hidden: bool,
+    /// The rapid blink, SGR 6's, is in its off phase, which draws rapidly
+    /// blinking text as [`Config::blink`] says. It has a timer of its own.
+    pub rapid_hidden: bool,
     /// The palette's default background, around the grid.
     pub background: Rgb,
     /// The pointer's tip in the grid's pixels, unturned, for the renderer
@@ -514,7 +517,8 @@ pub struct Renderer<F> {
     grid: Option<Grid>,
     cells: Cells,
     background: Option<Rgb>,
-    blink_hidden: bool,
+    /// The off phases of the text blink and the rapid blink last frame.
+    blink_hidden: (bool, bool),
     cursor_at: Option<(usize, usize)>,
     /// Where the visible cursor stood last frame, in either blink phase.
     held_at: Option<(usize, usize)>,
@@ -651,10 +655,15 @@ fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<
 }
 
 /// Whether `fc` draws in the text blink's off phase: blinking, not under
-/// the cursor, in the off phase, with `blink` not off.
+/// the cursor, in the off phase of its own blink, with `blink` not off. A
+/// cell with SGR 6 blinks at the rapid blink's phase, SGR 5 or not.
 fn blink_off(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState, blink: TextBlink) -> bool {
-    let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
-    !is_cursor && blinks && state.blink_hidden && blink.style != BlinkStyle::Off
+    let hidden = if fc.attrs.contains(Attrs::RAPID_BLINK) {
+        state.rapid_hidden
+    } else {
+        fc.attrs.contains(Attrs::BLINK) && state.blink_hidden
+    };
+    !is_cursor && hidden && blink.style != BlinkStyle::Off
 }
 
 impl<F: Face> Renderer<F> {
@@ -707,7 +716,7 @@ impl<F: Face> Renderer<F> {
             grid: None,
             cells: Cells::default(),
             background: None,
-            blink_hidden: false,
+            blink_hidden: (false, false),
             cursor_at: None,
             held_at: None,
             reaches_kept: true,
@@ -1177,8 +1186,9 @@ impl<F: Face> Renderer<F> {
         let cursor = frame.cursor();
         let held = cursor.visible.then(|| Self::cursor_cell(frame, &cursor));
         let at = held.filter(|_| state.cursor_on);
-        let blink_toggled = state.blink_hidden != self.blink_hidden;
-        self.blink_hidden = state.blink_hidden;
+        let phases = (state.blink_hidden, state.rapid_hidden);
+        let blink_toggled = phases != self.blink_hidden;
+        self.blink_hidden = phases;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
         let last_held = core::mem::replace(&mut self.held_at, held);
         let pass = Pass {

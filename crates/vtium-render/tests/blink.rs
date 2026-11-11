@@ -45,9 +45,12 @@ fn draw_config(config: Config, s: &Screen, cursor_on: bool, blink_hidden: bool) 
     let (w, h) = (s.cols as u32 * 8, s.rows as u32 * 16);
     let mut r = Renderer::new(unifont(), w, h, config);
     let mut c = Canvas::new(w, h, 0);
+    // both blinks in the same phase: SGR 6's has a timer of its own, which
+    // tests/rapid_blink.rs drives apart from SGR 5's
     let st = DrawState {
         cursor_on,
         blink_hidden,
+        rapid_hidden: blink_hidden,
         background: s.palette.bg(),
         ..DrawState::default()
     };
