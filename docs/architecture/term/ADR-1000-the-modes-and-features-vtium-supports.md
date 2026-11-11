@@ -81,7 +81,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 118 supported, 5 partial, 44 ignored, 8 refused, 10 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 120 supported, 5 partial, 44 ignored, 8 refused, 8 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
