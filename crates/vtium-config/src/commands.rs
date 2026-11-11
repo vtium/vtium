@@ -392,6 +392,12 @@ pub const TEMPLATE: &str = "\
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
+# A smaller size of the bitmap font on the source= line above it, which
+# draws that font's superscripts and subscripts. Its characters must be
+# from half to three quarters as high as the font's own. Write it as kbd:NAME,
+# file:PATH or bdf:PATH, and repeat the line for each size.
+#script-source=kbd:ter-112n
+#
 # The character cell in pixels, WIDTHxHEIGHT, each side from 6 to 96. When
 # left out, the first font sets it.
 #cell=8x16
