@@ -7,6 +7,7 @@ use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
+use crate::script::Variant;
 use crate::sprite::Range;
 
 /// A set drawn at one of its cell sizes, scaled by a whole factor.
@@ -67,6 +68,22 @@ impl SetFace {
     /// letter's joining form; `None` for one it does not map.
     pub fn cluster(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.set.cluster(self.cell, cluster, style, self.scale)
+    }
+
+    /// The glyph the set holds for `cluster` in `variant`, at this face's
+    /// cell and scale, from a strike of the variant's script alone
+    /// (ADR-1202 D11): a codepoint's from the strike's map, and a longer
+    /// cluster's from its cluster map. A superscript or subscript glyph
+    /// comes as its source made it, small and placed in the whole cell;
+    /// `None` when the set holds none, so a set of normal glyphs gives no
+    /// script glyph.
+    pub fn draw_variant(&self, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        match cluster {
+            [c] => self.set.draw_variant(self.cell, *c, variant, self.scale),
+            _ => self
+                .set
+                .cluster_variant(self.cell, cluster, variant, self.scale),
+        }
     }
 }
 

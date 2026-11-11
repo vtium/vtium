@@ -142,9 +142,9 @@ fn a_set_without_clusters_has_no_clus() {
     let tags: Vec<&[u8; 4]> = secs.iter().map(|(t, _)| t).collect();
     assert_eq!(tags, [b"META", b"STRK", b"CMAP", b"POLY", b"GLYF"]);
     let (major, minor, with) = sections(&clustered());
-    // CLUS added no version: the set is the writer's version, 2.1 since
-    // INKX's records gained the box's top and height
-    assert_eq!((major, minor), (2, 1), "CLUS adds no version");
+    // CLUS added no version: the set is the writer's version, 2.2 since
+    // a strike gained its script (ADR-1202 D11)
+    assert_eq!((major, minor), (2, 2), "CLUS adds no version");
     assert_eq!(with.last().map(|(t, _)| t), Some(b"CLUS"));
 }
 

@@ -94,7 +94,7 @@ const SET_SECTIONS: Bound = Bound {
     value: 16,
     what: "Sections a set's header lists",
     past: "The set is refused",
-    cite: "vtium's own: format 2.1 writes at most seven (ADR-1200 D2), and a minor version adds sections a reader skips",
+    cite: "vtium's own: format 2.2 writes at most seven (ADR-1200 D2), and a minor version adds sections a reader skips",
 };
 
 const SET_META: Bound = Bound {
@@ -150,7 +150,7 @@ const SET_RECORD: Bound = Bound {
     value: 64,
     what: "Bytes a record of a set's tables declares",
     past: "The set is refused",
-    cite: "vtium's own: format 2.1's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
+    cite: "vtium's own: format 2.2's largest record is 48 bytes, and a minor version adds fields at a record's end (ADR-1200 D2); it bounds what a table's counts can make the reader hold",
 };
 
 const SET_CLUSTERS: Bound = Bound {

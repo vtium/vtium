@@ -138,6 +138,7 @@ fn pack(b: &Builtin) -> Vec<u8> {
     let strike = RawStrike {
         style: 0,
         format: FORMAT_BITS,
+        script: 0,
         cell_width: b.width,
         cell_height: h,
         baseline: b.baseline,
