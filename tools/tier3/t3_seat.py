@@ -21,10 +21,12 @@ screen has settled after it.
 The kernel-message variant makes the guest's kernel log an error while vtium
 shows its login prompt, through the agent's request `kmsg`, and captures the
 screen once vtium has drawn it (ADR-1401 D15). The case `kernel-message` is
-judged by its golden: the message in vtium's notice box on the boot display.
+judged by its golden: the message in vtium's notice box on the boot display,
+captured at the count's first value (first_count).
 """
 
 import os
+import time
 
 from t3_qemu import not_blank, wait_stable
 
@@ -49,15 +51,22 @@ CHECKS = {
 # the caller passed no log of its own, as mount(2) does.
 KMSG_LINE = "tmpfs: Unknown parameter 'vtium_tier3_warning'"
 # How long vtium shows a kernel message (crates/vtium/src/head.rs,
-# KERNEL_SHOWN); the capture must settle within it.
+# KERNEL_SHOWN). The box's last line counts the seconds down from it, "Press
+# Esc to dismiss this message (15)", so the screen changes every second.
 KMSG_SHOWN = 15
+# How often the screen is captured while the case waits for the box, and
+# how far apart the two captures that must agree are: both well inside the
+# first second, so the capture shows the count at 15.
+KMSG_POLL = 0.1
 
 # The cases judged by a golden, and what each shows.
 CAPTIONS = {
     "kernel-message": "The login prompt on tty2 after the kernel logged an error of its own, "
                       "tmpfs: Unknown parameter 'vtium_tier3_warning', at level err. Correct: "
-                      "the message, alone, in vtium's notice box at the top of the boot display, "
-                      "drawn over the console; the console's screen around the box unchanged.",
+                      "the message in vtium's notice box at the top of the boot display, with the "
+                      "line Press Esc to dismiss this message (15) under it, the count at its "
+                      "first value, drawn over the console; the console's screen around the box "
+                      "unchanged.",
 }
 
 # vtium's lines (crates/vtium-platform/src/seat.rs), after the log's target.
@@ -151,9 +160,30 @@ def kernel_message(vm, work, caps, errors, log):
         answer = vm.ask("kmsg")
         log("kmsg: %s" % "; ".join(answer))
         vm.wait_serial(KMSG_LINE, timeout=30)
-        wait_stable(vm, path, settle=1.0, timeout=KMSG_SHOWN - 2,
-                    want=lambda img: not_blank(img) and img.data != shown.data)
+        first_count(vm, path, shown)
         caps["kernel-message"] = path
     except (RuntimeError, OSError) as e:
         errors["kernel-message"] = str(e)
         log("kernel-message: %s" % e)
+
+
+def first_count(vm, path, shown):
+    """Capture the screen at the first count of vtium's notice box: the first
+    capture that differs from `shown`, the screen before the message, and
+    equals the capture KMSG_POLL seconds after it, so neither falls on the
+    count's first tick. The box counts down once a second from KMSG_SHOWN,
+    so this capture shows its first value. Raises when no two such captures
+    agree within the time vtium shows the message."""
+    deadline = time.time() + KMSG_SHOWN - 2
+    while time.time() < deadline:
+        img = vm.screendump(path)
+        if img.data == shown.data or not not_blank(img):
+            time.sleep(KMSG_POLL)
+            continue
+        time.sleep(KMSG_POLL)
+        again = vm.screendump(path + ".again")
+        os.unlink(path + ".again")
+        if again.data == img.data:
+            return img
+    raise RuntimeError("the notice box with the kernel message never held still for %.1f s"
+                       % KMSG_POLL)
