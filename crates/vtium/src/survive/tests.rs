@@ -167,7 +167,7 @@ impl Systemd {
                 .find_map(|l| l.strip_prefix(key)?.strip_prefix('='))
         };
         if field("READY") == Some("1") {
-            self.ready += 1;
+            self.ready = self.ready.saturating_add(1);
         }
         let name = field("FDNAME").filter(|n| storable(n));
         if field("FDSTOREREMOVE") == Some("1")
