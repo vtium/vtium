@@ -18,7 +18,7 @@
 //! unjoined. The tables come from the Unicode Character Database through
 //! `gen-lookup` ([`super::data::FORMS`], [`super::data::LIGATURES`]).
 
-use vtium_font::{Glyph, Style, Width};
+use vtium_font::{Glyph, Variant, Width};
 
 use super::{DeferredFace, Layers, Sides, Text, data, is_ignorable, is_mark, lock};
 
@@ -179,21 +179,21 @@ pub fn presented(c: char) -> Vec<char> {
 
 impl DeferredFace {
     /// The glyph `key` draws when the store does not hold the key itself.
-    pub(super) fn joined(&self, key: &Key, style: Style) -> Option<Glyph> {
+    pub(super) fn joined(&self, key: &Key, variant: Variant) -> Option<Glyph> {
         match key {
-            Key::Letter { sides, part } => self.unshaped(*sides, &part.text(), style),
-            Key::Ligature { before, lam, alef } => self.ligature((*before, lam, alef), style),
+            Key::Letter { sides, part } => self.unshaped(*sides, &part.text(), variant),
+            Key::Ligature { before, lam, alef } => self.ligature((*before, lam, alef), variant),
         }
     }
 
     /// `letter`'s glyph joined on `sides`, before its marks are laid on it:
     /// the store's glyph for the letter's key, else its presentation form,
     /// else its own glyph, unjoined.
-    pub(super) fn form(&self, sides: Sides, letter: char, style: Style) -> Option<Glyph> {
+    pub(super) fn form(&self, sides: Sides, letter: char, variant: Variant) -> Option<Glyph> {
         let key: Text = sides.key(vec![letter]);
-        let held = lock(&self.generated).draw(self.at(), &key, style.into());
-        held.or_else(|| self.presented_as(letter_form(letter, sides)?, letter, style))
-            .or_else(|| self.single(letter, style))
+        let held = lock(&self.generated).draw(self.at(), &key, variant);
+        held.or_else(|| self.presented_as(letter_form(letter, sides)?, letter, variant))
+            .or_else(|| self.single(letter, variant))
     }
 
     /// The glyph of `form`, a presentation form that draws `letter`, from
@@ -201,29 +201,33 @@ impl DeferredFace {
     /// `form`; else the built-in font, while the store holds nothing for
     /// `letter`, so a letter the frit draws never takes a joined form from
     /// another font.
-    fn presented_as(&self, form: char, letter: char, style: Style) -> Option<Glyph> {
+    fn presented_as(&self, form: char, letter: char, variant: Variant) -> Option<Glyph> {
         let store = lock(&self.generated);
-        if let Some(g) = store.draw(self.at(), &[form], style.into()) {
+        if let Some(g) = store.draw(self.at(), &[form], variant) {
             return Some(g);
         }
         if store.held_any(self.at(), &[letter]) || !self.builtin.has_glyph(form) {
             return None;
         }
         drop(store);
-        self.built_in(form, style)
+        self.built_in_variant(form, variant)
     }
 
     /// The lam-alef ligature, across two cells: its presentation form
     /// with the marks of both letters laid on it, where the font holds the
     /// form; else lam in its joined form in the right cell and alef in its
     /// final form in the left, each with its marks.
-    fn ligature(&self, (before, lam, alef): (bool, &Part, &Part), style: Style) -> Option<Glyph> {
+    fn ligature(
+        &self,
+        (before, lam, alef): (bool, &Part, &Part),
+        variant: Variant,
+    ) -> Option<Glyph> {
         if let Some(form) = ligature_form(alef.letter, before)
-            && self.presented_as(form, lam.letter, style).is_some()
+            && self.presented_as(form, lam.letter, variant).is_some()
         {
             let mut text = vec![form];
             text.extend(lam.marks.iter().chain(&alef.marks));
-            return self.unshaped(Sides::default(), &text, style);
+            return self.unshaped(Sides::default(), &text, variant);
         }
         let right = self.unshaped(
             Sides {
@@ -231,7 +235,7 @@ impl DeferredFace {
                 after: true,
             },
             &lam.text(),
-            style,
+            variant,
         )?;
         let left = self.unshaped(
             Sides {
@@ -239,7 +243,7 @@ impl DeferredFace {
                 after: false,
             },
             &alef.text(),
-            style,
+            variant,
         )?;
         let cell = self.cell;
         let mut layers = Layers::new(cell.width.checked_mul(2)?, cell.height, Width::Wide)?;
@@ -257,7 +261,7 @@ mod tests {
     use std::sync::Arc;
     use vtium_font::set::{PixelFormat, Set, SetBuilder, StrikeBuilder};
     use vtium_font::spacing::SpacedCell;
-    use vtium_font::{Cell, Face, Font, Unifont, Variant};
+    use vtium_font::{Cell, Face, Font, Style, Unifont, Variant};
 
     const CELL: Cell = Cell {
         width: 8,
