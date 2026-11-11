@@ -92,10 +92,12 @@ pub fn title_of(flow: &Flow, piece: &Piece) -> String {
             .map(|d| d.name.clone())
     };
     match piece {
-        Piece::Display(s) if let Some(n) = own(Kind::Display, s) => n,
-        Piece::Input(s) if let Some(n) = own(Kind::Input, s) => n,
-        Piece::Display(s) => paths::title(flow, Kind::Display, s).0,
-        Piece::Input(s) => paths::title(flow, Kind::Input, s).0,
+        Piece::Display(s) => {
+            own(Kind::Display, s).unwrap_or_else(|| paths::title(flow, Kind::Display, s).0)
+        }
+        Piece::Input(s) => {
+            own(Kind::Input, s).unwrap_or_else(|| paths::title(flow, Kind::Input, s).0)
+        }
         _ => special_title(piece),
     }
 }
