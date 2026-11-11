@@ -413,6 +413,9 @@ impl Machine {
         // logind's file for seat0, which it keeps while it runs.
         std::fs::create_dir_all(root.join(SEAT0).parent().unwrap()).unwrap();
         std::fs::write(root.join(SEAT0), "IS_SEAT0=1\n").unwrap();
+        // The PAM file an install of a build with libseat and logind ships.
+        std::fs::create_dir_all(root.join(SEAT_PAM).parent().unwrap()).unwrap();
+        std::fs::write(root.join(SEAT_PAM), include_str!("../../install/vtium.pam")).unwrap();
         std::fs::create_dir_all(root.join(WANTS)).unwrap();
         generate("vtium", "/usr/bin/vtium", &lib);
         generate("vtium-dev", "/usr/local/bin/vtium-dev", &lib);
@@ -682,7 +685,9 @@ fn enable_and_disable_need_root_and_say_how_without_sudo() {
 #[test]
 fn without_the_packaged_unit_nothing_changes() {
     let mut m = Machine::gettys("not-installed");
-    std::fs::remove_file(m.root().join("usr/lib/systemd/system/vtium@.service")).unwrap();
+    for unit in ["vtium@.service", "vtium-seat@.service"] {
+        std::fs::remove_file(m.root().join("usr/lib/systemd/system").join(unit)).unwrap();
+    }
     for verb in [
         &["enable", "--direct", "3"][..],
         &["enable", "--direct", "--all"],
@@ -1417,9 +1422,55 @@ fn a_masked_template_is_refused_before_anything_is_written() {
     }
     assert!(m.changes().is_empty(), "{:?}", m.changes());
     assert_eq!(m.snapshot(), before);
+    // status names the masked unit once a link names it, or when seat
+    // mode's unit is gone too.
     let (status, out, _) = m.console(&["status"]);
     assert_eq!(status, 0);
+    assert!(!out.contains("masked"), "{out}");
+    std::fs::remove_file(m.root().join("usr/lib/systemd/system/vtium-seat@.service")).unwrap();
+    let (_, out, _) = m.console(&["status"]);
     assert!(out.starts_with("vtium@.service is masked"), "{out}");
+}
+
+#[test]
+fn seat_mode_vts_come_back_with_direct_modes_unit_masked() {
+    let mut m = Machine::gettys("direct-masked");
+    let start = m.snapshot();
+    assert_eq!(m.console(&["enable", "--seat", "--all"]).0, 0);
+    assert_eq!(m.console(&["enable", "--seat", "3"]).0, 0);
+    symlink(MASK, m.root().join(ETC).join("vtium@.service")).unwrap();
+    let (status, out, _) = m.console(&["status"]);
+    assert_eq!(status, 0);
+    assert!(
+        out.starts_with("On a VT with no link of its own, logind starts vtium in seat mode"),
+        "{out}"
+    );
+    assert!(!out.contains("masked"), "{out}");
+    let (status, out, err) = m.console(&["disable", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(!m.wanted("vtium-seat@tty3.service"));
+    let (status, out, err) = m.console(&["disable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    std::fs::remove_file(m.root().join(ETC).join("vtium@.service")).unwrap();
+    assert_eq!(m.snapshot(), start);
+}
+
+#[test]
+fn seat_mode_needs_vtiums_pam_file() {
+    let mut m = Machine::gettys("no-pam");
+    std::fs::remove_file(m.root().join(SEAT_PAM)).unwrap();
+    let (_, out, _) = m.console(&["enable"]);
+    assert!(
+        out.contains("Seat mode cannot run here, because there is no /etc/pam.d/vtium"),
+        "{out}"
+    );
+    let (status, _, err) = m.console(&["enable", "--seat", "--all"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("Seat mode cannot run here: there is no /etc/pam.d/vtium"),
+        "{err}"
+    );
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
 }
 
 #[test]
@@ -2689,6 +2740,18 @@ fn the_fallback_passes_by_vtium_in_seat_mode() {
             ("ConflictedBy", ""),
         ],
     );
+    // vtium in seat mode is enabled on VT 3 and failed there, the case the
+    // fallback is for: any other unit in that state would hold the getty
+    // back.
+    m.fake.shows(
+        "vtium-seat@tty3.service",
+        &[
+            ("Id", "vtium-seat@tty3.service"),
+            ("ActiveState", "failed"),
+            ("UnitFileState", "enabled"),
+            ("Job", ""),
+        ],
+    );
     let (status, out, err) = m.console(&["fallback", "3"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
@@ -2778,4 +2841,47 @@ fn vtiums_own_greeter_session_keeps_no_vt_from_a_move() {
     assert!(m.wanted("vtium@tty3.service") && !m.wanted("vtium-seat@tty3.service"));
     let (_, out, _) = m.console(&["status"]);
     assert!(!out.contains("greeter"), "{out}");
+}
+
+#[test]
+fn enable_seat_all_moves_a_vt_that_enable_direct_n_moved_back() {
+    let mut m = Machine::gettys("seat-all-again");
+    assert_eq!(m.console(&["enable", "--seat", "--all"]).0, 0);
+    assert_eq!(m.console(&["enable", "--direct", "3"]).0, 0);
+    assert!(m.wanted("vtium@tty3.service"));
+    let (status, out, err) = m.console(&["enable", "--seat", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(!out.contains("already enabled"), "{out}");
+    assert!(
+        out.contains("VT 3 moves from direct mode to seat mode"),
+        "{out}"
+    );
+    assert!(m.wanted("vtium-seat@tty3.service") && !m.wanted("vtium@tty3.service"));
+    assert_eq!(m.links("autovt@tty3.service"), to("vtium-seat"));
+}
+
+#[test]
+fn a_masked_seat_unit_is_no_seat_mode() {
+    let mut m = Machine::gettys("seat-masked");
+    symlink(MASK, m.root().join(ETC).join("vtium-seat@.service")).unwrap();
+    let (status, out, _) = m.console(&["enable"]);
+    assert_eq!(status, 0);
+    assert!(
+        out.contains("Seat mode cannot run here, because vtium-seat@.service is masked."),
+        "{out}"
+    );
+    assert!(!out.contains("Seat mode can also run here"), "{out}");
+    let before = m.snapshot();
+    let (status, _, err) = m.console(&["enable", "--seat", "3"]);
+    assert_eq!(status, 1);
+    assert!(
+        err.contains("Seat mode cannot run here: vtium-seat@.service is masked"),
+        "{err}"
+    );
+    assert!(
+        err.contains("systemctl unmask vtium-seat@.service"),
+        "{err}"
+    );
+    assert_eq!(m.snapshot(), before);
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
 }

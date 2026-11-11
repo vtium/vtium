@@ -106,6 +106,9 @@ const BOOTED: &str = "run/systemd/system";
 /// The file logind keeps for seat0 while it runs and manages that seat, in
 /// the directory sd-login's `sd_get_seats` lists.
 const SEAT0: &str = "run/systemd/seats/seat0";
+/// The PAM stack seat mode's unit opens vtium's own session through
+/// (`PAMName=vtium`, ADR-1400 D3).
+const SEAT_PAM: &str = "etc/pam.d/vtium";
 
 /// How vtium runs on a VT (ADR-1400 D3).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -672,15 +675,42 @@ impl Run<'_, '_, '_> {
             UnitFile::Masked => Some(text::template_masked(prefix)),
             UnitFile::Missing => Some(text::not_installed(prefix)),
         };
+        // enable needs its mode's unit. disable and status work on whichever
+        // mode each VT has, so either unit will do for them.
+        let usable = match verb {
+            Verb::Enable(..) => problem.is_none(),
+            _ => VTIUMS
+                .iter()
+                .any(|p| matches!(self.unit_file(p), UnitFile::At(_))),
+        };
         if verb == Verb::Status {
-            if let Some(problem) = problem {
-                self.say(&problem);
+            // A line on a unit that is masked or missing, when vtium has
+            // neither unit, or when a link still names it: a line on a mode
+            // nothing uses means nothing to the person who reads it.
+            for p in VTIUMS {
+                let problem = match self.unit_file(p) {
+                    UnitFile::At(_) => continue,
+                    UnitFile::Masked => text::template_masked(p),
+                    UnitFile::Missing => text::not_installed(p),
+                };
+                let named = state.template().names(p)
+                    || state
+                        .vts()
+                        .into_iter()
+                        .any(|n| state.wanted(n, p) || state.own(n).names(p));
+                if named || (!usable && p == VTIUM) {
+                    self.say(&problem);
+                }
             }
             self.status(&state);
             return Ok(0);
         }
-        let UnitFile::At(unit) = unit else {
+        if !usable {
             return Err(Stop(problem.unwrap_or_default()));
+        }
+        let unit = match unit {
+            UnitFile::At(unit) => unit,
+            UnitFile::Masked | UnitFile::Missing => String::new(),
         };
         match verb {
             Verb::Status | Verb::Advise(_) => Ok(0),
@@ -753,7 +783,12 @@ impl Run<'_, '_, '_> {
         advice::Facts {
             seat0: self.path(SEAT0).exists(),
             seat_build: self.host.seat_build,
-            seat_unit: matches!(self.unit_file(SEAT), UnitFile::At(_)),
+            seat_unit: match self.unit_file(SEAT) {
+                UnitFile::At(_) => advice::SeatUnit::Present,
+                UnitFile::Masked => advice::SeatUnit::Masked,
+                UnitFile::Missing => advice::SeatUnit::Missing,
+            },
+            pam: self.path(SEAT_PAM).is_file(),
             display_manager: self.display_manager(),
         }
     }

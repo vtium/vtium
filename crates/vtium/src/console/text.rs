@@ -59,7 +59,13 @@ pub fn seat_cannot_run(block: SeatBlock, which: &str) -> String {
             "Seat mode cannot run with this vtium: it is built without libseat and logind, and seat mode needs both."
         }
         SeatBlock::Unit => {
-            "Seat mode cannot run here: no systemd unit directory has vtium-seat@.service, or it is masked. An install of a vtium built with libseat and logind ships it."
+            "Seat mode cannot run here: no systemd unit directory has vtium-seat@.service. An install of a vtium built with libseat and logind ships it."
+        }
+        SeatBlock::Masked => {
+            "Seat mode cannot run here: vtium-seat@.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask vtium-seat@.service."
+        }
+        SeatBlock::Pam => {
+            "Seat mode cannot run here: there is no /etc/pam.d/vtium, the PAM file that seat mode opens vtium's own session with. An install of a vtium built with libseat and logind ships it."
         }
         SeatBlock::Logind => {
             "Seat mode cannot run here: logind manages no seat0 on this machine (there is no /run/systemd/seats/seat0)."
@@ -700,7 +706,9 @@ pub fn advice(facts: &Facts, which: &str, sudo: bool) -> Vec<String> {
             "Seat mode can also run here. In seat mode, vtium takes the screen, the keyboards and VT switching from logind, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. To use seat mode, run {sudo}vtium console enable --seat {which}."
         ),
         Some(SeatBlock::Build) => "Seat mode cannot run with this vtium, because it is built without libseat and logind.".to_owned(),
-        Some(SeatBlock::Unit) => "Seat mode cannot run here, because no systemd unit directory has vtium-seat@.service, or it is masked.".to_owned(),
+        Some(SeatBlock::Unit) => "Seat mode cannot run here, because no systemd unit directory has vtium-seat@.service.".to_owned(),
+        Some(SeatBlock::Masked) => "Seat mode cannot run here, because vtium-seat@.service is masked.".to_owned(),
+        Some(SeatBlock::Pam) => "Seat mode cannot run here, because there is no /etc/pam.d/vtium, the PAM file that seat mode opens vtium's own session with.".to_owned(),
         Some(SeatBlock::Logind) => "Seat mode cannot run here, because logind manages no seat0.".to_owned(),
     });
     lines.push(String::new());

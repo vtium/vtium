@@ -17,11 +17,22 @@ pub struct Facts {
     pub seat0: bool,
     /// Whether this vtium is built with `libseat` and `logind`.
     pub seat_build: bool,
-    /// Whether a unit directory has `vtium-seat@.service`, and does not
-    /// mask it.
-    pub seat_unit: bool,
+    /// Whether systemd finds `vtium-seat@.service`, masked or not.
+    pub seat_unit: SeatUnit,
+    /// Whether `/etc/pam.d/vtium` exists, the PAM stack that seat mode's
+    /// unit opens vtium's session through.
+    pub pam: bool,
     /// The display manager's unit, when one is enabled.
     pub display_manager: Option<String>,
+}
+
+/// Where systemd finds seat mode's unit.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SeatUnit {
+    Present,
+    /// The first unit directory that has it links it to `/dev/null`.
+    Masked,
+    Missing,
 }
 
 /// Why seat mode cannot run.
@@ -29,8 +40,12 @@ pub struct Facts {
 pub enum SeatBlock {
     /// This vtium is built without `libseat` and `logind`.
     Build,
-    /// No unit directory has `vtium-seat@.service`, or it is masked.
+    /// No unit directory has `vtium-seat@.service`.
     Unit,
+    /// `vtium-seat@.service` is masked.
+    Masked,
+    /// There is no `/etc/pam.d/vtium`.
+    Pam,
     /// logind manages no seat0.
     Logind,
 }
@@ -40,8 +55,12 @@ pub enum SeatBlock {
 pub fn seat_block(facts: &Facts) -> Option<SeatBlock> {
     if !facts.seat_build {
         Some(SeatBlock::Build)
-    } else if !facts.seat_unit {
+    } else if facts.seat_unit == SeatUnit::Missing {
         Some(SeatBlock::Unit)
+    } else if facts.seat_unit == SeatUnit::Masked {
+        Some(SeatBlock::Masked)
+    } else if !facts.pam {
+        Some(SeatBlock::Pam)
     } else if !facts.seat0 {
         Some(SeatBlock::Logind)
     } else {
@@ -67,7 +86,12 @@ mod tests {
         Facts {
             seat0,
             seat_build,
-            seat_unit,
+            seat_unit: if seat_unit {
+                SeatUnit::Present
+            } else {
+                SeatUnit::Missing
+            },
+            pam: true,
             display_manager: None,
         }
     }
@@ -92,6 +116,11 @@ mod tests {
             seat_block(&facts(false, true, true)),
             Some(SeatBlock::Logind)
         );
+        let mut f = facts(false, true, true);
+        f.pam = false;
+        assert_eq!(seat_block(&f), Some(SeatBlock::Pam));
+        f.seat_unit = SeatUnit::Masked;
+        assert_eq!(seat_block(&f), Some(SeatBlock::Masked));
     }
 
     #[test]
