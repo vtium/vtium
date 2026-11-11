@@ -140,8 +140,20 @@ impl fmt::Display for ScopeError {
 }
 
 /// The scope's unit name for the child `pid` started on `place`: the VT's
-/// name, such as `tty2`, or the seat's.
+/// name, such as `tty2`, or the seat's. A unit name holds only ASCII
+/// letters and digits and `:_.\-` (systemd.unit(5)), so any other
+/// character of `place` becomes `_`.
 pub fn unit_name(place: &str, pid: u32) -> String {
+    let place: String = place
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || ":_.-".contains(c) {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
     format!("vtium-login-{place}-{pid}.scope")
 }
 
@@ -787,6 +799,17 @@ mod tests {
         ) -> Result<String, ScopeError> {
             self.calls
                 .push((name.to_owned(), mode.to_owned(), properties.to_vec()));
+            // systemd.unit(5): a unit name holds ASCII letters and digits and
+            // `:_.\-`, and a scope's ends in `.scope`
+            let valid = name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || ":_.\\-".contains(c));
+            if !valid || !name.ends_with(".scope") || name.len() <= ".scope".len() {
+                return Err(ScopeError::Bus(Error::Refused {
+                    name: "org.freedesktop.DBus.Error.InvalidArgs".to_owned(),
+                    message: format!("Invalid unit name or type: {name}"),
+                }));
+            }
             if self.units.iter().any(|u| u == name) {
                 return Err(ScopeError::Bus(Error::Refused {
                     name: "org.freedesktop.systemd1.UnitExists".to_owned(),
@@ -873,6 +896,27 @@ mod tests {
                 ],
             )]
         );
+    }
+
+    // A seat's name with characters a unit name cannot hold still makes a
+    // name systemd takes, and the stand-in refuses names systemd refuses.
+    #[test]
+    fn every_place_makes_a_valid_unit_name() {
+        assert_eq!(unit_name("seat/x y", 3), "vtium-login-seat_x_y-3.scope");
+        let mut systemd = StandInManager {
+            result: Some("done"),
+            ..StandInManager::default()
+        };
+        let unit = unit_name("seat/x y", 3);
+        assert!(start_with(&mut systemd, &unit, 3, deadline()).is_ok());
+        for refused in ["vtium-login-seat/x-3.scope", "vtium-login-tty2-3.service"] {
+            let e = start_with(&mut systemd, refused, 3, deadline());
+            assert!(
+                e.as_ref()
+                    .is_err_and(|e| e.to_string().contains("InvalidArgs")),
+                "{refused}: {e:?}"
+            );
+        }
     }
 
     #[test]
