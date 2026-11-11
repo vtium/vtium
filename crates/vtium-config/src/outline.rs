@@ -9,7 +9,7 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT7\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT8\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
@@ -20,7 +20,7 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic)
+//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -63,6 +63,16 @@
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its
 //! position, laid over the others, and the whole placed as one glyph is.
 //!
+//! A request may ask for superscript or subscript glyphs
+//! ([`OutlineRequest::script`], ADR-1202 D2, D5). The helper then names
+//! the size and the baseline that a script glyph takes, and an outline
+//! glyph is rasterised at that size and placed on that baseline as any
+//! glyph is, so its edges fall on the small size's pixel grid. A color
+//! glyph is fitted, as a normal one is, to a box two thirds of its
+//! cells' width and height ([`vtium_font::SCRIPT_SCALE`]), scaled once
+//! from its source, and placed against the cell's top for a superscript
+//! and its bottom for a subscript, centred across.
+//!
 //! A request may ask for a style the font does not draw itself
 //! ([`OutlineRequest::synth`], ADR-1302 D4). For synthetic italic each
 //! point of an outline moves right by 0.2 of its height above the
@@ -81,7 +91,7 @@ use std::sync::Arc;
 use crate::frit::{Cover, Hinting};
 use crate::shaping::{Ask, Kind};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, REACH_CELLS, REACH_ROWS, SET_CHUNK_BYTES, Style,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, REACH_CELLS, REACH_ROWS, SET_CHUNK_BYTES, Script, Style,
 };
 
 /// The most bytes an outline font file holds; Noto Sans CJK's collection
@@ -106,7 +116,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT7\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT8\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
@@ -159,6 +169,12 @@ pub struct OutlineRequest {
     /// outline and italic slants it (ADR-1302 D4). Regular draws the
     /// glyphs as the font draws them.
     pub synth: Style,
+    /// Where the glyphs sit in their cells (ADR-1202 D2, D5): normal
+    /// glyphs, or superscript or subscript ones, whose size and baseline
+    /// the request names in `sizes` and `baselines`. A superscript or
+    /// subscript color glyph is fitted to two thirds of its cells and
+    /// placed against the cell's top or bottom.
+    pub script: Script,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -358,6 +374,11 @@ impl OutlineRequest {
             Hinting::Full => 1,
         });
         out.push(u8::from(self.synth.bold) | u8::from(self.synth.italic) << 1);
+        out.push(match self.script {
+            Script::Baseline => 0,
+            Script::Super => 1,
+            Script::Sub => 2,
+        });
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -450,6 +471,12 @@ impl OutlineRequest {
             },
             _ => return Err("an unknown synthesis"),
         };
+        let script = match r.u8()? {
+            0 => Script::Baseline,
+            1 => Script::Super,
+            2 => Script::Sub,
+            _ => return Err("an unknown script"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -465,6 +492,7 @@ impl OutlineRequest {
             hinting,
             synth,
             fit,
+            script,
         })
     }
 
@@ -724,7 +752,7 @@ pub use raster::{baseline, cell_width, decorations, rasterise, size};
 pub(crate) mod raster {
     use super::{
         Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, REACH_CELLS,
-        SET_CHUNK_BYTES, Strike, Style,
+        SET_CHUNK_BYTES, Script, Strike, Style,
     };
     use skrifa::instance::{LocationRef, Size};
     use skrifa::outline::{
@@ -1541,6 +1569,7 @@ pub(crate) mod raster {
                 baseline,
                 ppem,
                 reach: request.reach(i),
+                script: request.script,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
             let mut index: Vec<(u16, u32)> = Vec::new();
@@ -1614,6 +1643,8 @@ pub(crate) mod raster {
         pub(crate) baseline: u32,
         pub(crate) ppem: f32,
         pub(crate) reach: (u32, u32),
+        /// Where the glyphs sit in the cell ([`OutlineRequest::script`]).
+        pub(crate) script: Script,
     }
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
@@ -1679,7 +1710,19 @@ pub(crate) mod raster {
     ) -> Option<Placed> {
         let h = cell.height;
         let bw = cell.width * if wide { 2 } else { 1 };
-        let mut image = draw(cell.ppem, (bw, h))?;
+        // a superscript or subscript color glyph fits two thirds of its
+        // cells (ADR-1202 D1, D5), as a normal one fits all of them
+        let small = |n: u32| {
+            let (num, den) = vtium_font::SCRIPT_SCALE;
+            ((n * num + den / 2) / den).max(1)
+        };
+        let script = cell.script != Script::Baseline;
+        let (fw, fh) = if script {
+            (small(bw), small(h))
+        } else {
+            (bw, h)
+        };
+        let mut image = draw(cell.ppem, (fw, fh))?;
         let color = image.content == Content::Color;
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
         // where the font places a mask: the advance rounded to the nearest
@@ -1701,10 +1744,10 @@ pub(crate) mod raster {
         // that the ink needs, the mask fits the height instead.
         let shrink = |image: &Image| {
             let (iw, ih) = (image.placement.width as f32, image.placement.height as f32);
-            let whole = (bw as f32 / iw).min(h as f32 / ih);
             if color {
-                return whole;
+                return (fw as f32 / iw).min(fh as f32 / ih);
             }
+            let whole = (bw as f32 / iw).min(h as f32 / ih);
             let above = image.placement.top as f32;
             let below = ih - above;
             let room = |ink: f32, rows: i32| {
@@ -1735,12 +1778,16 @@ pub(crate) mod raster {
                     break;
                 }
                 ppem *= scale;
-                image = draw(ppem, (bw, h))?;
+                image = draw(ppem, (fw, fh))?;
             }
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
         let (left, top) = if fitted {
-            let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
+            let top = match (color, cell.script) {
+                (true, Script::Super) => 0,
+                (true, Script::Sub) => (h_i - ih).max(0),
+                _ => (base - image.placement.top).clamp(0, (h_i - ih).max(0)),
+            };
             ((bw_i - iw) / 2, top)
         } else {
             at(&image)
@@ -1899,6 +1946,7 @@ mod tests {
             baseline: 10,
             ppem: 10.0,
             reach: (10, 10),
+            script: vtium_font::Script::Baseline,
         };
         let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
             .expect("placed");

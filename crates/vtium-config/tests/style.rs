@@ -586,6 +586,7 @@ fn style_asks_are_answered_in_their_style() {
                     cell: CELL,
                     band: vtium_font::spacing::Band::NONE,
                     style,
+                    script: vtium_font::Script::Baseline,
                     codepoints: vec![0x41],
                     clusters: Vec::new(),
                     held: Vec::new(),

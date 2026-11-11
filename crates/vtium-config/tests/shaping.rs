@@ -31,6 +31,7 @@ fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: ttf::test_shaping().build().into(),
         family: "Test Shaping".to_owned(),
         cells: vec![(0, 20)],
@@ -318,6 +319,7 @@ fn marked(keys: &[&[char]], height: u32, reach: Option<u32>) -> OutlineRequest {
     OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, height)],
@@ -455,6 +457,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
         let o = rasterise(&OutlineRequest {
             fit: false,
             synth: Default::default(),
+            script: Default::default(),
             font: font(by).into(),
             family: "Test Mono".to_owned(),
             cells: vec![(12, 20)],
@@ -495,6 +498,7 @@ fn alef_damma(reach: Option<u32>) -> OutlineRequest {
     OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -681,6 +685,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     let o = rasterise(&OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],
@@ -727,6 +732,7 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     let o = rasterise(&OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: f.build().into(),
         family: "Test Mono".to_owned(),
         cells: vec![(0, 20)],

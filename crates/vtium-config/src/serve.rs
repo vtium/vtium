@@ -46,7 +46,7 @@
 //! process. It is answered at once, like a cell query.
 //!
 //! ```text
-//! request  magic "VTVSREQ5", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ6", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a cell or sources query), cell height u32 (for a
@@ -56,7 +56,9 @@
 //!          (both 0 for a query, and together less than the cell's
 //!          height), style u32 (0
 //!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
-//!          name one other than regular), capabilities
+//!          name one other than regular), script u32 (0 normal, 1
+//!          superscript, 2 subscript; an ask's alone may name one other
+//!          than normal), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
@@ -72,7 +74,8 @@
 //!          ask's glyphs and 4 a fill's, each the rows line spacing adds
 //!          above and below the cell u32 and u32, as the request named
 //!          them, then a vitrified set of one cell's
-//!          glyphs, its strikes in the style the request named, an ask's
+//!          glyphs, its strikes in the style and the script the request
+//!          named, an ask's
 //!          clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
 //!          cell's fill done (its width u32, height u32, and rows added
 //!          above u32 and below u32); kind 6 a
@@ -109,6 +112,20 @@
 //! each style is drawn from, in order. A fill, a stop and the queries are
 //! regular: the fill fills only the regular glyphs, and the other styles
 //! come by ask.
+//!
+//! An ask also names a script, normal, superscript or subscript (ADR-1202
+//! D11), and its glyphs come in strikes of that script, each made small by
+//! the source that draws the character's normal glyph (ADR-1202 D15): the
+//! same order of steps and sources picks it. The helper never draws a
+//! script glyph from another source than that. An outline source's glyph
+//! is rasterised at two thirds of the size its normal glyph is drawn at,
+//! never scaled from a full-size raster, and stands on the script baseline
+//! ([`script_baseline`], ADR-1202 D2). A color glyph is scaled once from
+//! its source to two thirds of its cells and placed against the cell's top
+//! or bottom (ADR-1202 D5). A bitmap source's glyph is drawn as for a
+//! normal cell and made small by vtium-font's script rule
+//! ([`vtium_font::Glyph::scripted`]). A script glyph's ink stays inside its
+//! row (ADR-1202 D8). The fill and the stops draw normal glyphs alone.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
 //! the console read from its own VT at start and handed over
@@ -151,8 +168,8 @@ use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, InkRows, SpacedCell};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, REACH_CELLS, REACH_ROWS,
-    SET_CHUNK_BYTES, Style, Width,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Glyph, REACH_CELLS, REACH_ROWS,
+    SET_CHUNK_BYTES, Script, Style, Variant, Width,
 };
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
@@ -173,7 +190,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -278,6 +295,9 @@ pub struct ServeRequest {
     /// The style an ask's glyphs are drawn in; regular for every other
     /// request.
     pub style: Style,
+    /// Where an ask's glyphs sit in their cells (ADR-1202 D11): normal, or
+    /// superscript or subscript; normal for every other request.
+    pub script: Script,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
@@ -352,6 +372,7 @@ impl ServeRequest {
         put32(&mut out, self.band.above);
         put32(&mut out, self.band.below);
         put32(&mut out, style_code(self.style));
+        put32(&mut out, script_code(self.script));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -396,7 +417,8 @@ impl ServeRequest {
     /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the
     /// rows line spacing adds none for a query and leaving any other
     /// request's cell a text band at least a row high, the
-    /// style one of four and regular but for an ask, the reserved capabilities empty, each codepoint a
+    /// style one of four and regular but for an ask, the script one of
+    /// three and normal but for an ask, the reserved capabilities empty, each codepoint a
     /// scalar value, clusters in an ask alone, each 1 to
     /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
@@ -471,6 +493,10 @@ impl ServeRequest {
         let ask = matches!(kind, ASK | ASK_PARTS);
         if !ask && style != Style::default() {
             return Err("a style other than regular on a request that is not an ask".to_owned());
+        }
+        let script = script_of(f.u32()?).ok_or("an unknown script")?;
+        if !ask && script != Script::Baseline {
+            return Err("a superscript or subscript on a request that is not an ask".to_owned());
         }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
@@ -553,6 +579,7 @@ impl ServeRequest {
             cell,
             band,
             style,
+            script,
             codepoints,
             clusters,
             held,
@@ -565,6 +592,44 @@ impl ServeRequest {
 /// carries its style.
 pub fn style_code(style: Style) -> u32 {
     u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// A script as a request carries it: normal 0, superscript 1, subscript
+/// 2, as a set's strike carries its script.
+pub fn script_code(script: Script) -> u32 {
+    match script {
+        Script::Baseline => 0,
+        Script::Super => 1,
+        Script::Sub => 2,
+    }
+}
+
+/// The script a request's `code` names, `None` past subscript's 2.
+pub fn script_of(code: u32) -> Option<Script> {
+    match code {
+        0 => Some(Script::Baseline),
+        1 => Some(Script::Super),
+        2 => Some(Script::Sub),
+        _ => None,
+    }
+}
+
+/// The baseline a superscript or subscript glyph stands on in a text band
+/// `height` rows high whose normal glyphs stand on row `base` (ADR-1202
+/// D1, D2): the band, which the normal glyph's own box spans, made two
+/// thirds as tall ([`vtium_font::SCRIPT_SCALE`]) and set against the
+/// band's top for a superscript and its bottom for a subscript. The rows
+/// above the baseline and those below it each become two thirds as many,
+/// rounded to the nearest row.
+pub fn script_baseline(script: Script, base: u32, height: u32) -> u32 {
+    let (num, den) = vtium_font::SCRIPT_SCALE;
+    let small = |n: u32| (n.saturating_mul(num).saturating_add(den / 2)) / den;
+    let base = base.min(height);
+    match script {
+        Script::Baseline => base,
+        Script::Super => small(base),
+        Script::Sub => height - small(height - base),
+    }
 }
 
 /// The style a request's `code` names, `None` past bold italic's 3.
@@ -912,6 +977,18 @@ fn place_styled(
         })
     })();
     (own, ink)
+}
+
+/// A bitmap glyph's coverage `own`, drawn in the cells of a text band
+/// `size` pixels across and down and `width` cells wide, as `script` draws
+/// it: made small and placed by vtium-font's script rule
+/// ([`Glyph::scripted`], ADR-1202 D1, D4), the one the console's own
+/// bitmap fonts take, with no ink past its cells. `None` for coverage that
+/// is not the size's.
+fn script_bitmap(own: &[u8], size: (u32, u32), width: Width, script: Script) -> Option<Vec<u8>> {
+    let glyph = Glyph::from_pixels(size.0, size.1, vtium_font::Format::Mask, own.to_vec())?
+        .with_cells(width);
+    Some(glyph.scripted(script)?.pixels().to_vec())
 }
 
 /// Coverage of 0 or 255, `width` pixels across, as 1-bit rows.
@@ -1301,7 +1378,7 @@ impl Engine {
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, want, (&[], false))
+        self.glyphs(cell, Band::NONE, REGULAR.into(), want, (&[], false))
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
@@ -1311,7 +1388,7 @@ impl Engine {
         cell: Cell,
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, &[], (clusters, false))
+        self.glyphs(cell, Band::NONE, REGULAR.into(), &[], (clusters, false))
     }
 
     /// The glyphs of `style` at `at`, a cell and the rows its line spacing
@@ -1325,8 +1402,21 @@ impl Engine {
         want: &[u32],
         (clusters, parts): (&[Vec<u32>], bool),
     ) -> Result<Option<Vec<u8>>, String> {
+        self.draw_variant(at, style.into(), want, (clusters, parts))
+    }
+
+    /// The glyphs of `variant`, a style and a script, at `at`, as
+    /// [`Engine::draw_style`] draws a style's: a superscript or subscript
+    /// ask's answer (ADR-1202 D11).
+    pub fn draw_variant(
+        &self,
+        at: impl Into<SpacedCell>,
+        variant: Variant,
+        want: &[u32],
+        (clusters, parts): (&[Vec<u32>], bool),
+    ) -> Result<Option<Vec<u8>>, String> {
         let at = at.into();
-        self.glyphs(at.cell, at.band, style, want, (clusters, parts))
+        self.glyphs(at.cell, at.band, variant, want, (clusters, parts))
     }
 
     /// How the glyph that source `source` gives for `c` uses a row made
@@ -1338,9 +1428,48 @@ impl Engine {
             .unwrap_or_else(|| Fit::default_for(c, crate::shaping::mark_side(c).is_some()))
     }
 
-    /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
+    /// `request`, for source `i`'s normal glyphs at `cell` in the text band,
+    /// asking for its glyphs in `script` instead (ADR-1202 D1, D2, D5,
+    /// D8): drawn at two thirds of the size its normal glyphs are drawn at
+    /// ([`vtium_font::SCRIPT_SCALE`]), rasterised at that size rather than
+    /// scaled from a full-size raster, on the script baseline that the
+    /// first source's baseline `base` gives ([`script_baseline`]), with no
+    /// ink above or below the whole cell. `None` when the size the source
+    /// draws at cannot be read.
+    fn script_request(
+        &self,
+        request: OutlineRequest,
+        i: usize,
+        (cell, band, base): (Cell, Band, u32),
+        script: Script,
+    ) -> Option<OutlineRequest> {
+        let size = match self.size(i, cell.height) {
+            Some(size) => size,
+            None => {
+                let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+                    return None;
+                };
+                crate::outline::size(font, family, cell.height).ok()?
+            }
+        };
+        let (num, den) = vtium_font::SCRIPT_SCALE;
+        let small = size * num as f32 / den as f32;
+        Some(OutlineRequest {
+            sizes: vec![small.to_bits()],
+            baselines: vec![script_baseline(script, base, cell.height)],
+            reaches: vec![(band.above, band.below)],
+            script,
+            ..request
+        })
+    }
+
+    /// The glyphs of `variant` at `cell` for `want`, sorted codepoints, and
     /// `clusters`, sorted, as a vitrified set of that one cell whose
-    /// strikes are of `style`; `None` when no source gives any. Where line
+    /// strikes are of the variant's style and script; `None` when no source
+    /// gives any. A superscript or subscript glyph comes from the source
+    /// the steps pick for the normal glyph (ADR-1202 D15), made small by
+    /// that source's kind ([`Engine::script_request`],
+    /// [`script_bitmap`]). Where line
     /// spacing adds `band` to the cell, each glyph is drawn in the cell's
     /// text band and placed in the whole cell ([`spaced`]). Each
     /// [`Step`] of the style ([`steps`]) draws in turn what the steps
@@ -1361,10 +1490,11 @@ impl Engine {
         &self,
         cell: Cell,
         band: Band,
-        style: Style,
+        variant: Variant,
         want: &[u32],
         (clusters, parts_asked): (&[Vec<u32>], bool),
     ) -> Result<Option<Vec<u8>>, String> {
+        let Variant { style, script } = variant;
         // the glyphs are drawn in the text band, and the strike's baseline
         // and lines move down by the rows added above it
         let whole = cell;
@@ -1389,6 +1519,7 @@ impl Engine {
         );
         let strike = |format| {
             StrikeBuilder::new(format, whole, style)
+                .script(script)
                 .baseline(base)
                 .decorations(lines)
                 .compress(false)
@@ -1451,14 +1582,17 @@ impl Engine {
                         band.below
                             .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
                     );
-                    let mut placed: BTreeMap<(u32, Fit), u32> = BTreeMap::new();
+                    // each glyph drawn, by its glyph and fit: whether it went
+                    // to the R8 strike rather than the 1-bit one, and its
+                    // number there
+                    let mut placed: BTreeMap<(u32, Fit), (bool, u32)> = BTreeMap::new();
                     for c in left {
                         let (Some(&g), Some(ch)) = (font.map.get(&c), char::from_u32(c)) else {
                             continue;
                         };
                         let fit = Engine::fit(source, c);
-                        let index = match placed.get(&(g, fit)) {
-                            Some(&i) => i,
+                        let (gray, index) = match placed.get(&(g, fit)) {
+                            Some(&at) => at,
                             None => {
                                 let Some((width, rows)) = font.glyphs.get(g as usize) else {
                                     continue;
@@ -1474,6 +1608,21 @@ impl Engine {
                                     (baseline, reach),
                                 );
                                 let span = cell.width * width.cells();
+                                // a script glyph is the normal glyph in the
+                                // text band made small, and keeps no ink
+                                // past its cells (ADR-1202 D8)
+                                let (own, ink) = match script {
+                                    Script::Baseline => (own, ink),
+                                    _ => match script_bitmap(
+                                        &own,
+                                        (span, cell.height),
+                                        *width,
+                                        script,
+                                    ) {
+                                        Some(small) => (small, None),
+                                        None => continue,
+                                    },
+                                };
                                 let Some((own, ink)) = spacing::place_rows(
                                     &own,
                                     (span, cell.height),
@@ -1483,6 +1632,15 @@ impl Engine {
                                 ) else {
                                     continue;
                                 };
+                                // a glyph of 0 and 255 alone is one bit; a
+                                // script glyph scaled with gray edges is R8
+                                if !own.iter().all(|&p| p == 0 || p == 255) {
+                                    let i = r8.glyph(*width, own);
+                                    placed.insert((g, fit), (true, i));
+                                    r8.map(ch, i);
+                                    mapped.insert(c);
+                                    continue;
+                                }
                                 let i = bits.glyph(*width, pack_bits(&own, span));
                                 // a box past a set's chunk is not sent, and
                                 // the glyph is cut to its cells (ADR-1306 D3)
@@ -1492,11 +1650,15 @@ impl Engine {
                                 if let Some((packed, b)) = ink {
                                     bits.ink(i, (b.left, b.top), (b.width, b.height), packed);
                                 }
-                                placed.insert((g, fit), i);
-                                i
+                                placed.insert((g, fit), (false, i));
+                                (false, i)
                             }
                         };
-                        bits.map(ch, index);
+                        if gray {
+                            r8.map(ch, index);
+                        } else {
+                            bits.map(ch, index);
+                        }
                         mapped.insert(c);
                     }
                 }
@@ -1532,6 +1694,7 @@ impl Engine {
                             band.below
                                 .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
                         )],
+                        script: Script::Baseline,
                         hinting: self.hinting,
                         synth,
                         // a fallback source: any source but the first of its
@@ -1542,6 +1705,14 @@ impl Engine {
                             .iter()
                             .position(|(s, _)| s.style == source.style)
                             != Some(i),
+                    };
+                    let request = match script {
+                        Script::Baseline => request,
+                        _ => match self.script_request(request, i, (cell, band, text_base), script)
+                        {
+                            Some(request) => request,
+                            None => continue,
+                        },
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -1683,13 +1854,13 @@ impl Bits {
     }
 }
 
-/// Draws `want` and `clusters` at `cell` in `style` and writes them as
+/// Draws `want` and `clusters` at `cell` in `variant` and writes them as
 /// frames of `kind`, a set that passes `max` bytes, [`FRAME_BYTES_MAX`] but in a
 /// test, cut in two. Returns whether any glyph went, or the engine's
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
-    (cell, band, style): (Cell, Band, Style),
+    (cell, band, variant): (Cell, Band, Variant),
     (want, clusters, parts): (&[u32], &[Vec<u32>], bool),
     kind: u32,
     out: &mut dyn Write,
@@ -1712,7 +1883,7 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, band, style, want, (clusters, parts)) {
+        match engine.glyphs(cell, band, variant, want, (clusters, parts)) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -2018,7 +2189,14 @@ impl Work<'_> {
                 for (w, k) in batches {
                     if let Err(why) = send_glyphs(
                         engine,
-                        (cell, request.band, request.style),
+                        (
+                            cell,
+                            request.band,
+                            Variant {
+                                style: request.style,
+                                script: request.script,
+                            },
+                        ),
                         (w, k, request.kind == ASK_PARTS),
                         FRAME_GLYPHS,
                         out,
@@ -2050,7 +2228,7 @@ impl Work<'_> {
         let drawn = match self.engine(&fill.frit) {
             Ok(engine) => send_glyphs(
                 engine,
-                (fill.cell, fill.band, REGULAR),
+                (fill.cell, fill.band, REGULAR.into()),
                 (&batch, &[], false),
                 FRAME_FILL,
                 out,
@@ -2417,6 +2595,7 @@ mod tests {
             cell: CELL,
             band: Band::NONE,
             style: Style::default(),
+            script: Script::Baseline,
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
             clusters: Vec::new(),
             held: Vec::new(),
@@ -2487,8 +2666,9 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1302 D13's band moved the magic from VTVSREQ4 to VTVSREQ5, as the
-    // style moved it from VTVSREQ3 to VTVSREQ4: a request of an older layout
+    // ADR-1202 D11's script moved the magic from VTVSREQ5 to VTVSREQ6, as
+    // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
+    // from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
     // layout of this format as not a request; an ask alone names a style
     // (ADR-1200 D21)
@@ -2496,11 +2676,12 @@ mod tests {
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
             style: BOLD_ITALIC,
+            script: Script::Baseline,
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        for magic in [b"VTVSREQ3", b"VTVSREQ4"] {
+        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5"] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
             assert_eq!(
@@ -2518,6 +2699,7 @@ mod tests {
             let query = matches!(kind, OWN_CELL | SOURCES);
             let r = ServeRequest {
                 style: ITALIC,
+                script: Script::Baseline,
                 cell: if query {
                     Cell {
                         width: 0,
@@ -2533,6 +2715,7 @@ mod tests {
             assert!(e.contains("style"), "{kind}: {e}");
             let regular = ServeRequest {
                 style: REGULAR,
+                script: Script::Baseline,
                 ..r
             };
             assert!(
@@ -2544,8 +2727,9 @@ mod tests {
 
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
-        // the frit `a` with no text: its cell at 21, its style at 29, its
-        // capabilities at 33, its codepoint at 41
+        // the frit `a` with no text: its cell at 21, its line spacing at 29,
+        // its style at 37, its script at 41, its capabilities at 45, its
+        // codepoint at 53
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -2574,14 +2758,15 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         // the kind, the cell's width and height, line spacing above and
-        // below that leaves no text band, a style past bold italic,
-        // capabilities not yet read, the codepoint, the held count
+        // below that leaves no text band, a style past bold italic, a
+        // script past subscript, capabilities not yet read, the codepoint,
+        // the cluster count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
@@ -2589,9 +2774,10 @@ mod tests {
             (29, 16),
             (33, 16),
             (37, 4),
-            (41, 1),
-            (49, 0xd800),
-            (53, u32::MAX),
+            (41, 3),
+            (45, 1),
+            (53, 0xd800),
+            (57, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -2884,13 +3070,13 @@ mod tests {
         };
         let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
         let whole = engine
-            .glyphs(cell, Band::NONE, REGULAR, &want, (&clusters, false))
+            .glyphs(cell, Band::NONE, REGULAR.into(), &want, (&clusters, false))
             .unwrap()
             .unwrap();
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (cell, Band::NONE, REGULAR),
+            (cell, Band::NONE, REGULAR.into()),
             (&want, &clusters, false),
             FRAME_GLYPHS,
             &mut out,
@@ -2987,7 +3173,7 @@ mod tests {
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (huge, Band::NONE, REGULAR),
+            (huge, Band::NONE, REGULAR.into()),
             (&[u32::from('A'), u32::from('B')], &[], false),
             FRAME_GLYPHS,
             &mut out,
