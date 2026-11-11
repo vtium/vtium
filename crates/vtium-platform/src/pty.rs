@@ -16,7 +16,7 @@
 
 use std::io;
 use std::marker::PhantomData;
-use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, OwnedFd};
 use std::os::unix::process::{CommandExt, ExitStatusExt};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::rc::Rc;
@@ -139,7 +139,37 @@ impl Pty {
     /// crate README's pty rules). It is
     /// called from vtium's one thread only: a descriptor another thread
     /// opened between the marking and the fork would reach the child.
-    pub fn spawn(mut command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
+    pub fn spawn(command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
+        Pty::start(command, size, erase, None::<fn(u32)>)
+    }
+
+    /// [`Pty::spawn`], with the child held between its fork and its exec
+    /// until `before_exec` has run with the child's process id. vtium uses
+    /// it to move the child into a systemd scope of its own before the
+    /// child runs `login` (ADR-1400 D3, its note on each login's own
+    /// session).
+    ///
+    /// The child tells its process id through a pipe and then waits on a
+    /// second pipe. `Command::spawn` returns only once the child has run
+    /// its program, so another thread forks the child, while this thread
+    /// reads the id, runs `before_exec` and then lets the child go on. When
+    /// `before_exec` unwinds, the child is not let go: it ends without
+    /// running its program, and the spawn fails.
+    pub fn spawn_gated(
+        command: Command,
+        size: Size,
+        erase: Erase,
+        before_exec: impl FnOnce(u32),
+    ) -> io::Result<Pty> {
+        Pty::start(command, size, erase, Some(before_exec))
+    }
+
+    fn start(
+        mut command: Command,
+        size: Size,
+        erase: Erase,
+        before_exec: Option<impl FnOnce(u32)>,
+    ) -> io::Result<Pty> {
         let master = openpt(OpenptFlags::RDWR | OpenptFlags::NOCTTY | OpenptFlags::CLOEXEC)?;
         grantpt(&master)?;
         unlockpt(&master)?;
@@ -182,10 +212,16 @@ impl Pty {
         // Here and not in the hook: listing the descriptors where
         // close_range cannot mark them allocates.
         crate::fds::cloexec_before_spawn()?;
-        let mut child = command.spawn()?;
         // The parent's copies of the slave go with the command, so the
         // master sees a hangup once the child's session closes it.
-        drop(command);
+        let mut child = match before_exec {
+            None => {
+                let spawned = command.spawn();
+                drop(command);
+                spawned?
+            }
+            Some(before_exec) => spawn_held(command, before_exec)?,
+        };
         let opened = fail_at(Step::Pidfd)
             .and_then(|()| Ok(pidfd_open(Pid::from_child(&child), PidfdFlags::empty())?));
         let pidfd = match opened {
@@ -590,6 +626,93 @@ fn kill_and_reap(pidfd: BorrowedFd<'_>) {
     while let Err(Errno::INTR) = waitid(WaitId::PidFd(pidfd), WaitIdOptions::EXITED) {}
 }
 
+/// Spawns `command` held between its fork and its exec until
+/// `before_exec` has run with its process id (see [`Pty::spawn_gated`]).
+/// The command is spawned, and dropped, on a thread of its own, since
+/// `Command::spawn` returns only once the child has run its program.
+fn spawn_held(mut command: Command, before_exec: impl FnOnce(u32)) -> io::Result<Child> {
+    let (told, tell) = io::pipe()?;
+    let (wait, go) = io::pipe()?;
+    let (tell, wait) = (OwnedFd::from(tell), OwnedFd::from(wait));
+    // The child's copy of the end that lets it go, which it closes, or the
+    // end of `wait` would never come when this end closes.
+    let go_raw = go.as_raw_fd();
+    #[expect(
+        unsafe_code,
+        reason = "the child can only wait for its scope between fork and exec"
+    )]
+    // SAFETY: the hook runs in the forked child before exec and makes only
+    // raw syscalls: close, getpid, write and read, which allocate nothing
+    // and take no lock. `go_raw` is the child's own copy of `go`, which
+    // nothing else in the child uses.
+    unsafe {
+        command.pre_exec(move || {
+            libc::close(go_raw);
+            hold(&tell, &wait)
+        });
+    }
+    std::thread::scope(|threads| {
+        // The command, with the parent's copies of the pipes' child ends,
+        // goes when the thread ends, so a child that fails before it tells
+        // its id leaves `told` at its end.
+        let forking = threads.spawn(move || command.spawn());
+        if let Some(pid) = read_pid(&told) {
+            before_exec(pid);
+            let mut sent = rustix::io::write(&go, b"g");
+            while sent == Err(Errno::INTR) {
+                sent = rustix::io::write(&go, b"g");
+            }
+        }
+        // Closing `go` without a byte, as an unwinding `before_exec` does,
+        // ends the child before its exec.
+        drop(go);
+        forking
+            .join()
+            .unwrap_or_else(|_| Err(io::Error::other("the thread that starts the session ended")))
+    })
+}
+
+/// In the child, between fork and exec: tells its process id on `tell`,
+/// then waits on `wait` for the byte that lets it go on. An end of `wait`
+/// with no byte ends the child before its program runs.
+fn hold(tell: &OwnedFd, wait: &OwnedFd) -> io::Result<()> {
+    let pid = rustix::process::getpid().as_raw_nonzero().get();
+    let bytes = pid.to_ne_bytes();
+    // a pipe takes a write this small whole (pipe(7), PIPE_BUF)
+    loop {
+        match rustix::io::write(tell, &bytes) {
+            Err(Errno::INTR) => {}
+            Ok(n) if n == bytes.len() => break,
+            Ok(_) => return Err(Errno::IO.into()),
+            Err(e) => return Err(e.into()),
+        }
+    }
+    let mut byte = [0u8];
+    loop {
+        match rustix::io::read(wait, &mut byte) {
+            Err(Errno::INTR) => {}
+            Ok(1) => return Ok(()),
+            Ok(_) => return Err(Errno::CANCELED.into()),
+            Err(e) => return Err(e.into()),
+        }
+    }
+}
+
+/// The child's process id from `told`, or `None` when the child ended
+/// before it told it.
+fn read_pid(told: &io::PipeReader) -> Option<u32> {
+    let mut bytes = [0u8; 4];
+    let mut got = 0;
+    while got < bytes.len() {
+        match rustix::io::read(told, bytes.get_mut(got..)?) {
+            Err(Errno::INTR) => {}
+            Ok(0) | Err(_) => return None,
+            Ok(n) => got = got.saturating_add(n),
+        }
+    }
+    u32::try_from(i32::from_ne_bytes(bytes)).ok()
+}
+
 /// The steps after the fork that can fail, which a unit test makes fail to
 /// check that the child is still reaped.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -683,6 +806,7 @@ mod tests {
     use super::*;
     use std::cell::Cell;
     use std::collections::BTreeSet;
+    use std::path::Path;
     use std::time::Duration;
 
     use calloop::EventLoop;
@@ -775,6 +899,51 @@ mod tests {
         drop(pty);
         left_unreaped(&before);
         assert_eq!(owner.unwrap(), rustix::process::geteuid().as_raw());
+    }
+
+    /// Ends and reaps the child `pid`, which another thread forked.
+    fn end(pid: u32) {
+        let pid = Pid::from_raw(i32::try_from(pid).unwrap()).unwrap();
+        let _ = kill_process(pid, Signal::KILL);
+        let _ = waitpid(Some(pid), WaitOptions::empty());
+    }
+
+    // The child runs its program only once `before_exec` has returned:
+    // while it runs, the child is still a copy of this test's program.
+    #[test]
+    fn a_held_child_runs_its_program_only_after_before_exec() {
+        let ours = std::fs::read_link("/proc/self/exe").unwrap();
+        let mut seen = None;
+        let pty = Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |pid| {
+            seen = Some((pid, std::fs::read_link(format!("/proc/{pid}/exe")).unwrap()));
+        })
+        .unwrap();
+        let (pid, held) = seen.unwrap();
+        let ran = std::fs::read_link(format!("/proc/{pid}/exe")).unwrap();
+        let id = pty.child_id();
+        pty.release();
+        end(pid);
+        assert_eq!(id, Some(pid), "before_exec is told the child's id");
+        assert_eq!(held, ours, "the child waits before its exec");
+        assert!(ran.ends_with("sleep"), "then it runs its program: {ran:?}");
+    }
+
+    // A `before_exec` that unwinds never lets the child go: the child ends
+    // before its exec, and the spawn fails with the panic.
+    #[test]
+    #[expect(clippy::panic, reason = "the scope call's failure, as an unwind")]
+    fn a_held_child_whose_before_exec_unwinds_never_runs() {
+        let mut pid = None;
+        let spawned = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |p| {
+                pid = Some(p);
+                panic!("the scope call failed");
+            })
+        }));
+        assert!(spawned.is_err(), "the panic comes through");
+        let pid = pid.unwrap();
+        // the spawn waited for the child, which ended before its exec
+        assert!(!Path::new(&format!("/proc/{pid}")).exists());
     }
 
     #[test]
