@@ -346,13 +346,16 @@ fn run(
     app.set_survival(keeper, kept);
     kernel_messages(&lp, &mut app);
 
-    match start.input() {
+    let system = vtium_platform::input::system_layout();
+    match start.input(&system) {
         Some(mut input) => {
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.set_input(input);
         }
         None => log::error!("no keymap, so vtium cannot read the keyboard"),
     }
+    #[cfg(feature = "logind")]
+    vtium::app::keyboard_layout::follow(&lp.handle(), start.keymap_settings(), &system);
     match Udev::new(app.vt.seat()) {
         Ok(mut udev) => {
             if let Err(e) = udev.scan() {
