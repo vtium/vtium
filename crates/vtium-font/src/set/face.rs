@@ -7,7 +7,7 @@ use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
-use crate::script::Variant;
+use crate::script::{Origin, Variant};
 use crate::sprite::Range;
 
 /// A set drawn at one of its cell sizes, scaled by a whole factor.
@@ -157,5 +157,13 @@ impl Face for SetFace {
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         self.set.last_resort(self.cell, style, 1)
+    }
+
+    /// The strike's ([`Set`]'s origin): a 1-bit strike's glyph a bitmap
+    /// whose widening and shear the small glyph takes, any other smooth.
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        self.set
+            .origin(self.cell, cluster.first().copied(), style, self.scale)
+            .unwrap_or_default()
     }
 }

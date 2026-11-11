@@ -42,8 +42,8 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, RangeCoverage, Script, ScriptFrom, SpritePolicy, Style,
-    Variant, Width,
+    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, Script, ScriptFrom,
+    SpritePolicy, Style, Variant, Width,
 };
 
 mod data;
@@ -1116,6 +1116,32 @@ impl DeferredFace {
         self.fit(self.builtin.draw(&[c], style)?, fit)
     }
 
+    /// The built-in font's origin for `cluster`'s first character in
+    /// `style`, or for its last resort when `cluster` is empty, moved where
+    /// [`DeferredFace::fit`] puts the built-in glyph in the text band
+    /// (ADR-1202 D1, D4); the default, a smooth glyph over the text band,
+    /// when the built-in font draws nothing for it.
+    fn built_in_origin(&self, cluster: &[char], style: Style) -> Origin {
+        let first = cluster.get(..1).unwrap_or_default();
+        let glyph = match *first {
+            [] => self.builtin.last_resort(style),
+            _ => self.builtin.draw(first, style),
+        };
+        let Some(glyph) = glyph else {
+            return Origin::default();
+        };
+        let text = self.text();
+        let to = (
+            text.width.saturating_mul(glyph.cells().cells()),
+            text.height,
+        );
+        self.builtin.origin(first, style).boxed(
+            (glyph.width(), glyph.height()),
+            to,
+            self.band.above,
+        )
+    }
+
     /// A cluster the store does not hold drawn without its own glyph
     /// (ADR-1200 D22, steps 2 to 4): its NFC form's, else its base's with
     /// its combining marks; the default ignorables and the rest of the
@@ -1365,6 +1391,25 @@ impl Face for DeferredFace {
         self.band
     }
 
+    /// For a character the store lacks, and for the last resort, the
+    /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
+    /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
+    /// glyphs come from the helper, and a longer cluster draws from several
+    /// glyphs, so their origin is the default, a smooth glyph over the text
+    /// band.
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        match *cluster {
+            [] => self.built_in_origin(cluster, style),
+            [c] if lock(&self.generated)
+                .draw(self.at(), &[c], style.into())
+                .is_none() =>
+            {
+                self.built_in_origin(cluster, style)
+            }
+            _ => Origin::default(),
+        }
+    }
+
     /// The face's built-in font alone, fitted to its cell as it draws a
     /// character the store lacks, whatever the store holds.
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
@@ -1456,6 +1501,14 @@ impl Face for Builtins<'_> {
 
     fn band(&self) -> Band {
         self.0.band
+    }
+
+    /// The built-in font's origin, as it draws the cluster's first
+    /// character, so the placeholder for a superscript or subscript glyph
+    /// on its way is made small as the built-in font's own (ADR-1202 D4,
+    /// D11).
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        self.0.built_in_origin(cluster, style)
     }
 }
 
@@ -1608,7 +1661,7 @@ mod tests {
             .glyph;
         assert_eq!(draw(&font, SUPER), placeholder, "the built-in font's");
         let frit_small = draw(&font, Variant::default())
-            .scripted(Script::Super)
+            .scripted(Script::Super, &Origin::default(), Band::NONE)
             .unwrap();
         assert_ne!(
             draw(&font, SUPER),

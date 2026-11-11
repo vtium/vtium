@@ -122,9 +122,10 @@
 //! never scaled from a full-size raster, and stands on the script baseline
 //! ([`script_baseline`], ADR-1202 D2). A color glyph is scaled once from
 //! its source to two thirds of its cells and placed against the cell's top
-//! or bottom (ADR-1202 D5). A bitmap source's glyph is drawn as for a
-//! normal cell and made small by vtium-font's script rule
-//! ([`vtium_font::Glyph::scripted`]). A script glyph's ink stays inside its
+//! or bottom (ADR-1202 D5). A bitmap source's glyph is drawn upright and
+//! unstyled in the text band and made small by vtium-font's script rule
+//! ([`vtium_font::Glyph::scripted`]), each pixel fully on or off, and then
+//! takes its bold and italic (ADR-1202 D4, D7). A script glyph's ink stays inside its
 //! row (ADR-1202 D8). The fill and the stops draw normal glyphs alone.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
@@ -165,10 +166,11 @@ use landlock::{
     Scope,
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
+use vtium_font::script::Rect;
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, InkRows, SpacedCell};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Glyph, REACH_CELLS, REACH_ROWS,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Glyph, Origin, REACH_CELLS, REACH_ROWS,
     SET_CHUNK_BYTES, Script, Style, Variant, Width,
 };
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
@@ -616,20 +618,22 @@ pub fn script_of(code: u32) -> Option<Script> {
 
 /// The baseline a superscript or subscript glyph stands on in a text band
 /// `height` rows high whose normal glyphs stand on row `base` (ADR-1202
-/// D1, D2): the band, which the normal glyph's own box spans, made two
-/// thirds as tall ([`vtium_font::SCRIPT_SCALE`]) and set against the
-/// band's top for a superscript and its bottom for a subscript. The rows
-/// above the baseline and those below it each become two thirds as many,
+/// D1, D2). The band is the normal glyph's own box, since an outline
+/// source's ascent and descent span it. vtium-font's script rule sizes
+/// that box to two thirds and places it against the band's top for a
+/// superscript and its bottom for a subscript
+/// ([`vtium_font::script::size`], [`vtium_font::script::place`]); the
+/// baseline lies the same share of the small box down as of the band,
 /// rounded to the nearest row.
 pub fn script_baseline(script: Script, base: u32, height: u32) -> u32 {
-    let (num, den) = vtium_font::SCRIPT_SCALE;
-    let small = |n: u32| (n.saturating_mul(num).saturating_add(den / 2)) / den;
     let base = base.min(height);
-    match script {
-        Script::Baseline => base,
-        Script::Super => small(base),
-        Script::Sub => height - small(height - base),
+    if script == Script::Baseline || height == 0 {
+        return base;
     }
+    let (_, small) = vtium_font::script::size((1, height));
+    let (_, top) = vtium_font::script::place(script, (1, small), (1, height), Band::NONE);
+    let down = (u64::from(base) * u64::from(small) + u64::from(height) / 2) / u64::from(height);
+    top.saturating_add(u32::try_from(down).unwrap_or(small))
 }
 
 /// The style a request's `code` names, `None` past bold italic's 3.
@@ -979,16 +983,53 @@ fn place_styled(
     (own, ink)
 }
 
-/// A bitmap glyph's coverage `own`, drawn in the cells of a text band
-/// `size` pixels across and down and `width` cells wide, as `script` draws
-/// it: made small and placed by vtium-font's script rule
-/// ([`Glyph::scripted`], ADR-1202 D1, D4), the one the console's own
-/// bitmap fonts take, with no ink past its cells. `None` for coverage that
+/// What a bitmap glyph drawn in the cells of a text band `span` by
+/// `height` pixels is made from (ADR-1202 D1, D4, D7): a 1-bit source,
+/// whose own box is its font's cell `font`, `cells` cells wide, drawn at
+/// `scale`, centred across with its top row at `top` as [`place_styled`]
+/// places it and cut to the band; sheared about the row under the font's
+/// baseline `baseline`; and with `synth` left to the small glyph.
+fn bitmap_origin(
+    (font, cells, scale): (Cell, Width, u32),
+    (span, height): (u32, u32),
+    (top, baseline): (i64, u32),
+    synth: Style,
+) -> Origin {
+    let w = font.width * cells.cells() * scale;
+    let h = i64::from(font.height * scale);
+    let row = |y: i64| u32::try_from(y.clamp(0, i64::from(height))).unwrap_or(0);
+    let (first, last) = (row(top), row(top + h));
+    Origin {
+        own: Some(Rect {
+            left: span.saturating_sub(w) / 2,
+            top: first,
+            width: w.min(span),
+            height: last.saturating_sub(first),
+        }),
+        ..Origin::bitmap(row(top + i64::from(baseline * scale)), synth)
+    }
+}
+
+/// A bitmap glyph's coverage `own`, drawn upright and unstyled in the
+/// cells of a text band `size` pixels across and down and `width` cells
+/// wide, as `script` draws it from `origin`: made small, styled and placed
+/// by vtium-font's script rule ([`Glyph::scripted`], ADR-1202 D1, D4, D7),
+/// the one the console's own bitmap fonts take. `None` for coverage that
 /// is not the size's.
-fn script_bitmap(own: &[u8], size: (u32, u32), width: Width, script: Script) -> Option<Vec<u8>> {
+fn script_bitmap(
+    own: &[u8],
+    size: (u32, u32),
+    width: Width,
+    (script, origin): (Script, &Origin),
+) -> Option<Vec<u8>> {
     let glyph = Glyph::from_pixels(size.0, size.1, vtium_font::Format::Mask, own.to_vec())?
         .with_cells(width);
-    Some(glyph.scripted(script)?.pixels().to_vec())
+    Some(
+        glyph
+            .scripted(script, origin, Band::NONE)?
+            .pixels()
+            .to_vec(),
+    )
 }
 
 /// Coverage of 0 or 255, `width` pixels across, as 1-bit rows.
@@ -1598,13 +1639,20 @@ impl Engine {
                                     continue;
                                 };
                                 let top = glyph_top(scale, baseline, text_base);
+                                // a script glyph is drawn upright and
+                                // unstyled, and takes its style once it is
+                                // small (ADR-1202 D7)
+                                let drawn_synth = match script {
+                                    Script::Baseline => synth,
+                                    _ => Style::default(),
+                                };
                                 let (own, ink) = place_styled(
                                     rows,
                                     *width,
                                     font.cell,
                                     (cell, top),
                                     scale,
-                                    synth,
+                                    drawn_synth,
                                     (baseline, reach),
                                 );
                                 let span = cell.width * width.cells();
@@ -1613,15 +1661,23 @@ impl Engine {
                                 // past its cells (ADR-1202 D8)
                                 let (own, ink) = match script {
                                     Script::Baseline => (own, ink),
-                                    _ => match script_bitmap(
-                                        &own,
-                                        (span, cell.height),
-                                        *width,
-                                        script,
-                                    ) {
-                                        Some(small) => (small, None),
-                                        None => continue,
-                                    },
+                                    _ => {
+                                        let origin = bitmap_origin(
+                                            (font.cell, *width, scale),
+                                            (span, cell.height),
+                                            (top, baseline),
+                                            synth,
+                                        );
+                                        match script_bitmap(
+                                            &own,
+                                            (span, cell.height),
+                                            *width,
+                                            (script, &origin),
+                                        ) {
+                                            Some(small) => (small, None),
+                                            None => continue,
+                                        }
+                                    }
                                 };
                                 let Some((own, ink)) = spacing::place_rows(
                                     &own,

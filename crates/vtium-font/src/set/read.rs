@@ -12,7 +12,7 @@ use crate::bounds::{
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
-use crate::script::{Script, Variant};
+use crate::script::{Origin, Script, Variant};
 use crate::set::format::{
     CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, INK_GLYPH, INKX, MAGIC,
     MAJOR, META, POLY, PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
@@ -750,6 +750,38 @@ impl Set {
             Synth::of(strike, style.bold, style.italic),
             scale,
         )
+    }
+
+    /// What the glyph for `c` at `cell` in `style` is made from, at
+    /// `scale` (ADR-1202 D4, D7), or for the last resort when `c` is
+    /// `None`: a 1-bit strike's glyph is a bitmap whose own box is the
+    /// whole glyph, sheared about the strike's baseline, with the bold and
+    /// italic that the strike draws by widening and shearing left to the
+    /// small glyph; any other strike's is smooth. `None` when the set
+    /// lacks the glyph.
+    pub(crate) fn origin(
+        &self,
+        cell: Cell,
+        c: Option<char>,
+        style: Style,
+        scale: u32,
+    ) -> Option<Origin> {
+        let (strike, synth) = match c {
+            Some(c) => self.strike_for(cell, style.into(), u32::from(c))?,
+            None => {
+                let strike = self.regular(cell).find(|s| s.info.glyph_count > 0)?;
+                (strike, Synth::of(strike, style.bold, style.italic))
+            }
+        };
+        if strike.info.format != PixelFormat::Bits {
+            return Some(Origin::default());
+        }
+        let baseline = strike.info.baseline.saturating_mul(scale.max(1));
+        let synth = Style {
+            bold: synth.widen,
+            italic: synth.slant,
+        };
+        Some(Origin::bitmap(baseline, synth))
     }
 
     /// Glyph `glyph` of `strike` drawn at `scale`, a 1-bit glyph expanded

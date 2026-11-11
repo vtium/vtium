@@ -1712,13 +1712,9 @@ pub(crate) mod raster {
         let bw = cell.width * if wide { 2 } else { 1 };
         // a superscript or subscript color glyph fits two thirds of its
         // cells (ADR-1202 D1, D5), as a normal one fits all of them
-        let small = |n: u32| {
-            let (num, den) = vtium_font::SCRIPT_SCALE;
-            ((n * num + den / 2) / den).max(1)
-        };
         let script = cell.script != Script::Baseline;
         let (fw, fh) = if script {
-            (small(bw), small(h))
+            vtium_font::script::size((bw, h))
         } else {
             (bw, h)
         };
@@ -1782,12 +1778,15 @@ pub(crate) mod raster {
             }
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
-        let (left, top) = if fitted {
-            let top = match (color, cell.script) {
-                (true, Script::Super) => 0,
-                (true, Script::Sub) => (h_i - ih).max(0),
-                _ => (base - image.placement.top).clamp(0, (h_i - ih).max(0)),
-            };
+        let (left, top) = if fitted && color && script {
+            // placed by vtium-font's script rule, against the cell's top or
+            // bottom and centred across (ADR-1202 D1)
+            let size = (image.placement.width, image.placement.height);
+            let band = vtium_font::spacing::Band::NONE;
+            let (x, y) = vtium_font::script::place(cell.script, size, (bw, h), band);
+            (x as i32, y as i32)
+        } else if fitted {
+            let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
             at(&image)

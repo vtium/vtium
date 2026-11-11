@@ -8,7 +8,7 @@ vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bi
 | `src/face.rs` | The `Face` trait a glyph source implements, with its coverage of each sprite range, and `Font`: the sprites its policy chooses, then the face, then U+25A1, `?` and the face's last resort, each glyph boxed to its cells. `Decorations`: where underline and strike go. |
 | `src/policy.rs` | `SpritePolicy`, a `Source` for each sprite range, with the default for a font the operator names; `Coverage`, how much of each range a face holds; `Missing`, what a character the face lacks draws as. |
 | `src/glyph.rs` | `Glyph`, what every face and sprite draws: a coverage mask or premultiplied RGBA, with the cells it spans, bounded by `CELL_SIDE_MAX`. |
-| `src/script.rs` | `Script` and `Variant`: superscript and subscript, SGR 73 and 74, drawn as the glyph scaled to two thirds and placed at the top or the bottom of its cells (`Glyph::scripted`). |
+| `src/script.rs` | `Script` and `Variant`: superscript and subscript, SGR 73 and 74, drawn as the glyph's own box at two thirds, a 1-bit glyph kept 1-bit, placed against the top or the bottom of the text band (`Glyph::scripted`, ADR-1202). |
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the licence notice of the `kmscon` file it was ported from; the `psf` feature. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/set/mod.rs` | The vitrified set's public face: `Set`, `SetBuilder` and `SetFace`. |
@@ -70,15 +70,19 @@ The loader follows kbd's description of the format in Andries Brouwer's "The PSF
 
 ### Superscript and subscript
 
-`Font::drawn_variant` draws a glyph in a `Variant`, its style and its `Script` (vtium/vtium#37). SGR 73 asks for superscript, SGR 74 for subscript, and SGR 75 returns to the baseline, as mintty's control sequences define them (<https://github.com/mintty/mintty/wiki/CtrlSeqs>). That page leaves the glyph's size and place to the terminal, so vtium chooses them:
+`Font::drawn_variant` draws a glyph in a `Variant`, its style and its `Script` (vtium/vtium#37). SGR 73 asks for superscript, SGR 74 for subscript, and SGR 75 returns to the baseline. The codes come from mintty, whose wiki lists them in the table of text attributes on its Tips page (<https://github.com/mintty/mintty/wiki/Tips#text-attributes-and-rendering>) and whose changelog adds them in 3.0.1 (<https://github.com/mintty/mintty/wiki/Changelog>). mintty leaves the glyph's size and place to the terminal, so vtium chooses them (ADR-1202):
 
-- The small glyph is the normal glyph scaled to two thirds of its width and height, rounded to whole pixels, and centred from side to side in its cells. In an 8x16 cell it is 5x11.
-- A superscript glyph's top row is the cell's top row. A subscript glyph's bottom row is the cell's bottom row.
-- Each pixel of the small glyph is the average of the normal glyph's pixels it covers, weighted by how much of each it covers. A bitmap font's 1-bit glyph therefore becomes a mask with gray edges, and a color glyph stays premultiplied.
-- The face draws only the normal glyph, so a bitmap font, which has no outline to draw at another size, and a sprite scale the same way. The normal glyph's ink past its cells is not scaled.
+- **The size.** A glyph's own box is the rows from its font's ascent to its descent, which for a bitmap font is the whole height of its strike. The small glyph is two thirds of the own box's width and height, rounded to whole pixels. An 8x16 unifont glyph becomes 5x11.
+- **The place.** The small glyph is centred across its cells, with an odd spare column on its right. A superscript's top lies on the top row of the text band, and a subscript's bottom on the bottom row of the text band. The text band is the cell less the rows that line spacing adds above and below it.
+- **A 1-bit glyph stays 1-bit.** A face says what kind of source its glyph comes from (`Face::origin`). For a bitmap font, a set's 1-bit strike, the built-in fonts and the glyph that shows a missing character's codepoint, each pixel of the normal glyph goes to the small pixel that holds its centre, and a small pixel is lit when any pixel that goes to it is lit. Every stroke stays whole and one pixel wide, and a 1-bit display shows the small glyph exactly. Over unifont's 94 printable ASCII characters and é, É, Å, ², α and β, this keeps the strokes and holes of all but 9 glyphs, where a gap one pixel high closes, as in the dot of i. A test holds that count and those 9 characters.
+- **Any other glyph is averaged.** Each small pixel of a color glyph, or of a gray glyph from the glyph helper, is the average of the pixels it covers, weighted by how much of each it covers. A color glyph stays premultiplied.
+- **Sprites are drawn small.** A character the policy draws as a sprite is drawn to fill a box two thirds of the text band's height and of the cells' width, with the light line of that height, so its edges stay on whole pixels.
+- **Bold and italic are added to the small glyph.** Where a face draws bold by widening a bitmap glyph and italic by shearing it, the face draws the glyph upright and the small glyph takes the style: bold widens each row by a pixel, and italic shears the small glyph by whole pixels about its own baseline, by ADR-1302 D4's rule for a font of the small glyph's height.
+- **Ink stays in its row.** Ink above and below the row is cut. Ink beside the cells, as an italic glyph's lean, stays in the glyph's ink box, within one cell of its cells.
+- **The face's own glyph.** A script glyph comes from the face that draws the cell's normal glyph. vtium never draws it from another font, so a font set's bitmap font is never replaced by unifont.
 - `Font::glyph_unscaled_variant` hands the small glyph over at its drawn size, since two thirds is no whole number of a bitmap glyph's pixels.
 
-`src/script.rs` holds the size and place to literal rows and columns.
+`src/script.rs` holds the size, the place and the 1-bit scale, and the glyph helper uses the same functions (`Glyph::scripted`, `script::size`, `script::place`). Its tests and `tests/script.rs` hold them to literal rows and columns.
 
 ### A character the face lacks
 

@@ -18,7 +18,8 @@ use vtium_config::serve::{
     serve,
 };
 use vtium_font::set::{Set, SetFace};
-use vtium_font::{Cell, Format, Glyph, SCRIPT_SCALE, Script, Style, Variant};
+use vtium_font::spacing::Band;
+use vtium_font::{Cell, Format, Glyph, Origin, SCRIPT_SCALE, Script, Style, Variant};
 use vtium_testfont::ttf;
 
 /// A directory of a test's own, removed when the test ends.
@@ -147,7 +148,9 @@ fn an_outline_script_glyph_is_rasterised_at_two_thirds_of_its_size() {
             &strike.glyphs[g as usize].pixels[..],
             "{script:?}: the glyph rasterised small"
         );
-        let scaled = normal.scripted(script).expect("scaled");
+        let scaled = normal
+            .scripted(script, &Origin::default(), Band::NONE)
+            .expect("scaled");
         assert_ne!(
             got.pixels(),
             scaled.pixels(),
@@ -170,17 +173,20 @@ fn an_outline_script_glyph_is_rasterised_at_two_thirds_of_its_size() {
     }
 }
 
-// ADR-1202 D1, D2: the script baseline shrinks the rows above and below
-// the normal baseline to two thirds, against the band's top or bottom
+// ADR-1202 D1, D2: the script glyph's own box is the text band made two
+// thirds as tall, against the band's top or bottom, and its baseline lies
+// the same share of that box down as the normal baseline of the band
 #[test]
-fn the_script_baseline_keeps_two_thirds_of_each_side() {
-    // a 24-row band with the baseline under row 19: 19 rows above it and
-    // 5 below; two thirds of 19 is 12.67, of 5 is 3.33
+fn the_script_baseline_keeps_its_share_of_the_small_box() {
+    // a 24-row band with the baseline under row 19: the box is 16 rows,
+    // and 19 of 24 is 12.67 of 16, so row 13 from the box's top, which is
+    // row 0 for a superscript and row 8 for a subscript
     assert_eq!(script_baseline(Script::Super, 19, 24), 13);
     assert_eq!(script_baseline(Script::Sub, 19, 24), 21);
     assert_eq!(script_baseline(Script::Baseline, 19, 24), 19);
-    // a 16-row band, baseline under row 14
-    assert_eq!(script_baseline(Script::Super, 14, 16), 9);
+    // a 16-row band, baseline under row 14: the box is 11 rows, and 14 of
+    // 16 is 9.63 of 11, row 10, from row 0 or row 5
+    assert_eq!(script_baseline(Script::Super, 14, 16), 10);
     assert_eq!(script_baseline(Script::Sub, 14, 16), 15);
 }
 
@@ -237,6 +243,13 @@ fn bar(byte: u8) -> [u8; 16] {
     rows
 }
 
+/// What a glyph of the 8x16 fonts below is made from, drawn at their own
+/// size: a 1-bit source whose own box is the whole cell, with no style to
+/// add (ADR-1202 D4).
+fn bitmap() -> Origin {
+    Origin::bitmap(16, Style::default())
+}
+
 const BITMAP: Cell = Cell {
     width: 8,
     height: 16,
@@ -254,8 +267,14 @@ fn a_bitmap_script_glyph_is_its_normal_glyph_made_small_by_vtium_font() {
     let normal = drawn(&e, BITMAP, variant(Script::Baseline), 'H');
     for script in [Script::Super, Script::Sub] {
         let got = drawn(&e, BITMAP, variant(script), 'H');
-        let want = normal.scripted(script).expect("scaled");
+        let want = normal
+            .scripted(script, &bitmap(), Band::NONE)
+            .expect("scaled");
         assert_eq!(got.pixels(), want.pixels(), "{script:?}");
+        assert!(
+            got.pixels().iter().all(|&p| p == 0 || p == 255),
+            "{script:?}: each pixel fully on or off (ADR-1202 D4)"
+        );
         assert_ne!(got.pixels(), normal.pixels(), "{script:?}");
     }
 }
@@ -290,8 +309,12 @@ fn a_script_glyph_comes_from_the_source_of_the_normal_glyph() {
         assert_eq!(normal, alone(from, c), "{c}'s normal glyph");
         for script in [Script::Super, Script::Sub] {
             let got = drawn(&e, BITMAP, variant(script), c);
-            let own = alone(from, c).scripted(script).expect("scaled");
-            let borrowed = alone(other, c).scripted(script).expect("scaled");
+            let own = alone(from, c)
+                .scripted(script, &bitmap(), Band::NONE)
+                .expect("scaled");
+            let borrowed = alone(other, c)
+                .scripted(script, &bitmap(), Band::NONE)
+                .expect("scaled");
             assert_eq!(got.pixels(), own.pixels(), "{c} {script:?}");
             assert_ne!(got.pixels(), borrowed.pixels(), "{c} {script:?}");
         }
