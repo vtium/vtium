@@ -25,6 +25,8 @@ use crate::ioctl::{EV_KEY, LED_CAPSL};
 use crate::logind::classify;
 use crate::logind::localed::{Bus, layout_from};
 
+mod peer;
+
 /// A signal sent on the stand-in bus: the names its sender owned when it
 /// sent it, the object, the interface and the member, and its arguments.
 struct Sent {
