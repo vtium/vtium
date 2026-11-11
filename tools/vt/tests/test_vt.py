@@ -3465,7 +3465,11 @@ class Package(Case):
         for line in ("ExecStart=/usr/bin/vtium --vt=%I --no-switchvt", "OnFailure=vtium-getty@%i.service",
                      "Alias=autovt@.service", "WantedBy=getty.target", "Restart=on-failure",
                      "Conflicts=getty@%i.service", "After=getty@%i.service",
-                     "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service"):
+                     "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service",
+                     # vtium steps aside for rescue and emergency mode, as
+                     # getty@.service does (ADR-1401 D15).
+                     "Conflicts=rescue.service emergency.service", "Before=rescue.service emergency.service",
+                     "IgnoreOnIsolate=yes"):
             self.assertIn(line, unit)
         self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium@ttyN"], unit)
         directives = [l for l in unit if l and not l.startswith("#")]

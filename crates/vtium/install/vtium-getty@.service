@@ -8,12 +8,11 @@
 #
 # Under a closed head-file policy a getty's login would take any keyboard
 # (ADR-1401 D9), so vtium writes /run/vtium/ttyN.closed at start, and this
-# unit's condition skips the getty while that file exists. The VT's run
-# directory, /run/vtium/ttyN/, will be the unit's RuntimeDirectory=vtium/%i
-# (ADR-1401 D10, not built yet); systemd removes only that innermost
-# directory when vtium stops, so the marker sits one level up. vtium removes
-# it when it next starts under an open policy, and /run is cleared at every
-# boot.
+# unit's condition skips the getty while that file exists. vtium makes the
+# VT's run directory, /run/vtium/ttyN/, itself, and the marker sits one
+# level up, beside it and never in it (ADR-1401 D9, D10). vtium removes the
+# marker when it next starts under an open policy, and /run is cleared at
+# every boot.
 
 [Unit]
 Description=getty in place of vtium on %I
