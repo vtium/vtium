@@ -54,3 +54,62 @@ fn a_built_in_script_glyph_sits_against_the_text_band() {
         }
     }
 }
+
+// ADR-1202 D3: the built-in font drawn at twice its size in a deferred
+// face, as it is in a look's cell and while a frit's glyph is on its way,
+// takes its superscripts and subscripts from itself at its own size, as
+// the built-in font's own face does
+// covers: sgr.script
+#[test]
+fn a_built_in_font_at_twice_its_size_takes_its_scripts_at_its_own_size() {
+    let cell = Cell {
+        width: 16,
+        height: 32,
+    };
+    let deferred = Font::new(DeferredFace::new(
+        Box::new(Unifont::new(32)),
+        cell,
+        16,
+        Shared::default(),
+    ));
+    let own = Font::new(Unifont::new(32));
+    let one = Unifont::new(16);
+    for script in [Script::Super, Script::Sub] {
+        for (bold, italic) in [(false, false), (true, false), (false, true)] {
+            let variant = Variant {
+                style: Style { bold, italic },
+                script,
+            };
+            let got = deferred
+                .drawn_variant(&['g'], Width::Narrow, variant)
+                .unwrap()
+                .glyph;
+            let want = own
+                .drawn_variant(&['g'], Width::Narrow, variant)
+                .unwrap()
+                .glyph;
+            assert_eq!(got.pixels(), want.pixels(), "{variant:?}");
+        }
+        let variant = Variant {
+            style: Style::default(),
+            script,
+        };
+        let got = deferred
+            .drawn_variant(&['g'], Width::Narrow, variant)
+            .unwrap()
+            .glyph;
+        let small = one.render('g', Style::default()).unwrap();
+        let top = if script == Script::Super { 0 } else { 16 };
+        for y in 0..32u32 {
+            for x in 0..16u32 {
+                let inside = (4..12).contains(&x) && (top..top + 16).contains(&y);
+                let want = inside && small.pixel(x - 4, y - top).unwrap()[0] == 255;
+                assert_eq!(
+                    got.pixel(x, y).unwrap()[0] == 255,
+                    want,
+                    "{script:?} at {x},{y}"
+                );
+            }
+        }
+    }
+}

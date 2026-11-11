@@ -1548,6 +1548,16 @@ impl Face for Builtins<'_> {
     fn origin(&self, cluster: &[char], style: Style) -> Origin {
         self.0.built_in_origin(cluster, style)
     }
+
+    /// The built-in font's strike, so its superscripts and subscripts come
+    /// from a smaller multiple of it as its own face's do (ADR-1202 D3).
+    fn strike(&self) -> Option<(Cell, u32)> {
+        self.0.builtin.strike()
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        self.0.builtin.draw_multiple(cluster, style, multiple)
+    }
 }
 
 #[cfg(test)]
