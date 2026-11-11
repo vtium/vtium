@@ -137,7 +137,7 @@ A VT runs one mode at a time. To ask which mode fits your machine, run `vtium co
 # vtium console enable --direct --all
 ```
 
-`vtium console enable --seat` refuses, and changes nothing, on a console built without `libseat` and `logind`, and on a machine where logind manages no seat0. See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
+`vtium console enable --seat` refuses, and changes nothing, on a console built without `libseat` and `logind`, when `vtium-seat@.service` is missing or masked, when `/etc/pam.d/vtium` is missing, and on a machine where logind manages no seat0. On VT 6, logind's reserved VT, `vtium console enable` does not move a VT between modes while vtium runs there in the other mode, because the next switch to VT 6 would end its sessions. It tells you how to go ahead. See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
 
 ### When vtium fails on a VT
 
