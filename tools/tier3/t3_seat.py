@@ -388,6 +388,16 @@ def typed_after_login(vm, log, what):
     return "a line typed after the login never reached the shell: vtium lost the keyboard"
 
 
+def logins_settled(logins, shells):
+    """Whether the agent's answer `logins` shows `shells` shells, each in a
+    session logind lists. A login's shell can appear in its session's scope
+    before logind lists that session, and the agent reads the sessions
+    before the shells, so one answer can show the shell and not yet its
+    session."""
+    return (len(logins["shells"]) >= shells
+            and all((session_of(s) or "") in logins["sessions"] for s in logins["shells"]))
+
+
 def check_two_logins(v, vm, work, caps, errors, log):
     """The two-logins check (CHECKS): the user logs in again on the head's
     second console, which key-console-next shows, then the agent's answer
@@ -405,7 +415,7 @@ def check_two_logins(v, vm, work, caps, errors, log):
     retyped = False
     while time.time() < deadline:
         logins = ask_logins(vm, log, case)
-        if len(logins["shells"]) >= 2:
+        if logins_settled(logins, 2):
             break
         if not retyped and time.time() > deadline - 40:
             # PAM drops a password typed before it turned echo off, as in

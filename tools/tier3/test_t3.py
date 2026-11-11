@@ -5689,6 +5689,20 @@ class SeatTest(unittest.TestCase):
     def test_a_login_in_a_session_of_its_own_with_no_seat_passes(self):
         self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS)))
 
+    def test_two_logins_wait_until_logind_lists_each_shells_session(self):
+        # As a guest answered once: the second shell already ran in
+        # session-4.scope, and logind did not list session 4 yet.
+        second = ["shell 732 1000 /user.slice/user-1000.slice/session-4.scope "
+                  "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=4",
+                  "user 1000 active"]
+        early = t3_seat.parse_logins(self.LOGINS + second)
+        self.assertFalse(t3_seat.logins_settled(early, 2))
+        listed = t3_seat.parse_logins(
+            self.LOGINS + ["session 4 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/1 "
+                           "Leader=700"] + second)
+        self.assertTrue(t3_seat.logins_settled(listed, 2))
+        self.assertFalse(t3_seat.logins_settled(t3_seat.parse_logins(self.LOGINS), 2))
+
     def test_vtiums_own_session_must_be_a_greeters(self):
         # Without class=greeter in vtium.pam, pam_systemd gives vtium's
         # root session on tty2 the class user-early (measured in the guest).
