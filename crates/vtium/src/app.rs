@@ -6255,6 +6255,9 @@ mod tests {
         }
     }
 
+    /// The records a test queues for its stand-in kernel.
+    type Queued = Rc<RefCell<Vec<Vec<u8>>>>;
+
     /// Queues a kernel warning `text` on `queued`, as `/dev/kmsg` gives it.
     fn kernel_log(queued: &RefCell<Vec<Vec<u8>>>, text: &str) {
         queued
@@ -6266,8 +6269,8 @@ mod tests {
     /// stand-in that reads `queued`, shown at the returned time. The
     /// display reports no flip, so `display-wait=forever` keeps vtium from
     /// giving up on it while the count runs.
-    fn kernel_seat() -> (Loop<App>, App, Rc<RefCell<Vec<Vec<u8>>>>, Instant) {
-        let queued: Rc<RefCell<Vec<Vec<u8>>>> = Rc::default();
+    fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
+        let queued: Queued = Rc::default();
         let (mut lp, mut app) = seat_with(
             &[
                 "--font-size=16",
