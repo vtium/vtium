@@ -3476,6 +3476,10 @@ class HeadsTest(unittest.TestCase):
         unknown = good[:-1] + ["next-available fgconsole: command not found"]
         self.assertEqual(t3_seat.boot_claim_verdict(*t3_seat.parse_vts(unknown)),
                          "the first free VT is None, not VT 7")
+        # vtium's log line once it has set up a display, as vtium 948 logged
+        # it on tier 3.
+        self.assertIn(t3_seat.DISPLAY_LINE % 948,
+                      "[ 10.9] vtium[948]: Display Virtual-1 with backend [drm2d] text renderer [cpu]")
         v = t3_scenario.VARIANTS["boot-claim"]
         self.assertEqual(t3_scenario.variant_cases("boot-claim"), ["boot-claim"])
         self.assertIn("boot-claim", t3_scenario.SEAT_VARIANTS)

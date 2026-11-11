@@ -69,8 +69,10 @@ CHECKS = {
                   "(ADR-1500 D7, \"Each claimed VT starts at boot\"). Correct: a vtium process "
                   "holds each of VTs 1 to 6 open, /dev/ttyN among its open files, and the "
                   "first VT the kernel's VT_OPENQRY gives, which a display manager such as "
-                  "SDDM takes for a new desktop session, is VT 7. The log gives each vtium's "
-                  "resident memory.",
+                  "SDDM takes for a new desktop session, is VT 7. Then the driver switches to "
+                  "each of VTs 2 to 6 in turn, and each VT's own vtium, started at boot while "
+                  "its VT was not shown, sets up the display and draws a screen that is not "
+                  "blank. The log gives each vtium's resident memory.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -481,10 +483,17 @@ def boot_claim_verdict(held, free):
     return None
 
 
+# The line a vtium logs once it has set up a display. A vtium started at boot
+# on a VT that is not shown drops DRM master after it opens the card, and
+# sets up its display only once its VT is shown.
+DISPLAY_LINE = "vtium[%d]: Display "
+
+
 def check_boot_claim(v, vm, work, caps, errors, log):
     """The boot-claim check (CHECKS), on the agent's answer `vts`, asked
-    again until vtium holds every claimed VT or BOOT_CLAIM_TIMEOUT passes.
-    It captures nothing."""
+    again until vtium holds every claimed VT or BOOT_CLAIM_TIMEOUT passes,
+    then on each VT from 2 to 6 once it is shown. It keeps a capture of
+    each VT as evidence, which no golden judges."""
     case = "boot-claim"
     deadline = time.time() + BOOT_CLAIM_TIMEOUT
     while True:
@@ -502,4 +511,16 @@ def check_boot_claim(v, vm, work, caps, errors, log):
     if why:
         errors[case] = why
         return
+    # Each vtium started at boot draws its own VT once it is shown.
+    for n in CLAIMED_VTS[1:]:
+        pid = next(p for p, name, _ in held[n] if name == "vtium")
+        vm.keys("ctrl", "alt", "f%d" % n)
+        try:
+            vm.wait_serial(DISPLAY_LINE % pid, timeout=60)
+            wait_stable(vm, os.path.join(work, "%s-vt%d.ppm" % (case, n)), settle=2.0,
+                        timeout=60, want=not_blank)
+        except RuntimeError as e:
+            errors[case] = "VT %d: %s" % (n, e)
+            return
+        log("%s: VT %d shown, drawn by vtium %d" % (case, n, pid))
     caps[case] = None
