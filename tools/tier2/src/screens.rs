@@ -229,6 +229,30 @@ const CONCEAL: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `rapid-blink-` screens: SGR 5 beside SGR 6, alone, both on one
+/// word, with colors and lines, reversed, wide and bold, and ended by SGR
+/// 25.
+const RAPID_BLINK: &[u8] = concat!(
+    "\x1b[5mslow\x1b[0m blinks by SGR 5, \x1b[6mfast\x1b[0m by SGR 6\r\n",
+    "\x1b[5;6mboth\x1b[0m blinks at SGR 6's phase\r\n",
+    "\x1b[6;4;31mred underlined fast\x1b[0m \x1b[6;7mreversed fast\x1b[0m\r\n",
+    "\x1b[6m\u{4e2d}\u{6587}\x1b[0m wide \x1b[6;1mbold fast\x1b[25m steady\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `script-unifont` screen: superscript and subscript beside normal
+/// text, in formulas, over descenders and accents, wide, in bold, italic,
+/// red and reverse, under lines, and on block and line characters.
+const SCRIPT: &[u8] = concat!(
+    "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
+    "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
+    "\x1b[73mgjpqy \u{c9}\u{c5}\x1b[75m gjpqy \u{c9}\u{c5} \x1b[74mgjpqy \u{c9}\u{c5}\x1b[0m\r\n",
+    "\x1b[73m\u{4e2d}\u{6587}\x1b[75m\u{4e2d}\u{6587}\x1b[74m\u{4e2d}\u{6587}\x1b[0m wide\r\n",
+    "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
+    "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m \x1b[73m\u{2500}\u{2588}\u{2591}\x1b[74m\u{2500}\u{2588}\u{2591}\x1b[0m blocks\r\n",
+)
+.as_bytes();
+
 /// The `overline` screen.
 const OVERLINE: &[u8] = concat!(
     "\x1b[53moverlined gjpqy \u{c9}\u{c5}\x1b[0m plain\r\n",
@@ -1347,6 +1371,7 @@ const BIDI_CASES: [Case; 14] = bidi_cases([
         phase: crate::draw::Phase {
             cursor_on: true,
             blink_hidden: false,
+            rapid_hidden: false,
         },
         ..outline(
             "bidi-cursor-block",
@@ -1361,6 +1386,7 @@ const BIDI_CASES: [Case; 14] = bidi_cases([
         phase: crate::draw::Phase {
             cursor_on: true,
             blink_hidden: false,
+            rapid_hidden: false,
         },
         ..outline("bidi-cursor-bar", BIDI_CURSOR_BAR_DESC, BIDI_CURSOR, 14, 2)
     },
@@ -1658,6 +1684,49 @@ const BASE: &[Case] = &[
                 "conceal-unifont",
                 "Concealed text (SGR 8) alone, with an underline, a strike and an overline, on red, reversed, in bold italic, and revealed by SGR 28 after a password. In unifont. Correct: each concealed cell shows its background alone, red under `on red` and the light foreground under `reversed`, with no letter and no line; the text around them and `revealed` draw as usual.",
                 CONCEAL,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            phase: crate::draw::Phase {
+                cursor_on: false,
+                blink_hidden: true,
+                rapid_hidden: false,
+            },
+            ..Screen::new(
+                "rapid-blink-shown-unifont",
+                "Blinking text by SGR 5 beside rapidly blinking text by SGR 6, alone, on one word with both, red and underlined, reversed, wide, in bold, and ended by SGR 25, drawn with SGR 5's blink in its hidden phase and SGR 6's in its shown phase. In unifont. Correct: `slow` dimmed halfway to its background, as vtium draws blinking text in its hidden phase; every word that SGR 6 marks drawn as usual, `both` included, since a cell with SGR 6 blinks at SGR 6's phase; `steady` drawn as usual.",
+                RAPID_BLINK,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            phase: crate::draw::Phase {
+                cursor_on: false,
+                blink_hidden: false,
+                rapid_hidden: true,
+            },
+            ..Screen::new(
+                "rapid-blink-hidden-unifont",
+                "The rapid-blink-shown-unifont screen drawn with SGR 6's blink in its hidden phase and SGR 5's in its shown phase. In unifont. Correct: `slow` drawn as usual; `fast`, `both`, `red underlined fast`, `reversed fast`, the two wide characters and `bold fast` dimmed halfway to their backgrounds, the red underline kept in full, `reversed fast` dimmed toward its light background; `steady` and the plain words drawn as usual.",
+                RAPID_BLINK,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            ..Screen::new(
+                "script-unifont",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text after SGR 75: in formulas, over descenders and accented capitals, on wide characters, in bold, italic, red and reverse, under an underline and a strike, and on line, block and shade characters. In unifont, a bitmap font. Correct: each superscript glyph two thirds of its cell's width and height, centred from side to side, its top on its cell's top; each subscript glyph the same size, its bottom on its cell's bottom; their edges gray, since the font's 1-bit glyphs are scaled; a wide character's small glyph centred across its two cells; the underline and the strike where they are on a normal cell; the cell's background whole; the normal text as usual.",
+                SCRIPT,
                 48,
                 10,
             )
