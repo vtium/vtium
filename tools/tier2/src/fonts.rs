@@ -481,24 +481,24 @@ pub fn chosen_frit(
             .iter()
             .map(|t| t.iter().map(|&c| u32::from(c)).collect())
             .collect();
-        let Some(bytes) = engine.draw_style(at, one.style, &want, (&clusters, true))? else {
+        let Some(bytes) = engine.draw_variant(at, one.variant, &want, (&clusters, true))? else {
             continue;
         };
         let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
         let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("the frit {name}: {e:?}"))?);
         let face = SetFace::new(Arc::clone(&set), at.cell.height)
             .ok_or_else(|| format!("the frit {name}: no strike at {}", at.cell.height))?;
-        // the codepoints the set maps in the style, as the helper's frame
+        // the codepoints the set maps in the variant, as the helper's frame
         // names them
         let held: Vec<char> = one
             .chars
             .iter()
             .copied()
-            .filter(|&c| face.draw(&[c], one.style).is_some())
+            .filter(|&c| face.draw_variant(&[c], one.variant).is_some())
             .collect();
         let mut store = lock(generated);
         let fresh = store
-            .fresh((at, one.style), set, &runs(&held), len)
+            .fresh((at, one.variant), set, &runs(&held), len)
             .ok_or_else(|| format!("the frit {name}: the store refused its glyphs"))?;
         store.add(fresh);
     }
