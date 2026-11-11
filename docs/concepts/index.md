@@ -1,6 +1,6 @@
 # VTium's concepts
 
-These pages explain vtium, a terminal for the Linux virtual console, the VT, that draws the screen itself with no display server, on machines from a small board with a 320x240 panel to a desktop with a large monitor.
+These pages explain vtium, a terminal for the Linux virtual console, the VT, that renders the screen itself, so it needs no display server. It runs on machines from a small board with a 320×240 panel to a desktop with a large monitor.
 
 Each page holds one concept, so a reader can open one at a time. Each links to the decision record, issue or document that holds the detail, and the commands and setting names live there too. A piece that is not built yet is marked proposed, with the issue or record that holds it.
 
