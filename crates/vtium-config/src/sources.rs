@@ -636,6 +636,11 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     }))
 }
 
+/// A smaller size of a source's font as [`smaller`] reads it: the line and
+/// the spelling of the `script-source=` that names it, `None` for a CPI
+/// source's other height, and the font read for the parser.
+pub type Smaller = (Option<(usize, String)>, Result<Input, SourceError>);
+
 /// The smaller sizes of `source`'s font that its superscript and
 /// subscript glyphs may come from (ADR-1202 D3, D12), read for the parser,
 /// each with the spelling and the line its messages name, in the order
@@ -643,11 +648,10 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
 /// `cp-size=` reads one, then each font `script-source=` names, which
 /// takes the source's `unimap=` (the parser keeps the font's own Unicode
 /// table where it has one). A CPI height the file does not hold is left
-/// out. Each entry's error says why its font cannot be read.
-pub fn smaller(
-    source: &Source,
-    host: &Host<'_>,
-) -> Vec<(String, usize, Result<Input, SourceError>)> {
+/// out. A `script-source=` font comes with its line and its spelling, and
+/// a CPI height with none. Each entry's error says why its font cannot be
+/// read.
+pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
     let mut out = Vec::new();
     if let Some(own) = source.cp_size {
         for height in crate::frit::CP_SIZES.into_iter().filter(|&h| h != own) {
@@ -657,11 +661,7 @@ pub fn smaller(
                 ..source.clone()
             };
             if let Ok(input) = resolve(&other, host) {
-                out.push((
-                    format!("{} cp-size={height}", source.spelling),
-                    source.line,
-                    Ok(input),
-                ));
+                out.push((None, Ok(input)));
             }
         }
     }
@@ -677,7 +677,10 @@ pub fn smaller(
             fits: Vec::new(),
             line: named.line,
         };
-        out.push((named.spelling.clone(), named.line, resolve(&small, host)));
+        out.push((
+            Some((named.line, named.spelling.clone())),
+            resolve(&small, host),
+        ));
     }
     out
 }

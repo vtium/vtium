@@ -113,6 +113,9 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
                 for warning in &frit.warnings {
                     let _ = writeln!(out, "warning\t{warning}");
                 }
+                for note in script_notes(&frit, paths) {
+                    let _ = writeln!(out, "note\t{file}:{note}");
+                }
                 let _ = writeln!(out, "ok\t{file}");
                 0
             }
@@ -130,6 +133,42 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     };
     let copied = copy.path.to_string_lossy().into_owned();
     console_check(paths, &copy.path, Some(&copied), file, out, err)
+}
+
+/// The notes the glyph helper gives on `frit`'s `script-source=` lines
+/// (ADR-1202 D12), each from its line on: a font whose height gives no
+/// superscript or subscript in the frit's own cell, and a font the helper
+/// refuses. The helper reads the
+/// fonts under its own sandbox, so this process parses none (ADR-1201
+/// D3). A frit with no `script-source=` line, and a helper that does not
+/// answer, give none.
+fn script_notes(frit: &Frit, paths: &Paths) -> Vec<String> {
+    let lines: Vec<usize> = frit
+        .sources
+        .iter()
+        .flat_map(|s| s.script_sources.iter().map(|k| k.line))
+        .collect();
+    if lines.is_empty() {
+        return Vec::new();
+    }
+    let text = crate::serve::FritText {
+        name: frit.name.clone(),
+        text: frit.text.clone(),
+    };
+    let Ok(warnings) = crate::specimen::warnings_of(&paths.helper, &text) else {
+        return Vec::new();
+    };
+    let prefix = format!("{}:", frit.name);
+    warnings
+        .iter()
+        .filter_map(|w| w.strip_prefix(&prefix))
+        .filter(|rest| {
+            rest.split_once(':')
+                .and_then(|(n, _)| n.parse::<usize>().ok())
+                .is_some_and(|n| lines.contains(&n))
+        })
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Runs the console's `vtium check-config` on the vtium.conf `candidate`,

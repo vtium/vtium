@@ -818,7 +818,16 @@ pub struct Engine {
     /// the order D3 names them: a CPI source's other heights, then the
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
     /// strike, which comes first, is not repeated here.
-    smaller: Vec<Vec<Font>>,
+    smaller: Vec<Vec<SmallerFont>>,
+    /// The frit's `cell=`, which sets its own cell where it states one.
+    cell: Option<Cell>,
+}
+
+/// A smaller size of a bitmap source (ADR-1202 D3): its font, and for one
+/// that `script-source=` names, that line and the font's spelling.
+struct SmallerFont {
+    font: Font,
+    named: Option<(usize, String)>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -1102,9 +1111,9 @@ fn smaller_fonts(
     host: &Host<'_>,
     name: &str,
     warnings: &mut Vec<String>,
-) -> Vec<Font> {
+) -> Vec<SmallerFont> {
     let mut fonts = Vec::new();
-    for (spelling, line, input) in crate::sources::smaller(source, host) {
+    for (named, input) in crate::sources::smaller(source, host) {
         let font = input.and_then(|input| {
             match input {
                 Input::Bitmap(font) => Ok(font),
@@ -1130,12 +1139,14 @@ fn smaller_fonts(
             }
             .map_err(SourceError::Failed)
         });
-        match font {
-            Ok(font) => fonts.push(font),
-            Err(SourceError::Missing(_)) => {}
-            Err(SourceError::Failed(e)) => warnings.push(format!(
+        match (font, &named) {
+            (Ok(font), _) => fonts.push(SmallerFont { font, named }),
+            (Err(SourceError::Failed(e)), Some((line, spelling))) => warnings.push(format!(
                 "{name}:{line}: script-source={spelling}: {e}; the font is left out"
             )),
+            // a font this machine lacks, and a CPI height that does not
+            // decode, are left out quietly
+            (Err(_), _) => {}
         }
     }
     fonts
@@ -1265,6 +1276,7 @@ impl Engine {
             baselines: RefCell::default(),
             hinting: frit.hinting,
             smaller,
+            cell: frit.cell,
         })
     }
 
@@ -1585,6 +1597,49 @@ impl Engine {
         self.glyphs(at.cell, at.band, variant, want, (clusters, parts))
     }
 
+    /// One note for each `script-source=` font that gives no superscript
+    /// or subscript in the frit's own cell (ADR-1202 D12): the font whose
+    /// height, at no whole multiple that fits the cell, lies from one half
+    /// to three quarters of the height its source draws at there. The own
+    /// cell is the frit's `cell=`, else its first source's when that is a
+    /// bitmap font; a frit whose own cell needs a height has no notes. Each
+    /// note names the frit and the line, as a warning does.
+    pub fn script_notes(&self) -> Vec<String> {
+        let own = self.cell.or_else(|| match self.own_cell(0) {
+            Ok(OwnCell::Bitmap(cell)) => Some(cell),
+            _ => None,
+        });
+        let Some(cell) = own else {
+            return Vec::new();
+        };
+        let mut notes = Vec::new();
+        for ((_, loaded), smaller) in self.sources.iter().zip(&self.smaller) {
+            let Loaded::Bitmap(font) = loaded else {
+                continue;
+            };
+            let scale =
+                (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
+            let normal = font.cell.height * scale;
+            for small in smaller {
+                let Some((line, spelling)) = &small.named else {
+                    continue;
+                };
+                if scale > 0
+                    && vtium_font::script::smaller(normal, cell.width, &[small.font.cell]).is_some()
+                {
+                    continue;
+                }
+                let lowest = normal.div_ceil(2);
+                let highest = normal * 3 / 4;
+                notes.push(format!(
+                    "{}:{line}: script-source={spelling} gives no superscripts or subscripts in the font set's own {}x{} character cell. Its characters are {} pixels high, and there a smaller size must be from {lowest} to {highest} pixels high, from half to three quarters of the {normal}-pixel characters of the font above it.",
+                    self.name, cell.width, cell.height, small.font.cell.height
+                ));
+            }
+        }
+        notes
+    }
+
     /// The glyph that a smaller size of bitmap source `i` gives `c` for a
     /// superscript or subscript (ADR-1202 D3): the strike that
     /// [`vtium_font::script::smaller`] chooses among the source's own
@@ -1605,13 +1660,13 @@ impl Engine {
     ) -> Option<SmallerGlyph<'a>> {
         let others = self.smaller.get(i).map_or(&[][..], Vec::as_slice);
         let strikes: Vec<Cell> = std::iter::once(font.cell)
-            .chain(others.iter().map(|f| f.cell))
+            .chain(others.iter().map(|f| f.font.cell))
             .collect();
         let normal = font.cell.height.checked_mul(scale)?;
         let chosen = vtium_font::script::smaller(normal, cell_width, &strikes)?;
         let f = match chosen.strike {
             0 => font,
-            n => others.get(n - 1)?,
+            n => &others.get(n - 1)?.font,
         };
         let glyph = match chosen.strike {
             0 => g,
@@ -2424,6 +2479,11 @@ impl Work<'_> {
             SOURCES => {
                 return match self.engine(&request.frit) {
                     Ok(engine) => {
+                        // the notes on its script-source= lines, which only
+                        // a sources query answers (ADR-1202 D12)
+                        for note in engine.script_notes() {
+                            reason(out, FRAME_WARNING, &note)?;
+                        }
                         let lines: Vec<String> =
                             engine.left_out().iter().map(LeftOut::line_text).collect();
                         write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
