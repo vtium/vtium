@@ -1804,6 +1804,36 @@ mod tests {
         assert_eq!(inked_rows(&drawn), [3, 4], "the frit's é");
     }
 
+    // ADR-1202 D11, ADR-1200 D19: compaction writes a superscript set
+    // again as superscript strikes, so the glyph it keeps still draws in
+    // superscript and never for a normal cell
+    #[test]
+    fn compaction_keeps_a_glyphs_script() {
+        let mut g = Generated::default();
+        let set = filled(CELL, SUPER, 77, &['A', 'C']);
+        // counted larger than the set written again holds, so dropping one
+        // glyph frees enough
+        let fresh = g
+            .fresh((AT, SUPER), set, &[(0x41, 1), (0x43, 1)], 1 << 20)
+            .unwrap();
+        assert!(g.add(fresh).is_some());
+        g.touch(
+            AT,
+            &Shown {
+                variant: SUPER,
+                chars: vec!['A'],
+                clusters: Vec::new(),
+            },
+        );
+        // C was shown least recently, so it leaves and A's set is written
+        // again without it
+        assert_eq!(g.make_room(1), vec![(AT, SUPER, texts(&['C']))]);
+        assert!(g.held(AT, SUPER, &['A']) && !g.held(AT, SUPER, &['C']));
+        let a = g.draw(AT, &['A'], SUPER).expect("A in superscript");
+        assert!(a.pixels().iter().all(|&p| p == 77));
+        assert!(g.draw(AT, &['A'], Variant::default()).is_none());
+    }
+
     // ADR-1202 D11: the store keys a glyph by its script, so a superscript
     // set's glyph is held and drawn only in that script
     #[test]
