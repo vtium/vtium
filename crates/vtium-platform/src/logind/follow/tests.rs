@@ -376,7 +376,8 @@ impl Rig {
         .unwrap_or_else(|e| panic!("the layout at start: {e}"))
         .names;
         let (input, nodes) = input(&own, &system);
-        let follow = LayoutFollow::with(StandInSignals::new(&world), own, &system)
+        let applied = input.keymap().compiled().clone();
+        let follow = LayoutFollow::with(StandInSignals::new(&world), own, applied)
             .unwrap_or_else(|e| panic!("the watch starts: {e}"));
         world.borrow_mut().asked.clear();
         Rig {
@@ -403,6 +404,14 @@ impl Rig {
 
     fn key_y(&mut self) -> Vec<Vec<u32>> {
         key_y(&mut self.input, &self.nodes)
+    }
+
+    /// The names the keymap in use was compiled from.
+    fn applied(&self) -> RuleNames {
+        match &self.follow.applied {
+            Compiled::Names(names) => names.clone(),
+            other => panic!("a keymap from the rules' names, not {other:?}"),
+        }
     }
 
     fn asked(&self) -> Vec<String> {
@@ -484,9 +493,9 @@ fn vtium_confs_keys_still_win_after_a_change() {
         rig.dispatch(),
         "the system's options fill the key vtium.conf leaves unset"
     );
-    assert_eq!(rig.follow.applied.layout, "us");
-    assert_eq!(rig.follow.applied.variant, "");
-    assert_eq!(rig.follow.applied.options, "ctrl:nocaps");
+    assert_eq!(rig.applied().layout, "us");
+    assert_eq!(rig.applied().variant, "");
+    assert_eq!(rig.applied().options, "ctrl:nocaps");
     assert_eq!(rig.key_y(), [[Y], [Y]]);
 }
 
@@ -504,8 +513,8 @@ fn a_change_in_vconsole_conf_wins_over_localed() {
         .localed_sets(&[("VConsoleKeymap", "de-latin1"), ("X11Layout", "fr")]);
     assert!(rig.dispatch(), "a new keymap");
     assert_eq!(rig.asked(), Vec::<String>::new(), "localed is not asked");
-    assert_eq!(rig.follow.applied.layout, "de");
-    assert_eq!(rig.follow.applied.model, "pc105");
+    assert_eq!(rig.applied().layout, "de");
+    assert_eq!(rig.applied().model, "pc105");
     assert_eq!(rig.key_y(), [[Z], [Z]]);
 }
 
@@ -531,7 +540,7 @@ fn localed_vanishing_and_coming_back() {
     }
     assert!(!rig.dispatch(), "localed cannot be read");
     assert_eq!(rig.asked(), ["X11Layout"]);
-    assert_eq!(rig.follow.applied.layout, "de");
+    assert_eq!(rig.applied().layout, "de");
     assert_eq!(rig.key_y(), [[Z], [Z]]);
 }
 
@@ -634,4 +643,74 @@ fn caps_lock_stays_on_across_a_change() {
         press(&mut rig.input, &rig.nodes, first, KEY_Y),
         [keysyms::KEY_Z]
     );
+}
+
+/// vtium.conf names a keymap file that does not compile, so vtium started
+/// on the rules' names, as a fresh start would. A change follows the
+/// system. A keymap file that compiles leaves the system's names unused,
+/// so a change asks localed nothing.
+// covers: platform.system-layout-follow
+#[test]
+fn only_a_keymap_file_that_compiled_stops_the_follow() {
+    let root = root("keymap-file", None);
+    let missing = KeymapConfig {
+        keymap_file: Some(root.join("missing.xkb")),
+        ..KeymapConfig::default()
+    };
+    let mut rig = Rig::new(missing, root.clone());
+    rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
+    assert!(rig.dispatch(), "the system's layout");
+    assert_eq!(rig.key_y(), [[Z], [Z]]);
+
+    write(
+        &root,
+        "keymap.xkb",
+        include_str!("../../input/fallback.xkb"),
+    );
+    let file = KeymapConfig {
+        keymap_file: Some(root.join("keymap.xkb")),
+        ..KeymapConfig::default()
+    };
+    let mut rig = Rig::new(file, root);
+    rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
+    assert!(!rig.dispatch(), "the keymap file stays");
+    assert_eq!(rig.asked(), Vec::<String>::new());
+}
+
+/// A layout that does not compile gives xkb's default keymap, as at a
+/// fresh start. A second layout that does not compile gives the same
+/// keymap, so vtium builds nothing new.
+// covers: platform.system-layout-follow
+#[test]
+fn a_change_is_decided_by_the_keymap_that_compiled() {
+    let mut rig = Rig::new(KeymapConfig::default(), root("no-compile", None));
+    rig.world
+        .borrow_mut()
+        .localed_sets(&[("X11Layout", "vtium-none-1")]);
+    assert!(rig.dispatch(), "xkb's default keymap replaces the US one");
+    assert_eq!(rig.key_y(), [[Y], [Y]]);
+    rig.world
+        .borrow_mut()
+        .localed_sets(&[("X11Layout", "vtium-none-2")]);
+    assert!(!rig.dispatch(), "xkb's default keymap again");
+}
+
+/// Without the seat's input there is no keyboard to give a keymap to, so
+/// vtium builds none and logs nothing.
+// covers: platform.system-layout-follow
+#[test]
+fn without_input_a_change_builds_nothing() {
+    let mut rig = Rig::new(KeymapConfig::default(), root("no-input", None));
+    rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
+    let world = Rc::clone(&rig.world);
+    let applied = rig
+        .follow
+        .dispatch_in(
+            &rig.root,
+            move || layout_from(&mut StandInProperties(world)),
+            None::<&mut Input<Nodes>>,
+        )
+        .unwrap_or_else(|e| panic!("the bus answers: {e}"));
+    assert!(!applied, "no keymap without a keyboard");
+    assert_eq!(rig.asked(), Vec::<String>::new());
 }

@@ -35,7 +35,7 @@ use super::{
     sd_bus_set_method_call_timeout,
 };
 use crate::input::system::{self, Origin};
-use crate::input::{Direct, Input, Keymap, KeymapConfig, Open, RuleNames};
+use crate::input::{Compiled, Direct, Input, Keymap, KeymapConfig, Open, RuleNames};
 
 /// The interface whose signal announces changed properties.
 const PROPERTIES: &CStr = c"org.freedesktop.DBus.Properties";
@@ -107,21 +107,22 @@ fn watch_localed(signals: &mut impl Signals) -> Result<(), Error> {
 }
 
 /// vtium's watch on the system's keyboard layout: the bus it hears localed
-/// on, vtium.conf's keymap settings, and the names of the keymap in use.
+/// on, vtium.conf's keymap settings, and what the keymap in use was
+/// compiled from.
 pub struct LayoutFollow<S = SystemSignals> {
     signals: S,
     /// vtium.conf's own settings, before the system's names fill them.
     own: KeymapConfig,
-    /// The model, layout, variant and options of the keymap in use.
-    applied: RuleNames,
+    /// What the keymap in use was compiled from.
+    applied: Compiled,
 }
 
 impl LayoutFollow {
     /// Starts watching localed for a new layout. `own` is vtium.conf's
-    /// keymap settings, and `system` the system's layout that vtium read at
-    /// its start, which together gave the keymap in use.
-    pub fn open(own: KeymapConfig, system: &RuleNames) -> Result<LayoutFollow, Error> {
-        LayoutFollow::with(SystemSignals::open()?, own, system)
+    /// keymap settings, and `applied` what the seat's keymap was compiled
+    /// from at vtium's start.
+    pub fn open(own: KeymapConfig, applied: Compiled) -> Result<LayoutFollow, Error> {
+        LayoutFollow::with(SystemSignals::open()?, own, applied)
     }
 
     /// The bus connection's descriptor, which turns readable when the bus
@@ -132,7 +133,8 @@ impl LayoutFollow {
 
     /// Reads what the bus sent. When localed announced a new layout, vtium
     /// works out the system's layout again and gives `input` the keymap it
-    /// names, if it differs from the keymap in use. `Err` when the bus
+    /// compiles, if that differs from the keymap in use. Without `input`,
+    /// vtium builds no keymap. `Err` when the bus
     /// connection fails, after which nothing more arrives on it.
     pub fn dispatch(&mut self, input: Option<&mut Input<Direct>>) -> Result<(), Error> {
         self.dispatch_in(Path::new("/"), localed::read, input)
@@ -141,12 +143,12 @@ impl LayoutFollow {
 }
 
 impl<S: Signals> LayoutFollow<S> {
-    fn with(mut signals: S, own: KeymapConfig, system: &RuleNames) -> Result<Self, Error> {
+    fn with(mut signals: S, own: KeymapConfig, applied: Compiled) -> Result<Self, Error> {
         watch_localed(&mut signals)?;
         Ok(LayoutFollow {
             signals,
-            applied: names_of(&own.clone().follow(system)),
             own,
+            applied,
         })
     }
 
@@ -163,10 +165,16 @@ impl<S: Signals> LayoutFollow<S> {
         if !changes.iter().any(Changed::moves_layout) {
             return Ok(false);
         }
-        // a whole keymap in vtium.conf leaves the system's names unused
-        if self.own.keymap_file.is_some() {
+        // the keymap file that vtium.conf names compiled, so the system's
+        // names are unused; a file that did not compile left the keymap to
+        // the names, which follow the system
+        if matches!(self.applied, Compiled::File(_)) {
             return Ok(false);
         }
+        // there is no keyboard to give a keymap to
+        let Some(input) = input else {
+            return Ok(false);
+        };
         let found = match system::find(root, Some(localed)) {
             Ok(found) => found,
             Err(e) => {
@@ -175,38 +183,35 @@ impl<S: Signals> LayoutFollow<S> {
             }
         };
         let config = self.own.clone().follow(&found.names);
-        let names = names_of(&config);
-        if names == self.applied {
-            return Ok(false);
-        }
+        // None only when even the built-in keymap fails, which
+        // Keymap::new logs
         let Some(keymap) = Keymap::new(&config) else {
-            log::warn!(target: "input", "The keyboard layout stays as it is. The system's new layout {:?} gives no keymap that vtium can build.", names.layout);
             return Ok(false);
         };
+        if *keymap.compiled() == self.applied {
+            return Ok(false);
+        }
         log::info!(
             target: "input",
-            "The system's keyboard layout changed, so vtium now uses layout {:?}, model {:?}, variant {:?} and options {:?} on every keyboard. The layout comes from {}.",
-            names.layout,
-            names.model,
-            names.variant,
-            names.options,
+            "The system's keyboard layout changed, so vtium now uses {} on every keyboard. The layout comes from {}.",
+            compiled(keymap.compiled()),
             origin(&found.origin)
         );
-        self.applied = names;
-        if let Some(input) = input {
-            input.set_keymap(keymap);
-        }
+        self.applied = keymap.compiled().clone();
+        input.set_keymap(keymap);
         Ok(true)
     }
 }
 
-/// The four names a keymap configuration builds its keymap from.
-fn names_of(config: &KeymapConfig) -> RuleNames {
-    RuleNames {
-        model: config.model.clone(),
-        layout: config.layout.clone(),
-        variant: config.variant.clone(),
-        options: config.options.clone(),
+/// What a keymap was compiled from, in the words of the log line.
+fn compiled(compiled: &Compiled) -> String {
+    match compiled {
+        Compiled::File(path) => format!("the keymap file {}", path.display()),
+        Compiled::Names(names) => format!(
+            "layout {:?}, model {:?}, variant {:?} and options {:?}",
+            names.layout, names.model, names.variant, names.options
+        ),
+        Compiled::BuiltIn => "its built-in keymap".to_owned(),
     }
 }
 

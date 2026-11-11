@@ -41,7 +41,7 @@ pub use event::{
 };
 
 pub(crate) use evdev::EventDevice;
-pub use keyboard::{Keymap, KeymapConfig, Leds, RuleNames, locale};
+pub use keyboard::{Compiled, Keymap, KeymapConfig, Leds, RuleNames, locale};
 pub use system::system_layout;
 
 use std::io;
@@ -466,6 +466,11 @@ impl<O: Open + 'static> Input<O> {
         for id in ids {
             self.close(id);
         }
+    }
+
+    /// The seat's keymap.
+    pub fn keymap(&self) -> &Keymap {
+        &self.keymap
     }
 
     /// Replaces the seat's keymap with `keymap`, for a new keyboard layout.

@@ -2,7 +2,7 @@
 //! shares, and each keyboard's own state, compose state and repeat.
 
 use std::ffi::OsStr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use xkbcommon::xkb::{self, Keycode, Keysym, compose, keysyms};
 
@@ -42,6 +42,16 @@ pub struct RuleNames {
 }
 
 impl KeymapConfig {
+    /// The four rules' names this configuration sets.
+    pub fn names(&self) -> RuleNames {
+        RuleNames {
+            model: self.model.clone(),
+            layout: self.layout.clone(),
+            variant: self.variant.clone(),
+            options: self.options.clone(),
+        }
+    }
+
     /// This configuration, with the system's names in place of the
     /// `xkb-*` keys that vtium.conf leaves unset. A key that vtium.conf sets
     /// keeps its value. A variant names the variant of each layout in turn,
@@ -75,11 +85,23 @@ pub fn locale() -> String {
         .unwrap_or_else(|| String::from("C"))
 }
 
+/// What a keymap was compiled from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Compiled {
+    /// The keymap file that vtium.conf's `xkb-keymap` names.
+    File(PathBuf),
+    /// The rules' names; an empty name takes xkb's default.
+    Names(RuleNames),
+    /// vtium's built-in keymap.
+    BuiltIn,
+}
+
 /// The seat's keymap and compose table, which every keyboard shares.
 pub struct Keymap {
     context: xkb::Context,
     keymap: xkb::Keymap,
     compose: Option<compose::Table>,
+    compiled: Compiled,
 }
 
 impl std::fmt::Debug for Keymap {
@@ -96,27 +118,29 @@ impl Keymap {
     /// when even the fallback fails.
     pub fn new(config: &KeymapConfig) -> Option<Keymap> {
         let context = xkb::Context::new(xkb::CONTEXT_NO_FLAGS);
-        let keymap = config
+        let (keymap, compiled) = config
             .keymap_file
             .as_deref()
-            .and_then(|path| from_file(&context, path))
-            .or_else(|| from_names(&context, config))
+            .and_then(|path| Some((from_file(&context, path)?, Compiled::File(path.to_owned()))))
+            .or_else(|| Some((from_names(&context, config)?, Compiled::Names(config.names()))))
             .or_else(|| {
                 log::warn!(
                     target: "input",
                     "cannot compile the keymap ({}, {}, {}, {}), taking the system's default",
                     config.model, config.layout, config.variant, config.options
                 );
-                from_names(&context, &KeymapConfig::default())
+                let default = KeymapConfig::default();
+                Some((from_names(&context, &default)?, Compiled::Names(default.names())))
             })
             .or_else(|| {
                 log::warn!(target: "input", "cannot compile the default keymap, taking the built-in one");
-                fallback(&context)
+                Some((fallback(&context)?, Compiled::BuiltIn))
             })?;
         let mut keymap = Keymap {
             context,
             keymap,
             compose: None,
+            compiled,
         };
         keymap.set_compose(config);
         Some(keymap)
@@ -130,7 +154,14 @@ impl Keymap {
             context,
             keymap,
             compose: None,
+            compiled: Compiled::BuiltIn,
         })
+    }
+
+    /// What this keymap was compiled from, which a fresh start with the
+    /// same settings compiles too.
+    pub fn compiled(&self) -> &Compiled {
+        &self.compiled
     }
 
     /// The compose table: the compose file, else the locale's, else none,
@@ -191,6 +222,7 @@ impl Keymap {
             context,
             keymap,
             compose: None,
+            compiled: Compiled::BuiltIn,
         })
     }
 }

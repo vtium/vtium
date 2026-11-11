@@ -355,7 +355,10 @@ fn run(
         None => log::error!("no keymap, so vtium cannot read the keyboard"),
     }
     #[cfg(feature = "logind")]
-    vtium::app::keyboard_layout::follow(&lp.handle(), start.keymap_settings(), &system);
+    if let Some(input) = app.input.as_ref() {
+        let applied = input.keymap().compiled().clone();
+        vtium::app::keyboard_layout::follow(&lp.handle(), start.keymap_settings(), applied);
+    }
     match Udev::new(app.vt.seat()) {
         Ok(mut udev) => {
             if let Err(e) = udev.scan() {
