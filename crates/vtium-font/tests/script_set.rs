@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use common::{assemble, sections, with_section};
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetError, SetFace, StrikeBuilder};
-use vtium_font::{Cell, Face, Script, Style, Variant, Width};
+use vtium_font::{Cell, Decorations, Face, Script, Style, Variant, Width};
 
 const CELL: Cell = Cell {
     width: 4,
@@ -151,7 +151,7 @@ fn an_older_minor_versions_set_reads_as_normal_strikes() {
         .write()
         .expect("writes");
     let (major, minor, secs) = sections(&bytes);
-    assert_eq!((major, minor), (2, 2));
+    assert_eq!((major, minor), (2, 3));
     for old in [0u16, 1] {
         let set = Set::from_bytes(assemble(major, old, &secs)).expect("read");
         assert_eq!(set.version(), (2, old));
@@ -296,4 +296,84 @@ fn a_script_cell_takes_its_sources_glyph_else_the_built_in_fonts() {
         .expect("drawn")
         .glyph;
     assert!(normal.pixels().iter().all(|&p| p == 255));
+}
+
+/// Each strike record's overline field, in the order the strikes are
+/// written.
+fn overline_fields(set: &[u8]) -> Vec<u16> {
+    let (_, _, secs) = sections(set);
+    let strk = &secs.iter().find(|(t, _)| t == b"STRK").expect("STRK").1;
+    let count = u32::from_le_bytes(strk[..4].try_into().unwrap()) as usize;
+    let size = u32::from_le_bytes(strk[4..8].try_into().unwrap()) as usize;
+    (0..count)
+        .map(|i| {
+            let at = 8 + i * size + 18;
+            u16::from_le_bytes(strk[at..at + 2].try_into().unwrap())
+        })
+        .collect()
+}
+
+/// A 4x4 strike of `script` whose lines are `lines`.
+fn lined(script: Script, lines: Decorations) -> Vec<u8> {
+    SetBuilder::new("lined")
+        .strike(strike(Script::Baseline, 10))
+        .strike(strike(script, 20).decorations(lines))
+        .write()
+        .expect("writes")
+}
+
+const SUB_LINES: Decorations = Decorations {
+    underline: 3,
+    underline_thickness: 1,
+    strike: 2,
+    strike_thickness: 1,
+    overline: 1,
+};
+
+// ADR-1202 D8: a script strike's lines, its overline included, read back
+// through the face as that script's lines, at the face's scale, and the
+// normal lines stay the normal strike's
+// covers: sgr.script
+#[test]
+fn a_script_strike_reports_its_own_lines() {
+    let bytes = lined(Script::Sub, SUB_LINES);
+    assert_eq!(overline_fields(&bytes), [0, 1]);
+    let set = Arc::new(Set::from_bytes(bytes).expect("read"));
+    let f = SetFace::new(set.clone(), CELL.height).expect("a face");
+    assert_eq!(f.decorations(), Decorations::for_height(4));
+    assert_eq!(f.script_decorations(Script::Sub), SUB_LINES);
+    assert_ne!(f.script_decorations(Script::Super), SUB_LINES);
+    let twice = SetFace::new(set, CELL.height * 2).expect("a face");
+    assert_eq!(
+        twice.script_decorations(Script::Sub),
+        Decorations {
+            underline: 6,
+            underline_thickness: 2,
+            strike: 4,
+            strike_thickness: 2,
+            overline: 2,
+        }
+    );
+}
+
+// Format 2.3 puts the overline where 2.0 to 2.2 reserved 16 bits as 0
+// ("a reserved field that is not 0", set/read/parse.rs at integration
+// 6ec600ac): a set whose strikes all have their overline on row 0 keeps
+// the field 0, so an older reader reads it as its own; a strike with its
+// overline lower down puts its row there, so an older reader refuses the
+// set whole. A 2.2 set read by this reader has every overline on row 0
+#[test]
+fn an_older_reader_refuses_only_an_overline_off_row_0() {
+    let normal = SetBuilder::new("normal")
+        .strike(strike(Script::Baseline, 10))
+        .strike(strike(Script::Super, 20))
+        .write()
+        .expect("writes");
+    assert_eq!(overline_fields(&normal), [0, 0]);
+    let sub = lined(Script::Sub, SUB_LINES);
+    assert_eq!(overline_fields(&sub), [0, 1]);
+    let (major, _, secs) = sections(&normal);
+    let older = Set::from_bytes(assemble(major, 2, &secs)).expect("read");
+    assert_eq!(older.version(), (2, 2));
+    assert!(older.strikes().all(|s| s.decorations.overline == 0));
 }

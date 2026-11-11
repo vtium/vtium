@@ -53,21 +53,25 @@ pub struct Cell {
     pub height: u32,
 }
 
-/// Where underline and strike-through go in a cell, in pixel rows from its
-/// top, each inside the cell and at least a row thick.
+/// Where underline, strike-through and overline go in a cell, in pixel
+/// rows from its top, each inside the cell and at least a row thick. The
+/// overline is as thick as the underline. A normal cell's overline lies on
+/// the cell's top row; a superscript or subscript cell's lies on the top
+/// row of its small glyph's own box (ADR-1202 D8).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Decorations {
     pub underline: u32,
     pub underline_thickness: u32,
     pub strike: u32,
     pub strike_thickness: u32,
+    pub overline: u32,
 }
 
 impl Decorations {
     /// The lines a cell `height` tall gets from a face with no metrics of
     /// its own: a sixteenth of the cell thick, between 1 and a quarter of
-    /// the cell, the underline on the bottom rows and the strike from the
-    /// middle.
+    /// the cell, the underline on the bottom rows, the strike from the
+    /// middle and the overline on the top row.
     pub fn for_height(height: u32) -> Decorations {
         let h = height.max(1);
         let thick = (h / 16).clamp(1, (h / 4).max(1));
@@ -77,6 +81,7 @@ impl Decorations {
             underline_thickness: thick,
             strike: (h / 2).min(bottom),
             strike_thickness: thick,
+            overline: 0,
         }
     }
 }
@@ -118,9 +123,29 @@ pub trait Face {
         None
     }
 
-    /// Where underline and strike-through go.
+    /// Where underline, strike-through and overline go in a normal cell.
     fn decorations(&self) -> Decorations {
         Decorations::for_height(self.cell().height)
+    }
+
+    /// Where a cell's lines go in `script` (ADR-1202 D8): the normal lines
+    /// for the baseline, and for a superscript or subscript the lines of
+    /// the script glyph's own size, placed where its own box lies
+    /// ([`script::lines::of_face`]). A face whose source reports its own
+    /// script lines gives those.
+    fn script_decorations(&self, script: Script) -> Decorations {
+        script::lines::of_face(self, script)
+    }
+
+    /// The lines of [`Face::strike`] at its own size, which a script cell
+    /// takes at a smaller multiple of it (ADR-1202 D8 step 3): the lines a
+    /// face with no metrics of its own gives the strike's height. A face
+    /// with no strike gives its normal lines.
+    fn strike_decorations(&self) -> Decorations {
+        self.strike().map_or_else(
+            || self.decorations(),
+            |(own, _)| Decorations::for_height(own.height),
+        )
     }
 
     /// The whole factor a bitmap face scales its glyphs by, each pixel a
@@ -235,6 +260,12 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn decorations(&self) -> Decorations {
         (**self).decorations()
+    }
+    fn script_decorations(&self, script: Script) -> Decorations {
+        (**self).script_decorations(script)
+    }
+    fn strike_decorations(&self) -> Decorations {
+        (**self).strike_decorations()
     }
     fn scale(&self) -> u32 {
         (**self).scale()
@@ -351,6 +382,15 @@ impl<F: Face> Font<F> {
 
     pub fn decorations(&self) -> Decorations {
         self.face.decorations()
+    }
+
+    /// Where a cell's lines go in `script` ([`Face::script_decorations`]):
+    /// the normal lines for the baseline (ADR-1202 D8).
+    pub fn script_decorations(&self, script: Script) -> Decorations {
+        match script {
+            Script::Baseline => self.face.decorations(),
+            _ => self.face.script_decorations(script),
+        }
     }
 
     /// Whether `c` draws as itself: a sprite always does.

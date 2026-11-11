@@ -292,7 +292,7 @@ fn a_box_above_and_below_its_row_round_trips() {
             .expect("written");
         let (major, minor, _) = sections(&bytes);
         assert_eq!((major, minor), vtium_font::set::VERSION);
-        assert_eq!(vtium_font::set::VERSION, (2, 2));
+        assert_eq!(vtium_font::set::VERSION, (2, 3));
         let a = face(bytes.clone())
             .draw(&['A'], Style::default())
             .expect("A");

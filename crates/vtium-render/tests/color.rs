@@ -41,6 +41,7 @@ fn set() -> Arc<Set> {
             underline_thickness: 1,
             strike: STRIKE_ROW,
             strike_thickness: 1,
+            overline: 0,
         });
     let px = (0..16)
         .flat_map(|y| (0..16).flat_map(move |x| glyph_px(x, y)))

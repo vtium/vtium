@@ -296,7 +296,9 @@ const RAPID_BLINK: &[u8] = concat!(
 
 /// The `script-unifont` screen: superscript and subscript beside normal
 /// text, in formulas, over descenders and accents, wide, in bold, italic,
-/// red and reverse, under lines, and on block and line characters.
+/// red and reverse, under lines, and on block and line characters; then a
+/// superscript and a subscript under each underline style, the strike, the
+/// overline and both, and an underline across normal and script cells.
 const SCRIPT: &[u8] = concat!(
     "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
     "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
@@ -304,18 +306,26 @@ const SCRIPT: &[u8] = concat!(
     "\x1b[73m\u{4e2d}\u{6587}\x1b[75m\u{4e2d}\u{6587}\x1b[74m\u{4e2d}\u{6587}\x1b[0m wide\r\n",
     "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
     "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m \x1b[73m\u{2500}\u{2588}\u{2591}\x1b[74m\u{2500}\u{2588}\u{2591}\x1b[0m blocks\r\n",
+    "\x1b[73;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m superscript lines\r\n",
+    "\x1b[74;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m subscript lines\r\n",
+    "\x1b[4mx\x1b[73m2\x1b[75m+y\x1b[74m2\x1b[75m=z\x1b[73mn\x1b[0m underlined across scripts\r\n",
 )
 .as_bytes();
 
 /// The `script-source` screen: superscript and subscript beside normal
 /// text in a font that the test fonts draw, in formulas, over descenders,
-/// in bold, italic, red and reverse, and under lines.
+/// in bold, italic, red and reverse, and under lines; then a superscript
+/// and a subscript under each line, and an underline across normal and
+/// script cells.
 const SCRIPT_ASCII: &[u8] = concat!(
     "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
     "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
     "gjpqy \x1b[73mgjpqy\x1b[75m \x1b[74mgjpqy\x1b[0m\r\n",
     "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
     "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m\r\n",
+    "\x1b[73;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m superscript lines\r\n",
+    "\x1b[74;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m subscript lines\r\n",
+    "\x1b[4mx\x1b[73m2\x1b[75m+y\x1b[74m2\x1b[75m=z\x1b[73mn\x1b[0m underlined across scripts\r\n",
 )
 .as_bytes();
 
@@ -1830,7 +1840,7 @@ const BASE: &[Case] = &[
         screen: Screen {
             ..Screen::new(
                 "script-unifont",
-                "Superscript (SGR 73) and subscript (SGR 74) beside normal text after SGR 75: in formulas, over descenders and accented capitals, on wide characters, in bold, italic, red and reverse, under an underline and a strike, and on line, block and shade characters. In unifont, a bitmap font. Correct: each superscript and subscript glyph is unifont's own glyph at two thirds of its width and height, centred across its cell, with every pixel fully lit or fully dark; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; each stroke one pixel wide, and in a few letters a gap one pixel high closed, as in the dot of i; bold widened by a pixel and italic slanted after the glyph is made small; a wide character's small glyph centred across its two cells; the line, the block and the shade drawn at the small size with edges on whole pixels; the underline and the strike where they are on a normal cell; the cell's background whole; the normal text as usual.",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text after SGR 75: in formulas, over descenders and accented capitals, on wide characters, in bold, italic, red and reverse, under an underline and a strike, and on line, block and shade characters. In unifont, a bitmap font. Correct: each superscript and subscript glyph is unifont's own glyph at two thirds of its width and height, centred across its cell, with every pixel fully lit or fully dark; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; each stroke one pixel wide, and in a few letters a gap one pixel high closed, as in the dot of i; bold widened by a pixel and italic slanted after the glyph is made small; a wide character's small glyph centred across its two cells; the line, the block and the shade drawn at the small size with edges on whole pixels; under a superscript, each underline style on the blank rows below the raised glyph, the single line on row 10, the double on rows 10 and 12 and the curl in rows 10 to 12, the strike-through across the raised glyph on row 5 and the overline on the cell's top row; under a subscript, each underline style on the cell's bottom rows as under a normal cell, the strike-through across the lowered glyph on row 10 and the overline on row 5, the lowered glyph's top; each line one row thick, every pixel fully lit; an underline across normal and script cells stepping at each edge between them; the cell's background whole; the normal text as usual (ADR-1202 D8).",
                 SCRIPT,
                 48,
                 10,
@@ -1842,7 +1852,7 @@ const BASE: &[Case] = &[
             font: FontKind::UnifontAt(2),
             ..Screen::new(
                 "script-unifont-2x",
-                "The script-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at its own 8x16 size, every pixel of the font one pixel of the screen, never scaled, centred across its cell with 4 columns on each side; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row, half the cell high; bold widened by one of the font's pixels and italic slanted by whole rows of them; a wide character's glyph unifont's own 16x16, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; the underline and the strike where they are on a normal cell; the normal text as usual.",
+                "The script-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at its own 8x16 size, every pixel of the font one pixel of the screen, never scaled, centred across its cell with 4 columns on each side; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row, half the cell high; bold widened by one of the font's pixels and italic slanted by whole rows of them; a wide character's glyph unifont's own 16x16, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; under a superscript, the underline from row 15, under the raised glyph, the strike-through on row 8 and the overline on the cell's top row; under a subscript, the underline on row 31, the strike-through on row 24 and the overline on row 16, the lowered glyph's top; each line one row thick, as unifont draws its lines at its own size; an underline across normal and script cells stepping at each edge between them; the normal text as usual (ADR-1202 D8).",
                 SCRIPT,
                 48,
                 10,
@@ -1854,7 +1864,7 @@ const BASE: &[Case] = &[
             font: FontKind::UnifontAt(3),
             ..Screen::new(
                 "script-unifont-3x",
-                "The script-unifont screen in unifont drawn at three times its size, in 24x48 cells (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at twice its size, each of the font's pixels a 2x2 block, never resampled, 16x32 and centred across its cell with 4 columns on each side, two thirds of the cell high; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; bold widened by one of the font's pixels, two screen pixels, and italic slanted by whole rows of the font's pixels; a wide character's glyph unifont's 16x16 at twice its size, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; the underline and the strike where they are on a normal cell; the normal text as usual.",
+                "The script-unifont screen in unifont drawn at three times its size, in 24x48 cells (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at twice its size, each of the font's pixels a 2x2 block, never resampled, 16x32 and centred across its cell with 4 columns on each side, two thirds of the cell high; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; bold widened by one of the font's pixels, two screen pixels, and italic slanted by whole rows of the font's pixels; a wide character's glyph unifont's 16x16 at twice its size, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; under a superscript, the underline from row 30, under the raised glyph, the strike-through on rows 16 and 17 and the overline on rows 0 and 1; under a subscript, the underline on rows 46 and 47, the strike-through on rows 32 and 33 and the overline on rows 16 and 17, the lowered glyph's top; each line two rows thick, as unifont draws its lines at twice its size; an underline across normal and script cells stepping at each edge between them; the normal text as usual (ADR-1202 D8).",
                 SCRIPT,
                 48,
                 10,
@@ -1869,10 +1879,10 @@ const BASE: &[Case] = &[
             },
             ..Screen::new(
                 "script-source",
-                "Superscript (SGR 73) and subscript (SGR 74) beside normal text in the 8x16 PSF1 test font, from a frit whose script-source= line names the 8x8 PSF2 test font (ADR-1202 D3, D12): in formulas, over descenders, in bold, italic, red and reverse, and under an underline and a strike. The glyphs come from vtium-config's engine, as the helper answers the console's asks. Correct: each superscript and subscript glyph is the 8x8 test font's own glyph, unscaled, filling the top half of its cell for a superscript and the bottom half for a subscript, every pixel fully lit or fully dark; bold widened by a pixel and italic slanted by whole rows, as the 8x8 font draws them; the underline and the strike where they are on a normal cell; the normal text in the 8x16 font as usual.",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text in the 8x16 PSF1 test font, from a frit whose script-source= line names the 8x8 PSF2 test font (ADR-1202 D3, D12): in formulas, over descenders, in bold, italic, red and reverse, and under an underline and a strike. The glyphs come from vtium-config's engine, as the helper answers the console's asks. Correct: each superscript and subscript glyph is the 8x8 test font's own glyph, unscaled, filling the top half of its cell for a superscript and the bottom half for a subscript, every pixel fully lit or fully dark; bold widened by a pixel and italic slanted by whole rows, as the 8x8 font draws them; the 8x8 font's own lines placed with its glyph: under a superscript, the underline from row 7, under the raised glyph, the strike-through on row 4 and the overline on the cell's top row; under a subscript, the underline on row 15, the strike-through on row 12 and the overline on row 8, the lowered glyph's top; each line one row thick; an underline across normal and script cells stepping at each edge between them; the normal text in the 8x16 font as usual (ADR-1202 D8).",
                 SCRIPT_ASCII,
                 48,
-                6,
+                8,
             )
         },
     },

@@ -29,6 +29,16 @@ fuzz_target!(|data: &[u8]| {
         for scale in 1..=2 {
             let face = SetFace::new(set.clone(), cell.height * scale).expect("a face");
             let c = face.cell();
+            // every line of every script's set lies inside the cell, a row
+            // thick at least, the overline as thick as the underline
+            // (ADR-1202 D8)
+            for script in [Script::Baseline, Script::Super, Script::Sub] {
+                let d = face.script_decorations(script);
+                assert!(d.underline_thickness >= 1 && d.strike_thickness >= 1);
+                assert!(d.underline + d.underline_thickness <= c.height);
+                assert!(d.strike + d.strike_thickness <= c.height);
+                assert!(d.overline + d.underline_thickness <= c.height);
+            }
             for ch in (0..0x300).filter_map(char::from_u32).chain(['\u{10ffff}']) {
                 for (bold, italic) in [(false, false), (true, false), (false, true), (true, true)] {
                     let style = Style { bold, italic };

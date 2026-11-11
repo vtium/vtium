@@ -499,3 +499,51 @@ fn a_request_carries_its_script_and_only_an_ask_names_one() {
     let why = ServeRequest::read(&mut std::io::Cursor::new(bytes)).expect_err("refused");
     assert!(why.contains("unknown script"), "{why}");
 }
+
+/// The lines of the strike in `v` that `engine` answers at `cell`.
+fn strike_lines(engine: &Engine, cell: Cell, v: Variant) -> vtium_font::Decorations {
+    let bytes = engine
+        .draw_variant(cell, v, &[u32::from('a')], (&[], false))
+        .expect("draws")
+        .expect("a glyph");
+    let set = Set::from_bytes(bytes).expect("a set");
+    let strike = set.strikes().next().expect("a strike");
+    assert_eq!(strike.script, v.script);
+    strike.decorations
+}
+
+// ADR-1202 D8 step 3: an outline source's script strike reports the lines
+// the font's post and OS/2 tables give at the script size, measured from
+// the script baseline, with the overline on the top row of the small own
+// box; the normal strike keeps the lines of the font's own size
+// covers: sgr.script
+#[test]
+fn an_outline_script_strike_reports_lines_found_at_the_script_size() {
+    use vtium_config::outline::decorations;
+    let path = dejavu();
+    let font: Arc<[u8]> = std::fs::read(&path).expect("the fixture").into();
+    let e = engine(&format!("source=outline:{path}\n"));
+    let base = baseline(&font, "", CELL.height, None, Hinting::Light).expect("a baseline");
+    let normal = decorations(&font, "", (CELL.height, base), None, Hinting::Light).expect("lines");
+    assert_eq!(strike_lines(&e, CELL, variant(Script::Baseline)), normal);
+    let full = size(&font, "", CELL.height).expect("a size");
+    let (num, den) = SCRIPT_SCALE;
+    let small = full * num as f32 / den as f32;
+    let own = own_box(&font, "", CELL.height, None).expect("its own box");
+    let (top, tall) = (base - own.0, own.0 + own.1);
+    for script in [Script::Super, Script::Sub] {
+        let at = script_baseline(script, (top, tall), base, CELL.height);
+        let want =
+            decorations(&font, "", (CELL.height, at), Some(small), Hinting::Light).expect("lines");
+        let (_, h) = vtium_font::script::size((1, tall));
+        let (_, overline) = vtium_font::script::place(script, (1, h), (1, CELL.height), Band::NONE);
+        let got = strike_lines(&e, CELL, variant(script));
+        assert_eq!(
+            got,
+            vtium_font::Decorations { overline, ..want },
+            "{script:?}"
+        );
+        assert_ne!(got.underline, normal.underline, "{script:?}");
+        assert!(got.underline_thickness <= normal.underline_thickness);
+    }
+}

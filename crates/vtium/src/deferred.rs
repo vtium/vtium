@@ -1019,13 +1019,30 @@ impl Generated {
         self.entries.iter().any(|e| e.at() == at)
     }
 
-    /// The underline and strike-through the helper's strikes at `at`
-    /// report (ADR-1302 D3): every answer at one cell and band reports the
-    /// frit's first source's, so the first set held there gives them.
-    /// `None` while no set at `at` is held.
+    /// The lines the helper's normal strikes at `at` report (ADR-1302 D3):
+    /// every answer for normal glyphs at one cell and band reports the
+    /// frit's first source's, so the first such set held there gives them.
+    /// `None` while no set of normal glyphs at `at` is held, since a
+    /// superscript or subscript set reports the lines of its own script.
     fn decorations(&self, at: SpacedCell) -> Option<Decorations> {
-        let e = self.entries.iter().find(|e| e.at() == at)?;
+        let e = self
+            .entries
+            .iter()
+            .find(|e| e.at() == at && e.variant.script == Script::Baseline)?;
         Some(e.face.decorations())
+    }
+
+    /// The lines the helper's strikes of `script` at `at` report: the
+    /// lines of the frit's first source at the small glyph's size, where
+    /// its own box lies (ADR-1202 D8). Every answer in one script at one
+    /// cell and band reports the same lines, so the first such set held
+    /// there gives them. `None` while none is held.
+    fn script_decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
+        let e = self
+            .entries
+            .iter()
+            .find(|e| e.at() == at && e.variant.script == script)?;
+        Some(e.face.script_decorations(script))
     }
 
     /// `text`'s glyph at `at` in `variant`, from the store: a set of that
@@ -1497,6 +1514,38 @@ impl Face for DeferredFace {
             strike: lines.strike.saturating_add(self.band.above),
             ..lines
         }
+    }
+
+    /// A superscript or subscript cell's lines (ADR-1202 D8): the lines
+    /// the helper's strike of that script reports, once one is held at
+    /// the cell. While it is on its way, the cell's normal lines go
+    /// through D4's map, the text band their own box
+    /// ([`vtium_font::script::lines::of_face`]), and the strike's lines
+    /// replace them when it arrives. Before any set of the frit's at the
+    /// cell is held, the built-in font's own script lines in its own cell,
+    /// moved down with its text band, as its glyphs are drawn then.
+    fn script_decorations(&self, script: Script) -> Decorations {
+        if script == Script::Baseline {
+            return self.decorations();
+        }
+        let at = self.at();
+        let held = {
+            let store = lock(&self.generated);
+            match store.script_decorations(at, script) {
+                Some(lines) => return lines,
+                None => store.holds(at),
+            }
+        };
+        if !held && self.builtin.cell() == self.text() {
+            let lines = self.builtin.script_decorations(script);
+            return Decorations {
+                underline: lines.underline.saturating_add(self.band.above),
+                strike: lines.strike.saturating_add(self.band.above),
+                overline: lines.overline.saturating_add(self.band.above),
+                ..lines
+            };
+        }
+        vtium_font::script::lines::of_face(self, script)
     }
 }
 
@@ -2135,6 +2184,7 @@ mod tests {
             underline_thickness: 1,
             strike: 11,
             strike_thickness: 1,
+            overline: 0,
         };
         add(
             &mut lock(&generated),
@@ -2178,6 +2228,110 @@ mod tests {
             );
             assert_eq!(f.decorations(), before, "{cell:?}");
         }
+    }
+
+    // ADR-1202 D8: a superscript cell's lines are the D4 map of the
+    // cell's normal lines while the frit's superscript strike is on its
+    // way, the strike's own lines once it is held, and a superscript set
+    // never gives the normal cell its lines
+    // covers: sgr.script
+    #[test]
+    fn a_script_cells_lines_come_from_its_scripts_strike() {
+        let generated = Shared::default();
+        let cell = Cell {
+            width: 10,
+            height: 19,
+        };
+        let f = face_in(&generated, cell);
+        let normal = Decorations {
+            underline: 15,
+            underline_thickness: 1,
+            strike: 11,
+            strike_thickness: 1,
+            overline: 0,
+        };
+        add(
+            &mut lock(&generated),
+            cell,
+            with_lines(cell, &['A'], normal),
+            vec![(0x41, 1)],
+            1,
+        );
+        let mapped =
+            vtium_font::script::lines::mapped(normal, Script::Super, (0, 19), 19, Band::NONE);
+        assert_eq!(f.script_decorations(Script::Super), mapped);
+        assert_ne!(mapped, normal);
+        let sup = Decorations {
+            underline: 10,
+            underline_thickness: 1,
+            strike: 6,
+            strike_thickness: 1,
+            overline: 0,
+        };
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, Style::default())
+            .script(Script::Super)
+            .decorations(sup);
+        let g = s.glyph(Width::Narrow, vec![255; 190]);
+        s.map('A', g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let variant = Variant {
+            style: Style::default(),
+            script: Script::Super,
+        };
+        let mut store = lock(&generated);
+        let fresh = store
+            .fresh((SpacedCell::plain(cell), variant), set, &[(0x41, 1)], 1)
+            .unwrap();
+        store.add(fresh);
+        drop(store);
+        assert_eq!(f.script_decorations(Script::Super), sup);
+        assert_eq!(f.decorations(), normal, "the normal cell's lines stay");
+        // a store holding only the superscript set gives the normal cell
+        // the lines it had before any set came
+        let alone = Shared::default();
+        let g = face_in(&alone, cell);
+        let before = g.decorations();
+        let set = lock(&generated)
+            .entries
+            .iter()
+            .find(|e| e.variant.script == Script::Super)
+            .map(|e| Arc::clone(e.face.set()))
+            .unwrap();
+        let mut store = lock(&alone);
+        let fresh = store
+            .fresh((SpacedCell::plain(cell), variant), set, &[(0x41, 1)], 1)
+            .unwrap();
+        store.add(fresh);
+        drop(store);
+        assert_eq!(g.decorations(), before);
+        assert_eq!(g.script_decorations(Script::Super), sup);
+        assert_eq!(
+            f.script_decorations(Script::Sub),
+            vtium_font::script::lines::mapped(normal, Script::Sub, (0, 19), 19, Band::NONE)
+        );
+    }
+
+    // ADR-1202 D8: before any set of the frit's is held, a script cell's
+    // lines are the built-in font's own, as its glyphs are: unifont at 2x
+    // takes the lines of unifont at 1x placed with the strike
+    // covers: sgr.script
+    #[test]
+    fn before_the_frits_glyphs_a_script_cells_lines_are_the_built_in_fonts() {
+        let generated = Shared::default();
+        let cell = Cell {
+            width: 16,
+            height: 32,
+        };
+        let f = DeferredFace::new(Box::new(Unifont::new(32)), cell, 16, Arc::clone(&generated));
+        let unifont = Unifont::new(32);
+        for script in [Script::Super, Script::Sub] {
+            assert_eq!(
+                f.script_decorations(script),
+                unifont.script_decorations(script)
+            );
+        }
+        assert_eq!(f.script_decorations(Script::Sub).overline, 16);
     }
 
     // #145: the glyphs arrive at the frit's cell, and the cell stays
