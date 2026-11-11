@@ -1882,13 +1882,17 @@ impl App {
         self.wake_notices();
     }
 
-    /// A key on this VT, or a switch back to it, shows each parked notice
-    /// again (ADR-1401 D3): the guards light its display at their next run.
+    /// A key on this VT, a switch back to it or a wake from the blank
+    /// starts each notice's full `osd-timeout` again (ADR-1401 D3), whether
+    /// the notice is still showing or parked. The guards light a parked
+    /// notice's display at their next run, and its time starts at the
+    /// first turn it is on the display again.
     fn wake_notices(&mut self) {
-        for n in self.notices.values_mut().filter(|n| n.parked) {
-            n.parked = false;
+        for n in self.notices.values_mut() {
             n.due = None;
-            self.guard_due = true;
+            if std::mem::take(&mut n.parked) {
+                self.guard_due = true;
+            }
         }
     }
 
@@ -1899,6 +1903,13 @@ impl App {
     /// display its card left dark is let go and asked for again, and joins
     /// it when it comes.
     fn show_notices(&mut self, unused: &[((PathBuf, String), Option<usize>)]) {
+        // While the VT is another's, a card lists none of the displays it
+        // left dark, a parked one included, so the guard can tell nothing
+        // of the notices: each stays as it is, and the cards' wake-up runs
+        // the guards again.
+        if !self.vt.is_active() {
+            return;
+        }
         let gone: Vec<(PathBuf, String)> = self
             .notices
             .keys()
@@ -2127,6 +2138,7 @@ impl App {
             if self.vt.is_active() {
                 self.activate(now);
             }
+            self.wake_notices();
         }
     }
 
@@ -2326,7 +2338,14 @@ impl App {
                     power_down(video.as_mut());
                 }
             }
-            Event::Awake => self.user_input(now),
+            Event::Awake => {
+                // The card lists again the displays it left dark, which
+                // the notices read (ADR-1401 D3).
+                if !self.notices.is_empty() {
+                    self.guard_due = true;
+                }
+                self.user_input(now);
+            }
             Event::Asleep => {
                 if let Some(r) = &mut self.releasing {
                     r.remove(node);
@@ -4151,6 +4170,16 @@ impl App {
         }
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
+        }
+        // A notice's time runs out while the displays draw, and its screen
+        // has no other timer, since its cursor is hidden (ADR-1401 D3).
+        if self.awake {
+            due.extend(
+                self.notices
+                    .values()
+                    .filter(|n| !n.parked)
+                    .filter_map(|n| n.due),
+            );
         }
         if let Some(Leaving::Until(d)) = self.leaving {
             due.push(d);

@@ -7819,3 +7819,146 @@ fn under_closed_only_a_keyboard_a_path_places_switches_vts() {
         assert_eq!(switches_from_vt4(&text, path), switches, "{path}");
     }
 }
+
+/// The seat of VT 4 under [`every_head_on_vt3`]'s open file, with the
+/// command line `args`, whose one display shows a notice, once that
+/// notice has drawn.
+fn showing_a_notice(args: &[&str]) -> Seat {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let text = every_head_on_vt3("open");
+    let mut s = on_vt_with(args, 4, &text, displays, &[(KBD_A, "kbd-any")]);
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
+    s
+}
+
+impl Seat {
+    /// The VT switches away, in a turn at `at`, and vtium lets it go.
+    fn switch_away(&mut self, at: Instant) {
+        let released = self.released.get();
+        self.app.vt.leave().expect("the fake VT");
+        self.app.turn(at);
+        let count = Rc::clone(&self.released);
+        assert!(
+            self.until(BOUND, |_| count.get() > released),
+            "vtium lets the VT go"
+        );
+    }
+
+    /// The VT switches back, in a turn at `at`.
+    fn switch_back(&mut self, at: Instant) {
+        self.app.vt.activate().expect("the fake VT");
+        self.app.turn(at);
+    }
+}
+
+/// A notice's screen hides its cursor, so it has no timer of its own: the
+/// loop wakes for the notice's time (ADR-1401 D3), not for the next
+/// timer far later.
+#[test]
+fn the_loop_wakes_when_a_notices_time_is_up() {
+    let mut s = showing_a_notice(&[]);
+    // the turn that drew the notice may leave the guards owed, which wake
+    // the loop at once; the first wait past them is the notice's
+    assert!(s.until(BOUND, |a| a.next_wake(now()) != Some(Duration::ZERO)));
+    let wake = s.app.next_wake(now());
+    assert!(
+        wake.is_some_and(|w| w <= Duration::from_secs(3)),
+        "osd-timeout is 3 s when unset: {wake:?}"
+    );
+}
+
+/// ADR-1401 D3: a switch back to this VT shows a parked notice again.
+#[test]
+fn a_parked_notice_shows_again_when_the_vt_is_switched_back() {
+    let mut s = showing_a_notice(&[]);
+    let start = now();
+    s.app.turn(start + Duration::from_secs(4));
+    assert_eq!(s.memory("/dev/mem0").parks, 1, "parked once its time is up");
+    let frames = s.memory("/dev/mem0").frames;
+    s.switch_away(start + Duration::from_secs(5));
+    s.switch_back(start + Duration::from_secs(6));
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the switch back shows the notice again"
+    );
+    assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
+}
+
+/// ADR-1401 D3: a switch back to this VT starts a notice's full
+/// `osd-timeout` again, though its time ran out while the VT was away.
+#[test]
+fn a_switch_back_starts_a_showing_notices_time_again() {
+    let mut s = showing_a_notice(&[]);
+    let start = now();
+    s.switch_away(start + Duration::from_secs(1));
+    s.switch_back(start + Duration::from_secs(10));
+    s.app.turn(start + Duration::from_secs(10));
+    assert_eq!(
+        s.memory("/dev/mem0").parks,
+        0,
+        "the first draw after the switch back shows the notice"
+    );
+    s.app.turn(start + Duration::from_secs(12));
+    assert_eq!(s.memory("/dev/mem0").parks, 0, "within its 3 s");
+    s.app.turn(start + Duration::from_secs(14));
+    assert_eq!(s.memory("/dev/mem0").parks, 1, "parked after its 3 s");
+}
+
+/// ADR-1401 D3: a key on this VT starts a showing notice's full
+/// `osd-timeout` again.
+#[test]
+fn a_key_starts_a_showing_notices_time_again() {
+    let mut s = showing_a_notice(&[]);
+    let start = now();
+    s.app.turn(start + Duration::from_secs(2));
+    s.app.device_input(
+        Path::new(KBD_A),
+        InputEvent::Key(char_key('x')),
+        start + Duration::from_secs(2),
+    );
+    s.app.turn(start + Duration::from_secs(2));
+    s.app.turn(start + Duration::from_secs(4));
+    assert_eq!(
+        s.memory("/dev/mem0").parks,
+        0,
+        "the key started the time again"
+    );
+    s.app.turn(start + Duration::from_secs(6));
+    assert_eq!(s.memory("/dev/mem0").parks, 1);
+}
+
+/// ADR-1401 D3: with a terminal's display and a notice's display on one
+/// VT, the notice's time puts away the notice's display alone.
+#[test]
+fn the_notice_cycle_parks_the_notices_display_alone() {
+    let text = "version = 1
+[head desk]
+vt = 3
+[head here]
+vt = 4
+[rules]
+display card:mem-small -> desk
+display card:mem-large -> here
+";
+    let displays = [
+        ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+        (
+            "/dev/mem1",
+            Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+        ),
+    ];
+    let mut s = on_vt(4, text, displays, &[]);
+    assert!(s.until(BOUND, |a| head_shows(a, "here", "ready")));
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    s.app.turn(now() + Duration::from_secs(4));
+    assert_eq!(s.memory("/dev/mem0").parks, 1, "the notice's display parks");
+    assert_eq!(s.memory("/dev/mem1").parks, 0, "the terminal's does not");
+    assert!(
+        s.app.head("here").is_some_and(|h| !h.cells().is_empty()),
+        "head here keeps its display"
+    );
+}
