@@ -4,4 +4,4 @@
 small-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 small-640x480-1bit	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn by vtium-config's engine, redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
-script-unifont	#37: superscript and subscript beside normal text in unifont, drawn by vtium; not reviewed yet
+script-unifont	#37: superscript and subscript beside normal text in unifont, redrawn by ADR-1202's first slice: each small glyph is unifont's own glyph at two thirds with every pixel fully lit or dark, bold and italic are added to the small glyph, and the line, block and shade are drawn at the small size; not reviewed yet
