@@ -76,6 +76,9 @@ considered:
   - operator: aaronsb
     said: "Both leans (Recommended)"
     via: the question tool in the steering session, 2026-11-10, card 1b question Q12
+  - operator: aaronsb
+    said: "Accept all five (Recommended) [vtium.conf's xkb-* keys win over localed; the PAM file is named vtium]"
+    via: the question tool in the steering session, 2026-11-10, on the record agent's calls for card 1b
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -128,7 +131,7 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 - `logind` reads sessions through sd-login, from libsystemd or libelogind. It is on wherever `images` is in the default feature set, as the C reference's `sd_login=auto` linked sd-login whenever images were built and the library was present; it is used at run time only when logind is running. A build with `images` and without `logind` is an explicit choice for hosts without libsystemd or libelogind, and on a logind host it falls back to the pty's owner, which kmscon ADR-103 rejected as the first identity source because root can chown a pty; vtium lists that build as a departure. (Added 2026-10-26, from the advisor's review.)
 - `logind` also calls logind's `Suspend` for `key-suspend` through sd-bus, from libsystemd 240 or later, else libelogind 241 or later, through pkg-config, with a 2 s bound on the answer. Where the bus has no logind and cannot start it, or the feature is off, vtium writes `mem` to `/sys/power/state` as root, from a shell it starts, so the loop still serves the VT's switch to the kernel's suspend console. That write passes logind's inhibitors and its `PrepareForSleep` signal by, so on a logind host a build without the feature suspends with no delay inhibitor held and no other session's lock-on-suspend run; a refusal from a running logind is never worked around. Every place vtium touches systemd, logind or PID 1, and what it does without them, is listed in [docs/systemd.md](../../systemd.md). (Added 2026-10-27, from the operator's decision in the work on vtium's configuration and terminal wiring. libelogind added 2026-10-28.)
 - `libseat` takes the cards, the keyboards and pointers, and VT switching through libseat. vtium opens no input device itself in a libseat build.
-- `logind` also reads the system's keyboard layout from localed, the service behind `localectl`, through sd-bus. localed's X11 layout, model, variant and options give the layout an unconfigured vtium types with, on every VT it claims. vtium.conf's `xkb-*` keys win over localed's values where vtium.conf sets them (the agent's call). The work that follows the system's layout decides whether vtium also follows a change that localed reports while vtium runs. A build without the feature, the minspec build among them, uses xkb's default layout unless vtium.conf sets one.
+- `logind` also reads the system's keyboard layout from localed, the service behind `localectl`, through sd-bus. localed's X11 layout, model, variant and options give the layout an unconfigured vtium types with, on every VT it claims. vtium.conf's `xkb-*` keys win over localed's values where vtium.conf sets them (the agent's call, which the maintainer accepted on 2026-11-10). The work that follows the system's layout decides whether vtium also follows a change that localed reports while vtium runs. A build without the feature, the minspec build among them, uses xkb's default layout unless vtium.conf sets one.
 
 > Edited 2026-11-10: the maintainer decided the input devices and the keyboard layout (`considered`, 2026-11-10, card 1b questions Q10 and Q12). The `libseat` bullet read: "`libseat` takes devices and VT switching through libseat.", and the list named no keyboard layout.
 
@@ -194,7 +197,7 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 - in a `libseat` build, the unit sets `User=root` and `PAMName=vtium`, and vtium ships that PAM file, named `vtium`, with the session stack of the C reference's greeter PAM file. Through it the unit opens a logind session of vtium's own, and libseat's logind backend takes the seat from that session. The login child inherits that greeter session, and the helper treats it as no session of the login's own, as the C reference's did;
 - an optional sysusers file creating the pre-login account, with no home, shell or files.
 
-> Edited 2026-11-10: the maintainer confirmed that the libseat build's unit opens its own PAM session and that vtium ships the PAM file (`considered`, 2026-11-10, card 1b question Q12). The bullet read: "in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file." The file's name, `vtium`, is the agent's call.
+> Edited 2026-11-10: the maintainer confirmed that the libseat build's unit opens its own PAM session and that vtium ships the PAM file (`considered`, 2026-11-10, card 1b question Q12). The bullet read: "in a `libseat` build, `User=root` and `PAMName` with the C reference's greeter PAM file." The file's name, `vtium`, is the agent's call, which the maintainer accepted on 2026-11-10.
 
 > Edited 2026-11-02: the units carry vtium's own names, after the maintainer's decision that kmscon is an independent product (ADR-1500). The first bullet named the fallback `kmsconvt-getty@%i`, and the second read: "the names tier 3 needs, `kmsconvt@.service` among them;".
 
