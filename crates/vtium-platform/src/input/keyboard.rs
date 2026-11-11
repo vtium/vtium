@@ -503,4 +503,16 @@ impl Keyboard {
         }
         self.leds()
     }
+
+    /// A state on `keymap`, the new layout's keymap, keeping the locked
+    /// modifiers, such as Caps Lock and Num Lock. The locked layout group
+    /// belongs to the old keymap, so the new state starts on the new
+    /// keymap's first layout. A key repeating stops, and a compose sequence
+    /// in progress starts again on the new keymap's compose table.
+    pub(crate) fn set_keymap(&mut self, keymap: &Keymap) -> Leds {
+        let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);
+        *self = Keyboard::new(keymap);
+        self.state.update_mask(0, 0, locked_mods, 0, 0, 0);
+        self.leds()
+    }
 }
