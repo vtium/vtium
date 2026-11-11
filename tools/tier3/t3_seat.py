@@ -55,7 +55,7 @@ CHECKS = {
                      "runs in a logind session of the user's own, with the user's uid and no "
                      "seat; its XDG_RUNTIME_DIR is /run/user/UID and it has no XDG_SEAT or "
                      "XDG_VTNR; user@UID.service is active; vtium's own session, the one vtium "
-                     "leads, is still on seat0 and active; and a line typed on the console's "
+                     "leads, is still on seat0 and active, with the class greeter; and a line typed on the console's "
                      "keyboard after the login reaches the shell.",
     "two-logins": "A second login by the same user, on the head's second console on the same "
                   "VT, reached with key-console-next. Correct: two shells, each in a logind "
@@ -343,6 +343,10 @@ def login_verdict(logins, shells=1):
     sid, session = own[0]
     if session.get("Seat") != "seat0" or session.get("Active") != "yes":
         return "vtium's own session %s lost the seat: %s" % (sid, session)
+    # vtium.pam opens a greeter's session, which logind's
+    # StopIdleSessionSec= never stops (ADR-1400 D3).
+    if session.get("Class") != "greeter":
+        return "vtium's own session %s has the class %s, not greeter" % (sid, session.get("Class"))
     return None
 
 

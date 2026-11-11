@@ -5689,6 +5689,13 @@ class SeatTest(unittest.TestCase):
     def test_a_login_in_a_session_of_its_own_with_no_seat_passes(self):
         self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS)))
 
+    def test_vtiums_own_session_must_be_a_greeters(self):
+        # Without class=greeter in vtium.pam, pam_systemd gives vtium's
+        # root session on tty2 the class user-early (measured in the guest).
+        logins = [line.replace("Class=greeter", "Class=user-early") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(logins)),
+                         "vtium's own session c1 has the class user-early, not greeter")
+
     def test_a_login_inside_vtiums_session_fails(self):
         logins = [line.replace("/user.slice/user-1000.slice/session-2.scope",
                                "/user.slice/user-0.slice/session-c1.scope")
