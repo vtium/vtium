@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use vtium_config::frit::Hinting;
-use vtium_config::outline::{OutlineRequest, baseline, rasterise, size};
+use vtium_config::outline::{OutlineRequest, baseline, own_box, rasterise, size};
 use vtium_config::serve::{
     ASK, Engine, FILL, FRAME_DONE, FRAME_GLYPHS, FritText, Paths, ServeRequest, script_baseline,
     serve,
@@ -125,7 +125,9 @@ fn an_outline_script_glyph_is_rasterised_at_two_thirds_of_its_size() {
         let got = drawn(&e, CELL, variant(script), 'a');
         let (num, den) = SCRIPT_SCALE;
         let small = full * num as f32 / den as f32;
-        let at = script_baseline(script, base, CELL.height);
+        let own = own_box(&font, "", CELL.height, None).expect("its own box");
+        let top = base - own.0;
+        let at = script_baseline(script, (top, own.0 + own.1), base, CELL.height);
         let want = rasterise(&OutlineRequest {
             font: Arc::clone(&font),
             family: String::new(),
@@ -173,21 +175,71 @@ fn an_outline_script_glyph_is_rasterised_at_two_thirds_of_its_size() {
     }
 }
 
-// ADR-1202 D1, D2: the script glyph's own box is the text band made two
-// thirds as tall, against the band's top or bottom, and its baseline lies
-// the same share of that box down as the normal baseline of the band
+// ADR-1202 D1, D2: the script glyph's own box is the first source's own
+// box made two thirds as tall, against the band's top or bottom, and its
+// baseline lies the same share of that box down as the normal baseline of
+// the own box
 #[test]
 fn the_script_baseline_keeps_its_share_of_the_small_box() {
-    // a 24-row band with the baseline under row 19: the box is 16 rows,
-    // and 19 of 24 is 12.67 of 16, so row 13 from the box's top, which is
-    // row 0 for a superscript and row 8 for a subscript
-    assert_eq!(script_baseline(Script::Super, 19, 24), 13);
-    assert_eq!(script_baseline(Script::Sub, 19, 24), 21);
-    assert_eq!(script_baseline(Script::Baseline, 19, 24), 19);
-    // a 16-row band, baseline under row 14: the box is 11 rows, and 14 of
-    // 16 is 9.63 of 11, row 10, from row 0 or row 5
-    assert_eq!(script_baseline(Script::Super, 14, 16), 10);
-    assert_eq!(script_baseline(Script::Sub, 14, 16), 15);
+    // an own box that is the whole 24-row band, the baseline under row 19:
+    // the small box is 16 rows, and 19 of 24 is 12.67 of 16, so row 13
+    // from the small box's top, which is row 0 for a superscript and row 8
+    // for a subscript
+    assert_eq!(script_baseline(Script::Super, (0, 24), 19, 24), 13);
+    assert_eq!(script_baseline(Script::Sub, (0, 24), 19, 24), 21);
+    assert_eq!(script_baseline(Script::Baseline, (0, 24), 19, 24), 19);
+    // an own box of rows 8 to 23 in a 24-row band, as an 8x16 bitmap first
+    // source draws at the band's bottom, the baseline under row 22, 14 rows
+    // down the box: the small box is 11 rows, and 14 of 16 is 9.63 of 11,
+    // row 10 from the small box's top, row 0 or row 13
+    assert_eq!(script_baseline(Script::Super, (8, 16), 22, 24), 10);
+    assert_eq!(script_baseline(Script::Sub, (8, 16), 22, 24), 23);
+}
+
+// ADR-1202 D1, D2: a frit whose cell is taller than its first source, an
+// 8x16 bitmap font in a 8x24 cell, places an outline source's superscript
+// by the first source's own box, rows 8 to 23, not by the whole band: the
+// script baseline under row 10, where the band would put it under row 15
+// covers: sgr.script
+#[test]
+fn an_outline_script_stands_on_the_first_sources_own_box() {
+    let dir = Scratch::new("own-box");
+    let bitmap = dir.file("f.psf", &psf(&[('H', bar(0b1100_0110))]));
+    let path = dejavu();
+    let e = engine(&format!("source=file:{bitmap}\nsource=outline:{path}\n"));
+    let tall = Cell {
+        width: 8,
+        height: 24,
+    };
+    let font: Arc<[u8]> = std::fs::read(&path).expect("the fixture").into();
+    let full = size(&font, "", tall.height).expect("a size");
+    let (num, den) = SCRIPT_SCALE;
+    let want = |baseline: u32| {
+        let o = rasterise(&OutlineRequest {
+            font: Arc::clone(&font),
+            family: String::new(),
+            cells: vec![(tall.width, tall.height)],
+            cover: vec![(0x78, 0x78)],
+            clusters: Vec::new(),
+            baselines: vec![baseline],
+            sizes: vec![(full * num as f32 / den as f32).to_bits()],
+            reaches: vec![(0, 0)],
+            hinting: Hinting::Light,
+            fit: true,
+            synth: Style::default(),
+            script: Script::Super,
+        })
+        .expect("rasterised");
+        let (_, g) = o.strikes[0].map[0];
+        o.strikes[0].glyphs[g as usize].pixels.clone()
+    };
+    let got = drawn(&e, tall, variant(Script::Super), 'x');
+    assert_eq!(
+        got.pixels(),
+        &want(10)[..],
+        "on the own box's script baseline"
+    );
+    assert_ne!(got.pixels(), &want(15)[..], "not the band's");
 }
 
 // ADR-1202 D5: a color glyph is scaled from its source once, fitted to

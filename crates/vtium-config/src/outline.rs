@@ -745,7 +745,7 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::{baseline, cell_width, decorations, rasterise, size};
+pub use raster::{baseline, cell_width, decorations, own_box, rasterise, size};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
@@ -1414,6 +1414,26 @@ pub(crate) mod raster {
     pub fn size(font: &[u8], family: &str, height: u32) -> Result<f32, String> {
         let (font, _, _) = face(font, family)?;
         Ok(ppem(&metrics(font)?, height))
+    }
+
+    /// The rows the face `family` of `font` spans above and below its
+    /// baseline at `size` pixels to the em, or at its own size for a cell
+    /// `height` pixels high ([`size`]) with none: its ascent, rounded up as
+    /// the baseline is, and its descent, rounded to the nearest row. They
+    /// are its own box (ADR-1202 D1).
+    pub fn own_box(
+        font: &[u8],
+        family: &str,
+        height: u32,
+        size: Option<f32>,
+    ) -> Result<(u32, u32), String> {
+        let (font, _, _) = face(font, family)?;
+        let metrics = metrics(font)?;
+        let at = size.unwrap_or_else(|| ppem(&metrics, height));
+        let scale = at / f32::from(metrics.units_per_em);
+        let above = (metrics.ascent * scale).ceil().max(0.0) as u32;
+        let below = (metrics.descent.abs() * scale).round().max(0.0) as u32;
+        Ok((above, below))
     }
 
     /// The baseline of the face `family` of `font` in a cell `height`

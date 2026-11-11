@@ -617,23 +617,25 @@ pub fn script_of(code: u32) -> Option<Script> {
 }
 
 /// The baseline a superscript or subscript glyph stands on in a text band
-/// `height` rows high whose normal glyphs stand on row `base` (ADR-1202
-/// D1, D2). The band is the normal glyph's own box, since an outline
-/// source's ascent and descent span it. vtium-font's script rule sizes
-/// that box to two thirds and places it against the band's top for a
-/// superscript and its bottom for a subscript
+/// `height` rows high, where the first source's own box (ADR-1202 D1), its
+/// glyphs' rows from its ascent to its descent, lies `own.1` rows high from
+/// row `own.0`, and its normal glyphs stand on row `base`. vtium-font's
+/// script rule sizes that box to two thirds and places it against the
+/// band's top for a superscript and its bottom for a subscript
 /// ([`vtium_font::script::size`], [`vtium_font::script::place`]); the
-/// baseline lies the same share of the small box down as of the band,
-/// rounded to the nearest row.
-pub fn script_baseline(script: Script, base: u32, height: u32) -> u32 {
+/// baseline lies the same share of the small box down as of the own box,
+/// rounded to the nearest row (D2).
+pub fn script_baseline(script: Script, own: (u32, u32), base: u32, height: u32) -> u32 {
     let base = base.min(height);
-    if script == Script::Baseline || height == 0 {
+    let (top, tall) = (own.0.min(height), own.1.min(height - own.0.min(height)));
+    if script == Script::Baseline || tall == 0 {
         return base;
     }
-    let (_, small) = vtium_font::script::size((1, height));
-    let (_, top) = vtium_font::script::place(script, (1, small), (1, height), Band::NONE);
-    let down = (u64::from(base) * u64::from(small) + u64::from(height) / 2) / u64::from(height);
-    top.saturating_add(u32::try_from(down).unwrap_or(small))
+    let (_, small) = vtium_font::script::size((1, tall));
+    let (_, at) = vtium_font::script::place(script, (1, small), (1, height), Band::NONE);
+    let down = u64::from(base.saturating_sub(top).min(tall));
+    let down = (down * u64::from(small) + u64::from(tall) / 2) / u64::from(tall);
+    at.saturating_add(u32::try_from(down).unwrap_or(small))
 }
 
 /// The style a request's `code` names, `None` past bold italic's 3.
@@ -1345,6 +1347,40 @@ impl Engine {
     /// glyphs for italic (vtium-font's set reader) leans them as the helper
     /// does. One whose font cannot be read, or that fits the cell at no
     /// whole factor, reports the cell's bottom row.
+    /// The first regular source's own box in a text band `cell` (ADR-1202
+    /// D1), as its first row and its rows: a bitmap source's cell at the
+    /// whole factor it draws at, on the band's bottom row; an outline
+    /// source's rows from its ascent to its descent about its baseline;
+    /// else the whole band.
+    fn own_box(&self, cell: Cell) -> (u32, u32) {
+        let band = (0, cell.height);
+        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+            return band;
+        };
+        match self.sources.get(first) {
+            Some((_, Loaded::Bitmap(font))) => {
+                let scale = (cell.width / font.cell.width.max(1))
+                    .min(cell.height / font.cell.height.max(1));
+                let tall = font.cell.height * scale;
+                if scale == 0 {
+                    return band;
+                }
+                (cell.height - tall, tall)
+            }
+            Some((_, Loaded::Outline { font, family, .. })) => {
+                let (Some(base), Ok((above, below))) = (
+                    self.baseline(first, cell.height),
+                    crate::outline::own_box(font, family, cell.height, None),
+                ) else {
+                    return band;
+                };
+                let top = base.saturating_sub(above);
+                (top, (base + below).min(cell.height) - top)
+            }
+            _ => band,
+        }
+    }
+
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
         let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
@@ -1474,7 +1510,8 @@ impl Engine {
     /// D8): drawn at two thirds of the size its normal glyphs are drawn at
     /// ([`vtium_font::SCRIPT_SCALE`]), rasterised at that size rather than
     /// scaled from a full-size raster, on the script baseline that the
-    /// first source's baseline `base` gives ([`script_baseline`]), with no
+    /// first source's own box ([`Engine::own_box`]) and its baseline `base`
+    /// give ([`script_baseline`]), with no
     /// ink above or below the whole cell. `None` when the size the source
     /// draws at cannot be read.
     fn script_request(
@@ -1497,7 +1534,12 @@ impl Engine {
         let small = size * num as f32 / den as f32;
         Some(OutlineRequest {
             sizes: vec![small.to_bits()],
-            baselines: vec![script_baseline(script, base, cell.height)],
+            baselines: vec![script_baseline(
+                script,
+                self.own_box(cell),
+                base,
+                cell.height,
+            )],
             reaches: vec![(band.above, band.below)],
             script,
             ..request
