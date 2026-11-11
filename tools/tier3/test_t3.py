@@ -5650,11 +5650,79 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_seat.panic_verdict(log, len(log)),
                          "the console never showed %r" % t3_seat.PANIC_LINE)
 
+    # The agent's answer to `logins` as the guest gives it after a login
+    # in a scope of its own (the spike of 2026-11-10, measured): vtium leads
+    # c1 on seat0, the user's shell runs in session 2, with no seat.
+    LOGINS = ["vtium 431",
+              "session c1 User=0 Seat=seat0 VTNr=2 Class=greeter Active=yes TTY=tty2 "
+              "Leader=431",
+              "session 2 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/0 Leader=502",
+              "shell 517 1000 /user.slice/user-1000.slice/session-2.scope "
+              "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=2",
+              "user 1000 active"]
+
+    def test_a_login_in_a_session_of_its_own_with_no_seat_passes(self):
+        self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS)))
+
+    def test_a_login_inside_vtiums_session_fails(self):
+        logins = [line.replace("/user.slice/user-1000.slice/session-2.scope",
+                               "/user.slice/user-0.slice/session-c1.scope")
+                  for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(logins)),
+                         "the shell 517 of uid 1000 runs in "
+                         "/user.slice/user-0.slice/session-c1.scope, which is no logind "
+                         "session of its user's own")
+
+    def test_a_login_on_vtiums_seat_or_vt_fails(self):
+        on_seat = [line.replace("Seat= VTNr=0", "Seat=seat0 VTNr=2") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(on_seat)),
+                         "the user's session 2 is on the seat seat0, not on none")
+        with_vtnr = [line + " XDG_VTNR=2" if line.startswith("shell") else line
+                     for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(with_vtnr)),
+                         "the shell 517 has XDG_VTNR=2")
+
+    def test_vtium_losing_the_seat_fails(self):
+        lost = [line.replace("Active=yes", "Active=no") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(lost)),
+                         "vtium's own session c1 lost the seat: {'User': '0', 'Seat': 'seat0', "
+                         "'VTNr': '2', 'Class': 'greeter', 'Active': 'no', 'TTY': 'tty2', "
+                         "'Leader': '431'}")
+
+    def test_no_runtime_dir_or_user_manager_fails(self):
+        bare = [line.replace("XDG_RUNTIME_DIR=/run/user/1000 ", "") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(bare)),
+                         "the shell 517's XDG_RUNTIME_DIR is None")
+        stopped = self.LOGINS[:-1] + ["user 1000 inactive"]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(stopped)),
+                         "user@1000.service is inactive")
+
+    def test_two_logins_need_two_sessions(self):
+        second = ["session 3 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/1 Leader=530",
+                  "shell 545 1000 /user.slice/user-1000.slice/session-3.scope "
+                  "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=3",
+                  "user 1000 active"]
+        self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS + second),
+                                                shells=2))
+        shared = [line.replace("session-3.scope", "session-2.scope") for line in second]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS + shared),
+                                               shells=2),
+                         "two shells share the session 2")
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS), shells=2),
+                         "want 2 shell(s) logged in, the agent found 1")
+
     def test_the_variants_run_their_checks(self):
         for name in ("seat-seatd", "seat-logind"):
-            self.assertEqual(t3_scenario.VARIANTS[name]["tree_features"], ["libseat"])
-            self.assertEqual(t3_scenario.variant_cases(name)[-1], "seat")
+            self.assertEqual(t3_scenario.VARIANTS[name]["tree_features"], ["libseat", "logind"])
+            self.assertIn("seat", t3_scenario.variant_cases(name))
             self.assertEqual(t3_evaluate.GOLDENS_OF[name], "2d-potato-min")
+        self.assertEqual(t3_scenario.variant_cases("seat-logind")[-2:],
+                         ["seat", "login-session"])
+        self.assertEqual(t3_scenario.variant_cases("seat-logind-survive")[-4:],
+                         ["seat", "login-session", "seat-cgroup", "session-survives"])
+        self.assertEqual(t3_scenario.variant_cases("seat-logind-two")[-3:],
+                         ["seat", "login-session", "two-logins"])
+        self.assertTrue(t3_scenario.VARIANTS["seat-logind"]["agent"])
         self.assertEqual(t3_scenario.VARIANTS["seat-seatd"]["seat"], "seatd")
         self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
         self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])

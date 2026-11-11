@@ -294,13 +294,13 @@ SEAT = {
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
-    "tree_features": ["libseat"],
+    "tree_features": ["libseat", "logind"],
     "screens": ["sgr", "cjk"],
     "checks": ["seat"],
 }
 VARIANTS.update({
     "seat-seatd": dict(SEAT, seat="seatd"),
-    "seat-logind": dict(SEAT, seat="logind"),
+    "seat-logind": dict(SEAT, seat="logind", agent=True, checks=["seat", "login-session"]),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
@@ -498,10 +498,17 @@ VARIANTS.update({
 # heads-survive's check on the libseat tree on logind: the sessions that
 # survive a restart and a crash of vtium (ADR-1401 D13) under the libseat
 # drop-in's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
-VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"], tree_features=["libseat"],
-                                       seat="logind",
-                                       checks=["seat", "seat-cgroup", "session-survives"])
-SEAT_VARIANTS.append("seat-logind-survive")
+# Each login there runs in a systemd scope of its own (ADR-1400 D3), which
+# the login-session check judges before the restart. seat-logind-two logs
+# the same user in again on the head's second console, on the same VT
+# (t3_seat CHECKS "two-logins").
+VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"],
+                                       tree_features=["libseat", "logind"], seat="logind",
+                                       checks=["seat", "login-session", "seat-cgroup",
+                                               "session-survives"])
+VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
+                                   checks=["seat", "login-session", "two-logins"])
+SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
                  "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
@@ -1404,6 +1411,8 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
               "seat": t3_seat.check_seat,
               "seat-cgroup": t3_seat.check_cgroup,
+              "login-session": t3_seat.check_login_session,
+              "two-logins": t3_seat.check_two_logins,
               **t3_heads.CHECK_RUNS}
 
 
