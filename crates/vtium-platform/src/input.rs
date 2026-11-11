@@ -148,6 +148,11 @@ pub(crate) trait Open {
     fn retry_every(&self) -> Duration {
         Duration::from_millis(100)
     }
+    /// The device at `node` is gone: what the opener kept of its opens goes
+    /// with it, since the kernel gives a later device the same node.
+    fn forget(&mut self, node: &Path) {
+        let _ = node;
+    }
 }
 
 /// Opens each device directly, read-write and non-blocking.
@@ -417,6 +422,12 @@ impl<O: Open + 'static> Input<O> {
     /// A device udev reported gone.
     pub fn remove(&mut self, id: DeviceId) {
         self.close(id);
+        if let Some(device) = self.devices.iter().find(|d| d.id == id) {
+            match self.seat.as_mut() {
+                Some(seat) => seat.forget(&device.node),
+                None => self.opener.forget(&device.node),
+            }
+        }
         self.devices.retain(|d| d.id != id);
     }
 

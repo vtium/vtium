@@ -930,3 +930,55 @@ fn dropping_the_vt_closes_the_keyboards_through_the_seat() {
     input.sleep();
     assert!(!node.borrow().open);
 }
+
+/// A keyboard unplugged while its retry waits takes its tries with it: the
+/// kernel gives a later device the same event node, and that device gets
+/// its own full tries.
+#[test]
+fn a_keyboard_unplugged_during_a_retry_leaves_no_tries_to_the_next_at_its_node() {
+    let server = StandIn::new();
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV].into());
+    let (mut lp, mut data) = start(&server, None, tries(50, 3));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, _node) = keyboard_input(&mut data, true);
+    input.insert(&lp.handle(), |d: &mut Data| d.input.as_mut());
+    input.wake_up();
+    let gone = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the keyboard is kept while it waits"));
+    assert!(input.waiting(gone));
+    input.remove(gone);
+    // The next device at the node is refused twice before it opens, which
+    // its three tries cover.
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV, Errno::BUSY].into());
+    let id = input
+        .add(Path::new(KEYBOARD))
+        .unwrap_or_else(|| panic!("the new keyboard is kept while it waits"));
+    data.input = Some(input);
+    run_until(&mut lp, &mut data, |d, _| {
+        d.input
+            .as_ref()
+            .is_none_or(|i| i.find(Path::new(KEYBOARD)).is_none() || !i.waiting(id))
+    });
+    let input = data.input.as_ref().unwrap_or_else(|| panic!("no input"));
+    assert_eq!(
+        input.find(Path::new(KEYBOARD)),
+        Some(id),
+        "the new keyboard is kept"
+    );
+    assert!(!input.waiting(id));
+    assert_eq!(
+        device_opens(&server, KEYBOARD),
+        4,
+        "one try for the first, three for the second"
+    );
+    assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+}
