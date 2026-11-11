@@ -66,6 +66,9 @@ considered:
   - operator: aaronsb
     said: "I think there's just going to be specific fonts and sizes and display dpi for bitmap fonts that work better than others and it's ok to not have perfection"
     via: steering session, 2026-11-11, after accepting script-unifont
+  - operator: aaronsb
+    said: "Having no aliasing and crisp text is the better half of the tradeoff"
+    via: steering session, 2026-11-11, after accepting script-unifont
 observable:
   - "Tier 2's `script-unifont` screen shows every superscript and subscript pixel fully on or fully off, each small glyph two thirds of its cell's height, with the shapes the figure's last row shows"
   - "The same screen in 1-bit mode shows the same small glyphs, where today it shows broken strokes"
