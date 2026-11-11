@@ -166,6 +166,31 @@ pub trait Face {
     fn origin(&self, _cluster: &[char], _style: Style) -> Origin {
         Origin::default()
     }
+
+    /// Where the superscript or subscript glyph for `cluster` in
+    /// `variant` comes from (ADR-1202 D11). A face whose source makes its
+    /// own script glyphs gives the one it holds; one whose source's glyph
+    /// is still on its way has the built-in fonts draw the cell meanwhile;
+    /// every other face's script glyph is made from its normal glyph, as
+    /// [`Font::drawn_variant`] makes it.
+    fn script(&self, _cluster: &[char], _variant: Variant) -> ScriptFrom {
+        ScriptFrom::Normal
+    }
+}
+
+/// Where a face's superscript or subscript glyph comes from
+/// ([`Face::script`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScriptFrom {
+    /// The glyph the face's source made, small and placed in the whole
+    /// cell, as the glyph helper sends it.
+    Made(Glyph),
+    /// The glyph made from the face's normal glyph.
+    Normal,
+    /// The source's glyph is on its way, and the built-in fonts
+    /// ([`Face::builtins`]) draw the cell until it arrives, as they draw
+    /// any glyph on its way (ADR-1200 D7, D22).
+    Builtins,
 }
 
 impl<F: Face + ?Sized> Face for Box<F> {
@@ -210,6 +235,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn origin(&self, cluster: &[char], style: Style) -> Origin {
         (**self).origin(cluster, style)
+    }
+    fn script(&self, cluster: &[char], variant: Variant) -> ScriptFrom {
+        (**self).script(cluster, variant)
     }
 }
 
@@ -377,10 +405,31 @@ impl<F: Face> Font<F> {
     /// (D15): the face's own glyph, else the font's missing glyph, the hex
     /// glyph a 1-bit glyph of its own. The face draws the glyph without
     /// the part of the style the origin leaves to the small glyph (D7).
+    ///
+    /// A face whose source makes its own script glyphs ([`Face::script`])
+    /// gives the glyph it holds, fitted to the cells, or has the built-in
+    /// fonts draw the cell while that glyph is on its way (ADR-1202 D11).
     pub fn drawn_variant(&self, cluster: &[char], width: Width, variant: Variant) -> Option<Drawn> {
         let script = variant.script;
         if script == Script::Baseline {
             return self.drawn(cluster, width, variant.style);
+        }
+        if self.sprite_base(cluster).is_none() {
+            match self.face.script(cluster, variant) {
+                ScriptFrom::Made(glyph) => {
+                    let w = self.face.cell().width.saturating_mul(width.cells());
+                    return Some(Drawn::new(glyph.fit(w, width)?, 1, false));
+                }
+                ScriptFrom::Builtins => {
+                    let builtins = Font {
+                        face: self.face.builtins()?,
+                        policy: self.policy,
+                        missing: self.missing,
+                    };
+                    return builtins.drawn_variant(cluster, width, variant);
+                }
+                ScriptFrom::Normal => {}
+            }
         }
         let &first = cluster.first()?;
         let cell = self.face.cell();

@@ -153,13 +153,13 @@ fn expanded(w: u32, rows: &[u8]) -> Vec<u8> {
 fn a_set_reads_back_every_field() {
     let set = read(small_set(true));
     assert_eq!(set.name(), "small-1.0");
-    assert_eq!(set.version(), (2, 1));
+    assert_eq!(set.version(), (2, 2));
     let meta: Vec<_> = set.meta().collect();
     assert_eq!(
         meta,
         [
             ("name", "small-1.0"),
-            ("format", "2.1"),
+            ("format", "2.2"),
             (
                 "build-key",
                 "0000000000000000000000000000000000000000000000000000000000000000"
@@ -296,23 +296,32 @@ fn the_same_inputs_give_the_same_bytes() {
     };
     let one = build(&['x', 'y', 'z', 'a']);
     assert_eq!(one, build(&['a', 'z', 'y', 'x']));
-    // the format's bytes, pinned: a change to the layout moves this digest
+    // the set as an older minor version writes it: the header's minor
+    // version and META's format set back to `minor`
+    let as_minor = |minor: u16| {
+        let mut old = one.clone();
+        old[10..12].copy_from_slice(&minor.to_le_bytes());
+        let meta = old
+            .windows(10)
+            .position(|w| w == b"format=2.2")
+            .expect("META");
+        old[meta..meta + 10].copy_from_slice(format!("format=2.{minor}").as_bytes());
+        old
+    };
+    // the format's bytes, pinned: a change to the layout moves this digest.
+    // Format 2.2 changed only the version in a set of normal strikes,
+    // whose script field holds the 0 that 2.1 reserved (ADR-1202 D11):
+    // with the minor version set back to 1 the bytes are format 2.1's,
+    // whose digest this test pinned before
     assert_eq!(
-        sha256_hex(&Sha256::digest(&one)),
+        sha256_hex(&Sha256::digest(&as_minor(1))),
         "1bd921064be1a03527d54d1476e3fe2b5bfbb76bbc2119a9d516d3638de1f0ab"
     );
     // format 2.1 changed only the version in a set with no ink box: with
-    // the header's minor version and META's set back to 0, the bytes are
-    // format 2.0's, whose digest this test pinned before
-    let mut old = one.clone();
-    old[10..12].copy_from_slice(&0u16.to_le_bytes());
-    let meta = old
-        .windows(10)
-        .position(|w| w == b"format=2.1")
-        .expect("META");
-    old[meta..meta + 10].copy_from_slice(b"format=2.0");
+    // the minor version set back to 0, the bytes are format 2.0's, whose
+    // digest this test pinned before that
     assert_eq!(
-        sha256_hex(&Sha256::digest(&old)),
+        sha256_hex(&Sha256::digest(&as_minor(0))),
         "c411e7cea8698299320c055d444440f1b6f4f547485219a06ad4cfd969315eb7"
     );
 }
@@ -980,7 +989,9 @@ fn inconsistent_tables_are_refused() {
     // META without a name
     malformed(with_section(&set, b"META", |m| m[0] = b'N'));
     // a reserved field
-    malformed(with_section(&set, b"STRK", |s| s[8 + 2] = 1));
+    malformed(with_section(&set, b"STRK", |s| s[8 + 18] = 1));
+    // a script past subscript's 2 (ADR-1202 D11)
+    malformed(with_section(&set, b"STRK", |s| s[8 + 2] = 3));
     // a subpixel strike is a format this build does not draw
     assert!(matches!(
         refused(with_section(&set, b"STRK", |s| s[8 + 1] = 3)),

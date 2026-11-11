@@ -22,6 +22,7 @@ fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: ttf::test_mono().build().into(),
         family: "Test Mono".to_owned(),
         cells: cells.to_vec(),
@@ -854,17 +855,18 @@ fn the_request_reads_back() {
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's byte before its last, 0 light and 1
+    // the hinting is the request's third byte from its end, 0 light and 1
     // full
     let mut other = full.encode();
     let n = other.len();
-    other[n - 2] = 2;
+    other[n - 3] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),
         "a hinting the parser does not know"
     );
-    // the synthesis is its last byte, bold 1 and italic 2 (ADR-1302 D4)
+    // the synthesis is the byte before its last, bold 1 and italic 2
+    // (ADR-1302 D4)
     let slanted = OutlineRequest {
         fit: false,
         synth: vtium_font::Style {
@@ -874,11 +876,30 @@ fn the_request_reads_back() {
         ..r.clone()
     };
     let bytes = slanted.encode();
-    assert_eq!(bytes.last(), Some(&3));
+    assert_eq!(bytes[bytes.len() - 2], 3);
     assert_eq!(OutlineRequest::decode(&bytes), Ok(slanted));
     let mut other = r.encode();
-    *other.last_mut().expect("a byte") = 4;
+    let n = other.len();
+    other[n - 2] = 4;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown synthesis"));
+    // the script is its last byte, normal 0, superscript 1 and subscript 2
+    // (ADR-1202 D2, D5)
+    for (script, code) in [
+        (vtium_font::Script::Baseline, 0u8),
+        (vtium_font::Script::Super, 1),
+        (vtium_font::Script::Sub, 2),
+    ] {
+        let scripted = OutlineRequest {
+            script,
+            ..r.clone()
+        };
+        let bytes = scripted.encode();
+        assert_eq!(bytes.last(), Some(&code));
+        assert_eq!(OutlineRequest::decode(&bytes), Ok(scripted));
+    }
+    let mut other = r.encode();
+    *other.last_mut().expect("a byte") = 3;
+    assert_eq!(OutlineRequest::decode(&other), Err("an unknown script"));
     let mut long = r.encode();
     long.push(0);
     assert!(OutlineRequest::decode(&long).is_err());
@@ -906,6 +927,7 @@ fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
         font: ttf::test_emoji().build().into(),
         family: "Test Emoji".to_owned(),
         cells: vec![(0, 10)],
@@ -993,18 +1015,21 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
         );
     }
     // a request and an answer under the magics before the reach and the
-    // box's rows were added, VTVOUT6 and VTVOUTL3, are refused: their
-    // layouts lack those fields
-    let mut old = reached.encode();
-    old[..8].copy_from_slice(b"VTVOUT6\0");
-    assert_eq!(OutlineRequest::decode(&old), Err("not an outline request"));
+    // box's rows were added, VTVOUT6 and VTVOUTL3, and a request under the
+    // magic before the script was, VTVOUT7, are refused: their layouts lack
+    // those fields
+    for magic in [b"VTVOUT6\0", b"VTVOUT7\0"] {
+        let mut old = reached.encode();
+        old[..8].copy_from_slice(magic);
+        assert_eq!(OutlineRequest::decode(&old), Err("not an outline request"));
+    }
     let mut old = o.encode();
     old[..8].copy_from_slice(b"VTVOUTL3");
     assert_eq!(Outline::decode(&old, &r), Err("not an outline answer"));
     let mut other = fallback.encode();
     let n = other.len();
-    assert_eq!(other[n - 3], 1);
-    other[n - 3] = 2;
+    assert_eq!(other[n - 4], 1);
+    other[n - 4] = 2;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown fit"));
     for bad in [
         vec![15.5f32.to_bits()],

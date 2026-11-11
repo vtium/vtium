@@ -4488,13 +4488,13 @@ struct KeyFrom {
     roaming: bool,
 }
 
-/// What the screens of `heads` show, merged style by style: each character
-/// and cluster any of them shows in that style, sorted and once, the
-/// regular style first.
+/// What the screens of `heads` show, merged variant by variant: each
+/// character and cluster any of them shows in that variant, sorted and
+/// once, the regular normal variant first.
 fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> Vec<crate::deferred::Shown> {
     let mut all = vec![crate::deferred::Shown::default()];
     for one in heads.flat_map(|head| head.visible()) {
-        match all.iter_mut().find(|s| s.style == one.style) {
+        match all.iter_mut().find(|s| s.variant == one.variant) {
             Some(s) => {
                 s.chars.extend(one.chars);
                 s.clusters.extend(one.clusters);

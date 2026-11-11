@@ -13,10 +13,12 @@ use crate::bounds::{
 };
 use crate::face::{Cell, Decorations, Style};
 use crate::policy::{Coverage, RangeCoverage, Source, SpritePolicy};
+use crate::script::Script;
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUSTER_RECORD, COVERAGE_RECORD, INK_CLUSTER, INK_GLYPH,
-    INK_RECORD, INK_RECORD_MIN, RUN_RECORD, RUN_WIDE, SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES,
-    STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC, TABLE_HEAD_BYTES, glyph_bytes, valid_name,
+    INK_RECORD, INK_RECORD_MIN, RUN_RECORD, RUN_WIDE, SCRIPT_BASELINE, SCRIPT_SUB, SCRIPT_SUPER,
+    SOURCE_AUTO, SOURCE_FONT, SOURCE_SPRITES, STRIKE_RECORD, STYLE_BOLD, STYLE_ITALIC,
+    TABLE_HEAD_BYTES, glyph_bytes, valid_name,
 };
 use crate::sprite::Range;
 
@@ -56,8 +58,10 @@ fn line(at: u16, thickness: u16, height: u32) -> Result<(u32, u32), SetError> {
     Ok((at, thickness))
 }
 
-/// `STRK`: each strike's style, format, cell, metrics and glyph count,
-/// sorted by cell height, width, style and format with no two alike.
+/// `STRK`: each strike's style, format, script, cell, metrics and glyph
+/// count, sorted by cell height, width, script, style and format with no
+/// two alike. A set of format 2.0 or 2.1 holds 0 where the script is, so
+/// its strikes are normal ones (ADR-1202 D11).
 pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     let mut c = Cursor(bytes);
     let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", STRIKE_RECORD)?;
@@ -65,21 +69,27 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         return Err(SetError::Malformed("a set with no strikes"));
     }
     let mut strikes: Vec<Strike> = Vec::new();
-    let mut keys: Vec<(u16, u16, u8, u8)> = Vec::new();
+    let mut keys: Vec<(u16, u16, u16, u8, u8)> = Vec::new();
     for _ in 0..count {
         let mut r = c.record(size)?;
         let style = r.u8()?;
         let format = r.u8()?;
-        let reserved = r.u16()?;
+        let script_code = r.u16()?;
         let (w, h) = (r.u16()?, r.u16()?);
         let baseline = r.u16()?;
         let (underline, underline_thickness) = (r.u16()?, r.u16()?);
         let (strike, strike_thickness) = (r.u16()?, r.u16()?);
         let reserved2 = r.u16()?;
         let glyph_count = r.u32()?;
-        if reserved != 0 || reserved2 != 0 {
+        if reserved2 != 0 {
             return Err(SetError::Malformed("a reserved field that is not 0"));
         }
+        let script = match script_code {
+            SCRIPT_BASELINE => Script::Baseline,
+            SCRIPT_SUPER => Script::Super,
+            SCRIPT_SUB => Script::Sub,
+            _ => return Err(SetError::Malformed("an unknown script")),
+        };
         if style & !(STYLE_BOLD | STYLE_ITALIC) != 0 {
             return Err(SetError::Malformed("an unknown style"));
         }
@@ -103,7 +113,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         }
         let (underline, underline_thickness) = line(underline, underline_thickness, cell.height)?;
         let (strike, strike_thickness) = line(strike, strike_thickness, cell.height)?;
-        keys.push((h, w, style, code));
+        keys.push((h, w, script_code, style, code));
         strikes.push(Strike {
             info: StrikeInfo {
                 style: Style {
@@ -111,6 +121,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
                     italic: style & STYLE_ITALIC != 0,
                 },
                 format,
+                script,
                 cell,
                 baseline: u32::from(baseline),
                 decorations: Decorations {
@@ -223,21 +234,24 @@ pub(super) fn parse_cmap(bytes: &[u8], strikes: &mut [Strike]) -> Result<(), Set
     apart(strikes)
 }
 
-/// One cell's strikes of one style, a pixel format each, map codepoints
-/// apart, so a codepoint draws from one strike whichever is searched first.
+/// One cell's strikes of one style in one script, a pixel format each,
+/// map codepoints apart, so a codepoint draws from one strike whichever is
+/// searched first.
 fn apart(strikes: &[Strike]) -> Result<(), SetError> {
-    let mut runs: Vec<(Cell, Style, u32, u32)> = Vec::new();
+    let mut runs: Vec<(Cell, Style, Script, u32, u32)> = Vec::new();
     for s in strikes {
         for r in &s.runs {
             let last = r.first.saturating_add(r.len.saturating_sub(1));
-            runs.push((s.info.cell, s.info.style, r.first, last));
+            runs.push((s.info.cell, s.info.style, s.info.script, r.first, last));
         }
     }
-    let key = |r: &(Cell, Style, u32, u32)| (r.0.height, r.0.width, r.1.bold, r.1.italic, r.2);
+    let key = |r: &(Cell, Style, Script, u32, u32)| {
+        (r.0.height, r.0.width, r.2, r.1.bold, r.1.italic, r.3)
+    };
     runs.sort_unstable_by_key(key);
     let overlap = runs
         .windows(2)
-        .any(|w| matches!(w, [a, b] if (a.0, a.1) == (b.0, b.1) && b.2 <= a.3));
+        .any(|w| matches!(w, [a, b] if (a.0, a.1, a.2) == (b.0, b.1, b.2) && b.3 <= a.4));
     if overlap {
         return Err(SetError::Malformed(
             "two strikes at a cell map one codepoint",

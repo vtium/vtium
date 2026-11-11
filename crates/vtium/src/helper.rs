@@ -8,10 +8,13 @@
 //! helper answers it ahead of anything else, each cluster shaped and drawn
 //! whole (ADR-1200 D21). The console's record of each cell keys a glyph as
 //! the store does (ADR-1200 D20), a cluster by its whole text, in each
-//! style. An ask names one style, regular, bold, italic or bold italic,
-//! and the console sends an ask for each style the screen shows that
-//! needs one (ADR-1200 D21); the helper draws it from the frit's face for
-//! that style or synthesises it. A fill is regular, and fills a cell's
+//! style and script. An ask names one style, regular, bold, italic or
+//! bold italic, and one script, normal, superscript or subscript, and the
+//! console sends an ask for each style and script the screen shows that
+//! needs one (ADR-1200 D21, ADR-1202 D11); the helper draws it from the
+//! frit's face for that style or synthesises it, and makes a superscript
+//! or subscript glyph small from the source that draws the normal glyph.
+//! A fill is regular and normal, and fills a cell's
 //! coverage while nothing is asked: the screen's characters, then printable Latin and box drawing,
 //! then the rest, a batch at a time, a waiting ask answered before the
 //! next batch. The fill stops at the store's limit ([`crate::deferred`]),
@@ -34,7 +37,7 @@
 //! checked before it is trusted: its length against [`FRAME_BYTES_MAX`]
 //! before anything is allocated, a set through vtium-font's reader, which
 //! bounds every field, every strike at a cell asked for and in the style
-//! asked for, regular for a fill, an ask's glyphs and clusters among those it asked for and not yet
+//! and the script asked for, regular and normal for a fill, an ask's glyphs and clusters among those it asked for and not yet
 //! sent, and a fill's among those the cell does not hold, with no cluster. The helper says when it takes
 //! each stop, and a cell's fill frames before that belong to the fill
 //! stopped and are dropped, so a cell filled again at once takes only its
@@ -85,7 +88,7 @@ use rustix::process::{
 };
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::{Band, SpacedCell};
-use vtium_font::{Cell, Style};
+use vtium_font::{Cell, Script, Variant};
 use vtium_platform::vt::font::ConsoleFont;
 
 use crate::config::Config;
@@ -161,7 +164,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -489,13 +492,14 @@ impl FritText {
 }
 
 /// One request's bytes: `kind` at `cell`, whose line spacing adds `band`
-/// (ADR-1302 D13), in `style` for `frit`, naming `codepoints` and
+/// (ADR-1302 D13), in `variant`, a style and a script, for `frit`, naming
+/// `codepoints` and
 /// `clusters` (each cut at [`FIRST_MAX`]) and `held`, with the kernel's
 /// font. The display's capabilities are reserved, and sent empty.
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
-    (kind, cell, band, style): (u32, Cell, Band, Style),
+    (kind, cell, band, variant): (u32, Cell, Band, Variant),
     (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
@@ -509,9 +513,18 @@ fn encode(
     put32(&mut out, cell.height);
     put32(&mut out, band.above);
     put32(&mut out, band.below);
+    let style = variant.style;
     put32(
         &mut out,
         u32::from(style.bold) | u32::from(style.italic) << 1,
+    );
+    put32(
+        &mut out,
+        match variant.script {
+            Script::Baseline => 0,
+            Script::Super => 1,
+            Script::Sub => 2,
+        },
     );
     put32(&mut out, 0);
     let codepoints = codepoints.get(..FIRST_MAX).unwrap_or(codepoints);
@@ -933,19 +946,20 @@ struct Clusters {
     pending: BTreeSet<Text>,
 }
 
-/// What the console knows of one cell in one style: the codepoints and
-/// clusters the store holds, those the frit lacks, those asked for and not
-/// yet answered, and, for the regular style, its fill.
+/// What the console knows of one cell in one variant, a style and a
+/// script: the codepoints and clusters the store holds, those the frit
+/// lacks, those asked for and not yet answered, and, for the regular
+/// normal variant, its fill.
 /// Its four codepoint records take [`BITS_BYTES`] each once one is set,
-/// and a style other than regular never fills, so its `brought` stays
-/// empty: at most 544 KiB for the regular record and 408 KiB for each
-/// other style's.
+/// and a variant other than regular normal never fills, so its `brought`
+/// stays empty: at most 544 KiB for the regular normal record and 408 KiB
+/// for each other variant's.
 struct CellState {
     /// The cell and the rows line spacing adds to it (ADR-1302 D13): one
     /// cell size can carry two bands on two heads, each with glyphs of
     /// its own.
     at: SpacedCell,
-    style: Style,
+    variant: Variant,
     held: Bits,
     absent: Bits,
     pending: Bits,
@@ -981,10 +995,10 @@ impl CellState {
         }
     }
 
-    fn new(at: SpacedCell, style: Style) -> CellState {
+    fn new(at: SpacedCell, variant: Variant) -> CellState {
         CellState {
             at,
-            style,
+            variant,
             held: Bits::new(),
             absent: Bits::new(),
             pending: Bits::new(),
@@ -998,11 +1012,11 @@ impl CellState {
     }
 }
 
-/// An ask the helper has not answered whole: its cell and style, the
+/// An ask the helper has not answered whole: its cell and variant, the
 /// codepoints and clusters it has yet to send, and when it was sent.
 struct Ask {
     at: SpacedCell,
-    style: Style,
+    variant: Variant,
     want: BTreeSet<u32>,
     clusters: BTreeSet<Text>,
     sent: Instant,
@@ -1108,19 +1122,23 @@ impl Helper {
         !self.asks.is_empty() || self.cells.iter().any(|c| c.fill == Fill::Active)
     }
 
-    /// What the console knows of `at` in `style`, made on first use.
-    fn state(&mut self, at: SpacedCell, style: Style) -> Option<&mut CellState> {
-        if !self.cells.iter().any(|c| (c.at, c.style) == (at, style)) {
-            self.cells.push(CellState::new(at, style));
+    /// What the console knows of `at` in `variant`, made on first use.
+    fn state(&mut self, at: SpacedCell, variant: Variant) -> Option<&mut CellState> {
+        if !self
+            .cells
+            .iter()
+            .any(|c| (c.at, c.variant) == (at, variant))
+        {
+            self.cells.push(CellState::new(at, variant));
         }
-        self.known(at, style)
+        self.known(at, variant)
     }
 
-    /// What the console knows of `at` in `style`, if it knows anything.
-    fn known(&mut self, at: SpacedCell, style: Style) -> Option<&mut CellState> {
+    /// What the console knows of `at` in `variant`, if it knows anything.
+    fn known(&mut self, at: SpacedCell, variant: Variant) -> Option<&mut CellState> {
         self.cells
             .iter_mut()
-            .find(|c| (c.at, c.style) == (at, style))
+            .find(|c| (c.at, c.variant) == (at, variant))
     }
 
     /// Fills `cell`'s coverage of regular glyphs, `first` first, while
@@ -1131,7 +1149,7 @@ impl Helper {
             return;
         }
         let at = SpacedCell { cell, band };
-        let Some(state) = self.state(at, Style::default()) else {
+        let Some(state) = self.state(at, Variant::default()) else {
             return;
         };
         state.fill = Fill::Active;
@@ -1140,11 +1158,16 @@ impl Helper {
         state.started = Some(now);
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
-        self.send((FILL, at, Style::default()), (&codepoints, &[]), &held, now);
+        self.send(
+            (FILL, at, Variant::default()),
+            (&codepoints, &[]),
+            &held,
+            now,
+        );
     }
 
     /// Asks for each character and each cluster `shown` at `cell`, in its
-    /// style, that the store does not hold in that style, the frit is not
+    /// variant, that the store does not hold in that variant, the frit is not
     /// known to lack and no ask has named: at most [`FIRST_MAX`] of each, at most
     /// [`CLUSTERS_WAITING_MAX`] clusters waiting at the cell, and nothing
     /// while [`ASKS_MAX`] asks wait; what is left is asked for on a later
@@ -1155,9 +1178,9 @@ impl Helper {
         if self.failed.is_some() || self.asks.len() >= ASKS_MAX {
             return;
         }
-        let style = shown.style;
+        let variant = shown.variant;
         let at = SpacedCell { cell, band };
-        let Some(state) = self.state(at, style) else {
+        let Some(state) = self.state(at, variant) else {
             return;
         };
         let mut want = BTreeSet::new();
@@ -1196,12 +1219,12 @@ impl Helper {
         let texts: Vec<Text> = clusters.iter().cloned().collect();
         self.asks.push_back(Ask {
             at,
-            style,
+            variant,
             want,
             clusters,
             sent: now,
         });
-        self.send((ASK, at, style), (&codepoints, &texts), &[], now);
+        self.send((ASK, at, variant), (&codepoints, &texts), &[], now);
     }
 
     /// The cell the frit's first source gives at `height`, the height the
@@ -1229,7 +1252,7 @@ impl Helper {
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
             self.send(
-                (OWN_CELL, SpacedCell::plain(query), Style::default()),
+                (OWN_CELL, SpacedCell::plain(query), Variant::default()),
                 (&[], &[]),
                 &[],
                 now,
@@ -1331,18 +1354,18 @@ impl Helper {
     /// Tells the helper to stop the fill at `at`, and drops its fill frames
     /// until the helper says it took the stop.
     fn stop_fill(&mut self, at: SpacedCell, now: Instant) {
-        self.send((STOP, at, Style::default()), (&[], &[]), &[], now);
+        self.send((STOP, at, Variant::default()), (&[], &[]), &[], now);
         if self.running.is_some() {
             self.stopped.push(at);
         }
     }
 
     /// Sends one request of `kind` at a cell and the rows line spacing
-    /// adds to it, in `style`, starting the helper first when it is not
+    /// adds to it, in `variant`, starting the helper first when it is not
     /// running.
     fn send(
         &mut self,
-        what: (u32, SpacedCell, Style),
+        what: (u32, SpacedCell, Variant),
         named: (&[u32], &[Text]),
         held: &[(u32, u32)],
         now: Instant,
@@ -1353,11 +1376,11 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let (kind, at, style) = what;
+        let (kind, at, variant) = what;
         let bytes = encode(
             &self.frit,
             self.console.as_ref(),
-            (kind, at.cell, at.band, style),
+            (kind, at.cell, at.band, variant),
             named,
             held,
         );
@@ -1504,17 +1527,17 @@ impl Helper {
             self.restarts
         );
         self.due = None;
-        let asks: Vec<(SpacedCell, Style, Vec<u32>, Vec<Text>)> = self
+        let asks: Vec<(SpacedCell, Variant, Vec<u32>, Vec<Text>)> = self
             .asks
             .iter_mut()
             .map(|a| {
                 a.sent = now;
                 let want = a.want.iter().copied().collect();
-                (a.at, a.style, want, a.clusters.iter().cloned().collect())
+                (a.at, a.variant, want, a.clusters.iter().cloned().collect())
             })
             .collect();
-        for (at, style, want, clusters) in asks {
-            self.send((ASK, at, style), (&want, &clusters), &[], now);
+        for (at, variant, want, clusters) in asks {
+            self.send((ASK, at, variant), (&want, &clusters), &[], now);
         }
         let fills: Vec<SpacedCell> = self
             .cells
@@ -1523,12 +1546,12 @@ impl Helper {
             .map(|c| c.at)
             .collect();
         for at in fills {
-            let Some(state) = self.known(at, Style::default()) else {
+            let Some(state) = self.known(at, Variant::default()) else {
                 continue;
             };
             state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
-            self.send((FILL, at, Style::default()), (&first, &[]), &held, now);
+            self.send((FILL, at, Variant::default()), (&first, &[]), &held, now);
         }
     }
 
@@ -1605,9 +1628,10 @@ impl Helper {
     }
 
     /// Takes a frame of glyphs, or refuses it: an ask's must be at the
-    /// oldest ask's cell, every strike in its style, and among the
+    /// oldest ask's cell, every strike in its style and its script, and
+    /// among the
     /// codepoints and clusters it has yet to send; a fill's at a cell
-    /// filling, every strike regular, among those the fill has not
+    /// filling, every strike regular and normal, among those the fill has not
     /// brought, and with no cluster. The store takes the frame without the
     /// glyphs it holds, as a request may send again a glyph an earlier one
     /// brought (ADR-1200 D18), and a frame with nothing new adds nothing.
@@ -1630,20 +1654,27 @@ impl Helper {
             return Err(not_asked());
         };
         let at = SpacedCell { cell, band };
-        // a fill's glyphs are regular, an ask's in the style it names
-        let style = if fill {
-            Style::default()
+        // a fill's glyphs are regular and normal, an ask's in the style
+        // and the script it names
+        let variant = if fill {
+            Variant::default()
         } else {
-            self.asks.front().ok_or_else(not_asked)?.style
+            self.asks.front().ok_or_else(not_asked)?.variant
         };
-        if !set.strikes().all(|s| s.style == style) {
+        if !set.strikes().all(|s| s.style == variant.style) {
             return Err("the helper answered in a style that was not asked for".to_owned());
+        }
+        if !set.strikes().all(|s| s.script == variant.script) {
+            return Err(
+                "the helper answered in a superscript or subscript that was not asked for"
+                    .to_owned(),
+            );
         }
         let clusters: Vec<Text> = set.clusters().map(|(_, _, key)| key).collect();
         let store = Arc::clone(&self.store);
         let without_held = || {
             crate::deferred::lock(&store)
-                .fresh((at, style), Arc::clone(set), &runs, bytes)
+                .fresh((at, variant), Arc::clone(set), &runs, bytes)
                 .ok_or_else(not_asked)
         };
         let fresh = if fill {
@@ -1653,7 +1684,7 @@ impl Helper {
             if self.stopped.contains(&at) {
                 return Ok(None);
             }
-            let state = self.known(at, style).ok_or_else(not_asked)?;
+            let state = self.known(at, variant).ok_or_else(not_asked)?;
             match state.fill {
                 Fill::Active => {}
                 Fill::Stopped | Fill::Done => return Ok(None),
@@ -1710,7 +1741,7 @@ impl Helper {
                     return Err("the helper answered a cluster the ask did not name".to_owned());
                 }
             }
-            let Some(state) = self.known(at, style) else {
+            let Some(state) = self.known(at, variant) else {
                 // no display draws at the cell any more
                 return Ok(None);
             };
@@ -1773,7 +1804,7 @@ impl Helper {
         );
         chars.sort_unstable();
         chars.dedup();
-        if let Some(state) = self.state(at, style) {
+        if let Some(state) = self.state(at, variant) {
             for t in added {
                 state.hold(t);
             }
@@ -1808,7 +1839,7 @@ impl Helper {
     /// The store is full while `cell` fills: the fill stops there, logged
     /// once a boot.
     fn store_full(&mut self, at: SpacedCell, now: Instant) {
-        if let Some(state) = self.state(at, Style::default()) {
+        if let Some(state) = self.state(at, Variant::default()) {
             state.fill = Fill::Stopped;
         }
         self.stop_fill(at, now);
@@ -1828,7 +1859,7 @@ impl Helper {
             .asks
             .pop_front()
             .ok_or_else(|| "the helper answered an ask not made".to_owned())?;
-        if let Some(state) = self.known(ask.at, ask.style) {
+        if let Some(state) = self.known(ask.at, ask.variant) {
             for &c in &ask.want {
                 state.pending.put(c, false);
                 state.absent.put(c, true);
@@ -1866,7 +1897,7 @@ impl Helper {
         let cell = at.cell;
         let epoch = self.epoch;
         let state = self
-            .known(at, Style::default())
+            .known(at, Variant::default())
             .ok_or_else(|| "the helper ended a fill not asked for".to_owned())?;
         if state.fill != Fill::Active {
             return Ok(());
@@ -2178,7 +2209,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
         }
@@ -2222,21 +2253,22 @@ mod tests {
         let bytes = encode(
             &frit("x=y\n"),
             None,
-            (ASK, CELL, Band { above: 2, below: 1 }, both),
+            (ASK, CELL, Band { above: 2, below: 1 }, both.into()),
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ5".to_vec();
+        let mut want = b"VTVSREQ6".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
         want.extend_from_slice(&4u32.to_le_bytes());
         want.extend_from_slice(b"x=y\n");
         // the cell, the rows line spacing adds above and below it, the
-        // style, bold 1 and italic 2, the reserved capabilities, the
-        // codepoint, the cluster of two, the held range, no console font
+        // style, bold 1 and italic 2, the script, normal 0, the reserved
+        // capabilities, the codepoint, the cluster of two, the held range,
+        // no console font
         for v in [
-            8u32, 16, 2, 1, 3, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
+            8u32, 16, 2, 1, 3, 0, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
         ] {
             want.extend_from_slice(&v.to_le_bytes());
         }
@@ -2270,7 +2302,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC),
+            (ASK, CELL, Band::NONE, ITALIC.into()),
             (&[0x41], &[]),
             &[],
         );
@@ -2283,7 +2315,7 @@ mod tests {
         let mut s = StandIn::new("italic", &script, &fixture);
         let now = t0();
         let italic = Shown {
-            style: ITALIC,
+            variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
         };
@@ -2296,7 +2328,7 @@ mod tests {
             s.helper
                 .cells
                 .iter()
-                .any(|c| (c.at, c.style) == (AT, style) && c.held.has(0x41))
+                .any(|c| (c.at, c.variant) == (AT, Variant::from(style)) && c.held.has(0x41))
         };
         assert!(held(ITALIC), "held as italic");
         assert!(!held(Style::default()), "and not as regular");
@@ -2318,7 +2350,7 @@ mod tests {
         let one = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC),
+            (ASK, CELL, Band::NONE, ITALIC.into()),
             (&[0x41], &[]),
             &[],
         )
@@ -2334,7 +2366,7 @@ mod tests {
         std::fs::write(s.dir.join("answer.b"), second).unwrap();
         let now = t0();
         let italic = Shown {
-            style: ITALIC,
+            variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
         };
@@ -2344,10 +2376,9 @@ mod tests {
         assert_eq!(s.run(now).len(), 1);
         assert_eq!(s.helper.failed(), None);
         let held = |s: &StandIn, style, c: char| {
-            s.helper
-                .cells
-                .iter()
-                .any(|r| (r.at, r.style) == (AT, style) && r.held.has(u32::from(c)))
+            s.helper.cells.iter().any(|r| {
+                (r.at, r.variant) == (AT, Variant::from(style)) && r.held.has(u32::from(c))
+            })
         };
         assert!(held(&s, Style::default(), 'B'));
         assert!(!held(&s, ITALIC, 'A'), "italic A left the store");
@@ -2386,7 +2417,7 @@ mod tests {
                 s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
-                    style,
+                    variant: style.into(),
                     chars: vec!['A'],
                     clusters: Vec::new(),
                 };
@@ -2395,6 +2426,134 @@ mod tests {
             assert!(s.run(now).is_empty(), "{name}");
             let why = s.helper.failed().unwrap_or_default();
             assert!(why.contains("style"), "{name}: {why}");
+        }
+    }
+
+    /// The superscript variant of the regular style.
+    const SUPER: Variant = Variant {
+        style: Style {
+            bold: false,
+            italic: false,
+        },
+        script: Script::Super,
+    };
+
+    /// A set of `chars`, each solid, at `cell`, in one strike of
+    /// `variant`'s style and script.
+    fn scripted(cell: Cell, variant: Variant, chars: &[char]) -> Vec<u8> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, variant.style)
+            .script(variant.script)
+            .compress(false);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![200; (cell.width * cell.height) as usize],
+        );
+        for &c in chars {
+            s.map(c, g);
+        }
+        SetBuilder::new("t").strike(s).write().unwrap()
+    }
+
+    // ADR-1202 D11: superscript text is asked for in an ask of its own
+    // that names the script after the style, and its glyphs go into the
+    // store as superscript, where the normal glyphs do not find them
+    // covers: sgr.script
+    #[test]
+    fn a_superscript_ask_names_its_script_and_its_glyphs_are_held_in_it() {
+        let ask = encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            (ASK, CELL, Band::NONE, SUPER),
+            (&[0x41], &[]),
+            &[],
+        );
+        // the script's field follows the style's, after the magic, the
+        // kind, the frit's name and text, the cell and the band: 1 for
+        // superscript
+        let field = 8 + 4 + 4 + 1 + 4 + "source=builtin:unscii-8\n".len() + 4 * 5;
+        assert_eq!(&ask[field..field + 4], &1u32.to_le_bytes(), "the script");
+        let mut fixture = frame_bytes(FRAME_GLYPHS, &scripted(CELL, SUPER, &['A']));
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let script = format!(
+            "head -c {} >\"$1.ask\"; cat \"$1\"; cat >/dev/null",
+            ask.len()
+        );
+        let mut s = StandIn::new("superscript", &script, &fixture);
+        let now = t0();
+        let sup = Shown {
+            variant: SUPER,
+            chars: vec!['A'],
+            clusters: Vec::new(),
+        };
+        s.helper.ask(CELL, Band::NONE, &sup, now);
+        let answers = s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(answers.len(), 1);
+        assert_eq!(std::fs::read(s.dir.join("answer.ask")).unwrap(), ask);
+        let held = |variant: Variant| {
+            s.helper
+                .cells
+                .iter()
+                .any(|c| (c.at, c.variant) == (AT, variant) && c.held.has(0x41))
+        };
+        assert!(held(SUPER), "held as superscript");
+        assert!(!held(Variant::default()), "and not as normal");
+        let store = crate::deferred::lock(&s.helper.store);
+        assert!(store.holds_variant(AT, SUPER, &['A']), "the store's key");
+        assert!(!store.holds_variant(AT, Variant::default(), &['A']));
+        drop(store);
+        // asked again in superscript, it is held; normal, it is not
+        s.helper.ask(CELL, Band::NONE, &sup, now);
+        assert!(!s.helper.busy());
+        s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+        assert!(s.helper.busy());
+    }
+
+    // ADR-1202 D11: the console refuses a strike in another script than
+    // the one it asked for, an ask's or a fill's, and gives the helper up
+    #[test]
+    fn a_strike_in_a_script_not_asked_for_gives_the_helper_up() {
+        let sub = Variant {
+            script: Script::Sub,
+            ..SUPER
+        };
+        for (name, set, fill, variant) in [
+            (
+                "normal-for-super",
+                scripted(CELL, Variant::default(), &['A']),
+                false,
+                SUPER,
+            ),
+            ("sub-for-super", scripted(CELL, sub, &['A']), false, SUPER),
+            (
+                "super-for-normal",
+                scripted(CELL, SUPER, &['A']),
+                false,
+                Variant::default(),
+            ),
+            (
+                "super-fill",
+                scripted(CELL, SUPER, &['A']),
+                true,
+                Variant::default(),
+            ),
+        ] {
+            let kind = if fill { FRAME_FILL } else { FRAME_GLYPHS };
+            let mut s = StandIn::new(name, ANSWERS, &frame_bytes(kind, &set));
+            let now = t0();
+            if fill {
+                s.helper.fill(CELL, Band::NONE, &[], now);
+            } else {
+                let ask = Shown {
+                    variant,
+                    chars: vec!['A'],
+                    clusters: Vec::new(),
+                };
+                s.helper.ask(CELL, Band::NONE, &ask, now);
+            }
+            assert!(s.run(now).is_empty(), "{name}");
+            let why = s.helper.failed().unwrap_or_default();
+            assert!(why.contains("superscript or subscript"), "{name}: {why}");
         }
     }
 
@@ -2457,7 +2616,7 @@ mod tests {
         chars.sort_unstable();
         chars.dedup();
         Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars,
             clusters: clusters.iter().map(|k| k.to_vec()).collect(),
         }
@@ -2473,7 +2632,7 @@ mod tests {
         let mut s = StandIn::new("cluster", ANSWERS, &fixture);
         let now = t0();
         let only_clusters = Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
         };
@@ -2490,7 +2649,7 @@ mod tests {
         assert!(
             crate::deferred::lock(&s.helper.store)
                 .fresh(
-                    (AT, Style::default()),
+                    (AT, Variant::default()),
                     Arc::new(Set::from_bytes(cluster_set(CELL, &[&ACUTE])).unwrap()),
                     &[],
                     1
@@ -2675,7 +2834,7 @@ mod tests {
         );
         let long = vec!['e'; vtium_font::CLUSTER_SCALARS_MAX as usize + 1];
         let shown = Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![long, vec!['e']],
         };
@@ -2700,7 +2859,7 @@ mod tests {
         };
         for i in 0..1000 {
             let shown = Shown {
-                style: Style::default(),
+                variant: Variant::default(),
                 chars: Vec::new(),
                 clusters: (0..10).map(|j| cluster(i, j)).collect(),
             };
@@ -2722,7 +2881,7 @@ mod tests {
         };
         let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
         let shown = Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: Vec::new(),
             clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
         };
@@ -2761,7 +2920,7 @@ mod tests {
         let mut s = StandIn::new("lacked", ANSWERS, &frame_bytes(FRAME_DONE, &[]));
         let now = t0();
         {
-            let state = s.helper.state(AT, Style::default()).unwrap();
+            let state = s.helper.state(AT, Variant::default()).unwrap();
             for i in 0..u32::try_from(CLUSTERS_LACKED_MAX).unwrap() {
                 let c = char::from_u32(0x300 + i % 0x70).unwrap();
                 let d = char::from_u32(0x4e00 + i / 0x70).unwrap();
@@ -3341,7 +3500,7 @@ mod tests {
         encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (kind, CELL, Band::NONE, Style::default()),
+            (kind, CELL, Band::NONE, Variant::default()),
             (&[], &[]),
             &[],
         )
@@ -3408,7 +3567,7 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, band, Style::default()),
+            (STOP, CELL, band, Variant::default()),
             (&[], &[]),
             &[],
         );
@@ -3436,7 +3595,7 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, Band::NONE, Style::default()),
+            (STOP, CELL, Band::NONE, Variant::default()),
             (&[], &[]),
             &[],
         );

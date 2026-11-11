@@ -2,14 +2,22 @@
 //! store of what the helper generated, and the face that draws a cell from
 //! it, falling back per character to the built-in font (#141).
 //!
-//! The store keys a glyph by its cluster's text and its style, bold,
-//! italic, both or neither, at a cell (ADR-1200 D20), the text one
-//! codepoint or a cluster of more, so two cells holding the same cluster
-//! in one style share its glyph however their clusters were made. A
-//! style's glyphs come by ask in sets of their own (ADR-1200 D21), and
-//! until a style's glyph arrives the built-in font draws it in its own
-//! synthetic style: a bitmap glyph widened for bold and sheared for
-//! italic (ADR-1302 D4). The lookup for a cell is ADR-1200 D22's: the cluster's glyph in
+//! The store keys a glyph by its cluster's text, its style, bold, italic,
+//! both or neither, and its script, normal, superscript or subscript, at a
+//! cell (ADR-1200 D20, ADR-1202 D11), the text one codepoint or a cluster
+//! of more, so two cells holding the same cluster in one style and script
+//! share its glyph however their clusters were made. A style's glyphs and
+//! a script's come by ask in sets of their own (ADR-1200 D21), and until a
+//! style's glyph arrives the built-in font draws it in its own synthetic
+//! style: a bitmap glyph widened for bold and sheared for italic
+//! (ADR-1302 D4). Until a superscript or subscript glyph arrives, the
+//! built-in font draws the cell's script glyph, as it draws any glyph on
+//! its way (ADR-1200 D7, D22 step 4), and never the frit's normal glyph
+//! made small ([`DeferredFace`]'s [`Face::script`]). The lookup chain below
+//! runs within the cell's variant: a superscript cluster takes its NFC
+//! form's superscript glyph, else its base's with its marks' laid over it,
+//! each part from the store in superscript, and the built-in font's only
+//! for a part the store lacks (ADR-1202 D11). The lookup for a cell is ADR-1200 D22's: the cluster's glyph in
 //! the store; the cluster's NFC form, where it precomposes to one
 //! codepoint the store holds; the base's glyph, the store's or the
 //! built-in font's, with each nonspacing mark's glyph overstruck on it and
@@ -38,7 +46,8 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, SpritePolicy, Style, Width,
+    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, Script, ScriptFrom,
+    SpritePolicy, Style, Variant, Width,
 };
 
 mod data;
@@ -95,47 +104,45 @@ pub fn store_limit(ram: u64) -> u64 {
     }
 }
 
-/// What a glyph is keyed by at a cell and in a style (ADR-1200 D20): its
+/// What a glyph is keyed by at a cell and in a variant (ADR-1200 D20): its
 /// cluster's text, one codepoint or more.
 pub type Text = Vec<char>;
 
-/// What the displays show in one style: each character, and each cluster
-/// of more than one, each sorted and once.
+/// What the displays show in one variant, a style and a script: each
+/// character, and each cluster of more than one, each sorted and once.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {
-    pub style: Style,
+    pub variant: Variant,
     pub chars: Vec<char>,
     pub clusters: Vec<Text>,
 }
 
 /// Adds to `all` what `frame` shows, as the console reads it to ask the
-/// helper for the glyphs a display draws, in each style a cell draws its
-/// glyph in, bold, italic, both or neither (ADR-1200 D21): each character,
+/// helper for the glyphs a display draws, in each variant a cell draws its
+/// glyph in, bold, italic, both or neither, and normal, superscript or
+/// subscript (ADR-1200 D21, ADR-1202 D11): each character,
 /// every character of a cluster among them, and each cluster whole, and
 /// what a right-to-left row draws ([`vtium_render::joined`]): each joined
 /// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
 /// and the presentation form each key draws where no font holds the joined
-/// form (ADR-1004 D6, D7). A style `all` lacks is added after the others.
+/// form (ADR-1004 D6, D7). A variant `all` lacks is added after the others.
 /// A build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_render::joined;
-    use vtium_term::{Attrs, Glyph};
+    use vtium_term::Glyph;
     let mut drawn = Vec::new();
     for row in 0..frame.rows() {
         for (col, cell) in frame.cells(row).enumerate() {
-            let style = Style {
-                bold: cell.attrs.contains(Attrs::BOLD),
-                italic: cell.attrs.contains(Attrs::ITALIC),
-            };
-            if !all.iter().any(|s| s.style == style) {
+            let variant = variant_of(cell.attrs);
+            if !all.iter().any(|s| s.variant == variant) {
                 all.push(Shown {
-                    style,
+                    variant,
                     ..Shown::default()
                 });
             }
-            let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+            let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
                 continue;
             };
             match cell.glyph {
@@ -166,6 +173,24 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
                 shown.clusters.push(text);
             }
         }
+    }
+}
+
+/// The variant a cell with `attrs` draws its glyph in: its style, bold,
+/// italic, both or neither, and its script, normal, superscript (SGR 73)
+/// or subscript (SGR 74), as the renderer draws it.
+pub fn variant_of(attrs: vtium_term::Attrs) -> Variant {
+    use vtium_term::{Attrs, Script as Position};
+    Variant {
+        style: Style {
+            bold: attrs.contains(Attrs::BOLD),
+            italic: attrs.contains(Attrs::ITALIC),
+        },
+        script: match attrs.script() {
+            Position::Baseline => Script::Baseline,
+            Position::Super => Script::Super,
+            Position::Sub => Script::Sub,
+        },
     }
 }
 
@@ -590,25 +615,29 @@ fn scaled(rows: &[u8], from: usize, to: usize) -> Option<Vec<u8>> {
 }
 
 /// One set the helper sent, or its rebuild: its cell and the rows line
-/// spacing adds to it, the style of its strikes, the face it draws
+/// spacing adds to it, the style and script of its strikes, the face it draws
 /// through, each text it maps with when the screen last showed it, and its
 /// bytes.
 #[derive(Debug)]
 struct Entry {
     cell: Cell,
     band: Band,
-    style: Style,
+    variant: Variant,
     face: SetFace,
     /// Sorted by text.
     glyphs: Vec<(Text, u64)>,
     bytes: u64,
 }
 
-/// The glyph `face` draws for `text` in `style`: a codepoint's from the
+/// The glyph `face` draws for `text` in `variant`: a codepoint's from the
 /// set's map, a cluster's from its cluster map, at the face's scale or at
-/// 1.
-fn draw_text(face: &SetFace, text: &[char], style: Style, unscaled: bool) -> Option<Glyph> {
+/// a scale of 1. A superscript or subscript glyph comes from a strike of
+/// its script alone, at the face's scale, which is 1 for the helper's
+/// sets.
+fn draw_text(face: &SetFace, text: &[char], variant: Variant, unscaled: bool) -> Option<Glyph> {
+    let style = variant.style;
     match text {
+        _ if variant.script != Script::Baseline => face.draw_variant(text, variant),
         [c] if unscaled => face.draw_unscaled(&[*c], style),
         [c] => face.draw(&[*c], style),
         _ => face.cluster(text, style),
@@ -643,7 +672,7 @@ impl Entry {
     fn compact(&mut self, gone: &[Text]) -> (Vec<Text>, bool) {
         self.glyphs.retain(|(t, _)| gone.binary_search(t).is_err());
         if !self.glyphs.is_empty()
-            && let Some((face, bytes)) = rewrite(&self.face, self.cell, self.style, &self.glyphs)
+            && let Some((face, bytes)) = rewrite(&self.face, self.cell, self.variant, &self.glyphs)
         {
             self.face = face;
             self.bytes = bytes;
@@ -657,7 +686,7 @@ impl Entry {
 }
 
 /// The set `face` draws, written again through vtium-font's set writer
-/// with only `kept`'s glyphs at `cell` in `style`, as the helper writes an
+/// with only `kept`'s glyphs at `cell` in `variant`, as the helper writes an
 /// answer:
 /// a strike a pixel format, its chunks raw, a codepoint in its map and a
 /// cluster in its cluster map. Each glyph keeps its format: RGBA stays
@@ -667,25 +696,28 @@ impl Entry {
 fn rewrite(
     face: &SetFace,
     cell: Cell,
-    style: Style,
+    variant: Variant,
     kept: &[(Text, u64)],
 ) -> Option<(SetFace, u64)> {
     let set = face.set();
+    let Variant { style, script } = variant;
     let strikes: Vec<StrikeInfo> = set
         .strikes()
-        .filter(|s| s.cell == cell && s.style == style)
+        .filter(|s| s.cell == cell && s.style == style && s.script == script)
         .collect();
     let one_bit = strikes.iter().any(|s| s.format == PixelFormat::Bits);
     let formats = [PixelFormat::Bits, PixelFormat::R8, PixelFormat::Rgba];
     let mut builders = formats.map(|format| {
-        let mut s = StrikeBuilder::new(format, cell, style).compress(false);
+        let mut s = StrikeBuilder::new(format, cell, style)
+            .script(script)
+            .compress(false);
         if let Some(info) = strikes.iter().find(|s| s.format == format) {
             s = s.baseline(info.baseline).decorations(info.decorations);
         }
         (s, BTreeMap::<(bool, Vec<u8>), u32>::new())
     });
     for (text, _) in kept {
-        let glyph = draw_text(face, text, style, true)?;
+        let glyph = draw_text(face, text, variant, true)?;
         let pixels = glyph.pixels();
         let (slot, bytes) = match glyph.format() {
             Format::Rgba => (2, pixels.to_vec()),
@@ -778,25 +810,27 @@ impl Fresh {
 
 impl Generated {
     /// A checked set of glyphs at `at`, a cell and the rows line spacing
-    /// adds to it (ADR-1302 D13), in `style`, mapping the codepoints of
+    /// adds to it (ADR-1302 D13), in `variant`, mapping the codepoints of
     /// `runs` and the clusters its cluster map holds at the cell in that
-    /// style, and taking `bytes`, without the glyphs the store holds at
-    /// `at` in `style` (ADR-1200 D18): a set that carries some is written again without them, as
+    /// variant, and taking `bytes`, without the glyphs the store holds at
+    /// `at` in `variant` (ADR-1200 D18): a set that carries some is written again without them, as
     /// compaction writes one ([`rewrite`]), and counts the bytes written.
     /// It adds nothing when it carries nothing new, or when it cannot be
     /// written again. `None` when `set` has no face at the cell.
     pub fn fresh(
         &self,
-        (at, style): (impl Into<SpacedCell>, Style),
+        (at, variant): (impl Into<SpacedCell>, Variant),
         set: Arc<Set>,
         runs: &[(u32, u32)],
         bytes: u64,
     ) -> Option<Fresh> {
         let at: SpacedCell = at.into();
         let clusters: Vec<Text> = set
-            .clusters()
-            .filter(|&(of_cell, of, _)| of_cell == at.cell && of == style)
-            .map(|(_, _, key)| key)
+            .strike_clusters()
+            .filter(|(of, _)| {
+                of.cell == at.cell && of.style == variant.style && of.script == variant.script
+            })
+            .map(|(_, key)| key)
             .collect();
         let face = SetFace::new(set, at.cell.height)?;
         let mut glyphs: Vec<(Text, u64)> = runs
@@ -812,13 +846,13 @@ impl Generated {
         let held: Vec<Text> = glyphs
             .iter()
             .map(|(t, _)| t)
-            .filter(|t| self.held(at, style, t))
+            .filter(|t| self.held(at, variant, t))
             .cloned()
             .collect();
         let mut entry = Entry {
             cell: at.cell,
             band: at.band,
-            style,
+            variant,
             face,
             glyphs,
             bytes,
@@ -842,7 +876,7 @@ impl Generated {
         Some(face)
     }
 
-    /// Whether the store holds at `at`, in any style, the glyph of a
+    /// Whether the store holds at `at`, in any variant, the glyph of a
     /// cluster `c` begins.
     fn begins(&self, at: SpacedCell, c: char) -> bool {
         self.entries.iter().filter(|e| e.at() == at).any(|e| {
@@ -855,23 +889,30 @@ impl Generated {
         })
     }
 
-    /// Whether the store holds `text`'s glyph at `at` in `style`.
-    fn held(&self, at: SpacedCell, style: Style, text: &[char]) -> bool {
-        self.entry(at, style, text).is_some()
+    /// Whether the store holds `text`'s glyph at `at` in `variant`.
+    fn held(&self, at: SpacedCell, variant: Variant, text: &[char]) -> bool {
+        self.entry(at, variant, text).is_some()
     }
 
-    /// Whether the store holds `text`'s glyph at `at` in any style.
+    /// Whether the store holds `text`'s glyph at `at` in `variant`, for
+    /// the tests of the console's record of what it holds.
+    #[cfg(test)]
+    pub(crate) fn holds_variant(&self, at: SpacedCell, variant: Variant, text: &[char]) -> bool {
+        self.held(at, variant, text)
+    }
+
+    /// Whether the store holds `text`'s glyph at `at` in any variant.
     fn held_any(&self, at: SpacedCell, text: &[char]) -> bool {
         self.entries
             .iter()
             .any(|e| e.at() == at && e.find(text).is_ok())
     }
 
-    /// The entry holding `text`'s glyph at `at` in `style`.
-    fn entry(&self, at: SpacedCell, style: Style, text: &[char]) -> Option<&Entry> {
+    /// The entry holding `text`'s glyph at `at` in `variant`.
+    fn entry(&self, at: SpacedCell, variant: Variant, text: &[char]) -> Option<&Entry> {
         self.entries
             .iter()
-            .find(|e| e.at() == at && e.style == style && e.find(text).is_ok())
+            .find(|e| e.at() == at && e.variant == variant && e.find(text).is_ok())
     }
 
     /// The bytes held: each set's as the helper sent it or as compaction
@@ -885,10 +926,10 @@ impl Generated {
     /// share of their sets' bytes covers it, and writes each set they
     /// leave again without them ([`rewrite`]). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
-    /// go too. The texts no longer held, by cell, band and style; nothing
+    /// go too. The texts no longer held, by cell, band and variant; nothing
     /// is redrawn, and each is asked for again when the screen shows it.
-    pub fn make_room(&mut self, overrun: u64) -> Vec<(SpacedCell, Style, Vec<Text>)> {
-        let mut out: Vec<(SpacedCell, Style, Vec<Text>)> = Vec::new();
+    pub fn make_room(&mut self, overrun: u64) -> Vec<(SpacedCell, Variant, Vec<Text>)> {
+        let mut out: Vec<(SpacedCell, Variant, Vec<Text>)> = Vec::new();
         let mut short = overrun;
         while short > 0 && !self.entries.is_empty() {
             let held = self.bytes();
@@ -922,16 +963,16 @@ impl Generated {
                 };
                 list.sort_unstable();
                 let (lost, empty) = e.compact(&list);
-                let (at, style) = (e.at(), e.style);
+                let (at, variant) = (e.at(), e.variant);
                 if empty {
                     self.entries.remove(i);
                 }
                 match out
                     .iter_mut()
-                    .find(|(of_at, of, _)| (*of_at, *of) == (at, style))
+                    .find(|(of_at, of, _)| (*of_at, *of) == (at, variant))
                 {
                     Some((_, _, texts)) => texts.extend(lost),
-                    None => out.push((at, style, lost)),
+                    None => out.push((at, variant, lost)),
                 }
             }
             short = short.saturating_sub(held.saturating_sub(self.bytes()));
@@ -945,7 +986,7 @@ impl Generated {
     }
 
     /// The screen shows `shown` at `at`: the glyphs of its characters
-    /// and its clusters in its style are the most recently shown.
+    /// and its clusters in its variant are the most recently shown.
     pub fn touch(&mut self, at: SpacedCell, shown: &Shown) {
         self.tick = self.tick.saturating_add(1);
         let tick = self.tick;
@@ -956,7 +997,7 @@ impl Generated {
         for e in self
             .entries
             .iter_mut()
-            .filter(|e| e.at() == at && e.style == shown.style)
+            .filter(|e| e.at() == at && e.variant == shown.variant)
         {
             for &t in &texts {
                 if let Ok(i) = e.find(t)
@@ -987,14 +1028,11 @@ impl Generated {
         Some(e.face.decorations())
     }
 
-    /// `text`'s glyph at `at` in `style`, from the store: a set of that
-    /// style's, drawn as it is.
-    fn draw(&self, at: SpacedCell, text: &[char], style: Style) -> Option<Glyph> {
-        let face = &self.entry(at, style, text)?.face;
-        match text {
-            [_] => face.draw(text, style),
-            _ => face.cluster(text, style),
-        }
+    /// `text`'s glyph at `at` in `variant`, from the store: a set of that
+    /// variant's, drawn as it is.
+    fn draw(&self, at: SpacedCell, text: &[char], variant: Variant) -> Option<Glyph> {
+        let face = &self.entry(at, variant, text)?.face;
+        draw_text(face, text, variant, false)
     }
 }
 
@@ -1069,17 +1107,80 @@ impl DeferredFace {
         lock(&self.generated).held_any(self.at(), &[c])
     }
 
-    /// `c`'s glyph in `style`: the store's in that style, else the built-in
-    /// font's in the cell, which draws the style itself.
-    fn single(&self, c: char, style: Style) -> Option<Glyph> {
-        let held = lock(&self.generated).draw(self.at(), &[c], style);
-        held.or_else(|| self.built_in(c, style))
+    /// `c`'s glyph in `variant`: the store's in that variant, else the
+    /// built-in font's in the cell, which draws the style and the script
+    /// itself.
+    fn single(&self, c: char, variant: Variant) -> Option<Glyph> {
+        let held = lock(&self.generated).draw(self.at(), &[c], variant);
+        held.or_else(|| self.built_in_variant(c, variant))
+    }
+
+    /// `cluster`'s glyph in `variant` (ADR-1200 D22): the store's glyph for
+    /// the whole cluster in the variant, else, for a joined letter's key or
+    /// lam and alef, their joined forms (ADR-1004 D6), else the cluster
+    /// built from its parts ([`DeferredFace::unshaped`]), each part from the
+    /// store in the variant or else from the built-in font.
+    fn draw_in(&self, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        match cluster {
+            [] => None,
+            &[c] => self.single(c, variant),
+            _ => {
+                let held = lock(&self.generated).draw(self.at(), cluster, variant);
+                #[cfg(feature = "bidi")]
+                if let Some(key) = joined::Key::of(cluster) {
+                    return held.or_else(|| self.joined(&key, variant));
+                }
+                #[cfg(feature = "bidi")]
+                return held.or_else(|| self.unshaped(Sides::default(), cluster, variant));
+                #[cfg(not(feature = "bidi"))]
+                held.or_else(|| self.unshaped(cluster, variant))
+            }
+        }
+    }
+
+    /// `c`'s glyph in `variant` from the built-in font, fitted to the cell:
+    /// the normal glyph, or the built-in font's own superscript or
+    /// subscript glyph, made small as the built-in font's (ADR-1202 D4,
+    /// D11).
+    fn built_in_variant(&self, c: char, variant: Variant) -> Option<Glyph> {
+        let normal = self.built_in(c, variant.style)?;
+        if variant.script == Script::Baseline {
+            return Some(normal);
+        }
+        let font = vtium_font::Font::new(Builtins(self));
+        Some(font.drawn_variant(&[c], normal.cells(), variant)?.glyph)
     }
 
     /// `c`'s glyph in `style` from the built-in font, fitted to the cell.
     fn built_in(&self, c: char, style: Style) -> Option<Glyph> {
         let fit = Fit::default_for(u32::from(c), is_mark(c));
         self.fit(self.builtin.draw(&[c], style)?, fit)
+    }
+
+    /// The built-in font's origin for `cluster`'s first character in
+    /// `style`, or for its last resort when `cluster` is empty, moved where
+    /// [`DeferredFace::fit`] puts the built-in glyph in the text band
+    /// (ADR-1202 D1, D4); the default, a smooth glyph over the text band,
+    /// when the built-in font draws nothing for it.
+    fn built_in_origin(&self, cluster: &[char], style: Style) -> Origin {
+        let first = cluster.get(..1).unwrap_or_default();
+        let glyph = match *first {
+            [] => self.builtin.last_resort(style),
+            _ => self.builtin.draw(first, style),
+        };
+        let Some(glyph) = glyph else {
+            return Origin::default();
+        };
+        let text = self.text();
+        let to = (
+            text.width.saturating_mul(glyph.cells().cells()),
+            text.height,
+        );
+        self.builtin.origin(first, style).boxed(
+            (glyph.width(), glyph.height()),
+            to,
+            self.band.above,
+        )
     }
 
     /// A cluster the store does not hold drawn without its own glyph
@@ -1104,18 +1205,18 @@ impl DeferredFace {
         &self,
         #[cfg(feature = "bidi")] sides: Sides,
         cluster: &[char],
-        style: Style,
+        variant: Variant,
     ) -> Option<Glyph> {
         #[cfg(not(feature = "bidi"))]
         if let Some(c) = precomposed(cluster)
-            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
+            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], variant)
         {
             return Some(g);
         }
         #[cfg(feature = "bidi")]
         if sides.none()
             && let Some(c) = precomposed(cluster)
-            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], style)
+            && let Some(g) = lock(&self.generated).draw(self.at(), &[c], variant)
         {
             return Some(g);
         }
@@ -1126,19 +1227,22 @@ impl DeferredFace {
             .filter(|&c| is_mark(c) && !is_ignorable(c))
             .collect();
         #[cfg(not(feature = "bidi"))]
-        let (glyph, marks) = match self.held_part(base, &marks, style) {
+        let (glyph, marks) = match self.held_part(base, &marks, variant) {
             Some(held) => held,
-            None => (self.single(base, style)?, marks),
+            None => (self.single(base, variant)?, marks),
         };
         #[cfg(feature = "bidi")]
-        let (glyph, marks) = match self.held_part(sides, base, &marks, style) {
+        let (glyph, marks) = match self.held_part(sides, base, &marks, variant) {
             Some(held) => held,
-            None => (self.letter(sides, base, style)?, marks),
+            None => (self.letter(sides, base, variant)?, marks),
         };
         if glyph.format() != Format::Mask {
             return Some(glyph);
         }
-        let mask = |c| self.single(c, style).filter(|g| g.format() == Format::Mask);
+        let mask = |c| {
+            self.single(c, variant)
+                .filter(|g| g.format() == Format::Mask)
+        };
         let mut over: Vec<Glyph> = Vec::new();
         let mut spacing: Vec<(Glyph, bool)> = Vec::new();
         for c in marks {
@@ -1171,11 +1275,11 @@ impl DeferredFace {
     /// joins nothing ([`DeferredFace::single`]), else a joined letter's
     /// form ([`DeferredFace::form`]).
     #[cfg(feature = "bidi")]
-    fn letter(&self, sides: Sides, base: char, style: Style) -> Option<Glyph> {
+    fn letter(&self, sides: Sides, base: char, variant: Variant) -> Option<Glyph> {
         if sides.none() {
-            self.single(base, style)
+            self.single(base, variant)
         } else {
-            self.form(sides, base, style)
+            self.form(sides, base, variant)
         }
     }
 
@@ -1193,7 +1297,7 @@ impl DeferredFace {
         #[cfg(feature = "bidi")] sides: Sides,
         base: char,
         marks: &[char],
-        style: Style,
+        variant: Variant,
     ) -> Option<(Glyph, Vec<char>)> {
         let n = marks.len();
         if !(2..=HELD_PART_MARKS).contains(&n) {
@@ -1211,7 +1315,7 @@ impl DeferredFace {
                 text.extend((0..n).filter(|&i| !left(i)).filter_map(|i| marks.get(i)));
                 #[cfg(feature = "bidi")]
                 let text = sides.key(text);
-                let Some(glyph) = store.draw(self.at(), &text, style) else {
+                let Some(glyph) = store.draw(self.at(), &text, variant) else {
                     continue;
                 };
                 let rest = (0..n).filter(|&i| left(i)).filter_map(|i| marks.get(i));
@@ -1304,23 +1408,7 @@ impl Face for DeferredFace {
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        match cluster {
-            [] => None,
-            &[c] => self.single(c, style),
-            _ => {
-                let held = lock(&self.generated).draw(self.at(), cluster, style);
-                // a joined letter's key, or lam and alef as their ligature
-                // (ADR-1004 D6)
-                #[cfg(feature = "bidi")]
-                if let Some(key) = joined::Key::of(cluster) {
-                    return held.or_else(|| self.joined(&key, style));
-                }
-                #[cfg(feature = "bidi")]
-                return held.or_else(|| self.unshaped(Sides::default(), cluster, style));
-                #[cfg(not(feature = "bidi"))]
-                held.or_else(|| self.unshaped(cluster, style))
-            }
-        }
+        self.draw_in(cluster, style.into())
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -1338,32 +1426,50 @@ impl Face for DeferredFace {
     /// glyphs, so their origin is the default, a smooth glyph over the text
     /// band.
     fn origin(&self, cluster: &[char], style: Style) -> Origin {
-        let glyph = match *cluster {
-            [] => self.builtin.last_resort(style),
-            [c] if lock(&self.generated).draw(self.at(), &[c], style).is_none() => {
-                self.builtin.draw(&[c], style)
+        match *cluster {
+            [] => self.built_in_origin(cluster, style),
+            [c] if lock(&self.generated)
+                .draw(self.at(), &[c], style.into())
+                .is_none() =>
+            {
+                self.built_in_origin(cluster, style)
             }
-            _ => None,
-        };
-        let Some(glyph) = glyph else {
-            return Origin::default();
-        };
-        let text = self.text();
-        let to = (
-            text.width.saturating_mul(glyph.cells().cells()),
-            text.height,
-        );
-        self.builtin.origin(cluster, style).boxed(
-            (glyph.width(), glyph.height()),
-            to,
-            self.band.above,
-        )
+            _ => Origin::default(),
+        }
     }
 
     /// The face's built-in font alone, fitted to its cell as it draws a
     /// character the store lacks, whatever the store holds.
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
         Some(Box::new(Builtins(self)))
+    }
+
+    /// A superscript or subscript cell's glyph (ADR-1202 D11): the one the
+    /// helper sent for the cluster in its variant, drawn as it came, small
+    /// and placed in the whole cell; else, while it is on its way or when
+    /// the frit lacks the character, the built-in font's script glyph,
+    /// which also draws the character's normal glyph meanwhile (ADR-1200
+    /// D7, D22 step 4). The frit's normal glyph is never made small here,
+    /// since only the helper's source draws a frit's script glyph
+    /// (ADR-1202 D15).
+    ///
+    /// A cluster runs ADR-1200 D22's chain within the cell's script
+    /// (ADR-1202 D11): its own glyph in the script, else its NFC form's,
+    /// else its base's with each mark's laid over it, each from the store
+    /// in the script, and the built-in font's script glyph only for a part
+    /// the store lacks or that is still on its way.
+    fn script(&self, cluster: &[char], variant: Variant) -> ScriptFrom {
+        if variant.script == Script::Baseline {
+            return ScriptFrom::Normal;
+        }
+        let made = match cluster {
+            [_] => lock(&self.generated).draw(self.at(), cluster, variant),
+            _ => self.draw_in(cluster, variant),
+        };
+        match made {
+            Some(glyph) => ScriptFrom::Made(glyph),
+            None => ScriptFrom::Builtins,
+        }
     }
 
     /// The lines the helper's strikes at the cell report, once a set there
@@ -1434,6 +1540,14 @@ impl Face for Builtins<'_> {
     fn band(&self) -> Band {
         self.0.band
     }
+
+    /// The built-in font's origin, as it draws the cluster's first
+    /// character, so the placeholder for a superscript or subscript glyph
+    /// on its way is made small as the built-in font's own (ADR-1202 D4,
+    /// D11).
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        self.0.built_in_origin(cluster, style)
+    }
 }
 
 #[cfg(test)]
@@ -1480,12 +1594,12 @@ mod tests {
         let mut g = Generated::default();
         let set = solid(CELL, &['A']);
         let fresh = g
-            .fresh((spaced, Style::default()), set, &[(0x41, 1)], 1)
+            .fresh((spaced, Variant::default()), set, &[(0x41, 1)], 1)
             .unwrap();
         assert!(g.add(fresh).is_some());
-        assert!(g.held(spaced, Style::default(), &['A']));
-        assert!(!g.held(AT, Style::default(), &['A']));
-        assert!(g.draw(AT, &['A'], Style::default()).is_none());
+        assert!(g.held(spaced, Variant::default(), &['A']));
+        assert!(!g.held(AT, Variant::default(), &['A']));
+        assert!(g.draw(AT, &['A'], Variant::default()).is_none());
         assert!(g.holds(spaced) && !g.holds(AT));
         g.retain(&[AT]);
         assert!(!g.holds(spaced), "the band no display draws at leaves");
@@ -1500,7 +1614,7 @@ mod tests {
         bytes: u64,
     ) -> Option<SetFace> {
         let fresh = store.fresh(
-            (SpacedCell::plain(cell), Style::default()),
+            (SpacedCell::plain(cell), Variant::default()),
             set,
             &runs,
             bytes,
@@ -1511,7 +1625,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
         }
@@ -1531,6 +1645,244 @@ mod tests {
             .flat_map(|y| (0..g.width()).map(move |x| (x, y)))
             .filter(|&(x, y)| g.pixel(x, y).unwrap()[0] > 0)
             .count()
+    }
+
+    /// The superscript and subscript variants of the regular style.
+    const SUPER: Variant = Variant {
+        style: Style {
+            bold: false,
+            italic: false,
+        },
+        script: Script::Super,
+    };
+    const SUB: Variant = Variant {
+        script: Script::Sub,
+        ..SUPER
+    };
+
+    /// A set at `cell` of one strike of `variant`'s style and script,
+    /// whose every glyph in `chars` is `value` throughout.
+    fn filled(cell: Cell, variant: Variant, value: u8, chars: &[char]) -> Arc<Set> {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, cell, variant.style).script(variant.script);
+        let g = s.glyph(
+            Width::Narrow,
+            vec![value; (cell.width * cell.height) as usize],
+        );
+        for &c in chars {
+            s.map(c, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    // ADR-1202 D11, ADR-1200 D7 and D22 step 4: while the helper's
+    // superscript glyph is on its way, the cell draws the built-in font's
+    // superscript glyph, the placeholder every glyph on its way has, and
+    // not the frit's normal glyph made small, though the store holds it;
+    // the helper's glyph replaces the placeholder when it arrives, in its
+    // own script alone, and leaves the normal glyph as it was
+    // covers: sgr.script
+    #[test]
+    fn a_script_cell_draws_the_built_in_script_glyph_until_its_own_arrives() {
+        let generated: Shared = Arc::default();
+        let normal = filled(CELL, Variant::default(), 255, &['A']);
+        let fresh = lock(&generated)
+            .fresh((AT, Variant::default()), normal, &[(0x41, 1)], 1)
+            .unwrap();
+        assert!(lock(&generated).add(fresh).is_some());
+        let font = Font::new(face(&generated));
+        let unifont = Font::new(Unifont::new(16));
+        let draw =
+            |f: &Font<DeferredFace>, v| f.drawn_variant(&['A'], Width::Narrow, v).unwrap().glyph;
+        let placeholder = unifont
+            .drawn_variant(&['A'], Width::Narrow, SUPER)
+            .unwrap()
+            .glyph;
+        assert_eq!(draw(&font, SUPER), placeholder, "the built-in font's");
+        let frit_small = draw(&font, Variant::default())
+            .scripted(Script::Super, &Origin::default(), Band::NONE)
+            .unwrap();
+        assert_ne!(
+            draw(&font, SUPER),
+            frit_small,
+            "not the frit's normal glyph made small"
+        );
+        // the helper's superscript glyph arrives
+        let sup = filled(CELL, SUPER, 77, &['A']);
+        let fresh = lock(&generated)
+            .fresh((AT, SUPER), sup, &[(0x41, 1)], 1)
+            .unwrap();
+        assert!(lock(&generated).add(fresh).is_some());
+        assert!(
+            draw(&font, SUPER).pixels().iter().all(|&p| p == 77),
+            "the helper's"
+        );
+        assert!(
+            draw(&font, Variant::default())
+                .pixels()
+                .iter()
+                .all(|&p| p == 255)
+        );
+        let sub = unifont
+            .drawn_variant(&['A'], Width::Narrow, SUB)
+            .unwrap()
+            .glyph;
+        assert_eq!(draw(&font, SUB), sub, "the subscript still on its way");
+    }
+
+    /// A set at `cell` of one 1-bit strike of `variant`'s style and script
+    /// mapping each of `glyphs`' characters to a glyph of rows `rows`, as a
+    /// bitmap frit's helper answers.
+    fn bitmap_rows(cell: Cell, variant: Variant, glyphs: &[(char, (u32, u32))]) -> Arc<Set> {
+        let mut s =
+            StrikeBuilder::new(PixelFormat::Bits, cell, variant.style).script(variant.script);
+        for &(c, (top, bottom)) in glyphs {
+            let rows: Vec<u8> = (0..cell.height)
+                .map(|y| {
+                    if (top..bottom).contains(&y) {
+                        0b0011_1100
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            let g = s.glyph(Width::Narrow, rows);
+            s.map(c, g);
+        }
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// The rows of `g` with ink.
+    fn inked_rows(g: &Glyph) -> Vec<u32> {
+        (0..g.height())
+            .filter(|&y| (0..g.width()).any(|x| g.pixel(x, y).unwrap()[0] > 0))
+            .collect()
+    }
+
+    // ADR-1202 D11, D15 and ADR-1200 D22: a superscript cluster that the
+    // store holds no glyph for whole, e and its combining acute, runs the
+    // lookup chain within its script. A bitmap frit's helper answers no
+    // cluster, so the cell draws the frit's superscript e with the frit's
+    // superscript acute laid over it; once the frit's superscript é
+    // arrives, its NFC form draws. The built-in font draws neither, since
+    // the frit has both characters
+    // covers: sgr.script
+    #[test]
+    fn a_superscript_cluster_draws_from_the_frits_superscript_parts() {
+        let generated: Shared = Arc::default();
+        let font = Font::new(face(&generated));
+        let cluster = ['e', '\u{301}'];
+        let unifont = Font::new(Unifont::new(16))
+            .drawn_variant(&cluster, Width::Narrow, SUPER)
+            .unwrap()
+            .glyph;
+        // the frit's superscript e on rows 6 to 9, its acute on rows 0 to 1
+        let parts = bitmap_rows(CELL, SUPER, &[('e', (6, 10)), ('\u{301}', (0, 2))]);
+        let fresh = lock(&generated)
+            .fresh((AT, SUPER), parts, &[(0x65, 1), (0x301, 1)], 1)
+            .unwrap();
+        assert!(lock(&generated).add(fresh).is_some());
+        let drawn = font
+            .drawn_variant(&cluster, Width::Narrow, SUPER)
+            .unwrap()
+            .glyph;
+        assert_eq!(
+            inked_rows(&drawn),
+            [0, 1, 6, 7, 8, 9],
+            "the frit's e and acute"
+        );
+        assert_ne!(drawn, unifont, "not the built-in font's");
+        // the frit's superscript é arrives, on rows 3 to 4
+        let nfc = bitmap_rows(CELL, SUPER, &[('\u{e9}', (3, 5))]);
+        let fresh = lock(&generated)
+            .fresh((AT, SUPER), nfc, &[(0xe9, 1)], 1)
+            .unwrap();
+        assert!(lock(&generated).add(fresh).is_some());
+        let drawn = font
+            .drawn_variant(&cluster, Width::Narrow, SUPER)
+            .unwrap()
+            .glyph;
+        assert_eq!(inked_rows(&drawn), [3, 4], "the frit's é");
+    }
+
+    // ADR-1202 D11, ADR-1200 D19: compaction writes a superscript set
+    // again as superscript strikes, so the glyph it keeps still draws in
+    // superscript and never for a normal cell
+    #[test]
+    fn compaction_keeps_a_glyphs_script() {
+        let mut g = Generated::default();
+        let set = filled(CELL, SUPER, 77, &['A', 'C']);
+        // counted larger than the set written again holds, so dropping one
+        // glyph frees enough
+        let fresh = g
+            .fresh((AT, SUPER), set, &[(0x41, 1), (0x43, 1)], 1 << 20)
+            .unwrap();
+        assert!(g.add(fresh).is_some());
+        g.touch(
+            AT,
+            &Shown {
+                variant: SUPER,
+                chars: vec!['A'],
+                clusters: Vec::new(),
+            },
+        );
+        // C was shown least recently, so it leaves and A's set is written
+        // again without it
+        assert_eq!(g.make_room(1), vec![(AT, SUPER, texts(&['C']))]);
+        assert!(g.held(AT, SUPER, &['A']) && !g.held(AT, SUPER, &['C']));
+        let a = g.draw(AT, &['A'], SUPER).unwrap();
+        assert!(a.pixels().iter().all(|&p| p == 77));
+        assert!(g.draw(AT, &['A'], Variant::default()).is_none());
+    }
+
+    // ADR-1202 D11: the store keys a glyph by its script, so a superscript
+    // set's glyph is held and drawn only in that script
+    #[test]
+    fn the_store_keys_a_glyph_by_its_script() {
+        let mut g = Generated::default();
+        let fresh = g
+            .fresh(
+                (AT, SUPER),
+                filled(CELL, SUPER, 77, &['A']),
+                &[(0x41, 1)],
+                1,
+            )
+            .unwrap();
+        assert!(g.add(fresh).is_some());
+        assert!(g.held(AT, SUPER, &['A']));
+        assert!(!g.held(AT, Variant::default(), &['A']));
+        assert!(!g.held(AT, SUB, &['A']));
+        assert!(g.draw(AT, &['A'], Variant::default()).is_none());
+        assert!(
+            g.draw(AT, &['A'], SUPER)
+                .is_some_and(|a| a.pixels()[0] == 77)
+        );
+        // what the screen shows in superscript is the most recently shown,
+        // so compaction drops the normal B and keeps the superscript A
+        let fresh = g
+            .fresh(
+                (AT, Variant::default()),
+                solid(CELL, &['B']),
+                &[(0x42, 1)],
+                1,
+            )
+            .unwrap();
+        assert!(g.add(fresh).is_some());
+        g.touch(
+            AT,
+            &Shown {
+                variant: SUPER,
+                chars: vec!['A'],
+                clusters: Vec::new(),
+            },
+        );
+        assert_eq!(
+            g.make_room(1),
+            vec![(AT, Variant::default(), texts(&['B']))]
+        );
+        assert!(
+            g.draw(AT, &['A'], SUPER)
+                .is_some_and(|a| a.pixels()[0] == 77)
+        );
     }
 
     // ADR-1401 D5, D7: the console draws a notice and the focus mark from
@@ -1594,10 +1946,12 @@ mod tests {
         let generated = Shared::default();
         {
             let mut store = lock(&generated);
-            let fresh = store.fresh((AT, italic), set, &[(0x41, 1)], 1).unwrap();
+            let fresh = store
+                .fresh((AT, italic.into()), set, &[(0x41, 1)], 1)
+                .unwrap();
             assert!(store.add(fresh).is_some());
-            assert!(store.held(AT, italic, &['A']));
-            assert!(!store.held(AT, Style::default(), &['A']));
+            assert!(store.held(AT, italic.into(), &['A']));
+            assert!(!store.held(AT, Variant::default(), &['A']));
         }
         let f = face(&generated);
         let unifont = Unifont::new(16);
@@ -1864,9 +2218,15 @@ mod tests {
         assert_eq!(g.bytes(), 30);
         // A is on the screen, B is not
         g.touch(AT, &shown(&['A']));
-        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['B']))]);
+        assert_eq!(
+            g.make_room(1),
+            vec![(AT, Variant::default(), texts(&['B']))]
+        );
         assert_eq!(g.bytes(), 10);
-        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['A']))]);
+        assert_eq!(
+            g.make_room(1),
+            vec![(AT, Variant::default(), texts(&['A']))]
+        );
         assert_eq!(g.make_room(1), vec![]);
         assert_eq!(g.bytes(), 0);
     }
@@ -1956,7 +2316,7 @@ mod tests {
         let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
         assert!(after < before);
         let gone = lock(&generated).make_room(before - after);
-        assert_eq!(gone, vec![(AT, Style::default(), texts(&['B', 'E']))]);
+        assert_eq!(gone, vec![(AT, Variant::default(), texts(&['B', 'E']))]);
         assert_eq!(lock(&generated).bytes(), after);
         for (k, glyph) in kept.into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
@@ -1980,7 +2340,10 @@ mod tests {
         let e = ('E', Width::Narrow, bits(6));
         put(&mut g, answer(&[d.clone(), e], std::slice::from_ref(&a)));
         g.touch(AT, &shown(&['A', 'D']));
-        assert_eq!(g.make_room(1), vec![(AT, Style::default(), texts(&['E']))]);
+        assert_eq!(
+            g.make_room(1),
+            vec![(AT, Variant::default(), texts(&['E']))]
+        );
         let strikes: Vec<_> = g.entries[0]
             .face
             .set()
@@ -2079,10 +2442,10 @@ mod tests {
     fn the_store_keys_a_cluster_by_its_whole_text() {
         let mut g = Generated::default();
         add(&mut g, CELL, with_clusters(&['e'], &[]), vec![(0x65, 1)], 1);
-        assert!(g.held(AT, Style::default(), &['e']) && !g.held(AT, Style::default(), &ACUTE));
+        assert!(g.held(AT, Variant::default(), &['e']) && !g.held(AT, Variant::default(), &ACUTE));
         let fresh = g
             .fresh(
-                (AT, Style::default()),
+                (AT, Variant::default()),
                 with_clusters(&['e'], &[(&ACUTE, 7)]),
                 &[(0x65, 1)],
                 1,
@@ -2091,10 +2454,10 @@ mod tests {
         assert_eq!(fresh.texts().cloned().collect::<Vec<_>>(), [ACUTE.to_vec()]);
         assert!(g.add(fresh).is_some());
         let grave = ['e', '\u{300}'];
-        assert!(g.held(AT, Style::default(), &ACUTE) && !g.held(AT, Style::default(), &grave));
+        assert!(g.held(AT, Variant::default(), &ACUTE) && !g.held(AT, Variant::default(), &grave));
         let fresh = g
             .fresh(
-                (AT, Style::default()),
+                (AT, Variant::default()),
                 with_clusters(&[], &[(&grave, 9)]),
                 &[],
                 1,
@@ -2798,22 +3161,22 @@ mod tests {
             1 << 20,
         );
         let shown = Shown {
-            style: Style::default(),
+            variant: Variant::default(),
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],
         };
         lock(&generated).touch(AT, &shown);
         assert_eq!(
             lock(&generated).make_room(1),
-            vec![(AT, Style::default(), vec![grave.to_vec()])]
+            vec![(AT, Variant::default(), vec![grave.to_vec()])]
         );
         let f = face(&generated);
         assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
-        assert!(!lock(&generated).held(AT, Style::default(), &grave));
+        assert!(!lock(&generated).held(AT, Variant::default(), &grave));
         // a frame of the held cluster and a new one adds the new one alone
         let fresh = lock(&generated)
             .fresh(
-                (AT, Style::default()),
+                (AT, Variant::default()),
                 with_clusters(&[], &[(&ACUTE, 3), (&grave, 9)]),
                 &[],
                 100,

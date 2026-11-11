@@ -1,7 +1,8 @@
 //! Any bytes as the requests the console writes to the glyph helper's
 //! stdin, read one after another by `ServeRequest::read` as the helper
 //! reads them (ADR-1301 D2): no panic, whatever the bytes, and each request
-//! it takes encodes back to bytes it reads as the same request.
+//! it takes, its style and its script among its fields (ADR-1202 D11),
+//! encodes back to bytes it reads as the same request.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
