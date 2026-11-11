@@ -266,19 +266,44 @@ pub fn already_all(mode: Mode) -> String {
     )
 }
 
-pub fn given_all(mode: Mode, vt1: bool, vt6: bool) -> String {
+/// VT numbers as a person reads them: "VT 4", "VTs 4 and 5", or "VTs 2,
+/// 3, 4, and 5".
+fn vt_list(vts: &[u16]) -> String {
+    match vts {
+        [] => String::new(),
+        [n] => format!("VT {n}"),
+        [a, b] => format!("VTs {a} and {b}"),
+        [first @ .., last] => {
+            let first: Vec<String> = first.iter().map(u16::to_string).collect();
+            format!("VTs {}, and {last}", first.join(", "))
+        }
+    }
+}
+
+/// What `enable --all` says once it is done: `at_boot` names the VTs from
+/// 1 to 6 that systemd starts vtium on at boot, and `vt6` says whether
+/// logind starts vtium on VT 6, its reserved VT, at the next switch there.
+pub fn given_all(mode: Mode, at_boot: &[u16], vt6: bool) -> String {
     let unit = mode.prefix();
-    let boot = if vt1 {
-        "systemd starts it on VT 1 at the next boot, and logind starts it on each other VT"
+    let boot = if at_boot.is_empty() {
+        " systemd starts it at boot on no VT, because other programs hold VTs 1 to 6.".to_owned()
     } else {
-        "logind starts it on every VT except VT 1"
-    };
-    let now = if vt1 {
         format!(
-            " To start vtium on VT 1 now, run systemctl start {unit}@tty1.service; that ends every session there."
+            " systemd starts it at boot on {}, so it holds each of them open from boot.",
+            vt_list(at_boot)
         )
-    } else {
+    };
+    let switch = if (2..=super::LOGIND_VTS).all(|n| at_boot.contains(&n)) {
         String::new()
+    } else {
+        " On another VT from 2 to 6, logind starts it when you switch to that VT while nothing runs there.".to_owned()
+    };
+    let now = if at_boot.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " To start it now on one of them, run systemctl start {unit}@ttyN.service with that VT's number as N; that ends every session on that VT."
+        )
     };
     let six = if vt6 {
         format!(
@@ -289,8 +314,19 @@ pub fn given_all(mode: Mode, vt1: bool, vt6: bool) -> String {
         String::new()
     };
     format!(
-        "vtium is enabled in {} on every VT from its next start: {boot} when you switch to it while nothing runs there. A login prompt running now on VTs 2 to 5 keeps its VT until it stops.{six}{now}",
+        "vtium is enabled in {} on every VT from its next start.{boot}{switch} A login prompt running now keeps its VT until it stops.{six}{now}",
         mode_name(mode)
+    )
+}
+
+/// The line `status` prints under its table for the VTs from 2 to 5 that
+/// the template link gives to vtium while nothing holds them open at boot.
+pub fn not_held_at_boot(vts: &[u16], mode: Mode) -> String {
+    let them = if vts.len() == 1 { "it" } else { "them" };
+    format!(
+        "vtium does not start at boot on {}. Nothing holds {them} open until you switch to {them}, so a display manager can put a desktop session there. To start vtium at boot on {them}, run sudo vtium console enable {} --all.",
+        vt_list(vts),
+        mode.flag()
     )
 }
 

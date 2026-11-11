@@ -11,8 +11,10 @@
 //! over `/etc/systemd/system/autovt@.service`, the template link that every
 //! other VT follows. `enable N` enables the mode's unit on VT N, such as
 //! `vtium@ttyN`, and disables the VT's getty; `enable --all` also links the
-//! template to the mode's unit and disables the
-//! gettys on VTs 2 to 6, which logind then fills with vtium. Before vtium
+//! template to the mode's unit and does `enable N` on each free VT from 1 to
+//! 6. So systemd starts vtium at boot on each VT it claims, and vtium holds
+//! each one open from boot, where a display manager that puts a desktop
+//! session on the first free VT would otherwise take it. Before vtium
 //! disables a getty or moves the template link, it writes a record of
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
 //! what the records say. It passes by every VT another program holds: a
@@ -1257,6 +1259,9 @@ impl Run<'_, '_, '_> {
                 .entry(n)
                 .or_default()
                 .insert(prefix.to_owned(), Link::To(unit.to_owned()));
+            // The enable links the VT's own link too, from the unit's
+            // Alias=autovt@.service.
+            state.own.insert(n, Link::To(unit.to_owned()));
         }
         if state.wanted(n, other) {
             self.systemctl(&["disable", &format!("{other}@tty{n}.service")])?;
@@ -1386,15 +1391,17 @@ impl Run<'_, '_, '_> {
                 return Err(Stop(text::dev_on_reserved_vt(RESERVED_VT)));
             }
         }
-        // What each VT keeps, the VTs whose gettys go, and the VTs above VT
-        // 1 that move from the other mode.
+        // What each VT keeps, the VTs from 2 to 6 that vtium starts on at
+        // boot, and the VTs above 6 that move from the other mode.
         let mut kept: Vec<String> = Vec::new();
-        let mut gettys: Vec<u16> = Vec::new();
+        let mut boot: Vec<u16> = Vec::new();
         let mut moves: Vec<u16> = Vec::new();
         for (n, holders) in &state.held {
             kept.push(text::kept_graphics(*n, holders));
         }
-        for n in state.vts() {
+        let mut vts = state.vts();
+        vts.extend(2..=LOGIND_VTS);
+        for n in vts {
             if state.held.contains_key(&n) {
                 continue;
             }
@@ -1429,20 +1436,33 @@ impl Run<'_, '_, '_> {
                 });
                 continue;
             }
-            if n != 1
-                && let Some(unit) = state.own(n).unit().filter(|u| !VTIUMS.contains(u))
-            {
-                kept.push(text::kept_own_link(n, unit));
+            if n == 1 {
+                continue;
             }
-            if n != 1 && state.other_mode(n) {
-                moves.push(n);
-            }
-            if n != 1 && state.wanted(n, GETTY) {
-                if n <= LOGIND_VTS {
-                    gettys.push(n);
-                } else {
-                    kept.push(text::kept_high_getty(n));
+            // A VT whose own link names another unit keeps that unit, its
+            // getty included: `enable N` refuses it.
+            match state.own(n) {
+                link @ Link::To(_) if !names_vtium(link) => {
+                    kept.push(text::kept_own_link(n, link.unit().unwrap_or("?")));
+                    continue;
                 }
+                Link::Other => {
+                    kept.push(text::kept_own_link(n, "autovt"));
+                    continue;
+                }
+                _ => {}
+            }
+            // vtium starts at boot on each VT it claims from 2 to 6, so it
+            // holds each one open from boot and a display manager that
+            // picks the first free VT passes it by.
+            if n <= LOGIND_VTS {
+                if !state.given(n) {
+                    boot.push(n);
+                }
+            } else if state.other_mode(n) {
+                moves.push(n);
+            } else if state.wanted(n, GETTY) {
+                kept.push(text::kept_high_getty(n));
             }
         }
         // VT 1 gets `enable N` unless the development install, kmscon or
@@ -1457,7 +1477,7 @@ impl Run<'_, '_, '_> {
         }
         let template_done = state.template_etc.names(state.prefix);
         let vt1_done = vt1_kept || state.given(1);
-        if template_done && vt1_done && gettys.is_empty() && moves.is_empty() {
+        if template_done && vt1_done && boot.is_empty() && moves.is_empty() {
             // A run whose last step, the reload, failed finds its links
             // done, so a run that changes nothing reloads.
             self.reload()?;
@@ -1467,9 +1487,13 @@ impl Run<'_, '_, '_> {
             }
             return Ok(0);
         }
+        // The VTs from 1 to 6 that move from the other mode, named once
+        // their move is done.
+        let mut moved: Vec<u16> = Vec::new();
         if !vt1_kept && state.other_mode(1) {
-            moves.insert(0, 1);
+            moved.push(1);
         }
+        moved.extend(boot.iter().copied().filter(|&n| state.other_mode(n)));
         if !template_done {
             // The record keeps what the template named before vtium took
             // it, never one of vtium's own units: a move between modes
@@ -1486,22 +1510,17 @@ impl Run<'_, '_, '_> {
         if !vt1_done {
             self.enable_vt(state, 1, unit)?;
         }
-        for &n in moves.iter().filter(|&&n| n != 1) {
+        for &n in boot.iter().chain(&moves) {
             self.enable_vt(state, n, unit)?;
         }
-        for n in gettys {
-            self.record_vt(state, n)?;
-            self.disable_getty(state, n)?;
-        }
         self.reload()?;
-        for &n in &moves {
+        moved.extend(&moves);
+        for &n in &moved {
             self.say(&text::moved(n, mode));
         }
-        self.say(&text::given_all(
-            mode,
-            !vt1_kept,
-            state.templated(RESERVED_VT),
-        ));
+        let at_boot: Vec<u16> = (1..=LOGIND_VTS).filter(|&n| state.given(n)).collect();
+        let vt6 = boot.contains(&RESERVED_VT) || state.templated(RESERVED_VT);
+        self.say(&text::given_all(mode, &at_boot, vt6));
         for line in &kept {
             self.say(line);
         }
@@ -1642,6 +1661,28 @@ impl Run<'_, '_, '_> {
                 }
             }
             self.say(line.trim_end());
+        }
+        // The VTs from 2 to 5 that the template link gives to vtium while
+        // nothing holds them open at boot, as on a machine claimed before
+        // vtium started at boot on each claimed VT: a display manager that
+        // picks the first free VT can take them. logind holds VT 6 open
+        // itself, so no display manager takes it.
+        let mode = match state.template().unit() {
+            Some(VTIUM) => Some(Mode::Direct),
+            Some(SEAT) => Some(Mode::Seat),
+            _ => None,
+        };
+        if let Some(mode) = mode {
+            let free: Vec<u16> = (2..RESERVED_VT.min(LOGIND_VTS + 1))
+                .filter(|&n| {
+                    state.templated(n)
+                        && state.wants.get(&n).is_none_or(BTreeMap::is_empty)
+                        && !state.held.contains_key(&n)
+                })
+                .collect();
+            if !free.is_empty() {
+                self.say(&text::not_held_at_boot(&free, mode));
+            }
         }
         // Why each VT a unit that starts at boot holds is held.
         for (n, holders) in &state.held {

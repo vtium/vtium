@@ -5,7 +5,12 @@
 //! template's own `[Install]` section, found along the unit search path,
 //! and links `Alias=` and `WantedBy=` for an instance. It refuses a masked
 //! instance, a masked template and a missing unit file, still links the
-//! wants when an alias is taken, and leaves a VT's alias at `disable`. Its
+//! wants when an alias is taken, and leaves a VT's alias at `disable`, as
+//! systemd's `src/shared/install.c` at 78ab4b1 does: `disable` marks only
+//! the instance's name, and `remove_marked_symlinks_fd` removes a link only
+//! when its name, its name's template, the path it points to or that
+//! path's file name is marked, which `autovt@ttyN.service`, pointing to
+//! `vtium@.service`, never is. Its
 //! `systemctl show` answers from a table each test writes out literally, as
 //! systemd 262 printed it (measured), and prints for a unit missing from the
 //! table what systemd prints for a unit it does not know. It panics on any
@@ -170,7 +175,8 @@ impl Fake {
                 "Failed to disable unit: Unit file {name} does not exist.\n"
             ));
         };
-        // An instance's alias stays (measured); its wants go by their
+        // An instance's alias stays (measured, and install.c's
+        // remove_marked_symlinks_fd); its wants go by their
         // name, whichever unit file they link to (measured).
         for target in install.get("WantedBy").into_iter().flatten() {
             let wants = self.etc().join(format!("{target}.wants")).join(name);
@@ -809,20 +815,17 @@ fn enable_all_gives_every_vt_and_disable_all_gives_back_exactly_what_it_took() {
     let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert_eq!(m.links(TEMPLATE), to("vtium"));
-    // vtium at boot on VT 1 alone; logind starts it on the others.
-    assert!(m.wanted("vtium@tty1.service"));
+    // vtium at boot on every VT from 1 to 6, each with its getty's record.
     for n in 1..=6 {
+        assert!(m.wanted(&format!("vtium@tty{n}.service")), "{n}");
         assert!(!m.wanted(&format!("getty@tty{n}.service")), "{n}");
-    }
-    for n in 2..=6 {
-        assert!(!m.wanted(&format!("vtium@tty{n}.service")), "{n}");
         assert!(m.root().join(RECORDS).join(format!("tty{n}")).is_file());
     }
     assert_eq!(
         m.fake.calls.last().map(String::as_str),
         Some("daemon-reload")
     );
-    assert!(out.contains("systemctl start vtium@tty1.service"), "{out}");
+    assert!(out.contains("systemctl start vtium@ttyN.service"), "{out}");
 
     let (status, out, err) = m.console(&["disable", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
@@ -981,6 +984,9 @@ fn kmscon_on_one_vt_beside_vtiums_template_keeps_it() {
     // link itself.
     let mut m = Machine::new("kmscon-beside");
     assert_eq!(m.console(&["enable", "--direct", "--all"]).0, 0);
+    // enable --all starts vtium at boot on VT 3, so the user takes VT 3
+    // back from vtium before linking kmscon there.
+    assert_eq!(m.console(&["disable", "3"]).0, 0);
     m.link("autovt@tty3.service", "kmsconvt");
     let (status, _, err) = m.console(&["enable", "--direct", "3"]);
     assert_eq!(status, 1);
@@ -1203,8 +1209,11 @@ fn an_enabled_display_manager_keeps_vt_1() {
         out.contains("VT 1 is unchanged: the display manager sddm.service uses VT 1 at boot: a display manager is enabled, and by convention VT 1 belongs to the display manager and its login prompt"),
         "{out}"
     );
-    assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
-    // The other VTs are vtium's.
+    // The other VTs are vtium's, from boot.
+    assert!(
+        out.contains("systemd starts it at boot on VTs 2, 3, 4, 5, and 6"),
+        "{out}"
+    );
     assert_eq!(m.links(TEMPLATE), to("vtium"));
     assert!(!m.wanted("getty@tty2.service"));
     let (_, out, _) = m.console(&["status"]);
@@ -1593,7 +1602,7 @@ fn enable_all_passes_by_a_masked_vt_whose_getty_holds_it() {
             "{out}"
         );
     }
-    assert!(!out.contains("systemctl start vtium@tty1.service"), "{out}");
+    assert!(!out.contains("on VTs 1, "), "{out}");
     assert_eq!(m.links(TEMPLATE), to("vtium"));
     assert!(!m.wanted("getty@tty3.service"));
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
@@ -1866,7 +1875,7 @@ fn a_login_on_loginds_reserved_vt_is_refused() {
     let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(
-        out.contains("A login prompt running now on VTs 2 to 5 keeps its VT"),
+        out.contains("A login prompt running now keeps its VT until it stops."),
         "{out}"
     );
     assert!(
@@ -1945,11 +1954,13 @@ fn a_login_inside_vtium_on_loginds_reserved_vt_is_no_refusal() {
     assert!(out.contains("already"), "{out}");
     assert_eq!(m.snapshot(), snapshot);
     // With vtium running on VT 6 already, there is no getty to stop and
-    // nothing to start.
+    // nothing to start. enable --all gave VT 6 to vtium at boot, so VT 6 is
+    // taken back first.
+    assert_eq!(m.console(&["disable", "6"]).0, 0);
     let (status, out, err) = m.console(&["enable", "--direct", "6"]);
     assert_eq!((status, err.as_str()), (0, ""), "{out}");
     assert!(out.contains("vtium already runs there."), "{out}");
-    assert!(!out.contains("getty"), "{out}");
+    assert!(!out.contains("login prompt"), "{out}");
     assert!(!out.contains("To start it now"), "{out}");
     // A second enable 6 says that VT 6 is vtium's already, a login on VT 6
     // or not, and vtium running there or not.
@@ -2884,4 +2895,172 @@ fn a_masked_seat_unit_is_no_seat_mode() {
     );
     assert_eq!(m.snapshot(), before);
     assert!(m.changes().is_empty(), "{:?}", m.changes());
+}
+
+/// The VTs where `prefix`'s unit starts at boot: its want in
+/// `getty.target.wants` and the VT's own `autovt@ttyN.service`, both
+/// linked to its unit file, as `systemctl enable` makes them.
+fn at_boot(m: &Machine, prefix: &str) -> Vec<u16> {
+    (1..=LAST_VT)
+        .filter(|n| {
+            m.links(&format!("getty.target.wants/{prefix}@tty{n}.service")) == to(prefix)
+                && m.links(&format!("autovt@tty{n}.service")) == to(prefix)
+        })
+        .collect()
+}
+
+/// The VTs that have either of `prefix`'s boot links: its want or a VT's
+/// own link to its unit.
+fn boot_links(m: &Machine, prefix: &str) -> Vec<u16> {
+    (1..=LAST_VT)
+        .filter(|n| {
+            m.wanted(&format!("{prefix}@tty{n}.service"))
+                || m.links(&format!("autovt@tty{n}.service")) == to(prefix)
+        })
+        .collect()
+}
+
+/// Turns `m`, a machine with gettys on VTs 1 to 6, into one that
+/// `enable --direct --all` claimed before vtium started at boot on every
+/// claimed VT: the template linked to vtium, vtium at boot on VT 1 alone,
+/// and the gettys of VTs 1 to 6 disabled and recorded.
+fn claimed_through_the_template(m: &Machine) {
+    let getty = "/usr/lib/systemd/system/getty@.service\n";
+    let records = m.root().join(RECORDS);
+    std::fs::create_dir_all(&records).unwrap();
+    std::fs::write(records.join(TEMPLATE), getty).unwrap();
+    for n in 1..=6 {
+        std::fs::remove_file(m.root().join(WANTS).join(format!("getty@tty{n}.service"))).unwrap();
+        std::fs::write(records.join(format!("tty{n}")), getty).unwrap();
+    }
+    std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
+    m.link(TEMPLATE, "vtium");
+    m.link("getty.target.wants/vtium@tty1.service", "vtium");
+    m.link("autovt@tty1.service", "vtium");
+}
+
+#[test]
+fn enable_all_starts_vtium_at_boot_on_every_vt_it_claims() {
+    // ADR-1500 D7, "Each claimed VT starts at boot": with gettys on VTs 1
+    // to 6, and with the getty on VT 1 alone, as systemd's preset leaves it.
+    for gettys in [true, false] {
+        let mut m = if gettys {
+            Machine::gettys("boot-all")
+        } else {
+            let m = Machine::new("boot-all-preset");
+            m.link("getty.target.wants/getty@tty1.service", "getty");
+            m.link(TEMPLATE, "getty");
+            m
+        };
+        let before = m.snapshot();
+        let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+        assert_eq!((status, err.as_str()), (0, ""), "{out}");
+        assert_eq!(at_boot(&m, VTIUM), [1, 2, 3, 4, 5, 6], "{out}");
+        assert_eq!(boot_links(&m, SEAT), Vec::<u16>::new());
+        assert!((1..=6).all(|n| !m.wanted(&format!("getty@tty{n}.service"))));
+        assert!(
+            out.contains("systemd starts it at boot on VTs 1, 2, 3, 4, 5, and 6"),
+            "{out}"
+        );
+        let (status, out, err) = m.console(&["disable", "--all"]);
+        assert_eq!((status, err.as_str()), (0, ""), "{out}");
+        assert_eq!(boot_links(&m, VTIUM), Vec::<u16>::new());
+        assert_eq!(m.snapshot(), before, "gettys on VTs 1 to 6: {gettys}");
+    }
+}
+
+#[test]
+fn enable_seat_n_starts_seat_mode_at_boot_and_disable_n_removes_both_links() {
+    let mut m = Machine::gettys("boot-seat-n");
+    let before = m.snapshot();
+    let (status, out, err) = m.console(&["enable", "--seat", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(at_boot(&m, SEAT), [3]);
+    assert_eq!(boot_links(&m, VTIUM), Vec::<u16>::new());
+    let (status, out, err) = m.console(&["disable", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(boot_links(&m, SEAT), Vec::<u16>::new());
+    assert_eq!(m.snapshot(), before);
+}
+
+#[test]
+fn disable_n_after_enable_all_removes_that_vts_boot_links() {
+    let mut m = Machine::gettys("boot-disable-n");
+    assert_eq!(m.console(&["enable", "--direct", "--all"]).0, 0);
+    let (status, out, err) = m.console(&["disable", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(boot_links(&m, VTIUM), [1, 2, 4, 5, 6]);
+    assert_eq!(at_boot(&m, VTIUM), [1, 2, 4, 5, 6]);
+    assert!(m.wanted("getty@tty3.service"));
+}
+
+#[test]
+fn a_move_between_modes_moves_every_boot_link() {
+    let mut m = Machine::gettys("boot-move");
+    assert_eq!(m.console(&["enable", "--direct", "--all"]).0, 0);
+    let (status, out, err) = m.console(&["enable", "--seat", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(at_boot(&m, SEAT), [1, 2, 3, 4, 5, 6], "{out}");
+    assert_eq!(boot_links(&m, VTIUM), Vec::<u16>::new(), "{out}");
+    for n in 1..=6 {
+        assert!(
+            out.contains(&format!("VT {n} moves from direct mode to seat mode")),
+            "{out}"
+        );
+    }
+    // One VT back to direct mode, then every VT.
+    assert_eq!(m.console(&["enable", "--direct", "4"]).0, 0);
+    assert_eq!(at_boot(&m, VTIUM), [4]);
+    assert_eq!(boot_links(&m, SEAT), [1, 2, 3, 5, 6]);
+    assert_eq!(m.console(&["enable", "--direct", "--all"]).0, 0);
+    assert_eq!(at_boot(&m, VTIUM), [1, 2, 3, 4, 5, 6]);
+    assert_eq!(boot_links(&m, SEAT), Vec::<u16>::new());
+}
+
+#[test]
+fn a_machine_claimed_through_the_template_alone_gets_its_boot_links_from_a_rerun() {
+    let mut m = Machine::gettys("boot-rerun");
+    let start = m.snapshot();
+    claimed_through_the_template(&m);
+    // status names the VTs that nothing holds open at boot. VT 6 is left
+    // out: logind holds it open itself.
+    let (status, out, _) = m.console_as(false, &["status"]);
+    assert_eq!(status, 0);
+    assert!(
+        out.contains("vtium does not start at boot on VTs 2, 3, 4, and 5."),
+        "{out}"
+    );
+    assert!(
+        out.contains("run sudo vtium console enable --direct --all"),
+        "{out}"
+    );
+    let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(!out.contains("already"), "{out}");
+    assert!(
+        out.contains("systemd starts it at boot on VTs 1, 2, 3, 4, 5, and 6"),
+        "{out}"
+    );
+    assert_eq!(at_boot(&m, VTIUM), [1, 2, 3, 4, 5, 6]);
+    // The records keep what the first claim found: the gettys.
+    let (_, out, _) = m.console(&["status"]);
+    assert!(!out.contains("does not start at boot"), "{out}");
+    let (status, out, err) = m.console(&["disable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(m.snapshot(), start);
+}
+
+#[test]
+fn status_names_no_vt_a_display_manager_or_a_getty_holds_at_boot() {
+    let mut m = Machine::gettys("boot-status-held");
+    claimed_through_the_template(&m);
+    // VT 2's getty enabled again holds it at boot, and VT 3 runs a
+    // graphical session.
+    m.link("getty.target.wants/getty@tty2.service", "getty");
+    m.fake.sessions = vec![["aaron", "3", "sddm", "wayland", "user"]];
+    let (_, out, _) = m.console_as(false, &["status"]);
+    assert!(
+        out.contains("vtium does not start at boot on VTs 4 and 5."),
+        "{out}"
+    );
 }
