@@ -1450,6 +1450,7 @@ fn a_watched_device_sends_no_pointer_events_and_arms_no_hide() {
 /// The `xkb-*` keys that vtium.conf sets keep their values, and the
 /// system's names fill the keys left unset. The system's variant comes only
 /// with the system's layout.
+// covers: platform.localed-layout
 #[test]
 fn vtium_confs_xkb_keys_win_over_the_systems_names() {
     let system = RuleNames {

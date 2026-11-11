@@ -313,6 +313,7 @@ mod tests {
     /// localed's four names become the layout an unconfigured vtium types
     /// with: on a German layout, the key labelled Y on a US keyboard types
     /// z.
+    // covers: platform.localed-layout
     #[test]
     fn the_layout_follows_localeds_names() {
         let mut bus = german();
@@ -337,6 +338,7 @@ mod tests {
     /// vtium.conf's `xkb-layout` wins over localed's layout, so the same key
     /// types y; localed's variant, which belongs to localed's layout, is
     /// not taken with it.
+    // covers: platform.localed-layout
     #[test]
     fn vtium_confs_layout_wins_over_localeds() {
         let names = layout_from(&mut german()).unwrap_or_else(|e| panic!("localed answers: {e}"));
@@ -352,6 +354,7 @@ mod tests {
 
     /// Without localed on the bus, the first name asked stops the rest, and
     /// the names are empty: xkb's default layout applies.
+    // covers: platform.localed-layout
     #[test]
     fn without_localed_the_names_are_empty() {
         let mut bus = StandInBus::default();
@@ -363,6 +366,7 @@ mod tests {
 
     /// A localed that holds no layout answers empty names, which leave
     /// vtium.conf's keys and xkb's defaults alone.
+    // covers: platform.localed-layout
     #[test]
     fn a_localed_with_no_layout_changes_nothing() {
         let mut bus = StandInBus {
