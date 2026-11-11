@@ -208,3 +208,92 @@ fn an_unknown_script_is_refused() {
         Err(SetError::Malformed(_))
     ));
 }
+
+/// A 4x4 mask every pixel of which is `v`.
+fn solid(v: u8) -> vtium_font::Glyph {
+    vtium_font::Glyph::from_pixels(
+        CELL.width,
+        CELL.height,
+        vtium_font::Format::Mask,
+        vec![v; 16],
+    )
+    .expect("a glyph")
+}
+
+/// A face of 4x4 cells that draws every glyph full, holds a superscript
+/// glyph of 7 its source made, has its subscript glyph on its way, and
+/// has the built-in fonts' face for that meanwhile: one that draws every
+/// glyph at 200.
+struct Sourced;
+
+struct Builtins;
+
+impl Face for Builtins {
+    fn cell(&self) -> Cell {
+        CELL
+    }
+    fn size_step(&self) -> u32 {
+        CELL.height
+    }
+    fn has_glyph(&self, _c: char) -> bool {
+        true
+    }
+    fn draw(&self, _cluster: &[char], _style: Style) -> Option<vtium_font::Glyph> {
+        Some(solid(200))
+    }
+}
+
+impl Face for Sourced {
+    fn cell(&self) -> Cell {
+        CELL
+    }
+    fn size_step(&self) -> u32 {
+        CELL.height
+    }
+    fn has_glyph(&self, _c: char) -> bool {
+        true
+    }
+    fn draw(&self, _cluster: &[char], _style: Style) -> Option<vtium_font::Glyph> {
+        Some(solid(255))
+    }
+    fn builtins(&self) -> Option<Box<dyn Face + '_>> {
+        Some(Box::new(Builtins))
+    }
+    fn script(&self, _cluster: &[char], variant: Variant) -> vtium_font::ScriptFrom {
+        match variant.script {
+            Script::Super => vtium_font::ScriptFrom::Made(solid(7)),
+            _ => vtium_font::ScriptFrom::Builtins,
+        }
+    }
+}
+
+// The font draws a script cell from the glyph its face's source made, as
+// it is, and while that glyph is on its way from the built-in fonts'
+// script glyph, never from the face's own normal glyph made small
+// (ADR-1202 D11)
+// covers: sgr.script
+#[test]
+fn a_script_cell_takes_its_sources_glyph_else_the_built_in_fonts() {
+    let font = vtium_font::Font::new(Sourced);
+    let sup = font
+        .drawn_variant(&['A'], Width::Narrow, variant(Script::Super))
+        .expect("drawn")
+        .glyph;
+    assert!(sup.pixels().iter().all(|&p| p == 7), "the source's glyph");
+    let sub = font
+        .drawn_variant(&['A'], Width::Narrow, variant(Script::Sub))
+        .expect("drawn")
+        .glyph;
+    let builtin = vtium_font::Font::new(Builtins)
+        .drawn_variant(&['A'], Width::Narrow, variant(Script::Sub))
+        .expect("drawn")
+        .glyph;
+    assert_eq!(sub, builtin, "the built-in fonts' subscript glyph");
+    assert!(sub.pixels().iter().all(|&p| p != 255), "not the face's own");
+    // a normal cell is the face's own glyph
+    let normal = font
+        .drawn_variant(&['A'], Width::Narrow, variant(Script::Baseline))
+        .expect("drawn")
+        .glyph;
+    assert!(normal.pixels().iter().all(|&p| p == 255));
+}
