@@ -116,7 +116,7 @@ fn the_command_line_exits_as_the_interface_says() {
     let (code, out) = vtium_replay(&["--describe"]);
     assert_eq!(code, Some(0));
     assert!(
-        out.starts_with("interface 1.5\nview screen\nview frame\n"),
+        out.starts_with("interface 1.6\nview screen\nview frame\n"),
         "{out}"
     );
     // interface 1.5's host commands and the bell line, each with its
