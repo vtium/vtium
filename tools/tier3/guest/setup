@@ -4,6 +4,18 @@
 # variant's config, its test fonts, its frits and the scenario screens.
 set -eu
 disc=$1
+# The boot-claim variant (t3_seat.py) starts the guest's userspace again
+# once vtium console has claimed the VTs, with systemctl soft-reboot, so
+# systemd starts vtium on the claimed VTs at boot from the links the claim
+# made, as on a machine rebooted after the claim. The first pass keeps its
+# report line in $claimed; on the second boot this setup runs again, and
+# then only reports that line and starts the agent.
+claimed=/var/lib/tier3/claimed
+if [ -f "$claimed" ]; then
+    cat "$claimed" > /dev/ttyS0
+    systemctl start --no-block t3-agent.service
+    exit 0
+fi
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
 tree=$(sha256sum "$disc"/tree.tar | cut -d' ' -f1)
 # A variant naming features runs vtium built with them in place of the
@@ -157,14 +169,22 @@ install -m755 "$disc"/t3 /usr/local/bin/t3
 stty -F /dev/ttyS1 clocal
 chmod 0666 /dev/ttyS1
 echo 'echo "T3-LOGIN $(tty)" > /dev/ttyS1' > /etc/profile.d/tier3.sh
-if [ -f /etc/systemd/system/t3-agent.service ]; then
-    systemctl start --no-block t3-agent.service
-fi
 # Any kmscon, libtsm or vtium package installed, which must be none; the
 # kernel the guest runs, which the report records; the image helper and its
 # account; and the tree unpacked, so the log shows which build drew the
 # screens.
-echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
+report=$(echo "TIER3-INSTALL-OK packages: $(pacman -Q | grep -e kmscon -e libtsm -e vtium | tr '\n' ' ');" \
     "kernel: $(uname -r);" \
     "images: $images;" \
-    "tree: $tree" > /dev/ttyS0
+    "tree: $tree")
+if [ -f "$disc"/soft-reboot ]; then
+    mkdir -p "${claimed%/*}"
+    printf '%s\n' "$report" > "$claimed"
+    echo "TIER3-SOFT-REBOOT the claim is made; the guest's userspace starts again" > /dev/ttyS0
+    systemctl --no-block soft-reboot
+    exit 0
+fi
+if [ -f /etc/systemd/system/t3-agent.service ]; then
+    systemctl start --no-block t3-agent.service
+fi
+echo "$report" > /dev/ttyS0

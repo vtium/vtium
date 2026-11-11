@@ -3954,6 +3954,23 @@ class Package(Case):
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertNotIn("vtium-seat@.service", os.listdir(out))
 
+    def test_the_units_are_ready_once_vtium_holds_its_vt_and_before_the_display_manager(self):
+        # ADR-1500 D7, "Ready before the display manager": systemd starts the
+        # display manager only once vtium's unit is ready, which vtium says
+        # with READY=1 once it holds its VT open.
+        out, p = self.units("--name", "vtium", "--exec", "/usr/bin/vtium", "--by", "a test",
+                            "--seat", out=os.path.join(self.s.tmp, "ready"))
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for unit in ("vtium@.service", "vtium-seat@.service"):
+            with self.subTest(unit=unit):
+                lines = [l for l in read(os.path.join(out, unit)).splitlines()
+                         if l and not l.startswith("#")]
+                unit_part = lines[lines.index("[Unit]"):lines.index("[Service]")]
+                service = lines[lines.index("[Service]"):lines.index("[Install]")]
+                self.assertIn("Before=display-manager.service", unit_part)
+                self.assertIn("Type=notify", service)
+                self.assertIn("NotifyAccess=main", service)
+
     def test_units_refuses_a_name_or_a_path_it_cannot_put_in_a_unit(self):
         for args, why in ((["--name", "Vtium", "--exec", "/usr/bin/vtium"], "is not a unit name"),
                           (["--name", "vtium|x", "--exec", "/usr/bin/vtium"], "is not a unit name"),

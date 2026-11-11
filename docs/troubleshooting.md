@@ -41,6 +41,8 @@ A VT whose **at boot** column names a getty keeps that getty when you switch to 
 
 Under the table, `status` gives a line for each VT that a unit starting at boot holds, with the reason, such as `VT 1: the display manager sddm.service holds VT 1 at boot: a display manager is enabled, and by common convention VT 1 stays the display manager's and its getty's ...`. [VTs that other programs hold](install.md#vts-that-other-programs-hold) lists the reasons.
 
+When `autovt@.service` links to vtium, `status` can also print a line under the table that starts `vtium does not start at boot on`. It names each VT from 2 to 5 that logind would start vtium on when you switch to it, but where nothing starts at boot and no other program holds the VT. Nothing holds such a VT open until you switch to it, so a display manager that puts a new desktop session on the first free VT can take it. This happens on a machine where vtium took the VTs before it started at boot on each VT it takes. The line ends with the command that fixes it, such as `sudo vtium console enable --direct --all`, or `--seat` when `autovt@.service` links to seat mode's unit. That command starts vtium at boot on those VTs. VT 6 is never named, because logind holds VT 6 open itself. See [What the install does to your VTs](install.md#what-the-install-does-to-your-vts) for details.
+
 ## A font that does not load
 
 vtium draws its built-in font when it cannot draw the frit, and logs why. Read the log of that VT's vtium:

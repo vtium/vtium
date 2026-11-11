@@ -31,6 +31,11 @@ After=plymouth-quit-wait.service
 After=rc-local.service
 After=systemd-vconsole-setup.service
 Before=getty.target
+# The display manager starts only once vtium holds its VT open, so a display
+# manager that asks the kernel for a free VT the moment it starts passes
+# the VTs vtium claims (ADR-1500 D7). display-manager.service is the alias
+# that display managers' units take; with none enabled this orders nothing.
+Before=display-manager.service
 # Conflicts= orders nothing (systemd.unit(5): to have the conflicting unit
 # stopped before this one starts, an After= or Before= is needed, and stop
 # jobs then always run before start jobs). Without it, starting vtium while
@@ -55,6 +60,10 @@ IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0
 
 [Service]
+# vtium sends READY=1 once it holds its VT open, before it opens a display
+# card, and that ends the start (ADR-1500 D7). A vtium that exits first
+# fails its start, which Restart= and OnFailure= treat as any failure.
+Type=notify
 ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
 UtmpIdentifier=%I
 TTYPath=/dev/%I
@@ -74,6 +83,8 @@ Restart=on-failure
 # used yet, and a program that vtium.conf's login key runs without a PAM
 # session, live in this unit; without KillMode=process systemd would end
 # them at each restart.
+# NotifyAccess=main takes the store's datagrams and READY=1 from vtium
+# alone, and from no program a session runs.
 NotifyAccess=main
 FileDescriptorStoreMax=50
 KillMode=process

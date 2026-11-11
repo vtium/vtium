@@ -111,9 +111,11 @@ When you first install a console package, its install script runs `vtium console
 
 - On a machine with no display manager, vtium runs on VT 1 from the next boot, in place of its getty. VT 1 is where the kernel shows the boot messages, so vtium takes over the screen where the boot appeared.
 - On a machine with a display manager, VT 1 stays the display manager's, and vtium takes only the other free VTs.
-- On each other free VT, logind starts vtium the first time you switch to it, as it starts a getty there today. vtium does not run on a VT that nobody visits.
+- On each other free VT from 2 to 6, vtium also runs from the next boot and waits at its login prompt there.
 
-The install message shows what `vtium console` did, and names each VT it left alone and why. An upgrade changes no VT, so if you gave the VTs back, they stay back. [Giving vtium a VT](#giving-vtium-a-vt) shows how you change the choice.
+Because a vtium holds each of these VTs open from boot, a display manager that puts a new desktop session on the first VT nobody holds open, as SDDM 0.20 and later does, passes them by and uses VT 7 or above. Each of those VTs runs one vtium from boot, and each vtium uses memory while it waits. See [the issue about the display manager that took vtium's VT](https://github.com/vtium/vtium/issues/370).
+
+The install message shows what `vtium console` did, and names each VT it left alone and why. An upgrade changes no VT, so if you gave the VTs back, they stay back. If vtium took your VTs before it started at boot on each of them, `vtium console status` names the VTs that nothing holds open at boot, and running `sudo vtium console enable --direct --all` again starts vtium at boot there. [Giving vtium a VT](#giving-vtium-a-vt) shows how you change the choice.
 
 `vtium console` refuses to change anything while `kmscon` holds the template link `/etc/systemd/system/autovt@.service`, while `loginctl` cannot say which sessions run, and on a machine not booted with systemd, such as a chroot that an installer prepares. The install still succeeds. Its message then says that vtium took no VT, gives the reason, and names the command to run once the reason is gone:
 
@@ -127,7 +129,7 @@ On a machine where `kmscon` holds the template link, read [Moving from another D
 
 vtium can run on a VT in two ways, and the install turns on the first:
 
-- In direct mode, vtium opens the screen and the keyboards itself. Each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual. The unit is `vtium@.service`.
+- In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a console built with `libseat` takes them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual. The unit is `vtium@.service`.
 - In seat mode, vtium takes the screen, the keyboards and VT switching from logind, the service that manages logins and seats, through libseat. Each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. The unit is `vtium-seat@.service`, which a console built with `libseat` and `logind` ships, as the `vtium` package is built.
 
 A VT runs one mode at a time. To ask which mode fits your machine, run `vtium console enable` with no mode. It changes nothing: it says what it finds, which mode it recommends and why, and the command to run. To move every VT vtium has to seat mode, and back:
@@ -196,7 +198,7 @@ To give vtium every free VT again, as the install does:
 # vtium console enable --direct --all
 ```
 
-`enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It enables vtium at boot on VT 1, where logind never starts a console itself, and it disables the gettys on VTs 2 to 6, so logind starts vtium on each the first time you switch to it. It leaves these VTs alone and names each one:
+`enable --all` links `/etc/systemd/system/autovt@.service`, the template link that logind follows on every VT without a link of its own, to vtium. It also does `enable N` on each free VT from 1 to 6, so systemd starts vtium on each of them at boot, in the place of the getty it disables, and vtium holds each of them open from boot. It leaves these VTs alone and names each one:
 
 - a VT another program uses now or will claim at the next boot (below);
 - a VT where `kmscon` is enabled, linked or running, and a VT the development install holds ([The development VT](vt-review.md#installing-vtium-on-a-vt));
@@ -229,7 +231,7 @@ Before `enable` changes anything, it records what each VT had in `/var/lib/vtium
 # vtium console disable --all
 ```
 
-`disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
+`disable 3` takes vtium off VT 3's boot list, removes VT 3's own link to vtium, and gives VT 3 back the getty it had. `disable --all` does that on every VT. After `enable --all`, though, logind still starts vtium on VT 3 through the template link whenever you switch to VT 3 while nothing runs there, and `disable 3` says so. Only `disable --all` points the template link back where it pointed before.
 
 [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing and says so; there you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, the way your init system runs the getty, as [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows for sysvinit, OpenRC and runit.
 

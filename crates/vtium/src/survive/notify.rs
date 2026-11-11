@@ -16,6 +16,12 @@
 //! descriptor 3 up, with `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES`
 //! (sd_listen_fds(3)), which [`passed`] reads.
 //!
+//! The same socket carries `READY=1`, which vtium sends once it holds its
+//! VT open, under the unit's `Type=notify` ([`opened`]). systemd orders
+//! vtium's units before the display manager, so the display manager starts
+//! only once every claimed VT is held open (ADR-1500 D7, "Ready before the
+//! display manager").
+//!
 //! vtium writes the datagrams itself, so it links no libsystemd.
 
 use std::ffi::{OsStr, OsString};
@@ -71,17 +77,7 @@ impl Store {
     /// at `path`: a file's path, or, starting `@`, a name in the abstract
     /// namespace.
     pub fn open(path: &[u8], capacity: usize) -> io::Result<Store> {
-        let addr = match path.strip_prefix(b"@") {
-            Some(name) => SocketAddrUnix::new_abstract_name(name)?,
-            None if path.starts_with(b"/") => SocketAddrUnix::new(path)?,
-            None => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
-        };
-        let socket = socket_with(
-            AddressFamily::UNIX,
-            SocketType::DGRAM,
-            SocketFlags::CLOEXEC,
-            None,
-        )?;
+        let (socket, addr) = notification_socket(path)?;
         Ok(Store {
             socket,
             addr,
@@ -133,6 +129,64 @@ impl Store {
         }
         Ok(())
     }
+}
+
+/// A socket to send datagrams to the notification socket at `path`: a
+/// file's path, or, starting `@`, a name in the abstract namespace.
+fn notification_socket(path: &[u8]) -> io::Result<(OwnedFd, SocketAddrUnix)> {
+    let addr = match path.strip_prefix(b"@") {
+        Some(name) => SocketAddrUnix::new_abstract_name(name)?,
+        None if path.starts_with(b"/") => SocketAddrUnix::new(path)?,
+        None => return Err(io::Error::from(io::ErrorKind::InvalidInput)),
+    };
+    let socket = socket_with(
+        AddressFamily::UNIX,
+        SocketType::DGRAM,
+        SocketFlags::CLOEXEC,
+        None,
+    )?;
+    Ok((socket, addr))
+}
+
+/// Tells systemd that vtium has started, with `READY=1` on the
+/// notification socket that `NOTIFY_SOCKET` in `env` names
+/// (sd_notify(3)). Returns whether it sent it: without `NOTIFY_SOCKET`, as
+/// on a host without systemd or in a run by hand, it sends nothing.
+pub fn ready(env: &[(OsString, OsString)]) -> io::Result<bool> {
+    let Some(path) = var(env, "NOTIFY_SOCKET") else {
+        return Ok(false);
+    };
+    let (socket, addr) = notification_socket(path.as_bytes())?;
+    let text = "READY=1\n";
+    let sent = sendmsg_addr(
+        &socket,
+        &addr,
+        &[IoSlice::new(text.as_bytes())],
+        &mut SendAncillaryBuffer::default(),
+        SendFlags::NOSIGNAL,
+    )?;
+    if sent != text.len() {
+        return Err(io::Error::from(io::ErrorKind::WriteZero));
+    }
+    Ok(true)
+}
+
+/// Runs `open`, which opens vtium's VT, and once it has, tells systemd
+/// that vtium is ready ([`ready`]), before vtium opens a display card or
+/// reads a device. A VT that does not open sends nothing, so the unit's
+/// start fails when vtium exits. A notification that cannot be sent is
+/// logged, and vtium runs on.
+pub fn opened<T>(
+    env: &[(OsString, OsString)],
+    open: impl FnOnce() -> io::Result<T>,
+) -> io::Result<T> {
+    let vt = open()?;
+    if let Err(e) = ready(env) {
+        log::warn!(
+            "vtium cannot tell systemd that it holds its VT, so its unit may never start: {e}"
+        );
+    }
+    Ok(vt)
 }
 
 /// The descriptors systemd passed vtium at its start, each with its name:
