@@ -92,8 +92,8 @@ fn points_become_pixels_at_the_density() {
 
 /// The TUI's measurer and painter, through the real helper, draw a
 /// picture of a screen in the built-in fonts and a frit: the font's cell
-/// at the height, the grid it gives on the display, and the display scaled
-/// down to the room, its shape kept (ADR-1201 D4).
+/// at the height, the grid it gives on the display, and the part of the
+/// display that fits the room, one pixel to one pixel (ADR-1201 D4).
 #[test]
 fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit() {
     if let Some(why) = vtium_testscript::qemu_without_seccomp() {
@@ -128,9 +128,9 @@ fn the_painter_draws_a_picture_of_the_console_in_the_built_in_fonts_and_a_frit()
             max: (320, 300),
         };
         let p = paint(&shot).unwrap_or_else(|e| panic!("{font}: {e}"));
-        // 640x480 into 320x300 keeps the display's 4:3: 320x240
-        assert_eq!((p.width, p.height), (320, 240), "{font}");
-        assert_eq!(p.rgba.len(), 320 * 240 * 4);
+        // 640x480 into 320x300 is the display's top left 320x300
+        assert_eq!((p.width, p.height), (320, 300), "{font}");
+        assert_eq!(p.rgba.len(), 320 * 300 * 4);
         let lit = p.rgba.chunks(4).filter(|px| px[0] > 0x40).count();
         assert!(lit > 0, "{font}: the text has ink");
     }
