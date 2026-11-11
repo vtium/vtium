@@ -132,6 +132,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(test)]
+mod login_scope;
 mod survive;
 
 /// How long the loop is served at exit while the switch back is pending,
@@ -216,6 +218,40 @@ struct Unused {
     /// Set off and its buffers freed once the time was up, until a key on
     /// this VT or a switch back to it.
     parked: bool,
+}
+
+/// How a session's child gets a systemd scope of its own: given the VT's
+/// or the seat's name and the child's process id, the scope's name, or why
+/// it has none.
+pub type LoginScope = Box<dyn FnMut(&str, u32) -> Result<String, String>>;
+
+/// Asks systemd's manager for the child's scope (ADR-1400 D3).
+#[cfg(feature = "logind")]
+fn login_scope(place: &str, pid: u32) -> Result<String, String> {
+    use vtium_platform::logind::scope;
+    let unit = scope::unit_name(place, pid);
+    scope::start(&unit, pid)
+        .map(|()| unit)
+        .map_err(|e| e.to_string())
+}
+
+/// A build without sd-bus cannot ask systemd's manager for the scope.
+#[cfg(not(feature = "logind"))]
+fn login_scope(_: &str, _: u32) -> Result<String, String> {
+    Err("this vtium is built without the logind feature, which asks systemd for it".to_owned())
+}
+
+/// The log's line for a session on `place` that runs in the scope `unit`.
+fn in_scope(place: &str, unit: &str) -> String {
+    format!("The session on {place} runs in the systemd scope {unit}.")
+}
+
+/// The log's line for a session on `place` that gets no scope, because of
+/// `why`.
+fn no_scope(place: &str, why: &str) -> String {
+    format!(
+        "The session on {place} gets no logind session of its own: vtium cannot move it into a systemd scope, because {why}. The session runs inside vtium's own logind session instead."
+    )
 }
 
 /// The seat, its devices and its heads.
@@ -365,6 +401,10 @@ pub struct App {
     exit: Option<Exit>,
     leaving: Option<Leaving>,
     inherited: Vec<(OsString, OsString)>,
+    /// Moves a session's child, by its place and process id, into a systemd
+    /// scope of its own on a seat that libseat's logind backend opened,
+    /// answering the scope's name or why not; the tests stand in for it.
+    pub login_scope: LoginScope,
     /// `oneshot`: a console's exit ends that console, and a head ends once
     /// every one of its consoles has.
     oneshot: bool,
@@ -553,6 +593,7 @@ impl App {
             leaving: None,
             // No session inherits systemd's word to vtium (ADR-1401 D13).
             inherited: crate::survive::session_env(inherited),
+            login_scope: Box::new(login_scope),
             survival: survive::Survival::default(),
         }
     }
@@ -958,6 +999,7 @@ impl App {
                 SessionDisplay::Fbdev
             },
             console: self.heads.get(h).map(|head| (head.name(), id)),
+            logind_seat: self.vt.logind_seat(),
         }
     }
 
@@ -993,8 +1035,23 @@ impl App {
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return Ok(());
         };
-        let mut pty = Pty::spawn(command, size, erase)
-            .map_err(|e| format!("cannot start the session: {e}"))?;
+        let spawned = if self.vt.logind_seat() {
+            // ADR-1400 D3, its note on each login's own session: the child
+            // waits before its exec until systemd has moved it into a scope
+            // of its own, outside vtium's logind session.
+            let place = match self.vt.number() {
+                Some(n) => format!("tty{n}"),
+                None => self.vt.seat().to_owned(),
+            };
+            let scope = &mut self.login_scope;
+            Pty::spawn_gated(command, size, erase, |pid| match scope(&place, pid) {
+                Ok(unit) => log::debug!(target: "login", "{}", in_scope(&place, &unit)),
+                Err(why) => log::warn!(target: "login", "{}", no_scope(&place, &why)),
+            })
+        } else {
+            Pty::spawn(command, size, erase)
+        };
+        let mut pty = spawned.map_err(|e| format!("cannot start the session: {e}"))?;
         self.watch(h, id, &mut pty)
             .map_err(|e| format!("cannot watch the session's pty: {e}"))?;
         let pty_id = self.next_pty_id();

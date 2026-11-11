@@ -18,11 +18,22 @@ pub struct FakeVt {
     active: bool,
     releasing: bool,
     events: Vec<VtEvent>,
+    /// It stands in for a seat that libseat's logind backend opened.
+    logind: bool,
 }
 
 impl FakeVt {
     pub fn new() -> FakeVt {
         FakeVt::default()
+    }
+
+    /// A fake VT reporting itself as VT `num` of a seat that libseat's
+    /// logind backend opened ([`Vt::logind_seat`]).
+    pub fn on_logind_seat(num: u16) -> FakeVt {
+        FakeVt {
+            logind: true,
+            ..FakeVt::with_number(num)
+        }
     }
 
     /// A fake VT reporting itself as VT `num`, shown while it is ours.
@@ -49,6 +60,10 @@ impl FakeVt {
 }
 
 impl Vt for FakeVt {
+    fn logind_seat(&self) -> bool {
+        self.logind
+    }
+
     fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
         self.events.drain(..)
     }

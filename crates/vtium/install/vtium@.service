@@ -3,10 +3,13 @@
 # make install and make install-tree, and vtium-dev@.service for make
 # vt-install, and replaces its DefaultInstance= with one that names no VT
 # (ADR-1500 D3, D4). The instance is the VT's name, as getty@.service's is.
-# The package's install script gives vtium every free VT with vtium console
-# enable --all, and its removal script gives them back with vtium console
-# disable --all (ADR-1500 D3, D7). A build with libseat adds the drop-in
-# vtium-libseat.conf, which opens vtium's own PAM session (ADR-1400 D3).
+# The package's install script gives vtium every free VT in direct mode
+# with vtium console enable --direct --all, and its removal script gives
+# them back with vtium console disable --all (ADR-1500 D3, D7). This is the
+# unit of direct mode. With
+# --seat, units.sh also makes vtium-seat@.service, the unit of seat mode,
+# from this unit and the lines of vtium-libseat.conf, which open vtium's own
+# PAM session (ADR-1400 D3).
 # It conflicts with getty@ on the same VT. When vtium fails, systemd starts
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
 # and from systemd 254 on each failure also starts vtium-getty@, which

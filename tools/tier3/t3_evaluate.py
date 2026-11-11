@@ -87,7 +87,7 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
 # it exactly (ADR-1303 D1, D11).
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
-              "seat-logind": "2d-potato-min"}
+              "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min"}
 
 
 def same_as(case, variant=None):

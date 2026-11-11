@@ -40,11 +40,30 @@ CHECKS = {
     "seat": "The console's log, for vtium built with libseat on the seat manager the variant "
             "names. Correct: the seat seat0 opens, every keyboard vtium uses opens through "
             "the seat manager, and vtium never falls back to the kernel's VT.",
+    "direct": "The console's log, for vtium built with libseat and logind in direct mode, "
+              "vtium@.service, under logind with no LIBSEAT_BACKEND and no seatd (ADR-1400 D3). "
+              "Correct: vtium logs that it is in no logind session of its own and takes the seat "
+              "from seatd alone, and never opens the seat, so libseat's logind backend takes no "
+              "session.",
     "seat-cgroup": "The control group, read from /proc/PID/cgroup, of vtium built with libseat "
                    "under logind, whose unit opens a PAM session of vtium's own (PAMName=vtium). "
                    "Correct, as measured on 2026-11-10: pam_systemd moves vtium out of its unit "
                    "into that session's scope, session-N.scope. The note gives the control group "
                    "of the shell logged in on vtium's console, which the check does not judge.",
+    "login-session": "A user logged in at vtium's prompt on the libseat build under logind, "
+                     "where vtium holds seat0 through its own PAM session and starts each "
+                     "login in a systemd scope of its own (ADR-1400 D3). Correct: the shell "
+                     "runs in a logind session of the user's own, with the user's uid and no "
+                     "seat; its XDG_RUNTIME_DIR is /run/user/UID and it has no XDG_SEAT or "
+                     "XDG_VTNR; user@UID.service is active; vtium's own session, the one vtium "
+                     "leads, is still on seat0 and active, with the class greeter; and a line typed on the console's "
+                     "keyboard after the login reaches the shell.",
+    "two-logins": "A second login by the same user, on the head's second console on the same "
+                  "VT, reached with key-console-next. Correct: two shells, each in a logind "
+                  "session of its own with no seat, both sessions the user's; one "
+                  "user@UID.service, active; and vtium's own session still on seat0 and "
+                  "active. The capture is the second console's shell; key-console-previous "
+                  "then shows the first console again.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -76,6 +95,9 @@ CAPTIONS = {
 
 # vtium's lines (crates/vtium-platform/src/seat.rs), after the log's target.
 SEAT_OPEN = "seat: the seat seat0 is open"
+# seat.rs's SEATD_ONLY, which vtium logs when it pins libseat to seatd.
+SEAT_DIRECT = ("seat: vtium is in no logind session of its own, so it takes the seat from "
+               "seatd alone, and never from logind")
 SEAT_KERNEL = "seat: no seat manager answered"
 INPUT_USED = "input: using /dev/input/"
 INPUT_THROUGH = "through the seat manager"
@@ -116,6 +138,31 @@ def check_seat(v, vm, work, caps, errors, log):
     path = os.path.join(work, "seat.ppm")
     wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
     caps["seat"] = path
+
+
+def direct_verdict(serial):
+    """Why the direct check fails on the console log `serial` (bytes), or
+    None when it passes: vtium said it is in no logind session of its own
+    and pinned libseat to seatd, and never opened the seat."""
+    lines = serial.decode(errors="replace").splitlines()
+    if any(SEAT_OPEN in line for line in lines):
+        return "vtium opened the seat in direct mode"
+    if not any(SEAT_DIRECT in line for line in lines):
+        return "the console never logged %r" % SEAT_DIRECT
+    return None
+
+
+def check_direct(v, vm, work, caps, errors, log):
+    """The direct check on `vm`'s console log, its capture the screen once
+    the screens are drawn, as check_seat's."""
+    with open(vm.serial, "rb") as f:
+        why = direct_verdict(f.read())
+    if why:
+        errors["direct"] = why
+        return
+    path = os.path.join(work, "direct.ppm")
+    wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    caps["direct"] = path
 
 
 def panic_verdict(serial, since):
@@ -231,3 +278,158 @@ def check_cgroup(v, vm, work, caps, errors, log):
     path = os.path.join(work, "seat-cgroup.ppm")
     wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
     caps["seat-cgroup"] = path
+
+
+def parse_logins(answer):
+    """The agent's answer to `logins` as {"vtium": pid or None, "sessions":
+    {id: {"User", "Seat", "VTNr", "Class", "Active", "TTY", "Leader"}},
+    "shells": [{"pid", "uid", "cgroup", "env"}], "users": {uid: state}}."""
+    out = {"vtium": None, "sessions": {}, "shells": [], "users": {}}
+    for line in answer:
+        word, _, rest = line.partition(" ")
+        fields = rest.split()
+        if word == "vtium" and fields and fields[0] != "0":
+            out["vtium"] = fields[0]
+        elif word == "session" and fields:
+            # loginctl prints an empty property as "Seat=", which stays
+            out["sessions"][fields[0]] = dict(f.split("=", 1) for f in fields[1:] if "=" in f)
+        elif word == "shell" and len(fields) >= 3:
+            env = dict(f.split("=", 1) for f in fields[3:] if "=" in f)
+            out["shells"].append({"pid": fields[0], "uid": fields[1], "cgroup": fields[2],
+                                  "env": env})
+        elif word == "user" and len(fields) == 2:
+            out["users"][fields[0]] = fields[1]
+    return out
+
+
+def session_of(shell):
+    """The logind session id of the scope `shell` runs in, or None outside
+    every session's scope."""
+    scope = shell["cgroup"].rsplit("/", 1)[-1]
+    if scope.startswith("session-") and scope.endswith(".scope"):
+        return scope[len("session-"):-len(".scope")]
+    return None
+
+
+def login_verdict(logins, shells=1):
+    """Why the login-session check, or with `shells` 2 the two-logins check,
+    fails on the agent's answer `logins` (parse_logins), or None."""
+    if len(logins["shells"]) != shells:
+        return "want %d shell(s) logged in, the agent found %d" % (shells, len(logins["shells"]))
+    seen = set()
+    for shell in logins["shells"]:
+        uid = shell["uid"]
+        sid = session_of(shell)
+        session = logins["sessions"].get(sid or "")
+        if session is None or session.get("User") != uid:
+            return ("the shell %s of uid %s runs in %s, which is no logind session of its "
+                    "user's own" % (shell["pid"], uid, shell["cgroup"]))
+        if sid in seen:
+            return "two shells share the session %s" % sid
+        seen.add(sid)
+        if session.get("Seat"):
+            return "the user's session %s is on the seat %s, not on none" % (sid, session["Seat"])
+        for name in ("XDG_SEAT", "XDG_VTNR"):
+            if name in shell["env"]:
+                return "the shell %s has %s=%s" % (shell["pid"], name, shell["env"][name])
+        if shell["env"].get("XDG_RUNTIME_DIR") != "/run/user/%s" % uid:
+            return ("the shell %s's XDG_RUNTIME_DIR is %r"
+                    % (shell["pid"], shell["env"].get("XDG_RUNTIME_DIR")))
+        if logins["users"].get(uid) != "active":
+            return "user@%s.service is %s" % (uid, logins["users"].get(uid))
+    own = [(sid, s) for sid, s in logins["sessions"].items()
+           if logins["vtium"] is not None and s.get("Leader") == logins["vtium"]]
+    if len(own) != 1:
+        return "vtium %s leads %d logind sessions, not 1" % (logins["vtium"], len(own))
+    sid, session = own[0]
+    if session.get("Seat") != "seat0" or session.get("Active") != "yes":
+        return "vtium's own session %s lost the seat: %s" % (sid, session)
+    # vtium.pam opens a greeter's session, which logind's
+    # StopIdleSessionSec= never stops (ADR-1400 D3).
+    if session.get("Class") != "greeter":
+        return "vtium's own session %s has the class %s, not greeter" % (sid, session.get("Class"))
+    return None
+
+
+def ask_logins(vm, log, case):
+    """The agent's answer to `logins`, logged under `case`, parsed."""
+    answer = vm.ask("logins")
+    for line in answer:
+        log("%s: %s" % (case, line))
+    return parse_logins(answer)
+
+
+def check_login_session(v, vm, work, caps, errors, log):
+    """The login-session check (CHECKS), on the agent's answer `logins`, then
+    a line typed in the shell."""
+    case = "login-session"
+    why = login_verdict(ask_logins(vm, log, case)) or typed_after_login(vm, log, "typed")
+    if why:
+        errors[case] = why
+        return
+    path = os.path.join(work, case + ".ppm")
+    wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    caps[case] = path
+
+
+def typed_after_login(vm, log, what):
+    """Why a line typed on the console's keyboard does not reach the shell
+    shown, or None: vtium still has the keyboard once the user's session
+    exists, so it still holds the seat. The shell writes its id to
+    /tmp/t3-answer-`what`, which the agent's `ptys` reads."""
+    import t3_heads
+    vm.type("echo $$ > /tmp/t3-answer-%s\n" % what)
+    deadline = time.time() + 20
+    while time.time() < deadline:
+        answers = t3_heads.ask_ptys(vm)["answers"]
+        if answers.get(what):
+            log("%s: the shell %s answered the line typed" % (what, answers[what]))
+            return None
+        time.sleep(0.5)
+    return "a line typed after the login never reached the shell: vtium lost the keyboard"
+
+
+def logins_settled(logins, shells):
+    """Whether the agent's answer `logins` shows `shells` shells, each in a
+    session logind lists. A login's shell can appear in its session's scope
+    before logind lists that session, and the agent reads the sessions
+    before the shells, so one answer can show the shell and not yet its
+    session."""
+    return (len(logins["shells"]) >= shells
+            and all((session_of(s) or "") in logins["sessions"] for s in logins["shells"]))
+
+
+def check_two_logins(v, vm, work, caps, errors, log):
+    """The two-logins check (CHECKS): the user logs in again on the head's
+    second console, which key-console-next shows, then the agent's answer
+    `logins` is judged and key-console-previous shows the first console."""
+    case = "two-logins"
+    tmp = os.path.join(work, "wait.ppm")
+    before = wait_stable(vm, tmp)
+    vm.keys("ctrl", "meta_l", "right")
+    prompt = wait_stable(vm, tmp, want=lambda img: img.data != before.data)
+    vm.type("tester\n")
+    wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
+    vm.type("tester\n")
+    logins = None
+    deadline = time.time() + 60
+    retyped = False
+    while time.time() < deadline:
+        logins = ask_logins(vm, log, case)
+        if logins_settled(logins, 2):
+            break
+        if not retyped and time.time() > deadline - 40:
+            # PAM drops a password typed before it turned echo off, as in
+            # the scenario's own login.
+            log("%s: no second login yet; typing the password again" % case)
+            vm.type("tester\n")
+            retyped = True
+        time.sleep(1)
+    why = login_verdict(logins, shells=2) or typed_after_login(vm, log, "second")
+    if not why:
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+        caps[case] = path
+    vm.keys("ctrl", "meta_l", "left")
+    if why:
+        errors[case] = why

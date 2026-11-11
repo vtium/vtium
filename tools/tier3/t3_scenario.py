@@ -275,10 +275,16 @@ VARIANTS.update({
 POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
-# The seat variants (t3_seat): a tree built with libseat on the minspec
-# machine, with the unit's libseat drop-in and the PAM file /etc/pam.d/vtium
-# that make install-tree stages with it, on the seat manager "seat" names,
-# which guest/setup holds libseat to. Each logs in, draws two screens and switches VTs through the seat as
+# The seat variants (t3_seat): a tree built with libseat and logind on the
+# minspec machine, the build the vtium package ships, with seat mode's unit
+# vtium-seat@.service and the PAM file /etc/pam.d/vtium that make
+# install-tree stages with it, on the seat manager "seat" names, which
+# guest/setup holds libseat to. The logind variants turn seat mode on with
+# vtium console enable --seat --all ("mode"); the others run in direct mode,
+# vtium@.service, as the package's install turns it on. direct-logind runs
+# the same tree in direct mode under logind with no LIBSEAT_BACKEND, and
+# checks that vtium leaves libseat's logind backend alone there and runs on
+# the kernel's VT (t3_seat.CHECKS "direct"). Each logs in, draws two screens and switches VTs through the seat as
 # 2d-potato-min does, judged by its goldens (t3_evaluate.GOLDENS_OF), and
 # checks the console's log for the seat and the keyboards opened through it
 # (t3_seat.CHECKS "seat"). The panic variant crashes the kernel while vtium
@@ -294,17 +300,19 @@ SEAT = {
     "cpus": 1,
     "memory_mb": 512,
     "images": False,
-    "tree_features": ["libseat"],
+    "tree_features": ["libseat", "logind"],
     "screens": ["sgr", "cjk"],
     "checks": ["seat"],
 }
 VARIANTS.update({
     "seat-seatd": dict(SEAT, seat="seatd"),
-    "seat-logind": dict(SEAT, seat="logind"),
+    "seat-logind": dict(SEAT, seat="logind", mode="seat", agent=True,
+                        checks=["seat", "login-session"]),
+    "direct-logind": dict(SEAT, checks=["direct"]),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
-SEAT_VARIANTS = ["seat-seatd", "seat-logind", "panic-sysrq", "kmsg-notice"]
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "panic-sysrq", "kmsg-notice"]
 
 # The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
 # with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
@@ -496,12 +504,20 @@ VARIANTS.update({
                           policy="closed", vt_switch=False, checks=["session-survives"]),
 })
 # heads-survive's check on the libseat tree on logind: the sessions that
-# survive a restart and a crash of vtium (ADR-1401 D13) under the libseat
-# drop-in's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
-VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"], tree_features=["libseat"],
-                                       seat="logind",
-                                       checks=["seat", "seat-cgroup", "session-survives"])
-SEAT_VARIANTS.append("seat-logind-survive")
+# survive a restart and a crash of vtium (ADR-1401 D13) under
+# seat mode's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
+# Each login there runs in a systemd scope of its own (ADR-1400 D3), which
+# the login-session check judges before the restart. seat-logind-two logs
+# the same user in again on the head's second console, on the same VT
+# (t3_seat CHECKS "two-logins").
+VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"],
+                                       tree_features=["libseat", "logind"], seat="logind",
+                                       mode="seat",
+                                       checks=["seat", "login-session", "seat-cgroup",
+                                               "session-survives"])
+VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
+                                   checks=["seat", "login-session", "two-logins"])
+SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
                  "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
@@ -814,6 +830,9 @@ def build_disc(variant, work, impl):
     if "seat" in VARIANTS[variant]:
         with open(os.path.join(disc, "seat"), "w") as f:
             f.write(VARIANTS[variant]["seat"])
+    if "mode" in VARIANTS[variant]:
+        with open(os.path.join(disc, "mode"), "w") as f:
+            f.write(VARIANTS[variant]["mode"])
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
@@ -1022,7 +1041,7 @@ def run_variant(variant, timing, impl, log):
         phase("boot")
         # tty1 runs getty. Under systemd, switching to tty2 makes logind
         # spawn autovt@tty2, which is vtium@tty2 through the template link
-        # that the setup's vtium console enable --all makes, and nothing
+        # that the setup's vtium console enable --direct --all makes, and nothing
         # starts it earlier: a boot without the keypress has no console on
         # tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
@@ -1403,7 +1422,10 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
 CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
               "seat": t3_seat.check_seat,
+              "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
+              "login-session": t3_seat.check_login_session,
+              "two-logins": t3_seat.check_two_logins,
               **t3_heads.CHECK_RUNS}
 
 

@@ -3,11 +3,15 @@
 
 use std::fmt::Debug;
 
+use super::Mode;
+use super::advice::{self, Facts, SeatBlock};
 use super::held::{Holder, Reason};
 
-pub const USAGE: &str = "Usage: vtium console enable N | enable --all | disable N | disable --all | status | fallback N\n\
+pub const USAGE: &str = "Usage: vtium console enable --direct|--seat N|--all | enable [N|--all] | disable N|--all | status | fallback N\n\
 enable makes vtium run on VT N, or on every VT, from its next start, and disable undoes that. N is 1 to 63, or ttyN.\n\
-enable and disable need root, and they start or stop nothing now. status shows what runs on each VT.\n\
+--direct runs vtium in direct mode, which opens the screen and the keyboards itself. --seat runs it in seat mode, which takes them from logind.\n\
+enable with no mode changes nothing: it says which mode fits this machine and the command to run.\n\
+enable and disable need root, and they start or stop nothing now. disable turns off either mode. status shows what runs on each VT.\n\
 fallback N is what vtium-getty@.service runs when vtium on VT N fails: it starts a login prompt (getty) on VT N, unless that would stop another program.\n";
 
 pub const NO_VERB: &str = "give a command: enable, disable, status or fallback";
@@ -22,6 +26,54 @@ pub fn extra_word(word: &str) -> String {
 
 pub fn needs_which(verb: &str) -> String {
     format!("{verb} needs a VT number or --all")
+}
+
+pub const TWO_MODES: &str = "enable takes one mode: --direct or --seat, not both";
+
+pub fn disable_no_mode(flag: &str) -> String {
+    format!(
+        "disable takes no mode, so {flag} does not fit here. disable turns off vtium in whichever mode it has on each VT: give a VT number or --all"
+    )
+}
+
+/// The unit of the mode whose prefix is `prefix`, in words.
+fn mode_of(prefix: &str) -> &'static str {
+    if prefix == super::SEAT {
+        "seat mode"
+    } else {
+        "direct mode"
+    }
+}
+
+fn mode_name(mode: Mode) -> &'static str {
+    match mode {
+        Mode::Direct => "direct mode",
+        Mode::Seat => "seat mode",
+    }
+}
+
+/// Why `enable --seat` refuses, and the same command in direct mode.
+pub fn seat_cannot_run(block: SeatBlock, which: &str) -> String {
+    let why = match block {
+        SeatBlock::Build => {
+            "Seat mode cannot run with this vtium: it is built without libseat and logind, and seat mode needs both."
+        }
+        SeatBlock::Unit => {
+            "Seat mode cannot run here: no systemd unit directory has vtium-seat@.service. An install of a vtium built with libseat and logind ships it."
+        }
+        SeatBlock::Masked => {
+            "Seat mode cannot run here: vtium-seat@.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask vtium-seat@.service."
+        }
+        SeatBlock::Pam => {
+            "Seat mode cannot run here: there is no /etc/pam.d/vtium, the PAM file that seat mode opens vtium's own session with. An install of a vtium built with libseat and logind ships it."
+        }
+        SeatBlock::Logind => {
+            "Seat mode cannot run here: logind manages no seat0 on this machine (there is no /run/systemd/seats/seat0)."
+        }
+    };
+    format!(
+        "{why} Nothing changed. To turn vtium on in direct mode instead, run vtium console enable --direct {which}."
+    )
 }
 
 pub fn unknown_verb(word: &str) -> String {
@@ -44,7 +96,12 @@ pub fn needs_root(words: &str) -> String {
     )
 }
 
-pub const NOT_INSTALLED: &str = "vtium@.service is not installed: no systemd unit directory has it. The vtium package installs it in /usr/lib/systemd/system.";
+pub fn not_installed(prefix: &str) -> String {
+    format!(
+        "{prefix}@.service, the unit of {}, is not installed: no systemd unit directory has it. The vtium package installs it in /usr/lib/systemd/system.",
+        mode_of(prefix)
+    )
+}
 
 pub fn cannot_run(line: &str, why: &str) -> String {
     format!("cannot run systemctl {line}: {why}")
@@ -119,9 +176,9 @@ pub fn dev_holds(n: u16) -> String {
     )
 }
 
-pub fn masked(n: u16) -> String {
+pub fn masked(n: u16, prefix: &str) -> String {
     format!(
-        "vtium@tty{n}.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask vtium@tty{n}.service."
+        "{prefix}@tty{n}.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask {prefix}@tty{n}.service."
     )
 }
 
@@ -137,13 +194,27 @@ pub fn own_link_not_link(n: u16) -> String {
     )
 }
 
-pub fn already_given(n: u16) -> String {
-    format!("vtium is already enabled on VT {n}. Nothing changed.")
+pub fn already_given(n: u16, mode: Mode) -> String {
+    format!(
+        "vtium is already enabled in {} on VT {n}. Nothing changed.",
+        mode_name(mode)
+    )
 }
 
-/// What `enable N` says once VT `n` is vtium's; `running` when vtium runs
-/// on VT `n` already, so there is nothing to start and no getty to stop.
-pub fn given(n: u16, running: bool) -> String {
+/// What `enable` says for a VT it moved from the other mode.
+pub fn moved(n: u16, mode: Mode) -> String {
+    let (from, to) = match mode {
+        Mode::Direct => ("seat mode", "direct mode"),
+        Mode::Seat => ("direct mode", "seat mode"),
+    };
+    format!("VT {n} moves from {from} to {to}: the unit of {from} is disabled there.")
+}
+
+/// What `enable N` says once VT `n` is vtium's in `mode`; `running` when
+/// vtium runs on VT `n` in that mode already, so there is nothing to start
+/// and no getty to stop.
+pub fn given(n: u16, mode: Mode, running: bool) -> String {
+    let unit = mode.prefix();
     let switch = match n {
         // logind never starts a console on VT 1.
         1 => String::new(),
@@ -157,45 +228,57 @@ pub fn given(n: u16, running: bool) -> String {
         " vtium already runs there.".to_owned()
     } else {
         format!(
-            " To start it now, run systemctl start vtium@tty{n}.service; that ends every session on VT {n}."
+            " To start it now, run systemctl start {unit}@tty{n}.service; that ends every session on VT {n}."
         )
     };
-    format!("vtium is enabled on VT {n}. systemd starts it there at the next boot{switch}.{now}")
+    format!(
+        "vtium is enabled in {} on VT {n}. systemd starts it there at the next boot{switch}.{now}",
+        mode_name(mode)
+    )
 }
 
 pub fn not_given(n: u16) -> String {
     format!("vtium is not enabled on VT {n}. Nothing changed.")
 }
 
-pub fn taken_back(n: u16, running: bool) -> String {
-    let stop = if running {
-        format!(
-            " It keeps running until it stops. To stop it now, run systemctl stop vtium@tty{n}.service; that ends every session on VT {n}."
-        )
-    } else {
-        String::new()
+/// What `disable N` says; `running` names the units of vtium that run on
+/// VT `n`.
+pub fn taken_back(n: u16, running: &[String]) -> String {
+    let stop = match running.first() {
+        Some(unit) => format!(
+            " It keeps running until it stops. To stop it now, run systemctl stop {unit}; that ends every session on VT {n}."
+        ),
+        None => String::new(),
     };
     format!("vtium is disabled on VT {n} from its next start.{stop}")
 }
 
-pub fn template_still_vtium(n: u16) -> String {
+pub fn template_still_vtium(n: u16, unit: &str) -> String {
     format!(
-        "logind still starts vtium on VT {n}, because /etc/systemd/system/autovt@.service links to vtium@.service. Run vtium console disable --all to undo that."
+        "logind still starts vtium on VT {n}, because /etc/systemd/system/autovt@.service links to {unit}@.service. Run vtium console disable --all to undo that."
     )
 }
 
-pub const ALREADY_ALL: &str = "vtium is already enabled on every VT. Nothing changed.";
+pub fn already_all(mode: Mode) -> String {
+    format!(
+        "vtium is already enabled in {} on every VT. Nothing changed.",
+        mode_name(mode)
+    )
+}
 
-pub fn given_all(vt1: bool, vt6: bool) -> String {
+pub fn given_all(mode: Mode, vt1: bool, vt6: bool) -> String {
+    let unit = mode.prefix();
     let boot = if vt1 {
         "systemd starts it on VT 1 at the next boot, and logind starts it on each other VT"
     } else {
         "logind starts it on every VT except VT 1"
     };
     let now = if vt1 {
-        " To start vtium on VT 1 now, run systemctl start vtium@tty1.service; that ends every session there."
+        format!(
+            " To start vtium on VT 1 now, run systemctl start {unit}@tty1.service; that ends every session there."
+        )
     } else {
-        ""
+        String::new()
     };
     let six = if vt6 {
         format!(
@@ -206,11 +289,16 @@ pub fn given_all(vt1: bool, vt6: bool) -> String {
         String::new()
     };
     format!(
-        "vtium is enabled on every VT from its next start: {boot} when you switch to it while nothing runs there. A login prompt running now on VTs 2 to 5 keeps its VT until it stops.{six}{now}"
+        "vtium is enabled in {} on every VT from its next start: {boot} when you switch to it while nothing runs there. A login prompt running now on VTs 2 to 5 keeps its VT until it stops.{six}{now}",
+        mode_name(mode)
     )
 }
 
-pub const TEMPLATE_MASKED: &str = "vtium@.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask vtium@.service.";
+pub fn template_masked(prefix: &str) -> String {
+    format!(
+        "{prefix}@.service is masked, so vtium leaves it alone. To unmask it, run systemctl unmask {prefix}@.service."
+    )
+}
 
 /// Who holds a VT, in words: "the display manager sddm.service", "the
 /// graphical session of aaron (sddm, wayland)".
@@ -354,6 +442,25 @@ pub fn login_on_reserved_vt(n: u16, list: &[Holder], all: bool) -> String {
     reserved_vt(cause, fix)
 }
 
+/// Why `enable` in `mode` refuses VT `n`, logind's reserved VT, while
+/// vtium runs there in the other mode.
+pub fn other_mode_on_reserved_vt(n: u16, mode: Mode) -> String {
+    let other = match mode {
+        Mode::Direct => super::SEAT,
+        Mode::Seat => super::VTIUM,
+    };
+    let cause = format!(
+        "vtium runs in {} on VT {n} ({other}@tty{n}.service), and VT {n} is logind's reserved VT: logind starts autovt@tty{n}.service every time you switch to it, even while the VT is in use. After this change, the next switch to VT {n} would start vtium in {} there, and that would stop vtium in {} and end every session on VT {n}, the logins in it included. Nothing changed.",
+        mode_of(other),
+        mode_name(mode),
+        mode_of(other)
+    );
+    let fix = format!(
+        "When nobody needs a session on VT {n} any more, stop vtium there with systemctl stop {other}@tty{n}.service, from another VT, and run this command again."
+    );
+    reserved_vt(cause, fix)
+}
+
 pub fn kmscon_on_reserved_vt(n: u16) -> String {
     let cause = format!(
         "kmscon (kmsconvt@tty{n}.service) is enabled or running on VT {n}, logind's reserved VT: logind starts autovt@tty{n}.service every time you switch to it, even while the VT is in use. With autovt@.service linked to vtium, the next switch to VT {n} would start vtium there, and that would stop kmscon."
@@ -479,7 +586,7 @@ pub fn still_running(vts: &[u16]) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "vtium keeps running on VT {list} until it stops. To stop it now, run systemctl stop vtium@ttyN.service; that ends every session on that VT."
+        "vtium keeps running on VT {list} until it stops. To stop it now, run systemctl stop vtium@ttyN.service, or vtium-seat@ttyN.service in seat mode; that ends every session on that VT."
     )
 }
 
@@ -495,7 +602,8 @@ pub fn template_not_link() -> String {
 
 pub fn template_names(unit: &str) -> String {
     let who = match unit {
-        "vtium" => "vtium",
+        "vtium" => "vtium in direct mode",
+        "vtium-seat" => "vtium in seat mode",
         "getty" => "a login prompt (getty)",
         "kmsconvt" => "kmscon",
         "vtium-dev" => "the development build of vtium",
@@ -560,4 +668,54 @@ pub fn fallback_starting(n: u16) -> String {
     format!(
         "vtium on VT {n} failed. Starting a login prompt (getty@tty{n}.service) in its place; this stops no other program."
     )
+}
+
+/// What plain `enable` says: what vtium finds on this machine, the mode it
+/// recommends and why, whether seat mode can run, and the command that
+/// turns the recommended mode on for `which`, the VT named or `--all`,
+/// with `sudo` before it when the user is not root.
+pub fn advice(facts: &Facts, which: &str, sudo: bool) -> Vec<String> {
+    let sudo = if sudo { "sudo " } else { "" };
+    let mut lines = vec![
+        "vtium console enable turns nothing on without a mode. This is what it finds on this machine:".to_owned(),
+        "- systemd runs as PID 1, so vtium console can turn vtium on.".to_owned(),
+        if facts.seat0 {
+            "- logind runs and manages seat0.".to_owned()
+        } else {
+            "- logind manages no seat0 here (there is no /run/systemd/seats/seat0).".to_owned()
+        },
+        if facts.seat_build {
+            "- This vtium is built with libseat and logind, which seat mode needs.".to_owned()
+        } else {
+            "- This vtium is built without libseat and logind, which seat mode needs.".to_owned()
+        },
+    ];
+    if let Some(dm) = &facts.display_manager {
+        lines.push(format!(
+            "- The display manager {dm} is enabled, so VT 1 and the other VTs it holds stay its own."
+        ));
+    }
+    let mode = advice::recommend(facts);
+    lines.push(String::new());
+    lines.push(match mode {
+        Mode::Direct => "vtium recommends direct mode for this machine. In direct mode, vtium opens the screen and the keyboards itself, and each login at vtium's prompt gets an active logind session on seat0, as a login at a getty does. So sound, removable disks and the actions that polkit allows the active session work as usual.".to_owned(),
+        Mode::Seat => "vtium recommends seat mode for this machine.".to_owned(),
+    });
+    lines.push(match advice::seat_block(facts) {
+        None => format!(
+            "Seat mode can also run here. In seat mode, vtium takes the screen, the keyboards and VT switching from logind, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. To use seat mode, run {sudo}vtium console enable --seat {which}."
+        ),
+        Some(SeatBlock::Build) => "Seat mode cannot run with this vtium, because it is built without libseat and logind.".to_owned(),
+        Some(SeatBlock::Unit) => "Seat mode cannot run here, because no systemd unit directory has vtium-seat@.service.".to_owned(),
+        Some(SeatBlock::Masked) => "Seat mode cannot run here, because vtium-seat@.service is masked.".to_owned(),
+        Some(SeatBlock::Pam) => "Seat mode cannot run here, because there is no /etc/pam.d/vtium, the PAM file that seat mode opens vtium's own session with.".to_owned(),
+        Some(SeatBlock::Logind) => "Seat mode cannot run here, because logind manages no seat0.".to_owned(),
+    });
+    lines.push(String::new());
+    lines.push(format!("To turn vtium on in {}, run:", mode_name(mode)));
+    lines.push(format!(
+        "  {sudo}vtium console enable {} {which}",
+        mode.flag()
+    ));
+    lines
 }

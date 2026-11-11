@@ -21,13 +21,14 @@
 # which creates the vtium-image account the helper runs as at the login
 # prompt (ADR-1101 D2). An install of a binary without pictures removes the
 # image helper and the sysusers file an earlier install wrote, since every
-# VT runs the one binary. When the binary is built with libseat, which
-# install also reads from the binary, install writes the unit's drop-in
-# /etc/systemd/system/vtium-dev@.service.d/libseat.conf and the PAM file
-# /etc/pam.d/vtium-dev, made from crates/vtium/install/vtium-libseat.conf
+# VT runs the one binary. When the binary is built with libseat and logind,
+# which install also reads from the binary, install writes the unit's
+# drop-in /etc/systemd/system/vtium-dev@.service.d/libseat.conf and the PAM
+# file /etc/pam.d/vtium-dev, made from crates/vtium/install/vtium-libseat.conf
 # and vtium.pam under the development install's PAM name, as make install
-# stages them for vtium@ (ADR-1400 D3). An install of a binary without
-# libseat removes the two files an earlier install wrote.
+# stages them for vtium@ (ADR-1400 D3). A binary built with libseat alone is
+# for seatd and opens no PAM session, so an install of it, as of any binary
+# without both, removes the two files an earlier install wrote.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
 # the files removed once no other VT's manifest needs them. It leaves the
@@ -169,9 +170,13 @@ sysusers_path=/etc/sysusers.d/vtium-dev-image.conf
 # manager answers (crates/vtium-platform/src/seat.rs, a module built only
 # with libseat). The tests hold it to that file.
 libseat_marker="no seat manager answered, so vtium uses the kernel's VT: "
+# A line only a build with logind carries: why a login got no systemd scope
+# of its own (crates/vtium-platform/src/logind/scope.rs, a module built only
+# with logind). The tests hold it to that file.
+logind_marker="systemd's job for the scope ended "
 unit_dir=/etc/systemd/system
-# A build with libseat opens a PAM session of its own through its unit
-# (ADR-1400 D3): the unit's drop-in and the PAM file, under the development
+# A build with libseat and logind opens a PAM session of its own through its
+# unit (ADR-1400 D3): the unit's drop-in and the PAM file, under the development
 # install's own PAM name, so it never replaces a packaged /etc/pam.d/vtium.
 dropin_path=$unit_dir/vtium-dev@.service.d/libseat.conf
 pam_path=/etc/pam.d/vtium-dev
@@ -192,8 +197,8 @@ files=("$bin_path" "$helper_path" "$unit_dir/vtium-dev@.service" "$unit_dir/vtiu
 # them as they remove the retired files below; an install of a binary with
 # pictures moves them into files.
 pictures=("$image_path" "$sysusers_path")
-# What install writes only for a binary built with libseat, kept and removed
-# the same way.
+# What install writes only for a binary built with libseat and logind, kept
+# and removed the same way.
 seat=("$dropin_path" "$pam_path")
 # Uninstall removes both sets; install sorts them below by what the binary
 # was built with.
@@ -478,11 +483,11 @@ elif grep -qaF -- "$images_marker" "$bin"; then
 else
 	dropped+=("${pictures[@]}")
 fi
-libseat=
-if grep -qaF -- "$libseat_marker" "$bin"; then
-	libseat=1
+pam_session=
+if grep -qaF -- "$libseat_marker" "$bin" && grep -qaF -- "$logind_marker" "$bin"; then
+	pam_session=1
 	for f in vtium-libseat.conf vtium.pam; do
-		[ -f "$src/$f" ] || die "no $src/$f, which a build with libseat installs"
+		[ -f "$src/$f" ] || die "no $src/$f, which a build with libseat and logind installs"
 	done
 	files+=("${seat[@]}")
 else
@@ -543,7 +548,7 @@ if [ -n "$image" ]; then
 fi
 # The drop-in and the PAM file: the shipped ones under an opening line of
 # their own, with the PAM name the development install's.
-if [ -n "$libseat" ]; then
+if [ -n "$pam_session" ]; then
 	{
 		echo "# Written by make vt-install (tools/vt/vt-install.sh) from crates/vtium/install/vtium-libseat.conf."
 		echo "# make vt-uninstall removes it."
@@ -588,7 +593,7 @@ fi
 		printf '%s  %s\n' "$(sha256sum <"$image" | cut -d' ' -f1)" "$image_path"
 		printf '%s  %s\n' "$(sha256sum <"$tmp/sysusers" | cut -d' ' -f1)" "$sysusers_path"
 	fi
-	if [ -n "$libseat" ]; then
+	if [ -n "$pam_session" ]; then
 		printf '%s  %s\n' "$(sha256sum <"$tmp/libseat.conf" | cut -d' ' -f1)" "$dropin_path"
 		printf '%s  %s\n' "$(sha256sum <"$tmp/pam" | cut -d' ' -f1)" "$pam_path"
 	fi
@@ -601,7 +606,7 @@ if [ -n "$dry" ]; then
 		cat "$tmp/$f"
 	done
 	[ -z "$image" ] || { printf '\n--- %s\n' "$sysusers_path"; cat "$tmp/sysusers"; }
-	[ -z "$libseat" ] || { printf '\n--- %s\n' "$dropin_path"; cat "$tmp/libseat.conf"; printf '\n--- %s\n' "$pam_path"; cat "$tmp/pam"; }
+	[ -z "$pam_session" ] || { printf '\n--- %s\n' "$dropin_path"; cat "$tmp/libseat.conf"; printf '\n--- %s\n' "$pam_path"; cat "$tmp/pam"; }
 	[ -z "$write_manifest" ] || { printf '\n--- %s\n' "$manifest"; cat "$tmp/manifest"; }
 	printf '\n--- %s\n' "$record"
 	cat "$tmp/files"
@@ -668,12 +673,12 @@ if [ -n "$image" ]; then
 	put "$tmp/sysusers" "$sysusers_path" 0644
 fi
 # The PAM file goes in before the drop-in that names it.
-[ -z "$libseat" ] || put "$tmp/pam" "$pam_path" 0644
+[ -z "$pam_session" ] || put "$tmp/pam" "$pam_path" 0644
 put "$bin" "$bin_path" 0755
 for f in vtium-dev@.service vtium-dev-getty@.service; do
 	put "$tmp/$f" "$unit_dir/$f" 0644
 done
-[ -z "$libseat" ] || put "$tmp/libseat.conf" "$dropin_path" 0644
+[ -z "$pam_session" ] || put "$tmp/libseat.conf" "$dropin_path" 0644
 # The new binary is in place, so the helper under its old name goes, and so
 # do the image helper and its sysusers file when the new binary has no
 # pictures. The copies are done, so the record holds only what is there now.

@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use super::held::{Facts, Holder};
-use super::{GETTY, instance, vt_digits};
+use super::{DEV, GETTY, VTIUM, instance, vt_digits};
 
 /// The logical lines of a unit file, as systemd reads them: a line that
 /// ends in a backslash goes on with the next one, a comment line (`#` or
@@ -148,7 +148,11 @@ struct Session<'s> {
 }
 
 /// The sessions on a VT in `loginctl show-session`'s output, one block of
-/// `Key=value` lines a session, the blocks parted by an empty line.
+/// `Key=value` lines a session, the blocks parted by an empty line. vtium's
+/// own session in seat mode, which its PAM stack `vtium`, or `vtium-dev`
+/// for the development install, opens in the class `greeter` (ADR-1400
+/// D3), is vtium itself on the VT, so it is left out: it holds the VT for
+/// no other program and is nobody's login.
 fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
     show.split("\n\n").filter_map(|block| {
         let fields: BTreeMap<&str, &str> = block
@@ -157,6 +161,9 @@ fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
             .collect();
         let get = |key: &str| fields.get(key).copied().unwrap_or_default();
         let vt = get("VTNr").parse::<u16>().ok().filter(|vt| *vt != 0)?;
+        if get("Service") == VTIUM || get("Service") == DEV {
+            return None;
+        }
         Some(Session {
             vt,
             user: get("Name"),
@@ -264,6 +271,38 @@ mod tests {
             facts("x.service", ["[Unit]\nConflicts=getty@tty%%1.service\n"])
                 .conflicts
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn vtiums_own_greeter_session_holds_no_vt_and_is_no_login() {
+        // vtium in seat mode on VT 3, its session opened by the PAM stack
+        // vtium in the class greeter, and the development install's on VT 4.
+        let show = "Id=c1
+Name=root
+VTNr=3
+Service=vtium
+Type=tty
+Class=greeter
+
+Id=c2
+Name=root
+VTNr=4
+Service=vtium-dev
+Type=tty
+Class=greeter
+
+Id=5
+Name=bob
+VTNr=5
+Service=login
+Type=tty
+Class=user
+";
+        assert_eq!(graphical(show), []);
+        assert_eq!(
+            logins(show).iter().map(|(vt, _)| *vt).collect::<Vec<_>>(),
+            [5]
         );
     }
 

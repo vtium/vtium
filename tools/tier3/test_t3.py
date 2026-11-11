@@ -3073,19 +3073,23 @@ class DevicesTest(unittest.TestCase):
     def test_the_guest_gives_vtium_its_vts_with_vtium_console(self):
         # The run's setup links the template back to the getty, as Arch's
         # systemd package has it, then gives vtium every VT as a user does,
-        # with vtium console enable --all, and fails the install when that
-        # fails. No vtium unit is named for kmscon.
+        # with vtium console enable --direct --all, or --seat --all for a
+        # variant in seat mode, and fails the install when that fails. No
+        # vtium unit is named for kmscon.
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             setup = f.read()
+        enable = 'vtium console enable --"$mode" --all'
         getty = ("ln -sfn /usr/lib/systemd/system/getty@.service "
                  "/etc/systemd/system/autovt@.service\n")
         self.assertIn(getty, setup)
-        self.assertLess(setup.index(getty), setup.index("vtium console enable --all"))
-        self.assertIn("if ! out=$(vtium console enable --all 2>&1); then\n"
-                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\\n' "
-                      "\"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
-        self.assertLess(setup.index("tar -xpf"), setup.index("vtium console enable --all"))
-        self.assertIn("/etc/systemd/system/vtium@.service.d/tier3.conf", setup)
+        self.assertLess(setup.index(getty), setup.index(enable))
+        self.assertIn("if ! out=$(" + enable + " 2>&1); then\n"
+                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --%s --all: %s\\n' "
+                      "\"$mode\" \"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
+        self.assertLess(setup.index("tar -xpf"), setup.index(enable))
+        self.assertIn("mode=direct\n", setup)
+        self.assertIn('[ "$mode" != seat ] || unit=vtium-seat@.service\n', setup)
+        self.assertIn("/etc/systemd/system/$unit.d/tier3.conf", setup)
         self.assertFalse([l for l in setup.splitlines()
                           if "kmsconvt" in l and not l.lstrip().startswith("#")])
 
@@ -3349,8 +3353,16 @@ class HeadsTest(unittest.TestCase):
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
             agent = f.read()
-        self.assertIn('units=("vtium@$vt.service" "vtium-getty@$vt.service" '
+        # vtium's unit is the template link's: vtium@ in direct mode,
+        # vtium-seat@ in seat mode.
+        self.assertIn('units=("$vtium_unit" "vtium-getty@$vt.service" '
                       '"getty@$vt.service")', agent)
+        self.assertIn("vtium_unit=vtium@$vt.service\n", agent)
+        self.assertIn("*/vtium-seat@.service) vtium_unit=vtium-seat@$vt.service ;;\n", agent)
+        self.assertEqual(t3_heads.unit({"units": {t3_heads.SEAT_UNIT: {"active": "active"}}},
+                                       t3_heads.VTIUM_UNIT), {"active": "active"})
+        self.assertEqual(t3_heads.unit({"units": {t3_heads.SEAT_UNIT: {"active": "active"}}},
+                                       t3_heads.GETTY_UNIT), {})
         self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
                                                    for u in t3_heads.GETTY_UNITS), agent)
         # the keyboard `watch` reads is the one the kiosk check plugs in
@@ -5637,6 +5649,20 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_seat.seat_verdict(log),
                          "vtium ran on the kernel's VT: no seat manager answered")
 
+    DIRECT = (b"seat: vtium is in no logind session of its own, so it takes the seat from "
+              b"seatd alone, and never from logind\n"
+              b"seat: no seat manager answered, so vtium uses the kernel's VT: No such file\n"
+              b"vt: using tty /dev/tty2\n")
+
+    def test_direct_mode_on_the_kernels_vt_passes(self):
+        self.assertIsNone(t3_seat.direct_verdict(self.DIRECT))
+
+    def test_direct_mode_that_opens_the_seat_or_says_nothing_fails(self):
+        self.assertEqual(t3_seat.direct_verdict(self.DIRECT + self.OPEN),
+                         "vtium opened the seat in direct mode")
+        self.assertEqual(t3_seat.direct_verdict(b"vt: using tty /dev/tty2\n"),
+                         "the console never logged %r" % t3_seat.SEAT_DIRECT)
+
     def test_no_seat_and_no_keyboard_fail(self):
         self.assertEqual(t3_seat.seat_verdict(b"vt: using tty /dev/tty2\n"),
                          "the console never logged 'seat: the seat seat0 is open'")
@@ -5650,13 +5676,115 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_seat.panic_verdict(log, len(log)),
                          "the console never showed %r" % t3_seat.PANIC_LINE)
 
+    # The agent's answer to `logins` as the guest gives it after a login
+    # in a scope of its own (the spike of 2026-11-10, measured): vtium leads
+    # c1 on seat0, the user's shell runs in session 2, with no seat.
+    LOGINS = ["vtium 431",
+              "session c1 User=0 Seat=seat0 VTNr=2 Class=greeter Active=yes TTY=tty2 "
+              "Leader=431",
+              "session 2 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/0 Leader=502",
+              "shell 517 1000 /user.slice/user-1000.slice/session-2.scope "
+              "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=2",
+              "user 1000 active"]
+
+    def test_a_login_in_a_session_of_its_own_with_no_seat_passes(self):
+        self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS)))
+
+    def test_two_logins_wait_until_logind_lists_each_shells_session(self):
+        # As a guest answered once: the second shell already ran in
+        # session-4.scope, and logind did not list session 4 yet.
+        second = ["shell 732 1000 /user.slice/user-1000.slice/session-4.scope "
+                  "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=4",
+                  "user 1000 active"]
+        early = t3_seat.parse_logins(self.LOGINS + second)
+        self.assertFalse(t3_seat.logins_settled(early, 2))
+        listed = t3_seat.parse_logins(
+            self.LOGINS + ["session 4 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/1 "
+                           "Leader=700"] + second)
+        self.assertTrue(t3_seat.logins_settled(listed, 2))
+        self.assertFalse(t3_seat.logins_settled(t3_seat.parse_logins(self.LOGINS), 2))
+
+    def test_vtiums_own_session_must_be_a_greeters(self):
+        # Without class=greeter in vtium.pam, pam_systemd gives vtium's
+        # root session on tty2 the class user-early (measured in the guest).
+        logins = [line.replace("Class=greeter", "Class=user-early") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(logins)),
+                         "vtium's own session c1 has the class user-early, not greeter")
+
+    def test_a_login_inside_vtiums_session_fails(self):
+        logins = [line.replace("/user.slice/user-1000.slice/session-2.scope",
+                               "/user.slice/user-0.slice/session-c1.scope")
+                  for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(logins)),
+                         "the shell 517 of uid 1000 runs in "
+                         "/user.slice/user-0.slice/session-c1.scope, which is no logind "
+                         "session of its user's own")
+
+    def test_a_login_on_vtiums_seat_or_vt_fails(self):
+        on_seat = [line.replace("Seat= VTNr=0", "Seat=seat0 VTNr=2") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(on_seat)),
+                         "the user's session 2 is on the seat seat0, not on none")
+        with_vtnr = [line + " XDG_VTNR=2" if line.startswith("shell") else line
+                     for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(with_vtnr)),
+                         "the shell 517 has XDG_VTNR=2")
+
+    def test_vtium_losing_the_seat_fails(self):
+        lost = [line.replace("Active=yes", "Active=no") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(lost)),
+                         "vtium's own session c1 lost the seat: {'User': '0', 'Seat': 'seat0', "
+                         "'VTNr': '2', 'Class': 'greeter', 'Active': 'no', 'TTY': 'tty2', "
+                         "'Leader': '431'}")
+
+    def test_no_runtime_dir_or_user_manager_fails(self):
+        bare = [line.replace("XDG_RUNTIME_DIR=/run/user/1000 ", "") for line in self.LOGINS]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(bare)),
+                         "the shell 517's XDG_RUNTIME_DIR is None")
+        stopped = self.LOGINS[:-1] + ["user 1000 inactive"]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(stopped)),
+                         "user@1000.service is inactive")
+
+    def test_two_logins_need_two_sessions(self):
+        second = ["session 3 User=1000 Seat= VTNr=0 Class=user Active=no TTY=pts/1 Leader=530",
+                  "shell 545 1000 /user.slice/user-1000.slice/session-3.scope "
+                  "XDG_RUNTIME_DIR=/run/user/1000 XDG_SESSION_ID=3",
+                  "user 1000 active"]
+        self.assertIsNone(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS + second),
+                                                shells=2))
+        shared = [line.replace("session-3.scope", "session-2.scope") for line in second]
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS + shared),
+                                               shells=2),
+                         "two shells share the session 2")
+        self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS), shells=2),
+                         "want 2 shell(s) logged in, the agent found 1")
+
     def test_the_variants_run_their_checks(self):
         for name in ("seat-seatd", "seat-logind"):
-            self.assertEqual(t3_scenario.VARIANTS[name]["tree_features"], ["libseat"])
-            self.assertEqual(t3_scenario.variant_cases(name)[-1], "seat")
+            self.assertEqual(t3_scenario.VARIANTS[name]["tree_features"], ["libseat", "logind"])
+            self.assertIn("seat", t3_scenario.variant_cases(name))
             self.assertEqual(t3_evaluate.GOLDENS_OF[name], "2d-potato-min")
+        self.assertEqual(t3_scenario.variant_cases("seat-logind")[-2:],
+                         ["seat", "login-session"])
+        self.assertEqual(t3_scenario.variant_cases("seat-logind-survive")[-4:],
+                         ["seat", "login-session", "seat-cgroup", "session-survives"])
+        self.assertEqual(t3_scenario.variant_cases("seat-logind-two")[-3:],
+                         ["seat", "login-session", "two-logins"])
+        self.assertTrue(t3_scenario.VARIANTS["seat-logind"]["agent"])
         self.assertEqual(t3_scenario.VARIANTS["seat-seatd"]["seat"], "seatd")
         self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
+        # The logind variants turn seat mode on through vtium console; the
+        # others run direct mode, as the package's install does, and
+        # direct-logind proves direct mode on the same tree under logind.
+        for name in ("seat-logind", "seat-logind-survive", "seat-logind-two"):
+            self.assertEqual(t3_scenario.VARIANTS[name]["mode"], "seat", name)
+        self.assertNotIn("mode", t3_scenario.VARIANTS["seat-seatd"])
+        direct = t3_scenario.VARIANTS["direct-logind"]
+        self.assertEqual(direct["tree_features"], ["libseat", "logind"])
+        self.assertNotIn("mode", direct)
+        self.assertNotIn("seat", direct)
+        self.assertEqual(t3_scenario.variant_cases("direct-logind")[-1:], ["direct"])
+        self.assertEqual(t3_evaluate.GOLDENS_OF["direct-logind"], "2d-potato-min")
+        self.assertIn("direct-logind", t3_scenario.SEAT_VARIANTS)
         self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])
         self.assertTrue(t3_scenario.VARIANTS["panic-sysrq"]["agent"])
         self.assertEqual(t3_scenario.variant_cases("kmsg-notice"), ["kernel-message"])

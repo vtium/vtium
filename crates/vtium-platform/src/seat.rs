@@ -58,6 +58,7 @@ pub use binding::{Libseat, LibseatSeat};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -119,6 +120,96 @@ pub(crate) trait Manager {
     /// Whether seatd listens on its socket, which decides whether a VT not
     /// shown must be waited for before the seat opens.
     fn seatd_listens(&self) -> bool;
+    /// The backend `LIBSEAT_BACKEND` names, when it names one.
+    fn backend_named(&self) -> Option<OsString>;
+    /// Whether logind runs: its seats' directory exists.
+    fn logind_runs(&self) -> bool;
+    /// Whether vtium is in a logind session of its own, the session
+    /// libseat's logind backend takes the seat from.
+    fn own_session(&self) -> bool;
+}
+
+/// What vtium logs when it leaves libseat's logind backend alone because
+/// vtium is in no logind session of its own and `LIBSEAT_BACKEND` names
+/// logind or no backend (ADR-1400 D3).
+pub const NO_SESSION: &str = "vtium is in no logind session of its own, so it does not take the seat from logind, and it uses the kernel's VT";
+
+/// What vtium logs when [`keep_from_logind`] pins libseat to seatd, as in
+/// direct mode (ADR-1400 D3).
+pub const SEATD_ONLY: &str = "vtium is in no logind session of its own, so it takes the seat from seatd alone, and never from logind";
+
+/// Whether vtium sets `LIBSEAT_BACKEND=seatd` itself: when it is in no
+/// logind session of its own and `named`, the backend `LIBSEAT_BACKEND`
+/// names, is none. Then libseat would try logind whenever seatd refuses an
+/// open (libseat/libseat.c lines 65-75 at seatd 92b1617c), and logind's
+/// backend would take the user's display session.
+pub(crate) fn pin_needed(named: Option<&OsStr>, own_session: bool) -> bool {
+    named.is_none() && !own_session
+}
+
+/// Whether vtium pinned libseat to seatd at its start.
+static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Pins libseat to seatd when vtium is in no logind session of its own and
+/// `LIBSEAT_BACKEND` names no backend ([`pin_needed`]), so that no open of
+/// the seat, the first, a retry or one that waits for the VT to be shown,
+/// reaches logind's backend. Call it once at the start, while vtium has
+/// one thread, and after reading the environment that sessions inherit, so
+/// that no login sees the variable. Returns whether it pinned.
+pub fn keep_from_logind() -> bool {
+    let manager = binding::Libseat;
+    if !pin_needed(manager.backend_named().as_deref(), manager.own_session()) {
+        return false;
+    }
+    #[expect(
+        unsafe_code,
+        reason = "setting LIBSEAT_BACKEND, which libseat reads from the environment"
+    )]
+    // SAFETY: the caller calls this while the process has one thread, so no
+    // other thread reads or writes the environment meanwhile.
+    unsafe {
+        std::env::set_var("LIBSEAT_BACKEND", "seatd");
+    }
+    PINNED.store(true, std::sync::atomic::Ordering::Relaxed);
+    log::info!(target: "seat", "{SEATD_ONLY}");
+    true
+}
+
+/// Whether [`keep_from_logind`] pinned libseat to seatd.
+pub fn pinned() -> bool {
+    PINNED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether the control groups `cgroup`, as `/proc/PID/cgroup` lists them,
+/// put the process in a logind session's scope, `session-ID.scope`. sd-login
+/// finds a process's session the same way: from the systemd unit of its
+/// control group on the unified hierarchy (`0::`), or on systemd's own
+/// named hierarchy (`name=systemd`) on a host that mounts both. The unit is
+/// the first part of the path that is not a slice.
+pub(crate) fn in_session_scope(cgroup: &str) -> bool {
+    cgroup.lines().any(|line| {
+        let mut fields = line.splitn(3, ':');
+        let (_, controllers, path) = (fields.next(), fields.next(), fields.next());
+        matches!(controllers, Some("" | "name=systemd"))
+            && path
+                .and_then(|p| {
+                    p.split('/')
+                        .find(|c| !c.is_empty() && !c.ends_with(".slice"))
+                })
+                .is_some_and(|unit| unit.starts_with("session-") && unit.ends_with(".scope"))
+    })
+}
+
+/// Whether libseat opens the seat through its logind backend. libseat tries
+/// only the backend `LIBSEAT_BACKEND` names, when it names one, and
+/// otherwise seatd, then logind, then its built-in seat manager
+/// (libseat/libseat.c at seatd 92b1617c, lines 18-28 and 45). seatd answers
+/// when its socket accepts a connection, and logind when it runs.
+pub(crate) fn logind_backend(named: Option<&OsStr>, seatd: bool, logind_runs: bool) -> bool {
+    match named {
+        Some(name) => name == "logind",
+        None => !seatd && logind_runs,
+    }
 }
 
 /// What [`LibseatVt::start`] chose.
@@ -221,6 +312,8 @@ struct Found<S> {
     inbox: Inbox,
     /// seatd listens.
     seatd: bool,
+    /// libseat's logind backend opens the seat.
+    logind: bool,
 }
 
 /// What the VT asks of the loop it runs in, made by [`LibseatVt::start`]
@@ -249,6 +342,9 @@ pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     inbox: Inbox,
     /// seatd listened at the start.
     seatd: bool,
+    /// libseat's logind backend opens the seat, from vtium's own logind
+    /// session ([`Vt::logind_seat`]).
+    logind: bool,
     /// The VT the seat runs on, when it has VTs, and its number.
     tty: Option<(C, u16)>,
     /// The VT shown at the start, which [`Vt::leave`] goes back to.
@@ -325,6 +421,24 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             None => None,
         };
         let seatd = manager.seatd_listens();
+        let logind = logind_backend(
+            manager.backend_named().as_deref(),
+            seatd,
+            manager.logind_runs(),
+        );
+        // Outside a session of its own, libseat's logind backend would take
+        // the user's display session, such as root's login on another VT
+        // (libseat/backend/logind.c, `get_display_session`). libseat reaches
+        // that backend when LIBSEAT_BACKEND names it, and, when it names no
+        // backend, whenever seatd refuses an open, as a busy seatd does. So
+        // outside a session vtium opens the seat only through a backend
+        // named otherwise, as keep_from_logind names seatd in direct mode.
+        let named = manager.backend_named();
+        let reaches_logind = named.as_deref().is_none_or(|n| n == "logind");
+        if reaches_logind && !manager.own_session() {
+            log::info!(target: "seat", "{NO_SESSION}");
+            return Ok(Chosen::Kernel(tty));
+        }
         let inbox = Inbox::default();
         let mut manager = manager;
         let (conn, seat) = if shown == Some(false) && seatd {
@@ -348,6 +462,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seat,
             inbox,
             seatd,
+            logind,
         };
         Ok(Chosen::Seat(LibseatVt::new(
             lp, manager, found, tty, tries, access,
@@ -415,6 +530,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seat,
             inbox,
             seatd,
+            logind,
         } = found;
         let mut vt = LibseatVt {
             manager,
@@ -426,6 +542,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             })),
             inbox,
             seatd,
+            logind,
             tty,
             saved,
             kb_mode,
@@ -836,6 +953,10 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
 
     fn seat(&self) -> &str {
         self.name.as_deref().unwrap_or("seat0")
+    }
+
+    fn logind_seat(&self) -> bool {
+        self.logind
     }
 
     fn open_device(&mut self, path: &Path) -> io::Result<OwnedFd> {

@@ -112,18 +112,25 @@ if [ -f "$disc"/t3-agent ]; then
     install -m755 "$disc"/t3-agent /usr/local/sbin/t3-agent
     install -m644 "$disc"/t3-agent.service /etc/systemd/system/t3-agent.service
 fi
+# The mode vtium runs in on the guest's VTs (ADR-1400 D3): direct, through
+# vtium@.service, unless the variant names seat mode, through
+# vtium-seat@.service, which a tree built with libseat and logind ships.
+mode=direct
+[ ! -f "$disc"/mode ] || mode=$(cat "$disc"/mode)
+unit=vtium@.service
+[ "$mode" != seat ] || unit=vtium-seat@.service
 # The console's log also goes to the serial console, so the harness can read
 # which video backend and text renderer drew the screens.
-mkdir -p /etc/systemd/system/vtium@.service.d
+mkdir -p /etc/systemd/system/$unit.d
 printf '[Service]\nStandardOutput=journal+console\nStandardError=journal+console\n' \
-    > /etc/systemd/system/vtium@.service.d/tier3.conf
+    > /etc/systemd/system/$unit.d/tier3.conf
 # A seat variant (t3_seat.py) names the seat manager libseat must take:
 # seatd, which setup starts, or logind. LIBSEAT_BACKEND holds libseat to it,
 # so the variant fails rather than pass through another backend.
 if [ -f "$disc"/seat ]; then
     backend=$(cat "$disc"/seat)
     printf '[Service]\nEnvironment=LIBSEAT_BACKEND=%s\n' "$backend" \
-        > /etc/systemd/system/vtium@.service.d/t3-seat.conf
+        > /etc/systemd/system/$unit.d/t3-seat.conf
     if [ "$backend" = seatd ]; then
         systemctl start --no-block seatd.service
     fi
@@ -132,13 +139,13 @@ fi
 # image leaves autovt@.service, the unit logind starts on a VT the driver
 # switches to, linked as Arch's systemd package has it, to getty@.service.
 # The ln below states that link, so the guest starts from a stock install
-# whatever the image holds. The enable step then links it to vtium@.service,
-# recording the getty. It changes only what starts
+# whatever the image holds. The enable step then links it to the mode's
+# unit, recording the getty. It changes only what starts
 # next, and the boot's units are already queued, so tty1 keeps its getty and
 # logind starts vtium on tty2 at the driver's switch.
 ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
-if ! out=$(vtium console enable --all 2>&1); then
-    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\n' "$out" > /dev/ttyS0
+if ! out=$(vtium console enable --"$mode" --all 2>&1); then
+    printf 'TIER3-INSTALL-FAIL vtium console enable --%s --all: %s\n' "$mode" "$out" > /dev/ttyS0
     exit 1
 fi
 systemctl daemon-reload
