@@ -1,6 +1,8 @@
 //! vtium: a terminal for the Linux virtual console.
 //!
-//! Start-up reads the configuration, vtium.conf's top level and its
+//! Start-up first reads the kernel command line: with `vtium.enable=0` on
+//! it, vtium exits with status 1 before it reads anything else (ADR-1401
+//! D9). Then it reads the configuration, vtium.conf's top level and its
 //! sections, the flow (ADR-1401 D3, ADR-1403 D3), writes or removes the closed policy's getty marker (`getty.rs`), and
 //! then opens the loop and its signals, the VT, the seat's devices and the
 //! sessions, and runs the loop until something asks it to end; at the end
@@ -91,6 +93,10 @@ fn main() -> ExitCode {
         .or_else(|| vtium::survive::hold::subcommand(&args))
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
+    }
+    // Before vtium.conf, the VT and any card (ADR-1401 D9).
+    if let Some(status) = vtium::kernel::off_at_start(&args, Path::new(vtium::kernel::CMDLINE)) {
+        return ExitCode::from(status);
     }
     let loaded = config::load(&args, &mut config::read_file);
     // The same reader, with its ownership check, reads the font keys again
@@ -330,6 +336,7 @@ fn run(
     app.set_config_reader(reread);
     app.set_heads(heads);
     app.set_survival(keeper, kept);
+    kernel_messages(&lp, &mut app);
 
     match start.input() {
         Some(mut input) => {
@@ -378,6 +385,37 @@ fn run(
     drop(app);
     drop(lp);
     Ok(exit.status())
+}
+
+/// Reads the kernel's messages from `/dev/kmsg` through the loop, for the
+/// app to show (ADR-1401 D15). Where vtium cannot open the device, it
+/// logs why and shows none.
+fn kernel_messages(lp: &Loop<App>, app: &mut App) {
+    use vtium_platform::calloop::generic::Generic;
+    use vtium_platform::calloop::{Interest, Mode, PostAction};
+    let opened = vtium::kernel::System::open().and_then(|system| {
+        let fd = system.watched()?;
+        lp.handle()
+            .insert_source(
+                Generic::new(fd, Interest::READ, Mode::Level),
+                |_, _, app: &mut App| {
+                    Ok(if app.kernel_ready() {
+                        PostAction::Continue
+                    } else {
+                        PostAction::Remove
+                    })
+                },
+            )
+            .map_err(|e| e.error)?;
+        Ok(system)
+    });
+    match opened {
+        Ok(system) => app.set_kernel(Box::new(system)),
+        Err(e) => log::info!(
+            "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+            vtium::kernel::KMSG
+        ),
+    }
 }
 
 #[cfg(test)]

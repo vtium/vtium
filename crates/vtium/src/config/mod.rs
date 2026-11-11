@@ -307,11 +307,21 @@ impl fmt::Display for Problem {
                 )
             }
             Problem::NotAChoice { key, value } => {
-                let choices = match keys::find(key).map(|k| k.kind) {
-                    Some(Kind::Choice(c)) => c.join(", "),
-                    _ => String::new(),
+                let choices: &[&str] = match keys::find(key).map(|k| k.kind) {
+                    Some(Kind::Choice(c)) => c,
+                    _ => &[],
                 };
-                write!(f, "{key}={} is not one of {choices}, ignored", quote(value))
+                let choices = match choices {
+                    [] => String::new(),
+                    [one] => (*one).to_owned(),
+                    [a, b] => format!("{a} or {b}"),
+                    [rest @ .., last] => format!("{}, or {last}", rest.join(", ")),
+                };
+                write!(
+                    f,
+                    "{key}={} is not a value this setting takes. It takes {choices}. Because of this error, vtium ignores this setting.",
+                    quote(value)
+                )
             }
             Problem::TooLong(k) => write!(f, "{k} is longer than {TEXT_MAX} bytes, ignored"),
             Problem::ControlCharacter(k) => {

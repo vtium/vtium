@@ -1698,7 +1698,9 @@ fn display_buffers_takes_one_two_or_three() {
             .first()
             .map(ToString::to_string)
             .as_deref(),
-        Some("/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not one of 1, 2, 3, ignored")
+        Some(
+            "/etc/vtium/vtium.conf:1: display-buffers=\"4\" is not a value this setting takes. It takes 1, 2, or 3. Because of this error, vtium ignores this setting."
+        )
     );
     // The command line wins over the file, in either form of the option.
     for args in [&["--display-buffers=1"][..], &["--display-buffers", "1"]] {
