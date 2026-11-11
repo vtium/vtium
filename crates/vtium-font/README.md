@@ -8,6 +8,7 @@ vtium's glyph sources: font files, vitrified sets and built-in sets in, glyph bi
 | `src/face.rs` | The `Face` trait a glyph source implements, with its coverage of each sprite range, and `Font`: the sprites its policy chooses, then the face, then U+25A1, `?` and the face's last resort, each glyph boxed to its cells. `Decorations`: where underline and strike go. |
 | `src/policy.rs` | `SpritePolicy`, a `Source` for each sprite range, with the default for a font the operator names; `Coverage`, how much of each range a face holds; `Missing`, what a character the face lacks draws as. |
 | `src/glyph.rs` | `Glyph`, what every face and sprite draws: a coverage mask or premultiplied RGBA, with the cells it spans, bounded by `CELL_SIDE_MAX`. |
+| `src/script.rs` | `Script` and `Variant`: superscript and subscript, SGR 73 and 74, drawn as the glyph scaled to two thirds and placed at the top or the bottom of its cells (`Glyph::scripted`). |
 | `src/psf.rs` | `Psf`: the PSF1 and PSF2 loader, its unicode table, and the glyph drawing, with the licence notice of the `kmscon` file it was ported from; the `psf` feature. |
 | `src/gzip.rs` | gzip (RFC 1952) framing and checks around `miniz_oxide`'s inflate, for gzipped PSF fonts. |
 | `src/set/mod.rs` | The vitrified set's public face: `Set`, `SetBuilder` and `SetFace`. |
@@ -66,6 +67,18 @@ The loader follows kbd's description of the format in Andries Brouwer's "The PSF
 - **A font the operator names draws its own glyphs for each sprite range it covers whole.** `SpritePolicy::default_for` gives a range `Font` when the face holds every character of it and `Sprites` when it misses any, so no range mixes the two; a partly covered range draws sprites and warns. The built-in unifont keeps `Sprites` for every range, though it covers all six, because the sprites line up exactly at every cell size and the goldens show them. Source: the operator's decision on vtium/vtium#85.
 - **A sprite's light line follows the cell, not the font's underline.** `sprite::light_line` gives a cell `h` rows tall a light line `h / 16` pixels wide, at least 1 and at most a quarter of the cell, the thickness a face with no line metrics gives its underline; heavy lines are twice it, and double lines are two light strokes a light stroke apart. So a 20x38 cell draws 2-pixel light lines and 4-pixel heavy ones in every font, where DejaVu Sans Mono's own underline, which an outline font states in its `post` table, is 1 pixel at a 38-row cell. The font's measured underline still sets where vtium draws an underline and how thick. Source: the maintainer's decision on vtium/vtium#310, that line weight grows with the cell.
 - **A cluster on a sprite character the face lacks draws the sprite.** When the policy draws a cluster's first character as a sprite and the face lacks that character, the cluster draws the character's sprite and drops its marks, so a PSF font without box drawing draws U+2500 + U+0301 as the line and not as U+25A1. A face that holds the character draws the cluster. Source: the operator's decision on vtium/vtium#85, which draws the sprites for a range the font lacks.
+
+### Superscript and subscript
+
+`Font::drawn_variant` draws a glyph in a `Variant`, its style and its `Script` (vtium/vtium#37). SGR 73 asks for superscript, SGR 74 for subscript, and SGR 75 returns to the baseline, as mintty's control sequences define them (<https://github.com/mintty/mintty/wiki/CtrlSeqs>). That page leaves the glyph's size and place to the terminal, so vtium chooses them:
+
+- The small glyph is the normal glyph scaled to two thirds of its width and height, rounded to whole pixels, and centred from side to side in its cells. In an 8x16 cell it is 5x11.
+- A superscript glyph's top row is the cell's top row. A subscript glyph's bottom row is the cell's bottom row.
+- Each pixel of the small glyph is the average of the normal glyph's pixels it covers, weighted by how much of each it covers. A bitmap font's 1-bit glyph therefore becomes a mask with gray edges, and a color glyph stays premultiplied.
+- The face draws only the normal glyph, so a bitmap font, which has no outline to draw at another size, and a sprite scale the same way. The normal glyph's ink past its cells is not scaled.
+- `Font::glyph_unscaled_variant` hands the small glyph over at its drawn size, since two thirds is no whole number of a bitmap glyph's pixels.
+
+`src/script.rs` holds the size and place to literal rows and columns.
 
 ### A character the face lacks
 

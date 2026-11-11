@@ -5,14 +5,16 @@
 //! each glyph exactly its cells' size, and each ink box inside its reach:
 //! its glyph's cells, `REACH_CELLS` cells past them on each side and
 //! `REACH_ROWS` rows above and below them (ADR-1302 D1, D6, ADR-1306 D1,
-//! D3).
+//! D3). Each glyph is drawn as superscript and subscript too, each the
+//! glyph's own size and cells, with no ink box, and a color glyph still
+//! premultiplied.
 #![no_main]
 
 use std::sync::Arc;
 
 use libfuzzer_sys::fuzz_target;
 use vtium_font::set::{Set, SetFace};
-use vtium_font::{Face, REACH_CELLS, REACH_ROWS, Style};
+use vtium_font::{Face, Format, Glyph, REACH_CELLS, REACH_ROWS, Script, Style};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(set) = Set::from_bytes(data.to_vec()) else {
@@ -30,6 +32,16 @@ fuzz_target!(|data: &[u8]| {
                     if let Some(g) = face.draw(&[ch], style) {
                         assert_eq!(g.width(), c.width * g.cells().cells());
                         assert_eq!(g.height(), c.height);
+                        for script in [Script::Super, Script::Sub] {
+                            let s = g.scripted(script).expect("a scaled glyph");
+                            assert_eq!((s.width(), s.height()), (g.width(), g.height()));
+                            assert_eq!((s.cells(), s.format()), (g.cells(), g.format()));
+                            assert!(s.ink().is_none());
+                            if s.format() == Format::Rgba {
+                                let px = s.pixels().to_vec();
+                                assert!(Glyph::from_pixels(s.width(), s.height(), Format::Rgba, px).is_some());
+                            }
+                        }
                         if let Some(ink) = g.ink() {
                             let across = i64::from(c.width) * i64::from(REACH_CELLS);
                             let down = i64::from(g.height()) * i64::from(REACH_ROWS);
