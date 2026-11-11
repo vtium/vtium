@@ -1,0 +1,28 @@
+# A program sets the size of the text area with xterm's CSI 8 ; rows ;
+# columns t, while vtium.conf's allow-window-ops is on (vtium/vtium#44).
+# vtium meets the request by changing the font size: it draws at the
+# largest font size at which the display holds the rows and columns asked
+# for, on exactly that grid. The run turns the key on with DEMO_ARGS,
+# since it is off by default.
+#
+#   make vt-check GUIDE=window DEMO_ARGS='--allow-window-ops'
+
+title: a program sets the text area's size
+
+step: A program asks for 80 columns and 25 rows
+run: printf '\033[8;25;80t'; sleep 1; echo "rows and columns: $(stty size)"
+expect: the text grows to the largest size at which the screen holds 25
+expect: rows of 80 columns. The text area is exactly 80 by 25: a band at
+expect: the right or at the bottom stays blank where the screen has room
+expect: left over. The command prints "rows and columns: 25 80".
+
+step: The size report answers the new size
+run: printf '\033[18t'; IFS= read -rs -d t -n 32 -t 2 r; echo "report: ${r#?}t"
+expect: the command prints "report: [8;25;80t", the size report's answer of
+expect: 25 rows and 80 columns.
+
+step: A zoom fills the screen again
+do: press Ctrl and minus once, then Ctrl and plus once.
+expect: after Ctrl and minus, the text is smaller and fills the whole
+expect: screen, with no blank band. Ctrl and plus makes it larger again,
+expect: still filling the screen.
