@@ -559,6 +559,20 @@ pub const NOTICE_BORDER: Key = Key {
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
+pub const KERNEL_MESSAGES: Key = Key {
+    name: "kernel-messages",
+    short: None,
+    kind: Kind::Choice(&["after-plymouth", "always"]),
+    default: Default::Text("after-plymouth"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "When vtium shows the kernel's warnings and errors on the screen.\n\n\
+           vtium shows each new kernel message whose level is warning or more severe, on top of the console, as long as the kernel's console log level lets it through. `quiet` and `loglevel=` on the kernel command line set that level. vtium never writes them into a console's session.\n\n\
+           `after-plymouth` leaves the messages to Plymouth, the boot splash program, while it runs, and vtium shows them once Plymouth has quit. Once Plymouth has quit, vtium does not go back and show the messages that came while it ran. On a machine without Plymouth, vtium shows them from its start. `always` shows them whether Plymouth runs or not.",
+    cite: "[the boot messages issue](https://github.com/vtium/vtium/issues/266)",
+};
+
 pub const OSD_FOREGROUND: Key = Key {
     name: "osd-foreground",
     short: None,
@@ -2103,7 +2117,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 125] = [
+pub static KEYS: [Key; 126] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2123,6 +2137,7 @@ pub static KEYS: [Key; 125] = [
     OSD_FOREGROUND,
     OSD_BACKGROUND,
     OSD_BORDER,
+    KERNEL_MESSAGES,
     TERM,
     RESET_ENV,
     BACKSPACE_DELETE,
@@ -2446,7 +2461,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "On-screen display and notices",
-        about: "What vtium shows on top of the console to say which head and console you are looking at, and to report a problem, and their colors.",
+        about: "What vtium shows on top of the console, and in which colors: which head and console you are looking at, a notice about a problem, and the kernel's warnings.",
         groups: &[
             Group {
                 title: "On-screen display",
@@ -2459,6 +2474,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "On-screen display colors",
                 keys: &[&OSD_FOREGROUND, &OSD_BACKGROUND, &OSD_BORDER],
+            },
+            Group {
+                title: "Kernel messages",
+                keys: &[&KERNEL_MESSAGES],
             },
         ],
     },
