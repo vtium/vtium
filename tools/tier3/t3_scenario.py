@@ -541,10 +541,34 @@ HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
 # up and the login prompts reached, then the console the switch spawns
 # logging its VT; under sysvinit, the console the inittab started on tty2
 # logging its VT, then its display set up once the VT is shown.
+# The lines systemd logs once vtium's unit on tty2 is active: with
+# Type=notify, only after vtium has sent READY=1 (ADR-1500 D7, "Ready
+# before the display manager"). A unit that never sends it stays
+# activating, and its variant fails.
+READY_LINES = ("Started vtium on tty2.", "Started vtium in seat mode on tty2.")
+
+
+def wait_ready(vm, lines, timeout=60):
+    """The first of `lines` on the console log, once systemd has logged
+    one, or a RuntimeError when none comes within `timeout` seconds."""
+    deadline = time.time() + timeout
+    while True:
+        for line in lines:
+            try:
+                return vm.wait_serial(line, timeout=0)
+            except RuntimeError:
+                pass
+        if time.time() > deadline:
+            raise RuntimeError("vtium's unit on tty2 never became active: systemd logged no %r "
+                               "within %d s" % (lines[0], timeout))
+        time.sleep(0.2)
+
+
 GUESTS = {
     "arch": {"base": BASE, "image": "tier3-image",
              "boot": ["Started User Login Management", "Reached target Login Prompts"],
-             "shown": "vt: using tty /dev/tty2"},
+             "shown": "vt: using tty /dev/tty2",
+             "ready": READY_LINES},
     "sysvinit": {"base": BASE_SYSVINIT, "image": "tier3-image-nosystemd",
                  "boot": ["vt: using tty /dev/tty2"], "shown": "text renderer ["},
 }
@@ -1066,6 +1090,8 @@ def run_variant(variant, timing, impl, log):
         if v.get("first_switch", True):
             vm.keys("ctrl", "alt", "f2")
             vm.wait_serial(guest["shown"], timeout=60)
+            if "ready" in guest:
+                log(wait_ready(vm, guest["ready"]))
         tmp = os.path.join(work, "wait.ppm")
         prompt = None
         if v["device"] is not None and v["renderer"] is not None:

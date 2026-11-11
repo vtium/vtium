@@ -66,8 +66,9 @@ CHECKS = {
                   "then shows the first console again.",
     "boot-claim": "The VTs after vtium console enable --direct --all and a second start of the "
                   "guest's userspace (systemctl soft-reboot), with nobody switching VTs "
-                  "(ADR-1500 D7, \"Each claimed VT starts at boot\"). Correct: a vtium process "
-                  "holds each of VTs 1 to 6 open, /dev/ttyN among its open files, and the "
+                  "(ADR-1500 D7, \"Each claimed VT starts at boot\"). Correct: on each of VTs 1 "
+                  "to 6, vtium@ttyN.service is active and a vtium in its control group holds "
+                  "/dev/ttyN open, a different vtium on each VT, and the "
                   "first VT the kernel's VT_OPENQRY gives, which a display manager such as "
                   "SDDM takes for a new desktop session, is VT 7. Then the driver switches to "
                   "each of VTs 2 to 6 in turn, and each VT's own vtium, started at boot while "
@@ -455,29 +456,47 @@ BOOT_CLAIM_TIMEOUT = 90
 
 def parse_vts(lines):
     """The agent's answer to `vts` (guest/t3-agent): {VT: [(pid, name, VmRSS
-    in kB or None)]} for each process that holds /dev/ttyN open, and the
-    VT that `fgconsole --next-available` gave, or None."""
-    held, free = {}, None
+    in kB or None, the unit of its control group or None)]} for each
+    process that holds /dev/ttyN open, {VT: {unit: active state}} for
+    vtium's two units on each VT, and the VT that `fgconsole
+    --next-available` gave, or None."""
+    held, units, free = {}, {}, None
     for line in lines:
         words = line.split()
         if words[:1] == ["vt"] and len(words) >= 4:
             rss = int(words[4]) if len(words) > 4 and words[4].isdigit() else None
-            held.setdefault(int(words[1]), []).append((int(words[2]), words[3], rss))
+            unit = words[5] if len(words) > 5 else None
+            held.setdefault(int(words[1]), []).append((int(words[2]), words[3], rss, unit))
+        elif words[:1] == ["unit"] and len(words) >= 3:
+            units.setdefault(int(words[1]), {})[words[2]] = words[3] if len(words) > 3 else ""
         elif words[:1] == ["next-available"]:
             free = int(words[1]) if len(words) > 1 and words[1].isdigit() else None
-    return held, free
+    return held, units, free
 
 
-def boot_claim_verdict(held, free):
+def unit_holders(held, units, n):
+    """The vtium processes that hold VT `n` open from the control group of
+    vtium's unit on that VT, while that unit is active."""
+    own = {"vtium@tty%d.service" % n, "vtium-seat@tty%d.service" % n}
+    active = {u for u, state in units.get(n, {}).items() if u in own and state == "active"}
+    return [pid for pid, name, _, unit in held.get(n, []) if name == "vtium" and unit in active]
+
+
+def boot_claim_verdict(held, units, free):
     """Why the boot-claim check fails on the parsed `vts` answer, or None:
-    a VT of CLAIMED_VTS that no vtium holds open, or a first free VT other
-    than the first after them."""
-    missing = [n for n in CLAIMED_VTS if not any(name == "vtium" for _, name, _ in held.get(n, []))]
+    a VT of CLAIMED_VTS that no vtium of that VT's own active unit holds
+    open, one vtium holding two of them, or a first free VT other than the
+    first after them."""
+    missing = [n for n in CLAIMED_VTS if not unit_holders(held, units, n)]
     if missing:
-        return "no vtium holds VT %s open: %s" % (
+        return "no vtium of its own active unit holds VT %s open: %s" % (
             ", ".join(map(str, missing)),
-            "; ".join("VT %d: %s" % (n, ", ".join("%s %d" % (name, pid) for pid, name, _ in held.get(n, []))
-                                      or "nothing") for n in missing))
+            "; ".join("VT %d: %s" % (n, ", ".join(
+                "%s %d in %s" % (name, pid, unit) for pid, name, _, unit in held.get(n, []))
+                or "nothing") for n in missing))
+    pids = [unit_holders(held, units, n)[0] for n in CLAIMED_VTS]
+    if len(set(pids)) != len(pids):
+        return "one vtium holds several VTs open: %s" % " ".join(map(str, pids))
     if free != CLAIMED_VTS[-1] + 1:
         return "the first free VT is %s, not VT %d" % (free, CLAIMED_VTS[-1] + 1)
     return None
@@ -498,14 +517,14 @@ def check_boot_claim(v, vm, work, caps, errors, log):
     deadline = time.time() + BOOT_CLAIM_TIMEOUT
     while True:
         answer = vm.ask("vts")
-        held, free = parse_vts(answer)
-        why = boot_claim_verdict(held, free)
+        held, units, free = parse_vts(answer)
+        why = boot_claim_verdict(held, units, free)
         if why is None or time.time() > deadline:
             break
         time.sleep(0.5)
     for line in answer:
         log("%s: %s" % (case, line))
-    rss = [r for n in CLAIMED_VTS for _, name, r in held.get(n, []) if name == "vtium" and r]
+    rss = [r for n in CLAIMED_VTS for _, name, r, _ in held.get(n, []) if name == "vtium" and r]
     if rss:
         log("%s: resident memory of each idle vtium, kB: %s" % (case, " ".join(map(str, rss))))
     if why:
@@ -513,7 +532,7 @@ def check_boot_claim(v, vm, work, caps, errors, log):
         return
     # Each vtium started at boot draws its own VT once it is shown.
     for n in CLAIMED_VTS[1:]:
-        pid = next(p for p, name, _ in held[n] if name == "vtium")
+        pid = unit_holders(held, units, n)[0]
         vm.keys("ctrl", "alt", "f%d" % n)
         try:
             vm.wait_serial(DISPLAY_LINE % pid, timeout=60)

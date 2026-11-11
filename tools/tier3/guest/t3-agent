@@ -53,8 +53,11 @@
 #                    (the images variants, t3_images.py), then reports the
 #                    pty's owner and the account each image helper runs as
 #   vts              for each VT from 1 to 6, each process that holds
-#                    /dev/ttyN open, with its name and its resident memory
-#                    (VmRSS) in kB, and the first VT that no process holds
+#                    /dev/ttyN open, with its name, its resident memory
+#                    (VmRSS) in kB and the unit of its control group, read
+#                    from /proc/PID/cgroup; the active state of
+#                    vtium@ttyN.service and vtium-seat@ttyN.service; and
+#                    the first VT that no process holds
 #                    open, which the kernel's VT_OPENQRY gives through
 #                    fgconsole --next-available (t3_seat.py's boot-claim
 #                    check)
@@ -255,7 +258,11 @@ answer() {
                     echo "$p"
                 done | sort -un | while read -r p; do
                     echo "vt $n $p $(cat "/proc/$p/comm" 2>/dev/null)" \
-                        "$(awk '/^VmRSS:/ { print $2 }' "/proc/$p/status" 2>/dev/null)"
+                        "$(awk '/^VmRSS:/ { print $2 }' "/proc/$p/status" 2>/dev/null)" \
+                        "$(sed -n 's|^0::.*/||p' "/proc/$p/cgroup" 2>/dev/null)"
+                done
+                for u in "vtium@tty$n.service" "vtium-seat@tty$n.service"; do
+                    echo "unit $n $u $(systemctl show -P ActiveState "$u")"
                 done
             done
             echo "next-available $(fgconsole --next-available 2>&1)"
