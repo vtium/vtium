@@ -58,10 +58,17 @@
 set -u
 port=${T3_AGENT_PORT:-/dev/ttyS2}
 vt=tty2
-units=("vtium@$vt.service" "vtium-getty@$vt.service" "getty@$vt.service")
+# vtium's unit on tty2 is the one the template link names, which guest/setup's
+# vtium console enable made: vtium@ in direct mode, vtium-seat@ in seat mode
+# (ADR-1400 D3). T3_AGENT_TEMPLATE names another link, for the self-test.
+vtium_unit=vtium@$vt.service
+case $(readlink "${T3_AGENT_TEMPLATE:-/etc/systemd/system/autovt@.service}" 2>/dev/null) in
+*/vtium-seat@.service) vtium_unit=vtium-seat@$vt.service ;;
+esac
+units=("$vtium_unit" "vtium-getty@$vt.service" "getty@$vt.service")
 # The gettys the guest could start on tty2. autovt@tty2 is not one: in this
 # guest it is vtium's unit, through the template link that vtium console
-# enable --all makes (guest/setup).
+# enable makes (guest/setup).
 gettys=("getty@$vt.service" "serial-getty@$vt.service")
 # The kiosk's second keyboard, which t3_devices plugs into the hub's port
 # 3.3, and the count of its key presses that `watch` keeps.
@@ -104,8 +111,8 @@ state() {
     words=$(journalctl -b -q -o cat -u "${units[0]}" -u "${units[1]}" | sed -n \
         -e "s/^${units[0]}: Failed with result '\([a-z-]*\)'\.$/failed:\1/p" \
         -e "s/^${units[0]}: Scheduled restart job, restart counter is at \([0-9]*\)\.$/restart:\1/p" \
-        -e "s/^Started vtium on $vt\.$/started/p" \
-        -e "s/^Stopped vtium on $vt\.$/stopped/p" \
+        -e "s/^Started vtium\( in seat mode\)\{0,1\} on $vt\.$/started/p" \
+        -e "s/^Stopped vtium\( in seat mode\)\{0,1\} on $vt\.$/stopped/p" \
         -e "s/^getty in place of vtium on $vt skipped, unmet condition check .*$/skipped/p" \
         -e "s/^Finished getty in place of vtium on $vt\.$/fell-back/p" | tr '\n' ' ')
     echo "journal ${words% }"

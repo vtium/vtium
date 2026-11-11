@@ -3353,8 +3353,16 @@ class HeadsTest(unittest.TestCase):
         # the units the agent reads are the ones the tree installs
         with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
             agent = f.read()
-        self.assertIn('units=("vtium@$vt.service" "vtium-getty@$vt.service" '
+        # vtium's unit is the template link's: vtium@ in direct mode,
+        # vtium-seat@ in seat mode.
+        self.assertIn('units=("$vtium_unit" "vtium-getty@$vt.service" '
                       '"getty@$vt.service")', agent)
+        self.assertIn("vtium_unit=vtium@$vt.service\n", agent)
+        self.assertIn("*/vtium-seat@.service) vtium_unit=vtium-seat@$vt.service ;;\n", agent)
+        self.assertEqual(t3_heads.unit({"units": {t3_heads.SEAT_UNIT: {"active": "active"}}},
+                                       t3_heads.VTIUM_UNIT), {"active": "active"})
+        self.assertEqual(t3_heads.unit({"units": {t3_heads.SEAT_UNIT: {"active": "active"}}},
+                                       t3_heads.GETTY_UNIT), {})
         self.assertIn('gettys=("%s" "%s")' % tuple(u.replace("tty2", "$vt")
                                                    for u in t3_heads.GETTY_UNITS), agent)
         # the keyboard `watch` reads is the one the kiosk check plugs in
