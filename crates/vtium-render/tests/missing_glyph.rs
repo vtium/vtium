@@ -33,6 +33,13 @@ enum Resort {
     Half,
     /// It lights the cell's top half and the four rows above the cell, so
     /// its ink passes its cell.
+    #[cfg_attr(
+        not(feature = "gpu"),
+        expect(
+            dead_code,
+            reason = "only the GPU path's test builds a face that reaches"
+        )
+    )]
     Reaching,
     /// The face has none, so a character it lacks draws nothing until the
     /// set arrives.
