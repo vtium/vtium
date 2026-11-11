@@ -44,6 +44,10 @@ write_files:
       # with sixel, for A4. A1's photograph travels with the screens on the
       # run's disc; the run downloads nothing.
       pac -S --needed chafa libsixel mpv tmux
+      # The seat variants (t3_seat.py): seatd, the seat manager, and libseat,
+      # which vtium built with libseat links. seatd's service stays off
+      # unless a variant starts it.
+      pac -S --needed seatd
       echo LANG=C.UTF-8 > /etc/locale.conf
       systemctl enable tier3-install.service
       # Runs have no network; nothing may wait for it.

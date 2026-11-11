@@ -15,6 +15,7 @@ import t3_images
 import t3_pointer
 import t3_pictures
 import t3_power
+import t3_seat
 import t3_showcase
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
@@ -274,6 +275,36 @@ VARIANTS.update({
 POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
+# The seat variants (t3_seat): vtium built with libseat on the minspec
+# machine, on the seat manager "seat" names, which guest/setup holds libseat
+# to. Each logs in, draws two screens and switches VTs through the seat as
+# 2d-potato-min does, judged by its goldens (t3_evaluate.GOLDENS_OF), and
+# checks the console's log for the seat and the keyboards opened through it
+# (t3_seat.CHECKS "seat"). The panic variant crashes the kernel while vtium
+# shows its login prompt and keeps the screen the panic leaves
+# (t3_seat.CHECKS "kernel-panic"). The kernel-message variant makes the
+# kernel log an error while vtium shows its login prompt, and judges the
+# screen by its golden (t3_seat.CAPTIONS "kernel-message").
+SEAT = {
+    "device": "virtio-vga,xres=1366,yres=768,edid=on",
+    "display": "none",
+    "conf": "vtium-minimal.conf",
+    "renderer": "cpu",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": False,
+    "features": "libseat",
+    "screens": ["sgr", "cjk"],
+    "checks": ["seat"],
+}
+VARIANTS.update({
+    "seat-seatd": dict(SEAT, seat="seatd"),
+    "seat-logind": dict(SEAT, seat="logind"),
+    "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
+    "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
+})
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "panic-sysrq", "kmsg-notice"]
+
 # The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
 # with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
 # column for a host without systemd. Its inittab runs vtium on tty2 from the
@@ -528,6 +559,10 @@ def variant_cases(variant):
     v = VARIANTS[variant]
     if "power" in v:
         return list(v["power"])
+    if v.get("panic"):
+        return ["kernel-panic"]
+    if v.get("kmsg"):
+        return ["kernel-message"]
     first = ([v["first"]] if "first" in v else []) + (
         [t3_images.CASE] if v.get("prelogin") else [])
     if not v.get("login", True):
@@ -768,6 +803,9 @@ def build_disc(variant, work, impl):
         open(os.path.join(disc, "pointer"), "w").close()
     if "udev-examples" in VARIANTS[variant].get("checks", []):
         open(os.path.join(disc, "udev-examples"), "w").close()
+    if "seat" in VARIANTS[variant]:
+        with open(os.path.join(disc, "seat"), "w") as f:
+            f.write(VARIANTS[variant]["seat"])
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
@@ -1006,6 +1044,12 @@ def run_variant(variant, timing, impl, log):
         phase("console")
         if "power" in v:
             press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
+        elif v.get("panic"):
+            t3_seat.crash(vm, work, caps, errors, notes, log)
+            phase("panic")
+        elif v.get("kmsg"):
+            t3_seat.kernel_message(vm, work, caps, errors, log)
+            phase("kernel-message")
         elif not v.get("login", True):
             run_checks(variant, vm, work, caps, errors, log, phase)
         else:
@@ -1350,6 +1394,7 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
 # variant's entry in VARIANTS first.
 CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
+              "seat": t3_seat.check_seat,
               **t3_heads.CHECK_RUNS}
 
 

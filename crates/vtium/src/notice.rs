@@ -128,6 +128,20 @@ pub fn session_ended_console(bindings: &Bindings) -> String {
     )
 }
 
+/// The line under the kernel's messages (ADR-1401 D15), in the
+/// maintainer's words, with the whole seconds `left` before the box goes
+/// on its own. Esc dismisses the box and stays with vtium; any other key
+/// dismisses it and goes on to the console's program. `shown` is how many
+/// messages and notices the box holds.
+pub fn esc_dismisses(shown: usize, left: u64) -> String {
+    let what = if shown == 1 {
+        "this message"
+    } else {
+        "these messages"
+    };
+    format!("Press Esc to dismiss {what} ({left})")
+}
+
 /// What the boot display shows once a crash loop stopped every head under
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).
 pub fn stopped() -> String {

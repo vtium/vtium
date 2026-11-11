@@ -31,6 +31,13 @@
 #   limit            sends SIGKILL to each new vtium on tty2 until its unit
 #                    stops restarting, and once the unit failed on its start
 #                    limit, starts it once more
+#   kmsg             makes the kernel log an error of its own: a mount of
+#                    tmpfs through the old mount(2) call with the unknown
+#                    option vtium_tier3_warning, which the kernel refuses
+#                    with "tmpfs: Unknown parameter 'vtium_tier3_warning'"
+#                    at level err (t3_seat.py's kernel-message case)
+#   panic            crashes the kernel with echo c > /proc/sysrq-trigger,
+#                    once its answer is written (t3_seat.py's panic case)
 #   prelogin         writes two kitty pictures to the pty of the login prompt
 #                    on tty2, as a program there would, before anyone logs in
 #                    (the images variants, t3_images.py), then reports the
@@ -235,6 +242,21 @@ answer() {
             ;;
         limit) limit ;;
         prelogin) prelogin ;;
+        panic) echo "crashing the kernel" ;;
+        # A line written to /dev/kmsg is logged with the user facility,
+        # which vtium does not show, so the kernel itself must log the
+        # message. mount(8) passes options through fsconfig(2), whose
+        # errors go back to the caller and not to the kernel's log, so
+        # the call is mount(2) itself.
+        kmsg)
+            mkdir -p /run/t3-kmsg
+            python3 -I -c '
+import ctypes, os
+libc = ctypes.CDLL(None, use_errno=True)
+r = libc.mount(b"none", b"/run/t3-kmsg", b"tmpfs", 0, b"vtium_tier3_warning")
+print("mount %d %s" % (r, os.strerror(ctypes.get_errno()) if r else "mounted"))
+'
+            ;;
         # A reader of the second keyboard's evdev node, apart from the agent
         # and its port, which ends when the keyboard is pulled out; the
         # answer comes once it has opened the node and counted none.
@@ -278,4 +300,10 @@ while IFS= read -r line <&3; do
     n=${line%% *}
     [ -n "$n" ] && [ "$n" != "$line" ] || continue
     answer "$n" "${line#* }" >&3
+    # The kernel panics once the answer is on the port: the driver reads it,
+    # then watches the console and the screen for the panic.
+    if [ "${line#* }" = panic ]; then
+        sync
+        echo c > /proc/sysrq-trigger
+    fi
 done

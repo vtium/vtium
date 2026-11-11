@@ -13,9 +13,9 @@ use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-use super::Open;
 use super::evdev::{Bits, EVENTS_PER_READ, EventDevice, RawEvent};
 use super::pointer::Range;
+use super::{Open, Opening};
 use crate::ioctl::{
     ABS_X, ABS_Y, AbsBits, BTN_LEFT, BTN_RIGHT, BTN_TOUCH, EV_ABS, EV_KEY, EV_LED, EV_REL, EV_SYN,
     INPUT_PROP_DIRECT, KeyBits, PropBits, REL_WHEEL, REL_X, REL_Y, RelBits,
@@ -128,10 +128,9 @@ impl Nodes {
     }
 }
 
-impl Open for Nodes {
-    type Device = FakeDevice;
-
-    fn open(&mut self, node: &Path) -> io::Result<FakeDevice> {
+impl Nodes {
+    /// Opens the stand-in device at `node`.
+    pub(crate) fn device(&self, node: &Path) -> io::Result<FakeDevice> {
         let found = self
             .0
             .borrow()
@@ -145,9 +144,24 @@ impl Open for Nodes {
         }
         Ok(FakeDevice(found))
     }
+}
 
-    fn close(&mut self, device: FakeDevice) {
-        device.0.borrow_mut().open = false;
+impl Open for Nodes {
+    type Device = FakeDevice;
+
+    fn open(&mut self, node: &Path) -> io::Result<Opening<FakeDevice>> {
+        self.device(node).map(Opening::Open)
+    }
+
+    fn close(&mut self, _: &Path, device: FakeDevice) {
+        drop(device);
+    }
+}
+
+impl Drop for FakeDevice {
+    /// The device's file closes with it.
+    fn drop(&mut self) {
+        self.0.borrow_mut().open = false;
     }
 }
 

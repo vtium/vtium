@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use std::time::Duration;
 
-use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig};
+use vtium_platform::input::{Direct, Input, InputConfig, Keymap, KeymapConfig, RuleNames};
 
 use crate::config::Config;
 use crate::config::keys::{
@@ -77,18 +77,34 @@ impl Start {
     /// The seat's input: the keymap the `xkb-*` keys name, or the
     /// built-in one when it does not compile, with the key repeat and
     /// pointers the keys set. `None` when no keymap compiles.
+    ///
+    /// The `xkb-*` keys that vtium.conf leaves unset take the system's
+    /// keyboard layout, which vtium-platform's `system_layout` reads from
+    /// the console keymap and, in a build that links logind, from localed
+    /// (ADR-1400's L2 layer).
     pub fn input(&self) -> Option<Input> {
-        self.build(|keymap, input| {
+        let system = vtium_platform::input::system_layout();
+        self.build(&system, |keymap, input| {
             Keymap::new(keymap)
                 .or_else(Keymap::fallback)
                 .map(|k| Input::new(Direct, k, input))
         })
     }
 
+    /// The keymap's settings: the `xkb-*` keys, with `system`'s names in
+    /// place of those vtium.conf leaves unset.
+    fn keymap(&self, system: &RuleNames) -> KeymapConfig {
+        self.keymap.clone().follow(system)
+    }
+
     /// Hands `make` the keymap's and the input's settings: the one place
     /// they are read for the seat.
-    fn build<T>(&self, make: impl FnOnce(&KeymapConfig, InputConfig) -> T) -> T {
-        make(&self.keymap, self.input)
+    fn build<T>(
+        &self,
+        system: &RuleNames,
+        make: impl FnOnce(&KeymapConfig, InputConfig) -> T,
+    ) -> T {
+        make(&self.keymap(system), self.input)
     }
 }
 
@@ -116,6 +132,44 @@ mod tests {
         let args: Vec<OsString> = args.iter().map(OsString::from).collect();
         let config = load(&args, &mut |_: &Path| Ok(None)).config;
         Start::new(&config, "de_DE.UTF-8".to_owned())
+    }
+
+    // ADR-1400's L2 layer: the system's layout, as localed names it, fills
+    // the `xkb-*` keys vtium.conf leaves unset; a key vtium.conf sets
+    // wins, and without the system's names the keys stay as they are.
+    #[test]
+    fn the_systems_layout_fills_the_xkb_keys_vtium_conf_leaves_unset() {
+        let system = RuleNames {
+            model: "pc105".to_owned(),
+            layout: "de".to_owned(),
+            variant: "nodeadkeys".to_owned(),
+            options: "caps:escape".to_owned(),
+        };
+        let unset = start(&[]).keymap(&system);
+        assert_eq!(
+            (
+                unset.model.as_str(),
+                unset.layout.as_str(),
+                unset.variant.as_str(),
+                unset.options.as_str()
+            ),
+            ("pc105", "de", "nodeadkeys", "caps:escape")
+        );
+        let set = start(&["--xkb-layout=fr"]).keymap(&system);
+        assert_eq!(
+            (
+                set.layout.as_str(),
+                set.variant.as_str(),
+                set.model.as_str()
+            ),
+            ("fr", "", "pc105"),
+            "vtium.conf's layout wins, with no variant of the system's"
+        );
+        assert_eq!(
+            start(&[]).keymap(&RuleNames::default()).layout,
+            "",
+            "no names, no layout"
+        );
     }
 
     #[test]
@@ -171,7 +225,9 @@ mod tests {
     #[test]
     fn the_input_is_made_from_the_keys() {
         let s = start(&["--xkb-layout=de", "--xkb-repeat-delay=300", "--no-mouse"]);
-        let (layout, input) = s.build(|keymap, input| (keymap.layout.clone(), input));
+        let (layout, input) = s.build(&RuleNames::default(), |keymap, input| {
+            (keymap.layout.clone(), input)
+        });
         assert_eq!(layout, "de");
         assert_eq!(input, InputConfig::new(300, 50, false));
         assert!(s.input().is_some(), "a keymap, the built-in one at worst");

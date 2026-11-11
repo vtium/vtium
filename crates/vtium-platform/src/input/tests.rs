@@ -19,8 +19,8 @@ use super::evdev::RawEvent;
 use super::fake::{self, Node, Nodes};
 use super::pointer::Range;
 use super::{
-    Button, DeviceInput, Disposition, Input, InputConfig, InputEvent, KeyEvent, Keymap, Leds, Mods,
-    PointerEvent,
+    Button, DeviceInput, Disposition, Input, InputConfig, InputEvent, KeyEvent, Keymap,
+    KeymapConfig, Leds, Mods, PointerEvent, RuleNames,
 };
 use crate::ioctl::{
     ABS_X, ABS_Y, BTN_LEFT, BTN_RIGHT, BTN_TOUCH, EV_ABS, EV_KEY, EV_REL, EV_SYN, LED_CAPSL,
@@ -1445,4 +1445,52 @@ fn a_watched_device_sends_no_pointer_events_and_arms_no_hide() {
             .all(|d| !matches!(d.event, InputEvent::Pointer(_)))
     );
     assert_eq!(input.hide_at, None);
+}
+
+/// The `xkb-*` keys that vtium.conf sets keep their values, and the
+/// system's names fill the keys left unset. The system's variant comes only
+/// with the system's layout.
+// covers: platform.system-layout
+#[test]
+fn vtium_confs_xkb_keys_win_over_the_systems_names() {
+    let system = RuleNames {
+        model: "pc105".to_owned(),
+        layout: "de".to_owned(),
+        variant: "nodeadkeys".to_owned(),
+        options: "compose:ralt".to_owned(),
+    };
+    let set = KeymapConfig {
+        layout: "us".to_owned(),
+        options: "ctrl:nocaps".to_owned(),
+        ..KeymapConfig::default()
+    }
+    .follow(&system);
+    assert_eq!(
+        (
+            set.model.as_str(),
+            set.layout.as_str(),
+            set.variant.as_str(),
+            set.options.as_str()
+        ),
+        ("pc105", "us", "", "ctrl:nocaps")
+    );
+    let unset = KeymapConfig::default().follow(&system);
+    assert_eq!(
+        (
+            unset.model.as_str(),
+            unset.layout.as_str(),
+            unset.variant.as_str(),
+            unset.options.as_str()
+        ),
+        ("pc105", "de", "nodeadkeys", "compose:ralt")
+    );
+    let variant_only = KeymapConfig {
+        variant: "dvorak".to_owned(),
+        ..KeymapConfig::default()
+    }
+    .follow(&system);
+    assert_eq!(
+        (variant_only.layout.as_str(), variant_only.variant.as_str()),
+        ("de", "dvorak")
+    );
 }
