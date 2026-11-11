@@ -2135,6 +2135,7 @@ mod tests {
             underline_thickness: 1,
             strike: 11,
             strike_thickness: 1,
+            overline: 0,
         };
         add(
             &mut lock(&generated),

@@ -41,6 +41,8 @@ pub(crate) struct RawStrike {
     pub underline_thickness: u16,
     pub strike: u16,
     pub strike_thickness: u16,
+    /// The overline's top row, as thick as the underline (ADR-1202 D8).
+    pub overline: u16,
     /// Whether to store a chunk deflated where that makes it smaller.
     pub compress: bool,
     /// Each glyph: whether it is two cells wide, and its bytes in the
@@ -624,7 +626,7 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
             s.underline_thickness,
             s.strike,
             s.strike_thickness,
-            0,
+            s.overline,
         ] {
             put16(&mut strk, v);
         }
@@ -754,6 +756,7 @@ mod tests {
                 underline_thickness: 1,
                 strike: 50,
                 strike_thickness: 1,
+                overline: 0,
                 compress: false,
                 glyphs: vec![glyph(1), glyph(2), glyph(3)],
                 map: vec![(0x61, 0), (0x62, 1), (0x63, 2)],

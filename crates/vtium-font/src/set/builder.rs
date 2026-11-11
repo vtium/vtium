@@ -177,6 +177,7 @@ impl StrikeBuilder {
             underline_thickness: narrow(d.underline_thickness)?,
             strike: narrow(d.strike)?,
             strike_thickness: narrow(d.strike_thickness)?,
+            overline: narrow(d.overline)?,
             compress: self.compress,
             glyphs: self.glyphs.clone(),
             map: self.map.clone(),

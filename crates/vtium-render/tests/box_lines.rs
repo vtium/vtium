@@ -58,6 +58,7 @@ const MEASURED: Decorations = Decorations {
     underline_thickness: 1,
     strike: 18,
     strike_thickness: 1,
+    overline: 0,
 };
 
 /// The characters, one a cell, in the order [`lit_runs`] reads them.

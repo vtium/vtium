@@ -55,6 +55,9 @@
 //! box ([`Glyph::ink`]), within its reach, as a bitmap glyph's sheared ink
 //! does.
 //!
+//! **Lines (D8).** A script cell's underline, strike-through and overline
+//! follow the small glyph: [`lines`] places them.
+//!
 //! [`crate::Font`] draws a sprite in a script cell at the small box's size
 //! (D6), and draws every other script glyph from the face that draws the
 //! cell's normal glyph (D15).
@@ -62,6 +65,8 @@
 use crate::face::Style;
 use crate::glyph::{Format, Glyph};
 use crate::spacing::Band;
+
+pub mod lines;
 
 /// Where a glyph sits in its cell: SGR 73, 74 and 75.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, PartialOrd, Ord, Hash)]

@@ -103,6 +103,7 @@ fn decorations_for_a_face_without_metrics() {
                 underline_thickness: thick,
                 strike,
                 strike_thickness: thick,
+                overline: 0,
             },
             "height {h}"
         );

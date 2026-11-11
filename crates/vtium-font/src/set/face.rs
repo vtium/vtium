@@ -7,7 +7,8 @@ use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
-use crate::script::{Origin, Variant};
+use crate::script::lines::at_multiple;
+use crate::script::{self, Origin, Script, Variant};
 use crate::sprite::Range;
 
 /// A set drawn at one of its cell sizes, scaled by a whole factor.
@@ -87,23 +88,6 @@ impl SetFace {
     }
 }
 
-/// The decorations `d` of a strike `height` tall, drawn at `scale`. A
-/// strike whose lines are [`Decorations::for_height`] of its height, as
-/// every bitmap source gives, takes `for_height` of the scaled height, the
-/// lines the bitmap faces draw at that size; any other strike's lines
-/// scale as its glyphs do, each row a band `scale` rows tall.
-pub(crate) fn scale_decorations(d: Decorations, height: u32, scale: u32) -> Decorations {
-    if d == Decorations::for_height(height) {
-        return Decorations::for_height(height.saturating_mul(scale));
-    }
-    Decorations {
-        underline: d.underline.saturating_mul(scale),
-        underline_thickness: d.underline_thickness.saturating_mul(scale),
-        strike: d.strike.saturating_mul(scale),
-        strike_thickness: d.strike_thickness.saturating_mul(scale),
-    }
-}
-
 impl Face for SetFace {
     fn cell(&self) -> Cell {
         Cell {
@@ -143,8 +127,27 @@ impl Face for SetFace {
     fn decorations(&self) -> Decorations {
         self.set
             .decorations(self.cell)
-            .map(|d| scale_decorations(d, self.cell.height, self.scale))
+            .map(|d| at_multiple(d, self.cell.height, self.scale))
             .unwrap_or_else(|| Decorations::for_height(self.cell().height))
+    }
+
+    /// The lines the set's strike of `script` at the face's cell reports,
+    /// at the face's scale, as the glyph helper's script strikes report
+    /// them (ADR-1202 D8 step 3); else the lines vtium-font's script rule
+    /// makes from the set's own strike ([`script::lines::of_face`]).
+    fn script_decorations(&self, script: Script) -> Decorations {
+        match self.set.script_decorations(self.cell, script) {
+            Some(d) => at_multiple(d, self.cell.height, self.scale),
+            None => script::lines::of_face(self, script),
+        }
+    }
+
+    /// The lines of the set's regular strike at the face's cell, at its
+    /// own size.
+    fn strike_decorations(&self) -> Decorations {
+        self.set
+            .decorations(self.cell)
+            .unwrap_or_else(|| Decorations::for_height(self.cell.height))
     }
 
     fn scale(&self) -> u32 {

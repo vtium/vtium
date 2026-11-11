@@ -582,6 +582,7 @@ mod tests {
             underline_thickness: 2,
             strike: 8,
             strike_thickness: 2,
+            overline: 0,
         };
         let single = draw(Kind::Single, 16, 16, &own);
         assert_eq!(draw(Kind::Double, 16, 16, &own), single);

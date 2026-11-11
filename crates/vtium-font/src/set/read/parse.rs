@@ -61,7 +61,8 @@ fn line(at: u16, thickness: u16, height: u32) -> Result<(u32, u32), SetError> {
 /// `STRK`: each strike's style, format, script, cell, metrics and glyph
 /// count, sorted by cell height, width, script, style and format with no
 /// two alike. A set of format 2.0 or 2.1 holds 0 where the script is, so
-/// its strikes are normal ones (ADR-1202 D11).
+/// its strikes are normal ones (ADR-1202 D11), and a set of format 2.0 to
+/// 2.2 holds 0 where the overline is, its row before format 2.3 (D8).
 pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
     let mut c = Cursor(bytes);
     let (count, size) = c.table(SET_STRIKES_MAX, "SET_STRIKES_MAX", STRIKE_RECORD)?;
@@ -79,11 +80,8 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         let baseline = r.u16()?;
         let (underline, underline_thickness) = (r.u16()?, r.u16()?);
         let (strike, strike_thickness) = (r.u16()?, r.u16()?);
-        let reserved2 = r.u16()?;
+        let overline = r.u16()?;
         let glyph_count = r.u32()?;
-        if reserved2 != 0 {
-            return Err(SetError::Malformed("a reserved field that is not 0"));
-        }
         let script = match script_code {
             SCRIPT_BASELINE => Script::Baseline,
             SCRIPT_SUPER => Script::Super,
@@ -111,6 +109,8 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
         if glyph_count > SET_GLYPHS_MAX {
             return Err(SetError::Bound("SET_GLYPHS_MAX"));
         }
+        // the overline is as thick as the underline (ADR-1202 D8)
+        let (overline, _) = line(overline, underline_thickness, cell.height)?;
         let (underline, underline_thickness) = line(underline, underline_thickness, cell.height)?;
         let (strike, strike_thickness) = line(strike, strike_thickness, cell.height)?;
         keys.push((h, w, script_code, style, code));
@@ -129,6 +129,7 @@ pub(super) fn parse_strikes(bytes: &[u8]) -> Result<Vec<Strike>, SetError> {
                     underline_thickness,
                     strike,
                     strike_thickness,
+                    overline,
                 },
                 glyph_count,
             },

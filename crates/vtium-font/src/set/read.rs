@@ -691,6 +691,24 @@ impl Set {
         Some(strike.info.decorations)
     }
 
+    /// The lines the strikes of `script` at `cell` report, as the glyph
+    /// helper's superscript and subscript strikes report them (ADR-1202
+    /// D8): the regular style's first, else another style's. `None` for
+    /// the baseline and while the set holds no strike of `script` there.
+    pub(crate) fn script_decorations(&self, cell: Cell, script: Script) -> Option<Decorations> {
+        if script == Script::Baseline {
+            return None;
+        }
+        let of = |k: &&Strike| k.info.cell == cell && k.info.script == script;
+        let strike = self
+            .strikes
+            .iter()
+            .filter(of)
+            .find(|k| k.info.style == Style::default())
+            .or_else(|| self.strikes.iter().find(of))?;
+        Some(strike.info.decorations)
+    }
+
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
     /// lacks it or its chunk does not decode.
     pub(crate) fn draw(&self, cell: Cell, c: char, style: Style, scale: u32) -> Option<Glyph> {

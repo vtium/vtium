@@ -1545,6 +1545,7 @@ pub(crate) mod raster {
             underline_thickness: ul_thick,
             strike: strike_pos,
             strike_thickness: strike_thick,
+            overline: 0,
         })
     }
 
