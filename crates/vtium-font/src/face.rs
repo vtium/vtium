@@ -4,6 +4,7 @@
 use crate::glyph::Glyph;
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+use crate::script::{Script, Variant};
 use crate::spacing::Band;
 use crate::sprite::{self, Range};
 
@@ -345,6 +346,19 @@ impl<F: Face> Font<F> {
         Some(Drawn::new(glyph.fit(w, width)?, 1, missing))
     }
 
+    /// [`Font::drawn`] in `variant`: the normal glyph in its style, which
+    /// a superscript or subscript then scales and places in its cells
+    /// ([`Glyph::scripted`]). The face draws the normal glyph alone, so it
+    /// never sees the script.
+    pub fn drawn_variant(&self, cluster: &[char], width: Width, variant: Variant) -> Option<Drawn> {
+        let drawn = self.drawn(cluster, width, variant.style)?;
+        if variant.script == Script::Baseline {
+            return Some(drawn);
+        }
+        let glyph = drawn.glyph.scripted(variant.script)?;
+        Some(Drawn::new(glyph, 1, drawn.missing))
+    }
+
     /// The face's own glyph for `cluster`, drawn by `draw`, when the face
     /// has its first character.
     fn own(
@@ -366,6 +380,21 @@ impl<F: Face> Font<F> {
         match self.missing {
             Missing::Replacement => None,
             Missing::Hex => hex::draw(c, self.face.cell(), width),
+        }
+    }
+
+    /// [`Font::glyph_unscaled`] in `variant`. A superscript or subscript
+    /// glyph comes at its drawn size, with scale 1, since two thirds of a
+    /// bitmap glyph is no whole number of its pixels.
+    pub fn glyph_unscaled_variant(
+        &self,
+        cluster: &[char],
+        width: Width,
+        variant: Variant,
+    ) -> Option<Drawn> {
+        match variant.script {
+            Script::Baseline => self.glyph_unscaled(cluster, width, variant.style),
+            Script::Super | Script::Sub => self.drawn_variant(cluster, width, variant),
         }
     }
 
