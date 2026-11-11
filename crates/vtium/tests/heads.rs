@@ -6558,19 +6558,16 @@ fn reset_fixture(test: &str, conf: &str) -> (Scratch, Sources) {
 /// session's end the seat reads the configuration again through the same
 /// reader (ADR-1201 D11); the seat and the count of those reads.
 fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) {
-    let script = switching(dir);
+    seat_running(dir, heads, fonts, &switching(dir))
+}
+
+/// [`reset_seat`], with every console running `script`.
+fn seat_running(dir: &Path, heads: &str, fonts: Sources, script: &str) -> (Seat, Rc<Cell<u32>>) {
     let configdir = format!("--configdir={}", dir.display());
-    let args: Vec<OsString> = [
-        configdir.as_str(),
-        "--login",
-        "--",
-        "/bin/sh",
-        "-c",
-        &script,
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
+    let args: Vec<OsString> = [configdir.as_str(), "--login", "--", "/bin/sh", "-c", script]
+        .iter()
+        .map(OsString::from)
+        .collect();
     let loaded = config::load(&args, &mut config::read_file);
     assert_eq!(loaded.reports, [], "the seat's configuration");
     let lp: Loop<App> = Loop::new().expect("a loop");
@@ -6718,6 +6715,155 @@ fn a_sessions_end_returns_to_its_looks_size() {
     );
     assert_eq!(s.app.cells(), [(16, 32)]);
     assert_eq!(reads.get(), 1, "vtium.conf read again once");
+}
+
+/// What each console of the window tests runs: it shows its pty's size
+/// as it starts, as `size:ROWS COLS`. Where the file `ask.N` in `dir`
+/// holds the parameters of an XTWINOPS 8 request, N being its console's
+/// id, it removes the file, sends `CSI 8 ; PARAMS t` and the size report's
+/// request `CSI 18 t` in one write, and shows the reply it reads, as `r:`
+/// and the bytes as od prints them, then its pty's size, as `a:ROWS COLS`.
+/// It then echoes each line it reads, ending at `q`.
+fn asking(dir: &Path) -> String {
+    format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
+         f=$d/ask.$n; if [ -e $f ]; then x=$(cat $f); rm $f; \
+         stty -echo -icanon min 0 time 5; printf \"\\033[${{x}}t\\033[18t\"; \
+         r=$(dd bs=1 count=32 2>/dev/null | od -An -c | tr -d ' \\n'); \
+         stty echo icanon; echo \"r:$r\"; echo \"a:$(stty size)\"; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    )
+}
+
+/// The seat of the window tests on the small display, 320x160, whose one
+/// console runs [`asking`] with `conf` as its vtium.conf and `ask` as the
+/// request's parameters. Unifont draws 40x10 cells of 8x16 there at 16
+/// pixels, 20x5 of 16x32 at 32, and 13x3 of 24x48 at 48.
+fn window_seat(test: &str, conf: &str, ask: &str) -> (Scratch, Seat) {
+    let (dir, fonts) = reset_fixture(test, conf);
+    std::fs::write(dir.join("ask.1"), ask).expect("the request");
+    let script = asking(&dir);
+    let (s, _) = seat_running(&dir, &small_consoles(1), fonts, &script);
+    (dir, s)
+}
+
+/// The `r:` and `a:` lines of head small's console, once both show.
+fn asked_lines(s: &mut Seat) -> (String, String) {
+    let line = |a: &App, p: &str| console_lines(a, "small", p).into_iter().flatten().next();
+    assert!(
+        s.until(BOUND, |a| line(a, "a:").is_some()),
+        "the session read the reply"
+    );
+    (
+        line(&s.app, "r:").unwrap_or_default(),
+        line(&s.app, "a:").unwrap_or_default(),
+    )
+}
+
+/// ctlseqs, XTWINOPS 8: under `allow-window-ops`, a program's request for
+/// 4 rows of 15 columns makes a grid of exactly that size, at the largest
+/// font size whose cells the display holds 15x4 of: unifont's 32, as 48
+/// holds 13x3. The pty is resized before the size report that followed in
+/// the same write is answered, and the report answers the new size. A
+/// zoom then fills the display again.
+// covers: window.resize
+#[test]
+fn a_programs_request_for_a_grid_takes_the_zoom_path() {
+    let (_dir, mut s) = window_seat(
+        "window-allowed",
+        "font-size=16\nallow-window-ops\n",
+        "8;4;15",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;4;15t", "CSI 18 t answers the new size");
+    assert_eq!(after, "a:4 15", "the pty is resized");
+    assert_eq!(grid(&s.app, "small"), Some((15, 4)));
+    assert_eq!(s.app.cells(), [(16, 32)]);
+    let minus = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('-')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), minus, now());
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)), "a zoom fills again");
+}
+
+/// ctlseqs: an omitted side keeps its length and a side of 0 takes the
+/// display's. 15 columns with 0 rows draws at 32, the largest size that
+/// holds 15 columns, with the 5 rows the display holds there.
+#[test]
+fn a_side_of_zero_takes_what_the_display_holds() {
+    let (_dir, mut s) = window_seat("window-zero", "font-size=16\nallow-window-ops\n", "8;0;15");
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(
+        (reply.as_str(), after.as_str()),
+        ("r:033[8;5;15t", "a:5 15")
+    );
+    assert_eq!(grid(&s.app, "small"), Some((15, 5)));
+}
+
+/// With `allow-window-ops` off, its default, vtium ignores the request:
+/// the grid, the font size and the pty stay, and the size report answers
+/// them.
+// covers: window.resize
+#[test]
+fn a_request_with_allow_window_ops_off_changes_nothing() {
+    let (_dir, mut s) = window_seat("window-refused", "font-size=16\n", "8;4;15");
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;10;40t");
+    assert_eq!(after, "a:10 40");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// A size the display cannot hold even at the smallest font size takes,
+/// on that side, what the display holds there: from 20x5 at 32, 8 rows of
+/// 100 columns draws at 16, unifont's smallest, with its 8 rows and the 40
+/// columns the display holds.
+// covers: window.resize
+#[test]
+fn a_size_the_display_cannot_hold_takes_what_it_holds_at_the_smallest_size() {
+    let (_dir, mut s) = window_seat(
+        "window-too-large",
+        "font-size=32\nallow-window-ops\n",
+        "8;8;100",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;8;40t");
+    assert_eq!(after, "a:8 40");
+    assert_eq!(grid(&s.app, "small"), Some((40, 8)));
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// A side of 0 beside a side the display cannot hold fills the display at
+/// the largest size that holds the most of the other side: 100 columns
+/// with 0 rows from 20x5 at 32 draws 40 columns at 16, as unifont's
+/// smallest, 8, holds no more of them, with the 10 rows 16 holds.
+#[test]
+fn a_side_of_zero_beside_one_the_display_cannot_hold_fills_at_the_largest_size() {
+    let (_dir, mut s) = window_seat(
+        "window-too-wide",
+        "font-size=32\nallow-window-ops\n",
+        "8;0;100",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(
+        (reply.as_str(), after.as_str()),
+        ("r:033[8;10;40t", "a:10 40")
+    );
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1201 D11: the size a program asked for lasts for its session, so
+/// the next login starts at the configured size, filling the display.
+#[test]
+fn a_sessions_end_undoes_a_programs_grid() {
+    let (_dir, mut s) = window_seat("window-reset", "font-size=16\nallow-window-ops\n", "8;4;15");
+    let (_, after) = asked_lines(&mut s);
+    assert_eq!(after, "a:4 15");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:10 40", "the next login starts at 16 points");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
 }
 
 /// ADR-1201 D11: one font for a head. A session ending in another console

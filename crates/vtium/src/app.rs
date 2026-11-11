@@ -135,6 +135,7 @@ use crate::wait::Wait;
 #[cfg(test)]
 mod login_scope;
 mod survive;
+mod window_ops;
 
 /// How long the loop is served at exit while the switch back is pending,
 /// so the kernel's SIGUSR2 for the switch back is answered before vtium
@@ -1567,7 +1568,9 @@ impl App {
             })
         };
         let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
-        let Some(l) = layout::layout(&sizes, turned, base, head.step, |at| cell(head, at)) else {
+        let Some(l) = layout::layout(&sizes, turned, head.asked, base, head.step, |at| {
+            cell(head, at)
+        }) else {
             return true;
         };
         head.cell = cell(head, base).unwrap_or(head.cell);
@@ -3542,11 +3545,26 @@ impl App {
             }
             return;
         };
-        let outline = chosen.outline();
-        let (old, auto, points) = (head.font_size, head.auto_size, head.points);
+        // The zoom fills the displays again, in place of a grid a program
+        // asked for.
+        self.take_size(h, size, None);
+    }
+
+    /// Head `h` draws at the base height `size`, which ends `font-size`'s
+    /// following of the displays (ADR-1200 D9), on the grid `asked`, or
+    /// filling the displays with `None`: the zoom path, which a zoom and a
+    /// program's XTWINOPS 8 take. A height with no font keeps the size in
+    /// use. Returns whether the head draws at `size`.
+    fn take_size(&mut self, h: usize, size: u32, asked: Option<(usize, usize)>) -> bool {
+        let Some(head) = self.heads.get_mut(h) else {
+            return false;
+        };
+        let outline = head.chosen().outline();
+        let (old, auto, points, was) = (head.font_size, head.auto_size, head.points, head.asked);
         head.auto_size = false;
         head.points = None;
         head.font_size = size;
+        head.asked = asked;
         // An outline frit asks the helper again at each zoom, a height
         // whose answer failed before included.
         if let Some(frit) = head
@@ -3556,13 +3574,16 @@ impl App {
         {
             frit.own.retain(|_, answer| answer.is_ok());
         }
-        if !self.relayout(h)
-            && let Some(head) = self.heads.get_mut(h)
-        {
+        if self.relayout(h) {
+            return true;
+        }
+        if let Some(head) = self.heads.get_mut(h) {
             head.font_size = old;
             head.auto_size = auto;
             head.points = points;
+            head.asked = was;
         }
+        false
     }
 
     /// The programs of head `h`'s consoles that exited
@@ -3800,7 +3821,7 @@ impl App {
         };
         let sizes: Vec<(u32, u32)> = head.views.values().map(|v| v.size).collect();
         let turned = matches!(head.orientation, Orientation::Right | Orientation::Left);
-        let l = layout::layout(&sizes, turned, base, face.size_step(), cell)?;
+        let l = layout::layout(&sizes, turned, fresh.asked, base, face.size_step(), cell)?;
         Some(crate::head::console::Fit {
             grid: l.grid,
             font_size: base,
@@ -3986,6 +4007,14 @@ impl App {
         // The terminal takes OSC 50 only under `allow-font-ops`.
         if let Some(name) = head.console.term.terminal.take_font_request() {
             self.switch_font(h, &name);
+        }
+        // And XTWINOPS 8 only under `allow-window-ops`.
+        let grid = self
+            .heads
+            .get_mut(h)
+            .and_then(|head| head.console.term.terminal.take_grid_request());
+        if let Some(request) = grid {
+            self.request_grid(h, request);
         }
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.

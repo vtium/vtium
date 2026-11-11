@@ -217,6 +217,11 @@ pub struct Head {
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     pub(crate) auto_size: bool,
+    /// The grid, in columns and rows, that a program asked for with
+    /// XTWINOPS 8 (`app/window_ops.rs`), which the shown console keeps
+    /// until a zoom or its session's end; `None` while the grid fills the
+    /// displays.
+    pub(crate) asked: Option<(usize, usize)>,
     /// A `font-size` other than 0 is configured, and the head's look
     /// states no cell.
     sized: bool,
@@ -288,6 +293,7 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
+    terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
     // Every build reads `text-direction`; a build without the bidi
     // feature does nothing with it (ADR-1004 D13).
     let direction = config.text(&keys::TEXT_DIRECTION);
@@ -433,6 +439,7 @@ impl Head {
             cell: CELL,
             points,
             auto_size,
+            asked: None,
         };
         Head {
             name: name.to_owned(),
@@ -474,6 +481,7 @@ impl Head {
             font_size: 0,
             points,
             auto_size,
+            asked: None,
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
@@ -855,16 +863,18 @@ impl Head {
             cell: self.cell,
             points: self.points,
             auto_size: self.auto_size,
+            asked: self.asked,
         }
     }
 
     /// A new console's fit: the shown one's grid, at the configured
-    /// `font-size`.
+    /// `font-size`, filling the displays.
     pub(crate) fn fresh_fit(&self) -> Fit {
         let (points, auto_size) = self.configured;
         Fit {
             points,
             auto_size,
+            asked: None,
             ..self.fit()
         }
     }
@@ -891,6 +901,7 @@ impl Head {
         self.cell = new.fit.cell;
         self.points = new.fit.points;
         self.auto_size = new.fit.auto_size;
+        self.asked = new.fit.asked;
         let mut old = std::mem::replace(&mut self.console, new);
         old.fit = fit;
         self.console.term.terminal.set_visible(visible);
@@ -2147,6 +2158,7 @@ mod tests {
             cell: (16, 32),
             points: None,
             auto_size: false,
+            asked: None,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
         assert!(head.views.is_empty(), "unlit");
@@ -2183,6 +2195,7 @@ mod tests {
             cell: (16, 32),
             points: None,
             auto_size: false,
+            asked: None,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
         head.font = Some(Chosen::Builtin {

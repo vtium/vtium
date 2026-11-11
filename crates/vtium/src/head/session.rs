@@ -156,6 +156,7 @@ pub(crate) struct Kept {
     points: Option<u32>,
     auto_size: bool,
     font_size: u32,
+    asked: Option<(usize, usize)>,
     configured: (Option<u32>, bool),
     sized: bool,
     switched: Option<u64>,
@@ -333,7 +334,8 @@ impl Head {
     /// head's font, where the last OSC 50 switch came from that console or
     /// the head has one console left; and the console's size, where the
     /// font returns or the console no longer draws at the configured size,
-    /// as after a zoom. A session ending in another console of the head
+    /// as after a zoom or a program's request for a grid (XTWINOPS 8). A
+    /// session ending in another console of the head
     /// leaves the font, so it never changes under another session.
     pub(crate) fn returns(&self, id: u64) -> Returns {
         let font = self
@@ -344,7 +346,8 @@ impl Head {
         } else {
             self.hidden.iter().find(|c| c.id == id).map(|c| c.fit)
         };
-        let resized = fit.is_some_and(|f| (f.points, f.auto_size) != self.configured);
+        let resized =
+            fit.is_some_and(|f| (f.points, f.auto_size) != self.configured || f.asked.is_some());
         Returns {
             font,
             size: font || resized,
@@ -358,6 +361,7 @@ impl Head {
             points: self.points,
             auto_size: self.auto_size,
             font_size: self.font_size,
+            asked: self.asked,
             configured: self.configured,
             sized: self.sized,
             switched: self.switched,
@@ -378,6 +382,7 @@ impl Head {
         self.points = kept.points;
         self.auto_size = kept.auto_size;
         self.font_size = kept.font_size;
+        self.asked = kept.asked;
         self.configured = kept.configured;
         self.sized = kept.sized;
         self.switched = kept.switched;
@@ -410,18 +415,20 @@ impl Head {
         }
     }
 
-    /// Console `id` draws at the configured size from now on: the shown
-    /// console at the next relayout, and a hidden one in `hidden`, its
-    /// grid and cell at that size.
+    /// Console `id` draws at the configured size from now on, filling the
+    /// displays: the shown console at the next relayout, and a hidden one
+    /// in `hidden`, its grid and cell at that size.
     pub(crate) fn configured_size(&mut self, id: u64, hidden: console::Fit) {
         let (points, auto_size) = self.configured;
         if self.console.id == id {
             self.points = points;
             self.auto_size = auto_size;
+            self.asked = None;
         } else if let Some(c) = self.hidden.iter_mut().find(|c| c.id == id) {
             c.fit = console::Fit {
                 points,
                 auto_size,
+                asked: None,
                 ..hidden
             };
         }

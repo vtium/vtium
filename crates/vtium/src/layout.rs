@@ -4,7 +4,9 @@
 //! The heights a zoom steps through are the font's ([`crate::font::zoom`]).
 //!
 //! A head's grid is the smallest every display of the head holds at the
-//! base font, so displays mirror one grid within a head (ADR-1401 D1). A
+//! base font, so displays mirror one grid within a head (ADR-1401 D1).
+//! Where a program asked for a smaller grid with XTWINOPS 8, the grid is
+//! the one it asked for, on each side the displays hold. A
 //! larger display then draws at the largest height that still holds that
 //! grid, tried from the height that would fill it and down a size step at
 //! a time, and at the base height when no larger one fits. The operator
@@ -20,12 +22,15 @@ pub struct Layout {
 }
 
 /// The layout for `displays` (each width by height in pixels), turned a
-/// quarter when `turned`, at the `base` height, whose size step is `step`.
+/// quarter when `turned`, at the `base` height, whose size step is `step`,
+/// with the grid a program `asked` for, in columns and rows, where the
+/// displays hold it.
 /// `cell` gives a font's cell at a height, `None` when there is no font at
 /// it. `None` when no display holds a cell.
 pub fn layout(
     displays: &[(u32, u32)],
     turned: bool,
+    asked: Option<(usize, usize)>,
     base: u32,
     step: u32,
     cell: impl Fn(u32) -> Option<(u32, u32)>,
@@ -42,7 +47,8 @@ pub fn layout(
         .iter()
         .map(|d| fits(sides(d), (bw, bh)))
         .filter(|&(c, r)| c > 0 && r > 0)
-        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))?;
+        .reduce(|a, b| (a.0.min(b.0), a.1.min(b.1)))
+        .map(|fit| asked.map_or(fit, |(c, r)| (fit.0.min(c), fit.1.min(r))))?;
     let heights = displays
         .iter()
         .map(|d| {
@@ -103,7 +109,7 @@ mod tests {
 
     #[test]
     fn one_display() {
-        let l = layout(&[(1366, 768)], false, 16, 16, bitmap);
+        let l = layout(&[(1366, 768)], false, None, 16, 16, bitmap);
         assert_eq!(
             l,
             Some(Layout {
@@ -119,7 +125,7 @@ mod tests {
         // height that fills it is min(480 * 16 / 170, 135 * 16 / 48) = 45;
         // the bitmap draws 45 at scale 2, a
         // 16x32 cell, 240x67, which holds 170x48.
-        let l = layout(&[(1366, 768), (3840, 2160)], false, 16, 16, bitmap);
+        let l = layout(&[(1366, 768), (3840, 2160)], false, None, 16, 16, bitmap);
         assert_eq!(
             l,
             Some(Layout {
@@ -130,12 +136,12 @@ mod tests {
         // An outline font at every height: 45 gives a 22x45 cell, 174x48,
         // which holds 170x48.
         let outline = |h: u32| Some((h / 2, h));
-        let l = layout(&[(1366, 768), (3840, 2160)], false, 16, 16, outline);
+        let l = layout(&[(1366, 768), (3840, 2160)], false, None, 16, 16, outline);
         assert_eq!(l.map(|l| l.heights), Some(vec![16, 45]));
         // Where 45 does not fit, a size step down is tried until one does:
         // with cells h*h/32 wide, 28 gives 24, 160 columns, too few; 27
         // gives 22, 174 columns.
-        let l = layout(&[(1366, 768), (3840, 2160)], false, 16, 1, |h| {
+        let l = layout(&[(1366, 768), (3840, 2160)], false, None, 16, 1, |h| {
             Some((h * h / 32, h))
         });
         assert_eq!(l.map(|l| l.heights), Some(vec![16, 27]));
@@ -144,25 +150,44 @@ mod tests {
     #[test]
     fn no_larger_font_that_fits_keeps_the_base() {
         // Twice as wide but no taller: the height that fills it is the base.
-        let l = layout(&[(1024, 768), (2048, 768)], false, 16, 16, bitmap);
+        let l = layout(&[(1024, 768), (2048, 768)], false, None, 16, 16, bitmap);
         assert_eq!(l.map(|l| l.heights), Some(vec![16, 16]));
         // A height with no font falls back to the base.
-        let l = layout(&[(640, 480), (1920, 1440)], false, 16, 16, |h| {
+        let l = layout(&[(640, 480), (1920, 1440)], false, None, 16, 16, |h| {
             (h == 16).then_some((8, 16))
         });
         assert_eq!(l.map(|l| l.heights), Some(vec![16, 16]));
     }
 
     #[test]
+    fn an_asked_grid_is_the_grid_on_each_side_the_displays_hold() {
+        // 1366x768 holds 170x48 at 16; 80x25 is asked, and each display
+        // draws at the largest height that holds it: an outline font's 30
+        // gives a 15x30 cell, 91x25.
+        let outline = |h: u32| Some((h / 2, h));
+        let l = layout(&[(1366, 768)], false, Some((80, 25)), 16, 16, outline);
+        assert_eq!(
+            l,
+            Some(Layout {
+                grid: (80, 25),
+                heights: vec![30]
+            })
+        );
+        // A side the displays cannot hold at the base is what they hold.
+        let l = layout(&[(1366, 768)], false, Some((200, 25)), 16, 16, bitmap);
+        assert_eq!(l.map(|l| l.grid), Some((170, 25)));
+    }
+
+    #[test]
     fn a_turned_display_swaps_its_sides() {
-        let l = layout(&[(1366, 768)], true, 16, 16, bitmap);
+        let l = layout(&[(1366, 768)], true, None, 16, 16, bitmap);
         assert_eq!(l.map(|l| l.grid), Some((96, 85)));
     }
 
     #[test]
     fn no_display_holds_a_cell() {
-        assert_eq!(layout(&[], false, 16, 16, bitmap), None);
-        assert_eq!(layout(&[(4, 4)], false, 16, 16, bitmap), None);
+        assert_eq!(layout(&[], false, None, 16, 16, bitmap), None);
+        assert_eq!(layout(&[(4, 4)], false, None, 16, 16, bitmap), None);
     }
 
     #[test]
