@@ -131,8 +131,15 @@ pub fn session_ended_console(bindings: &Bindings) -> String {
 /// The line under the kernel's messages (ADR-1401 D15), in the
 /// maintainer's words. A key that reaches the head hides the messages,
 /// and vtium's notices with them, and then goes on to the console's
-/// program as any key does.
-pub const KEY_DISMISSES: &str = "Press any key to dismiss this message.";
+/// program as any key does. `shown` is how many messages and notices the
+/// box holds.
+pub fn key_dismisses(shown: usize) -> &'static str {
+    if shown == 1 {
+        "Press any key to dismiss this message."
+    } else {
+        "Press any key to dismiss these messages."
+    }
+}
 
 /// What the boot display shows once a crash loop stopped every head under
 /// the closed policy, for as long as vtium runs (ADR-1401 D1).

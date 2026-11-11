@@ -631,7 +631,9 @@ impl Head {
                 &self.ended_notice
             }
         });
-        let hint = (!self.kernel.is_empty()).then_some(crate::notice::KEY_DISMISSES);
+        let hint = (!self.kernel.is_empty()).then(|| {
+            crate::notice::key_dismisses(self.notices.len().saturating_add(self.kernel.len()))
+        });
         let text = ended
             .into_iter()
             .chain(&self.notices)
@@ -2246,7 +2248,7 @@ mod tests {
         assert_eq!(
             head.notice(),
             Some(
-                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress any key to dismiss this message."
+                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress any key to dismiss these messages."
             )
         );
         head.end_notices();
