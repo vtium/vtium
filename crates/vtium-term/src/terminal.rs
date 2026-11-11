@@ -754,8 +754,9 @@ impl State {
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph
-    /// properties in a build with the bidi feature, the cursor home, and
-    /// the blank timeout the host's again.
+    /// properties in a build with the bidi feature, the cursor home, the
+    /// blank timeout the host's again, and an OSC 50 or XTWINOPS 8 request
+    /// the host has not taken dropped.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.screen.reset_tabs();
@@ -777,6 +778,10 @@ impl State {
         modes::reset(self, true);
         self.screen.move_to(0, 0);
         self.reset_blank_timeout();
+        // A font set or a text area asked for and not yet taken goes with
+        // the program that asked, so the host acts on neither after a reset.
+        self.font_request = None;
+        self.grid_request = None;
     }
 
     /// DECSCL, `CSI Pl ; Pc " p`: a soft reset, then 7-bit input for a

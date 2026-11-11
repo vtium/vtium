@@ -106,6 +106,26 @@ fn a_request_is_ignored_until_the_host_turns_window_operations_on() {
     assert_eq!(t.take_grid_request(), None, "off, a request is ignored");
 }
 
+// A request the host has not taken goes with the program that asked: RIS
+// drops a held XTWINOPS 8 request and a held OSC 50 request, so the host
+// acts on neither for the next program.
+#[test]
+fn ris_drops_a_request_the_host_has_not_taken() {
+    let mut t = on();
+    t.set_font_ops(true);
+    for bytes in [
+        b"\x1b[8;25;80t".as_slice(),
+        b"\x1b]50;ter-v16n\x07",
+        b"\x1bc",
+    ] {
+        t.input(bytes);
+    }
+    assert!(!t.grid_requested(), "RIS drops the grid request");
+    assert_eq!(t.take_grid_request(), None);
+    assert!(!t.font_requested(), "RIS drops the font request");
+    assert_eq!(t.take_font_request(), None);
+}
+
 // ctlseqs: CSI 18 t reports the size of the text area in characters, as
 // CSI 8 ; height ; width t. After a request in the same write, it answers
 // the size the host made.

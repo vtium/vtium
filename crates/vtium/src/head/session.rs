@@ -489,10 +489,12 @@ impl Head {
         // reset below finds the terminal taking input.
         #[cfg(feature = "images")]
         console.pictures.end_session(&mut console.term);
-        // So does an OSC 50 request a hidden console still holds, which
-        // would switch the font for the next session once it is shown and
-        // hold that session's output meanwhile (ADR-1201 D11).
+        // So do an OSC 50 request and an XTWINOPS 8 request a hidden
+        // console still holds: each would change the font or the grid for
+        // the next session once it is shown, and hold that session's output
+        // meanwhile (ADR-1201 D11).
         console.term.terminal.take_font_request();
+        console.term.terminal.take_grid_request();
         if after == AfterExit::Restart {
             // A new session starts from a hard reset (RIS), with nothing of
             // the last session's output left.
