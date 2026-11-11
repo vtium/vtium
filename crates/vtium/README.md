@@ -66,9 +66,9 @@ sudo vtium console enable --direct --all     # every VT is vtium's, on a machine
 sudo vtium console disable --all             # every VT goes back as vtium console found it
 ```
 
-vtium runs on a VT in one of two modes (ADR-1400 D3). In direct mode, `vtium@.service` runs vtium, which opens the screen and the keyboards itself, and each login gets an active logind session on seat0, as at a getty. In seat mode, `vtium-seat@.service` runs vtium, which takes the screen, the keyboards and VT switching from logind through libseat, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices such as sound cards. Seat mode needs a build with `libseat` and `logind`, whose install ships `vtium-seat@.service`. The two units conflict, so a VT runs one mode at a time, and `enable` in one mode moves a VT that has the other. `enable` with no mode turns nothing on and recommends direct mode (ADR-1500 D7).
+vtium runs on a VT in one of two modes (ADR-1400 D3). In direct mode, `vtium@.service` runs vtium, which opens the screen and the keyboards itself, or takes them from seatd where seatd runs and the build has `libseat`, and each login gets an active logind session on seat0, as at a getty. In seat mode, `vtium-seat@.service` runs vtium, which takes the screen, the keyboards and VT switching from logind through libseat, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices such as sound cards. Seat mode needs a build with `libseat` and `logind`, whose install ships `vtium-seat@.service`. The two units conflict, so a VT runs one mode at a time, and `enable` in one mode moves a VT that has the other. `enable` with no mode turns nothing on and recommends direct mode (ADR-1500 D7).
 
-`enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium, enables vtium at boot on VT 1, where logind never starts a console itself, and disables the gettys on VTs 2 to 6, so vtium starts on each the first time you switch to it. VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use, so `enable --all` and `enable 6` refuse while someone is logged in on VT 6 anywhere but inside a vtium running there, and `enable --all` also refuses while kmscon, the development install or a masked `vtium@tty6` is there without a link of VT 6's own, and says what to free first. A getty waiting at its login prompt on VT 6 holds no session: both verbs go ahead, and the next switch to VT 6 stops that getty, which ends nothing.
+`enable --all` links `autovt@.service`, the unit logind starts on a VT when you switch to it and nothing runs there, to vtium. It also does `enable N` on each free VT from 1 to 6, so systemd starts vtium on each of them at boot in place of the getty it disables, and vtium holds each of them open from boot. A display manager that puts a new desktop session on the first VT nobody holds open, as SDDM 0.20 and later does, then passes those VTs by (ADR-1500 D7). Each claimed VT runs one idle vtium from boot, about 6 MiB of resident memory each on tier 3's minspec machine. On a machine claimed before vtium started at boot on every VT it claims, `status` names under its table each VT from 2 to 5 that nothing holds open at boot, and running `sudo vtium console enable --direct --all` again starts vtium at boot there. VT 6 is logind's reserved VT, where logind starts a console at every switch, even while the VT is in use, so `enable --all` and `enable 6` refuse while someone is logged in on VT 6 anywhere but inside a vtium running there, and `enable --all` also refuses while kmscon, the development install or a masked `vtium@tty6` is there without a link of VT 6's own, and says what to free first. A getty waiting at its login prompt on VT 6 holds no session: both verbs go ahead, and the next switch to VT 6 stops that getty, which ends nothing.
 
 vtium console follows common convention: while a display manager is enabled, VT 1 stays the display manager's and its getty's, whatever VT the display manager uses now, and vtium takes other VTs. It never takes a VT that the system's intended configuration gives to another program: a unit enabled at boot that claims it, or an enabled display manager (linked as `display-manager.service`, or a display manager vtium knows by name enabled at boot), VT 1 and any VT its configuration names. What runs now adds to that and never frees a VT. A VT is held now when a graphical session or greeter is on it, which vtium asks logind for with `loginctl`, or when another console runs there as a unit named `PREFIX@ttyN.service`. A VT is held from the next boot when a unit that starts at boot names its getty in `Conflicts=`, as Arch's sddm.service names `getty@tty1.service`, or runs on it: an instance such as `cage@tty3.service`, or a unit with `TTYPath=/dev/tty3`. The display manager's own configuration adds the VT its greeter starts on: LightDM's `minimum-vt` (7 by default), greetd's `vt` or `--vt`, and SDDM's `MinimumVT`. Nothing frees a VT, neither a configuration file nor a greeter running on another VT. `enable N` refuses a held VT and says which signal it read, `enable --all` passes it by and says so, and `status` marks it and gives the reason under its table.
 
@@ -82,26 +82,27 @@ Neither verb starts or stops vtium. Each prints the `systemctl start` or `stop` 
 
 kmscon, another console that draws a VT through DRM/KMS, and vtium can run on one machine, each on VTs of its own. When you switch to a VT that no console runs on, logind starts the unit `autovt@ttyN.service` there, N being the VT's number. systemd looks first for a link of that exact name, `/etc/systemd/system/autovt@ttyN.service`, which gives one VT a console of its own. Every VT without one falls back to the single template link, `/etc/systemd/system/autovt@.service`, so whichever console that link names gets all of those VTs. `sudo vtium console enable --direct --all` points it at vtium. On Arch it points at the getty from the start, because systemd's package enables `getty@.service` when it installs; kmscon's own `sudo systemctl enable kmsconvt@` then fails on that link (it still enables kmscon at boot on VT 1), and only `systemctl enable --force kmsconvt@.service` points the link at kmscon. `vtium console status` says on its first line which console the link names.
 
-**vtium holds the template link, and you want kmscon on one VT.** Give that VT a link of its own to kmscon. For VT 3:
+**vtium holds the template link, and you want kmscon on one VT.** Take that VT back from vtium, then give it a link of its own to kmscon. For VT 3:
 
 ```sh
-sudo systemctl disable getty@tty3.service    # only where VT 3's getty is enabled at boot
+sudo vtium console disable 3                 # enable --all starts vtium at boot on VT 3; this takes VT 3 back and gives it the getty it had
+sudo systemctl disable getty@tty3.service    # only where vtium console status now shows a getty at boot on VT 3
 sudo ln -s /usr/lib/systemd/system/kmsconvt@.service /etc/systemd/system/autovt@tty3.service
 sudo systemctl daemon-reload
 ```
 
-Nothing starts kmscon at boot or at once. logind starts it the next time you switch to VT 3 while no console runs there. `vtium console` sees the link and leaves VT 3 to kmscon: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. The way back:
+Nothing starts kmscon at boot or at once. logind starts it the next time you switch to VT 3 while no console runs there. Until then nothing holds VT 3 open, so a display manager that puts a desktop session on the first free VT can take VT 3. `vtium console` sees the link and leaves VT 3 to kmscon: `enable 3` refuses it, `enable --all` names it and passes it by, and `disable` never touches it. The way back:
 
 ```sh
 sudo systemctl stop kmsconvt@tty3.service    # ends every session on VT 3
 sudo rm /etc/systemd/system/autovt@tty3.service
 sudo systemctl daemon-reload
-sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty above
+sudo vtium console enable --direct 3        # VT 3 is vtium's again from its next start
 ```
 
-Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable --direct 3` then refuses VT 3 until that link is gone.
+To give VT 3 its getty instead, run `sudo systemctl add-wants getty.target getty@tty3.service` in place of the last line. Use `add-wants` rather than `systemctl enable getty@tty3.service` there. `enable` also links `autovt@tty3.service` to the getty, and `vtium console enable --direct 3` then refuses VT 3 until that link is gone.
 
-`sudo systemctl enable --now kmsconvt@tty3.service`, run after the same `systemctl disable getty@tty3.service`, makes the same link and also starts kmscon on VT 3 at boot and at once. Without the getty's disable, systemd would start both kmscon and the getty on VT 3 at boot, and the two conflict. The way back:
+`sudo systemctl enable --now kmsconvt@tty3.service`, run after the same `vtium console disable 3` and `systemctl disable getty@tty3.service`, makes the same link and also starts kmscon on VT 3 at boot and at once. Without the getty's disable, systemd would start both kmscon and the getty on VT 3 at boot, and the two conflict. The way back:
 
 ```sh
 sudo systemctl disable --now kmsconvt@tty3.service    # stops kmscon, which ends every session on VT 3, and takes it off boot
@@ -110,7 +111,7 @@ sudo systemctl daemon-reload
 sudo systemctl add-wants getty.target getty@tty3.service    # only if you disabled VT 3's getty
 ```
 
-The guide prefers the hand-made link because two consoles started at boot both open the display card, and the second cannot draw while the first holds it. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
+Several vtiums started at boot each draw: a vtium that opens the display card on a VT that is not shown lets go of the card's DRM master at once, so the vtium on the VT shown draws (ADR-1500 D7). vtium's tests do not check whether kmscon started at boot on a VT that is not shown does the same, and a console that keeps the card's master stops the vtium on the VT shown from drawing. So the guide prefers the hand-made link, which starts kmscon only when you switch to VT 3. Do not run kmscon's own `systemctl enable kmsconvt@` while vtium holds the template link either. It fails on that link, and it still enables kmscon at boot on VT 1, beside vtium there.
 
 **`/etc/systemd/system/autovt@.service` links to `kmsconvt@.service`**, as on a machine set up to run kmscon on every VT. `sudo vtium console enable --direct N` gives vtium one VT at a time, and `sudo vtium console enable --direct --all` refuses until kmscon lets go of the template.
 
@@ -120,7 +121,7 @@ The guide prefers the hand-made link because two consoles started at boot both o
 sudo systemctl disable kmsconvt@.service      # removes the template link and every VT's kmscon link
 systemctl list-units 'kmsconvt@*'             # the VTs where kmscon still runs
 sudo systemctl stop kmsconvt@tty2.service     # for each VT listed; ends every session there
-sudo vtium console enable --direct --all               # every VT is vtium's from its next start; it prints the command that starts vtium on VT 1 now
+sudo vtium console enable --direct --all               # every free VT is vtium's from its next start; it prints the command that starts vtium on a VT now
 sudo pacman -R kmscon                         # if you want: removes kmscon itself
 ```
 

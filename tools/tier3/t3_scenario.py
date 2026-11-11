@@ -314,6 +314,19 @@ VARIANTS.update({
 })
 SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "panic-sysrq", "kmsg-notice"]
 
+# boot-claim checks that vtium console enable --direct --all starts vtium at
+# boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
+# Its setup makes the claim, then starts the guest's userspace again with
+# systemctl soft-reboot ("soft_reboot"), so systemd starts vtium from the
+# links the claim made, as a boot after the claim does. Nobody switches VTs
+# ("first_switch": False): its check (t3_seat.CHECKS "boot-claim") asks the
+# agent which processes hold VTs 1 to 6 open and which VT the kernel's
+# VT_OPENQRY gives, and logs each vtium's resident memory. It draws no
+# screen and logs no one in.
+VARIANTS["boot-claim"] = dict(SEAT, checks=["boot-claim"], login=False, first_switch=False,
+                              agent=True, soft_reboot=True, screens=[])
+SEAT_VARIANTS.append("boot-claim")
+
 # The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
 # with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
 # column for a host without systemd. Its inittab runs vtium on tty2 from the
@@ -528,10 +541,34 @@ HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
 # up and the login prompts reached, then the console the switch spawns
 # logging its VT; under sysvinit, the console the inittab started on tty2
 # logging its VT, then its display set up once the VT is shown.
+# The lines systemd logs once vtium's unit on tty2 is active: with
+# Type=notify, only after vtium has sent READY=1 (ADR-1500 D7, "Ready
+# before the display manager"). A unit that never sends it stays
+# activating, and its variant fails.
+READY_LINES = ("Started vtium on tty2.", "Started vtium in seat mode on tty2.")
+
+
+def wait_ready(vm, lines, timeout=60):
+    """The first of `lines` on the console log, once systemd has logged
+    one, or a RuntimeError when none comes within `timeout` seconds."""
+    deadline = time.time() + timeout
+    while True:
+        for line in lines:
+            try:
+                return vm.wait_serial(line, timeout=0)
+            except RuntimeError:
+                pass
+        if time.time() > deadline:
+            raise RuntimeError("vtium's unit on tty2 never became active: systemd logged no %r "
+                               "within %d s" % (lines[0], timeout))
+        time.sleep(0.2)
+
+
 GUESTS = {
     "arch": {"base": BASE, "image": "tier3-image",
              "boot": ["Started User Login Management", "Reached target Login Prompts"],
-             "shown": "vt: using tty /dev/tty2"},
+             "shown": "vt: using tty /dev/tty2",
+             "ready": READY_LINES},
     "sysvinit": {"base": BASE_SYSVINIT, "image": "tier3-image-nosystemd",
                  "boot": ["vt: using tty /dev/tty2"], "shown": "text renderer ["},
 }
@@ -773,7 +810,8 @@ def build_disc(variant, work, impl):
     (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
-    fragment, and the agent and its unit if it runs it."""
+    fragment, a `soft-reboot` file if its guest starts its userspace again
+    once the claim is made, and the agent and its unit if it runs it."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -833,6 +871,8 @@ def build_disc(variant, work, impl):
     if "mode" in VARIANTS[variant]:
         with open(os.path.join(disc, "mode"), "w") as f:
             f.write(VARIANTS[variant]["mode"])
+    if VARIANTS[variant].get("soft_reboot"):
+        open(os.path.join(disc, "soft-reboot"), "w").close()
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
@@ -1045,8 +1085,13 @@ def run_variant(variant, timing, impl, log):
         # starts it earlier: a boot without the keypress has no console on
         # tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
-        vm.keys("ctrl", "alt", "f2")
-        vm.wait_serial(guest["shown"], timeout=60)
+        # A variant that judges the VTs before anyone switches them
+        # ("first_switch": False) stays on the VT shown at boot.
+        if v.get("first_switch", True):
+            vm.keys("ctrl", "alt", "f2")
+            vm.wait_serial(guest["shown"], timeout=60)
+            if "ready" in guest:
+                log(wait_ready(vm, guest["ready"]))
         tmp = os.path.join(work, "wait.ppm")
         prompt = None
         if v["device"] is not None and v["renderer"] is not None:
@@ -1424,6 +1469,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "seat": t3_seat.check_seat,
               "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
+              "boot-claim": t3_seat.check_boot_claim,
               "login-session": t3_seat.check_login_session,
               "two-logins": t3_seat.check_two_logins,
               **t3_heads.CHECK_RUNS}

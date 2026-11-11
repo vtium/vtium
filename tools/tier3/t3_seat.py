@@ -64,6 +64,16 @@ CHECKS = {
                   "user@UID.service, active; and vtium's own session still on seat0 and "
                   "active. The capture is the second console's shell; key-console-previous "
                   "then shows the first console again.",
+    "boot-claim": "The VTs after vtium console enable --direct --all and a second start of the "
+                  "guest's userspace (systemctl soft-reboot), with nobody switching VTs "
+                  "(ADR-1500 D7, \"Each claimed VT starts at boot\"). Correct: on each of VTs 1 "
+                  "to 6, vtium@ttyN.service is active and a vtium in its control group holds "
+                  "/dev/ttyN open, a different vtium on each VT, and the "
+                  "first VT the kernel's VT_OPENQRY gives, which a display manager such as "
+                  "SDDM takes for a new desktop session, is VT 7. Then the driver switches to "
+                  "each of VTs 2 to 6 in turn, and each VT's own vtium, started at boot while "
+                  "its VT was not shown, sets up the display and draws a screen that is not "
+                  "blank. The log gives each vtium's resident memory.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -433,3 +443,103 @@ def check_two_logins(v, vm, work, caps, errors, log):
     vm.keys("ctrl", "meta_l", "left")
     if why:
         errors[case] = why
+
+
+# The VTs vtium console enable --direct --all claims on the guest, which has
+# no display manager: VTs 1 to 6, the VTs logind manages by default.
+CLAIMED_VTS = range(1, 7)
+# How long the boot-claim check asks the agent again for vtium to hold the
+# claimed VTs: systemd starts vtium's units at boot, and each vtium opens its
+# VT just after its start.
+BOOT_CLAIM_TIMEOUT = 90
+
+
+def parse_vts(lines):
+    """The agent's answer to `vts` (guest/t3-agent): {VT: [(pid, name, VmRSS
+    in kB or None, the unit of its control group or None)]} for each
+    process that holds /dev/ttyN open, {VT: {unit: active state}} for
+    vtium's two units on each VT, and the VT that `fgconsole
+    --next-available` gave, or None."""
+    held, units, free = {}, {}, None
+    for line in lines:
+        words = line.split()
+        if words[:1] == ["vt"] and len(words) >= 4:
+            rss = int(words[4]) if len(words) > 4 and words[4].isdigit() else None
+            unit = words[5] if len(words) > 5 else None
+            held.setdefault(int(words[1]), []).append((int(words[2]), words[3], rss, unit))
+        elif words[:1] == ["unit"] and len(words) >= 3:
+            units.setdefault(int(words[1]), {})[words[2]] = words[3] if len(words) > 3 else ""
+        elif words[:1] == ["next-available"]:
+            free = int(words[1]) if len(words) > 1 and words[1].isdigit() else None
+    return held, units, free
+
+
+def unit_holders(held, units, n):
+    """The vtium processes that hold VT `n` open from the control group of
+    vtium's unit on that VT, while that unit is active."""
+    own = {"vtium@tty%d.service" % n, "vtium-seat@tty%d.service" % n}
+    active = {u for u, state in units.get(n, {}).items() if u in own and state == "active"}
+    return [pid for pid, name, _, unit in held.get(n, []) if name == "vtium" and unit in active]
+
+
+def boot_claim_verdict(held, units, free):
+    """Why the boot-claim check fails on the parsed `vts` answer, or None:
+    a VT of CLAIMED_VTS that no vtium of that VT's own active unit holds
+    open, one vtium holding two of them, or a first free VT other than the
+    first after them."""
+    missing = [n for n in CLAIMED_VTS if not unit_holders(held, units, n)]
+    if missing:
+        return "no vtium of its own active unit holds VT %s open: %s" % (
+            ", ".join(map(str, missing)),
+            "; ".join("VT %d: %s" % (n, ", ".join(
+                "%s %d in %s" % (name, pid, unit) for pid, name, _, unit in held.get(n, []))
+                or "nothing") for n in missing))
+    pids = [unit_holders(held, units, n)[0] for n in CLAIMED_VTS]
+    if len(set(pids)) != len(pids):
+        return "one vtium holds several VTs open: %s" % " ".join(map(str, pids))
+    if free != CLAIMED_VTS[-1] + 1:
+        return "the first free VT is %s, not VT %d" % (free, CLAIMED_VTS[-1] + 1)
+    return None
+
+
+# The line a vtium logs once it has set up a display. A vtium started at boot
+# on a VT that is not shown drops DRM master after it opens the card, and
+# sets up its display only once its VT is shown.
+DISPLAY_LINE = "vtium[%d]: Display "
+
+
+def check_boot_claim(v, vm, work, caps, errors, log):
+    """The boot-claim check (CHECKS), on the agent's answer `vts`, asked
+    again until vtium holds every claimed VT or BOOT_CLAIM_TIMEOUT passes,
+    then on each VT from 2 to 6 once it is shown. It keeps a capture of
+    each VT as evidence, which no golden judges."""
+    case = "boot-claim"
+    deadline = time.time() + BOOT_CLAIM_TIMEOUT
+    while True:
+        answer = vm.ask("vts")
+        held, units, free = parse_vts(answer)
+        why = boot_claim_verdict(held, units, free)
+        if why is None or time.time() > deadline:
+            break
+        time.sleep(0.5)
+    for line in answer:
+        log("%s: %s" % (case, line))
+    rss = [r for n in CLAIMED_VTS for _, name, r, _ in held.get(n, []) if name == "vtium" and r]
+    if rss:
+        log("%s: resident memory of each idle vtium, kB: %s" % (case, " ".join(map(str, rss))))
+    if why:
+        errors[case] = why
+        return
+    # Each vtium started at boot draws its own VT once it is shown.
+    for n in CLAIMED_VTS[1:]:
+        pid = unit_holders(held, units, n)[0]
+        vm.keys("ctrl", "alt", "f%d" % n)
+        try:
+            vm.wait_serial(DISPLAY_LINE % pid, timeout=60)
+            wait_stable(vm, os.path.join(work, "%s-vt%d.ppm" % (case, n)), settle=2.0,
+                        timeout=60, want=not_blank)
+        except RuntimeError as e:
+            errors[case] = "VT %d: %s" % (n, e)
+            return
+        log("%s: VT %d shown, drawn by vtium %d" % (case, n, pid))
+    caps[case] = None

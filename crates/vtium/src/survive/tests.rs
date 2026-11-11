@@ -86,13 +86,15 @@ struct Entry {
 /// name on `FDSTOREREMOVE=1`, which needs `FDNAME=`; and closes a stored
 /// descriptor that reports a hangup or an error unless it came with
 /// `FDPOLL=0`. At a restart it passes copies of what it holds, in the
-/// order stored, with `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES`.
+/// order stored, with `LISTEN_PID`, `LISTEN_FDS` and `LISTEN_FDNAMES`. It
+/// counts each `READY=1`, which a `Type=notify` unit's start waits for.
 struct Systemd {
     socket: OwnedFd,
     path: PathBuf,
     max: usize,
     main_pid: u32,
     store: Vec<Entry>,
+    ready: usize,
 }
 
 impl Systemd {
@@ -113,6 +115,7 @@ impl Systemd {
             max,
             main_pid: std::process::id(),
             store: Vec::new(),
+            ready: 0,
         }
     }
 
@@ -163,6 +166,9 @@ impl Systemd {
             text.lines()
                 .find_map(|l| l.strip_prefix(key)?.strip_prefix('='))
         };
+        if field("READY") == Some("1") {
+            self.ready = self.ready.saturating_add(1);
+        }
         let name = field("FDNAME").filter(|n| storable(n));
         if field("FDSTOREREMOVE") == Some("1")
             && let Some(name) = name
@@ -573,4 +579,54 @@ fn the_holder_and_vtium_each_refuse_another_user() {
         Err(std::io::ErrorKind::PermissionDenied)
     );
     assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
+}
+
+#[test]
+fn vtium_is_ready_once_its_vt_is_open_and_not_before() {
+    // ADR-1500 D7, "Ready before the display manager": systemd starts the
+    // display manager once vtium's unit is ready, so READY=1 comes only
+    // after the VT is open.
+    let dir = Scratch::new("ready");
+    let mut systemd = Systemd::new(&dir, 4);
+    let env = systemd.env();
+    let vt = notify::opened(&env, || {
+        systemd.pump();
+        assert_eq!(systemd.ready, 0, "READY=1 before the VT is open");
+        Ok("the VT")
+    })
+    .unwrap();
+    assert_eq!(vt, "the VT");
+    systemd.pump();
+    assert_eq!(systemd.ready, 1);
+}
+
+#[test]
+fn a_vt_that_does_not_open_sends_no_ready() {
+    let dir = Scratch::new("ready-no-vt");
+    let mut systemd = Systemd::new(&dir, 4);
+    let env = systemd.env();
+    let opened: std::io::Result<()> = notify::opened(&env, || Err(std::io::Error::other("no VT")));
+    assert!(opened.is_err());
+    systemd.pump();
+    assert_eq!(systemd.ready, 0);
+}
+
+#[test]
+fn without_systemds_socket_vtium_sends_no_ready() {
+    // A host without systemd, or a run by hand, gives no NOTIFY_SOCKET.
+    assert!(!notify::ready(&[]).unwrap());
+    let env = [("FDSTORE".into(), "50".into())];
+    assert!(!notify::ready(&env).unwrap());
+    // With the socket and no store, as a unit with no
+    // FileDescriptorStoreMax= gives it, vtium still says it is ready.
+    let dir = Scratch::new("ready-no-socket");
+    let mut systemd = Systemd::new(&dir, 0);
+    let env: Vec<(OsString, OsString)> = systemd
+        .env()
+        .into_iter()
+        .filter(|(k, _)| k == "NOTIFY_SOCKET")
+        .collect();
+    assert!(notify::ready(&env).unwrap());
+    systemd.pump();
+    assert_eq!(systemd.ready, 1);
 }

@@ -333,7 +333,9 @@ fn run(
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     vtium::blank::listen(&lp.handle())?;
-    let vt = open(&mut lp)?;
+    // systemd starts the display manager only once vtium holds its VT
+    // (ADR-1500 D7, "Ready before the display manager").
+    let vt = vtium::survive::notify::opened(&env, || open(&mut lp))?;
     let clock = clock();
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
     if let Some(font) = console {
@@ -439,6 +441,31 @@ mod tests {
         ] {
             assert!(help.contains(command), "{command}");
         }
+    }
+
+    /// `run` opens the VT through `notify::opened`, which sends systemd
+    /// `READY=1` once the VT is open, and builds the app, which opens the
+    /// cards and devices, only after it (ADR-1500 D7, "Ready before the
+    /// display manager"). `run` is the binary's wiring, which no test
+    /// drives, so this reads its text; `survive`'s tests drive `opened`.
+    #[test]
+    fn run_tells_systemd_it_is_ready_once_the_vt_is_open() {
+        let source = include_str!("main.rs");
+        let body = source
+            .split_once("\nfn run(")
+            .and_then(|(_, rest)| rest.split_once("\nfn "))
+            .map(|(body, _)| body)
+            .unwrap();
+        let opened = body
+            .find("vtium::survive::notify::opened(&env, || open(&mut lp))?")
+            .expect("run opens the VT through notify::opened");
+        assert_eq!(
+            body.matches("open(&mut lp)").count(),
+            1,
+            "the VT opens once"
+        );
+        let app = body.find("App::new(").unwrap();
+        assert!(opened < app, "READY=1 comes before the app opens the cards");
     }
 
     /// `--version` keeps its first line as it was, so a reader of that line
