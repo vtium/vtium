@@ -58,6 +58,7 @@ pub use binding::{Libseat, LibseatSeat};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -119,6 +120,22 @@ pub(crate) trait Manager {
     /// Whether seatd listens on its socket, which decides whether a VT not
     /// shown must be waited for before the seat opens.
     fn seatd_listens(&self) -> bool;
+    /// The backend `LIBSEAT_BACKEND` names, when it names one.
+    fn backend_named(&self) -> Option<OsString>;
+    /// Whether logind runs: its seats' directory exists.
+    fn logind_runs(&self) -> bool;
+}
+
+/// Whether libseat opens the seat through its logind backend. libseat tries
+/// only the backend `LIBSEAT_BACKEND` names, when it names one, and
+/// otherwise seatd, then logind, then its built-in seat manager
+/// (libseat/libseat.c at seatd 92b1617c, lines 18-28 and 45). seatd answers
+/// when its socket accepts a connection, and logind when it runs.
+pub(crate) fn logind_backend(named: Option<&OsStr>, seatd: bool, logind_runs: bool) -> bool {
+    match named {
+        Some(name) => name == "logind",
+        None => !seatd && logind_runs,
+    }
 }
 
 /// What [`LibseatVt::start`] chose.
@@ -221,6 +238,8 @@ struct Found<S> {
     inbox: Inbox,
     /// seatd listens.
     seatd: bool,
+    /// libseat's logind backend opens the seat.
+    logind: bool,
 }
 
 /// What the VT asks of the loop it runs in, made by [`LibseatVt::start`]
@@ -249,6 +268,9 @@ pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     inbox: Inbox,
     /// seatd listened at the start.
     seatd: bool,
+    /// libseat's logind backend opens the seat, from vtium's own logind
+    /// session ([`Vt::logind_seat`]).
+    logind: bool,
     /// The VT the seat runs on, when it has VTs, and its number.
     tty: Option<(C, u16)>,
     /// The VT shown at the start, which [`Vt::leave`] goes back to.
@@ -325,6 +347,11 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             None => None,
         };
         let seatd = manager.seatd_listens();
+        let logind = logind_backend(
+            manager.backend_named().as_deref(),
+            seatd,
+            manager.logind_runs(),
+        );
         let inbox = Inbox::default();
         let mut manager = manager;
         let (conn, seat) = if shown == Some(false) && seatd {
@@ -348,6 +375,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seat,
             inbox,
             seatd,
+            logind,
         };
         Ok(Chosen::Seat(LibseatVt::new(
             lp, manager, found, tty, tries, access,
@@ -415,6 +443,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seat,
             inbox,
             seatd,
+            logind,
         } = found;
         let mut vt = LibseatVt {
             manager,
@@ -426,6 +455,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             })),
             inbox,
             seatd,
+            logind,
             tty,
             saved,
             kb_mode,
@@ -836,6 +866,10 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
 
     fn seat(&self) -> &str {
         self.name.as_deref().unwrap_or("seat0")
+    }
+
+    fn logind_seat(&self) -> bool {
+        self.logind
     }
 
     fn open_device(&mut self, path: &Path) -> io::Result<OwnedFd> {

@@ -134,6 +134,14 @@ pub trait Vt {
         "seat0"
     }
 
+    /// Whether the seat came through libseat's logind backend, which takes
+    /// it from vtium's own logind session. The children vtium starts then
+    /// each run in a systemd scope of their own (ADR-1400 D3, its note on
+    /// each login's own session).
+    fn logind_seat(&self) -> bool {
+        false
+    }
+
     /// Opens a device of the seat: read-write and non-blocking, directly,
     /// or through the seat manager. A device the seat manager cannot give
     /// yet fails with [`io::ErrorKind::WouldBlock`]: the backend keeps

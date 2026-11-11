@@ -4,6 +4,7 @@
 
 #![expect(clippy::panic, reason = "a test fails by panicking")]
 
+use std::ffi::OsStr;
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -981,4 +982,42 @@ fn a_keyboard_unplugged_during_a_retry_leaves_no_tries_to_the_next_at_its_node()
         "one try for the first, three for the second"
     );
     assert_eq!(seat_devices(&server), [PathBuf::from(KEYBOARD)]);
+}
+
+/// libseat's logind backend takes the seat from vtium's own logind
+/// session, so the children vtium starts need scopes of their own
+/// (ADR-1400 D3): it opens the seat when logind runs, seatd does not
+/// listen, and `LIBSEAT_BACKEND` names no other backend.
+#[test]
+fn the_seat_tells_whether_libseats_logind_backend_opened_it() {
+    for (seatd, logind, named, through_logind) in [
+        (false, true, false, true),
+        (true, true, false, false),
+        (true, true, true, false),
+        (false, false, false, false),
+    ] {
+        let server = StandIn::new();
+        {
+            let mut s = server.0.borrow_mut();
+            s.seatd = seatd;
+            s.logind = logind;
+            s.backend_named = named;
+        }
+        let (_lp, mut data) = start(&server, None, tries(50, 20));
+        assert_eq!(
+            vt(&mut data).logind_seat(),
+            through_logind,
+            "seatd {seatd}, logind {logind}, LIBSEAT_BACKEND=seatd {named}"
+        );
+    }
+    assert!(super::logind_backend(
+        Some(OsStr::new("logind")),
+        true,
+        false
+    ));
+    assert!(!super::logind_backend(
+        Some(OsStr::new("builtin")),
+        false,
+        true
+    ));
 }

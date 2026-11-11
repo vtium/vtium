@@ -41,7 +41,7 @@ const SYSTEMD1_PATH: &CStr = c"/org/freedesktop/systemd1";
 const MANAGER: &CStr = c"org.freedesktop.systemd1.Manager";
 
 /// The directory that exists only while systemd is PID 1, which
-/// sd_booted(3) checks (systemd 262; external, not re-verified).
+/// sd_booted(3) checks (systemd at 78ab4b10, man/sd_booted.xml:55).
 const BOOTED: &str = "/run/systemd/system";
 
 /// How long vtium waits for systemd to finish the scope's job, after the

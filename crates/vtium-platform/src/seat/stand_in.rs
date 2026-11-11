@@ -212,6 +212,14 @@ impl Manager for StandIn {
     fn seatd_listens(&self) -> bool {
         self.0.borrow().seatd
     }
+
+    fn backend_named(&self) -> Option<std::ffi::OsString> {
+        self.0.borrow().backend_named.then(|| "seatd".into())
+    }
+
+    fn logind_runs(&self) -> bool {
+        self.0.borrow().logind
+    }
 }
 
 impl Seat for StandInSeat {
