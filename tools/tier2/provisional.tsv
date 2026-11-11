@@ -4,3 +4,5 @@
 small-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 small-640x480-1bit	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn by vtium-config's engine, redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
+link-overlay-unifont	#40: the hovered link's address on the overlay row, drawn by vtium; not reviewed yet
+link-overlay-cut-unifont	#40: the hovered link's address cut with … on the top row's overlay, drawn by vtium; not reviewed yet
