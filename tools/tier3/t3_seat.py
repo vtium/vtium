@@ -64,6 +64,13 @@ CHECKS = {
                   "user@UID.service, active; and vtium's own session still on seat0 and "
                   "active. The capture is the second console's shell; key-console-previous "
                   "then shows the first console again.",
+    "boot-claim": "The VTs after vtium console enable --direct --all and a second start of the "
+                  "guest's userspace (systemctl soft-reboot), with nobody switching VTs "
+                  "(ADR-1500 D7, \"Each claimed VT starts at boot\"). Correct: a vtium process "
+                  "holds each of VTs 1 to 6 open, /dev/ttyN among its open files, and the "
+                  "first VT the kernel's VT_OPENQRY gives, which a display manager such as "
+                  "SDDM takes for a new desktop session, is VT 7. The log gives each vtium's "
+                  "resident memory.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -433,3 +440,66 @@ def check_two_logins(v, vm, work, caps, errors, log):
     vm.keys("ctrl", "meta_l", "left")
     if why:
         errors[case] = why
+
+
+# The VTs vtium console enable --direct --all claims on the guest, which has
+# no display manager: VTs 1 to 6, the VTs logind manages by default.
+CLAIMED_VTS = range(1, 7)
+# How long the boot-claim check asks the agent again for vtium to hold the
+# claimed VTs: systemd starts vtium's units at boot, and each vtium opens its
+# VT just after its start.
+BOOT_CLAIM_TIMEOUT = 90
+
+
+def parse_vts(lines):
+    """The agent's answer to `vts` (guest/t3-agent): {VT: [(pid, name, VmRSS
+    in kB or None)]} for each process that holds /dev/ttyN open, and the
+    VT that `fgconsole --next-available` gave, or None."""
+    held, free = {}, None
+    for line in lines:
+        words = line.split()
+        if words[:1] == ["vt"] and len(words) >= 4:
+            rss = int(words[4]) if len(words) > 4 and words[4].isdigit() else None
+            held.setdefault(int(words[1]), []).append((int(words[2]), words[3], rss))
+        elif words[:1] == ["next-available"]:
+            free = int(words[1]) if len(words) > 1 and words[1].isdigit() else None
+    return held, free
+
+
+def boot_claim_verdict(held, free):
+    """Why the boot-claim check fails on the parsed `vts` answer, or None:
+    a VT of CLAIMED_VTS that no vtium holds open, or a first free VT other
+    than the first after them."""
+    missing = [n for n in CLAIMED_VTS if not any(name == "vtium" for _, name, _ in held.get(n, []))]
+    if missing:
+        return "no vtium holds VT %s open: %s" % (
+            ", ".join(map(str, missing)),
+            "; ".join("VT %d: %s" % (n, ", ".join("%s %d" % (name, pid) for pid, name, _ in held.get(n, []))
+                                      or "nothing") for n in missing))
+    if free != CLAIMED_VTS[-1] + 1:
+        return "the first free VT is %s, not VT %d" % (free, CLAIMED_VTS[-1] + 1)
+    return None
+
+
+def check_boot_claim(v, vm, work, caps, errors, log):
+    """The boot-claim check (CHECKS), on the agent's answer `vts`, asked
+    again until vtium holds every claimed VT or BOOT_CLAIM_TIMEOUT passes.
+    It captures nothing."""
+    case = "boot-claim"
+    deadline = time.time() + BOOT_CLAIM_TIMEOUT
+    while True:
+        answer = vm.ask("vts")
+        held, free = parse_vts(answer)
+        why = boot_claim_verdict(held, free)
+        if why is None or time.time() > deadline:
+            break
+        time.sleep(0.5)
+    for line in answer:
+        log("%s: %s" % (case, line))
+    rss = [r for n in CLAIMED_VTS for _, name, r in held.get(n, []) if name == "vtium" and r]
+    if rss:
+        log("%s: resident memory of each idle vtium, kB: %s" % (case, " ".join(map(str, rss))))
+    if why:
+        errors[case] = why
+        return
+    caps[case] = None

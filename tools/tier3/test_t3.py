@@ -3439,7 +3439,8 @@ class HeadsTest(unittest.TestCase):
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
                     "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
                     "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
-                    "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id"]
+                    "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id",
+                    "vts 7", "Vts", "vts;id"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3452,6 +3453,37 @@ class HeadsTest(unittest.TestCase):
                           if l.startswith("T3-AGENT %d " % n)]
                 self.assertEqual(answer, ["T3-AGENT %d refused %s" % (n, request.strip())])
         self.assertEqual(os.listdir(d.name), [])
+
+    def test_the_boot_claim_is_judged_both_ways(self):
+        # The agent's answer to vts on a guest where vtium holds VTs 1 to 6
+        # and logind holds VT 6 too.
+        good = ["vt %d %d vtium 9%d00" % (n, 400 + n, n) for n in range(1, 7)] + [
+            "vt 6 300 systemd-logind 7000", "next-available 7"]
+        held, free = t3_seat.parse_vts(good)
+        self.assertEqual(held[6], [(406, "vtium", 9600), (300, "systemd-logind", 7000)])
+        self.assertEqual(free, 7)
+        self.assertIsNone(t3_seat.boot_claim_verdict(held, free))
+        # VT 2 under the template link alone: nothing holds it until a
+        # switch, and the kernel offers it to a display manager.
+        alone = [l for l in good if not l.startswith("vt 2 ")]
+        alone[-1] = "next-available 2"
+        self.assertEqual(t3_seat.boot_claim_verdict(*t3_seat.parse_vts(alone)),
+                         "no vtium holds VT 2 open: VT 2: nothing")
+        # logind's hold of VT 6 is no vtium's.
+        six = [l for l in good if not l.startswith("vt 6 406 ")]
+        self.assertEqual(t3_seat.boot_claim_verdict(*t3_seat.parse_vts(six)),
+                         "no vtium holds VT 6 open: VT 6: systemd-logind 300")
+        unknown = good[:-1] + ["next-available fgconsole: command not found"]
+        self.assertEqual(t3_seat.boot_claim_verdict(*t3_seat.parse_vts(unknown)),
+                         "the first free VT is None, not VT 7")
+        v = t3_scenario.VARIANTS["boot-claim"]
+        self.assertEqual(t3_scenario.variant_cases("boot-claim"), ["boot-claim"])
+        self.assertIn("boot-claim", t3_scenario.SEAT_VARIANTS)
+        self.assertTrue(v["agent"] and v["soft_reboot"])
+        self.assertFalse(v["first_switch"])
+        self.assertNotIn("mode", v)
+        self.assertIs(t3_scenario.CHECK_RUNS["boot-claim"], t3_seat.check_boot_claim)
+        self.assertIn("boot-claim", t3_seat.CHECKS)
 
     def test_the_session_survives_judged_both_ways(self):
         prompt = "pty 701 pts/1 80x30 login"
