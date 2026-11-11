@@ -19,7 +19,7 @@ make tier3-image-nosystemd   # fetch, verify and provision the guest without sys
 make tier3-nosystemd         # the install tree, then the variants on the guest without systemd (The guest without systemd)
 make tier3 VARIANTS="two-outputs-mirror two-cards-mirror usb-keyboards"   # two outputs, two cards, USB keyboards (Outputs and keyboards)
 make tier3 JOBS=4 VARIANTS="heads-two-heads heads-partly-open heads-closed-broken heads-policy-typo heads-closed-unmatched heads-off heads-kiosk heads-closed-nodisplay heads-open-nodisplay heads-survive"   # the head variants (Head files)
-make tier3 VARIANTS="seat-seatd seat-logind panic-sysrq"   # vtium built with libseat on seatd and on logind, and a kernel panic (The seat and a kernel panic)
+make tier3 VARIANTS="seat-seatd seat-logind panic-sysrq kmsg-notice"   # vtium built with libseat on seatd and on logind, a kernel panic and a kernel message (The seat and a kernel panic)
 make test-tools              # the harness's self-tests, with no guest
 tools/tier3/showcase.sh      # the showcase: fetch its fonts, run showcase-1920x1080 and write docs/showcase/ (The showcase)
 ```
@@ -138,11 +138,13 @@ Three findings from the first runs shaped this table. At 7680x2160 each XRGB buf
 
 ## The seat and a kernel panic
 
-These variants run only when named, as `make tier3 VARIANTS="seat-seatd seat-logind panic-sysrq"` (`t3_seat.py`). The guest image holds seatd, the seat manager, and libseat, which a vtium built with the `libseat` feature links (`guest/user-data.in`). seatd's service stays off unless a variant starts it.
+These variants run only when named, as `make tier3 VARIANTS="seat-seatd seat-logind panic-sysrq kmsg-notice"` (`t3_seat.py`). The guest image holds seatd, the seat manager, and libseat, which a vtium built with the `libseat` feature links (`guest/user-data.in`). seatd's service stays off unless a variant starts it.
 
 `seat-seatd` and `seat-logind` run vtium built with `libseat` (`"features"`, which `t3.py` builds into `target/tier3/features-libseat`) on the minspec machine with `vtium-minimal.conf`. `guest/setup` gives vtium's unit a drop-in that sets `LIBSEAT_BACKEND` to the variant's seat manager, so libseat takes no other backend. For `seat-seatd`, setup starts seatd. Each variant logs in, draws `sgr` and `cjk`, and switches VTs through the seat manager. Its cases are judged by `2d-potato-min`'s goldens (`GOLDENS_OF` in `t3_evaluate.py`), since the seat changes where the devices come from and not what vtium draws. Its check `seat` reads the console's log after the VT switch. It passes when the seat seat0 opened, every keyboard and pointer vtium used opened through the seat manager first, and vtium never fell back to the kernel's VT. libseat's logind backend takes the seat from vtium's own logind session, which only the unit's `PAMName=vtium` and vtium's PAM file give it (ADR-1400 D3). So `seat-logind` passes only on a tree whose unit opens that session.
 
 `panic-sysrq` crashes the guest's kernel while vtium shows its login prompt on tty2. It runs the agent (`guest/t3-agent`), whose request `panic` runs `echo c > /proc/sysrq-trigger` as root. Its check `kernel-panic` passes once the console shows `Kernel panic - not syncing: sysrq triggered crash` and the screen has settled after it. The capture, `target/tier3/run/panic-sysrq/kernel-panic.png` in the report, is the evidence of what a person sees at a kernel panic while vtium holds the VT (ADR-1401 D15). The check judges nothing of the picture, and its note says whether the screen differs from vtium's last frame.
+
+`kmsg-notice` proves that vtium reads `/dev/kmsg` and shows a kernel message on screen (ADR-1401 D15). vtium shows only messages that the kernel itself logged, and a line written to `/dev/kmsg` is logged with the user facility, so the agent's request `kmsg` makes the kernel log one. It calls mount(2) for tmpfs with the unknown option `vtium_tier3_warning`, and the kernel refuses it with `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err. The agent calls mount(2) itself, because mount(8) passes options through fsconfig(2), whose errors go back to the caller and not to the kernel's log. The case `kernel-message` waits for that line on the console, then captures the screen once it has changed from the login prompt and settled, within the 15 s vtium shows the message. Its golden, `goldens/kmsg-notice/kernel-message.png`, is provisional.
 
 ## Pictures
 

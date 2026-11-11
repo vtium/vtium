@@ -282,7 +282,9 @@ POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspe
 # checks the console's log for the seat and the keyboards opened through it
 # (t3_seat.CHECKS "seat"). The panic variant crashes the kernel while vtium
 # shows its login prompt and keeps the screen the panic leaves
-# (t3_seat.CHECKS "kernel-panic").
+# (t3_seat.CHECKS "kernel-panic"). The kernel-message variant makes the
+# kernel log an error while vtium shows its login prompt, and judges the
+# screen by its golden (t3_seat.CAPTIONS "kernel-message").
 SEAT = {
     "device": "virtio-vga,xres=1366,yres=768,edid=on",
     "display": "none",
@@ -299,8 +301,9 @@ VARIANTS.update({
     "seat-seatd": dict(SEAT, seat="seatd"),
     "seat-logind": dict(SEAT, seat="logind"),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
+    "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
-SEAT_VARIANTS = ["seat-seatd", "seat-logind", "panic-sysrq"]
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "panic-sysrq", "kmsg-notice"]
 
 # The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
 # with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
@@ -558,6 +561,8 @@ def variant_cases(variant):
         return list(v["power"])
     if v.get("panic"):
         return ["kernel-panic"]
+    if v.get("kmsg"):
+        return ["kernel-message"]
     first = ([v["first"]] if "first" in v else []) + (
         [t3_images.CASE] if v.get("prelogin") else [])
     if not v.get("login", True):
@@ -1042,6 +1047,9 @@ def run_variant(variant, timing, impl, log):
         elif v.get("panic"):
             t3_seat.crash(vm, work, caps, errors, notes, log)
             phase("panic")
+        elif v.get("kmsg"):
+            t3_seat.kernel_message(vm, work, caps, errors, log)
+            phase("kernel-message")
         elif not v.get("login", True):
             run_checks(variant, vm, work, caps, errors, log, phase)
         else:

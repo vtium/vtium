@@ -5658,6 +5658,12 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
         self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])
         self.assertTrue(t3_scenario.VARIANTS["panic-sysrq"]["agent"])
+        self.assertEqual(t3_scenario.variant_cases("kmsg-notice"), ["kernel-message"])
+        self.assertTrue(t3_scenario.VARIANTS["kmsg-notice"]["agent"])
+        self.assertNotIn("kernel-message", t3_evaluate.NO_GOLDEN)
+        self.assertEqual(t3_evaluate.golden_for("kmsg-notice", "kernel-message",
+                                                t3_evaluate.GOLDEN)[0],
+                         os.path.join(t3_evaluate.GOLDEN, "kmsg-notice", "kernel-message.png"))
         for case in t3_seat.CHECKS:
             self.assertIn(case, t3_evaluate.NO_GOLDEN)
             self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))
