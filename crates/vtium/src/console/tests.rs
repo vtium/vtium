@@ -3064,3 +3064,79 @@ fn status_names_no_vt_a_display_manager_or_a_getty_holds_at_boot() {
         "{out}"
     );
 }
+
+#[test]
+fn a_rerun_claims_a_vt_whose_getty_link_an_earlier_claim_stranded() {
+    // systemctl enable getty@tty3.service also links autovt@tty3.service to
+    // the getty, from the getty's Alias=autovt@.service. The claim made
+    // before vtium started at boot disabled the want and left that link.
+    let mut m = Machine::gettys("boot-stranded");
+    m.link("autovt@tty3.service", "getty");
+    claimed_through_the_template(&m);
+    // status names VT 3 too: nothing holds it open at boot.
+    let (_, out, _) = m.console_as(false, &["status"]);
+    assert!(
+        out.contains("vtium does not start at boot on VTs 2, 3, 4, and 5."),
+        "{out}"
+    );
+    let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert_eq!(at_boot(&m, VTIUM), [1, 2, 3, 4, 5, 6], "{out}");
+    assert!(!out.contains("stays with getty"), "{out}");
+    // The record still holds the getty, so disable gives it back.
+    assert_eq!(
+        std::fs::read_to_string(m.root().join(RECORDS).join("tty3")).unwrap(),
+        "/usr/lib/systemd/system/getty@.service\n"
+    );
+    let (_, out, _) = m.console_as(false, &["status"]);
+    assert!(!out.contains("does not start at boot"), "{out}");
+    let (status, out, err) = m.console(&["disable", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(m.wanted("getty@tty3.service"));
+    assert_eq!(m.links("autovt@tty3.service"), Link::Absent);
+    assert_eq!(boot_links(&m, VTIUM), Vec::<u16>::new());
+}
+
+#[test]
+fn status_names_a_vt_nothing_holds_at_boot_whatever_its_own_link_names() {
+    let mut m = Machine::gettys("boot-status-own-link");
+    claimed_through_the_template(&m);
+    m.link("autovt@tty4.service", "foo");
+    let (_, out, _) = m.console_as(false, &["status"]);
+    assert!(
+        out.contains("vtium does not start at boot on VTs 2, 3, 4, and 5."),
+        "{out}"
+    );
+}
+
+#[test]
+fn enable_all_leaves_a_vt_whose_own_link_names_another_unit_with_its_getty() {
+    let mut m = Machine::gettys("boot-own-link");
+    m.link("autovt@tty3.service", "foo");
+    let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(out.contains("VT 3 stays with foo@tty3"), "{out}");
+    assert!(m.wanted("getty@tty3.service"));
+    assert_eq!(m.links("autovt@tty3.service"), to("foo"));
+    assert_eq!(boot_links(&m, VTIUM), [1, 2, 4, 5, 6]);
+    assert!(!m.root().join(RECORDS).join("tty3").exists());
+    // logind starts foo there, not vtium, so the summary names no VT at a
+    // switch.
+    assert!(!out.contains("when you switch there"), "{out}");
+}
+
+#[test]
+fn a_move_cut_short_between_the_two_modes_is_finished_by_a_rerun() {
+    let mut m = Machine::gettys("boot-move-cut");
+    assert_eq!(m.console(&["enable", "--seat", "3"]).0, 0);
+    m.fake.fail = Some("disable vtium-seat@tty3.service".into());
+    let (status, _, _) = m.console(&["enable", "--direct", "3"]);
+    assert_eq!(status, 1);
+    assert!(m.wanted("vtium@tty3.service") && m.wanted("vtium-seat@tty3.service"));
+    m.fake.fail = None;
+    let (status, out, err) = m.console(&["enable", "--direct", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(!out.contains("already"), "{out}");
+    assert_eq!(at_boot(&m, VTIUM), [3]);
+    assert_eq!(boot_links(&m, SEAT), Vec::<u16>::new());
+}

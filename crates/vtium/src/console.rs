@@ -555,6 +555,17 @@ impl State {
             && !self.wanted(n, other_vtium(self.prefix))
     }
 
+    /// Whether VT `n`'s own link is a getty's that an earlier claim left
+    /// behind: `systemctl enable getty@ttyN.service` links
+    /// `autovt@ttyN.service` to the getty, from the getty's
+    /// `Alias=autovt@.service`, and a claim that disabled the getty's want
+    /// kept its record and left that link. `enable` claims such a VT.
+    fn stranded_getty(&self, n: u16) -> bool {
+        self.own(n).names(GETTY)
+            && !self.wanted(n, GETTY)
+            && matches!(self.records.get(&n), Some(Record::Getty(_)))
+    }
+
     /// Whether VT `n` has the other mode: its unit enabled there, or the
     /// VT's own link naming it.
     fn other_mode(&self, n: u16) -> bool {
@@ -1168,6 +1179,7 @@ impl Run<'_, '_, '_> {
         match state.own(n) {
             Link::Absent => Ok(()),
             link if names_vtium(link) => Ok(()),
+            _ if state.stranded_getty(n) => Ok(()),
             Link::To(to) => Err(Stop(text::own_link_elsewhere(n, to))),
             _ => Err(Stop(text::own_link_not_link(n))),
         }
@@ -1246,8 +1258,9 @@ impl Run<'_, '_, '_> {
         self.record_vt(state, n)?;
         let mut by_hand = false;
         // systemctl enable refuses an alias that links elsewhere, so the
-        // VT's own link moves to the mode's unit first.
-        if state.own(n).names(other) {
+        // VT's own link moves to the mode's unit first, from the other
+        // mode's unit or from a getty an earlier claim left it naming.
+        if state.own(n).names(other) || state.stranded_getty(n) {
             self.link(ETC, &format!("autovt@tty{n}.service"), Some(unit))?;
             state.own.insert(n, Link::To(unit.to_owned()));
             by_hand = true;
@@ -1440,9 +1453,10 @@ impl Run<'_, '_, '_> {
                 continue;
             }
             // A VT whose own link names another unit keeps that unit, its
-            // getty included: `enable N` refuses it.
+            // getty included: `enable N` refuses it. A getty's link that an
+            // earlier claim left behind is claimed like the rest.
             match state.own(n) {
-                link @ Link::To(_) if !names_vtium(link) => {
+                link @ Link::To(_) if !names_vtium(link) && !state.stranded_getty(n) => {
                     kept.push(text::kept_own_link(n, link.unit().unwrap_or("?")));
                     continue;
                 }
@@ -1519,8 +1533,18 @@ impl Run<'_, '_, '_> {
             self.say(&text::moved(n, mode));
         }
         let at_boot: Vec<u16> = (1..=LOGIND_VTS).filter(|&n| state.given(n)).collect();
+        // The VTs from 2 to 5 where logind starts vtium through the
+        // template link: no link of their own, nothing at boot, and no
+        // other program on them.
+        let switched: Vec<u16> = (2..RESERVED_VT)
+            .filter(|&n| {
+                state.templated(n)
+                    && state.wants.get(&n).is_none_or(BTreeMap::is_empty)
+                    && !state.held.contains_key(&n)
+            })
+            .collect();
         let vt6 = boot.contains(&RESERVED_VT) || state.templated(RESERVED_VT);
-        self.say(&text::given_all(mode, &at_boot, vt6));
+        self.say(&text::given_all(mode, &at_boot, &switched, vt6));
         for line in &kept {
             self.say(line);
         }
@@ -1662,11 +1686,11 @@ impl Run<'_, '_, '_> {
             }
             self.say(line.trim_end());
         }
-        // The VTs from 2 to 5 that the template link gives to vtium while
-        // nothing holds them open at boot, as on a machine claimed before
-        // vtium started at boot on each claimed VT: a display manager that
-        // picks the first free VT can take them. logind holds VT 6 open
-        // itself, so no display manager takes it.
+        // The VTs from 2 to 5 that nothing holds open at boot, whatever
+        // their own links name, as on a machine claimed before vtium
+        // started at boot on each claimed VT: a display manager that picks
+        // the first free VT can take them. logind holds VT 6 open itself,
+        // so no display manager takes it.
         let mode = match state.template().unit() {
             Some(VTIUM) => Some(Mode::Direct),
             Some(SEAT) => Some(Mode::Seat),
@@ -1675,8 +1699,7 @@ impl Run<'_, '_, '_> {
         if let Some(mode) = mode {
             let free: Vec<u16> = (2..RESERVED_VT.min(LOGIND_VTS + 1))
                 .filter(|&n| {
-                    state.templated(n)
-                        && state.wants.get(&n).is_none_or(BTreeMap::is_empty)
+                    state.wants.get(&n).is_none_or(BTreeMap::is_empty)
                         && !state.held.contains_key(&n)
                 })
                 .collect();
