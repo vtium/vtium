@@ -925,22 +925,84 @@ mod tests {
         let _ = waitpid(Some(pid), WaitOptions::empty());
     }
 
+    /// Set in the process of its own that
+    /// [`a_held_childs_program_holds_only_its_standard_descriptors`] runs
+    /// its check in.
+    const FDS_ALONE: &str = "VTIUM_PTY_FDS_ALONE";
+
     // ADR-1400 lists the login child's descriptors as observable: after its
     // exec it holds 0, 1 and 2 only. The pipes it waited on are
-    // close-on-exec, so none of them reaches its program.
+    // close-on-exec, so none of them reaches its program. The check runs in
+    // a process of its own with one test thread: vtium forks its sessions
+    // from its one thread, while here another test's thread could open a
+    // descriptor without close-on-exec as the child forks, which would
+    // reach the child (see `Pty::spawn`).
     #[test]
     fn a_held_childs_program_holds_only_its_standard_descriptors() {
+        if std::env::var_os(FDS_ALONE).is_none() {
+            let name = format!(
+                "{}::a_held_childs_program_holds_only_its_standard_descriptors",
+                module_path!().split_once("::").unwrap().1
+            );
+            let out = Command::new(std::env::current_exe().unwrap())
+                .args([name.as_str(), "--exact", "--test-threads=1"])
+                .env(FDS_ALONE, "1")
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            assert!(
+                out.status.success() && stdout.contains("1 passed"),
+                "{stdout}{}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            return;
+        }
+        // The program says it is ready once it has started, so the dynamic
+        // loader, which opens each library on a descriptor of its own for a
+        // moment, is done before the descriptors are listed.
+        let mut program = Command::new("/bin/sh");
+        program.args(["-c", "echo ready; read x"]);
         let mut held = None;
-        let pty = Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |pid| held = Some(pid)).unwrap();
+        let pty = Pty::spawn_gated(program, SIZE, Erase::Delete, |pid| held = Some(pid)).unwrap();
         let pid = held.unwrap();
+        let mut said = Vec::new();
+        let master = pty.master();
+        for _ in 0..100 {
+            if String::from_utf8_lossy(&said).contains("ready") {
+                break;
+            }
+            let mut fds = [rustix::event::PollFd::new(
+                &master,
+                rustix::event::PollFlags::IN,
+            )];
+            let timeout = rustix::event::Timespec {
+                tv_sec: 0,
+                tv_nsec: 100_000_000,
+            };
+            let _ = rustix::event::poll(&mut fds, Some(&timeout));
+            let mut buf = [0u8; 64];
+            if let Ok(n) = rustix::io::read(master, &mut buf) {
+                said.extend_from_slice(buf.get(..n).unwrap_or_default());
+            }
+        }
         let mut fds: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
             .collect();
         fds.sort();
+        let links: Vec<String> = fds
+            .iter()
+            .map(|f| {
+                format!(
+                    "{f} -> {:?}",
+                    std::fs::read_link(format!("/proc/{pid}/fd/{f}"))
+                )
+            })
+            .collect();
         pty.release();
         end(pid);
-        assert_eq!(fds, ["0", "1", "2"]);
+        assert!(String::from_utf8_lossy(&said).contains("ready"), "{said:?}");
+        assert_eq!(fds, ["0", "1", "2"], "{links:?}");
     }
 
     // A thread that cannot start, here because its stack of 1 PiB is more
