@@ -2984,10 +2984,7 @@ impl App {
         // types into after them, which the anti-lockout guard may move.
         self.guard_due = true;
         self.guard();
-        let line = match self.focus.and_then(|h| self.heads.get(h)) {
-            Some(head) => crate::notice::rescue(node.display(), head.name()),
-            None => crate::notice::rescue_no_head(node.display(), &self.bindings),
-        };
+        let line = self.rescue_line(node);
         log::warn!("{line}");
         match self.focus {
             Some(h) => {
@@ -2996,6 +2993,18 @@ impl App {
                 }
             }
             None => self.notice(&line),
+        }
+    }
+
+    /// What vtium says when the rescue key moved the keyboard at `node`
+    /// (ADR-1401 D9): the head it types into now; on a VT where no head
+    /// runs, that no terminal runs here and the VT keys that leave (D3);
+    /// else that no head is active and the roaming chord that chooses one.
+    fn rescue_line(&self, node: &Path) -> String {
+        match self.focus.and_then(|h| self.heads.get(h)) {
+            Some(head) => crate::notice::rescue(node.display(), head.name()),
+            None if self.heads().is_empty() => crate::notice::rescue_no_terminal(node.display()),
+            None => crate::notice::rescue_no_head(node.display(), &self.bindings),
         }
     }
 
@@ -4943,6 +4952,28 @@ mod tests {
     /// What the start runs for a trusted head file holding `text`.
     fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
+    }
+
+    /// ADR-1401 D9: on a VT where no head runs, the rescue key's line
+    /// names no roaming chord, which chooses nothing there. It says that
+    /// no terminal runs on this VT, and how to switch to a VT that runs
+    /// one.
+    #[test]
+    fn the_rescue_line_on_a_vt_with_no_head_names_the_vt_keys() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        let text = "version = 1\n[head desk]\nvt = 3\n[rules]\ninput path:kbd-desk -> desk\n";
+        app.set_heads(start(text).on_vt(Some(4)));
+        let node = Path::new("/dev/input/event0");
+        let keyboard = vtium_settings::Identity {
+            path: Some("kbd-desk".to_owned()),
+            ..vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard)
+        };
+        app.add_input(node, keyboard);
+        assert!(app.heads().is_empty(), "no head runs on VT 4");
+        assert_eq!(
+            app.rescue_line(node),
+            "Keyboard /dev/input/event0 now types into the active screen until the next boot (the rescue key moved it), but no terminal runs on this VT. Press Ctrl-Alt and a function key to switch to a VT that runs one."
+        );
     }
 
     pub(super) fn no_fonts() -> font::Sources {
