@@ -10,6 +10,9 @@ use std::ptr;
 
 #[cfg(test)]
 mod library;
+mod localed;
+
+pub use localed::layout;
 
 /// sd-bus's error, as `sd-bus.h` lays it out.
 #[repr(C)]

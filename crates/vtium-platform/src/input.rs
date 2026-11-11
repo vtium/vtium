@@ -40,7 +40,7 @@ pub use event::{
 };
 
 pub(crate) use evdev::EventDevice;
-pub use keyboard::{Keymap, KeymapConfig, Leds, locale};
+pub use keyboard::{Keymap, KeymapConfig, Leds, RuleNames, locale};
 
 use std::io;
 use std::path::{Path, PathBuf};

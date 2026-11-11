@@ -31,6 +31,41 @@ pub struct KeymapConfig {
     pub locale: String,
 }
 
+/// The rules' names of the system's keyboard layout, as localed holds them
+/// (ADR-1400's L2 layer). An empty name is one the system does not set.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RuleNames {
+    pub model: String,
+    pub layout: String,
+    pub variant: String,
+    pub options: String,
+}
+
+impl KeymapConfig {
+    /// This configuration, with the system's names in place of the
+    /// `xkb-*` keys that vtium.conf leaves unset. A key that vtium.conf sets
+    /// keeps its value. A variant names the variant of each layout in turn,
+    /// so the system's variant is taken only together with the system's
+    /// layout: when vtium.conf sets `xkb-layout` and not `xkb-variant`, the
+    /// layout has no variant.
+    #[must_use]
+    pub fn follow(mut self, system: &RuleNames) -> KeymapConfig {
+        let layout_set = !self.layout.is_empty();
+        let take = |own: &mut String, theirs: &str| {
+            if own.is_empty() {
+                theirs.clone_into(own);
+            }
+        };
+        take(&mut self.model, &system.model);
+        take(&mut self.layout, &system.layout);
+        if !layout_set {
+            take(&mut self.variant, &system.variant);
+        }
+        take(&mut self.options, &system.options);
+        self
+    }
+}
+
 /// The locale for compose, found as locale(7) says without setting it:
 /// `LC_ALL`, then `LC_CTYPE`, then `LANG`, then `C`.
 pub fn locale() -> String {
