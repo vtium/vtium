@@ -1,6 +1,6 @@
 #%PAM-1.0
-# The PAM stack of vtium's own session, which a build with libseat opens
-# through PAMName=vtium in its unit (ADR-1400 D3). vtium needs no password
+# The PAM stack of vtium's own session, which a build with libseat and
+# logind opens through PAMName=vtium in its unit (ADR-1400 D3). vtium needs no password
 # to start: the person logs in later, at the login prompt that vtium shows,
 # and /bin/login runs its own PAM stack for that. This stack opens a session
 # so that pam_systemd registers it with logind, and libseat's logind backend

@@ -3019,18 +3019,21 @@ exec "$@"
         record = read(self.at(self.STATE + "/files")).splitlines()
         self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.PICTURES)))
 
-    # What vt-install writes beside FILES for a console built with libseat:
-    # the unit's drop-in and the PAM file it names (ADR-1400 D3).
+    # What vt-install writes beside FILES for a console built with libseat
+    # and logind: the unit's drop-in and the PAM file it names (ADR-1400 D3).
     DROPIN = "etc/systemd/system/vtium-dev@.service.d/libseat.conf"
     PAM = "etc/pam.d/vtium-dev"
     SEAT = (DROPIN, PAM)
+    # The lines only a build with libseat, and only one with logind, carry.
+    LIBSEAT = "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n"
+    LOGIND = "# logs: systemd's job for the scope ended {result}\n"
 
-    def test_a_console_with_libseat_installs_its_pam_session_and_uninstall_removes_it(self):
-        # A build with libseat carries the line only seat.rs logs; vt-install
-        # then installs the drop-in and the PAM file for vtium-dev@, as make
-        # install stages them for vtium@, under the development install's
-        # own PAM name.
-        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+    def test_a_console_with_libseat_and_logind_installs_its_pam_session_and_uninstall_removes_it(self):
+        # A build with libseat and logind carries the lines only seat.rs and
+        # logind/scope.rs log; vt-install then installs the drop-in and the
+        # PAM file for vtium-dev@, as make install stages them for vtium@,
+        # under the development install's own PAM name.
+        write(self.s.bin, BIN + self.LIBSEAT + self.LOGIND)
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         conf = [l for l in read(self.at(self.DROPIN)).splitlines() if l and not l.startswith("#")]
@@ -3047,16 +3050,16 @@ exec "$@"
         # The PAM file is in place before the drop-in that names it.
         renames = [c.split()[4] for c in self.s.calls_of("sudo") if c.startswith("mv -fT -- ")]
         self.assertLess(renames.index(self.at(self.PAM)), renames.index(self.at(self.DROPIN)))
-        # A reinstall of a build without libseat removes both, and the
-        # drop-in's directory with them.
-        write(self.s.bin, BIN)
+        # A reinstall of a build with libseat alone, which is for seatd,
+        # removes both, and the drop-in's directory with them.
+        write(self.s.bin, BIN + self.LIBSEAT)
         p = self.vt_install("install", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         for f in self.SEAT:
             self.assertFalse(os.path.lexists(self.at(f)), f)
         self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
         # Uninstall removes them too.
-        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+        write(self.s.bin, BIN + self.LIBSEAT + self.LOGIND)
         self.assertEqual(self.vt_install("install", "4").returncode, 0)
         p = self.vt_install("uninstall", "4")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -3065,12 +3068,33 @@ exec "$@"
             self.assertFalse(os.path.lexists(self.at(f)), f)
         self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
 
-    def test_a_console_without_libseat_installs_no_pam_session(self):
-        p = self.vt_install("install", "4")
-        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        for f in self.SEAT:
-            self.assertFalse(os.path.lexists(self.at(f)), f)
-        self.assertNotIn("libseat", read(self.at(self.STATE + "/files")))
+    def test_a_console_without_libseat_and_logind_installs_no_pam_session(self):
+        # Neither, libseat alone (a console for seatd), or logind alone.
+        for extra in ("", self.LIBSEAT, self.LOGIND):
+            with self.subTest(extra=extra):
+                write(self.s.bin, BIN + extra)
+                p = self.vt_install("install", "4")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                for f in self.SEAT:
+                    self.assertFalse(os.path.lexists(self.at(f)), f)
+                self.assertNotIn("libseat", read(self.at(self.STATE + "/files")))
+
+    def test_the_line_that_marks_a_build_with_logind_is_in_code_built_only_with_logind(self):
+        # A reworded message would install no PAM session for a build with
+        # libseat and logind, and the line anywhere else would give one to
+        # a build with libseat alone.
+        marker = next(l.split("=", 1)[1].strip('"') for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("logind_marker="))
+        self.assertEqual(self.LOGIND, "# logs: " + marker + "{result}\n")
+        scope = os.path.join("crates", "vtium-platform", "src", "logind", "scope.rs")
+        self.assertIn(f'"{marker}{{result}}"', read(os.path.join(ROOT, scope)))
+        lib = read(os.path.join(ROOT, "crates", "vtium-platform", "src", "lib.rs"))
+        self.assertIn('#[cfg(feature = "logind")]\npub mod logind;', lib)
+        found = []
+        for d, _, names in os.walk(os.path.join(ROOT, "crates")):
+            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
+                      if n.endswith(".rs") and f'"{marker}' in read(os.path.join(d, n))]
+        self.assertEqual(found, [scope])
 
     def test_the_line_that_marks_a_build_with_libseat_is_in_code_built_only_with_libseat(self):
         # A reworded message would install no PAM session for a build with
@@ -3587,12 +3611,13 @@ class Package(Case):
             self.assertIn(f, self.staged())
         self.assertIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
 
-    def test_a_libseat_install_stages_the_units_pam_session_and_no_other_build_does(self):
-        # ADR-1400 D3: a console built with libseat opens a logind session of
-        # its own through its unit's PAMName=vtium, and ships the PAM file
-        # of that name. The file goes to /etc/pam.d whatever PREFIX is.
+    def test_a_libseat_and_logind_install_stages_the_units_pam_session_and_no_other_build_does(self):
+        # ADR-1400 D3: a console built with libseat and logind opens a logind
+        # session of its own through its unit's PAMName=vtium, and ships the
+        # PAM file of that name. The file goes to /etc/pam.d whatever PREFIX
+        # is.
         dropin = "lib/systemd/system/vtium@.service.d/libseat.conf"
-        for prefix, features in (("/usr", "libseat"), ("/opt/vt", "images,libseat")):
+        for prefix, features in (("/usr", "libseat logind"), ("/opt/vt", "images,libseat,logind")):
             with self.subTest(prefix=prefix, features=features):
                 shutil.rmtree(self.dest, ignore_errors=True)
                 self.built(f"{prefix}/bin/vtium-config", f"{prefix}/bin/vtium-image" if "images" in features else None)
@@ -3616,11 +3641,12 @@ class Package(Case):
                                        ["password", "required", "pam_deny.so"],
                                        ["session", "required", "pam_unix.so"],
                                        ["session", "optional", "pam_systemd.so"]])
-        # Without libseat the unit opens no PAM session.
-        for features in ("", "images logind gpu bidi"):
+        # Without both the unit opens no PAM session: libseat alone is a
+        # console for seatd.
+        for features in ("", "images logind gpu bidi", "libseat", "images,libseat,gpu"):
             with self.subTest(features=features):
                 shutil.rmtree(self.dest, ignore_errors=True)
-                self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image" if features else None)
+                self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image" if "images" in features else None)
                 p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                               f"FEATURES={features}")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)

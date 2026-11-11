@@ -141,8 +141,9 @@ minspec: ## Build the minspec binary for x86_64 against the glibc 2.36 sysroot, 
 # /etc/vtium/fonts, the example udev rules and hwdb fragment, which are
 # documentation and never active (ADR-1401 D4), with images in
 # FEATURES the picture gallery tool as vtium-gallery (ADR-1500 D8), and with
-# libseat in FEATURES the unit's drop-in libseat.conf and the PAM file
-# /etc/pam.d/vtium (ADR-1400 D3). Tier 3 installs this tree in its guest.
+# libseat and logind in FEATURES the unit's drop-in libseat.conf and the PAM
+# file /etc/pam.d/vtium (ADR-1400 D3). Tier 3 installs this tree in its
+# guest.
 # DESTDIR's default is install-tree's alone: make install refuses it below.
 DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
@@ -151,11 +152,15 @@ VTIUM_INSTALL := crates/vtium/install
 # with commas or spaces, as cargo's --features does.
 comma := ,
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
-# A console built with libseat opens a PAM session of its own through its
-# unit (ADR-1400 D3), so make install and make install-tree stage the unit's
-# drop-in vtium@.service.d/libseat.conf and the PAM file /etc/pam.d/vtium
-# with it, and only with it. PAM reads /etc/pam.d whatever PREFIX is.
-LIBSEAT := $(filter libseat,$(subst $(comma), ,$(FEATURES)))
+# A console built with libseat and logind takes the seat through libseat's
+# logind backend from a PAM session of its own, which its unit opens, and
+# starts each login in a systemd scope of its own (ADR-1400 D3). So make
+# install and make install-tree stage the unit's drop-in
+# vtium@.service.d/libseat.conf and the PAM file /etc/pam.d/vtium with both
+# features, and only then. A console built with libseat alone is for seatd:
+# it opens no PAM session, and its logins run as in the default build. PAM
+# reads /etc/pam.d whatever PREFIX is.
+PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter logind,$(subst $(comma), ,$(FEATURES))))
 # The frits make install and make install-tree stage into /etc/vtium/fonts,
 # by name (ADR-1500 D8). Each is NAME.vtfrit in crates/vtium-config/frits,
 # or in tools/specimens/frits, where the specimens draw desktop. The
@@ -205,7 +210,7 @@ ifneq ($(IMAGES),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)/usr/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)/usr/bin/vtium-gallery
 endif
-ifneq ($(LIBSEAT),)
+ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-libseat.conf $(DESTDIR)/usr/lib/systemd/system/vtium@.service.d/libseat.conf
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
@@ -226,9 +231,9 @@ endif
 # /etc/vtium/fonts, which stay in /etc whatever PREFIX is, because vtium
 # reads its configuration and its frits from /etc/vtium alone (ADR-1500
 # D3, D4, D8), the example udev rules and hwdb fragment as
-# documentation, LICENSE_FILES under PKGNAME's name, and with libseat in
-# FEATURES the unit's drop-in libseat.conf and the PAM file /etc/pam.d/vtium
-# (ADR-1400 D3).
+# documentation, LICENSE_FILES under PKGNAME's name, and with libseat and
+# logind in FEATURES the unit's drop-in libseat.conf and the PAM file
+# /etc/pam.d/vtium (ADR-1400 D3).
 # HWACCEL and DISPLAY_BUFFERS set the defaults of hwaccel and
 # display-buffers that both builds read from the key table (ADR-1500 D8).
 # make install-terminfo stages vtium's terminfo entry, compiled under its
@@ -331,7 +336,7 @@ ifneq ($(IMAGES),)
 	install -Dm755 $(GALLERY) $(DESTDIR)$(PREFIX)/bin/vtium-gallery
 endif
 	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service' $(DESTDIR)$(UNITDIR)
-ifneq ($(LIBSEAT),)
+ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-libseat.conf $(DESTDIR)$(UNITDIR)/vtium@.service.d/libseat.conf
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
