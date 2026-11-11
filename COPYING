@@ -5,6 +5,8 @@ vtium is a Rust port derived from kmscon and libtsm. It is maintained by:
 The maintainer's code is written by large language models under the
 maintainer's review. A contribution states in its pull request how its code
 was written.
+ADR-1506, in docs/architecture/project/, records how the maintainer directs
+the agents that write vtium and how vtium keeps the provenance of that work.
 
 kmscon, from which vtium is derived, was written by:
 	David Herrmann <dh.herrmann@googlemail.com>
