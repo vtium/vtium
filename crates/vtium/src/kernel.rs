@@ -168,20 +168,60 @@ pub struct Record {
 
 /// The record that the bytes of one read of `/dev/kmsg` hold, or `None`
 /// when they are not a record. The message ends at its first newline, and
-/// the dictionary lines after it are left out. The kernel already writes
-/// every unprintable byte of a message as `\xNN`, and vtium leaves out any
-/// control character that still reaches it.
+/// the dictionary lines after it are left out.
+///
+/// The kernel writes each byte of a message below 0x20, from 0x7f up, and
+/// `\` itself as `\xNN` (the kernel's `Documentation/ABI/testing/dev-kmsg`).
+/// vtium decodes those escapes back to bytes and reads the bytes as UTF-8,
+/// with U+FFFD for a byte that is not UTF-8. A newline or a tab in the
+/// message shows as a space, so each message stays one line of the box,
+/// and vtium leaves out every other control character.
 pub fn record(raw: &[u8]) -> Option<Record> {
-    let text = String::from_utf8_lossy(raw);
-    let (prefix, message) = text.split_once(';')?;
+    let semicolon = raw.iter().position(|&b| b == b';')?;
+    let (prefix, rest) = raw.split_at(semicolon);
+    let prefix = std::str::from_utf8(prefix).ok()?;
     let priority: u16 = prefix.split(',').next()?.trim().parse().ok()?;
-    let message = message.split('\n').next().unwrap_or("");
-    let message: String = message.chars().filter(|c| !c.is_control()).collect();
+    let message = rest.get(1..).unwrap_or_default();
+    let message = message.split(|&b| b == b'\n').next().unwrap_or_default();
+    let text: String = String::from_utf8_lossy(&unescaped(message))
+        .chars()
+        .map(|c| if c == '\n' || c == '\t' { ' ' } else { c })
+        .filter(|c| !c.is_control())
+        .collect();
     Some(Record {
         facility: u8::try_from(priority >> 3).ok()?,
         level: u8::try_from(priority & 7).ok()?,
-        text: message,
+        text,
     })
+}
+
+/// `message` with each `\xNN` escape the kernel wrote replaced by its
+/// byte. A `\x` that two hex digits do not follow stays as it is.
+fn unescaped(message: &[u8]) -> Vec<u8> {
+    let hex = |b: u8| {
+        char::from(b)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    let mut out = Vec::with_capacity(message.len());
+    let mut i = 0;
+    while let Some(&b) = message.get(i) {
+        let escape = match message.get(i..i.saturating_add(4)) {
+            Some([b'\\', b'x', h, l]) => hex(*h).zip(hex(*l)),
+            _ => None,
+        };
+        match escape {
+            Some((h, l)) => {
+                out.push(h.wrapping_mul(16).wrapping_add(l));
+                i = i.saturating_add(4);
+            }
+            None => {
+                out.push(b);
+                i = i.saturating_add(1);
+            }
+        }
+    }
+    out
 }
 
 /// Whether vtium shows `record` while the kernel's console log level is
@@ -452,7 +492,23 @@ mod tests {
         );
         assert_eq!(
             record(b"3,1,2,-;a\x1bb\tc\n").map(|r| r.text),
-            Some("abc".to_owned())
+            Some("ab c".to_owned()),
+            "a tab shows as a space, and an escape character goes"
+        );
+        // the kernel's escapes are decoded: a newline shows as a space, and
+        // UTF-8 reads as its characters
+        assert_eq!(
+            record(b"4,1,2,-;line one\\x0aline two\n").map(|r| r.text),
+            Some("line one line two".to_owned())
+        );
+        assert_eq!(
+            record(b"4,1,2,-;usb: Aaron\\xe2\\x80\\x99s keyboard\n").map(|r| r.text),
+            Some("usb: Aaron\u{2019}s keyboard".to_owned())
+        );
+        assert_eq!(
+            record(b"4,1,2,-;a \\x5c b \\x1b c \\xff d \\xZZ\n").map(|r| r.text),
+            Some("a \\ b  c \u{fffd} d \\xZZ".to_owned()),
+            "a backslash, a control character gone, a byte that is no UTF-8, and no escape"
         );
         assert_eq!(record(b"no prefix\n"), None);
         assert_eq!(record(b"x,1,2,-;text\n"), None);
@@ -610,5 +666,12 @@ mod tests {
         assert_eq!(c.chars().count(), MESSAGE_CHARS_MAX);
         assert!(c.ends_with('…'));
         assert_eq!(clipped("short"), "short");
+        // the cut counts the decoded characters, not the kernel's escapes
+        let escaped = "\\xe2\\x80\\x99".repeat(MESSAGE_CHARS_MAX);
+        let decoded = record(format!("4,1,2,-;{escaped}\n").as_bytes())
+            .unwrap()
+            .text;
+        assert_eq!(decoded.chars().count(), MESSAGE_CHARS_MAX);
+        assert_eq!(clipped(&decoded), decoded, "exactly the most, so no cut");
     }
 }
