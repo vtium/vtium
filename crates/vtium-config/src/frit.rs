@@ -94,6 +94,10 @@ pub struct Source {
     pub cover: Vec<Cover>,
     /// `cp-size=`: the height of the CPI font's three to take.
     pub cp_size: Option<u32>,
+    /// `script-source=`: smaller sizes of a bitmap source's font, from
+    /// which its superscript and subscript glyphs may come (ADR-1202 D3,
+    /// D12), in the frit's order.
+    pub script_sources: Vec<ScriptSource>,
     /// `style=`: the style the source draws, regular unless the frit names
     /// another (ADR-1200 D1, D21).
     pub style: Style,
@@ -101,6 +105,19 @@ pub struct Source {
     /// line spacing (ADR-1302 D13), in the frit's order.
     pub fits: Vec<SetFit>,
     /// The `source=` line, from 1.
+    pub line: usize,
+}
+
+/// One `script-source=` line: a smaller size of the same font as the
+/// bitmap `source=` line above it (ADR-1202 D12). It takes that line's
+/// `unimap=` where it has no Unicode table of its own.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ScriptSource {
+    /// The value as the frit spelled it.
+    pub spelling: String,
+    /// A `kbd:`, `file:` or `bdf:` font.
+    pub origin: Origin,
+    /// The `script-source=` line, from 1.
     pub line: usize,
 }
 
@@ -335,6 +352,7 @@ impl Frit {
                         unimap: None,
                         cover: Vec::new(),
                         cp_size: None,
+                        script_sources: Vec::new(),
                         style: Style::default(),
                         fits: Vec::new(),
                         line: n,
@@ -394,6 +412,32 @@ impl Frit {
                             .filter(|s| CP_SIZES.contains(s) && !value.starts_with(['0', '+']))
                             .ok_or_else(|| err(n, "cp-size= is 8, 14 or 16"))?,
                     );
+                }
+                "script-source" => {
+                    let i = current(&mut sources)?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    if matches!(source.origin, Origin::Outline(_)) {
+                        return Err(err(
+                            n,
+                            "script-source= is for a bitmap font, and the source above it is an outline font",
+                        ));
+                    }
+                    let origin = match origin(value) {
+                        Ok(o @ (Origin::Kbd(_) | Origin::File(_) | Origin::Bdf(_))) => o,
+                        _ => {
+                            return Err(err(
+                                n,
+                                "script-source= takes a smaller bitmap font as kbd:NAME, file:PATH or bdf:PATH",
+                            ));
+                        }
+                    };
+                    source.script_sources.push(ScriptSource {
+                        spelling: value.to_owned(),
+                        origin,
+                        line: n,
+                    });
                 }
                 "style" => {
                     let i = current(&mut sources)?;
@@ -747,6 +791,47 @@ mod tests {
         );
     }
 
+    // ADR-1202 D12: script-source= names smaller sizes of the bitmap
+    // source above it, as many as the frit gives, in its order
+    // covers: sgr.script
+    #[test]
+    fn script_source_names_smaller_sizes_of_the_source_above_it() {
+        let r = parse(
+            "source=kbd:ter-116n\n\
+             script-source=kbd:ter-112n\n\
+             script-source = bdf:/usr/share/fonts/t-12.bdf\n\
+             source=builtin:unifont\n\
+             source=file:/x.cp\n\
+             cp-size=16\n\
+             script-source=file:/y.psf\n\
+             source=outline:/z.ttf\n",
+        )
+        .expect("parses");
+        let named: Vec<Vec<(&Origin, usize)>> = r
+            .sources
+            .iter()
+            .map(|s| {
+                s.script_sources
+                    .iter()
+                    .map(|k| (&k.origin, k.line))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                vec![
+                    (&Origin::Kbd("ter-112n".into()), 2),
+                    (&Origin::Bdf("/usr/share/fonts/t-12.bdf".into()), 3),
+                ],
+                vec![],
+                vec![(&Origin::File("/y.psf".into()), 7)],
+                vec![],
+            ]
+        );
+        assert_eq!(r.sources[0].script_sources[0].spelling, "kbd:ter-112n");
+    }
+
     #[test]
     fn every_key_is_read() {
         let r = parse(
@@ -922,6 +1007,28 @@ mod tests {
             ("source=builtin:unifont\ncp-size=8\n", 2, "for a CPI font"),
             ("source=console:1\ncp-size=8\n", 2, "for a CPI font"),
             ("source=outline:/x.ttf\ncp-size=8\n", 2, "for a CPI font"),
+            ("script-source=kbd:x\n", 1, "before any source="),
+            (
+                "source=outline:/x.ttf\nscript-source=kbd:x\n",
+                2,
+                "is an outline font",
+            ),
+            (
+                "source=kbd:x\nscript-source=font:x\n",
+                2,
+                "kbd:NAME, file:PATH",
+            ),
+            (
+                "source=kbd:x\nscript-source=outline:/x.ttf\n",
+                2,
+                "kbd:NAME",
+            ),
+            (
+                "source=kbd:x\nscript-source=builtin:unifont\n",
+                2,
+                "kbd:NAME",
+            ),
+            ("source=kbd:x\nscript-source=file:x.psf\n", 2, "kbd:NAME"),
             ("source=kbd:x\nantialias=yes\n", 2, "auto or no"),
             ("source=kbd:x\nhinting=none\n", 2, "light or full"),
             ("source=kbd:x\nline-spacing=101\n", 2, "from 0 to 100"),

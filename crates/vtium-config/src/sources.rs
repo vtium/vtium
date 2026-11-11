@@ -636,6 +636,52 @@ pub fn resolve(source: &Source, host: &Host<'_>) -> Result<Input, SourceError> {
     }))
 }
 
+/// The smaller sizes of `source`'s font that its superscript and
+/// subscript glyphs may come from (ADR-1202 D3, D12), read for the parser,
+/// each with the spelling and the line its messages name, in the order
+/// the engine names them: a CPI source's other heights, each read as
+/// `cp-size=` reads one, then each font `script-source=` names, which
+/// takes the source's `unimap=` (the parser keeps the font's own Unicode
+/// table where it has one). A CPI height the file does not hold is left
+/// out. Each entry's error says why its font cannot be read.
+pub fn smaller(
+    source: &Source,
+    host: &Host<'_>,
+) -> Vec<(String, usize, Result<Input, SourceError>)> {
+    let mut out = Vec::new();
+    if let Some(own) = source.cp_size {
+        for height in crate::frit::CP_SIZES.into_iter().filter(|&h| h != own) {
+            let other = Source {
+                cp_size: Some(height),
+                script_sources: Vec::new(),
+                ..source.clone()
+            };
+            if let Ok(input) = resolve(&other, host) {
+                out.push((
+                    format!("{} cp-size={height}", source.spelling),
+                    source.line,
+                    Ok(input),
+                ));
+            }
+        }
+    }
+    for named in &source.script_sources {
+        let small = Source {
+            spelling: named.spelling.clone(),
+            origin: named.origin.clone(),
+            unimap: source.unimap.clone(),
+            cover: Vec::new(),
+            cp_size: None,
+            script_sources: Vec::new(),
+            style: source.style,
+            fits: Vec::new(),
+            line: named.line,
+        };
+        out.push((named.spelling.clone(), named.line, resolve(&small, host)));
+    }
+    out
+}
+
 /// An outline font's bytes as the parser's input: the family the parser
 /// is to find in it, the cells and coverage filled in once the cell is
 /// known.
@@ -839,6 +885,7 @@ mod tests {
             unimap: unimap.map(Into::into),
             cover: Vec::new(),
             cp_size: None,
+            script_sources: Vec::new(),
             style: vtium_font::Style::default(),
             fits: Vec::new(),
             line: 1,
