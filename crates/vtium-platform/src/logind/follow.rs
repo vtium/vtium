@@ -249,7 +249,10 @@ type Delivered = Vec<Changed>;
 pub struct SystemSignals {
     bus: *mut c_void,
     slot: *mut c_void,
-    delivered: Box<Delivered>,
+    /// The queue the handler fills, made with `Box::into_raw` and reached
+    /// only through this pointer, by the handler and by
+    /// [`Signals::take`]. [`Drop`] frees it.
+    delivered: *mut Delivered,
 }
 
 impl SystemSignals {
@@ -264,11 +267,7 @@ impl SystemSignals {
         if opened < 0 {
             return Err(Error::NoBus(errno(opened)));
         }
-        let signals = SystemSignals {
-            bus,
-            slot: ptr::null_mut(),
-            delivered: Box::default(),
-        };
+        let signals = SystemSignals::on(bus);
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
         // SAFETY: `signals.bus` is the connection just opened.
         let timed = unsafe { sd_bus_set_method_call_timeout(signals.bus, CALL_TIMEOUT_US) };
@@ -276,6 +275,16 @@ impl SystemSignals {
             log::warn!(target: "input", "cannot bound the bus's answer: {}", errno(timed));
         }
         Ok(signals)
+    }
+
+    /// The signals of `bus`, an open sd-bus connection, which this value
+    /// owns from here on and closes when it is dropped.
+    fn on(bus: *mut c_void) -> SystemSignals {
+        SystemSignals {
+            bus,
+            slot: ptr::null_mut(),
+            delivered: Box::into_raw(Box::default()),
+        }
     }
 
     /// A duplicate of the connection's descriptor, for the loop to watch.
@@ -297,10 +306,13 @@ impl SystemSignals {
 impl Drop for SystemSignals {
     fn drop(&mut self) {
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
-        // SAFETY: the slot goes first, so the handler never sees the queue
-        // freed; each pointer is freed once (sd_bus_slot_unref takes null).
+        // SAFETY: the slot goes first, so sd-bus never calls the handler
+        // with the queue after this; the queue is then freed once, from the
+        // `Box::into_raw` that made it; the connection goes last. Each
+        // pointer is freed once, and sd_bus_slot_unref takes null.
         unsafe {
             sd_bus_slot_unref(self.slot);
+            drop(Box::from_raw(self.delivered));
             sd_bus_flush_close_unref(self.bus);
         }
     }
@@ -391,10 +403,11 @@ unsafe extern "C" fn properties_changed(
     // SAFETY: `m` is the signal sd-bus is dispatching.
     match unsafe { read_changed(m) } {
         Ok(changed) => {
-            // SAFETY: `userdata` is the `delivered` box of the
+            // SAFETY: `userdata` is the `delivered` pointer of the
             // `SystemSignals` whose slot this handler is on; the slot goes
-            // before the box does, and sd-bus calls the handler only from
-            // that bus's own process call, on this thread.
+            // before the queue is freed, and sd-bus calls the handler only
+            // from that bus's own process call, inside `take`, on this
+            // thread, while no other reference to the queue exists.
             let delivered = unsafe { &mut *userdata.cast::<Delivered>() };
             delivered.push(changed);
         }
@@ -414,11 +427,11 @@ impl Signals for SystemSignals {
         member: Option<&CStr>,
     ) -> Result<(), Error> {
         let or_null = |s: Option<&CStr>| s.map_or(ptr::null(), CStr::as_ptr);
-        let userdata: *mut Delivered = &mut *self.delivered;
+        let userdata = self.delivered;
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
         // SAFETY: `self.bus` is the open connection; every string is
-        // NUL-ended or null, which matches any; `userdata` is the boxed
-        // queue, which outlives the slot (see Drop).
+        // NUL-ended or null, which matches any; `userdata` is the queue's
+        // pointer, which outlives the slot (see Drop).
         let r = unsafe {
             sd_bus_match_signal(
                 self.bus,
@@ -447,7 +460,13 @@ impl Signals for SystemSignals {
                 return Err(Error::NoBus(errno(processed)));
             }
             if processed == 0 {
-                return Ok(std::mem::take(&mut *self.delivered));
+                #[expect(unsafe_code, reason = "the queue the handler fills")]
+                // SAFETY: `self.delivered` came from `Box::into_raw` and is
+                // freed only in Drop; the handler runs only inside
+                // sd_bus_process above, so no other reference to the queue
+                // is live here.
+                let delivered = unsafe { std::mem::take(&mut *self.delivered) };
+                return Ok(delivered);
             }
         }
     }
