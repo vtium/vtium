@@ -3073,19 +3073,23 @@ class DevicesTest(unittest.TestCase):
     def test_the_guest_gives_vtium_its_vts_with_vtium_console(self):
         # The run's setup links the template back to the getty, as Arch's
         # systemd package has it, then gives vtium every VT as a user does,
-        # with vtium console enable --all, and fails the install when that
-        # fails. No vtium unit is named for kmscon.
+        # with vtium console enable --direct --all, or --seat --all for a
+        # variant in seat mode, and fails the install when that fails. No
+        # vtium unit is named for kmscon.
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             setup = f.read()
+        enable = 'vtium console enable --"$mode" --all'
         getty = ("ln -sfn /usr/lib/systemd/system/getty@.service "
                  "/etc/systemd/system/autovt@.service\n")
         self.assertIn(getty, setup)
-        self.assertLess(setup.index(getty), setup.index("vtium console enable --all"))
-        self.assertIn("if ! out=$(vtium console enable --all 2>&1); then\n"
-                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --all: %s\\n' "
-                      "\"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
-        self.assertLess(setup.index("tar -xpf"), setup.index("vtium console enable --all"))
-        self.assertIn("/etc/systemd/system/vtium@.service.d/tier3.conf", setup)
+        self.assertLess(setup.index(getty), setup.index(enable))
+        self.assertIn("if ! out=$(" + enable + " 2>&1); then\n"
+                      "    printf 'TIER3-INSTALL-FAIL vtium console enable --%s --all: %s\\n' "
+                      "\"$mode\" \"$out\" > /dev/ttyS0\n    exit 1\nfi\n", setup)
+        self.assertLess(setup.index("tar -xpf"), setup.index(enable))
+        self.assertIn("mode=direct\n", setup)
+        self.assertIn('[ "$mode" != seat ] || unit=vtium-seat@.service\n', setup)
+        self.assertIn("/etc/systemd/system/$unit.d/tier3.conf", setup)
         self.assertFalse([l for l in setup.splitlines()
                           if "kmsconvt" in l and not l.lstrip().startswith("#")])
 
@@ -5637,6 +5641,19 @@ class SeatTest(unittest.TestCase):
         self.assertEqual(t3_seat.seat_verdict(log),
                          "vtium ran on the kernel's VT: no seat manager answered")
 
+    DIRECT = (b"seat: vtium is in no logind session of its own, so it does not take the seat "
+              b"from logind, and it uses the kernel's VT\n"
+              b"vt: using tty /dev/tty2\n")
+
+    def test_direct_mode_on_the_kernels_vt_passes(self):
+        self.assertIsNone(t3_seat.direct_verdict(self.DIRECT))
+
+    def test_direct_mode_that_opens_the_seat_or_says_nothing_fails(self):
+        self.assertEqual(t3_seat.direct_verdict(self.DIRECT + self.OPEN),
+                         "vtium opened the seat in direct mode")
+        self.assertEqual(t3_seat.direct_verdict(b"vt: using tty /dev/tty2\n"),
+                         "the console never logged %r" % t3_seat.SEAT_DIRECT)
+
     def test_no_seat_and_no_keyboard_fail(self):
         self.assertEqual(t3_seat.seat_verdict(b"vt: using tty /dev/tty2\n"),
                          "the console never logged 'seat: the seat seat0 is open'")
@@ -5725,6 +5742,19 @@ class SeatTest(unittest.TestCase):
         self.assertTrue(t3_scenario.VARIANTS["seat-logind"]["agent"])
         self.assertEqual(t3_scenario.VARIANTS["seat-seatd"]["seat"], "seatd")
         self.assertEqual(t3_scenario.VARIANTS["seat-logind"]["seat"], "logind")
+        # The logind variants turn seat mode on through vtium console; the
+        # others run direct mode, as the package's install does, and
+        # direct-logind proves direct mode on the same tree under logind.
+        for name in ("seat-logind", "seat-logind-survive", "seat-logind-two"):
+            self.assertEqual(t3_scenario.VARIANTS[name]["mode"], "seat", name)
+        self.assertNotIn("mode", t3_scenario.VARIANTS["seat-seatd"])
+        direct = t3_scenario.VARIANTS["direct-logind"]
+        self.assertEqual(direct["tree_features"], ["libseat", "logind"])
+        self.assertNotIn("mode", direct)
+        self.assertNotIn("seat", direct)
+        self.assertEqual(t3_scenario.variant_cases("direct-logind")[-1:], ["direct"])
+        self.assertEqual(t3_evaluate.GOLDENS_OF["direct-logind"], "2d-potato-min")
+        self.assertIn("direct-logind", t3_scenario.SEAT_VARIANTS)
         self.assertEqual(t3_scenario.variant_cases("panic-sysrq"), ["kernel-panic"])
         self.assertTrue(t3_scenario.VARIANTS["panic-sysrq"]["agent"])
         self.assertEqual(t3_scenario.variant_cases("kmsg-notice"), ["kernel-message"])

@@ -40,6 +40,10 @@ CHECKS = {
     "seat": "The console's log, for vtium built with libseat on the seat manager the variant "
             "names. Correct: the seat seat0 opens, every keyboard vtium uses opens through "
             "the seat manager, and vtium never falls back to the kernel's VT.",
+    "direct": "The console's log, for vtium built with libseat and logind in direct mode, "
+              "vtium@.service, under logind with no LIBSEAT_BACKEND (ADR-1400 D3). Correct: "
+              "vtium logs that it is in no logind session of its own and uses the kernel's VT, "
+              "and never opens the seat, so libseat's logind backend takes no session.",
     "seat-cgroup": "The control group, read from /proc/PID/cgroup, of vtium built with libseat "
                    "under logind, whose unit opens a PAM session of vtium's own (PAMName=vtium). "
                    "Correct, as measured on 2026-11-10: pam_systemd moves vtium out of its unit "
@@ -90,6 +94,9 @@ CAPTIONS = {
 
 # vtium's lines (crates/vtium-platform/src/seat.rs), after the log's target.
 SEAT_OPEN = "seat: the seat seat0 is open"
+# seat.rs's NO_SESSION.
+SEAT_DIRECT = ("seat: vtium is in no logind session of its own, so it does not take the seat "
+               "from logind, and it uses the kernel's VT")
 SEAT_KERNEL = "seat: no seat manager answered"
 INPUT_USED = "input: using /dev/input/"
 INPUT_THROUGH = "through the seat manager"
@@ -130,6 +137,31 @@ def check_seat(v, vm, work, caps, errors, log):
     path = os.path.join(work, "seat.ppm")
     wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
     caps["seat"] = path
+
+
+def direct_verdict(serial):
+    """Why the direct check fails on the console log `serial` (bytes), or
+    None when it passes: vtium said it is in no logind session of its own
+    and used the kernel's VT, and never opened the seat."""
+    lines = serial.decode(errors="replace").splitlines()
+    if any(SEAT_OPEN in line for line in lines):
+        return "vtium opened the seat in direct mode"
+    if not any(SEAT_DIRECT in line for line in lines):
+        return "the console never logged %r" % SEAT_DIRECT
+    return None
+
+
+def check_direct(v, vm, work, caps, errors, log):
+    """The direct check on `vm`'s console log, its capture the screen once
+    the screens are drawn, as check_seat's."""
+    with open(vm.serial, "rb") as f:
+        why = direct_verdict(f.read())
+    if why:
+        errors["direct"] = why
+        return
+    path = os.path.join(work, "direct.ppm")
+    wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    caps["direct"] = path
 
 
 def panic_verdict(serial, since):

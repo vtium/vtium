@@ -197,7 +197,7 @@ install-tree: minspec config-release $(if $(IMAGES),image-release) ## Stage vtiu
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium)
 	install -Dm755 $(CONFIG_RELEASE) $(DESTDIR)/usr/bin/vtium-config
 	$(call check-glibc,$(DESTDIR)/usr/bin/vtium-config)
-	tools/vt/units.sh --name vtium --exec /usr/bin/vtium --by 'make install-tree' --conflicts 'kmsconvt@%i.service' $(if $(PAM_SESSION),--seat) $(DESTDIR)/usr/lib/systemd/system
+	tools/vt/units.sh --name vtium --exec /usr/bin/vtium --by 'make install-tree' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)/usr/lib/systemd/system
 	install -dm755 $(DESTDIR)/usr/share/terminfo
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/xterm-vtium.ti
 	tic -x -o $(DESTDIR)/usr/share/terminfo $(VTIUM_INSTALL)/kmscon.ti
@@ -335,7 +335,7 @@ ifneq ($(IMAGES),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium-image.conf $(DESTDIR)$(PREFIX)/lib/sysusers.d/vtium-image.conf
 	install -Dm755 $(GALLERY) $(DESTDIR)$(PREFIX)/bin/vtium-gallery
 endif
-	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service' $(if $(PAM_SESSION),--seat) $(DESTDIR)$(UNITDIR)
+	tools/vt/units.sh --name vtium --exec $(PREFIX)/bin/vtium --by 'make install' --conflicts 'kmsconvt@%i.service'$(if $(PAM_SESSION), --seat) $(DESTDIR)$(UNITDIR)
 ifneq ($(PAM_SESSION),)
 	install -Dm644 $(VTIUM_INSTALL)/vtium.pam $(DESTDIR)/etc/pam.d/vtium
 endif
