@@ -582,7 +582,7 @@ fn the_underline_is_centred_below_the_baseline_as_freetype_gives_it() {
         ..ttf::test_mono()
     }
     .build();
-    let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+    let d = decorations(&font, "Test Mono", (20, 16), None, Hinting::Light).expect("the lines");
     assert_eq!((d.underline, d.underline_thickness), (18, 1));
 }
 
@@ -602,7 +602,7 @@ fn the_underline_follows_post_where_freetypes_position_is_not_0() {
             ..ttf::test_mono()
         }
         .build();
-        let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+        let d = decorations(&font, "Test Mono", (20, 16), None, Hinting::Light).expect("the lines");
         (d.underline, d.underline_thickness)
     };
     assert_eq!(at(0, 50), (16, 1), "underlinePosition 0, thickness 50");
@@ -621,7 +621,8 @@ fn the_underline_follows_post_where_freetypes_position_is_not_0() {
 #[test]
 fn the_underline_and_strike_through_follow_the_fonts_tables() {
     let lines = |font: ttf::Font| {
-        let d = decorations(&font.build(), "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+        let d = decorations(&font.build(), "Test Mono", (20, 16), None, Hinting::Light)
+            .expect("the lines");
         (
             d.underline,
             d.underline_thickness,
@@ -652,7 +653,7 @@ fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
         ..ttf::test_mono()
     }
     .build();
-    let d = decorations(&font, "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+    let d = decorations(&font, "Test Mono", (20, 16), None, Hinting::Light).expect("the lines");
     assert_eq!(
         (d.underline, d.underline_thickness),
         (18, 1),
@@ -673,7 +674,8 @@ fn a_font_with_no_post_table_takes_the_underline_from_the_cell() {
 #[test]
 fn the_strike_through_takes_os2s_size_and_the_x_height() {
     let lines = |font: ttf::Font| {
-        let d = decorations(&font.build(), "Test Mono", 20, 16, Hinting::Light).expect("the lines");
+        let d = decorations(&font.build(), "Test Mono", (20, 16), None, Hinting::Light)
+            .expect("the lines");
         (d.strike, d.strike_thickness)
     };
     assert_eq!(

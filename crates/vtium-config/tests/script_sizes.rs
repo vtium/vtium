@@ -353,3 +353,71 @@ fn a_missing_script_source_is_quiet_and_a_refused_one_warns() {
         "{warnings:?}"
     );
 }
+
+/// The lines of the strike in `script` that `engine` answers at `cell`.
+fn strike_lines(engine: &Engine, cell: Cell, script: Script) -> vtium_font::Decorations {
+    let bytes = engine
+        .draw_variant(cell, variant(script), &[u32::from('A')], (&[], false))
+        .expect("draws")
+        .expect("a glyph");
+    let set = Set::from_bytes(bytes).expect("a set");
+    let strike = set.strikes().next().expect("a strike");
+    assert_eq!(strike.script, script);
+    strike.decorations
+}
+
+// ADR-1202 D8 step 3: the helper's script strikes report the lines the
+// console's own fonts take for the same font: unifont at 1x by D4's map,
+// and at 2x and 3x by D3, the lines of unifont at 1x and 2x placed with
+// the strike
+// covers: sgr.script
+#[test]
+fn the_helpers_script_lines_are_the_consoles_for_unifont() {
+    let e = engine("source=builtin:unifont\n");
+    for k in [1u32, 2, 3] {
+        let cell = Cell {
+            width: 8 * k,
+            height: 16 * k,
+        };
+        let console = Font::new(Unifont::new(16 * k));
+        for script in [Script::Super, Script::Sub] {
+            assert_eq!(
+                strike_lines(&e, cell, script),
+                console.script_decorations(script),
+                "{script:?} at {k}x"
+            );
+        }
+        assert_eq!(
+            strike_lines(&e, cell, Script::Baseline),
+            console.decorations(),
+            "normal at {k}x"
+        );
+    }
+}
+
+// ADR-1202 D8 step 3: a source drawn at its own size whose script glyphs
+// come from the font script-source= names takes that font's lines, the
+// lines of its height, placed with its glyph: an 8-pixel font against
+// the top of a 16-pixel cell for a superscript and its bottom for a
+// subscript
+// covers: sgr.script
+#[test]
+fn script_source_gives_the_smaller_fonts_lines() {
+    let s = Scratch::new("lines");
+    let big = s.file("big.psf", &psf2(16, 0, true));
+    let small = s.file("small.psf", &psf2(8, 101, true));
+    let e = engine(&format!("source=file:{big}\nscript-source=file:{small}\n"));
+    let cell = Cell {
+        width: 8,
+        height: 16,
+    };
+    let lines = |underline, strike, overline| vtium_font::Decorations {
+        underline,
+        underline_thickness: 1,
+        strike,
+        strike_thickness: 1,
+        overline,
+    };
+    assert_eq!(strike_lines(&e, cell, Script::Super), lines(7, 4, 0));
+    assert_eq!(strike_lines(&e, cell, Script::Sub), lines(15, 12, 8));
+}

@@ -1502,9 +1502,89 @@ impl Engine {
         let Some(base) = self.baseline(first, cell.height) else {
             return plain;
         };
-        let lines = crate::outline::decorations(font, family, cell.height, base, self.hinting)
-            .unwrap_or(plain.1);
+        let lines =
+            crate::outline::decorations(font, family, (cell.height, base), None, self.hinting)
+                .unwrap_or(plain.1);
         (base, lines)
+    }
+
+    /// The lines of a cell in `script` at `cell`, the text band, whose
+    /// normal glyphs stand on row `base` with the lines `normal`
+    /// ([`Engine::metrics_at`]): the frit's first source's, found by its
+    /// kind (ADR-1202 D8 step 3). An outline source's are measured at the
+    /// script size from the script baseline ([`script_baseline`]), with the
+    /// overline on the top row of the small own box. A bitmap source with a
+    /// smaller size in D3's range takes that size's lines, the lines of its
+    /// height at the multiple it is drawn at, placed whole against the
+    /// band; one with none takes its normal lines through D4's map. Both
+    /// come from vtium-font's script rule ([`vtium_font::script::lines`]),
+    /// which the console's own fonts take too. The baseline's lines are
+    /// `normal`.
+    fn script_lines(
+        &self,
+        cell: Cell,
+        script: Script,
+        (base, normal): (u32, Decorations),
+    ) -> Decorations {
+        use vtium_font::script::lines;
+        if script == Script::Baseline {
+            return normal;
+        }
+        let own = self.own_box(cell);
+        let mapped = lines::mapped(normal, script, own, cell.height, Band::NONE);
+        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+            return mapped;
+        };
+        match self.sources.get(first) {
+            Some((_, Loaded::Bitmap(font))) => {
+                let scale = (cell.width / font.cell.width.max(1))
+                    .min(cell.height / font.cell.height.max(1));
+                let others = self.smaller.get(first).map_or(&[][..], Vec::as_slice);
+                let strikes: Vec<Cell> = std::iter::once(font.cell)
+                    .chain(others.iter().map(|f| f.font.cell))
+                    .collect();
+                let chosen =
+                    font.cell.height.checked_mul(scale).and_then(|normal| {
+                        vtium_font::script::smaller(normal, cell.width, &strikes)
+                    });
+                let Some(chosen) = chosen else {
+                    return mapped;
+                };
+                let Some(&own) = strikes.get(chosen.strike) else {
+                    return mapped;
+                };
+                let j = chosen.multiple;
+                let size = (own.width * j, own.height * j);
+                let at = lines::at_multiple(Decorations::for_height(own.height), own.height, j);
+                lines::placed(at, script, size, (cell.width, cell.height), Band::NONE)
+            }
+            Some((_, Loaded::Outline { font, family, .. })) => {
+                let Ok(size) = crate::outline::size(font, family, cell.height) else {
+                    return mapped;
+                };
+                let (num, den) = vtium_font::SCRIPT_SCALE;
+                let small = size * num as f32 / den as f32;
+                let baseline = script_baseline(script, own, base, cell.height);
+                let measured = crate::outline::decorations(
+                    font,
+                    family,
+                    (cell.height, baseline),
+                    Some(small),
+                    self.hinting,
+                );
+                let Ok(measured) = measured else {
+                    return mapped;
+                };
+                let (_, tall) = vtium_font::script::size((1, own.1));
+                let (_, top) =
+                    vtium_font::script::place(script, (1, tall), (1, cell.height), Band::NONE);
+                Decorations {
+                    overline: top.min(cell.height.saturating_sub(measured.underline_thickness)),
+                    ..measured
+                }
+            }
+            _ => mapped,
+        }
     }
 
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
@@ -1779,12 +1859,20 @@ impl Engine {
         let (base, lines) = self.metrics_at(cell);
         // a bitmap source's glyphs stand on this baseline in the text band
         let text_base = base;
+        // a superscript or subscript strike reports the lines of its own
+        // size, where its glyphs lie (ADR-1202 D8); a normal strike's
+        // overline stays on the cell's top row
+        let script_lines = self.script_lines(cell, script, (base, lines));
         let (base, lines) = (
             base.saturating_add(band.above),
             Decorations {
-                underline: lines.underline.saturating_add(band.above),
-                strike: lines.strike.saturating_add(band.above),
-                ..lines
+                underline: script_lines.underline.saturating_add(band.above),
+                strike: script_lines.strike.saturating_add(band.above),
+                overline: match script {
+                    Script::Baseline => 0,
+                    _ => script_lines.overline.saturating_add(band.above),
+                },
+                ..script_lines
             },
         );
         let strike = |format| {

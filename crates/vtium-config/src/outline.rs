@@ -1462,30 +1462,42 @@ pub(crate) mod raster {
 
     /// Where the underline and strike-through go in a cell `height` pixels
     /// high whose baseline is row `baseline`, from the face `family` of
-    /// `font` (ADR-1302 D3, ADR-1200 D2). The underline's thickness comes from the `post` table when the font has
-    /// one and it gives a thickness that rounds above 0, else a fourteenth
-    /// of the cell. Its centre is below the baseline by `post`'s position
-    /// less half its thickness, divided as integers, as FreeType's
+    /// `font` drawn at `size` pixels to the em, or at its own size for the
+    /// cell ([`size`]) with none (ADR-1302 D3, ADR-1200 D2). A superscript
+    /// or subscript strike's lines are measured this way at the script
+    /// size, from the script baseline (ADR-1202 D8). The underline's
+    /// thickness comes from the `post` table when the font has one and it
+    /// gives a thickness that rounds above 0, else a fourteenth of the
+    /// cell's height scaled to `size`. Its centre is below the baseline by `post`'s position less
+    /// half its thickness, divided as integers, as FreeType's
     /// `underline_position` gives it, where that is not 0, else a thickness
-    /// and a half above the cell's bottom. The
-    /// strike-through's top and thickness come from the `OS/2` table's
+    /// and a half above the bottom: the cell's at the font's own size, and
+    /// the row under the font's descent below the baseline at another size.
+    /// The strike-through's top and thickness come from the `OS/2` table's
     /// strikeout, above the baseline, when its size is above 0. Else it is
     /// as thick as the underline and centred on half the x-height, which is
     /// `OS/2`'s `sxHeight`, else the `x` glyph's height, else half the
     /// baseline. Each line is at least a row thick, at most a quarter of
-    /// the cell, and inside it. The `x` glyph is hinted as `hinting` says.
+    /// the cell, and inside it. The overline lies on row 0. The `x` glyph
+    /// is hinted as `hinting` says.
     pub fn decorations(
         font: &[u8],
         family: &str,
-        height: u32,
-        baseline: u32,
+        (height, baseline): (u32, u32),
+        size: Option<f32>,
         hinting: Hinting,
     ) -> Result<vtium_font::Decorations, String> {
         let (font, _, index) = face(font, family)?;
         let m = metrics(font)?;
-        let h = f64::from(height.max(1));
-        let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
+        let at = size.unwrap_or_else(|| ppem(&m, height));
+        let scale = f64::from(at) / f64::from(m.units_per_em);
         let base = f64::from(baseline);
+        let h = f64::from(height.max(1));
+        // the row under the glyphs' descent at a size not the cell's own
+        let bottom = match size {
+            None => h,
+            Some(_) => (base + (f64::from(m.descent.abs()) * scale).round()).min(h),
+        };
         let max_thick = (height / 4).max(1);
         // post: underlinePosition, the stroke's top, at byte 8 and
         // underlineThickness at 10. swash's stroke_size is OS/2's
@@ -1499,7 +1511,9 @@ pub(crate) mod raster {
         let (position, size) = (field(b"post", 8), field(b"post", 10));
         let mut thick = (size.unwrap_or(0.0) * scale).round();
         if thick <= 0.0 {
-            thick = (h / 14.0).floor().max(1.0);
+            // a fourteenth of the height the font's own size spans at `at`
+            let tall = h * f64::from(at) / f64::from(ppem(&m, height));
+            thick = (tall / 14.0).floor().max(1.0);
         }
         // the stroke's centre is FreeType's underline_position whenever it
         // is not 0: post's underlinePosition less half its
@@ -1508,7 +1522,7 @@ pub(crate) mod raster {
         let freetype = position.map(|p| p as i32 - size.unwrap_or(0.0) as i32 / 2);
         let centre = match freetype.filter(|&p| p != 0) {
             Some(p) => base - f64::from(p) * scale,
-            None => h - thick / 2.0 - thick,
+            None => bottom - thick / 2.0 - thick,
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);
         let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
@@ -1530,7 +1544,7 @@ pub(crate) mod raster {
                     let mut drawer = Drawer::new(font, index, hinting);
                     let g = font.charmap().map('x');
                     xh = (g != 0)
-                        .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
+                        .then(|| drawer.draw(g, at, (u32::MAX, u32::MAX)))
                         .flatten()
                         .map(|i| f64::from(i.placement.top))
                         .filter(|&t| t > 0.0);
