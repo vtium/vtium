@@ -681,10 +681,13 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
 /// follow hotplug, where this machine's own udev runs.
 #[test]
 fn the_udev_database_the_command_line_names_reaches_the_tui() {
-    let (master, slave) = pair(100, 30);
+    // The status line starts with the draft's name, which is this
+    // machine's host name, so 160 columns keep the hotplug note on screen
+    // for any host name up to Linux's longest, 64 characters.
+    let (master, slave) = pair(160, 30);
     let (root, fonts) = fixture("udev-data");
     std::fs::create_dir_all(root.join("udev/data")).expect("the database");
-    let mut c = Console::start(master, 100, 30, Kind::Vtium { ops: true }, TAKES);
+    let mut c = Console::start(master, 160, 30, Kind::Vtium { ops: true }, TAKES);
     let child = tui_with(
         &slave,
         &root,
