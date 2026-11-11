@@ -151,7 +151,7 @@ pub struct Head {
     kernel: Vec<(String, Option<Instant>)>,
     /// What the head shows of its own as one text, a line each: that the
     /// shown console's session ended, above the notices, above the
-    /// kernel's messages.
+    /// kernel's messages and the line that says a key hides them.
     shown: String,
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
@@ -631,11 +631,15 @@ impl Head {
                 &self.ended_notice
             }
         });
+        let hint = (!self.kernel.is_empty()).then(|| {
+            crate::notice::key_hides(self.notices.len().saturating_add(self.kernel.len()))
+        });
         let text = ended
             .into_iter()
             .chain(&self.notices)
             .map(String::as_str)
             .chain(self.kernel.iter().map(|(text, _)| text.as_str()))
+            .chain(hint)
             .collect::<Vec<_>>()
             .join("\n");
         if text != self.shown {
@@ -2221,6 +2225,40 @@ mod tests {
         // reads through a real session
         assert_eq!(head.console.id, 2);
         assert!(head.close_shown(false).is_none(), "the last never closes");
+    }
+
+    // ADR-1401 D15: the kernel's messages come under the notices, the
+    // newest KERNEL_MAX, and a line under them says that a key hides the
+    // box and still reaches the console, for one message or for several.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_kernel_messages_end_with_the_line_a_key_hides_them() {
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, Vec::new(), term);
+        head.add_kernel("k0");
+        assert_eq!(
+            head.notice(),
+            Some("k0\nPress a key to hide this message. The key also goes to the console.")
+        );
+        head.add_notice("No keyboard found. Connect one to type.");
+        for n in 1..=KERNEL_MAX {
+            head.add_kernel(&format!("k{n}"));
+        }
+        assert_eq!(
+            head.notice(),
+            Some(
+                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress a key to hide these messages. The key also goes to the console."
+            )
+        );
+        head.end_notices();
+        assert_eq!(head.notice(), None, "no line is left once they end");
+        head.add_notice("n");
+        assert_eq!(
+            head.notice(),
+            Some("n"),
+            "vtium's notices alone carry no line"
+        );
     }
 
     // A head shows each notice once and the newest NOTICES_MAX; an ended

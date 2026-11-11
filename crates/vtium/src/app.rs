@@ -6280,7 +6280,9 @@ mod tests {
         settle_frames(&mut lp, &mut app, t);
         assert_eq!(
             box_text(&app).as_deref(),
-            Some("usb 1-2: device descriptor read/64, error -71")
+            Some(
+                "usb 1-2: device descriptor read/64, error -71\nPress a key to hide this message. The key also goes to the console."
+            )
         );
         assert!(first_overlay(&app).problem, "in the notices' colors");
         let head = app.heads.first().unwrap();
@@ -6319,11 +6321,26 @@ mod tests {
             t,
         );
         assert_eq!(app.heads.first().unwrap().kernel_messages().next(), None);
+        // the key that hides them still reaches the program, and the frame
+        // it draws shows the console with no box over it
+        let head = app.heads.first().unwrap();
+        assert!(
+            head.views.values().all(|v| v.after_key(&head.console.term)),
+            "the key went on to the program"
+        );
+        app.turn(t);
+        settle_frames(&mut lp, &mut app, t);
+        assert_eq!(box_text(&app), None, "the key's frame draws no box");
         log("a third warning");
         assert!(app.kernel_ready());
         app.turn(t);
         settle_frames(&mut lp, &mut app, t);
-        assert_eq!(box_text(&app).as_deref(), Some("a third warning"));
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some(
+                "a third warning\nPress a key to hide this message. The key also goes to the console."
+            )
+        );
 
         // its time runs from the first frame that drew it
         let gone = t + crate::head::KERNEL_SHOWN;
