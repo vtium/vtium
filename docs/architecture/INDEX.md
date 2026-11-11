@@ -42,7 +42,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 |-----|-------|--------|
 | [ADR-1200](./font/ADR-1200-glyphs-are-generated-at-run-time-in-a-sandboxed-helper-from-a-profile-s-frit.md) | Glyphs are generated at run time in a sandboxed helper, from a profile's frit | accepted |
 | [ADR-1201](./font/ADR-1201-vtium-config-manages-the-console-s-fonts-and-settings-trying-each-choice-on-the-live-console.md) | vtium config manages the console's fonts and settings, trying each choice on the live console | accepted |
-| [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | proposed |
+| [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
