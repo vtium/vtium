@@ -279,6 +279,34 @@ fn a_bitmap_script_glyph_is_its_normal_glyph_made_small_by_vtium_font() {
     }
 }
 
+// ADR-1202 D7: on a frit with only a regular bitmap source, a bold or
+// italic superscript is the upright regular glyph made small, then widened
+// and sheared at its small size, about the font's baseline under its `H`,
+// row 14; never the glyph styled at full size and then made small
+// covers: sgr.script
+#[test]
+fn a_bitmap_script_glyph_takes_its_style_after_it_is_made_small() {
+    let dir = Scratch::new("bitmap-style");
+    let path = dir.file("f.psf", &psf(&[('H', bar(0b1100_0110))]));
+    let e = engine(&format!("source=file:{path}\n"));
+    let upright = drawn(&e, BITMAP, variant(Script::Baseline), 'H');
+    for (bold, italic) in [(true, false), (false, true), (true, true)] {
+        let style = Style { bold, italic };
+        for script in [Script::Super, Script::Sub] {
+            let got = drawn(&e, BITMAP, Variant { style, script }, 'H');
+            let want = upright
+                .scripted(script, &Origin::bitmap(14, style), Band::NONE)
+                .expect("scaled");
+            assert_eq!(got.pixels(), want.pixels(), "{style:?} {script:?}");
+            // styled before it is made small, the glyph differs
+            let early = drawn(&e, BITMAP, style.into(), 'H')
+                .scripted(script, &bitmap(), Band::NONE)
+                .expect("scaled");
+            assert_ne!(got.pixels(), early.pixels(), "{style:?} {script:?}");
+        }
+    }
+}
+
 // ADR-1202 D15: a script glyph comes from the source that draws the
 // character's normal glyph. The first source lacks B, so the second draws
 // B's normal glyph and its script glyphs; the third also has B and never
