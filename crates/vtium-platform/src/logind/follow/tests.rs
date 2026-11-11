@@ -20,8 +20,8 @@ use xkbcommon::xkb::keysyms;
 
 use super::*;
 use crate::input::fake::{self, Nodes};
-use crate::input::{InputConfig, InputEvent, RawEvent};
-use crate::ioctl::EV_KEY;
+use crate::input::{InputConfig, InputEvent, Mods, RawEvent};
+use crate::ioctl::{EV_KEY, LED_CAPSL};
 use crate::logind::classify;
 use crate::logind::localed::{Bus, layout_from};
 
@@ -318,6 +318,8 @@ fn press(input: &mut Input<Nodes>, nodes: &Nodes, node: &str, code: u16) -> Vec<
 
 /// The key labelled Y on a US keyboard, which types z on a German layout.
 const KEY_Y: u16 = 21;
+/// Caps Lock, in evdev's codes.
+const KEY_CAPSLOCK: u16 = 58;
 
 /// What the key labelled Y types on each keyboard.
 fn key_y(input: &mut Input<Nodes>, nodes: &Nodes) -> Vec<Vec<u32>> {
@@ -562,4 +564,37 @@ fn a_signal_on_another_object_or_from_another_sender_changes_nothing() {
     assert!(!rig.dispatch());
     assert_eq!(rig.asked(), Vec::<String>::new());
     assert_eq!(rig.key_y(), [[Y], [Y]]);
+}
+
+/// Caps Lock stays on across a change of layout: the keyboard still holds
+/// Lock, the key labelled Y types a capital Z on the new German layout, and
+/// vtium writes the keyboard's LEDs again with Caps Lock lit.
+// covers: platform.system-layout-follow
+#[test]
+fn caps_lock_stays_on_across_a_change() {
+    let mut rig = Rig::new(KeymapConfig::default(), root("caps", None));
+    let first = KEYBOARDS[0];
+    press(&mut rig.input, &rig.nodes, first, KEY_CAPSLOCK);
+    let node = rig
+        .nodes
+        .0
+        .borrow()
+        .get(Path::new(first))
+        .cloned()
+        .unwrap_or_else(|| panic!("{first} stands in"));
+    let writes = node.borrow().leds.len();
+    assert!(rig.input.mods().contains(Mods::LOCK), "Caps Lock is on");
+    rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
+    assert!(rig.dispatch(), "a new keymap");
+    assert!(rig.input.mods().contains(Mods::LOCK), "Caps Lock stays on");
+    let leds = node.borrow().leds.clone();
+    assert_eq!(leds.len(), writes + 1, "the LEDs are written again");
+    assert!(
+        leds.last().is_some_and(|w| w.contains(&(LED_CAPSL, true))),
+        "Caps Lock's LED is lit: {leds:?}"
+    );
+    assert_eq!(
+        press(&mut rig.input, &rig.nodes, first, KEY_Y),
+        [keysyms::KEY_Z]
+    );
 }
