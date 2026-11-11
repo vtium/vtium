@@ -12,7 +12,7 @@ use std::ptr;
 mod library;
 mod localed;
 
-pub use localed::layout;
+pub(crate) use localed::layout;
 
 /// sd-bus's error, as `sd-bus.h` lays it out.
 #[repr(C)]

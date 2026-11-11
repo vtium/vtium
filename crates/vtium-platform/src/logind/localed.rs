@@ -143,7 +143,8 @@ impl Bus for SystemBus {
     }
 }
 
-/// localed's names of the system's keyboard layout. A name the system
+/// localed's names of the system's keyboard layout, which
+/// [`crate::input::system_layout`] takes when the console keymap gives none. A name the system
 /// does not set is empty. When localed cannot be asked, the names are
 /// empty and vtium logs why: xkb's default layout then applies, unless
 /// vtium.conf sets one.
