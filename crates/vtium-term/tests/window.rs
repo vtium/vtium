@@ -74,6 +74,22 @@ fn an_omitted_side_keeps_its_length_and_zero_takes_the_displays() {
     }
 }
 
+// A parameter past what vtium-parse keeps stops growing at its cap, so it
+// still asks for that many cells and is never read as left out.
+#[test]
+fn a_huge_parameter_asks_for_cells() {
+    let mut t = on();
+    t.input(b"\x1b[8;5000000000;80t");
+    let Some(GridRequest {
+        rows: Extent::Cells(rows),
+        cols: Extent::Cells(80),
+    }) = t.take_grid_request()
+    else {
+        panic!("a request for cells");
+    };
+    assert!(rows > 65_535, "{rows}");
+}
+
 #[test]
 fn a_later_request_replaces_an_earlier_one() {
     let mut t = on();

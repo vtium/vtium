@@ -6835,6 +6835,27 @@ fn a_size_the_display_cannot_hold_takes_what_it_holds_at_the_smallest_size() {
     assert_eq!(s.app.cells(), [(8, 16)]);
 }
 
+/// A row count far past the display, 5000000000, takes the most rows the
+/// display holds, as 100 rows does: both draw at unifont's smallest size, 8
+/// pixels, whose 8x8 cells give the 40 columns and 20 rows the display
+/// holds.
+#[test]
+fn a_huge_row_count_takes_the_most_rows_the_display_holds() {
+    for (test, ask) in [
+        ("window-huge", "8;5000000000;80"),
+        ("window-tall", "8;100;80"),
+    ] {
+        let (_dir, mut s) = window_seat(test, "font-size=16\nallow-window-ops\n", ask);
+        let (reply, after) = asked_lines(&mut s);
+        assert_eq!(
+            (reply.as_str(), after.as_str()),
+            ("r:033[8;20;40t", "a:20 40"),
+            "{ask}"
+        );
+        assert_eq!(s.app.cells(), [(8, 8)], "{ask}");
+    }
+}
+
 /// A side of 0 beside a side the display cannot hold fills the display at
 /// the largest size that holds the most of the other side: 100 columns
 /// with 0 rows from 20x5 at 32 draws 40 columns at 16, as unifont's
