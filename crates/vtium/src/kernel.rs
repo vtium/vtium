@@ -63,7 +63,7 @@ const WARNING: u8 = 4;
 /// the kernel's own default, `CONFIG_CONSOLE_LOGLEVEL_DEFAULT`'s 7.
 const CONSOLE_LEVEL_DEFAULT: u8 = 7;
 
-/// The most records vtium reads from `/dev/kmsg` in one turn. The loop
+/// The most reads vtium makes of `/dev/kmsg` in one turn. The loop
 /// watches the device level-triggered, so the records left over are read
 /// in the next turn.
 const RECORDS_PER_TURN: usize = 256;
@@ -334,6 +334,34 @@ fn clipped(text: &str) -> String {
     out
 }
 
+/// The records that `read` gives, as `/dev/kmsg` gives them: one record
+/// a read, at most [`RECORDS_PER_TURN`] reads. `EPIPE` says the kernel
+/// overwrote records vtium had not read yet, and the next read returns the
+/// oldest record it still keeps, so reading goes on, as after `EINTR`.
+/// `EAGAIN` says no record waits, which ends the batch. Another error ends
+/// the batch with the records read so far, or, with none, is the error.
+fn drain_with(
+    mut read: impl FnMut(&mut [u8]) -> rustix::io::Result<usize>,
+) -> io::Result<Vec<Vec<u8>>> {
+    use rustix::io::Errno;
+    let mut out = Vec::new();
+    // The kernel refuses a read into a buffer smaller than the record,
+    // and a record is at most 8 KiB with its dictionary.
+    let mut buf = vec![0u8; 8192];
+    for _ in 0..RECORDS_PER_TURN {
+        match read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => out.push(buf.get(..n).unwrap_or_default().to_vec()),
+            Err(Errno::PIPE | Errno::INTR) => {}
+            Err(Errno::AGAIN) => break,
+            // the next call meets the error again
+            Err(_) if !out.is_empty() => break,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    Ok(out)
+}
+
 /// The kernel as the binary reads it: `/dev/kmsg`, the console log level
 /// in `/proc/sys/kernel/printk`, and plymouthd's pid file.
 pub struct System {
@@ -367,26 +395,8 @@ impl System {
 
 impl Kernel for System {
     fn drain(&mut self) -> io::Result<Vec<Vec<u8>>> {
-        use rustix::io::Errno;
-        let mut out = Vec::new();
-        // The kernel refuses a read into a buffer smaller than the record,
-        // and a record is at most 8 KiB with its dictionary.
-        let mut buf = vec![0u8; 8192];
-        while out.len() < RECORDS_PER_TURN {
-            match rustix::io::read(&self.kmsg, &mut buf) {
-                Ok(0) => break,
-                Ok(n) => out.push(buf.get(..n).unwrap_or_default().to_vec()),
-                // the kernel overwrote records vtium had not read yet: the
-                // next read returns the oldest record still kept
-                Err(Errno::PIPE | Errno::INTR) => {}
-                Err(Errno::AGAIN) => break,
-                // the records read so far are shown, and the next call
-                // meets the error again
-                Err(_) if !out.is_empty() => break,
-                Err(e) => return Err(e.into()),
-            }
-        }
-        Ok(out)
+        let kmsg = &self.kmsg;
+        drain_with(|buf| rustix::io::read(kmsg, buf))
     }
 
     fn console_level(&self) -> u8 {
@@ -512,6 +522,42 @@ mod tests {
         );
         assert_eq!(record(b"no prefix\n"), None);
         assert_eq!(record(b"x,1,2,-;text\n"), None);
+    }
+
+    // /dev/kmsg's errors (Documentation/ABI/testing/dev-kmsg): after
+    // EPIPE, records were overwritten and reading goes on; EAGAIN ends the
+    // batch, and the record after it waits for the next one; another error
+    // with nothing read is the error.
+    #[test]
+    fn draining_reads_on_after_epipe_and_stops_at_eagain() {
+        use rustix::io::Errno;
+        let script = std::cell::RefCell::new(std::collections::VecDeque::from([
+            Ok(&b"4,1,0,-;one\n"[..]),
+            Err(Errno::PIPE),
+            Ok(&b"4,9,0,-;two\n"[..]),
+            Err(Errno::AGAIN),
+            Ok(&b"4,10,0,-;three\n"[..]),
+            Err(Errno::AGAIN),
+            Err(Errno::IO),
+        ]));
+        let mut read = |buf: &mut [u8]| match script.borrow_mut().pop_front() {
+            Some(Ok(record)) => {
+                buf[..record.len()].copy_from_slice(record);
+                Ok(record.len())
+            }
+            Some(Err(e)) => Err(e),
+            None => Err(Errno::AGAIN),
+        };
+        let texts = |batch: Vec<Vec<u8>>| -> Vec<String> {
+            batch
+                .iter()
+                .filter_map(|r| record(r))
+                .map(|r| r.text)
+                .collect()
+        };
+        assert_eq!(texts(drain_with(&mut read).unwrap()), ["one", "two"]);
+        assert_eq!(texts(drain_with(&mut read).unwrap()), ["three"]);
+        assert!(drain_with(&mut read).is_err(), "EIO with nothing read");
     }
 
     #[test]
