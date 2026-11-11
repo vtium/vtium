@@ -655,7 +655,9 @@ fn spawn_held(mut command: Command, before_exec: impl FnOnce(u32)) -> io::Result
         // The command, with the parent's copies of the pipes' child ends,
         // goes when the thread ends, so a child that fails before it tells
         // its id leaves `told` at its end.
-        let forking = threads.spawn(move || command.spawn());
+        // A thread that cannot start fails the spawn with its error, as a
+        // fork that cannot start does, before any child exists.
+        let forking = forker().spawn_scoped(threads, move || command.spawn())?;
         if let Some(pid) = read_pid(&told) {
             before_exec(pid);
             let mut sent = rustix::io::write(&go, b"g");
@@ -670,6 +672,18 @@ fn spawn_held(mut command: Command, before_exec: impl FnOnce(u32)) -> io::Result
             .join()
             .unwrap_or_else(|_| Err(io::Error::other("the thread that starts the session ended")))
     })
+}
+
+/// The thread that forks a held child: std's defaults, or in a test, a
+/// stack the test sets.
+fn forker() -> std::thread::Builder {
+    let builder = std::thread::Builder::new().name("vtium-spawn".to_owned());
+    #[cfg(test)]
+    let builder = match tests::STACK.get() {
+        Some(bytes) => builder.stack_size(bytes),
+        None => builder,
+    };
+    builder
 }
 
 /// In the child, between fork and exec: tells its process id on `tell`,
@@ -815,6 +829,9 @@ mod tests {
     thread_local! {
         /// The step at which the next [`fail_at`] on this thread fails.
         static FAIL: Cell<Option<Step>> = const { Cell::new(None) };
+        /// The stack size of the thread that forks a held child, when the
+        /// test sets one.
+        pub(super) static STACK: Cell<Option<usize>> = const { Cell::new(None) };
     }
 
     /// Fails once, at the step the test set, with EMFILE, as a process
@@ -926,6 +943,20 @@ mod tests {
         assert_eq!(id, Some(pid), "before_exec is told the child's id");
         assert_eq!(held, ours, "the child waits before its exec");
         assert!(ran.ends_with("sleep"), "then it runs its program: {ran:?}");
+    }
+
+    // A thread that cannot start, here because its stack of 1 PiB is more
+    // than the address space, fails the spawn with the thread's error before
+    // any child exists, so the caller's "cannot start the session" follows.
+    #[test]
+    fn a_held_spawn_whose_thread_cannot_start_fails() {
+        STACK.set(Some(1 << 50));
+        let mut asked = false;
+        let spawned = Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |_| asked = true);
+        STACK.set(None);
+        let e = spawned.err().map(|e| e.kind());
+        assert!(e.is_some(), "the spawn fails");
+        assert!(!asked, "no child was forked to ask about");
     }
 
     // A `before_exec` that unwinds never lets the child go: the child ends
