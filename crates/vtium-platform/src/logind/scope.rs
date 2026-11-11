@@ -31,8 +31,7 @@ use std::ptr;
 use std::time::{Duration, Instant};
 
 use super::{
-    BusError, CALL_TIMEOUT_US, Error, classify, sd_bus_call_method, sd_bus_error_free,
-    sd_bus_flush_close_unref, sd_bus_message_unref, sd_bus_open_system,
+    BusError, Error, classify, sd_bus_call_method, sd_bus_error_free, sd_bus_message_unref,
     sd_bus_set_method_call_timeout,
 };
 
@@ -45,9 +44,18 @@ const MANAGER: &CStr = c"org.freedesktop.systemd1.Manager";
 /// sd_booted(3) checks (systemd at 78ab4b10, man/sd_booted.xml:55).
 const BOOTED: &str = "/run/systemd/system";
 
-/// How long vtium waits for systemd to finish the scope's job, after the
-/// call itself, which [`CALL_TIMEOUT_US`] bounds.
-const JOB_TIMEOUT: Duration = Duration::from_millis(crate::bounds::SCOPE_JOB_MS as u64);
+/// The system bus's address where `DBUS_SYSTEM_BUS_ADDRESS` names none, as
+/// sd-bus's `sd_bus_open_system` takes it (systemd at 78ab4b10,
+/// src/libsystemd/sd-bus/bus-internal.h:17 and sd-bus.c:1321-1335).
+const SYSTEM_BUS: &str = "unix:path=/run/dbus/system_bus_socket";
+
+/// How long the whole sequence may take, from the connection to the bus to
+/// the cancel of a job that did not finish.
+const SCOPE_TIMEOUT: Duration = Duration::from_millis(crate::bounds::SCOPE_JOB_MS as u64);
+
+/// The end of that time kept for the cancel: the connection, the calls and
+/// the wait for the job all end this long before the deadline.
+const CANCEL_RESERVE: Duration = Duration::from_millis(500);
 
 /// One property of the transient unit, as `StartTransientUnit` takes it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -59,11 +67,12 @@ pub(crate) enum Property {
 }
 
 /// The calls to systemd's manager that [`start_with`] makes, so the tests
-/// can stand in for the bus.
+/// can stand in for the bus. Each one that waits ends by `until`, with
+/// [`ScopeError::NoAnswer`] when nothing came in time.
 pub(crate) trait Bus {
     /// Starts listening for the manager's `JobRemoved` signal. It comes
     /// before the call, so that a job that finishes at once is not missed.
-    fn watch_jobs(&mut self) -> Result<(), Error>;
+    fn watch_jobs(&mut self, until: Instant) -> Result<(), ScopeError>;
     /// `StartTransientUnit(name, mode, properties, no auxiliary units)`,
     /// which answers the path of the job it queued.
     fn start_transient_unit(
@@ -71,13 +80,14 @@ pub(crate) trait Bus {
         name: &str,
         mode: &str,
         properties: &[Property],
-    ) -> Result<String, Error>;
+        until: Instant,
+    ) -> Result<String, ScopeError>;
     /// The next job the manager reported finished, as its path and its
-    /// result, or `None` once `deadline` has passed.
-    fn next_removed_job(&mut self, deadline: Instant) -> Result<Option<(String, String)>, Error>;
+    /// result, or `None` once `until` has passed, even with signals queued.
+    fn next_removed_job(&mut self, until: Instant) -> Result<Option<(String, String)>, ScopeError>;
     /// `Cancel` on the job at `job`, which systemd refuses for a job that
     /// has already finished.
-    fn cancel_job(&mut self, job: &str) -> Result<(), Error>;
+    fn cancel_job(&mut self, job: &str, until: Instant) -> Result<(), ScopeError>;
     /// Whether the unit `unit` holds the process `pid`, by the process's
     /// control group.
     fn holds(&mut self, unit: &str, pid: u32) -> bool;
@@ -90,6 +100,8 @@ pub enum ScopeError {
     NoSystemd,
     /// The system bus cannot be reached, or the manager refused.
     Bus(Error),
+    /// The system bus or the manager did not answer in time.
+    NoAnswer,
     /// The scope's job did not finish within `SCOPE_JOB_MS` (the crate's
     /// bounds). vtium then cancelled it, or, when systemd refused the
     /// cancel, here is why.
@@ -107,19 +119,20 @@ impl fmt::Display for ScopeError {
             ScopeError::Bus(Error::Refused { name, message }) => {
                 write!(f, "systemd answered {name}: {message}")
             }
+            ScopeError::NoAnswer => write!(f, "the system bus did not answer in time"),
             ScopeError::TimedOut {
                 not_cancelled: None,
             } => write!(
                 f,
                 "systemd did not start the scope within {} seconds, so vtium cancelled its job",
-                JOB_TIMEOUT.as_secs()
+                SCOPE_TIMEOUT.as_secs()
             ),
             ScopeError::TimedOut {
                 not_cancelled: Some(why),
             } => write!(
                 f,
                 "systemd did not start the scope within {} seconds, and vtium could not cancel its job ({why}), so the session may still move into the scope later",
-                JOB_TIMEOUT.as_secs()
+                SCOPE_TIMEOUT.as_secs()
             ),
             ScopeError::Failed(result) => write!(f, "systemd's job for the scope ended {result}"),
         }
@@ -133,33 +146,55 @@ pub fn unit_name(place: &str, pid: u32) -> String {
 }
 
 /// Moves the child `pid` into a new scope named `unit`, and returns once
-/// systemd has done it. Where systemd is not PID 1 it asks nothing.
+/// systemd has done it, or at most `SCOPE_JOB_MS` (the crate's bounds) after
+/// it was called. Where systemd is not PID 1 it asks nothing.
 pub fn start(unit: &str, pid: u32) -> Result<(), ScopeError> {
     if !Path::new(BOOTED).is_dir() {
         return Err(ScopeError::NoSystemd);
     }
-    let mut bus = SystemBus::open().map_err(ScopeError::Bus)?;
     #[expect(
         clippy::disallowed_methods,
-        reason = "the job's wait is bounded in time"
+        reason = "the scope's sequence is bounded in time"
     )]
     let now = Instant::now();
-    start_with(
-        &mut bus,
+    let address = std::env::var_os("DBUS_SYSTEM_BUS_ADDRESS")
+        .filter(|a| !a.is_empty())
+        .map_or_else(|| SYSTEM_BUS.into(), |a| a.as_encoded_bytes().to_vec());
+    let address = CString::new(address).map_err(|_| ScopeError::Bus(errno(-libc::EINVAL)))?;
+    start_at(
+        &address,
         unit,
         pid,
-        now.checked_add(JOB_TIMEOUT).unwrap_or(now),
+        now.checked_add(SCOPE_TIMEOUT).unwrap_or(now),
     )
 }
 
-/// [`start`] on any bus, waiting for the job until `deadline`.
+/// [`start`] on the bus at `address`, done by `deadline`.
+pub(crate) fn start_at(
+    address: &CStr,
+    unit: &str,
+    pid: u32,
+    deadline: Instant,
+) -> Result<(), ScopeError> {
+    let mut bus = SystemBus::open(address, waits_until(deadline))?;
+    start_with(&mut bus, unit, pid, deadline)
+}
+
+/// When the connection, the calls and the wait for the job end, so that
+/// the cancel still has [`CANCEL_RESERVE`] before `deadline`.
+fn waits_until(deadline: Instant) -> Instant {
+    deadline.checked_sub(CANCEL_RESERVE).unwrap_or(deadline)
+}
+
+/// [`start`] on any bus, done by `deadline`.
 pub(crate) fn start_with(
     bus: &mut impl Bus,
     unit: &str,
     pid: u32,
     deadline: Instant,
 ) -> Result<(), ScopeError> {
-    bus.watch_jobs().map_err(ScopeError::Bus)?;
+    let waits = waits_until(deadline);
+    bus.watch_jobs(waits)?;
     let properties = [
         Property::Text(
             "Description",
@@ -170,12 +205,15 @@ pub(crate) fn start_with(
     ];
     // "fail": systemd refuses the job rather than replace one queued for a
     // unit of the same name.
-    let job = bus
-        .start_transient_unit(unit, "fail", &properties)
-        .map_err(ScopeError::Bus)?;
+    let job = match bus.start_transient_unit(unit, "fail", &properties, waits) {
+        Ok(job) => job,
+        // the request went out, and systemd may yet queue its job
+        Err(ScopeError::NoAnswer) => return too_late(bus, unit, pid, None, deadline),
+        Err(e) => return Err(e),
+    };
     loop {
-        match bus.next_removed_job(deadline).map_err(ScopeError::Bus)? {
-            None => return too_late(bus, unit, pid, &job),
+        match bus.next_removed_job(waits)? {
+            None => return too_late(bus, unit, pid, Some(&job), deadline),
             Some((path, result)) if path == job => {
                 return if result == "done" {
                     Ok(())
@@ -193,14 +231,24 @@ pub(crate) fn start_with(
 /// lets the child go, so that no late job moves `login` out of vtium's
 /// session after logind has refused it a session of its own. When systemd
 /// refuses the cancel because the job finished meanwhile, the child's
-/// control group tells whether the scope holds it.
-fn too_late(bus: &mut impl Bus, unit: &str, pid: u32, job: &str) -> Result<(), ScopeError> {
-    let cancelled = bus.cancel_job(job);
+/// control group tells whether the scope holds it. With no job, because the
+/// request for it got no answer, there is nothing to cancel.
+fn too_late(
+    bus: &mut impl Bus,
+    unit: &str,
+    pid: u32,
+    job: Option<&str>,
+    deadline: Instant,
+) -> Result<(), ScopeError> {
+    let cancelled = match job {
+        Some(job) => bus.cancel_job(job, deadline).map_err(|e| e.to_string()),
+        None => Err("systemd did not answer the request for it in time".to_owned()),
+    };
     if bus.holds(unit, pid) {
         return Ok(());
     }
     Err(ScopeError::TimedOut {
-        not_cancelled: cancelled.err().map(|e| ScopeError::Bus(e).to_string()),
+        not_cancelled: cancelled.err(),
     })
 }
 
@@ -239,6 +287,13 @@ unsafe extern "C" {
         callback: unsafe extern "C" fn(*mut c_void, *mut c_void, *mut BusError) -> c_int,
         userdata: *mut c_void,
     ) -> c_int;
+    fn sd_bus_new(bus: *mut *mut c_void) -> c_int;
+    fn sd_bus_set_address(bus: *mut c_void, address: *const c_char) -> c_int;
+    fn sd_bus_set_bus_client(bus: *mut c_void, b: c_int) -> c_int;
+    fn sd_bus_start(bus: *mut c_void) -> c_int;
+    fn sd_bus_is_ready(bus: *mut c_void) -> c_int;
+    fn sd_bus_close(bus: *mut c_void);
+    fn sd_bus_unref(bus: *mut c_void) -> *mut c_void;
     fn sd_bus_process(bus: *mut c_void, r: *mut *mut c_void) -> c_int;
     fn sd_bus_wait(bus: *mut c_void, timeout_usec: u64) -> c_int;
     fn sd_bus_slot_unref(slot: *mut c_void) -> *mut c_void;
@@ -264,29 +319,113 @@ struct SystemBus {
 }
 
 impl SystemBus {
-    fn open() -> Result<SystemBus, Error> {
-        let mut bus: *mut c_void = ptr::null_mut();
+    /// Connects to the bus at `address` by `until`. The connection is made
+    /// as sd-bus's `sd_bus_open_system` makes it, from `sd_bus_new`,
+    /// `sd_bus_set_address`, `sd_bus_set_bus_client` and `sd_bus_start`
+    /// (sd_bus_new(3); systemd at 78ab4b10, sd-bus.c:1337-1371), except that
+    /// the call timeout is set before the start, so that it bounds the bus's
+    /// `Hello`, and that vtium waits for the connection itself, until it is
+    /// ready (sd_bus_is_ready(3)) or `until` has passed. sd-bus's own wait
+    /// for authentication is 90 s, which no call sets (bus-socket.c:793).
+    fn open(address: &CStr, until: Instant) -> Result<SystemBus, ScopeError> {
+        let mut raw: *mut c_void = ptr::null_mut();
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
-        // SAFETY: `bus` is a valid out pointer; sd-bus sets it only on
+        // SAFETY: `raw` is a valid out pointer; sd-bus sets it only on
         // success.
-        let opened = unsafe { sd_bus_open_system(&mut bus) };
-        if opened < 0 {
-            return Err(errno(opened));
+        let made = unsafe { sd_bus_new(&mut raw) };
+        if made < 0 {
+            return Err(ScopeError::Bus(errno(made)));
         }
-        let bus = SystemBus {
-            bus,
+        let mut bus = SystemBus {
+            bus: raw,
             slot: ptr::null_mut(),
             removed: Box::default(),
         };
+        let check = |r: c_int| {
+            if r < 0 {
+                Err(ScopeError::Bus(errno(r)))
+            } else {
+                Ok(())
+            }
+        };
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
-        // SAFETY: `bus.bus` is the connection just opened.
-        let timed = unsafe { sd_bus_set_method_call_timeout(bus.bus, CALL_TIMEOUT_US) };
-        if timed < 0 {
-            log::warn!(target: "login", "cannot bound systemd's answer: {}",
-                io::Error::from_raw_os_error(timed.saturating_neg()));
+        // SAFETY: `bus.bus` is the bus just made, not yet started; the
+        // address is NUL-ended.
+        unsafe {
+            check(sd_bus_set_address(bus.bus, address.as_ptr()))?;
+            check(sd_bus_set_bus_client(bus.bus, 1))?;
         }
-        Ok(bus)
+        bus.bound(until)?;
+        #[expect(unsafe_code, reason = "sd-bus's C interface")]
+        // SAFETY: `bus.bus` is the bus just configured.
+        check(unsafe { sd_bus_start(bus.bus) })?;
+        loop {
+            #[expect(unsafe_code, reason = "sd-bus's C interface")]
+            // SAFETY: `bus.bus` is the bus being started.
+            let ready = unsafe { sd_bus_is_ready(bus.bus) };
+            check(ready)?;
+            if ready > 0 {
+                return Ok(bus);
+            }
+            #[expect(unsafe_code, reason = "sd-bus's C interface")]
+            // SAFETY: as above; a null message pointer asks for none back.
+            let processed = unsafe { sd_bus_process(bus.bus, ptr::null_mut()) };
+            check(processed)?;
+            if processed == 0 {
+                bus.wait(until)?;
+            }
+        }
     }
+
+    /// Sets the bus's call timeout to what is left before `until`, which
+    /// bounds the calls that take the bus's own timeout.
+    fn bound(&mut self, until: Instant) -> Result<(), ScopeError> {
+        let usec = left(until)?;
+        #[expect(unsafe_code, reason = "sd-bus's C interface")]
+        // SAFETY: `self.bus` is the bus this owns.
+        let timed = unsafe { sd_bus_set_method_call_timeout(self.bus, usec) };
+        if timed < 0 {
+            return Err(ScopeError::Bus(errno(timed)));
+        }
+        Ok(())
+    }
+
+    /// Waits for the bus to have something to process, at most until
+    /// `until`, which is [`ScopeError::NoAnswer`] once it has passed.
+    fn wait(&mut self, until: Instant) -> Result<(), ScopeError> {
+        let usec = left(until)?;
+        #[expect(unsafe_code, reason = "sd-bus's C interface")]
+        // SAFETY: `self.bus` is the bus this owns.
+        let waited = unsafe { sd_bus_wait(self.bus, usec) };
+        if waited < 0 && waited != -libc::EINTR {
+            return Err(ScopeError::Bus(errno(waited)));
+        }
+        Ok(())
+    }
+}
+
+/// The microseconds left before `until`, or [`ScopeError::NoAnswer`] when
+/// none are.
+fn left(until: Instant) -> Result<u64, ScopeError> {
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the scope's sequence is bounded in time"
+    )]
+    let now = Instant::now();
+    let left = until
+        .checked_duration_since(now)
+        .filter(|d| !d.is_zero())
+        .ok_or(ScopeError::NoAnswer)?;
+    Ok(u64::try_from(left.as_micros()).unwrap_or(u64::MAX).max(1))
+}
+
+/// A call sd-bus failed with `code` and `error`: no answer in time, or what
+/// the bus or systemd answered.
+fn failed(code: c_int, error: &BusError) -> ScopeError {
+    if code == -libc::ETIMEDOUT {
+        return ScopeError::NoAnswer;
+    }
+    ScopeError::Bus(classify(text(error.name), text(error.message), code))
 }
 
 impl Drop for SystemBus {
@@ -294,10 +433,14 @@ impl Drop for SystemBus {
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
         // SAFETY: each is what sd-bus gave, freed once: the slot first,
         // which stops the handler before its queue goes (null-tolerant),
-        // then the connection.
+        // then the connection. It is closed without a flush, which would
+        // wait without a bound for a connection still starting
+        // (sd-bus.c:3449-3468); every call here waited for its answer, so
+        // nothing is left to send.
         unsafe {
             sd_bus_slot_unref(self.slot);
-            sd_bus_flush_close_unref(self.bus);
+            sd_bus_close(self.bus);
+            sd_bus_unref(self.bus);
         }
     }
 }
@@ -349,7 +492,9 @@ unsafe extern "C" fn job_removed(m: *mut c_void, userdata: *mut c_void, _: *mut 
 }
 
 impl Bus for SystemBus {
-    fn watch_jobs(&mut self) -> Result<(), Error> {
+    fn watch_jobs(&mut self, until: Instant) -> Result<(), ScopeError> {
+        // the match is added with a call that takes the bus's timeout
+        self.bound(until)?;
         let userdata: *mut Removed = &mut *self.removed;
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
         // SAFETY: `self.bus` is the open connection; every string is a
@@ -367,7 +512,13 @@ impl Bus for SystemBus {
                 userdata.cast(),
             )
         };
-        if r < 0 { Err(errno(r)) } else { Ok(()) }
+        if r == -libc::ETIMEDOUT {
+            Err(ScopeError::NoAnswer)
+        } else if r < 0 {
+            Err(ScopeError::Bus(errno(r)))
+        } else {
+            Ok(())
+        }
     }
 
     fn start_transient_unit(
@@ -375,8 +526,10 @@ impl Bus for SystemBus {
         name: &str,
         mode: &str,
         properties: &[Property],
-    ) -> Result<String, Error> {
-        let c = |s: &str| CString::new(s).map_err(|_| errno(-libc::EINVAL));
+        until: Instant,
+    ) -> Result<String, ScopeError> {
+        let usec = left(until)?;
+        let c = |s: &str| CString::new(s).map_err(|_| ScopeError::Bus(errno(-libc::EINVAL)));
         let (name, mode) = (c(name)?, c(mode)?);
         let mut m: *mut c_void = ptr::null_mut();
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
@@ -393,9 +546,9 @@ impl Bus for SystemBus {
             )
         };
         if r < 0 {
-            return Err(errno(r));
+            return Err(ScopeError::Bus(errno(r)));
         }
-        let built = append(m, &name, &mode, properties);
+        let built = append(m, &name, &mode, properties).map_err(ScopeError::Bus);
         let mut error = BusError {
             name: ptr::null(),
             message: ptr::null(),
@@ -406,10 +559,10 @@ impl Bus for SystemBus {
             #[expect(unsafe_code, reason = "sd-bus's C interface")]
             // SAFETY: `m` is the complete call; `error` starts as
             // SD_BUS_ERROR_NULL and `reply` as null, as sd-bus requires;
-            // 0 takes the bus's own call timeout, set at open.
-            let called = unsafe { sd_bus_call(self.bus, m, 0, &mut error, &mut reply) };
+            // `usec` is what is left of the sequence's time.
+            let called = unsafe { sd_bus_call(self.bus, m, usec, &mut error, &mut reply) };
             if called < 0 {
-                return Err(classify(text(error.name), text(error.message), called));
+                return Err(failed(called, &error));
             }
             let mut job: *const c_char = ptr::null();
             #[expect(unsafe_code, reason = "sd-bus's C interface")]
@@ -418,9 +571,9 @@ impl Bus for SystemBus {
             // reply.
             let read = unsafe { sd_bus_message_read(reply, c"o".as_ptr(), &mut job) };
             if read < 0 {
-                return Err(errno(read));
+                return Err(ScopeError::Bus(errno(read)));
             }
-            text(job).ok_or_else(|| errno(-libc::EBADMSG))
+            text(job).ok_or_else(|| ScopeError::Bus(errno(-libc::EBADMSG)))
         });
         #[expect(unsafe_code, reason = "sd-bus's C interface")]
         // SAFETY: each is what sd-bus gave above, freed once: the error (a
@@ -433,8 +586,12 @@ impl Bus for SystemBus {
         result
     }
 
-    fn next_removed_job(&mut self, deadline: Instant) -> Result<Option<(String, String)>, Error> {
+    fn next_removed_job(&mut self, until: Instant) -> Result<Option<(String, String)>, ScopeError> {
         loop {
+            // the time first: a job that finished past it counts as late
+            if left(until).is_err() {
+                return Ok(None);
+            }
             if let Some(job) = self.removed.pop_front() {
                 return Ok(Some(job));
             }
@@ -443,34 +600,21 @@ impl Bus for SystemBus {
             // pointer asks for none back.
             let processed = unsafe { sd_bus_process(self.bus, ptr::null_mut()) };
             if processed < 0 {
-                return Err(errno(processed));
+                return Err(ScopeError::Bus(errno(processed)));
             }
-            if processed > 0 {
-                continue;
-            }
-            #[expect(
-                clippy::disallowed_methods,
-                reason = "the job's wait is bounded in time"
-            )]
-            let now = Instant::now();
-            let Some(left) = deadline
-                .checked_duration_since(now)
-                .filter(|d| !d.is_zero())
-            else {
-                return Ok(None);
-            };
-            let usec = u64::try_from(left.as_micros()).unwrap_or(u64::MAX);
-            #[expect(unsafe_code, reason = "sd-bus's C interface")]
-            // SAFETY: `self.bus` is the open connection.
-            let waited = unsafe { sd_bus_wait(self.bus, usec) };
-            if waited < 0 && waited != -libc::EINTR {
-                return Err(errno(waited));
+            if processed == 0 {
+                match self.wait(until) {
+                    Err(ScopeError::NoAnswer) => return Ok(None),
+                    waited => waited?,
+                }
             }
         }
     }
 
-    fn cancel_job(&mut self, job: &str) -> Result<(), Error> {
-        let job = CString::new(job).map_err(|_| errno(-libc::EINVAL))?;
+    fn cancel_job(&mut self, job: &str, until: Instant) -> Result<(), ScopeError> {
+        let job = CString::new(job).map_err(|_| ScopeError::Bus(errno(-libc::EINVAL)))?;
+        // the call takes the bus's timeout
+        self.bound(until)?;
         let mut error = BusError {
             name: ptr::null(),
             message: ptr::null(),
@@ -494,7 +638,7 @@ impl Bus for SystemBus {
             )
         };
         let result = if called < 0 {
-            Err(classify(text(error.name), text(error.message), called))
+            Err(failed(called, &error))
         } else {
             Ok(())
         };
@@ -621,10 +765,15 @@ mod tests {
         holder: Option<String>,
         /// The last job queued and its unit.
         queued: Option<(String, String)>,
+        /// Nothing answers: the bus or the manager is wedged.
+        silent: bool,
     }
 
     impl Bus for StandInManager {
-        fn watch_jobs(&mut self) -> Result<(), Error> {
+        fn watch_jobs(&mut self, _: Instant) -> Result<(), ScopeError> {
+            if self.silent {
+                return Err(ScopeError::NoAnswer);
+            }
             self.watching = true;
             Ok(())
         }
@@ -634,14 +783,15 @@ mod tests {
             name: &str,
             mode: &str,
             properties: &[Property],
-        ) -> Result<String, Error> {
+            _: Instant,
+        ) -> Result<String, ScopeError> {
             self.calls
                 .push((name.to_owned(), mode.to_owned(), properties.to_vec()));
             if self.units.iter().any(|u| u == name) {
-                return Err(Error::Refused {
+                return Err(ScopeError::Bus(Error::Refused {
                     name: "org.freedesktop.systemd1.UnitExists".to_owned(),
                     message: format!("Unit {name} was already loaded or has a fragment file."),
-                });
+                }));
             }
             self.units.push(name.to_owned());
             self.jobs = self.jobs.saturating_add(1);
@@ -663,12 +813,12 @@ mod tests {
             Ok(job)
         }
 
-        fn next_removed_job(&mut self, _: Instant) -> Result<Option<(String, String)>, Error> {
+        fn next_removed_job(&mut self, _: Instant) -> Result<Option<(String, String)>, ScopeError> {
             Ok(self.signals.pop_front())
         }
 
         /// A job still queued is cancelled; any other, systemd refuses.
-        fn cancel_job(&mut self, job: &str) -> Result<(), Error> {
+        fn cancel_job(&mut self, job: &str, _: Instant) -> Result<(), ScopeError> {
             self.cancelled.push(job.to_owned());
             let queued = self.queued.take();
             match queued {
@@ -686,11 +836,11 @@ mod tests {
         }
     }
 
-    fn refused_no_such_job(job: &str) -> Error {
-        Error::Refused {
+    fn refused_no_such_job(job: &str) -> ScopeError {
+        ScopeError::Bus(Error::Refused {
             name: "org.freedesktop.DBus.Error.UnknownObject".to_owned(),
             message: format!("Unknown object '{job}'."),
-        }
+        })
     }
 
     fn deadline() -> Instant {
@@ -766,6 +916,57 @@ mod tests {
         let e = start_with(&mut systemd, "vtium-login-tty2-1.scope", 1, deadline());
         assert!(e.is_ok(), "{e:?}");
         assert_eq!(systemd.cancelled, ["/org/freedesktop/systemd1/job/1"]);
+    }
+
+    // A bus that never answers asks for no scope and cancels nothing: no
+    // request went out.
+    #[test]
+    fn a_silent_bus_ends_before_any_request() {
+        let mut systemd = StandInManager {
+            silent: true,
+            ..StandInManager::default()
+        };
+        let e = start_with(&mut systemd, "vtium-login-tty2-1.scope", 1, deadline());
+        assert!(matches!(e, Err(ScopeError::NoAnswer)), "{e:?}");
+        assert!(systemd.calls.is_empty() && systemd.cancelled.is_empty());
+    }
+
+    // The real connection against a socket that accepts and never answers,
+    // as a wedged bus daemon does: the whole sequence ends by its deadline,
+    // here 1 s away, of which the connection may take all but the 500 ms
+    // kept for a cancel. sd-bus's own wait for the bus's authentication is
+    // 90 s, so a wait that ignored the deadline would take that long. The
+    // test waits for the answer on another thread, at most 20 s, only so
+    // that it fails instead of hanging.
+    #[test]
+    fn a_bus_that_never_answers_ends_by_the_deadline() {
+        let dir = std::env::temp_dir().join(format!(
+            "vtium-scope-test-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("bus");
+        let listener =
+            std::os::unix::net::UnixListener::bind(&path).unwrap_or_else(|e| panic!("{e}"));
+        let address =
+            CString::new(format!("unix:path={}", path.display())).unwrap_or_else(|e| panic!("{e}"));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            #[expect(clippy::disallowed_methods, reason = "the sequence's deadline")]
+            let now = Instant::now();
+            let deadline = now + Duration::from_millis(1000);
+            let got = start_at(&address, "vtium-login-tty2-1.scope", 1, deadline);
+            let _ = tx.send(got.map_err(|e| e.to_string()));
+        });
+        let got = rx.recv_timeout(Duration::from_secs(20));
+        drop(listener);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            got,
+            Ok(Err("the system bus did not answer in time".to_owned()))
+        );
     }
 
     #[test]

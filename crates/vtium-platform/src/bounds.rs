@@ -165,9 +165,9 @@ const DEVICE_OPENS: Bound = Bound {
 const SCOPE_JOB: Bound = Bound {
     name: "SCOPE_JOB_MS",
     value: 2000,
-    what: "With `logind`, in the libseat build under logind: milliseconds vtium waits for systemd to finish the job that moves a login child into a scope of its own, after the call that queues it",
-    past: "vtium logs one line and lets the child run `login` in vtium's own session, as when systemd is not PID 1",
-    cite: "The 2 s bound vtium already gives logind's answer; systemd finishes a transient scope's job at once, since the scope only adopts a running process (ADR-1400 D3)",
+    what: "With `logind`, in the libseat build under logind: milliseconds the whole move of a login child into a scope of its own may take: the connection to the system bus, the request, the wait for systemd's job, and the job's cancel, which keeps the last 500 ms",
+    past: "vtium cancels the job, logs one line and lets the child run `login` in vtium's own session, as when systemd is not PID 1",
+    cite: "The 2 s bound vtium already gives logind's answer; systemd finishes a transient scope's job at once, since the scope only adopts a running process (ADR-1400 D3). sd-bus's own defaults, 25 s a call and 90 s for authentication, would hold the loop far longer",
 };
 
 const RESOURCE_READS: Bound = Bound {
