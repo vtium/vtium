@@ -303,7 +303,8 @@ impl Port for Console {
 
     /// Draws what is asked as the stand-in helper does, and answers at
     /// the next wait: tiny5's cell is 4x6 and every other font's 8x16; a
-    /// picture is two pixels; a summary is unifont's.
+    /// picture is two pixels, or the real painter's refusal where its
+    /// preview area cannot show one line of text; a summary is unifont's.
     fn draw(&mut self, ask: Draw) {
         let answer = match ask {
             Draw::Cell { font, height } => {
@@ -324,8 +325,9 @@ impl Port for Console {
             Draw::Picture(shot) => {
                 self.pictures
                     .push((shot.font.clone(), shot.height, shot.max));
+                let shown = vtium_config::specimen::shown(&shot);
                 self.shots.push(shot);
-                Drawn::Pictured(Ok(Picture {
+                Drawn::Pictured(shown.map(|_| Picture {
                     width: 2,
                     height: 1,
                     rgba: vec![255, 0, 0, 255, 0, 0, 255, 255],
@@ -1888,7 +1890,7 @@ fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
         let helper = vtium_config::specimen::Helper::at(env!("CARGO_BIN_EXE_vtium-config"));
         let frit = vtium_config::tui::frit_text(Path::new("/nonexistent"), &shot.font)
             .expect("a built-in font's frit");
-        // at full size, where the TUI shrinks it to the room it has
+        // the whole screen, where the TUI shows the part of it that fits
         let mut full = shot.clone();
         full.max = vtium_config::tui::shot::PREVIEW_SCREEN;
         let picture =
@@ -2179,6 +2181,33 @@ fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
     run(&mut c);
     let (_, _, max) = c.pictures.last().cloned().expect("6 pt's picture");
     assert_eq!(max, vtium_config::specimen::PICTURE_MAX);
+}
+
+/// Where the preview area cannot show one line of text at the size's
+/// cell, the message line says so, and no sliver of a picture is sent.
+#[test]
+fn a_preview_area_less_than_one_line_high_says_so_on_the_message_line() {
+    // cells of 2x1 pixels leave the Looks view's area 14 pixels high, and
+    // the stand-in's 8x16 cell needs 16
+    let mut c = console().keys(&[BACKTAB, DOWN]);
+    c.graphics = true;
+    c.cell_px = Some((2, 1));
+    run(&mut c);
+    let (_, _, (_, h)) = c
+        .pictures
+        .last()
+        .cloned()
+        .expect("6 pt's picture asked for");
+    assert!(h < 16, "{h}");
+    // the Fonts view's detailed specimen, which the loop opens on, is the
+    // only picture sent
+    assert_eq!(count(&c.written, b"\x1b_Ga=T"), c.specimens.len());
+    let screen = c.seen.clone().expect("the screen");
+    let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        text.contains("No preview image of the console: the preview area is too small to show one line of text at this size. Make this terminal larger, or choose a smaller size."),
+        "{screen}"
+    );
 }
 
 #[test]

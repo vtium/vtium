@@ -32,9 +32,12 @@ pub const TICK: Duration = Duration::from_secs(1);
 pub const ASSUMED_DISPLAY: (u32, u32) = (640, 480);
 
 /// The screen the Looks view's preview draws, in pixels, whatever the real
-/// display's size: a nominal screen of sample content, so that a large
-/// display such as 7680 by 2160 does not shrink the glyphs out of sight.
-/// The glyphs keep the cell the look gets on the real display.
+/// display's size: a nominal screen of sample content from its top left.
+/// The preview shows it as the Fonts view shows the detailed specimen: one
+/// pixel of the console to one pixel of the picture, as many whole
+/// character cells of the sample content as the preview area holds, so a
+/// bigger size gives a bigger picture. The glyphs keep the cell the look
+/// gets on the real display.
 pub const PREVIEW_SCREEN: (u32, u32) = (1024, 768);
 
 /// The sample content of the Looks view's preview, one line a row, each
