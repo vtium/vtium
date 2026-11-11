@@ -63,9 +63,9 @@ fn each_warning_is_printed_and_it_exits_one() {
     );
     assert!(
         lines[2].ends_with(
-            "vtium.conf:2: palette=\"frob\" is not one of legacy, custom, nord, \
-             solarized, solarized-black, solarized-white, soft-black, base16-dark, base16-light, \
-             vga, ignored"
+            "vtium.conf:2: palette=\"frob\" is not a value this setting takes. It takes legacy, \
+             custom, nord, solarized, solarized-black, solarized-white, soft-black, base16-dark, \
+             base16-light, or vga. Because of this error, vtium ignores this setting."
         ),
         "{err}"
     );
