@@ -1829,7 +1829,7 @@ mod tests {
         // again without it
         assert_eq!(g.make_room(1), vec![(AT, SUPER, texts(&['C']))]);
         assert!(g.held(AT, SUPER, &['A']) && !g.held(AT, SUPER, &['C']));
-        let a = g.draw(AT, &['A'], SUPER).expect("A in superscript");
+        let a = g.draw(AT, &['A'], SUPER).unwrap();
         assert!(a.pixels().iter().all(|&p| p == 77));
         assert!(g.draw(AT, &['A'], Variant::default()).is_none());
     }
