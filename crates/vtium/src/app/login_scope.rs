@@ -21,32 +21,36 @@ use super::*;
 use crate::app::tests::{Still, no_fonts, shown};
 
 /// What the stand-in for the scope call saw: the place and the child's
-/// process id, and whether the child was still waiting before its exec.
+/// process id. vtium-platform's tests show that the child waits before its
+/// exec until the call returns.
 #[derive(Debug, PartialEq, Eq)]
 struct Asked {
     place: String,
     pid: u32,
-    held: bool,
 }
 
 type Seen = Rc<RefCell<Vec<Asked>>>;
 
 /// The scope call stood in for: it records what it was asked, and answers
-/// `answer`. A child still waiting before its exec runs this test's own
-/// program, as the fork left it.
+/// `answer`. It refuses a place that would make no valid unit name, as
+/// systemd refuses one (systemd.unit(5): letters, digits and `:_.\-`).
 fn scope(seen: &Seen, answer: Result<(), &'static str>) -> LoginScope {
     let seen = Rc::clone(seen);
-    let ours = std::fs::read_link("/proc/self/exe").unwrap();
     Box::new(move |place: &str, pid: u32| {
-        let exe = std::fs::read_link(format!("/proc/{pid}/exe")).ok();
         seen.borrow_mut().push(Asked {
             place: place.to_owned(),
             pid,
-            held: exe.as_deref() == Some(ours.as_path()),
         });
-        answer
-            .map(|()| format!("vtium-login-{place}-{pid}.scope"))
-            .map_err(str::to_owned)
+        let unit = format!("vtium-login-{place}-{pid}.scope");
+        if !unit
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || ":_.\\-".contains(c))
+        {
+            return Err(format!(
+                "systemd answered org.freedesktop.DBus.Error.InvalidArgs: Invalid unit name {unit}"
+            ));
+        }
+        answer.map(|()| unit).map_err(str::to_owned)
     })
 }
 
@@ -130,11 +134,11 @@ fn end(app: &App) {
     }
 }
 
-// On the logind seat, the session's child waits before its exec until the
-// scope call on its process id has returned, and it starts with no seat,
-// no VT number and none of vtium's own session's variables.
+// On the logind seat, the session's child is moved into its scope by its
+// process id, and it starts with no seat, no VT number and none of vtium's
+// own session's variables.
 #[test]
-fn on_the_logind_seat_the_session_runs_only_once_its_scope_call_returned() {
+fn on_the_logind_seat_the_sessions_child_is_moved_into_its_scope() {
     let seen = Seen::default();
     let (mut lp, mut app) = seat(FakeVt::on_logind_seat(2), scope(&seen, Ok(())));
     let env = row(&mut lp, &mut app, "env:");
@@ -147,9 +151,8 @@ fn on_the_logind_seat_the_session_runs_only_once_its_scope_call_returned() {
         [Asked {
             place: "tty2".to_owned(),
             pid: leader,
-            held: true,
         }],
-        "one scope call, on the child's id, while the child waited"
+        "one scope call, on the child's id"
     );
     assert_eq!(
         pid,

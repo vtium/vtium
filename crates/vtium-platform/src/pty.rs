@@ -925,24 +925,22 @@ mod tests {
         let _ = waitpid(Some(pid), WaitOptions::empty());
     }
 
-    // The child runs its program only once `before_exec` has returned:
-    // while it runs, the child is still a copy of this test's program.
+    // ADR-1400 lists the login child's descriptors as observable: after its
+    // exec it holds 0, 1 and 2 only. The pipes it waited on are
+    // close-on-exec, so none of them reaches its program.
     #[test]
-    fn a_held_child_runs_its_program_only_after_before_exec() {
-        let ours = std::fs::read_link("/proc/self/exe").unwrap();
-        let mut seen = None;
-        let pty = Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |pid| {
-            seen = Some((pid, std::fs::read_link(format!("/proc/{pid}/exe")).unwrap()));
-        })
-        .unwrap();
-        let (pid, held) = seen.unwrap();
-        let ran = std::fs::read_link(format!("/proc/{pid}/exe")).unwrap();
-        let id = pty.child_id();
+    fn a_held_childs_program_holds_only_its_standard_descriptors() {
+        let mut held = None;
+        let pty = Pty::spawn_gated(sleeper(), SIZE, Erase::Delete, |pid| held = Some(pid)).unwrap();
+        let pid = held.unwrap();
+        let mut fds: Vec<String> = std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        fds.sort();
         pty.release();
         end(pid);
-        assert_eq!(id, Some(pid), "before_exec is told the child's id");
-        assert_eq!(held, ours, "the child waits before its exec");
-        assert!(ran.ends_with("sleep"), "then it runs its program: {ran:?}");
+        assert_eq!(fds, ["0", "1", "2"]);
     }
 
     // A thread that cannot start, here because its stack of 1 PiB is more
@@ -960,7 +958,10 @@ mod tests {
     }
 
     // A `before_exec` that unwinds never lets the child go: the child ends
-    // before its exec, and the spawn fails with the panic.
+    // before its exec, and the spawn fails with the panic. A child that did
+    // not wait would have run its program, which would still be running
+    // once the spawn returned, so this test also catches a child that
+    // does not wait for `before_exec`.
     #[test]
     #[expect(clippy::panic, reason = "the scope call's failure, as an unwind")]
     fn a_held_child_whose_before_exec_unwinds_never_runs() {
