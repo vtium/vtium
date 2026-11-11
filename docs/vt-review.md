@@ -6,12 +6,12 @@ It is written for a host under systemd and logind whose VTs run `vtium-dev@ttyN`
 
 ## This machine's VTs
 
-The maintainer's machine runs the packaged vtium and has no kmscon installed. `sudo vtium console enable --all` pointed `/etc/systemd/system/autovt@.service` at the packaged `vtium@.service` and disabled the gettys on VTs 2 to 6, so logind starts the packaged vtium on each of those VTs when it is switched to.
+The maintainer's machine runs the packaged vtium and has no kmscon installed. `sudo vtium console enable --all` pointed `/etc/systemd/system/autovt@.service` at the packaged `vtium@.service` and disabled the gettys on VTs 2 to 6. Each of VTs 2, 3, 4 and 6 is also enabled at boot as `vtium@ttyN.service`, which links `getty.target.wants/vtium@ttyN.service` and `autovt@ttyN.service`, so systemd starts the packaged vtium there at boot and it holds the VT open. sddm then puts each new desktop session on VT 7, the first VT that no program holds open.
 
 | VT | What runs there |
 |---|---|
 | 1 | sddm, the display manager, whose unit takes the VT with `Conflicts=getty@tty1.service` |
-| 2, 3, 4 and 6 | the packaged vtium, `vtium@ttyN`, which logind starts when the VT is switched to |
+| 2, 3, 4 and 6 | the packaged vtium in direct mode, `vtium@ttyN`, which systemd starts at boot |
 | 5 | the development VT: `vtium-dev@tty5`, a build of this checkout with the GPU path, pictures and `hwaccel` on, which `make vt-install` installed ([The GPU path on the development VT](#the-gpu-path-on-the-development-vt)) |
 | 7 | the maintainer's Wayland session |
 
