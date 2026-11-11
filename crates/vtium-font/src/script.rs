@@ -275,11 +275,10 @@ pub fn smaller(normal: u32, cell_width: u32, strikes: &[crate::face::Cell]) -> O
         if cell.height == 0 || cell.width == 0 {
             continue;
         }
+        // the range itself is in_range's alone; a multiple taller than
+        // the normal glyph can never lie in it, so the search ends there
         let mut multiple = 1u32;
-        while let Some(height) = cell.height.checked_mul(multiple) {
-            if u64::from(height).saturating_mul(4) > u64::from(normal).saturating_mul(3) {
-                break;
-            }
+        while let Some(height) = cell.height.checked_mul(multiple).filter(|&h| h <= normal) {
             let fits = cell
                 .width
                 .checked_mul(multiple)
@@ -1051,6 +1050,38 @@ mod tests {
             s,
             Smaller {
                 strike: 0,
+                multiple: 1
+            }
+        );
+    }
+
+    // D3's upper bound: a source drawn at 5x takes itself at 3x, three
+    // fifths, and not at 4x, four fifths, which is past three quarters
+    // covers: sgr.script
+    #[test]
+    fn five_times_takes_three_not_four() {
+        let s = smaller(16 * 5, 8 * 5, &[cell(8, 16)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 0,
+                multiple: 3
+            }
+        );
+    }
+
+    // D3's upper bound: a strike seven eighths of the normal height is
+    // refused, and the next one in the range is taken
+    // covers: sgr.script
+    #[test]
+    fn a_strike_past_three_quarters_is_refused() {
+        assert!(!in_range(14, 16));
+        assert_eq!(smaller(16, 16, &[cell(8, 14)]), None);
+        let s = smaller(16, 16, &[cell(8, 14), cell(8, 12)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 1,
                 multiple: 1
             }
         );
