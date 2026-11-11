@@ -403,6 +403,9 @@ pub struct Screen {
     /// The cell under the pointer, a column and a row, set after the
     /// bytes: the link there draws hovered (ADR-1002, "Drawing").
     pub pointer: Option<(usize, usize)>,
+    /// Ctrl held with the pointer: the hovered link's address shows on
+    /// the overlay row (ADR-1002, "Drawing").
+    pub ctrl: bool,
     /// The pictures, fed with the terminal's sixel and kitty handlers on
     /// (`crate::pictures`): before the first frame, after the bytes, and,
     /// for a screen with a second part, before each later frame too, the
@@ -455,6 +458,7 @@ impl Screen {
             overlay: None,
             alone: None,
             pointer: None,
+            ctrl: false,
             pictures: None,
             made_cell: None,
             selection: None,
@@ -958,7 +962,7 @@ pub(crate) fn prepare<F: Face>(
         term.screen_mut().select_to(c1, r1);
     }
     if let Some(at) = screen.pointer {
-        term.screen_mut().set_pointer(Some(at), false);
+        term.screen_mut().set_pointer(Some(at), screen.ctrl);
     }
     if matches!(screen.font, FontKind::Sprites { .. }) {
         check_sprites(font, &term)?;

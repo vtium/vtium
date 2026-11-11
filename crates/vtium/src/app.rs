@@ -132,6 +132,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(feature = "logind")]
+pub mod keyboard_layout;
 #[cfg(test)]
 mod login_scope;
 #[cfg(test)]

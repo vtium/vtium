@@ -13,6 +13,7 @@ use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, Source, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Sprites};
+use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
@@ -349,6 +350,9 @@ struct Pass<'p, 'f> {
     /// ink lands outside the selection (ADR-1306 D6). Made the first time
     /// it is read.
     plain: core::cell::OnceCell<Frame<'f>>,
+    /// The overlay row showing the hovered link's address (ADR-1002,
+    /// "Drawing"), whose cells take the place of the screen's.
+    link_row: Option<LinkRow<'f>>,
 }
 
 impl<'f> Pass<'_, 'f> {
@@ -356,6 +360,23 @@ impl<'f> Pass<'_, 'f> {
     fn plain(&self) -> &Frame<'f> {
         self.plain
             .get_or_init(|| self.frame.clone().with_selection(Vec::new()))
+    }
+
+    /// The cell drawn at `row`, column `col`, the overlay row's where it
+    /// covers the cell ([`Frame::cell`]).
+    fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        let fc = self.frame.cell(row, col)?;
+        Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
+    }
+
+    /// The cells of `row` as drawn, left to right, the overlay row's where
+    /// it covers them ([`Frame::cells`]).
+    fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
+        let link_row = self.link_row;
+        self.frame
+            .cells(row)
+            .enumerate()
+            .map(move |(col, fc)| link_row.map_or(fc, |o| o.cell(col, row, fc)))
     }
 }
 
@@ -630,6 +651,14 @@ fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width
 /// ligature, and 0 for the lam beside it; `None` for any other cell.
 #[cfg(feature = "bidi")]
 fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<usize> {
+    // the overlay's characters join nothing, and the letter beside them
+    // joins none of them
+    let (col, row) = at;
+    if p.link_row
+        .is_some_and(|o| o.covers(col.saturating_sub(1), row))
+    {
+        return None;
+    }
     match crate::joined::span(p.frame, at, fc, p.held) {
         crate::joined::Span::Pair => Some(2),
         crate::joined::Span::Tail => Some(0),
@@ -646,10 +675,10 @@ fn sorted(chars: &[char]) -> Vec<char> {
 }
 
 /// The width of the cell after `col` in `row`, among the grid's `cols`.
-fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<Width> {
+fn next_width(p: &Pass<'_, '_>, row: usize, col: usize, cols: usize) -> Option<Width> {
     let next = col.saturating_add(1);
     (next < cols)
-        .then(|| frame.cell(row, next))
+        .then(|| p.cell(row, next))
         .flatten()
         .map(|fc| fc.width)
 }
@@ -1163,9 +1192,14 @@ impl<F: Face> Renderer<F> {
     }
 
     /// Where the cursor draws: the leading cell of a wide character whose
-    /// trailing half it sits on.
-    fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
-        let width_at = |col: usize| frame.cell(c.row, col).map(|fc| fc.width);
+    /// trailing half it sits on. The overlay row's cells are narrow.
+    fn cursor_cell(frame: &Frame<'_>, link_row: Option<LinkRow<'_>>, c: &Cursor) -> (usize, usize) {
+        let width_at = |col: usize| {
+            let covered = link_row.is_some_and(|o| o.covers(col, c.row));
+            frame
+                .cell(c.row, col)
+                .map(|fc| if covered { Width::Narrow } else { fc.width })
+        };
         let before = c.col.checked_sub(1).and_then(width_at);
         let tail = width_at(c.col).is_some_and(|w| span(w, before, || None) == 0);
         match c.col.checked_sub(1) {
@@ -1184,7 +1218,12 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> (u32, u32) {
         let cursor = frame.cursor();
-        let held = cursor.visible.then(|| Self::cursor_cell(frame, &cursor));
+        let link_row = LinkRow::new(frame, g.cols, g.rows);
+        // the cursor is not drawn under the overlay row
+        let held = cursor
+            .visible
+            .then(|| Self::cursor_cell(frame, link_row, &cursor))
+            .filter(|&(c, r)| !link_row.is_some_and(|o| o.covers(c, r)));
         let at = held.filter(|_| state.cursor_on);
         let phases = (state.blink_hidden, state.rapid_hidden);
         let blink_toggled = phases != self.blink_hidden;
@@ -1199,12 +1238,16 @@ impl<F: Face> Renderer<F> {
             at,
             held,
             plain: core::cell::OnceCell::new(),
+            link_row,
         };
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
             let scan = self.cells.row_stale(row)
                 || self.row_shows_changed(frame, row, g.cols)
+                || link_row.is_some_and(|o| {
+                    o.row() == row && o.chars().any(|c| self.shows_changed(&Glyph::Char(c)))
+                })
                 || blink_toggled
                 || frame.row_changed(row)
                 || [at, last_cursor, held, last_held]
@@ -1273,7 +1316,7 @@ impl<F: Face> Renderer<F> {
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         if ncells == 2 {
             let tail = col.saturating_add(1);
-            changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
+            changed |= p.cell(row, tail).is_some_and(|t| t.changed);
             if let Some(t) = self.cells.get_mut(tail, row) {
                 changed |= t.replace_span(0) != 0;
             }
@@ -1403,8 +1446,8 @@ impl<F: Face> Renderer<F> {
         self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
-        for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
-            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+        for (here, fc) in p.cells(row).take(g.cols).enumerate() {
+            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
@@ -1491,7 +1534,16 @@ impl<F: Face> Renderer<F> {
             .unwrap_or(0)
             .min(cols.saturating_sub(1));
         let line = p.frame.line(row);
-        let width = |c: usize| line.filter(|_| c < cols).map(|l| l.cell(c).width());
+        let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
+        let width = |c: usize| {
+            line.filter(|_| c < cols).map(|l| {
+                if covered(c) {
+                    Width::Narrow
+                } else {
+                    l.cell(c).width()
+                }
+            })
+        };
         let mut count = 0u32;
         let mut col = first;
         while col <= last && col < cols {
@@ -1503,11 +1555,7 @@ impl<F: Face> Renderer<F> {
             };
             // a lam-alef ligature is drawn whole by its alef, on the left
             #[cfg(feature = "bidi")]
-            let (lead, n) = match p
-                .frame
-                .cell(row, col)
-                .and_then(|fc| paired(p, (col, row), &fc))
-            {
+            let (lead, n) = match p.cell(row, col).and_then(|fc| paired(p, (col, row), &fc)) {
                 Some(0) => (col.saturating_sub(1), 2),
                 Some(n) => (col, n),
                 None => (lead, n),
@@ -1518,7 +1566,7 @@ impl<F: Face> Renderer<F> {
                 .jobs
                 .iter()
                 .any(|j| lead < j.posx.saturating_add(j.ncells) && j.posx < end);
-            if let Some(fc) = p.frame.cell(row, lead).filter(|_| !held) {
+            if let Some(fc) = p.cell(row, lead).filter(|_| !held) {
                 count = count.saturating_add(self.push_cell(p, (lead, row), &fc, n));
             }
             col = lead.saturating_add(n);
@@ -1617,8 +1665,8 @@ impl<F: Face> Renderer<F> {
             found.sort_unstable();
             // a block cursor or the selection marks the job's cell
             let block = matches!(p.cursor.shape, CursorShape::Block);
-            let marked = (block && p.at == Some((a, row)))
-                || p.frame.cell(row, a).is_some_and(|c| c.selected);
+            let marked =
+                (block && p.at == Some((a, row))) || p.cell(row, a).is_some_and(|c| c.selected);
             let from = self.compose.sources.len();
             for &(_, _, k, r, span) in &found {
                 if let Some(src) = self.source(p, (&job, marked), (k, r, span)) {
@@ -1648,7 +1696,7 @@ impl<F: Face> Renderer<F> {
         (job, marked): (&Job, bool),
         (k, r, span): (usize, usize, usize),
     ) -> Option<Source> {
-        let fc = p.frame.cell(r, k)?;
+        let fc = p.cell(r, k)?;
         let own = if self.config.depth == Depth::One {
             mono::opposite(job.bg)
         } else if fc.selected {
@@ -1977,11 +2025,11 @@ impl<F: Face> Renderer<F> {
         let g = &p.g;
         let mut before = first
             .checked_sub(1)
-            .and_then(|c| p.frame.cell(row, c))
+            .and_then(|c| p.cell(row, c))
             .map(|fc| fc.width);
-        let run = p.frame.cells(row).take(end.min(g.cols)).enumerate();
+        let run = p.cells(row).take(end.min(g.cols)).enumerate();
         for (here, fc) in run.skip(first) {
-            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);

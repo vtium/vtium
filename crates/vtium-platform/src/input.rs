@@ -27,7 +27,7 @@ mod event;
 mod keyboard;
 mod link;
 mod pointer;
-mod system;
+pub(crate) mod system;
 
 #[cfg(test)]
 pub(crate) mod fake;
@@ -41,7 +41,7 @@ pub use event::{
 };
 
 pub(crate) use evdev::EventDevice;
-pub use keyboard::{Keymap, KeymapConfig, Leds, RuleNames, locale};
+pub use keyboard::{Compiled, Keymap, KeymapConfig, Leds, RuleNames, locale};
 pub use system::system_layout;
 
 use std::io;
@@ -465,6 +465,33 @@ impl<O: Open + 'static> Input<O> {
         let ids: Vec<DeviceId> = self.devices.iter().map(|d| d.id).collect();
         for id in ids {
             self.close(id);
+        }
+    }
+
+    /// The seat's keymap.
+    pub fn keymap(&self) -> &Keymap {
+        &self.keymap
+    }
+
+    /// Replaces the seat's keymap with `keymap`, for a new keyboard layout.
+    /// Every keyboard takes it, open or closed, and so does each keyboard
+    /// probed from here on. An open keyboard's LEDs show its locked
+    /// modifiers again, and its owner hears of a change in the modifiers it
+    /// holds.
+    pub fn set_keymap(&mut self, keymap: Keymap) {
+        self.keymap = keymap;
+        for device in &mut self.devices {
+            let Some(probed) = device.probed.as_mut() else {
+                continue;
+            };
+            let Some(keyboard) = probed.keyboard.as_mut() else {
+                continue;
+            };
+            let leds = keyboard.set_keymap(&self.keymap);
+            if let (Some(dev), true) = (device.open.as_mut(), probed.caps.leds) {
+                write_leds(dev, &device.node, leds);
+            }
+            device.tell_mods(&mut self.queue);
         }
     }
 
