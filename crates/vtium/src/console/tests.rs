@@ -2740,3 +2740,42 @@ fn a_move_on_loginds_reserved_vt_waits_while_the_other_mode_runs_there() {
         assert_eq!(both_modes(&m), Vec::<u16>::new());
     }
 }
+
+#[test]
+fn vtiums_own_greeter_session_keeps_no_vt_from_a_move() {
+    // vtium in seat mode opens a logind session of its own in the class
+    // greeter, through the PAM stack vtium (ADR-1400 D3). It is vtium on
+    // the VT, not a display manager's greeter.
+    let mut m = Machine::gettys("own-greeter");
+    assert_eq!(m.console(&["enable", "--seat", "--all"]).0, 0);
+    assert_eq!(m.console(&["enable", "--seat", "3"]).0, 0);
+    m.fake.running = vec![
+        "vtium-seat@tty3.service".into(),
+        "vtium-seat@tty6.service".into(),
+    ];
+    m.fake.sessions = vec![
+        ["root", "3", "vtium", "tty", "greeter"],
+        ["root", "6", "vtium", "tty", "greeter"],
+    ];
+    // With VT 6 in seat mode, a seat-mode enable --all goes ahead.
+    let (status, out, err) = m.console(&["enable", "--seat", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(!out.contains("greeter"), "{out}");
+    let (status, out, err) = m.console(&["enable", "--direct", "3"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(m.wanted("vtium@tty3.service") && !m.wanted("vtium-seat@tty3.service"));
+    assert_eq!(m.console(&["enable", "--seat", "3"]).0, 0);
+    // VT 6 still runs seat mode, so --direct --all waits for it (the
+    // reserved-VT refusal), and with it stopped, moves VT 3 too.
+    m.fake.running = vec!["vtium-seat@tty3.service".into()];
+    m.fake.sessions = vec![["root", "3", "vtium", "tty", "greeter"]];
+    let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("VT 3 moves from seat mode to direct mode"),
+        "{out}"
+    );
+    assert!(m.wanted("vtium@tty3.service") && !m.wanted("vtium-seat@tty3.service"));
+    let (_, out, _) = m.console(&["status"]);
+    assert!(!out.contains("greeter"), "{out}");
+}
