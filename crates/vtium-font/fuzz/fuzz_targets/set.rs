@@ -7,14 +7,15 @@
 //! `REACH_ROWS` rows above and below them (ADR-1302 D1, D6, ADR-1306 D1,
 //! D3). Each glyph is drawn as superscript and subscript too, each the
 //! glyph's own size and cells, with no ink box, and a color glyph still
-//! premultiplied.
+//! premultiplied. Each codepoint is drawn from the set's superscript and
+//! subscript strikes too (ADR-1202 D11), each glyph its cells' size.
 #![no_main]
 
 use std::sync::Arc;
 
 use libfuzzer_sys::fuzz_target;
 use vtium_font::set::{Set, SetFace};
-use vtium_font::{Face, Format, Glyph, REACH_CELLS, REACH_ROWS, Script, Style};
+use vtium_font::{Face, Format, Glyph, REACH_CELLS, REACH_ROWS, Script, Style, Variant};
 
 fuzz_target!(|data: &[u8]| {
     let Ok(set) = Set::from_bytes(data.to_vec()) else {
@@ -29,6 +30,12 @@ fuzz_target!(|data: &[u8]| {
             for ch in (0..0x300).filter_map(char::from_u32).chain(['\u{10ffff}']) {
                 for (bold, italic) in [(false, false), (true, false), (false, true), (true, true)] {
                     let style = Style { bold, italic };
+                    for script in [Script::Super, Script::Sub] {
+                        if let Some(g) = face.draw_variant(&[ch], Variant { style, script }) {
+                            assert_eq!(g.width(), c.width * g.cells().cells());
+                            assert_eq!(g.height(), c.height);
+                        }
+                    }
                     if let Some(g) = face.draw(&[ch], style) {
                         assert_eq!(g.width(), c.width * g.cells().cells());
                         assert_eq!(g.height(), c.height);
