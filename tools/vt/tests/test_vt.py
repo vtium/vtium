@@ -3518,6 +3518,45 @@ class Package(Case):
             self.assertIn(f, self.staged())
         self.assertIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
 
+    def test_a_libseat_install_stages_the_units_pam_session_and_no_other_build_does(self):
+        # ADR-1400 D3: a console built with libseat opens a logind session of
+        # its own through its unit's PAMName=vtium, and ships the PAM file
+        # of that name. The file goes to /etc/pam.d whatever PREFIX is.
+        dropin = "lib/systemd/system/vtium@.service.d/libseat.conf"
+        for prefix, features in (("/usr", "libseat"), ("/opt/vt", "images,libseat")):
+            with self.subTest(prefix=prefix, features=features):
+                shutil.rmtree(self.dest, ignore_errors=True)
+                self.built(f"{prefix}/bin/vtium-config", f"{prefix}/bin/vtium-image" if "images" in features else None)
+                p = self.make("install", f"DESTDIR={self.dest}", f"PREFIX={prefix}",
+                              f"INSTALL_TARGET_DIR={self.build}", f"FEATURES={features}")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                staged = self.staged()
+                self.assertIn(prefix.lstrip("/") + "/" + dropin, staged)
+                self.assertIn("etc/pam.d/vtium", staged)
+                conf = read(os.path.join(self.dest, prefix.lstrip("/"), dropin)).splitlines()
+                directives = [l for l in conf if l and not l.startswith("#")]
+                # systemd refuses PAMName= beside the shipped unit's
+                # KillMode=process, so the drop-in sets mixed.
+                self.assertEqual(directives, ["[Service]", "User=root", "PAMName=vtium", "KillMode=mixed"])
+                pam = [l.split() for l in read(os.path.join(self.dest, "etc/pam.d/vtium")).splitlines()
+                       if l and not l.startswith("#")]
+                # A greeter's stack: no password to start, and a session
+                # that pam_systemd registers with logind.
+                self.assertEqual(pam, [["auth", "required", "pam_env.so"], ["auth", "required", "pam_permit.so"],
+                                       ["account", "required", "pam_permit.so"],
+                                       ["password", "required", "pam_deny.so"],
+                                       ["session", "required", "pam_unix.so"],
+                                       ["session", "optional", "pam_systemd.so"]])
+        # Without libseat the unit opens no PAM session.
+        for features in ("", "images logind gpu bidi"):
+            with self.subTest(features=features):
+                shutil.rmtree(self.dest, ignore_errors=True)
+                self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image" if features else None)
+                p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                              f"FEATURES={features}")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual([f for f in self.staged() if "pam.d" in f or ".service.d" in f], [])
+
     def test_a_minspec_install_stages_no_image_helper(self):
         # A console built without images starts no image helper, so the
         # package ships neither the helper nor its account file (ADR-1101 D1).

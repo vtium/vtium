@@ -5,7 +5,8 @@
 # (ADR-1500 D3, D4). The instance is the VT's name, as getty@.service's is.
 # The package's install script gives vtium every free VT with vtium console
 # enable --all, and its removal script gives them back with vtium console
-# disable --all (ADR-1500 D3, D7).
+# disable --all (ADR-1500 D3, D7). A build with libseat adds the drop-in
+# vtium-libseat.conf, which opens vtium's own PAM session (ADR-1400 D3).
 # It conflicts with getty@ on the same VT. When vtium fails, systemd starts
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
 # and from systemd 254 on each failure also starts vtium-getty@, which
