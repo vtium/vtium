@@ -13,6 +13,7 @@ use vtium_term::{
 use crate::command::{self, Button, Command, END, Event, How, INTRO};
 #[cfg(feature = "images")]
 mod images;
+mod links;
 use crate::view::{self, FrameState, View};
 use crate::{Failure, internal, usage};
 
@@ -357,11 +358,8 @@ impl<'a> Replay<'a> {
                 }
             }
             Command::Select { how, col, row } => {
+                let cell = view_cell(t.screen(), col, row);
                 let screen = t.screen_mut();
-                let cell = (
-                    usize::try_from(col).ok().filter(|&c| c < screen.cols()),
-                    usize::try_from(row).ok().filter(|&r| r < screen.rows()),
-                );
                 let (x, y) = match (how, cell) {
                     (How::Clear, _) => (0, 0),
                     (_, (Some(x), Some(y))) => (x, y),
@@ -399,6 +397,8 @@ impl<'a> Replay<'a> {
             Command::Prompt { up } => {
                 t.screen_mut().jump_to_prompt(up);
             }
+            Command::Link { col, row } => links::link(t, (col, row), &mut self.out)?,
+            Command::Hover { at, ctrl } => links::hover(t, at, ctrl, &mut self.out)?,
             Command::Backspace { del } => t.set_backspace_sends_delete(del),
             Command::State => state(t, &mut self.out),
             Command::FrameSince(caller) => {
@@ -532,6 +532,18 @@ fn state(t: &Terminal, out: &mut String) {
 }
 
 /// Numbers joined by commas, or `none`.
+/// The view's cell at `col`, `row`, each `None` past the screen.
+pub(crate) fn view_cell(
+    screen: &vtium_term::Screen,
+    col: u64,
+    row: u64,
+) -> (Option<usize>, Option<usize>) {
+    (
+        usize::try_from(col).ok().filter(|&c| c < screen.cols()),
+        usize::try_from(row).ok().filter(|&r| r < screen.rows()),
+    )
+}
+
 fn list(items: &[String]) -> String {
     if items.is_empty() {
         "none".to_owned()

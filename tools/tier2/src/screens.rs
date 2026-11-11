@@ -191,6 +191,60 @@ const LINK_HOVER: &[u8] = concat!(
 )
 .as_bytes();
 
+/// A link under the pointer with Ctrl held: its address on the bottom
+/// row, over the program's text, whose wide character the address's end
+/// cuts in half (ADR-1002, "Drawing").
+const LINK_OVERLAY: &[u8] = concat!(
+    "see \x1b]8;;file://pixie/home/a/README.md\x1b\\README.md\x1b]8;;\x1b\\ for more\r\n",
+    "\x1b[32mgreen text\x1b[0m and plain text\r\n",
+    "\x1b[7mreversed\x1b[0m\r\n",
+    "\r\n",
+    "the line above is empty\r\n",
+    "\x1b[33;44mabcdefghijklmnopqrstuvwxyz01\u{4e2d}tail text\x1b[0m",
+)
+.as_bytes();
+
+const LINK_OVERLAY_DESC: &str = "A link (OSC 8) under the pointer on the top row with Ctrl \
+held: its address, file://pixie/home/a/README.md, 29 bytes, shows on the bottom row, over \
+yellow text on blue whose wide character stands in columns 28 and 29. In unifont. Correct: \
+the address from the bottom row's first column in the default colors inverted, light on dark \
+turned dark on light, in columns 0 to 28; column 29, the second half of the wide character the \
+address covers, blank in blue; `tail text` after it in yellow on blue; the link on the top row \
+under a dashed line, and the other rows as written.";
+
+/// The `link-overlay` screen under reverse video (DECSCNM): the overlay
+/// inverts against what the screen shows (ADR-1002, "Drawing").
+const LINK_OVERLAY_REVERSE: &[u8] = concat!(
+    "\x1b[?5h",
+    "see \x1b]8;;file://pixie/home/a/README.md\x1b\\README.md\x1b]8;;\x1b\\ for more\r\n",
+    "\x1b[32mgreen text\x1b[0m and plain text\r\n",
+    "\r\n\r\n\r\n",
+    "the bottom row: the program's own text",
+)
+.as_bytes();
+
+const LINK_OVERLAY_REVERSE_DESC: &str = "A link (OSC 8) under the pointer on the top row with \
+Ctrl held, under reverse video (DECSCNM), so the screen is dark text on light grey. In unifont. \
+Correct: file://pixie/home/a/README.md on the bottom row in columns 0 to 28, light on dark, \
+inverted against the screen; the rest of the bottom row from column 29, a space and `own text`, dark on light \
+as the program wrote it; the link on the top row under a dashed line.";
+
+/// A link under the pointer on the bottom row with Ctrl held: its long
+/// address on the top row, cut at the row's end (ADR-1002, "Drawing").
+const LINK_OVERLAY_CUT: &[u8] = concat!(
+    "\x1b[1mthe program's own text on the top row\x1b[0m\r\n",
+    "a second row\r\n",
+    "\x1b[6;1Hsee \x1b]8;;https://example.com/a/very/long/path/to/a/page/index.html\x1b\\a long link\x1b]8;;\x1b\\ here",
+)
+.as_bytes();
+
+const LINK_OVERLAY_CUT_DESC: &str = "A link (OSC 8) under the pointer on the bottom row with \
+Ctrl held, whose address, https://example.com/a/very/long/path/to/a/page/index.html, is 57 \
+bytes on a row of 40 columns. In unifont. Correct: the overlay on the top row, since the \
+pointer is on the bottom one: the address's first 39 bytes, `https://example.com/a/very/long/path/to`, \
+then `…` in the last column, all in the default colors inverted, over the bold text the \
+program wrote there; the link on the bottom row under a dashed line.";
+
 const LINK_HOVER_DESC: &str = "Links (OSC 8) with the pointer over the first, whose pieces on \
 every row share its id: plain, underlined, under a green SGR 58 curl, red on white, reversed, \
 and one piece that wraps from the last column onto the next row. In unifont. Correct: every \
@@ -1638,6 +1692,45 @@ const BASE: &[Case] = &[
                 LINK_HOVER,
                 40,
                 7,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-unifont",
+                LINK_OVERLAY_DESC,
+                LINK_OVERLAY,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-reverse-unifont",
+                LINK_OVERLAY_REVERSE_DESC,
+                LINK_OVERLAY_REVERSE,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((6, 5)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-cut-unifont",
+                LINK_OVERLAY_CUT_DESC,
+                LINK_OVERLAY_CUT,
+                40,
+                6,
             )
         },
     },

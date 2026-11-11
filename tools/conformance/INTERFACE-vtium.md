@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.6 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.7 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -98,7 +98,7 @@ The `key` command's `mods` takes 0 to 255, where 1.0 stops at 31. The bits 1.0 n
 
 The kitty keyboard protocol reports when a key repeats and when it is let go, and it reports a key's unshifted form and its key on the US PC-101 layout (ADR-1005, D2, D9 and D12). vtium-term's description of a key holds all three, and the `key` command does not take them yet. The two features below describe the keys the `key` command gains. vtium owes them to the kitty keyboard protocol's issue, #42: its second slice adds `key-events` to vtium-replay, and its third slice adds `key-forms`.
 
-Until a slice adds its feature, vtium-replay does not declare that feature, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's version to 1.6.
+Until a slice adds its feature, vtium-replay does not declare that feature, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's MINOR version.
 
 | Key of `key` | Form | Feature | What it means |
 |---|---|---|---|
@@ -234,6 +234,51 @@ cursor 2,1
 flags AUTO_WRAP
 row 0 |b|
 row 1 |$|
+```
+
+## Links
+
+A program attaches a URI to the text it prints with OSC 8, and vtium keeps the link in each cell the text takes (ADR-1002). The vtium binary shows a link when the pointer is over it: every cell of the link takes a dashed underline, and while Ctrl is held the URI shows on an overlay row. Ctrl with the left button copies the URI. The reference host reads the links through vtium-term's calls for these, the calls the vtium binary makes. The `link` and `hover` commands name a cell of the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `link` | `col`: decimal, below the screen's width; `row`: decimal, below its height | `links` | Prints `test link HEX`, HEX being the URI of the cell's link as UTF-8, two lowercase hex digits a byte, the URI that Ctrl with the left button copies; or `test link none` when the cell has no link. |
+| `hover` | `col` and `row`, as `link` takes them, both or neither; `ctrl`: flag, 0 when absent | `links` | Puts the pointer over the cell, or takes it away when neither `col` nor `row` is given, with Ctrl held when `ctrl=1`. Then prints two lines: `test hover` and `test overlay`. |
+
+- `test hover RUNS` gives the cells of the view that the link under the pointer takes, as runs `ROW:FIRST-LAST` of the cells in one row, top to bottom and left to right, joined by commas; or `test hover none` when the pointer is over no link. Cells written while one link was open take that link, and links opened with the same URI and the same `id` parameter are one link, so its runs can lie on several rows.
+- `test overlay ROW HEX` gives the overlay row while Ctrl is held over a link: the view's bottom row, or its top row when the pointer is on the bottom row, and the link's URI as HEX; or `test overlay none`.
+
+The pointer stays where `hover` put it until the next `hover`. A link the stream writes under the pointer is under the pointer from then on, but only the next `hover` prints it.
+
+| Feature | What declaring it means |
+|---|---|
+| `links` | vtium keeps OSC 8's links in their cells; `link` and `hover`. |
+
+A worked example: a link with an id whose two pieces lie on two rows, a link with no id, and the pointer over the first piece with Ctrl held, then taken away.
+
+```example links
+size 8 3
+needs links
+send "\e]8;id=a;x:a\e\\ab\e]8;;\e\\ \e]8;;x:b\e\\c\e]8;;\e\\\r\n\e]8;id=a;x:a\e\\de\e]8;;\e\\"
+cmd link;col=3;row=0
+cmd link;col=2;row=0
+cmd hover;col=1;row=1;ctrl=1
+cmd hover
+```
+
+```output links
+test link 783a62
+test link none
+test hover 0:0-1,1:0-1
+test overlay 2 783a61
+test hover none
+test overlay none
+size 8x3
+cursor 2,1
+flags AUTO_WRAP
+row 0 |ab c|
+row 1 |de|
+row 2 ||
 ```
 
 ## The BackSpace key
@@ -384,10 +429,10 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 
 ## The describe block and the grammar
 
-The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the state and the font and text area requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state and the font and text area requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.6
+interface 1.7
 view display
 feature clipboard
 feature attrs-renditions
@@ -395,6 +440,7 @@ feature kitty-animation
 feature bidi
 feature selection
 feature marks
+feature links
 feature backspace
 feature state
 feature bell
@@ -406,6 +452,8 @@ command clipboard clipboard
 command select selection
 command copy selection
 command prompt marks
+command link links
+command hover links
 command backspace backspace
 command state state
 command font-ops font-ops
@@ -428,6 +476,9 @@ line anim * anim {N} frame [1-9][0-9]* gap {INT} digest [0-9a-f]{8}
 line display-cursor display display-cursor {N},{N} (?:left|right)
 line bell * bell [1-9][0-9]*
 line test * test copy (?:none|(?:[0-9a-f]{2})+)
+line test * test link (?:none|(?:[0-9a-f]{2})+)
+line test * test hover (?:none|{N}:{N}-{N}(?:,{N}:{N}-{N})*)
+line test * test overlay (?:none|{N} (?:[0-9a-f]{2})+)
 define NUMS none|{N}(?:,{N})*
 line test * test state margins {N}-{N} {N}-{N}
 line test * test state tabs (?:{NUMS})

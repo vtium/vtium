@@ -81,7 +81,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 116 supported, 6 partial, 44 ignored, 8 refused, 11 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 118 supported, 5 partial, 44 ignored, 8 refused, 10 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -106,7 +106,7 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 
 > Edited 2026-11-07: the work on SGR renditions draws conceal (SGR 8 and 28) and overline (SGR 53 and 55), so `sgr.conceal` and `sgr.overline` are supported; rapid blink and superscript and subscript stay planned until they are drawn. The work on libseat seats takes the seat, its display devices and VT switching from the seat manager, so `platform.libseat` is partial; its note names what is not built or proven yet. Before this edit the counts above read 112 supported, 4 partial and 15 planned feature rows, which no longer matched the table.
 
-> Edited 2026-11-11: the work on runtime font changes builds XTWINOPS 8 behind the `allow-window-ops` key, off by default, so `window.resize` is supported; its note says how vtium meets a request. Before this edit the counts above read 183 feature rows, 114 supported and 11 planned, which no longer matched the table's 185 rows.
+> Edited 2026-11-11: the work on runtime font changes builds XTWINOPS 8 behind the `allow-window-ops` key, off by default, so `window.resize` is supported; its note says how vtium meets a request. Before this edit the counts above read 183 feature rows, 114 supported, 6 partial and 11 planned, which no longer matched the table's 185 rows.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 

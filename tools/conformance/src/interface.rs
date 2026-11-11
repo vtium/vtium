@@ -798,7 +798,7 @@ pub fn controls(spec: &Spec) -> Tally {
             "anim 0 current 2 past its 1 frames",
         ),
     ];
-    // interface 1.5's and 1.6's lines (INTERFACE-vtium.md): a copy, the
+    // interface 1.5's and 1.7's lines (INTERFACE-vtium.md): a copy, the
     // state, the font and grid requests, and a bell after the replies
     let good_host = format!(
         "test copy 61620a\ntest state margins 0-1 0-3\ntest state tabs none\ntest state modes ansi 12 dec 7,25\ntest state scrollback lines 0 view 0 max 0\ntest state pen fg=1 bold\ntest state colors fg=#e5e5e5 bg=#000000 cursor=default\ntest font-request ter-v16n\ntest font-request none\ntest grid-request 25 80\ntest grid-request keep display\ntest grid-request none\n{}",

@@ -116,14 +116,14 @@ fn the_command_line_exits_as_the_interface_says() {
     let (code, out) = vtium_replay(&["--describe"]);
     assert_eq!(code, Some(0));
     assert!(
-        out.starts_with("interface 1.6\nview screen\nview frame\n"),
+        out.starts_with("interface 1.7\nview screen\nview frame\n"),
         "{out}"
     );
-    // interface 1.5's host commands and the bell line, each with its
+    // interface 1.6's host commands and the bell line, each with its
     // feature
     for line in [
-        "feature selection\nfeature marks\nfeature backspace\nfeature state\nfeature bell\n",
-        "command select selection\ncommand copy selection\ncommand prompt marks\ncommand backspace backspace\ncommand state state\n",
+        "feature selection\nfeature marks\nfeature links\nfeature backspace\nfeature state\nfeature bell\n",
+        "command select selection\ncommand copy selection\ncommand prompt marks\ncommand link links\ncommand hover links\ncommand backspace backspace\ncommand state state\n",
     ] {
         assert!(out.contains(line), "{out}");
     }

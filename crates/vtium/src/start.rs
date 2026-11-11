@@ -78,17 +78,23 @@ impl Start {
     /// built-in one when it does not compile, with the key repeat and
     /// pointers the keys set. `None` when no keymap compiles.
     ///
-    /// The `xkb-*` keys that vtium.conf leaves unset take the system's
-    /// keyboard layout, which vtium-platform's `system_layout` reads from
-    /// the console keymap and, in a build that links logind, from localed
-    /// (ADR-1400's L2 layer).
-    pub fn input(&self) -> Option<Input> {
-        let system = vtium_platform::input::system_layout();
-        self.build(&system, |keymap, input| {
+    /// The `xkb-*` keys that vtium.conf leaves unset take `system`, the
+    /// system's keyboard layout, which vtium-platform's `system_layout`
+    /// reads from the console keymap and, in a build that links logind,
+    /// from localed (ADR-1400's L2 layer).
+    pub fn input(&self, system: &RuleNames) -> Option<Input> {
+        self.build(system, |keymap, input| {
             Keymap::new(keymap)
                 .or_else(Keymap::fallback)
                 .map(|k| Input::new(Direct, k, input))
         })
+    }
+
+    /// vtium.conf's own keymap settings, before the system's layout fills
+    /// the `xkb-*` keys it leaves unset. A build with `logind` follows a
+    /// change to the system's layout with them.
+    pub fn keymap_settings(&self) -> KeymapConfig {
+        self.keymap.clone()
     }
 
     /// The keymap's settings: the `xkb-*` keys, with `system`'s names in
@@ -230,7 +236,10 @@ mod tests {
         });
         assert_eq!(layout, "de");
         assert_eq!(input, InputConfig::new(300, 50, false));
-        assert!(s.input().is_some(), "a keymap, the built-in one at worst");
+        assert!(
+            s.input(&RuleNames::default()).is_some(),
+            "a keymap, the built-in one at worst"
+        );
     }
 
     #[test]

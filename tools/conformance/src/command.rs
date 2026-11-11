@@ -89,6 +89,17 @@ pub enum Command {
     Prompt {
         up: bool,
     },
+    /// The link of a cell of the view.
+    Link {
+        col: u64,
+        row: u64,
+    },
+    /// The pointer over a cell of the view, with Ctrl held or not; `None`
+    /// takes the pointer away.
+    Hover {
+        at: Option<(u64, u64)>,
+        ctrl: bool,
+    },
     Backspace {
         del: bool,
     },
@@ -167,7 +178,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.6, in the order of its describe blocks:
+/// Every command of interface 1.7, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -221,6 +232,8 @@ pub const SPECS: &[Spec] = &[
     spec("select", Some("selection"), &["how", "col", "row"], true),
     spec("copy", Some("selection"), &[], true),
     spec("prompt", Some("marks"), &["dir"], true),
+    spec("link", Some("links"), &["col", "row"], true),
+    spec("hover", Some("links"), &["col", "row", "ctrl"], true),
     spec("backspace", Some("backspace"), &["del"], true),
     spec("state", Some("state"), &[], true),
     spec("font-ops", Some("font-ops"), &["on"], true),
@@ -511,6 +524,25 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "prompt" => Command::Prompt {
             up: f.name_of("dir", &[("up", true), ("down", false)])?,
         },
+        "link" => Command::Link {
+            // the view's size bounds these when the command runs
+            col: f.decimal("col", u64::MAX, None)?,
+            row: f.decimal("row", u64::MAX, None)?,
+        },
+        "hover" => {
+            let ctrl = f.flag("ctrl", Some(false))?;
+            match (f.get("col"), f.get("row")) {
+                (None, None) => Command::Hover { at: None, ctrl },
+                _ => Command::Hover {
+                    // the view's size bounds these when the command runs
+                    at: Some((
+                        f.decimal("col", u64::MAX, None)?,
+                        f.decimal("row", u64::MAX, None)?,
+                    )),
+                    ctrl,
+                },
+            }
+        }
         "backspace" => Command::Backspace {
             del: f.flag("del", None)?,
         },
@@ -654,8 +686,8 @@ mod tests {
         assert_eq!(parse(b"palette;name=nord"), Ok(Command::Palette("nord")));
     }
 
-    // INTERFACE-vtium.md: the selection, the prompt jumps, the BackSpace
-    // setting and the state
+    // INTERFACE-vtium.md: the selection, the prompt jumps, the links, the
+    // BackSpace setting and the state
     #[test]
     fn the_host_commands_of_interface_1_5_parse() {
         assert_eq!(
@@ -691,6 +723,31 @@ mod tests {
         assert_eq!(parse(b"copy"), Ok(Command::Copy));
         assert_eq!(parse(b"prompt;dir=up"), Ok(Command::Prompt { up: true }));
         assert_eq!(parse(b"prompt;dir=down"), Ok(Command::Prompt { up: false }));
+        assert_eq!(
+            parse(b"link;col=4;row=1"),
+            Ok(Command::Link { col: 4, row: 1 })
+        );
+        assert_eq!(
+            parse(b"hover;col=4;row=1;ctrl=1"),
+            Ok(Command::Hover {
+                at: Some((4, 1)),
+                ctrl: true
+            })
+        );
+        assert_eq!(
+            parse(b"hover;col=0;row=0"),
+            Ok(Command::Hover {
+                at: Some((0, 0)),
+                ctrl: false
+            })
+        );
+        assert_eq!(
+            parse(b"hover"),
+            Ok(Command::Hover {
+                at: None,
+                ctrl: false
+            })
+        );
         assert_eq!(
             parse(b"backspace;del=1"),
             Ok(Command::Backspace { del: true })
@@ -781,6 +838,12 @@ mod tests {
             "copy;n=1",
             "prompt",
             "prompt;dir=left",
+            "link",
+            "link;col=1",
+            "link;col=1;row=1;ctrl=1",
+            "hover;col=1",
+            "hover;row=1",
+            "hover;col=1;row=1;ctrl=2",
             "backspace",
             "backspace;del=2",
             "state;x=1",

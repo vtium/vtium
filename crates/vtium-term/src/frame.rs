@@ -290,6 +290,12 @@ impl<'a> Frame<'a> {
         self.cursor
     }
 
+    /// Whether reverse video (DECSCNM) is set, which swaps the default
+    /// colors of every cell the frame resolves.
+    pub fn reverse(&self) -> bool {
+        self.reverse
+    }
+
     /// The palette the frame resolves through, for the colors a renderer
     /// resolves itself at draw time.
     pub fn palette(&self) -> &'a Palette {
