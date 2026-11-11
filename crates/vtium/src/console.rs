@@ -702,6 +702,12 @@ impl Run<'_, '_, '_> {
                 {
                     return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
                 }
+                // vtium in the other mode there would be stopped at the
+                // next switch. Seat mode's logins carry no VT number, so
+                // the logins on the VT cannot show what that would end.
+                if n == RESERVED_VT && state.runs(n, other_vtium(prefix)) {
+                    return Err(Stop(text::other_mode_on_reserved_vt(n, mode)));
+                }
                 let moved = state.other_mode(n);
                 if self.enable_vt(&mut state, n, &unit)? {
                     self.reload()?;
@@ -1319,6 +1325,14 @@ impl Run<'_, '_, '_> {
         // holds no session, so stopping it ends nothing.
         if let Some(holders) = state.held.get(&RESERVED_VT) {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
+        }
+        // vtium in the other mode on VT 6 would be stopped at the next
+        // switch, when logind starts the asked mode's unit there through
+        // the template link or through VT 6's own link once it moves.
+        if state.runs(RESERVED_VT, other_vtium(state.prefix))
+            && (state.templated(RESERVED_VT) || state.other_mode(RESERVED_VT))
+        {
+            return Err(Stop(text::other_mode_on_reserved_vt(RESERVED_VT, mode)));
         }
         if state.templated(RESERVED_VT) {
             // A login inside a vtium that runs on VT 6 already is safe: the

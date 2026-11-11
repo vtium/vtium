@@ -2700,3 +2700,43 @@ fn the_fallback_passes_by_vtium_in_seat_mode() {
         m.fake.calls
     );
 }
+
+#[test]
+fn a_move_on_loginds_reserved_vt_waits_while_the_other_mode_runs_there() {
+    // logind starts autovt@tty6 at every switch to VT 6, so a move there
+    // would stop the vtium that runs in the other mode at the next switch.
+    // Seat mode's logins carry no VT number, so no login shows on VT 6.
+    for (from, to, unit) in [
+        ("--direct", "--seat", "vtium@tty6.service"),
+        ("--seat", "--direct", "vtium-seat@tty6.service"),
+    ] {
+        let mut m = Machine::gettys(&format!("reserved-move{from}"));
+        assert_eq!(m.console(&["enable", from, "--all"]).0, 0, "{from}");
+        assert_eq!(m.console(&["enable", from, "6"]).0, 0, "{from}");
+        m.fake.running = vec![unit.to_owned()];
+        let before = m.snapshot();
+        for words in [&["enable", to, "--all"][..], &["enable", to, "6"]] {
+            let (status, out, err) = m.console(words);
+            assert_eq!(status, 1, "{words:?}: {out}");
+            assert!(
+                err.contains(&format!(
+                    "vtium runs in {} on VT 6 ({unit})",
+                    if from == "--seat" {
+                        "seat mode"
+                    } else {
+                        "direct mode"
+                    }
+                )),
+                "{err}"
+            );
+            assert!(err.contains("logind's reserved VT"), "{err}");
+            assert!(err.contains("Nothing changed."), "{err}");
+            assert!(err.contains(&format!("systemctl stop {unit}")), "{err}");
+        }
+        assert_eq!(m.snapshot(), before);
+        // With it stopped, the move goes ahead.
+        m.fake.running.clear();
+        assert_eq!(m.console(&["enable", to, "--all"]).0, 0, "{to}");
+        assert_eq!(both_modes(&m), Vec::<u16>::new());
+    }
+}

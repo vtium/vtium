@@ -436,6 +436,25 @@ pub fn login_on_reserved_vt(n: u16, list: &[Holder], all: bool) -> String {
     reserved_vt(cause, fix)
 }
 
+/// Why `enable` in `mode` refuses VT `n`, logind's reserved VT, while
+/// vtium runs there in the other mode.
+pub fn other_mode_on_reserved_vt(n: u16, mode: Mode) -> String {
+    let other = match mode {
+        Mode::Direct => super::SEAT,
+        Mode::Seat => super::VTIUM,
+    };
+    let cause = format!(
+        "vtium runs in {} on VT {n} ({other}@tty{n}.service), and VT {n} is logind's reserved VT: logind starts autovt@tty{n}.service every time you switch to it, even while the VT is in use. After this change, the next switch to VT {n} would start vtium in {} there, and that would stop vtium in {} and end every session on VT {n}, the logins in it included. Nothing changed.",
+        mode_of(other),
+        mode_name(mode),
+        mode_of(other)
+    );
+    let fix = format!(
+        "When nobody needs a session on VT {n} any more, stop vtium there with systemctl stop {other}@tty{n}.service, from another VT, and run this command again."
+    );
+    reserved_vt(cause, fix)
+}
+
 pub fn kmscon_on_reserved_vt(n: u16) -> String {
     let cause = format!(
         "kmscon (kmsconvt@tty{n}.service) is enabled or running on VT {n}, logind's reserved VT: logind starts autovt@tty{n}.service every time you switch to it, even while the VT is in use. With autovt@.service linked to vtium, the next switch to VT {n} would start vtium there, and that would stop kmscon."
