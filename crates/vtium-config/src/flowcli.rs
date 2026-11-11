@@ -1,4 +1,4 @@
-//! The flow's commands (ADR-1403 D8): `flow`, `route`, `diff`, `install`,
+//! The flow's commands (ADR-1403 D8): `flow`, `diff`, `install`,
 //! `set`, `get`, `revert`, `new`, `rule`, `head`, `look`, `draft`,
 //! `history`, `restore`, `library` and `edit`. Each that changes the
 //! configuration reads the draft and the devices afresh, makes its change
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use vtium_platform::listing::Roots;
 use vtium_settings::Of;
 
-use crate::drafts::{Checked, From, Session, State, diff};
+use crate::drafts::{Checked, From, Session, State, Unrouted, diff};
 use crate::flowmodel::{self, Present};
 use crate::ops::{self, RuleChange, To};
 use crate::outcome::Fail;
@@ -135,7 +135,6 @@ impl Command<'_, '_> {
     fn dispatch(mut self, command: &str, words: &[String]) -> Result<(), Fail> {
         match command {
             "flow" => self.flow(words),
-            "route" => self.route(words),
             "diff" => self.diff(words),
             "install" => self.install(words),
             "get" => self.get(words),
@@ -203,72 +202,6 @@ impl Command<'_, '_> {
         Ok(())
     }
 
-    /// `route ITEM [--json]`.
-    fn route(&mut self, words: &[String]) -> Result<(), Fail> {
-        let args = Args::parse(words, &["--json"], &[])?;
-        let (name, text) = self.session.current()?;
-        let (flow, _, _) = self.judged(&name, &text)?;
-        let item = flowmodel::item(&flow, &args.words).ok_or_else(|| {
-            Fail::Usage(format!(
-                "the draft has no {}. route takes display NAME, rule N, head NAME, look NAME or input NAME.",
-                args.words.join(" ")
-            ))
-        })?;
-        let title = args.words.join(" ");
-        let routes: Vec<_> = flowmodel::routes(&flow)
-            .into_iter()
-            .filter(|r| r.has(&flow, item))
-            .collect();
-        if args.has("--json") {
-            let lines = routes.iter().map(|r| {
-                let parts: Vec<String> = flowmodel::route_lines(&flow, r, item)
-                    .into_iter()
-                    .map(|(section, words, selected)| {
-                        format!(
-                            "{{\"section\":{},\"item\":{},\"selected\":{selected}}}",
-                            flowmodel::quoted(section),
-                            flowmodel::quoted(&words)
-                        )
-                    })
-                    .collect();
-                format!("[{}]", parts.join(","))
-            });
-            let says = if routes.is_empty() {
-                flowmodel::unrouted(&flow, item)
-            } else {
-                format!(
-                    "part of {} complete route{}",
-                    routes.len(),
-                    if routes.len() == 1 { "" } else { "s" }
-                )
-            };
-            let _ = writeln!(
-                self.out,
-                "{{\"version\":1,\"item\":{},\"says\":{},\"routes\":[{}]}}",
-                flowmodel::quoted(&title),
-                flowmodel::quoted(&says),
-                lines.collect::<Vec<_>>().join(",")
-            );
-            return Ok(());
-        }
-        self.say(&format!("route card: {title}"));
-        if routes.is_empty() {
-            self.say(&flowmodel::unrouted(&flow, item));
-        }
-        for (i, r) in routes.iter().enumerate() {
-            self.say(&format!(
-                "route {} of {}",
-                i.saturating_add(1),
-                routes.len()
-            ));
-            for (section, words, selected) in flowmodel::route_lines(&flow, r, item) {
-                let mark = if selected { '>' } else { ' ' };
-                self.say(&format!("{mark} {section}: {words}"));
-            }
-        }
-        Ok(())
-    }
-
     /// `diff`: the installed file to the draft.
     fn diff(&mut self, words: &[String]) -> Result<(), Fail> {
         if !words.is_empty() {
@@ -286,12 +219,40 @@ impl Command<'_, '_> {
         Ok(())
     }
 
+    /// `install [--force]`: installs the draft. A draft whose only problem
+    /// is that it wires no complete route installs with `--force`, or
+    /// after a yes at a terminal; with neither it is refused, exit 1
+    /// (ADR-1403 D8).
     fn install(&mut self, words: &[String]) -> Result<(), Fail> {
-        if !words.is_empty() {
-            return Err(Fail::Usage("install takes no argument".to_owned()));
+        let args = Args::parse(words, &["--force"], &[])?;
+        if !args.words.is_empty() {
+            return Err(Fail::Usage("install takes only --force".to_owned()));
         }
         let (name, text) = self.session.current()?;
-        self.session.install(&name, &text, self.out)
+        if args.has("--force") {
+            return self
+                .session
+                .install(&name, &text, Unrouted::Install, self.out);
+        }
+        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
+            return self
+                .session
+                .install(&name, &text, Unrouted::Refuse, self.out);
+        }
+        let out = &mut *self.out;
+        let mut ask = |question: &str| -> bool {
+            let _ = write!(out, "{question} [y/N] ");
+            let _ = out.flush();
+            let mut answer = String::new();
+            let _ = std::io::stdin().lock().read_line(&mut answer);
+            matches!(answer.trim(), "y" | "Y" | "yes")
+        };
+        let mut said = Vec::new();
+        let done = self
+            .session
+            .install(&name, &text, Unrouted::Ask(&mut ask), &mut said);
+        let _ = self.out.write_all(&said);
+        done
     }
 
     /// `get KEY`: the key, its value in the draft's top level and where it
@@ -387,7 +348,8 @@ impl Command<'_, '_> {
         self.print_check(&checked);
         self.say(&flowmodel::state_line(name, &state, checked.count()));
         if install {
-            self.session.install(name, new, self.out)?;
+            self.session
+                .install(name, new, Unrouted::Refuse, self.out)?;
         }
         Ok(())
     }
@@ -862,7 +824,8 @@ impl Command<'_, '_> {
             }
         }
         if install {
-            self.session.install(name, &draft, self.out)?;
+            self.session
+                .install(name, &draft, Unrouted::Refuse, self.out)?;
         }
         Ok(())
     }

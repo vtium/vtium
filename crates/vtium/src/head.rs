@@ -9,11 +9,12 @@
 //! it drove the seat's one session before heads: each head is one
 //! terminal with its own grid.
 
-pub(crate) mod chord;
+pub mod chord;
 pub mod console;
 pub mod images;
 pub(crate) mod route;
 pub(crate) mod session;
+pub(crate) mod vt;
 
 use vtium_settings::{By, Place, WhenDisplayLost};
 
@@ -405,6 +406,7 @@ impl Head {
                 .map(|s| s.value.clone())
         };
         let font_name = own(&keys::FONT_NAME);
+        let bindings = crate::grab::Bindings::of(config);
         let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
             grid: GRID,
@@ -422,8 +424,8 @@ impl Head {
             configured: (points, auto_size),
             wanted: 1,
             login: None,
-            ended_notice: crate::notice::session_ended(),
-            ended_notice_console: crate::notice::session_ended_console(),
+            ended_notice: crate::notice::session_ended(&bindings),
+            ended_notice_console: crate::notice::session_ended_console(&bindings),
             notices: Vec::new(),
             shown: String::new(),
             notice_due: None,
@@ -634,6 +636,12 @@ impl Head {
     /// The on-screen display's line, while it shows.
     pub fn status(&self) -> Option<&str> {
         self.status.as_deref()
+    }
+
+    /// Whether the head shows its on-screen display, or is to show it at
+    /// its next frame (ADR-1401 D5).
+    pub fn shows_osd(&self) -> bool {
+        self.osd_shown
     }
 
     /// The on-screen display shows `line` as its brief line from the
@@ -966,6 +974,23 @@ impl Head {
     /// The shown console's replies go to its program.
     pub(crate) fn send_user_bytes(&mut self) {
         self.console.send_replies();
+    }
+
+    /// The shown console resets as RIS resets it (ADR-1005 D10), through
+    /// vtium-term's `Terminal::reset`: its screen and its scrollback are
+    /// cleared, every mode a program set, the keyboard's among them,
+    /// returns to its start, the replies queued for its program are
+    /// dropped, and an image request out is abandoned. The console's side
+    /// of that request ends too, so its pty, paused while the request was
+    /// out, takes output again. The other consoles are left as they are.
+    pub(crate) fn reset_shown(&mut self) {
+        let console = &mut self.console;
+        console.term.terminal.reset();
+        #[cfg(feature = "images")]
+        console
+            .pictures
+            .end_request(&mut console.term, console.pty.as_mut());
+        self.draw_now = true;
     }
 
     /// The shown console is potentially visible while it draws: not while
@@ -1508,6 +1533,9 @@ pub struct Start {
     pub rules: vtium_settings::Config,
     /// The panic screen's report, for a broken closed file (ADR-1401 D7).
     pub(crate) report: Option<vtium_render::NoticeReport>,
+    /// The VT vtium runs on, whose heads it builds (ADR-1401 D2): `None`
+    /// without a kernel VT, where every head runs.
+    pub(crate) vt: Option<u16>,
 }
 
 impl Start {
@@ -1579,7 +1607,20 @@ impl Start {
             outcome,
             rules,
             report: None,
+            vt: None,
         }
+    }
+
+    /// The start on VT `vt`, which builds the heads that run there
+    /// (ADR-1401 D2): `None` without a kernel VT, where every head runs.
+    #[must_use]
+    pub fn on_vt(self, vt: Option<u16>) -> Start {
+        Start { vt, ..self }
+    }
+
+    /// The VT the start builds the heads of, `None` for every head.
+    pub fn vt(&self) -> Option<u16> {
+        self.vt
     }
 
     /// The console line the start shows, from the catalog: `None` for a
@@ -1632,20 +1673,34 @@ pub fn rules(path: &std::path::Path, file: &crate::config::File) -> Start {
     }
 }
 
-/// The head a display joins: the one the first rule matching `display`
-/// names (ADR-1401 D3), by its index. A display a rule sends `dark`, or
-/// that no rule claims, joins none: the error is its log line, which for
-/// a display no rule claims carries the rule that would give it the first
-/// head, ready to paste, or, when vtium.conf declares no head, says to
-/// declare one first and writes the rule for it.
-pub fn place_display(
+/// The head a display joins on the VT of `heads`: the one the first rule
+/// that places `display` there names (ADR-1401 D3), by its index among the
+/// heads vtium built. A display a rule sends `off`, one that stays with a
+/// head on another VT, and one that no rule claims join none: the error is
+/// the display's log line. For a display no rule claims, the line carries
+/// the rule that would give it the first head of this VT, ready to paste,
+/// or, when no head runs here, says to declare one first and writes the
+/// rule for it.
+pub(crate) fn place_display(
     rules: &vtium_settings::Config,
+    heads: &vt::VtHeads,
     display: &vtium_settings::Identity,
 ) -> Result<usize, String> {
-    let placed = rules.walk(display);
+    let placed = heads.walk(rules, display);
     let name = display.connector.as_deref().unwrap_or("?").escape_debug();
+    if let Some(h) = heads.head(placed.place) {
+        return Ok(h);
+    }
     match (placed.place, placed.by) {
-        (Place::Head(h), _) => Ok(h),
+        (Place::Elsewhere(other), By::Rule(line)) => {
+            let other = rules.heads.get(other).map_or("?", |h| h.name.as_str());
+            let vt = heads
+                .vt()
+                .map_or_else(String::new, |vt| format!(" on VT {vt}"));
+            Err(format!(
+                "display {name} stays dark{vt}: the rule on line {line} of vtium.conf gives it to head {other}, which runs on other VTs"
+            ))
+        }
         (_, By::Rule(line)) => Err(format!(
             "display {name} stays off: the rule on line {line} of vtium.conf sends it to off"
         )),
@@ -1653,12 +1708,21 @@ pub fn place_display(
             let unclaimed = format!("display {name} stays off: no rule in vtium.conf matches it");
             // with no head declared, the rule is written for the head the
             // person declares first, NAME standing for its name
-            let first = rules.heads.first().map(|h| h.name.as_str());
+            let first = heads
+                .place(0)
+                .and_then(|p| match p {
+                    Place::Head(i) => rules.heads.get(i),
+                    _ => None,
+                })
+                .map(|h| h.name.as_str());
             let Some(rule) = vtium_settings::rule_for(display, first.unwrap_or("NAME")) else {
                 return Err(format!("{unclaimed}; it reports nothing a rule can match"));
             };
             Err(match first {
                 Some(_) => format!("{unclaimed}; add the rule `{rule}` to give it a head"),
+                None if !rules.heads.is_empty() => format!(
+                    "{unclaimed}, and no head of vtium.conf runs on this VT to give it. Name this VT in a head's `vt` key first, then add the rule `{rule}`."
+                ),
                 None => format!(
                     "{unclaimed}, and vtium.conf declares no head to give it. Declare a head first with a `[head NAME]` section, then add the rule `{rule}`."
                 ),
@@ -2110,7 +2174,7 @@ mod tests {
         assert_eq!(head.notice(), Some("n2\nn3\nn4\nn5"));
         head.console.ended = true;
         head.compose_notices();
-        let ended = crate::notice::session_ended();
+        let ended = crate::notice::session_ended(&crate::grab::Bindings::default());
         assert_eq!(
             head.notice(),
             Some(format!("{ended}\nn2\nn3\nn4\nn5").as_str()),
@@ -2120,7 +2184,10 @@ mod tests {
         head.end_notices();
         assert_eq!(
             (head.notice(), head.notice_due),
-            (Some(crate::notice::session_ended().as_str()), None)
+            (
+                Some(crate::notice::session_ended(&crate::grab::Bindings::default()).as_str()),
+                None
+            )
         );
         assert!(!head.has_notices());
     }
@@ -2243,16 +2310,19 @@ mod tests {
             card: Some("pci-0000:03:00.0".to_owned()),
             ..vtium_settings::Identity::display()
         };
-        assert_eq!(place_display(&rules, &display("DP-2")), Ok(0));
         assert_eq!(
-            place_display(&rules, &display("DP-1")),
+            place_display(&rules, &vt::VtHeads::new(&rules, None), &display("DP-2")),
+            Ok(0)
+        );
+        assert_eq!(
+            place_display(&rules, &vt::VtHeads::new(&rules, None), &display("DP-1")),
             Err(
                 "display DP-1 stays off: the rule on line 4 of vtium.conf sends it to off"
                     .to_owned()
             )
         );
         assert_eq!(
-            place_display(&rules, &display("HDMI-A-1")),
+            place_display(&rules, &vt::VtHeads::new(&rules, None), &display("HDMI-A-1")),
             Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it; add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> desk` to give it a head".to_owned())
         );
         let bare = vtium_settings::Identity {
@@ -2260,8 +2330,31 @@ mod tests {
             ..vtium_settings::Identity::display()
         };
         assert_eq!(
-            place_display(&rules, &bare),
+            place_display(&rules, &vt::VtHeads::new(&rules, None), &bare),
             Err("display fb\\u{1b} stays off: no rule in vtium.conf matches it; it reports nothing a rule can match".to_owned())
+        );
+    }
+
+    // ADR-1401 D3 step 4 and ADR-1403 D7 path test 6: on VT 4, a display
+    // whose only head runs on VT 3 joins no head, and its log line names
+    // the rule and the head it stays with
+    #[test]
+    fn a_display_tied_to_a_head_on_another_vt_stays_dark_with_its_rule() {
+        let rules = vtium_settings::parse(
+            "version = 1\n[head desk]\nvt = 3\n[head here]\nvt = 4\n[rules]\ndisplay connector:pci-0000:03:00.0/DP-1 -> desk\n",
+        )
+        .map(|p| p.config)
+        .unwrap_or_default();
+        let display = vtium_settings::Identity {
+            connector: Some("DP-1".to_owned()),
+            card: Some("pci-0000:03:00.0".to_owned()),
+            ..vtium_settings::Identity::display()
+        };
+        let on = |n| vt::VtHeads::new(&rules, Some(n));
+        assert_eq!(place_display(&rules, &on(3), &display), Ok(0), "desk");
+        assert_eq!(
+            place_display(&rules, &on(4), &display),
+            Err("display DP-1 stays dark on VT 4: the rule on line 7 of vtium.conf gives it to head desk, which runs on other VTs".to_owned())
         );
     }
 
@@ -2282,7 +2375,7 @@ mod tests {
             let start = Start::trusted(path, text.as_bytes());
             assert!(start.rules.heads.is_empty(), "{text}");
             assert_eq!(
-                place_display(&start.rules, &display),
+                place_display(&start.rules, &vt::VtHeads::new(&start.rules, None), &display),
                 Err("display HDMI-A-1 stays off: no rule in vtium.conf matches it, and vtium.conf declares no head to give it. Declare a head first with a `[head NAME]` section, then add the rule `display connector:pci-0000:03:00.0/HDMI-A-1 -> NAME`.".to_owned()),
                 "{text}"
             );

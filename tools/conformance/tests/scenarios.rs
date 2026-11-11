@@ -516,6 +516,34 @@ fn the_printer_joins_a_reply_that_an_extra_cut_split() {
     );
 }
 
+// ADR-1504 D3: a command's bells follow its replies, and the bells an
+// extra cut split count as one line, so the chunking check holds
+#[test]
+fn the_printer_joins_the_bells_of_a_command_after_its_replies() {
+    let s = parse(
+        "reply-bells",
+        "# spec: x\nsize 10 2\nsend \"\\a\\e[5n\\a\"\ncopy\n",
+    );
+    let out = [
+        block(0, "0,0", ""),
+        block(1, "0,0", "bell 1\n"),
+        block(6, "0,0", "reply 1b5b306e\nbell 1\n"),
+        format!("test copy 61\n{}", block(26, "0,0", "")),
+        block(26, "0,0", ""),
+    ]
+    .concat();
+    let got = transcript::print(
+        &s,
+        &[Some(0), None, Some(1), Some(2)],
+        &[(Dump::Screen, &out)],
+    )
+    .unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        got,
+        "> size 10 2\n> send \"\\a\\e[5n\\a\"\n< reply \"\\e[0n\"\n< bell 2\n> copy\n< copy \"a\"\n"
+    );
+}
+
 #[test]
 fn the_printer_writes_each_side_effect_in_its_own_form() {
     let s = parse(
@@ -658,13 +686,43 @@ fn a_behaviour_scenarios_assertions_judge_the_block_at_the_check_with_the_replie
 fn a_scenario_that_needs_what_vtium_replay_lacks_is_not_run() {
     let spec = spec();
     let r = runner(&spec);
-    let cases = [
+    // an implementation of interface 1.4, which lacks 1.5's host commands
+    let older: String = vtium_conformance::describe()
+        .lines()
+        .filter(|l| {
+            !["selection", "marks", "backspace", "state"]
+                .iter()
+                .any(|f| l.ends_with(&format!(" {f}")))
+        })
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let old = Runner::new(&spec, &older, fixtures()).unwrap_or_else(|e| panic!("{e}"));
+    for (name, line, want) in [
         (
             "select-a",
             "select start at 0,0",
             "does not declare the feature selection",
         ),
         ("view-a", "dump state", "does not declare the feature state"),
+        (
+            "view-a",
+            "scroll prompt-up",
+            "does not declare the feature marks",
+        ),
+        (
+            "key-a",
+            "backspace del",
+            "does not declare the feature backspace",
+        ),
+    ] {
+        let s = parse(name, &format!("# spec: x\nsize 4 1\n{line}\n"));
+        let got = old.play(&s, &[]);
+        assert!(
+            matches!(&got, Err(e) if e.starts_with("not run: ") && e.contains(want)),
+            "{line}: {got:?}"
+        );
+    }
+    let cases = [
         (
             "key-a",
             "needs damage-exact",
@@ -881,6 +939,16 @@ fn the_capability_rules_refuse_a_scenario_before_anything_runs() {
             "works",
             "does not match",
         ),
+        (
+            "size 4 1\ncmd no-such\ncheck\nwant row 0 ||\n",
+            "missing",
+            "no-such is not a command of the replay interface",
+        ),
+        (
+            "size 4 1\nneeds no-such\nsend \"x\"\ncheck\nwant row 0 |x|\n",
+            "missing",
+            "no-such is not a feature of the replay interface",
+        ),
     ];
     for (body, status, want) in cases {
         let s = [capability_scenario("dsr", body)];
@@ -893,18 +961,10 @@ fn the_capability_rules_refuse_a_scenario_before_anything_runs() {
 }
 
 #[test]
-fn a_capability_scenario_replays_the_bytes_and_cuts_its_probe_had() {
-    // the probe `bracketed-paste` as the probe file writes it
-    let probe = "probe bracketed-paste\nsize 80 4\nsend \"\\e[?2004h\"\ncheck\ncmd paste;hex=78\ncheck\nreply \"\\e[200~x\\e[201~\"\n";
+fn d2s_capability_scenario_passes_through_vtium_replay() {
     let spec = spec();
-    let probes =
-        vtium_conformance::probes::read("t.replay", probe, &spec).unwrap_or_else(|e| panic!("{e}"));
-    let r = runner(&spec);
     let s = parse("bracketed-paste", BRACKETED);
-    let replay = vtium_conformance::probes::Replay::new(&spec, &vtium_conformance::describe())
-        .unwrap_or_else(|e| panic!("{e}"));
-    assert_eq!(r.capability(&s), replay.run(&probes[0]));
-    assert_eq!(r.capability(&s), Outcome::Pass);
+    assert_eq!(runner(&spec).capability(&s), Outcome::Pass);
 }
 
 #[test]
@@ -1052,4 +1112,40 @@ fn write_refuses_an_existing_transcript_without_replace_and_lists_a_new_scenario
     );
     assert_eq!(read(&list).matches("key-old").count(), 1);
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `conformance probes` on the tree: every capability of the list judged
+/// through the capability scenario that declares it, in the build this
+/// test runs in, and every verdict agreeing with the list.
+#[test]
+fn conformance_probes_judges_the_list_through_the_capability_scenarios() {
+    let caps = vtium_conformance::coverage::capabilities(&read("capabilities.list"))
+        .unwrap_or_else(|e| panic!("{e}"));
+    let out = std::process::Command::new(env!("CARGO_BIN_EXE_conformance"))
+        .arg("probes")
+        .output()
+        .unwrap_or_else(|e| panic!("conformance probes: {e}"));
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "conformance probes failed:\n{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    for cap in &caps {
+        assert!(
+            stdout
+                .lines()
+                .any(|l| l.starts_with(&format!("ok   {}: ", cap.name))),
+            "no verdict for {}:\n{stdout}",
+            cap.name
+        );
+    }
+    let count = |s: &str| caps.iter().filter(|c| c.status == s).count();
+    let summary = format!(
+        "{} capabilities, each judged by its scenario under scenarios/: {} work, {} missing; 0 disagree with the list",
+        caps.len(),
+        count("works"),
+        count("missing")
+    );
+    assert_eq!(stdout.lines().last(), Some(summary.as_str()), "{stdout}");
 }

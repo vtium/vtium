@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="903" height="326" viewBox="0 0 903 326" font-family="DejaVu Sans Mono, monospace" font-size="14" xml:space="preserve">
+<title>A terminal's card in vtium-config's Flow view: the subflow from the font set through the spatial and color filters to the display</title>
+<rect width="903" height="326" fill="#ffffff"/>
+<text x="20" y="22" font-size="12" fill="#1f2933">A terminal's card in the Flow view, with its subflow, in the console color set on a black console</text>
+<rect x="20" y="32" width="863" height="280" fill="#000000" stroke="#9aa5b1"/>
+<text x="30.00" y="50" fill="#ffffff" font-weight="bold" textLength="109.59" lengthAdjust="spacingAndGlyphs">TERMINAL desk</text>
+<text x="148.02" y="50" fill="#cdcd00" font-weight="bold" textLength="50.58" lengthAdjust="spacingAndGlyphs">· VT 3</text>
+<text x="30.00" y="68" fill="#7f7f7f" textLength="295.05" lengthAdjust="spacingAndGlyphs">look amber · size 14 pt · 1 console</text>
+<text x="30.00" y="104" fill="#ffffff" font-weight="bold" textLength="202.32" lengthAdjust="spacingAndGlyphs">WHAT THIS TERMINAL DRAWS</text>
+<text x="30.00" y="122" fill="#e5e5e5" textLength="741.84" lengthAdjust="spacingAndGlyphs">┌────────────────┐    ┌──────────────────┐    ┌──────────────────┐    ┌────────────────┐</text>
+<text x="30.00" y="140" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="46.86" y="140" fill="#cd00cd" font-weight="bold" textLength="67.44" lengthAdjust="spacingAndGlyphs">Font set</text>
+<text x="173.31" y="140" fill="#e5e5e5" textLength="50.58" lengthAdjust="spacingAndGlyphs">│───►│</text>
+<text x="232.32" y="140" fill="#e5e5e5" font-weight="bold" textLength="126.45" lengthAdjust="spacingAndGlyphs">Spatial filters</text>
+<text x="375.63" y="140" fill="#e5e5e5" textLength="50.58" lengthAdjust="spacingAndGlyphs">│───►│</text>
+<text x="434.64" y="140" fill="#e5e5e5" font-weight="bold" textLength="109.59" lengthAdjust="spacingAndGlyphs">Color filters</text>
+<text x="577.95" y="140" fill="#e5e5e5" textLength="50.58" lengthAdjust="spacingAndGlyphs">│───►│</text>
+<text x="636.96" y="140" fill="#00cdcd" font-weight="bold" textLength="33.72" lengthAdjust="spacingAndGlyphs">DP-8</text>
+<text x="763.41" y="140" fill="#e5e5e5" textLength="8.43" lengthAdjust="spacingAndGlyphs">│</text>
+<text x="30.00" y="158" fill="#e5e5e5" textLength="741.84" lengthAdjust="spacingAndGlyphs">│ monoid         │    │ scanlines        │    │ tint, contrast   │    │ LARGE00001     │</text>
+<text x="30.00" y="176" fill="#e5e5e5" textLength="741.84" lengthAdjust="spacingAndGlyphs">└────────────────┘    └──────────────────┘    └──────────────────┘    └────────────────┘</text>
+<text x="30.00" y="212" fill="#7f7f7f" textLength="665.97" lengthAdjust="spacingAndGlyphs">Requires: gpu any. On the CPU path, vtium draws the color filters and skips the</text>
+<text x="30.00" y="230" fill="#7f7f7f" textLength="134.88" lengthAdjust="spacingAndGlyphs">spatial filters.</text>
+<text x="30.00" y="266" fill="#7f7f7f" textLength="429.93" lengthAdjust="spacingAndGlyphs">↑↓←→ move  Enter open  e revise this path  Esc back</text>
+</svg>

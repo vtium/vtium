@@ -1,0 +1,34 @@
+> size 10 6
+> send "\e]133;A\a$ \e]133;B\als\r\n\e]133;C\aone\r\ntwo\r\n"
+> send "\e]133;A\a$ \e]133;B\apwd\r\n\e]133;C\a/home"
+> select output at 2,2
+> copy
+< copy "one\ntwo\n"
+> select output at 0,4
+> copy
+< copy "/home\n"
+> select word at 0,1
+> select output at 1,0
+> copy
+< copy none
+> select word at 0,1
+> select output at 5,3
+> copy
+< copy none
+> select output at 0,5
+> copy
+< copy "/home\n"
+> dump frame
+size 10x6
+cursor 5,4
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 5,4 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
+row 0 |$ ls|
+row 1 |one|
+row 2 |two|
+row 3 |$ pwd|
+row 4 |/home|
+cells 4 0-9 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 5 ||

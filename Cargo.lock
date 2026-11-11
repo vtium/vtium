@@ -833,7 +833,7 @@ dependencies = [
 [[package]]
 name = "unicode-bidi"
 version = "0.3.18"
-source = "git+https://github.com/vtium/unicode-bidi?rev=9a8c7b03be01def5cf7014b89d5af90f7382fdad#9a8c7b03be01def5cf7014b89d5af90f7382fdad"
+source = "git+https://github.com/vtium/unicode-bidi?rev=5927633397bc767eb23e0d0c80541272cb88b4ab#5927633397bc767eb23e0d0c80541272cb88b4ab"
 
 [[package]]
 name = "unicode-ident"
@@ -862,6 +862,7 @@ dependencies = [
  "vtium-render",
  "vtium-settings",
  "vtium-term",
+ "vtium-testscript",
  "xkbcommon",
 ]
 
@@ -886,6 +887,8 @@ dependencies = [
  "vtium-platform",
  "vtium-settings",
  "vtium-term",
+ "vtium-testfont",
+ "vtium-testscript",
 ]
 
 [[package]]
@@ -942,12 +945,23 @@ dependencies = [
  "seccompiler",
  "vtium-image",
  "vtium-platform",
+ "vtium-testscript",
  "zune-jpeg",
 ]
 
 [[package]]
 name = "vtium-parse"
 version = "0.1.0-alpha.6"
+dependencies = [
+ "vtium-parse-recorder",
+]
+
+[[package]]
+name = "vtium-parse-recorder"
+version = "0.1.0-alpha.6"
+dependencies = [
+ "vtium-parse",
+]
 
 [[package]]
 name = "vtium-platform"
@@ -965,6 +979,7 @@ dependencies = [
  "rustix",
  "udev",
  "vtium-image",
+ "vtium-testscript",
  "xkbcommon",
 ]
 
@@ -1019,14 +1034,21 @@ dependencies = [
 name = "vtium-testfont"
 version = "0.1.0-alpha.6"
 dependencies = [
+ "miniz_oxide",
  "vtium-font",
+]
+
+[[package]]
+name = "vtium-testscript"
+version = "0.1.0-alpha.6"
+dependencies = [
+ "seccompiler",
 ]
 
 [[package]]
 name = "vtium-tier2"
 version = "0.1.0-alpha.6"
 dependencies = [
- "miniz_oxide",
  "vtium",
  "vtium-config",
  "vtium-font",

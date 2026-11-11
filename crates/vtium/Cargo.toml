@@ -18,7 +18,7 @@ default = []
 # vtium-term, the compositor's pictures in vtium-render, vtium-image, and
 # the image helper's host in vtium-platform (ADR-1101).
 images = ["dep:vtium-image", "vtium-term/images", "vtium-render/images", "vtium-platform/images"]
-# grab-suspend through logind's Suspend (ADR-1400's L2 layer).
+# key-suspend through logind's Suspend (ADR-1400's L2 layer).
 logind = ["vtium-platform/logind"]
 # The GPU path (ADR-1303): vtium-render's frame and `Gl` trait, and
 # vtium-platform's GL context, which `src/gpu.rs` joins. It loads libEGL and
@@ -73,3 +73,6 @@ calloop = { version = "=0.14.4", default-features = false }
 # its own as the helper an outline frit asks, so the console's tests meet
 # the checks the real helper makes.
 vtium-config = { path = "../vtium-config" }
+# The stand-in programs the tests write and copy, put in place so that
+# the kernel never refuses to run one as busy.
+vtium-testscript = { path = "../../tools/testscript" }

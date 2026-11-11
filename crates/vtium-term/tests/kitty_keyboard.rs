@@ -9,7 +9,7 @@
 
 mod common;
 
-use common::term;
+use common::{rows, scrollback, term};
 use vtium_term::{Key, KeyEvent, Mods, Terminal};
 
 const BACKSPACE: u32 = 0xff08;
@@ -311,6 +311,57 @@ fn ris_and_decstr_clear_both_stacks() {
         t.input(b"\x1b[>0u\x1b[<u");
         assert_eq!(flags(&mut t), "\x1b[?0u", "{reset:?}: nothing saved there");
     }
+}
+
+// ADR-1005, D10: the host's reset, which vtium's reset key calls, leaves
+// the terminal as RIS does, the flag stacks of both screens emptied among
+// it. The replies a program's queries left queued are dropped, since the
+// program that asked is being reset, and a sequence the program had half
+// written is dropped, as the ESC of RIS would drop it.
+// covers: input.kitty-keyboard
+#[test]
+fn a_host_reset_leaves_the_terminal_as_ris_does() {
+    let setup: &[u8] = b"one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n\x1b[>1u\x1b[>1u\x1b[?1h\x1b[>4;2m\x1b[1;31m\x1b[?1049h\x1b[>1u\x1b[2;5Hx";
+    // DSR's reply waits for the host to take it, and `CSI 3` is half a
+    // sequence.
+    let last: &[u8] = b"\x1b[6n\x1b[3";
+    let mut by_ris = term(80, 4, b"");
+    by_ris.input(setup);
+    by_ris.input(last);
+    by_ris.input(b"\x1bc");
+    by_ris.take_replies();
+    let mut by_host = term(80, 4, b"");
+    by_host.input(setup);
+    by_host.input(last);
+    assert!(!by_host.replies().is_empty());
+    by_host.reset();
+    assert_eq!(by_host.replies(), b"", "the queued reply is dropped");
+    for t in [&mut by_ris, &mut by_host] {
+        t.input(b"1mA");
+    }
+    for query in [
+        &b"\x1b[?u"[..],
+        b"\x1b[6n",
+        b"\x1b[?1$p",
+        b"\x1b[?1049$p",
+        b"\x1b[?4m",
+        b"\x1bP$qm\x1b\\",
+        b"\x1b[?1049h\x1b[?u\x1b[?1049l",
+    ] {
+        assert_eq!(
+            String::from_utf8_lossy(&send(&mut by_host, query)),
+            String::from_utf8_lossy(&send(&mut by_ris, query)),
+            "{query:?}"
+        );
+    }
+    assert_eq!(flags(&mut by_host), "\x1b[?0u", "the main screen");
+    by_host.input(b"\x1b[?1049h");
+    assert_eq!(flags(&mut by_host), "\x1b[?0u", "the alternate screen");
+    by_host.input(b"\x1b[?1049l");
+    assert_eq!(rows(by_host.screen()), rows(by_ris.screen()));
+    assert_eq!(rows(by_host.screen())[0].trim_end(), "1mA");
+    assert_eq!(scrollback(by_host.screen()), Vec::<String>::new());
+    assert_eq!(scrollback(by_ris.screen()), Vec::<String>::new());
 }
 
 // "Progressive enhancement": a push onto a full stack evicts the oldest

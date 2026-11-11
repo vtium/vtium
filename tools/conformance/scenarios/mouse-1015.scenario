@@ -1,0 +1,13 @@
+# mode 1015, the urxvt encoding: CSI Cb ; Cx ; Cy M in decimal, a release
+# button 3
+# spec: ADR-1000 DEC-1015
+# capability: mouse-1015
+size 80 4
+send "\e[?1000h\e[?1015h"
+check
+mouse press left at 2,3 px=20,30
+check
+reply "\e[32;3;4M"
+mouse release left at 2,3 px=20,30
+check
+reply "\e[35;3;4M"

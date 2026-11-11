@@ -6,8 +6,7 @@
 //! time at its font's own size, as vtium-font's own bitmap faces shear it.
 //! Every glyph of an answer comes in a strike of the style asked for.
 
-#[path = "common/ttf.rs"]
-mod ttf;
+use vtium_testfont::ttf;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -448,10 +447,11 @@ fn first_ink(g: &Glyph) -> Vec<Option<usize>> {
         .collect()
 }
 
-// an 8x16 bitmap glyph sheared for italic in the helper moves its rows by
-// 2, 1, 0 and -1 pixels, as vtium-font shears the faces the console
-// draws itself, and at a scale of 2 by twice as many; bold italic widens
-// first and shears the widened rows, in both alike
+// an 8x16 bitmap glyph sheared for italic in the helper moves rows 0 to 3
+// 2 pixels and rows 4 to 8 1 pixel, and the three rows above the baseline
+// and every row below it stay (ADR-1302 D4), as vtium-font shears the
+// faces the console draws itself, and at a scale of 2 by twice as many;
+// bold italic widens first and shears the widened rows, in both alike
 // covers: sgr.italic
 #[test]
 fn the_helper_shears_a_bitmap_as_vtium_font_does() {
@@ -462,13 +462,18 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
         width: 8,
         height: 16,
     };
+    let bands = |at: [usize; 3]| -> Vec<Option<usize>> {
+        let mut want = vec![Some(at[0]); 4];
+        want.extend([Some(at[1]); 5]);
+        want.extend([Some(at[2]); 7]);
+        want
+    };
     let bar = drawn(&e, at8, ITALIC, '|');
-    assert_eq!(bar.ink().map(|i| (i.left(), i.width())), Some((-1, 9)));
-    let mut want = vec![Some(3); 5];
-    want.extend([Some(2); 5]);
-    want.extend([Some(1); 5]);
-    want.push(Some(0));
-    assert_eq!(first_ink(&bar), want);
+    assert!(bar.ink().is_none(), "no row passes the cell's left edge");
+    assert_eq!(first_ink(&bar), bands([2, 1, 0]));
+    let edge = drawn(&e, at8, ITALIC, '/');
+    assert_eq!(edge.ink().map(|i| (i.left(), i.width())), Some((0, 10)));
+    assert_eq!(first_ink(&edge), bands([9, 8, 7]));
     let mut own = Psf::parse(&psf()).expect("the font");
     // `/` in the cell's last column has no room to widen in the cell, so
     // its bold italic glyph is its italic glyph in both
@@ -485,9 +490,9 @@ fn the_helper_shears_a_bitmap_as_vtium_font_does() {
         height: 32,
     };
     own.set_height(32);
-    let ours = drawn(&e, at16, ITALIC, '|');
-    let theirs = own.draw(&['|'], ITALIC).expect("vtium-font's");
-    assert_eq!(ours.ink().map(|i| (i.left(), i.width())), Some((-2, 18)));
+    let ours = drawn(&e, at16, ITALIC, '/');
+    let theirs = own.draw(&['/'], ITALIC).expect("vtium-font's");
+    assert_eq!(ours.ink().map(|i| (i.left(), i.width())), Some((0, 20)));
     assert_eq!(ours.pixels(), theirs.pixels());
     assert_eq!(ours.ink(), theirs.ink());
     // the regular glyph stays upright
@@ -535,11 +540,19 @@ fn a_bitmap_box_passes_the_right_edge_and_stays_inside_a_chunk() {
         width: 256,
         height: 512,
     };
-    let ours = drawn(&e, big, ITALIC, '|');
+    // `/` in the cell's last column leans past its right edge, and its box
+    // of 10 columns is 320 pixels by 512 rows at a scale of 32, 20,480
+    // bytes
+    let ours = drawn(&e, big, ITALIC, '/');
     assert!(ours.ink().is_none(), "no box past a chunk");
+    let cut: Vec<Option<usize>> = ours
+        .rows()
+        .map(|r| r.iter().position(|&p| p != 0))
+        .collect();
+    assert_eq!((cut[0], cut[511]), (None, Some(224)), "sheared, then cut");
     let mut own = own;
     own.set_height(512);
-    let theirs = own.draw(&['|'], ITALIC).expect("vtium-font's");
+    let theirs = own.draw(&['/'], ITALIC).expect("vtium-font's");
     assert_eq!((ours.pixels(), ours.ink()), (theirs.pixels(), theirs.ink()));
 }
 

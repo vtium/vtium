@@ -260,8 +260,8 @@ fn the_level_overflow_input_resolves_without_a_panic() {
     }
 }
 
-/// An empty paragraph and an empty row never reach the crate, whose
-/// `visual_runs` panics on an empty line.
+/// An empty paragraph goes through the crate like any other, and an empty
+/// row is skipped: both resolve to no levels and no order.
 #[test]
 fn empty_paragraphs_and_rows_resolve_without_a_panic() {
     let none = resolve(&[], Direction::RightToLeft, false, &[0, 0], 0..usize::MAX);
@@ -320,13 +320,74 @@ fn detection_falls_back_to_the_paragraphs_direction() {
 /// vtium-term passes the crate its own bracket pairs at Unicode 18.0.0.
 /// U+2E62 and U+2E63, the parentheses with a middle ring, are new in
 /// BidiBrackets.txt 18.0.0: paired, rule N0 gives the pair and the bet
-/// between them the right-to-left direction of the aleph before them, while
-/// the crate's own Unicode 16 table would leave them unpaired.
+/// between them the right-to-left direction of the aleph before them. A
+/// bracket table older than 18.0.0, such as 0.3.18's, would leave them
+/// unpaired.
 #[test]
 fn brackets_new_in_unicode_18_pair() {
     let text: Vec<char> = "\u{05D0} \u{2E62}\u{05D1}\u{2E63} a".chars().collect();
     let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
     assert_eq!(got.levels, [1, 1, 1, 1, 1, 0, 0]);
+}
+
+/// Rule BD16 keeps at most 63 opening brackets on its stack. When one more
+/// opening bracket arrives, UAX #9 stops BD16 for the rest of the isolating
+/// run sequence and returns an empty list, so even the pairs found before
+/// the overflow are unpaired. Here aleph, `(`, bet, `)` and c are followed
+/// by opening brackets in a left-to-right paragraph. With 63 of them, the
+/// pair around bet resolves by rule N0 to the right-to-left direction of the
+/// aleph, so the `)` is at level 1. With 64, BD16 finds no pairs, and rule
+/// N2 gives the `)`, between bet and c, the paragraph's level 0. Unicode's
+/// conformance files have no case of the overflow. unicode-bidi 0.3.18 kept
+/// the pairs found before the overflow and gave the `)` level 1 both times.
+#[test]
+fn bracket_pairing_stops_when_its_stack_overflows() {
+    for (openings, closing) in [(63, 1), (64, 0)] {
+        let text: Vec<char> = "\u{05D0}(\u{05D1})c"
+            .chars()
+            .chain(std::iter::repeat_n('(', openings))
+            .collect();
+        let got = resolve(&text, Direction::LeftToRight, false, &[], 0..usize::MAX);
+        assert_eq!(
+            got.levels[..5],
+            [1, 1, 1, closing, 0],
+            "{openings} openings"
+        );
+        assert!(
+            got.levels[5..].iter().all(|&l| l == 0),
+            "{openings} openings"
+        );
+    }
+}
+
+/// vtium's fork of the crate returns no level runs for an empty line, at
+/// the end of the text or in an empty text, where unicode-bidi 0.3.18's
+/// `visual_runs` and the `reorder_line` that calls it panicked with an
+/// index out of bounds. vtium-term never calls either, because each copies
+/// the whole paragraph's levels for the row it is asked about, so this test
+/// alone calls them, to pin the fork's fix: a change that moves the
+/// revision to one without it fails here.
+#[test]
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the test pins the fork's fix in the methods vtium-term refuses"
+)]
+fn the_forks_visual_runs_accepts_an_empty_line() {
+    use unicode_bidi::{BidiInfo, Level, ParagraphBidiInfo};
+
+    for (text, at) in [("ab\u{05D0}", 4), ("", 0)] {
+        let paragraph = ParagraphBidiInfo::new_with_data_source(&super::Tables, text, None);
+        assert_eq!(paragraph.visual_runs(at..at).1, Vec::new(), "{text:?}");
+        assert_eq!(paragraph.reorder_line(at..at), "", "{text:?}");
+    }
+    let text = "ab\u{05D0}\n";
+    let info = BidiInfo::new_with_data_source(&super::Tables, text, Some(Level::ltr()));
+    let line = text.len()..text.len();
+    assert_eq!(
+        info.visual_runs(&info.paragraphs[0], line.clone()).1,
+        Vec::new()
+    );
+    assert_eq!(info.reorder_line(&info.paragraphs[0], line), "");
 }
 
 /// A U+2029 PARAGRAPH SEPARATOR inside a screen paragraph neither splits

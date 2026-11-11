@@ -5,8 +5,7 @@
 
 #[path = "common/parser.rs"]
 mod parser;
-#[path = "common/ttf.rs"]
-mod ttf;
+use vtium_testfont::ttf;
 
 use std::path::Path;
 

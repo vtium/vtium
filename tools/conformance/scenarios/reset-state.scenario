@@ -1,0 +1,18 @@
+# What DECSTR and RIS return to their start, as the state lines show it:
+# the scroll region, the modes, the pen, the cursor color and the
+# scrollback. DECSTR keeps the tab stops, mode 69 and the left and right
+# margins, as the VT510 manual's DECSTR table leaves them out; RIS sets a
+# stop every eighth column, resets mode 69 and returns the left and right
+# margins to the whole width.
+# spec: the VT510 manual, DECSTR; ctlseqs, DECSTR and RIS; INTERFACE-vtium.md, The state
+# covers: ctl.decstr
+size 12 4
+scrollback 10
+send "x\r\ny\r\nz\r\nw\r\nv"
+send "\e[2;3r\e[?69h\e[2;9s\e[3g\e[1;5H\eH\e[1;7;38;2;1;2;3m\e[?1h\e[4h\e[?1000;1006h\e]12;#ff0000\a"
+dump state
+send "\e[!p"
+dump state
+send "\e[2;3r\e[3g\e[1;31m\e[?1h"
+send "\ec"
+dump screen state

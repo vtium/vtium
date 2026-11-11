@@ -32,6 +32,11 @@ pub struct Plan {
     /// The files it writes: frits, vtium.conf and the head file.
     pub files: Vec<FileEdit>,
     pub removals: Vec<Removal>,
+    /// Whether the install accepts a vtium.conf that wires no complete
+    /// route, because the person confirmed it or ran `install --force`
+    /// (ADR-1403 D8). The draft's `MANIFEST` records it, and `apply` then
+    /// accepts that one problem from `vtium check-config`.
+    pub no_route: bool,
 }
 
 impl Plan {

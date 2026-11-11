@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use regex::Regex;
 
 use super::{INPUT_KEYS, Probe, Step, VIEW_FEATURES, shown};
+use crate::command::{END, INTRO};
 use crate::coverage::Capability;
 use crate::replay::Input;
 use crate::runner::mask_line;
@@ -114,20 +115,7 @@ impl<'a> Replay<'a> {
         if let Some(name) = probe.fixtures.iter().find(|f| !fixtures.join(f).is_file()) {
             return Outcome::Unjudged(format!("no fixture {name} in {}", fixtures.display()));
         }
-        let mut data = Vec::new();
-        let mut cuts = Vec::new();
-        for (step, _) in &probe.steps {
-            match step {
-                Step::Send(bytes) => data.extend_from_slice(bytes),
-                Step::Cmd(text) => {
-                    data.extend_from_slice(b"\x1b_tsm-test;");
-                    data.extend_from_slice(text.as_bytes());
-                    data.extend_from_slice(b"\x1b\\");
-                }
-                Step::Check => cuts.push(data.len()),
-                _ => {}
-            }
-        }
+        let (data, cuts) = input(probe);
         let (cols, rows) = probe.size.unwrap_or((1, 1));
         let view = match probe.view.as_str() {
             "frame" => View::Frame,
@@ -166,6 +154,26 @@ impl<'a> Replay<'a> {
         }
         judge(probe, &lines, &cuts, exact)
     }
+}
+
+/// The bytes a probe's replay plays and the cuts in them: each `send`'s
+/// bytes, each `cmd` as its test command, and a cut at each `check`.
+pub(crate) fn input(probe: &Probe) -> (Vec<u8>, Vec<usize>) {
+    let mut data = Vec::new();
+    let mut cuts = Vec::new();
+    for (step, _) in &probe.steps {
+        match step {
+            Step::Send(bytes) => data.extend_from_slice(bytes),
+            Step::Cmd(text) => {
+                data.extend_from_slice(INTRO);
+                data.extend_from_slice(text.as_bytes());
+                data.extend_from_slice(END);
+            }
+            Step::Check => cuts.push(data.len()),
+            _ => {}
+        }
+    }
+    (data, cuts)
 }
 
 /// Judges the lines a probe's replay printed, one block at each cut and
@@ -330,7 +338,7 @@ pub(crate) fn judge_blocks(probe: &Probe, blocks: &[Vec<&str>], exact: bool) -> 
     Outcome::Pass
 }
 
-/// A pattern as its probe file wrote it, without the anchors `whole` adds.
+/// A pattern as its scenario wrote it, without the anchors `whole` adds.
 fn pattern(re: &Regex) -> &str {
     re.as_str()
         .strip_prefix(r"\A(?:")

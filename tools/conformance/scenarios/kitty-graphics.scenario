@@ -1,0 +1,8 @@
+# a query with an id gets OK
+# spec: ADR-1000 image.kitty
+# capability: kitty-graphics
+size 80 24
+needs kitty-graphics
+send "\e_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\e\\"
+check
+reply "\e_Gi=31;OK\e\\"

@@ -306,6 +306,8 @@ ADR-1004 decides that vtium-term computes the order a paragraph is drawn in, and
 
 ADR-1004's probe `bidi` is the capability scenario `bidi` after the conversion, with `view display`. The `bidi-` behaviour scenarios land with ADR-1004's frame slice, and the feature `bidi` in their `needs` line keeps them from running in a build without it.
 
+> Edited 2026-11-07: slice 4's commands raise the replay interface to 1.5, not 1.3. Interface 1.3 and 1.4 went to other work while this record waited: 1.4 carries the kitty keyboard protocol's key modifiers and the SGR renditions' attributes. Slice 3 converted 60 probes, not 58, because the capability list had grown by then.
+
 ### D9: the work, in slices
 
 1. **This record**, read by the maintainer.

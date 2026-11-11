@@ -350,6 +350,18 @@ impl Screen {
         self.images_dropped();
     }
 
+    /// The rows the scrollback holds, the rows still waiting to be
+    /// rewrapped since the width changed counted at the current width.
+    pub fn scrollback_lines(&self) -> usize {
+        self.scrollback.total()
+    }
+
+    /// The most lines the scrollback keeps: as the host last set it, at
+    /// most the cap the screen was made with.
+    pub fn scrollback_max(&self) -> usize {
+        self.scrollback.max()
+    }
+
     /// How many lines the view is scrolled back: 0 shows the screen.
     pub fn scrolled_back(&self) -> usize {
         self.scrollback.offset()
@@ -505,10 +517,14 @@ impl Screen {
     }
 
     /// Returns the screen to its state after creation, as RIS and DECSTR
-    /// need it: the flags, DECLRMM among them, the margins, the tab stops, the main screen in
-    /// use, no selection and the view on the screen. The text, the cursor
-    /// and the pen stay; the terminal's reset clears and moves them. Mode
-    /// 2028 stays: the mode table sets it on RIS only.
+    /// need it: the flags, the top and bottom margins, the main screen in
+    /// use, no selection and the view on the screen. The text, the cursor,
+    /// the pen, the tab stops, mode 69 (DECLRMM) and the left and right
+    /// margins stay, since the VT510 manual's DECSTR table leaves out the
+    /// last three; the terminal's reset clears and moves the text and the
+    /// cursor, RIS calls `reset_tabs`, and the mode table resets mode 69,
+    /// and with it the margins, on RIS only. Mode 2028 stays as well: the
+    /// mode table sets it on RIS only.
     pub fn reset(&mut self) {
         if self.flags.alternate {
             self.images_alternate(false);
@@ -517,15 +533,21 @@ impl Screen {
         self.last_printed = None;
         self.flags = Flags {
             reflow: self.flags.reflow,
+            lr_margins: self.flags.lr_margins,
             ..Flags::RESET
         };
         self.top = 0;
         self.bottom = self.rows.saturating_sub(1);
-        self.reset_lr_margins();
-        self.tabs = default_tabs(self.cols);
         self.selection.reset();
         self.scrollback.reset_view();
         self.damage.mark_all();
+    }
+
+    /// Sets a tab stop every eighth column and clears the others, as RIS
+    /// does. DECSTR keeps the tab stops, since the VT510 manual's table of
+    /// what DECSTR resets leaves them out.
+    pub fn reset_tabs(&mut self) {
+        self.tabs = default_tabs(self.cols);
     }
 
     /// The age a display keeps after drawing a frame: changes after it are

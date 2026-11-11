@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 mod console;
 use console::vtium;
 
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
@@ -447,6 +446,10 @@ fn check_judges_a_file_of_sections_as_the_console_reads_it() {
 
 #[test]
 fn fonts_lists_each_font_its_state_and_the_sources_this_machine_lacks() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
     let f = fixture("fonts", None);
     let fonts = f.etc().join("fonts");
     std::fs::write(

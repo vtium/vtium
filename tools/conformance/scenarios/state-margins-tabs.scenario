@@ -1,0 +1,16 @@
+# The state lines show DECSTBM's scroll region, DECSLRM's margins under
+# DECLRMM, and the tab stops that HTS sets and TBC clears
+# (INTERFACE-vtium.md, The state).
+# spec: ADR-1000 ctl.decstbm, ctl.tabs
+# capability: state-margins-tabs
+size 20 6
+cmd state
+check
+want test state margins 0-5 0-19
+want test state tabs 0,8,16
+send "\e[2;5r\e[?69h\e[3;12s"
+send "\e[3g\e[1;4H\eH\e[1;10H\eH\e[1;10H\e[0g"
+cmd state
+check
+want test state margins 1-4 2-11
+want test state tabs 3

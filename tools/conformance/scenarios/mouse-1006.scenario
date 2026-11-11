@@ -1,0 +1,11 @@
+# spec: ADR-1000 DEC-1006
+# capability: mouse-1006
+size 80 4
+send "\e[?1000h\e[?1006h"
+check
+mouse press left at 2,3 px=20,30
+check
+reply "\e[<0;3;4M"
+mouse release left at 2,3 px=20,30
+check
+reply "\e[<0;3;4m"

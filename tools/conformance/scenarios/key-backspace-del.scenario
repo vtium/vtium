@@ -1,0 +1,17 @@
+# What BackSpace sends is the host's setting: BS (0x08) at the reference
+# host's start, DEL (0x7f) once the host chooses it, and BS again
+# (INTERFACE-vtium.md, The BackSpace key).
+# spec: ADR-1000 input.legacy
+# capability: key-backspace-del
+size 8 1
+key BackSpace
+check
+reply "\b"
+backspace del
+key BackSpace
+check
+reply "\x7f"
+backspace bs
+key BackSpace
+check
+reply "\b"

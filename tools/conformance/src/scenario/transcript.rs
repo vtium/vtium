@@ -13,8 +13,7 @@ pub struct Block {
     /// The `test` lines printed before the block's `checkpoint` line,
     /// which belong to it.
     pub tests: Vec<String>,
-    /// The `reply` and `host:` lines, and the `bell` lines once the
-    /// interface has them, in the order printed.
+    /// The `reply`, `host:` and `bell` lines, in the order printed.
     pub effects: Vec<String>,
     /// The `size`, `cursor` and `flags` lines and the view's lines.
     pub body: Vec<String>,
@@ -85,12 +84,14 @@ fn test_effect(line: &str) -> String {
 }
 
 /// The side effects of one command, from the blocks between the cut before
-/// it and its own: its `test` lines, then its replies, host requests and
-/// bells in the order printed, each run of replies as one string. With
+/// it and its own: its `test` lines, then its replies and host requests in
+/// the order printed, each run of replies as one string, then its bells as
+/// one line, however many blocks they were printed in (ADR-1504 D3). With
 /// `state`, the `test state` lines are the dump's and are left out.
 fn effects(blocks: &[&Block], state: bool) -> Vec<String> {
     let mut out = Vec::new();
     let mut run: Vec<u8> = Vec::new();
+    let mut bells: u64 = 0;
     let flush = |run: &mut Vec<u8>, out: &mut Vec<String>| {
         if !run.is_empty() {
             out.push(format!("< reply {}", quoted(run)));
@@ -108,6 +109,8 @@ fn effects(blocks: &[&Block], state: bool) -> Vec<String> {
         for e in &b.effects {
             if let Some(hex) = e.strip_prefix("reply ") {
                 run.extend(unhex(hex));
+            } else if let Some(n) = e.strip_prefix("bell ") {
+                bells = bells.saturating_add(n.parse().unwrap_or(0));
             } else {
                 flush(&mut run, &mut out);
                 out.push(format!("< {e}"));
@@ -115,6 +118,9 @@ fn effects(blocks: &[&Block], state: bool) -> Vec<String> {
         }
     }
     flush(&mut run, &mut out);
+    if bells > 0 {
+        out.push(format!("< bell {bells}"));
+    }
     out
 }
 

@@ -1,0 +1,8 @@
+# spec: ADR-1000 DEC-2004
+# capability: bracketed-paste
+size 80 4
+send "\e[?2004h"
+check
+paste "x"
+check
+reply "\e[200~x\e[201~"

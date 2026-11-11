@@ -562,6 +562,41 @@ fn decstr_returns_the_modes_to_their_defaults() {
     assert_eq!(t.screen().cursor(), (0, 0));
 }
 
+// A departure from the VT510 manual's DECSTR table, which gives "No
+// autowrap" after a soft reset: vtium's DECSTR sets DECAWM. xterm's
+// terminfo entries send DECSTR in is2 and rs2 and declare `am`, so
+// following the table would leave the terminal without autowrap after
+// `tput init` or `tput reset` while its terminfo entry says it wraps.
+// covers: ctl.decstr
+#[test]
+fn decstr_leaves_autowrap_on() {
+    let mut t = term(4, 2, b"\x1b[?7l");
+    assert_eq!(rqm(&mut t, true, 7), 2);
+    t.input(b"\x1b[!p");
+    assert_eq!(rqm(&mut t, true, 7), 1, "DECSTR sets autowrap");
+    t.input(b"\x1b[Habcdef");
+    assert_eq!(rows(t.screen()), ["abcd", "ef"]);
+}
+
+// The VT510 manual's DECSTR table lists what a soft reset changes, and the
+// tab stops are not in it, so DECSTR keeps them; RIS returns them to every
+// eighth column.
+// covers: ctl.decstr
+#[test]
+fn decstr_keeps_the_tab_stops_and_ris_resets_them() {
+    let mut t = term(20, 2, b"\x1b[3g\x1b[1;4H\x1bH\x1b[1;11H\x1bH");
+    let set: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(set, [3, 10]);
+    t.input(b"\x1b[!p");
+    let kept: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(kept, [3, 10], "DECSTR keeps the tab stops");
+    t.input(b"\r\t");
+    assert_eq!(t.screen().cursor(), (3, 0));
+    t.input(b"\x1bc");
+    let reset: Vec<usize> = (0..20).filter(|&c| t.screen().tab_stops()[c]).collect();
+    assert_eq!(reset, [0, 8, 16], "RIS sets a stop every eighth column");
+}
+
 // ctlseqs, RIS: DECSTR's reset, and the screen and scrollback erased and
 // the cursor home.
 // covers: ctl.decstr
@@ -1123,4 +1158,32 @@ fn modes_vtium_always_or_never_has_answer_their_fixed_state_and_change_nothing()
         assert_eq!(rqm(&mut t, true, n), fixed, "?{n} reset");
         assert_eq!(format!("{t:?}"), before, "?{n} changed the state");
     }
+}
+
+// ctlseqs, DECRQM: the modes in force are those DECRQM reports set (1),
+// ANSI then DEC private, each in ascending order. A host that shows a
+// terminal's state, as the replay's `state` command does, reads them
+// without writing a query into the stream.
+#[test]
+fn modes_in_force_are_those_decrqm_reports_set() {
+    let mut t = term(6, 3, b"");
+    let start = t.modes_in_force();
+    for (dec, n) in &start {
+        assert_eq!(rqm(&mut t, *dec, *n), 1, "{dec} {n} listed but not set");
+    }
+    assert!(
+        start.contains(&(true, 7)),
+        "DECAWM is set at start: {start:?}"
+    );
+    assert!(!start.contains(&(false, 4)), "IRM is reset at start");
+    t.input(b"\x1b[4h\x1b[?1h\x1b[?7l");
+    let now = t.modes_in_force();
+    assert!(
+        now.contains(&(false, 4)) && now.contains(&(true, 1)),
+        "{now:?}"
+    );
+    assert!(!now.contains(&(true, 7)), "{now:?}");
+    let mut sorted = now.clone();
+    sorted.sort_by_key(|&(dec, n)| (dec, n));
+    assert_eq!(now, sorted, "ANSI first, then DEC, each ascending");
 }

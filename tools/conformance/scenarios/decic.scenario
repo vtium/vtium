@@ -1,0 +1,18 @@
+# DECIC, DECDC, DECBI and DECFI: columns go in and out at the cursor's
+# column, up to the right margin, and DECBI at the left margin moves the
+# columns right
+# spec: ADR-1000 ctl.decic
+# capability: decic
+size 10 2
+send "0123456789\r\nabcdefghij\e[?69h\e[3;7s\e[1;5H\e['}"
+check
+want row 0 |0123 45789|
+want row 1 |abcd efhij|
+send "\e[2'~"
+check
+want row 0 |01235  789|
+want row 1 |abcdf  hij|
+send "\e[1;3H\e6"
+check
+want row 0 |01 235 789|
+want row 1 |ab cdf hij|

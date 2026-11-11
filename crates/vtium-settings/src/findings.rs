@@ -127,7 +127,10 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
         let reaches = |p: &Place| match p {
             Place::Head(_) | Place::DefaultHead => true,
             Place::Roaming => placement.focus.is_some(),
-            Place::Ignore | Place::Off | Place::Notice => false,
+            // `place` names no VT, so it never ties a device elsewhere
+            Place::Ignore | Place::Off | Place::Notice | Place::Elsewhere(_) | Place::Unused(_) => {
+                false
+            }
         };
         if config.policy == Policy::Closed
             && !keyboards.is_empty()
@@ -142,7 +145,8 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
         // not dark
         for (id, placed) in devices.iter().zip(&placement.placed) {
             let fate = match (id.kind, placed.by, placed.place) {
-                (_, By::Rule(_) | By::NeverDark | By::AntiLockout, _) => None,
+                // `place` names no VT, so the built-in default never places
+                (_, By::Rule(_) | By::NeverDark | By::AntiLockout | By::Builtin, _) => None,
                 (Kind::Display, By::NoMatch | By::Tail, _) => Some(Fate::Dark),
                 (Kind::Input, By::NoMatch, Place::Roaming) if placement.focus.is_some() => {
                     Some(Fate::Roams)

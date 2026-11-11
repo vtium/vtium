@@ -68,6 +68,8 @@ pub mod syntax {
     pub const INPUT: &str = "input";
     pub const DISPLAY_RULE: &str = "display MATCH -> TARGET";
     pub const INPUT_RULE: &str = "input MATCH -> TARGET";
+    pub const DISPLAY_LABEL: &str = "display MATCH = LABEL";
+    pub const INPUT_LABEL: &str = "input MATCH = LABEL";
     pub const ARROW: &str = "->";
     pub const STAR: &str = "*";
     pub const TOKEN: &str = "key:value";
@@ -154,6 +156,29 @@ impl fmt::Display for Syntax {
                 "`{star}` matches every device, so it cannot be combined with other matches. Remove the other matches, or remove the `{star}`.",
                 star = STAR,
             ),
+            Syntax::LabelKind => write!(
+                f,
+                "A label line starts with `{display}` or `{input}`. Start this line with the kind of device it labels.",
+                display = DISPLAY,
+                input = INPUT,
+            ),
+            Syntax::LabelEquals => write!(
+                f,
+                "This label line has no `{equals}`. A label line reads `{display_label}` or `{input_label}`. Add `{equals}` between the match and the label.",
+                display_label = DISPLAY_LABEL,
+                input_label = INPUT_LABEL,
+                equals = EQUALS,
+            ),
+            Syntax::LabelEmpty => write!(
+                f,
+                "This label line has no label after `{equals}`. Write the label after `{equals}`, or remove the line.",
+                equals = EQUALS,
+            ),
+            Syntax::LabelLong => write!(
+                f,
+                "This label is longer than {max} characters. Shorten it to {max} characters or fewer.",
+                max = crate::LABEL_MAX,
+            ),
         }
     }
 }
@@ -203,10 +228,9 @@ impl fmt::Display for Problem {
                 version = VERSION_LINE,
             ),
             Problem::Syntax(syntax) => write!(f, "{syntax}"),
-            Problem::DuplicateSection(_) => write!(
+            Problem::DuplicateSection(section) => write!(
                 f,
-                "The file has a second `{rules}` section, and only one is allowed. Move this section's lines into the first one.",
-                rules = RULES_HEADING,
+                "The file has a second `[{section}]` section, and only one is allowed. Move this section's lines into the first one."
             ),
             Problem::UnknownKey(k) => write!(
                 f,
@@ -280,6 +304,20 @@ impl fmt::Display for Problem {
                     write!(f, "`{key}` cannot be {value}: it is out of range.")
                 }
             },
+            Problem::BadVt(v) if v.raw().is_empty() => write!(
+                f,
+                "This head's `vt` names no VT. Give it a VT number from 1 to {max}, or remove the line so that the head runs on every VT.",
+                max = crate::VT_MAX,
+            ),
+            Problem::BadVt(v) => write!(
+                f,
+                "This head's `vt` names {v}, which is not a VT. A VT is a number from 1 to {max}, and `vt = 3 4` names two of them.",
+                max = crate::VT_MAX,
+            ),
+            Problem::RepeatedVt(vt) => write!(
+                f,
+                "This head's `vt` names VT {vt} twice. Remove one of the two."
+            ),
             Problem::UnknownMatchKey(t) => write!(
                 f,
                 "A rule cannot match on {t}. Use one of {keys}.",

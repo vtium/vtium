@@ -41,10 +41,7 @@ Tags:
         #[test]
         fn alternate_screen_saves_the_cursor() { ... }
 
-    The test is named crates/<crate>/tests/<file>.rs::<fn>. A replay file
-    (*.replay) carries the same tag as a # comment. A tag above a
-    `probe NAME` line, with only comments and blank lines between, names
-    that probe, path::NAME; anywhere else it names the file.
+    The test is named crates/<crate>/tests/<file>.rs::<fn>.
 
     A tier 1 scenario (*.scenario, ADR-1504 D7) carries the tag in its
     header as a # comment, and the tag names the scenario's file. A tag of
@@ -76,7 +73,7 @@ Options:
     --require        fail while a selected row that needs a test has none
 
 Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
-Rust, replay or scenario files, a table cannot be read, or no row has LAYER.
+Rust or scenario files, a table cannot be read, or no row has LAYER.
 """
 
 import argparse
@@ -101,13 +98,12 @@ WORD = r'[a-z0-9]+(?:-[a-z0-9]+)*'
 FEATURE_ID = re.compile(rf'[a-z][a-z0-9]*(?:\.{WORD})+')
 
 RUST_TAG = re.compile(r'^\s*//[/!]?\s*covers:(.*)$', re.IGNORECASE)
-REPLAY_TAG = re.compile(r'^\s*#+\s*covers:(.*)$', re.IGNORECASE)
+SCENARIO_TAG = re.compile(r'^\s*#+\s*covers:(.*)$', re.IGNORECASE)
 NEAR_MISS = re.compile(r'covers:', re.IGNORECASE)
 TEST_ATTR = re.compile(r'^#\[\s*(?:[A-Za-z_][A-Za-z0-9_]*\s*::\s*)*test\s*[\](]')
 RUST_FN = re.compile(
     r'^\s*(?:pub(?:\([^)]*\))?\s+)?(?:const\s+)?(?:async\s+)?(?:unsafe\s+)?'
     r'(?:extern\s+"[^"]*"\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)')
-REPLAY_PROBE = re.compile(r'^probe\s+(\S+)')
 SCENARIO_CAPABILITY = re.compile(r'^\s*#+\s*capability:', re.IGNORECASE)
 # the behaviour scenarios whose transcripts wait for review, NAME<TAB>REASON
 SCENARIO_PROVISIONAL = 'tools/conformance/scenarios/provisional.tsv'
@@ -241,28 +237,6 @@ def scan_rust(path, rel, found, errors):
         unbound('is not above a fn')
 
 
-def scan_replay(path, rel, found, errors):
-    lines = path.read_text(encoding='utf-8', errors='replace').split('\n')
-    pending = []
-
-    def bind(test):
-        for where, row_id in pending:
-            found.append((row_id, test, where))
-
-    for number, line in enumerate(lines, start=1):
-        if read_tag(REPLAY_TAG, line, f'{rel}:{number}', pending, errors):
-            continue
-        if not pending:
-            continue
-        stripped = line.strip()
-        if not stripped or stripped.startswith('#'):
-            continue
-        probe = REPLAY_PROBE.match(stripped)
-        bind(f'{rel}::{probe.group(1)}' if probe else rel)
-        pending = []
-    bind(rel)
-
-
 def provisional_scenarios(root, errors):
     """The names tools/conformance/scenarios/provisional.tsv lists, or none. A line that is not
     NAME, a tab and a reason is an error, as the conformance tool reads the list."""
@@ -293,7 +267,7 @@ def scan_scenario(path, rel, found, errors, provisional):
         where = f'{rel}:{number}'
         if SCENARIO_CAPABILITY.match(line):
             capability = where
-        read_tag(REPLAY_TAG, line, where, pending, errors)
+        read_tag(SCENARIO_TAG, line, where, pending, errors)
     if pending and capability:
         errors.append(f'{pending[0][0]}: a capability scenario carries no covers tag; '
                       f'capabilities.list names its rows (its capability line is {capability})')
@@ -310,7 +284,7 @@ def scan(found, errors):
     not ignored. A build's output or an extracted copy (gitignored) is never
     read, so a tag in such a copy can't count toward vtium's coverage.
     """
-    counts = {'.rs': 0, '.replay': 0, '.scenario': 0}
+    counts = {'.rs': 0, '.scenario': 0}
     provisional = provisional_scenarios(ROOT, errors)
     listed = subprocess.run(
         ['git', '-C', str(ROOT), 'ls-files', '-z', '--cached', '--others', '--exclude-standard'],
@@ -328,10 +302,8 @@ def scan(found, errors):
         counts[suffix] += 1
         if suffix == '.rs':
             scan_rust(path, rel, found, errors)
-        elif suffix == '.scenario':
-            scan_scenario(path, rel, found, errors, provisional)
         else:
-            scan_replay(path, rel, found, errors)
+            scan_scenario(path, rel, found, errors, provisional)
     return counts
 
 
@@ -403,7 +375,7 @@ def main():
     found = []
     counts = scan(found, errors)
     if sum(counts.values()) == 0:
-        print(f'coverage: no Rust, replay or scenario files found under {ROOT}', file=sys.stderr)
+        print(f'coverage: no Rust or scenario files found under {ROOT}', file=sys.stderr)
         return 2
 
     tests = {row_id: set() for row_id in rows}
@@ -433,7 +405,7 @@ def main():
     covered = sum(1 for t, c in counted if tests[t.cell(c, 'id')])
     scope = f'layer {args.layer}' if args.layer else 'all layers'
     waiting = sum(1 for _, test, _ in found if test is None)
-    print(f"coverage: scanned {counts['.rs']} Rust, {counts['.replay']} replay and "
+    print(f"coverage: scanned {counts['.rs']} Rust and "
           f"{counts['.scenario']} scenario files, {len(found)} tags, {waiting} of them on "
           f"provisional scenarios, which do not count yet; "
           f'{scope}: {covered} of {len(counted)} rows that need a test have one')

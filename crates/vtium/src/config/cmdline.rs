@@ -33,6 +33,9 @@ pub(super) struct Parsed {
 /// an unknown option without it.
 pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
     let mut out = Vec::new();
+    // A key binding given by its old name goes first, so the new name
+    // wins wherever the command line gives both (ADR-1005 D10).
+    let mut old_names = Vec::new();
     let mut check = false;
     let mut candidate = None;
     let mut no_devices = None;
@@ -45,6 +48,7 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
         .map(|(n, a)| (n.saturating_add(1), a));
     while let Some((arg, word)) = words.next() {
         let origin = Origin::CommandLine { arg };
+        let mut by_old_name = false;
         let Some(word) = word.to_str() else {
             reports.push(origin, Problem::NotUtf8);
             continue;
@@ -84,10 +88,18 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
             };
             match value::lookup(name) {
                 Some((key, negated)) => (key, negated, inline),
-                None => {
-                    reports.push(origin, Problem::UnknownKey(format!("--{name}")));
-                    continue;
-                }
+                None => match keys::renamed(name) {
+                    Some((old, key)) => {
+                        let new = key.name;
+                        reports.push(origin.clone(), Problem::Renamed { old, new });
+                        by_old_name = true;
+                        (key, false, inline)
+                    }
+                    None => {
+                        reports.push(origin, Problem::UnknownKey(format!("--{name}")));
+                        continue;
+                    }
+                },
             }
         } else if let Some(short) = word.strip_prefix('-').filter(|s| !s.is_empty()) {
             let mut chars = short.chars();
@@ -156,8 +168,15 @@ pub(super) fn parse(args: &[OsString], reports: &mut Reports) -> Parsed {
                 }
             }
         };
-        out.push(Assignment { key, value, origin });
+        let to = if by_old_name {
+            &mut old_names
+        } else {
+            &mut out
+        };
+        to.push(Assignment { key, value, origin });
     }
+    old_names.extend(out);
+    let out = old_names;
     if login && !dashes {
         reports.push(
             Origin::CommandLine {

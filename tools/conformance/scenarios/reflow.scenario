@@ -1,0 +1,10 @@
+# a line wrapped at 10 columns becomes one line again at 20; the frame view
+# prints the screen at its size after the resize
+# spec: ADR-1000 text.reflow
+# capability: reflow
+size 10 4
+view frame
+send "abcdefghijklmno"
+resize 20 4
+check
+want row 0 |abcdefghijklmno|

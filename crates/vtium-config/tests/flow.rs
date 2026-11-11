@@ -6,8 +6,7 @@
 
 #[path = "common/home.rs"]
 mod home;
-#[path = "common/script.rs"]
-mod script;
+use vtium_testscript as script;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -184,6 +183,52 @@ fn an_unfinished_draft_is_written_and_the_command_exits_0() {
     );
     assert_eq!(f.installed(), INSTALLED);
     assert!(f.draft().contains("font-name=BAD"));
+}
+
+/// ADR-1005 D10: `set` writes a key vtium takes for itself as the line a
+/// person writes by hand, `key=value`, and an empty value as `key=`, which
+/// empties the key; `get` reads both back. The vtium crate's test
+/// `vtium_config_set_and_a_hand_edit_give_the_same_keys` reads this text and
+/// a hand-edited one and finds the same keys.
+#[test]
+fn set_writes_vtiums_own_keys_as_a_person_writes_them() {
+    let f = fixture("key-bindings");
+    f.desk();
+    assert_eq!(f.run(&["set", "key-scroll-up", "<Alt>k"]).status, 0);
+    assert_eq!(f.run(&["set", "key-reset", ""]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "font-size=12\nversion = 1\nkey-scroll-up=<Alt>k\nkey-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+    );
+    assert_eq!(
+        f.run(&["get", "key-scroll-up"]).out,
+        "key-scroll-up\t<Alt>k\tdraft\n"
+    );
+    assert_eq!(f.run(&["get", "key-reset"]).out, "key-reset\t\tdraft\n");
+    assert_eq!(
+        f.run(&["get", "key-zoom-in"]).out,
+        "key-zoom-in\t<Ctrl>plus,<Ctrl>equal\tdefault\n"
+    );
+}
+
+/// ADR-1005 D10: on a vtium.conf from an earlier release, which binds the
+/// paste by its old name, `set key-paste` writes the new name and comments
+/// out the old one, and `get` reads the old name's value until then.
+#[test]
+fn set_moves_a_key_binding_from_its_old_name() {
+    let f = fixture("old-name");
+    let alpha6 = "grab-paste=<Alt>p\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\n";
+    std::fs::write(f.path("etc/vtium.conf"), alpha6).expect("vtium.conf");
+    f.desk();
+    assert_eq!(
+        f.run(&["get", "key-paste"]).out,
+        "key-paste\t<Alt>p\tdraft\n"
+    );
+    assert_eq!(f.run(&["set", "key-paste", "<Alt>n"]).status, 0);
+    assert_eq!(
+        f.draft(),
+        "#grab-paste=<Alt>p\nversion = 1\nkey-paste=<Alt>n\n[head desk]\n[rules]\ndisplay * -> desk\n"
+    );
 }
 
 #[test]
@@ -400,26 +445,6 @@ fn dry_run_prints_the_change_and_writes_nothing() {
 }
 
 #[test]
-fn route_says_why_no_route_passes_through_an_item() {
-    let f = fixture("route");
-    f.desk();
-    let ran = f.run(&["route", "rule", "1"]);
-    assert_eq!(
-        (ran.status, ran.out.as_str()),
-        (
-            0,
-            "route card: rule 1\nnot used: matches no connected display\n"
-        )
-    );
-    let json = f.run(&["route", "head", "desk", "--json"]);
-    assert_eq!(
-        json.out,
-        "{\"version\":1,\"item\":\"head desk\",\"says\":\"not used: no complete route goes through it\",\"routes\":[]}\n"
-    );
-    assert_eq!(f.run(&["route", "head", "nobody"]).status, 2);
-}
-
-#[test]
 fn a_removed_head_keeps_its_rules_and_a_rename_takes_them_along() {
     let f = fixture("head-rm");
     f.desk();
@@ -602,4 +627,93 @@ fn the_history_keeps_the_newest_files_its_setting_allows() {
             .expect("the newest")
             .starts_with("font-size=14\n")
     );
+}
+
+/// The stand-in console of [`CHECKER`], which also refuses a file that
+/// holds `NOROUTE` with vtium's own message for a file whose rules wire no
+/// complete route (ADR-1403 D3), on the file and no line of it.
+fn no_route_checker(f: &Fixture) {
+    let message = vtium_settings::Missing::NoDisplayRule
+        .to_string()
+        .replace('\'', r"'\''");
+    let script = CHECKER.replace(
+        "if [ -n \"$bad\" ]; then",
+        &format!(
+            "if grep -q NOROUTE \"$file\"; then\n  printf '%s\\n' \"$file: \"'{message}' >&2\n  [ -n \"$bad\" ] || exit 1\nfi\nif [ -n \"$bad\" ]; then"
+        ),
+    );
+    script::executable(&f.path("vtium"), &script);
+}
+
+// ADR-1403 D8: a draft whose only problem is a missing complete route is
+// refused without a terminal, names --force, and installs with --force;
+// --force skips no other refusal
+#[test]
+fn install_force_installs_a_draft_with_no_complete_path_and_nothing_else() {
+    let f = fixture("no-route");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    // no terminal and no --force: exit 1, and the way on
+    let refused = f.run(&["install"]);
+    assert_eq!(
+        (refused.status, refused.err.as_str()),
+        (
+            1,
+            "vtium-config: This draft has no complete path: no connected display is sent to a head that a connected keyboard reaches. To install it anyway, run vtium config install --force.\n"
+        ),
+        "{}",
+        refused.out
+    );
+    assert_eq!(f.installed(), INSTALLED);
+    // a command's --install installs only a draft the check passes
+    let set = f.run(&["set", "font-size", "13", "--install"]);
+    assert_eq!(set.status, 1, "{}{}", set.out, set.err);
+    assert_eq!(f.installed(), INSTALLED);
+    // --force installs it, and apply accepts that one problem because the
+    // bundle records the --force
+    let forced = f.run(&["install", "--force"]);
+    assert_eq!(forced.status, 0, "{}{}", forced.out, forced.err);
+    assert!(
+        forced.out.contains(vtium_config::apply::ACCEPTED_NO_ROUTE),
+        "{}",
+        forced.out
+    );
+    assert_eq!(f.installed(), f.draft());
+    assert!(f.installed().contains("font-name=NOROUTE"));
+}
+
+#[test]
+fn install_force_skips_no_other_problem() {
+    let f = fixture("no-route-and-bad");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    assert_eq!(f.run(&["set", "login", "BAD"]).status, 0);
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(
+        (ran.status, ran.err.as_str()),
+        (
+            1,
+            "vtium-config: nothing installed: the check found problems in draft desk. The draft keeps your changes.\n"
+        ),
+        "{}",
+        ran.out
+    );
+    assert_eq!(f.installed(), INSTALLED);
+}
+
+// ADR-1403 D8: --force never skips the refusal of a draft made before the
+// installed file changed
+#[test]
+fn install_force_still_refuses_a_draft_made_before_the_installed_file_changed() {
+    let f = fixture("no-route-stale");
+    no_route_checker(&f);
+    f.desk();
+    assert_eq!(f.run(&["set", "font-name", "NOROUTE"]).status, 0);
+    let by_hand = format!("{INSTALLED}# root edited this by hand\n");
+    std::fs::write(f.path("etc/vtium.conf"), &by_hand).expect("an edit by hand");
+    let ran = f.run(&["install", "--force"]);
+    assert_eq!(ran.status, 3, "{}{}", ran.out, ran.err);
+    assert_eq!(f.installed(), by_hand);
 }

@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft bench   All devices are in a path · no changes · no problems
+ policy open: a keyboard that no rule names types into the active terminal
+ CONFIGURATION
+ DISPLAYS               TERMINALS                                INPUTS
+ This is vtium's built-in default: all displays show the terminal console, and
+ all keyboards, mice and touchpads type into it.
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐
+ ┃ All displays ┃━━━━━━▶│ console                      │◄┄┄┄┄┄┄┄┄roaming inputs
+ ┃ Every displ… ┃       │ default font set · every VT  │
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘
+
+                        ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
+ ROAMING                ┆ Active terminal              ┆◄┄┬┄┄┄┄┄┄│ All keybo… │
+ These inputs type      ┆ Terminal on screen, followi… ┆  ┆      │ Every key… │
+ into the active        └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘  ┆      └────────────┘
+ terminal.                                                ┆      ┌────────────┐
+                                                          └┄┄┄┄┄┄│ All mice … │
+                                                                 │ Mice, tou… │
+                                                                 └────────────┘
+
+                        ┌──────────────────────────────┐         ┌────────────┐
+                        │ Nowhere                      │◄────────│ All input… │
+                        │ Displays off, inputs ignored │         │ Keyboards… │
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

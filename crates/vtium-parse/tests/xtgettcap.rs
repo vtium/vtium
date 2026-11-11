@@ -1,7 +1,7 @@
 //! XTGETTCAP collection: how the parser takes a request's payload, ends
 //! it and bounds it.
 
-mod common;
+use vtium_parse_recorder as common;
 
 use common::{Act, Recorder, csi, esc, hook, parse, parse8, tcap};
 use vtium_parse::{Parser, XTGETTCAP_MAX};

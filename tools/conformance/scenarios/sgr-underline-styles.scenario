@@ -1,0 +1,13 @@
+# spec: ADR-1000 sgr.underline-style
+# capability: sgr-underline-styles
+size 80 4
+needs attrs-extended
+send "\e[4:1mA\e[4:2mB\e[4:3mC\e[4:4mD\e[4:5mE\e[21mF\e[24mG"
+check
+want attr 0 0-0 underline
+want attr 0 1-1 underline=double
+want attr 0 2-2 underline=curly
+want attr 0 3-3 underline=dotted
+want attr 0 4-4 underline=dashed
+want attr 0 5-5 underline=double
+reject-re attr 0 6-.*

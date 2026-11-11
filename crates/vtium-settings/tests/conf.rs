@@ -152,6 +152,47 @@ fn setting_reads_the_value_vtium_takes() {
     assert_eq!(setting(&example(), "font-size"), None);
 }
 
+// ADR-1005 D10: an empty value is a key binding's way to take no key, so
+// the editor writes it as `key=`, the line a person writes, and reads it
+// back as empty; any other key's empty value stays refused.
+#[test]
+fn a_key_binding_takes_an_empty_value() {
+    let out = edit_conf("", &[Edit::Set("key-reset", "")]).expect("the edit");
+    assert_eq!(out, "key-reset=\n");
+    assert_eq!(setting(&out, "key-reset").as_deref(), Some(""));
+    let out = edit_conf(
+        "#key-scroll-up=<Shift>Up\n",
+        &[Edit::Set("key-scroll-up", "")],
+    )
+    .expect("the edit");
+    assert_eq!(out, "#key-scroll-up=<Shift>Up\nkey-scroll-up=\n");
+    assert!(matches!(
+        edit_conf("", &[Edit::Set("font-name", "")]),
+        Err(ConfEdit::BadValue { .. })
+    ));
+}
+
+// ADR-1005 D10: a vtium.conf from an earlier release binds a key by its
+// old name. Setting or unsetting the key by its new name comments out the
+// old name's line, so vtium-config moves the file to the new name.
+#[test]
+fn setting_a_key_binding_comments_out_its_old_name() {
+    let alpha6 = "grab-paste=<Alt>p\nfont-size=12\n";
+    assert_eq!(
+        edit_conf(alpha6, &[Edit::Set("key-paste", "<Alt>n")]).expect("the edit"),
+        "#grab-paste=<Alt>p\nfont-size=12\nkey-paste=<Alt>n\n"
+    );
+    assert_eq!(
+        edit_conf(alpha6, &[Edit::Unset("key-paste")]).expect("the edit"),
+        "#grab-paste=<Alt>p\nfont-size=12\n"
+    );
+    // another key's edit leaves the old name's line alone
+    assert_eq!(
+        edit_conf(alpha6, &[Edit::Set("font-size", "14")]).expect("the edit"),
+        "grab-paste=<Alt>p\nfont-size=14\n"
+    );
+}
+
 #[test]
 fn a_value_vtium_would_read_back_otherwise_is_refused() {
     // a `#` glued inside a value is part of it (ADR-1403 D4), and one

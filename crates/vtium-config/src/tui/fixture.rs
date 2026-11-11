@@ -144,6 +144,7 @@ pub fn flow() -> Flow {
             problems: 0,
         }),
         read: true,
+        labels: Vec::new(),
     }
 }
 
@@ -182,6 +183,8 @@ pub fn inputs() -> Inputs {
         color: true,
         desk: false,
         hotplug: false,
+        flow_colors: super::flowcolor::Palette::console(),
+        colors_note: None,
         installed: [
             ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),

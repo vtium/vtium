@@ -34,10 +34,10 @@
 
 use crate::bounds::{
     CONSOLES_MAX, ERRORS_MAX, FILE_MAX, HEADS_MAX, LINE_MAX, LOOKS_MAX, NAME_MAX, RULES_MAX,
-    TOKENS_MAX,
+    TOKENS_MAX, VT_MAX,
 };
 use crate::conf::comment;
-use crate::config::{Config, Head, Look, Rule, Setting, Target, WhenDisplayLost};
+use crate::config::{Config, Head, LABEL_MAX, Label, Look, Rule, Setting, Target, WhenDisplayLost};
 use crate::error::{
     Drops, Error, Note, PolicyFault, Problem, Quoted, Rejected, Renamed, Syntax, Warning,
 };
@@ -220,6 +220,8 @@ enum Section {
     /// The look at this index of `looks`.
     Look(usize),
     Rules,
+    /// `[labels]`, one label a line.
+    Labels,
     /// A section an error dropped; its lines are skipped.
     Broken,
 }
@@ -289,6 +291,8 @@ struct Parser {
     looks_over: bool,
     rules: Vec<Read>,
     seen_rules: bool,
+    labels: Vec<Label>,
+    seen_labels: bool,
     heads_over: bool,
     rules_over: bool,
     /// An error dropped the whole file but its `policy` lines.
@@ -352,6 +356,22 @@ pub(crate) fn key_value(line: &str) -> Option<(&str, &str)> {
     line.split_once('=').map(|(k, v)| (trim(k), trim(v)))
 }
 
+/// A label as a `[labels]` line writes it: each `#` that follows a blank,
+/// or that starts the label, written `\#`, so the comment rule reads it as
+/// the label's own `#`.
+pub fn escape_label(label: &str) -> String {
+    let mut out = String::with_capacity(label.len());
+    let mut after_blank = true;
+    for c in label.chars() {
+        if c == '#' && after_blank {
+            out.push('\\');
+        }
+        out.push(c);
+        after_blank = c == ' ' || c == '\t';
+    }
+    out
+}
+
 /// Whether `name` keeps the name rule: 1 to [`NAME_MAX`] of
 /// `A-Z a-z 0-9 . _ + -`.
 pub(crate) fn good_name(name: &str) -> bool {
@@ -380,8 +400,11 @@ pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURATION"];
 
 /// The keys a head takes in vtium.conf beside the key table's head keys
-/// (ADR-1403 D5).
-pub(crate) const CONF_HEAD_KEYS: [&str; 4] = ["look", "consoles", "when-display-lost", "isolated"];
+/// (ADR-1403 D5). Each is the head's own, even where the key table has a
+/// top-level key of the same name: the top level's `vt` is the VT vtium
+/// opens, and a head's `vt` the VTs the head runs on (ADR-1403 D4).
+pub(crate) const CONF_HEAD_KEYS: [&str; 5] =
+    ["look", "consoles", "when-display-lost", "isolated", "vt"];
 
 /// The key a look names its vtlook with (ADR-1403 D1, ADR-1304 D4).
 pub(crate) const VTLOOK: &str = "vtlook";
@@ -515,6 +538,27 @@ fn decimal(value: &str) -> Option<Option<u32>> {
     (!value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())).then(|| value.parse().ok())
 }
 
+/// A head's `vt` (ADR-1403 D4): one VT number from 1 to [`VT_MAX`], or
+/// several separated by blanks, each named once.
+fn vts(value: &str) -> Result<Vec<u16>, Problem> {
+    let mut out: Vec<u16> = Vec::new();
+    for word in blanks(value) {
+        let vt = decimal(word)
+            .flatten()
+            .and_then(|n| u16::try_from(n).ok())
+            .filter(|n| (1..=VT_MAX).contains(n))
+            .ok_or_else(|| Problem::BadVt(Quoted::new(word)))?;
+        if out.contains(&vt) {
+            return Err(Problem::RepeatedVt(vt));
+        }
+        out.push(vt);
+    }
+    if out.is_empty() {
+        return Err(Problem::BadVt(Quoted::new("")));
+    }
+    Ok(out)
+}
+
 /// `when-display-lost`'s value (D8): `keep`, `hangup`, or
 /// `hangup DURATION`, the duration in seconds or with an `s`, `m` or `h`
 /// suffix.
@@ -615,10 +659,12 @@ impl Parser {
         );
     }
 
-    /// Where a line sits, from the section it is read in.
+    /// Where a line sits, from the section it is read in. A line of
+    /// `[labels]` counts as a top-level line, since an error there drops
+    /// that line alone, as a top-level line's does.
     fn within(&self) -> Within {
         match self.section {
-            None | Some(Section::Top) => Within::Top,
+            None | Some(Section::Top | Section::Labels) => Within::Top,
             Some(Section::Head(_)) => Within::Head,
             Some(Section::Look(_)) => Within::Look,
             Some(Section::Rules | Section::Broken) => Within::Rules,
@@ -740,6 +786,7 @@ impl Parser {
             Section::Head(index) => self.head_key(n, index, &line),
             Section::Look(index) => self.look_key(n, index, &line),
             Section::Rules => self.rule(n, &line),
+            Section::Labels => self.label(n, &line),
             Section::Broken => {}
         }
     }
@@ -812,6 +859,13 @@ impl Parser {
                     self.error(Some(n), Problem::DuplicateSection("rules"), Within::Header);
                 } else {
                     self.section = Some(Section::Rules);
+                }
+            }
+            ["labels"] => {
+                if std::mem::replace(&mut self.seen_labels, true) {
+                    self.error(Some(n), Problem::DuplicateSection("labels"), Within::Header);
+                } else {
+                    self.section = Some(Section::Labels);
                 }
             }
             ["guards"] => self.error(Some(n), Problem::Renamed(Renamed::Guards), Within::Header),
@@ -1001,7 +1055,10 @@ impl Parser {
         if !self.once(n, Seen::Head(index), key) {
             return;
         }
-        if let Some(table) = keys::find(key) {
+        // a head's own key goes before the key table's key of its name: a
+        // head's `vt` names the VTs it runs on, not the VT the top level's
+        // `vt` opens (ADR-1403 D4)
+        if let Some(table) = keys::find(key).filter(|_| !CONF_HEAD_KEYS.contains(&key)) {
             match table_value(table, value) {
                 Ok(()) => {
                     if let Some(head) = self.heads.get_mut(index).map(|d| &mut d.head) {
@@ -1053,6 +1110,10 @@ impl Parser {
                 "login" if !value.is_empty() => head.login = Some(value.to_owned()),
                 "when-display-lost" => match when_display_lost(value) {
                     Ok(v) => head.when_display_lost = v,
+                    Err(e) => problem = Some(e),
+                },
+                "vt" => match vts(value) {
+                    Ok(v) => head.vts = v,
                     Err(e) => problem = Some(e),
                 },
                 "isolated" => {
@@ -1135,6 +1196,78 @@ impl Parser {
             matcher,
             aim,
         });
+    }
+
+    /// One line of `[labels]`: `display MATCH = LABEL` or
+    /// `input MATCH = LABEL`. The match is checked as a rule's match is,
+    /// and the label runs from after the `=` that stands alone to the
+    /// line's end. An error drops this line alone.
+    fn label(&mut self, n: usize, line: &str) {
+        let within = Within::Top;
+        let mut words = blanks(line);
+        let kind = match words.next() {
+            Some("display") => Kind::Display,
+            Some("input") => Kind::Input,
+            _ => {
+                self.error(Some(n), Problem::Syntax(Syntax::LabelKind), within);
+                return;
+            }
+        };
+        let tokens: Vec<&str> = words.take_while(|w| *w != "=").collect();
+        // the byte after the first `=` that stands alone as a word
+        let blank = |c: Option<char>| c.is_none_or(|c| c == ' ' || c == '\t');
+        let equals = line
+            .match_indices('=')
+            .map(|(i, _)| i)
+            .find(|&i| {
+                let before = line.get(..i).and_then(|b| b.chars().next_back());
+                let after = line
+                    .get(i.saturating_add(1)..)
+                    .and_then(|a| a.chars().next());
+                blank(before) && blank(after)
+            })
+            .map(|i| i.saturating_add(1));
+        let Some(after) = equals else {
+            self.error(Some(n), Problem::Syntax(Syntax::LabelEquals), within);
+            return;
+        };
+        let text = trim(line.get(after..).unwrap_or_default());
+        let problem = if text.is_empty() {
+            Some(Syntax::LabelEmpty)
+        } else if text.chars().count() > LABEL_MAX {
+            Some(Syntax::LabelLong)
+        } else {
+            None
+        };
+        // a match a rule cannot hold is named before the label's own fault
+        let Some(matcher) = self.label_matcher(n, &tokens) else {
+            return;
+        };
+        if let Some(problem) = problem {
+            self.error(Some(n), Problem::Syntax(problem), within);
+            return;
+        }
+        self.labels.push(Label {
+            line: n,
+            kind,
+            matcher,
+            selector: tokens.join(" "),
+            text: text.to_owned(),
+        });
+    }
+
+    /// A label's match, checked as [`Parser::matcher`] checks a rule's,
+    /// with each error dropping the label's line alone.
+    fn label_matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
+        let mut quiet = Parser {
+            section: Some(Section::Rules),
+            ..Parser::default()
+        };
+        let matcher = quiet.matcher(n, tokens);
+        for e in quiet.errors.errors {
+            self.error(e.line, e.problem, Within::Top);
+        }
+        matcher
     }
 
     fn matcher(&mut self, n: usize, tokens: &[&str]) -> Option<Match> {
@@ -1275,6 +1408,7 @@ impl Parser {
                 rules,
                 survivors: !self.errors.is_empty(),
                 tail: None,
+                labels: std::mem::take(&mut self.labels),
             };
             findings(config, self.warnings)
         };

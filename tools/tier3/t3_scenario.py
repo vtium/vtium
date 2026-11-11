@@ -286,9 +286,9 @@ POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspe
 # vt-restore, judged by vtium's own goldens. sysvinit-two-vts starts
 # two consoles at the boot that open the card at the same time, and
 # checks that each draws its own login (vtium/vtium#139). The power variants press one
-# key each, as each ends the VM: grab-reboot, whose SIGINT runs the
-# inittab's ctrlaltdel entry; grab-reboot with kernel.ctrl-alt-del at 1,
-# the kernel's own restart; and grab-power-off, whose SIGRTMIN+4 sysvinit
+# key each, as each ends the VM: key-reboot, whose SIGINT runs the
+# inittab's ctrlaltdel entry; key-reboot with kernel.ctrl-alt-del at 1,
+# the kernel's own restart; and key-power-off, whose SIGRTMIN+4 sysvinit
 # takes as a power-off.
 SYSVINIT = {
     "guest": "sysvinit",

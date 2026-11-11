@@ -1,0 +1,9 @@
+# mode 1000 with the X10 encoding: CSI M, then button, column and row + 32
+# spec: ADR-1000 DEC-1000
+# capability: mouse-1000
+size 80 4
+send "\e[?1000h"
+check
+mouse press left at 2,3 px=20,30
+check
+reply "\e[M #$"

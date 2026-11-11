@@ -1,0 +1,23 @@
+# The stand-in programs the tests of vtium-config, vtium and vtium-platform
+# write or copy and then run, put in place so that the kernel never refuses
+# to run one as busy. A path dependency of those crates' tests inside the
+# workspace, so a workspace member.
+[package]
+name = "vtium-testscript"
+description = "Writes and copies the stand-in programs that vtium's tests run"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+# qemu_without_seccomp asks the kernel, through qemu, for a seccomp filter
+# that allows every call: the version the helpers already build, on the
+# architectures it builds filters for.
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "riscv64"))'.dependencies]
+seccompiler = "=0.5.0"

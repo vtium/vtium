@@ -15,7 +15,7 @@ use super::{DrawState, Drawn, Renderer, Stats, sorted};
 use crate::blend::pixel;
 use crate::cache::Budgets;
 use crate::deco::Sprites;
-use crate::gpu::compose::GpuBack;
+use crate::gpu::compose::{GpuBack, receiving};
 use crate::gpu::glyphs::Spec;
 #[cfg(feature = "images")]
 use crate::gpu::pictures::Shown;
@@ -169,7 +169,7 @@ impl<F: Face> Renderer<F> {
         if reaching && !self.reaches_kept {
             self.relearn_reaches();
         }
-        glyphs.ink.begin(plan.grid.cols, plan.grid.rows);
+        glyphs.begin_ink(plan.grid.cols, plan.grid.rows);
         let mut back = GpuBack::new(gl, &mut *glyphs, turn);
         let mut counts = self.paint(&plan, frame, state, &mut back);
         if !reaching && back.reaching(&self.compose) {
@@ -185,13 +185,24 @@ impl<F: Face> Renderer<F> {
         let shown = self.shown(turn, back.picture_rects);
         let (clear, cells, mut error) = (back.clear, back.cells, back.error);
         // the neighbours named as sources of ink take the reach each cell
-        // has once the whole frame is scanned
+        // has once the whole frame is scanned, and the jobs that receive
+        // their ink the display lines it reaches
         let reach = |k: usize, r: usize| {
             self.cells
                 .get(k, r)
                 .map_or((Reach::NONE, 0), |c| (c.reach(), c.span()))
         };
-        glyphs.ink.settle(reach);
+        #[cfg(not(feature = "images"))]
+        let lists = [&cells];
+        #[cfg(feature = "images")]
+        let lists = [&cells, &text, &marks];
+        let cell = glyphs.cell();
+        let jobs = lists
+            .into_iter()
+            .flatten()
+            .flat_map(|c| &c.quads)
+            .filter_map(|q| receiving(q, cell));
+        glyphs.settle_ink(reach, jobs);
         if error.is_none()
             && let Err(e) = glyphs.ink_upload(gl)
         {

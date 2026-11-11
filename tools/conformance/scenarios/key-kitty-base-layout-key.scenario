@@ -1,0 +1,17 @@
+# The kitty keyboard protocol's flag 4, report alternate keys: the base layout
+# key, the key's character on the US PC-101 layout. Under flags 5 (1 and 4),
+# Ctrl+С on a Russian layout sends the base layout key 99, c, after an empty
+# shifted key; with Shift held the shifted key С, 1057, comes first. A key
+# whose base layout key is its own code sends none.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report alternate keys; ADR-1005 D2, D9 and D13 slice 3
+# capability: key-kitty-base-layout-key
+size 20 2
+needs key-forms
+send "\e[>5u\e[?u"
+check
+reply "\e[?5u"
+cmd key;sym=6d3;ascii=63;unicode=441;unshifted=6d3;base=63;mods=4
+cmd key;sym=6f3;ascii=43;unicode=421;unshifted=6d3;base=63;mods=5
+cmd key;sym=61;ascii=61;unicode=61;unshifted=61;base=61;mods=4
+check
+reply "\e[1089::99;5u\e[1089:1057:99;6u\e[97;5u"

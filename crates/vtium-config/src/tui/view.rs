@@ -3,8 +3,9 @@
 //! position, erase and SGR sequences only (D7).
 //!
 //! Every view has the tab bar, with the views and the actions, and the
-//! status line. The Flow view then draws the base card, the columns, the
-//! card Enter opens and its keys ([`super::flowdraw`]). The other views
+//! status line. The Flow view then draws its document of paths and parts,
+//! or the file view or Restore's list over it ([`super::flowdraw`]). The
+//! other views
 //! draw a rule, their body, a message line, a rule and their keys; a body
 //! longer than the room scrolls so the highlighted row shows. Below 80 by
 //! 25 cells no view is drawn: one screen says the size the TUI needs, the
@@ -13,13 +14,13 @@
 
 use super::canvas::{Canvas, Row, Span, span, wrap};
 use super::color::{Style, palette};
-use super::flow::Item;
 use super::model::{App, DpiFrom, FontState, Live, NEW_FIELDS, SIZES, Then, View, setting_keys};
 use super::words;
 use crate::specimen::Sources;
+use vtium_settings::keys::Kind as KeyKind;
 
-/// The smallest grid a view is drawn in (ADR-1201 D3): below it, the one
-/// screen that says so.
+/// The smallest grid a view is drawn in (ADR-1201 D3, ADR-1403 D7): below
+/// it, the one screen that says so.
 pub const MIN_COLS: usize = 80;
 pub const MIN_ROWS: usize = 25;
 
@@ -230,6 +231,9 @@ fn body(app: &App) -> Body {
                         Some(typed) if i == app.setting_at => format!("{typed}_"),
                         _ => match app.value(key) {
                             (v, true) => words::default_value(v),
+                            (v, false) if v.is_empty() && key.kind == KeyKind::KeyBinding => {
+                                words::NO_KEY.to_owned()
+                            }
                             (v, false) => v,
                         },
                     };
@@ -250,7 +254,12 @@ fn body(app: &App) -> Body {
                 .min(24)
                 .min((cols / 2).saturating_sub(4));
             let (list, keep) = list(&items, app.setting_at, width, cols);
-            let hint = if app.editing.is_some() {
+            let binding = all
+                .get(app.setting_at)
+                .is_some_and(|k| k.kind == KeyKind::KeyBinding);
+            let hint = if app.editing.is_some() && binding {
+                words::EDITING_BINDING
+            } else if app.editing.is_some() {
                 words::EDITING
             } else {
                 words::SETTINGS_HINT
@@ -357,7 +366,6 @@ pub fn help_rows(app: &App) -> Vec<Row> {
         }
         rows.push(plain(""));
     }
-    rows.extend(prose(words::HELP_ROUTE, cols));
     rows.push(plain(""));
     rows.extend(prose(words::HELP_COMMANDS, cols));
     let usage = crate::help::usage();
@@ -402,7 +410,7 @@ pub fn picture_at(app: &App) -> (usize, usize) {
                 2,
             )
         }
-        // in the columns' place, below the base card
+        // in the document's place, below the status lines
         View::Flow => (FLOW_TOP.saturating_add(1), 2),
         // below the sentence above the sizes and its blank row
         View::Looks => (
@@ -449,8 +457,12 @@ fn tab_places(app: &App) -> Vec<(Tab, usize, String)> {
     }
     let tabs_end = x;
     let actions = |long: bool, gap: usize| -> Vec<String> {
-        words::ACTIONS
-            .iter()
+        let list: &[(&str, &str)] = match app.view.tab() {
+            View::Flow => &words::FLOW_ACTIONS,
+            View::Help => &[],
+            _ => &words::ACTIONS,
+        };
+        list.iter()
             .map(|(l, s)| {
                 let name = if long { l } else { s };
                 format!("{}{name}{}", " ".repeat(gap), " ".repeat(gap))
@@ -522,7 +534,7 @@ fn status(canvas: &mut Canvas, app: &App) {
     // to be installed
     let left_with = |waiting: &dyn Fn(usize) -> String| {
         let mut left = match &flow.draft {
-            Some(d) => words::draft_state(&d.name, d.changes, d.problems),
+            Some(d) => words::draft_state(&d.name, d.changes, app.unsaved, d.problems),
             None => words::NO_DRAFT.to_owned(),
         };
         let pending = app
@@ -532,10 +544,6 @@ fn status(canvas: &mut Canvas, app: &App) {
             .saturating_add(app.pending.removals.len());
         if pending > 0 {
             left = format!("{left} · {}", waiting(pending));
-        }
-        if app.view == View::Flow && !app.tags.is_empty() {
-            let names: Vec<String> = app.tags.iter().map(|t| flow.name(*t)).collect();
-            left = format!("{left} · {}", words::tagged(&names));
         }
         if app.view == View::Flow && app.draft.is_some() {
             if let Some(came) = &app.came {
@@ -603,11 +611,8 @@ const MESSAGE_ROWS: usize = 3;
 /// is open in it, else its own.
 fn view_keys(app: &App) -> &'static str {
     match app.view {
-        View::Flow if app.route.is_some() => words::KEYS_ROUTE,
         View::Flow if app.pager.is_some() => words::KEYS_PAGER,
         View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
-        View::Flow if app.opened && app.card.typed.is_some() => words::KEYS_TYPING,
-        View::Flow if app.opened && !app.fields().is_empty() => words::KEYS_CARD,
         View::Flow => words::KEYS_FLOW,
         View::Looks => words::KEYS_LOOKS,
         View::Fonts => words::KEYS_FONTS,
@@ -624,6 +629,7 @@ fn key_rows(app: &App) -> Vec<String> {
     // a question's keys on every view, since it takes the next key
     let keys = match &app.confirm {
         Some(c) if matches!(c.then, Then::Leave(_)) => words::KEYS_LEAVE,
+        Some(c) if matches!(c.then, Then::Quit(_)) => words::KEYS_QUIT,
         Some(_) => words::KEYS_CONFIRM,
         None => view_keys(app),
     };
@@ -679,12 +685,11 @@ fn key_rows(app: &App) -> Vec<String> {
 /// covers the keys.
 pub fn picture_area(app: &App) -> (usize, usize) {
     if app.view == View::Flow {
-        // the columns' rows, above the card and the message at its longest
+        // the rows above the message at its longest
         let bottom = app
             .rows
             .saturating_sub(key_rows(app).len())
-            .saturating_sub(MESSAGE_ROWS)
-            .saturating_sub(flow_card(app).len().saturating_add(1));
+            .saturating_sub(MESSAGE_ROWS);
         return (app.cols.saturating_sub(2), bottom.saturating_sub(FLOW_TOP));
     }
     // the rule, the keys, and the message at its longest
@@ -738,11 +743,9 @@ fn small(canvas: &mut Canvas, app: &App) {
     }
 }
 
-/// The Flow view: the base card, the columns with their lines, the card
-/// Enter opens, the message and the keys; or the route card in the
-/// columns' place.
-fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn> {
-    let flow = &app.inputs.flow;
+/// The Flow view's screens that take the paths' place: the file view
+/// and Restore's list of the installed history.
+fn flow_screen(canvas: &mut Canvas, app: &App) {
     let (cols, rows) = (app.cols, app.rows);
     let keys = key_rows(app);
     let message = app
@@ -770,153 +773,19 @@ fn flow_screen(canvas: &mut Canvas, app: &App) -> Option<super::flowdraw::Drawn>
             Style::text(palette::GREY),
         );
     }
-    if let Some(cursor) = app.route {
-        route_screen(canvas, app, cursor, bottom);
-        return None;
-    }
     if let Some(pager) = app.pager {
         pager_screen(canvas, app, pager, bottom);
-        return None;
+        return;
     }
-    let base = words::base_row(&flow.base.set, flow.base.defaults);
-    let base_style = if app.flow_at == Item::Base {
-        Style::block(palette::BASE).reversed()
-    } else {
-        Style::block(palette::BASE)
-    };
-    let base_text = if app.inputs.color {
-        format!(" {base} ")
-    } else {
-        format!("[{base}]")
-    };
-    let shown = super::canvas::fit(&base_text, cols);
-    canvas.put(0, 2, &shown, base_style);
-    let card = flow_card(app);
-    let card_rows = if card.is_empty() {
-        0
-    } else {
-        card.len().saturating_add(1)
-    };
-    let top = FLOW_TOP;
-    let height = bottom.saturating_sub(card_rows).saturating_sub(top);
-    let ctx = super::flowdraw::Ctx {
-        flow,
-        tags: &app.tags,
-        color: app.inputs.color,
-    };
-    if !flow.read {
-        for (i, line) in wrap(words::FLOW_NOT_READ, cols.saturating_sub(2), 2)
-            .iter()
-            .enumerate()
-        {
-            canvas.put(1, top.saturating_add(i), line, Style::text(palette::GREY));
-        }
-    }
-    let (top, height) = if flow.read {
-        (top, height)
-    } else {
-        (top.saturating_add(3), height.saturating_sub(3))
-    };
-    // a picture of the console takes the columns' place (ADR-1201 D4)
-    if app.picture {
-        return None;
-    }
-    let drawn = super::flowdraw::draw_columns(
-        canvas,
-        &ctx,
-        app.flow_at,
-        top.saturating_sub(1),
-        top,
-        height,
-    );
-    if card_rows > 0 {
-        let y = bottom.saturating_sub(card_rows);
-        let color = card
-            .first()
-            .and_then(|r| r.first())
-            .and_then(|(_, s)| s.fg)
-            .unwrap_or(palette::GREY);
-        canvas.put(0, y, &"─".repeat(cols), Style::text(color));
-        for (i, row) in card.iter().enumerate() {
+    if let Some((kept, at)) = &app.restore {
+        let room = bottom.saturating_sub(FLOW_TOP).max(1);
+        for (i, row) in restore_rows(kept, *at, room).iter().enumerate() {
             let mut x = 1usize;
             for (text, style) in row {
-                x = canvas.put(x, y.saturating_add(1).saturating_add(i), text, *style);
+                x = canvas.put(x, FLOW_TOP.saturating_add(i), text, *style);
             }
         }
     }
-    Some(drawn)
-}
-
-/// The card below the Flow view's columns: Restore's list, or the opened
-/// item's card with its fields; none while neither is open.
-fn flow_card(app: &App) -> Vec<Vec<(String, Style)>> {
-    let room = if app.rows >= 30 { 6 } else { 4 };
-    if let Some((kept, at)) = &app.restore {
-        restore_rows(kept, *at, room)
-    } else if app.opened {
-        let mut card = super::flowdraw::card(&app.inputs.flow, app.flow_at);
-        let fields = app.fields();
-        if !fields.is_empty() {
-            card.truncate(1);
-            card.extend(field_rows(app, &fields, room));
-        }
-        card
-    } else {
-        Vec::new()
-    }
-}
-
-/// The opened card's fields, at most `room` of them around the cursor:
-/// each its label, then the values it offers with the current one in its
-/// block and the cursor's in reverse video, then `type…` where a value
-/// may be typed; the value being typed takes the field's row.
-fn field_rows(app: &App, fields: &[super::edit::Field], room: usize) -> Vec<Vec<(String, Style)>> {
-    let grey = Style::text(palette::GREY);
-    let first = app
-        .card
-        .field
-        .saturating_add(1)
-        .saturating_sub(room)
-        .min(fields.len().saturating_sub(room));
-    fields
-        .iter()
-        .enumerate()
-        .skip(first)
-        .take(room)
-        .map(|(i, f)| {
-            let here = i == app.card.field;
-            let mark = if here { "▸ " } else { "  " };
-            let mut row = vec![(format!("{mark}{:<18}", f.label), grey)];
-            if here && let Some(typed) = &app.card.typed {
-                row.push((format!(" {typed}_ "), Style::PLAIN.reversed()));
-                return row;
-            }
-            for (k, o) in f.options.iter().enumerate() {
-                let style = if here && k == app.card.pick {
-                    Style::PLAIN.reversed()
-                } else if *o == f.current {
-                    Style::block(palette::LOOKS)
-                } else {
-                    Style::PLAIN
-                };
-                row.push((format!(" {o} "), style));
-            }
-            if f.typed {
-                let style = if here && app.card.pick == f.options.len() {
-                    Style::PLAIN.reversed()
-                } else {
-                    grey
-                };
-                let shown = if f.options.is_empty() && !f.current.is_empty() {
-                    format!(" {} · {} ", f.current, words::OR_TYPE_VALUE)
-                } else {
-                    format!(" {} ", words::OR_TYPE_VALUE)
-                };
-                row.push((shown, style));
-            }
-            row
-        })
-        .collect()
 }
 
 /// Restore's list of the installed history, at most `room` files around
@@ -985,76 +854,8 @@ fn pager_screen(canvas: &mut Canvas, app: &App, pager: super::model::Pager, bott
     }
 }
 
-/// The mark before the selected item's lines on the route card.
+/// The mark the file view puts before the line of the highlighted box.
 pub const SELECTED: &str = "▸";
-
-/// The route card, from row 2 down to `bottom`: its title, the sentence of
-/// what the item does, and each route, the selected item marked with
-/// [`SELECTED`] and drawn in its section's block, and the cursor's line in
-/// reverse video.
-fn route_screen(canvas: &mut Canvas, app: &App, cursor: usize, bottom: usize) {
-    let flow = &app.inputs.flow;
-    let cols = app.cols;
-    let (title, sentence, lines) = super::flowdraw::route_card(flow, app.flow_at);
-    canvas.put(
-        1,
-        2,
-        &title,
-        Style {
-            bold: true,
-            ..Style::PLAIN
-        },
-    );
-    let said = wrap(&sentence, cols.saturating_sub(2), 2);
-    for (i, line) in said.iter().enumerate() {
-        canvas.put(1, 3usize.saturating_add(i), line, Style::PLAIN);
-    }
-    let top = 4usize.saturating_add(said.len());
-    let room = bottom.saturating_sub(top);
-    let first = cursor.saturating_add(1).saturating_sub(room);
-    for (i, line) in lines.iter().enumerate().skip(first).take(room) {
-        let y = top.saturating_add(i).saturating_sub(first);
-        let mut style = line.style;
-        if line.item == Some(app.flow_at)
-            && let Some(color) = line.style.fg
-        {
-            style = Style::block(color);
-        }
-        if i == cursor {
-            style = style.reversed();
-        }
-        let indent = if line.item.is_some() { 3 } else { 1 };
-        let text = super::canvas::fit(&line.text, cols.saturating_sub(indent).saturating_sub(1));
-        if line.item == Some(app.flow_at) {
-            // the selected item is marked in words as well as in color: the
-            // mark before it shows with no color too
-            canvas.put(0, y, SELECTED, Style::PLAIN);
-            // its block starts a cell to the left, so its text lines up
-            // with the others
-            let x = indent.saturating_sub(1);
-            canvas.fill(
-                x,
-                y,
-                text.chars().count().saturating_add(2),
-                &format!(" {text}"),
-                style,
-            );
-        } else {
-            canvas.put(indent, y, &text, style);
-        }
-    }
-}
-
-/// The item at cell (`col`, `row`) of the Flow view, as a click finds it:
-/// the base card's row, or an item of the columns.
-pub fn item_at(app: &App, col: usize, row: usize) -> Option<Item> {
-    if row == 2 {
-        return Some(Item::Base);
-    }
-    let mut canvas = Canvas::new(app.cols, app.rows);
-    let drawn = flow_screen(&mut canvas, app)?;
-    super::flowdraw::hit(&drawn, col, row)
-}
 
 /// The screen for `app`: exactly `app.rows` rows, none wider than
 /// `app.cols`.
@@ -1066,6 +867,10 @@ pub fn screen(app: &App) -> Vec<Row> {
         return canvas.into_rows();
     }
     tab_bar(&mut canvas, app);
+    if super::flowdraw::shown(app) {
+        super::flowdraw::screen(&mut canvas, app);
+        return canvas.into_rows();
+    }
     status(&mut canvas, app);
     if app.view == View::Flow {
         flow_screen(&mut canvas, app);

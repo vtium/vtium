@@ -1,0 +1,77 @@
+#!/usr/bin/env python3
+"""
+check - check that a commit descends from main before `stage` moves to it
+
+Usage:
+
+    make stage-check COMMIT=<commit>
+    tools/stage/check [--remote NAME] [COMMIT]
+
+`stage` is the branch that holds one batch of `integration` while that batch
+goes to main through a pull request (AGENTS.md, "The working loop", step 7).
+When that pull request merges, main gains a merge commit that `integration`
+does not have. main must then be merged into `integration` before `stage`
+moves again. Otherwise the next `stage` does not descend from main, and its
+pull request carries the previous batch's merge as a difference.
+
+The script fetches main from the remote (default origin) into
+refs/remotes/REMOTE/main. Then it asks git whether REMOTE/main is an ancestor
+of COMMIT (default HEAD), with `git merge-base --is-ancestor`.
+
+It exits 0 when COMMIT descends from REMOTE/main. It exits 1 when it does
+not, and names the fix: merge REMOTE/main into integration. It exits 2 when
+it cannot answer: the fetch fails, COMMIT names no commit, or git fails in
+another way.
+"""
+
+import argparse
+import subprocess
+import sys
+
+BRANCH = "main"
+
+
+def git(*args):
+    """Run git with ARGS and return the finished process, output captured."""
+    return subprocess.run(["git", *args], capture_output=True, text=True)
+
+
+def fail(message, code):
+    print(f"stage-check: {message}", file=sys.stderr)
+    sys.exit(code)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Check that a commit descends from the remote's main.")
+    parser.add_argument("commit", nargs="?", default="HEAD", help="the commit stage would move to (default HEAD)")
+    parser.add_argument("--remote", default="origin", help="the remote whose main the commit must descend from (default origin)")
+    args = parser.parse_args()
+
+    tracking = f"refs/remotes/{args.remote}/{BRANCH}"
+    fetched = git("fetch", "--quiet", args.remote, f"+refs/heads/{BRANCH}:{tracking}")
+    if fetched.returncode != 0:
+        fail(f"git cannot fetch {BRANCH} from {args.remote}, so this check cannot tell whether the commit descends from it.\n{fetched.stderr.strip()}", 2)
+
+    commit = git("rev-parse", "--verify", "--quiet", f"{args.commit}^{{commit}}")
+    if commit.returncode != 0:
+        fail(f"{args.commit} names no commit in this repository.", 2)
+    commit = commit.stdout.strip()
+    main_commit = git("rev-parse", "--verify", tracking).stdout.strip()
+
+    ancestor = git("merge-base", "--is-ancestor", tracking, commit)
+    upstream = f"{args.remote}/{BRANCH}"
+    if ancestor.returncode == 0:
+        print(f"stage-check: {args.commit} ({commit[:12]}) descends from {upstream} ({main_commit[:12]}), so stage can move to it.")
+        return
+    if ancestor.returncode == 1:
+        fail(
+            f"{args.commit} ({commit[:12]}) does not descend from {upstream} ({main_commit[:12]}).\n"
+            f"A stage pull request has merged into {BRANCH} since integration last took {BRANCH}, so stage must not move to this commit.\n"
+            f"Merge {upstream} into integration (git merge {upstream} on integration), run the gates on the merged tree, and check the merge commit again.",
+            1,
+        )
+    fail(f"git merge-base cannot compare {args.commit} with {upstream}.\n{ancestor.stderr.strip()}", 2)
+
+
+if __name__ == "__main__":
+    main()

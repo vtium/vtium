@@ -3,8 +3,7 @@
 //! directories and vconsole files made here, parsed, and drawn at a cell
 //! as the glyphs the console receives.
 
-#[path = "common/ttf.rs"]
-mod ttf;
+use vtium_testfont::ttf;
 
 use std::fs;
 use std::io::{Read, Write};

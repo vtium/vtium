@@ -1,0 +1,12 @@
+# SGR 58/59; 4;58;5;196 sets an underline colour, never blink; 58:2::r:g:b is
+# the form kmscon.ti's Setulc sends
+# spec: ADR-1000 sgr.underline-color
+# capability: sgr-underline-colour
+size 80 4
+needs attrs-extended
+send "\e[4;58;2;10;20;30mA\e[59mB\e[4;58;5;196mC\e[58:2::40:50:60mD"
+check
+want attr 0 0-0 underline ul=#0a141e
+want attr 0 1-1 underline
+want attr 0 2-2 underline ul=#ff0000
+want attr 0 3-3 underline ul=#28323c

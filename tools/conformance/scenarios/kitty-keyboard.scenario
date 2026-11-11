@@ -1,0 +1,8 @@
+# kitty keyboard protocol: CSI ? u reports the current flags as CSI ? flags u
+# spec: ADR-1000 input.kitty-keyboard
+# capability: kitty-keyboard
+size 80 4
+send "\e[?u"
+check
+reply-re "\e\\[\\?.*u"
+example "\e[?0u"

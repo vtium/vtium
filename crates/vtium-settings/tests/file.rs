@@ -402,6 +402,17 @@ fn a_vtium_that_runs_as_a_user_reads_that_user_s_file_too() {
     ));
     assert_eq!(Trust::running_as(0), Trust::ROOT);
     let root_file = Path::new("/etc/passwd");
+    // make arm-test runs the tests in a user namespace that maps no root
+    // (tools/arm/README.md), where root's files belong to the overflow uid,
+    // 65534. No file there is root's, so this check skips and says so.
+    let owner = fs::metadata(root_file).expect("/etc/passwd").uid();
+    if let (Some(qemu), true) = (std::env::var_os("VTIUM_QEMU_USER"), owner != 0) {
+        eprintln!(
+            "skipped under {}: /etc/passwd belongs to uid {owner}, so no file is root's",
+            qemu.to_string_lossy()
+        );
+        return;
+    }
     assert!(
         inspect(root_file, &Trust::running_as(uid))
             .expect("readable")

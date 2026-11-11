@@ -1,9 +1,10 @@
 # vtium's capability list: NAME STATUS ISSUE ROWS NOTE, which
-# `conformance probes` judges each probe against (README.md, The probes).
-# works: the probe must pass. missing: it must fail, and ISSUE is the
-# vtium/vtium issue that owes the capability. A missing probe that starts
-# passing fails the run until it is set to works.
-# ROWS: the ADR-1000 rows the probe judges, comma-separated, from which
+# `conformance probes` judges through the capability scenario that declares
+# each NAME (README.md, The capability scenarios).
+# works: the scenario must pass. missing: it must fail, and ISSUE is the
+# vtium/vtium issue that owes the capability. A missing capability whose
+# scenario starts passing fails the run until it is set to works.
+# ROWS: the ADR-1000 rows the scenario judges, comma-separated, from which
 # COVERAGE.md takes the tests that guard it (tools/conformance/README.md).
 
 # text and attributes
@@ -43,6 +44,7 @@ osc-10-11-query               works   -     color.dynamic.query            OSC 1
 osc-10-11-set                 works   -     color.dynamic.set              OSC 10 and 11 set the default colors
 osc-12-query                  works   -     color.dynamic.set              OSC 12 queries the cursor color
 osc-104-110-111-reset         works   -     color.palette.set              OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
+mode-1042-bell                works   -     DEC-1042,ctl.bel               each BEL reaches the host while mode 1042 is set, none once it is reset
 
 # input
 kitty-keyboard                works   -     input.kitty-keyboard           the kitty keyboard protocol: CSI ? u reports the flags in force
@@ -55,13 +57,23 @@ mouse-1003-x10                works   -     DEC-1003                       any-e
 mouse-1016                    works   -     DEC-1016                       SGR-Pixels mouse reports
 bracketed-paste               works   -     DEC-2004                       a paste in mode 2004 is bracketed
 focus-1004                    works   -     DEC-1004                       focus in and out reported in mode 1004
+select-copy                   works   -     clipboard.selection            a word, a line and a drag selected and copied, and a copy with nothing selected
+key-backspace-del             works   -     input.legacy                   BackSpace sends BS, then DEL once the host chooses it
+key-kitty-events              missing #42   input.kitty-keyboard           flag 2: a press, a repeat and a release, and no release once the flags are 0 (needs key-events)
+key-kitty-events-legacy-keys  missing #42   input.kitty-keyboard           flag 2: Enter, Tab and BackSpace keep their bytes and send no release, nor does a text key (needs key-events)
+key-kitty-shifted-key         missing #42   input.kitty-keyboard           flag 4: a key held with Shift sends its shifted key
+key-kitty-unshifted-key       missing #42   input.kitty-keyboard           the key code is the unshifted key the host reports, or the symbol when it reports none (needs key-forms)
+key-kitty-base-layout-key     missing #42   input.kitty-keyboard           flag 4: Ctrl+С on a Russian layout sends the base layout key c (needs key-forms)
+key-kitty-all-keys            missing #42   input.kitty-keyboard           flag 8: text keys, Enter, Tab, BackSpace and a modifier key send escape codes, and RIS ends it
+key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags 2 and 8: a text key, Enter and Shift report their releases (needs key-events)
+key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
 
 # strings vtium does not take yet
-osc-8-hyperlink               missing #40   osc.8                          placeholder in the probes: OSC 8 hyperlinks
-osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once: vtium's probe
-osc-133-marks                 missing #40   osc.133                        placeholder in the probes: OSC 133 prompt marks
+osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
+osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
+osc-133-marks                 works   -     osc.133                        the view jumps between the prompts OSC 133 marks, and a command's output selects whole
 
-# images: working in a build with images and failing, as a missing probe
+# images: working in a build with images and failing, as a missing capability
 # must, in one without. The list names the build feature -Dimages; vtium's
 # is vtium-image (sixel #48, kitty graphics #49), which vtium-replay is
 # built with.
@@ -71,9 +83,11 @@ mode-80                       works   -Dimages DEC-80                       DECR
 mode-1070                     works   -Dimages DEC-1070                     DECRQM 1070 (private sixel registers) replies 1 or 2 (#48)
 mode-8452                     works   -Dimages DEC-8452                     DECRQM 8452 (sixel cursor right) replies 1 or 2 (#48)
 
-# the modes and controls the copied probes do not cover (#54); 1007, 1035, 1042
-# and XTSHIFTESCAPE need host calls the interface has no command for
+# the modes and controls the copied capability scenarios do not cover (#54);
+# 1007, 1035 and XTSHIFTESCAPE need host calls the interface has no command
+# for
 decaln                        works   -     ctl.decaln                     ESC # 8 fills the screen with E, origin mode off, the margins the whole screen
+state-margins-tabs            works   -     ctl.decstbm,ctl.tabs           the state lines show the scroll region, the left and right margins and the tab stops
 reverse-wrap                  works   -     DEC-45                         mode 45: BS reverse-wraps only into the row that wrapped
 xtsave                        works   -     ctl.xtsave                     XTSAVE and XTRESTORE of one mode, and the empty list, which leaves DECOM
 decslrm                       works   -     DEC-69,ctl.decslrm             mode 69 makes CSI s set left and right margins, text wraps and scrolls inside them, DECRQSS reports them

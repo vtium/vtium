@@ -1,0 +1,28 @@
+# The kitty keyboard protocol's flag 8, report all keys as escape codes.
+# Under flags 9 (1 and 8), a text key sends an escape code in place of its
+# text, and so do Enter, Tab and BackSpace, which the protocol's table gives
+# the codes 13, 9 and 127. A modifier key pressed alone is reported, with its
+# own bit set, and a text key reports NumLock. RIS sets the flags to 0, which
+# is what vtium's reset key does to the shown console, and Enter sends its
+# legacy byte again.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report all keys as escape codes, Modifiers, Functional key definitions; ADR-1005 D4, D10 and D13 slice 3
+# capability: key-kitty-all-keys
+size 20 2
+send "\e[>9u\e[?u"
+check
+reply "\e[?9u"
+key a
+key Return
+key Tab
+key BackSpace
+check
+reply "\e[97u\e[13u\e[9u\e[127u"
+key Shift_L mods=shift
+key a mods=num
+check
+reply "\e[57441;2u\e[97;129u"
+send "\ec"
+key Return
+send "\e[?u"
+check
+reply "\r\e[?0u"

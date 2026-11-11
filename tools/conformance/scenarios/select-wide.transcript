@@ -1,0 +1,31 @@
+> size 12 2
+> send "中文 e\u{301}x 😀!"
+> select word at 1,0
+> copy
+< copy "\xe4\xb8\xad\xe6\x96\x87"
+> select word at 5,0
+> copy
+< copy "e\xcc\x81x"
+> select start at 0,0
+> select to at 9,0
+> copy
+< copy "\xe4\xb8\xad\xe6\x96\x87 e\xcc\x81x \xf0\x9f\x98\x80"
+> select word at 9,0
+> copy
+< copy "\xf0\x9f\x98\x80!"
+> dump frame
+size 12x2
+cursor 11,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 11,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |中文 éx 😀!|
+cells 0 0-0 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 1-1 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 2-2 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 3-3 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 8-8 w=2 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+cells 0 9-9 w=0 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+cells 0 10-10 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 1 ||

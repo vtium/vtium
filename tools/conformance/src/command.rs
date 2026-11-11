@@ -33,6 +33,17 @@ pub enum Event {
     Move,
 }
 
+/// What the `select` command does, as its `how` names it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum How {
+    Start,
+    To,
+    Word,
+    Line,
+    Output,
+    Clear,
+}
+
 /// A test command vtium runs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Command {
@@ -68,6 +79,20 @@ pub enum Command {
     Palette(&'static str),
     FrameSince(u8),
     Clipboard,
+    /// A selection at a cell of the view; `clear` names no cell.
+    Select {
+        how: How,
+        col: u64,
+        row: u64,
+    },
+    Copy,
+    Prompt {
+        up: bool,
+    },
+    Backspace {
+        del: bool,
+    },
+    State,
     Cell {
         width: u32,
         height: u32,
@@ -134,7 +159,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.4, in the order of its describe blocks:
+/// Every command of interface 1.5, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -185,6 +210,11 @@ pub const SPECS: &[Spec] = &[
     spec("palette", Some("palette"), &["name"], true),
     spec("frame-since", Some("query"), &["caller"], true),
     spec("clipboard", Some("clipboard"), &[], true),
+    spec("select", Some("selection"), &["how", "col", "row"], true),
+    spec("copy", Some("selection"), &[], true),
+    spec("prompt", Some("marks"), &["dir"], true),
+    spec("backspace", Some("backspace"), &["del"], true),
+    spec("state", Some("state"), &[], true),
 ];
 
 const fn spec(
@@ -434,6 +464,44 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 .ok_or_else(|| f.fail("hex", "not hex bytes, or holds 00"))?,
         ),
         "focus" => Command::Focus(f.flag("in", None)?),
+        "select" => {
+            let how = f.name_of(
+                "how",
+                &[
+                    ("start", How::Start),
+                    ("to", How::To),
+                    ("word", How::Word),
+                    ("line", How::Line),
+                    ("output", How::Output),
+                    ("clear", How::Clear),
+                ],
+            )?;
+            if how == How::Clear {
+                if let Some(key) = ["col", "row"].into_iter().find(|k| f.get(k).is_some()) {
+                    return Err(f.fail(key, "names a cell, which clear does not take"));
+                }
+                Command::Select {
+                    how,
+                    col: 0,
+                    row: 0,
+                }
+            } else {
+                Command::Select {
+                    how,
+                    // the view's size bounds these when the command runs
+                    col: f.decimal("col", u64::MAX, None)?,
+                    row: f.decimal("row", u64::MAX, None)?,
+                }
+            }
+        }
+        "copy" => Command::Copy,
+        "prompt" => Command::Prompt {
+            up: f.name_of("dir", &[("up", true), ("down", false)])?,
+        },
+        "backspace" => Command::Backspace {
+            del: f.flag("del", None)?,
+        },
+        "state" => Command::State,
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         "cell" => Command::Cell {
@@ -556,6 +624,54 @@ mod tests {
         assert_eq!(parse(b"palette;name=nord"), Ok(Command::Palette("nord")));
     }
 
+    // INTERFACE-vtium.md: the selection, the prompt jumps, the BackSpace
+    // setting and the state
+    #[test]
+    fn the_host_commands_of_interface_1_5_parse() {
+        assert_eq!(
+            parse(b"select;how=word;col=3;row=1"),
+            Ok(Command::Select {
+                how: How::Word,
+                col: 3,
+                row: 1
+            })
+        );
+        assert_eq!(
+            parse(b"select;how=clear"),
+            Ok(Command::Select {
+                how: How::Clear,
+                col: 0,
+                row: 0
+            })
+        );
+        for (how, want) in [
+            ("start", How::Start),
+            ("to", How::To),
+            ("line", How::Line),
+            ("output", How::Output),
+        ] {
+            let text = format!("select;how={how};col=0;row=0");
+            assert_eq!(
+                parse(text.as_bytes())
+                    .map(|c| matches!(c, Command::Select { how, .. } if how == want)),
+                Ok(true),
+                "{text}"
+            );
+        }
+        assert_eq!(parse(b"copy"), Ok(Command::Copy));
+        assert_eq!(parse(b"prompt;dir=up"), Ok(Command::Prompt { up: true }));
+        assert_eq!(parse(b"prompt;dir=down"), Ok(Command::Prompt { up: false }));
+        assert_eq!(
+            parse(b"backspace;del=1"),
+            Ok(Command::Backspace { del: true })
+        );
+        assert_eq!(
+            parse(b"backspace;del=0"),
+            Ok(Command::Backspace { del: false })
+        );
+        assert_eq!(parse(b"state"), Ok(Command::State));
+    }
+
     #[cfg(feature = "images")]
     #[test]
     fn the_image_commands_parse_with_their_defaults() {
@@ -614,6 +730,17 @@ mod tests {
             "place;z=2147483648",
             "place;z=01",
             "image;n=64",
+            "select;how=word",
+            "select;how=word;col=1",
+            "select;how=clear;col=0;row=0",
+            "select;how=drag;col=0;row=0",
+            "select;col=0;row=0",
+            "copy;n=1",
+            "prompt",
+            "prompt;dir=left",
+            "backspace",
+            "backspace;del=2",
+            "state;x=1",
         ] {
             assert_eq!(code(text), Some(2), "{text:?}");
         }

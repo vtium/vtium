@@ -1,0 +1,7 @@
+# spec: ADR-1000 DEC-1070
+# capability: mode-1070
+size 80 24
+needs sixel
+send "\e[?1070$p"
+check
+reply-re "\e\\[\\?1070;[12]\\$y"

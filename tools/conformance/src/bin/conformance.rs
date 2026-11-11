@@ -1,6 +1,7 @@
 //! Tier 1 for vtium: the corpus and the behaviour scenarios replayed
 //! through vtium and judged against their goldens; and the capability
-//! probes run through vtium-replay. The crate's README gives the commands.
+//! list judged through the capability scenarios. The crate's README gives
+//! the commands.
 
 #[path = "conformance/scenarios.rs"]
 mod scenarios;
@@ -12,15 +13,14 @@ use std::process::ExitCode;
 use vtium_conformance::generate::{self, Inputs};
 use vtium_conformance::interface;
 use vtium_conformance::issues;
-use vtium_conformance::probes::{self, Outcome, Replay};
 use vtium_conformance::runner::{self, Corpus, VIEWS, Verdict, chunking, own};
+use vtium_conformance::scenario::capability;
 use vtium_conformance::scenario::run::Runner;
 use vtium_conformance::spec::Spec;
 use vtium_conformance::view::View;
 
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
-/// The corpus; the probes sit in `probes/`,
-/// vtium's own beside the copied file.
+/// The corpus.
 const CORPUS: &str = "corpus";
 /// vtium's own cases, laid out as the corpus is, with the list of those
 /// whose goldens wait for the maintainer's review.
@@ -28,13 +28,16 @@ const OWN_CASES: &str = "vtium";
 const PROVISIONAL: &str = "vtium/provisional.tsv";
 /// The interface's documents, each a later version of the one before.
 const INTERFACE: [&str; 2] = ["corpus/INTERFACE.md", "INTERFACE-vtium.md"];
-const PROBES: [&str; 2] = ["probes/probes.replay", "probes/vtium.replay"];
-/// The build features the capability list names. Its `-Dimages` names the
-/// image pipeline with the sixel and kitty handlers. vtium-replay is built with images, which holds
-/// the pipeline and both handlers (#48, #49), so the probes that need them
-/// are judged as working. Its `-Dbidi` names right-to-left text (ADR-1004),
-/// which make conformance builds vtium-replay with too.
-const BUILD: [(&str, bool); 2] = [("images", true), ("bidi", true)];
+/// The build features the capability list names, each with whether this
+/// build of vtium-replay has it. `-Dimages` names the image pipeline with
+/// the sixel and kitty handlers (#48, #49), and `-Dbidi` right-to-left text
+/// (ADR-1004); make conformance-probes builds vtium-replay with both, so
+/// the capabilities that need them are judged as working there and as
+/// absent in a build without them.
+const BUILD: [(&str, bool); 2] = [
+    ("images", cfg!(feature = "images")),
+    ("bidi", cfg!(feature = "bidi")),
+];
 /// Features interface 1 lets an implementation without images, or
 /// without the draw2 view, leave out.
 const OPTIONAL: [&str; 8] = [
@@ -47,6 +50,12 @@ const OPTIONAL: [&str; 8] = [
     "kitty-animation",
     "bidi",
 ];
+/// Features vtium's additions describe and vtium-replay does not offer
+/// yet: the issue INTERFACE-vtium.md names adds each one. `--describe` need
+/// not declare them, and a scenario that needs one fails as absent. A
+/// `--describe` that declares one is refused, so the change that adds the
+/// feature also takes it off this list.
+const OWED: [&str; 2] = ["key-events", "key-forms"];
 
 const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR
@@ -114,8 +123,8 @@ fn spec() -> Result<Spec, String> {
 }
 
 /// vtium-replay's `--describe` against the interface's `describe` blocks:
-/// the same major version, its lines in the blocks' order, and every
-/// feature the interface makes mandatory.
+/// the same major version, its lines in the blocks' order, every feature
+/// the interface makes mandatory, and none of the owed features.
 fn check_describe(spec: &Spec) -> Result<(), String> {
     let ours = vtium_conformance::describe();
     let major = ours
@@ -137,8 +146,16 @@ fn check_describe(spec: &Spec) -> Result<(), String> {
             ));
         }
     }
+    for feature in OWED {
+        if ours.lines().any(|l| l == format!("feature {feature}")) {
+            return Err(format!(
+                "--describe declares the feature {feature}, which the runner lists as owed. Take it off OWED in src/bin/conformance.rs, and raise the interface's version."
+            ));
+        }
+    }
     for feature in &spec.features {
         if !OPTIONAL.contains(&feature.as_str())
+            && !OWED.contains(&feature.as_str())
             && !ours.lines().any(|l| l == format!("feature {feature}"))
         {
             return Err(format!("--describe lacks the mandatory feature {feature}"));
@@ -358,67 +375,29 @@ fn write_cases(o: &Options) -> Result<bool, String> {
     Ok(true)
 }
 
-/// The capability probes, each judged against `capabilities.list`: a
-/// probe the list does not name, a name no probe defines, and a verdict
-/// that disagrees with the list each fail the run.
+/// The capability list judged through the capability scenarios under
+/// `scenarios/` (ADR-1504 D4): a scenario whose capability the list does
+/// not name, a name no scenario declares, and a verdict that disagrees
+/// with the list each fail the run.
 fn probes() -> Result<bool, String> {
     let spec = spec()?;
     let caps = vtium_conformance::coverage::capabilities(&read(
         &Path::new(TOOL).join("capabilities.list"),
     )?)?;
-    probes::check_list(&caps)?;
-    let mut all = Vec::new();
-    for file in PROBES {
-        let text = match std::fs::read_to_string(Path::new(TOOL).join(file)) {
-            Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound && !all.is_empty() => continue,
-            Err(e) => return Err(format!("{file}: {e}")),
-        };
-        all = probes::merge(all, probes::read(file, &text, &spec)?)?;
-    }
-    for probe in &all {
-        let missing = caps
-            .iter()
-            .any(|c| c.name == probe.name && c.status == "missing");
-        probes::check_expectations(probe.file(), probe, &spec, missing)?;
-    }
-    let replay = Replay::new(&spec, &vtium_conformance::describe())?
-        .with_fixtures(Path::new(TOOL).join("fixtures"));
-    let mut failures = 0usize;
-    for probe in all
-        .iter()
-        .filter(|p| !caps.iter().any(|c| c.name == p.name))
-    {
-        println!(
-            "FAIL {}: a probe the list does not name; add it to capabilities.list",
-            probe.name
-        );
-        failures += 1;
-    }
-    for cap in &caps {
-        let Some(probe) = all.iter().find(|p| p.name == cap.name) else {
-            println!(
-                "FAIL {}: capabilities.list names a probe nothing defines",
-                cap.name
-            );
-            failures += 1;
-            continue;
-        };
-        let outcome: Outcome = replay.run(probe);
-        let (line, agrees) = probes::verdict(cap, &outcome, &BUILD);
+    let report = capability::judge(&caps, &scenarios::all()?, &runner(&spec)?, &BUILD)?;
+    for line in &report.lines {
         println!("{line}");
-        if !agrees {
-            failures += 1;
-        }
     }
     let count = |s: &str| caps.iter().filter(|c| c.status == s).count();
     println!(
-        "{} probes: {} work, {} missing; {failures} disagree with the list",
+        "{} capabilities, each judged by its scenario under {}/: {} work, {} missing; {} disagree with the list",
         caps.len(),
+        scenarios::DIR,
         count("works"),
-        count("missing")
+        count("missing"),
+        report.failures
     );
-    Ok(failures == 0)
+    Ok(report.failures == 0)
 }
 
 /// The repository whose issues the capability list and ADR-1000 name.

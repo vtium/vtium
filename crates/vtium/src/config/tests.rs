@@ -993,14 +993,14 @@ fn keyboard_and_mouse() {
 #[test]
 fn the_power_keys_are_unbound_until_set() {
     let d = Config::default();
-    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+    for key in [&KEY_REBOOT, &KEY_POWER_OFF, &KEY_SUSPEND] {
         assert_eq!(d.chords(key), [], "{}", key.name);
     }
     let l = load_with(
-        &["--grab-suspend=<Logo>s"],
+        &["--key-suspend=<Logo>s"],
         &[(
             "/etc/vtium/vtium.conf",
-            b"grab-reboot=<Ctrl><Alt>Delete\ngrab-power-off=<Ctrl><Alt>End,<Logo>p\ngrab-suspend=<Logo>z\n",
+            b"key-reboot=<Ctrl><Alt>Delete\nkey-power-off=<Ctrl><Alt>End,<Logo>p\nkey-suspend=<Logo>z\n",
         )],
     );
     assert_eq!(l.reports, []);
@@ -1008,27 +1008,27 @@ fn the_power_keys_are_unbound_until_set() {
         mods,
         keysyms: vec![keysym],
     };
-    assert_eq!(l.config.chords(&GRAB_REBOOT), [chord(4 | 8, 0xffff)]);
+    assert_eq!(l.config.chords(&KEY_REBOOT), [chord(4 | 8, 0xffff)]);
     assert_eq!(
-        l.config.chords(&GRAB_POWER_OFF),
+        l.config.chords(&KEY_POWER_OFF),
         [chord(4 | 8, 0xff57), chord(16, 0x70)]
     );
     // The command line wins over the file.
-    assert_eq!(l.config.chords(&GRAB_SUSPEND), [chord(16, 0x73)]);
+    assert_eq!(l.config.chords(&KEY_SUSPEND), [chord(16, 0x73)]);
     // An empty value unbinds what a file before it bound.
     let l = load_with(
-        &["--grab-reboot="],
-        &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
+        &["--key-reboot="],
+        &[("/etc/vtium/vtium.conf", b"key-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(l.reports, []);
-    assert_eq!(l.config.chords(&GRAB_REBOOT), []);
+    assert_eq!(l.config.chords(&KEY_REBOOT), []);
 }
 
 #[test]
 fn tier3_power_configuration_binds_each_power_key() {
     let l = main_file(TIER3_POWER);
     assert_eq!(l.reports, []);
-    for key in [&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND] {
+    for key in [&KEY_REBOOT, &KEY_POWER_OFF, &KEY_SUSPEND] {
         assert_eq!(l.config.chords(key).len(), 1, "{}", key.name);
     }
 }
@@ -1036,19 +1036,19 @@ fn tier3_power_configuration_binds_each_power_key() {
 #[test]
 fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
     let l = load_with(
-        &["--grab-reboot=<Ctrl><Alt>delete"],
-        &[("/etc/vtium/vtium.conf", b"grab-reboot=<Ctrl><Alt>Delete\n")],
+        &["--key-reboot=<Ctrl><Alt>delete"],
+        &[("/etc/vtium/vtium.conf", b"key-reboot=<Ctrl><Alt>Delete\n")],
     );
     assert_eq!(
         problems(&l),
         [&Problem::BadValue {
-            key: "grab-reboot",
+            key: "key-reboot",
             value: "<Ctrl><Alt>delete".into(),
             why: "a key name in the wrong case; key names are case-sensitive",
         }]
     );
     assert_eq!(
-        l.config.chords(&GRAB_REBOOT),
+        l.config.chords(&KEY_REBOOT),
         [crate::grab::Chord {
             mods: 4 | 8,
             keysyms: vec![0xffff]
@@ -1259,21 +1259,236 @@ fn program_blank_is_on_until_turned_off() {
 }
 
 #[test]
-fn grab_paste_binds_shift_insert_until_set() {
+fn key_paste_binds_shift_insert_until_set() {
     let chord = |mods, keysym| crate::grab::Chord {
         mods,
         keysyms: vec![keysym],
     };
-    assert_eq!(Config::default().chords(&GRAB_PASTE), [chord(1, 0xff63)]);
-    let l = main_file("grab-paste=<Ctrl><Shift>V,<Shift>Insert\n");
+    assert_eq!(Config::default().chords(&KEY_PASTE), [chord(1, 0xff63)]);
+    let l = main_file("key-paste=<Ctrl><Shift>V,<Shift>Insert\n");
     assert_eq!(l.reports, []);
     assert_eq!(
-        l.config.chords(&GRAB_PASTE),
+        l.config.chords(&KEY_PASTE),
         [chord(4 | 1, 0x56), chord(1, 0xff63)]
     );
-    let l = main_file("grab-paste=\n");
+    let l = main_file("key-paste=\n");
     assert_eq!(l.reports, []);
-    assert_eq!(l.config.chords(&GRAB_PASTE), []);
+    assert_eq!(l.config.chords(&KEY_PASTE), []);
+}
+
+/// The combinations of a key binding, as vtium.conf writes them.
+fn written(l: &Loaded, key: &Key) -> Vec<String> {
+    l.config
+        .chords(key)
+        .iter()
+        .map(crate::grab::written)
+        .collect()
+}
+
+// ADR-1005 D10: a key vtium.conf binds to another combination takes that
+// combination alone, and an empty value takes none; with no vtium.conf
+// each key keeps its built-in default.
+#[test]
+fn the_key_bindings_take_what_vtium_conf_binds_and_nothing_when_empty() {
+    let l = main_file("key-scroll-up = <Alt>k\nkey-reset =\n");
+    assert_eq!(l.reports, []);
+    assert_eq!(written(&l, &KEY_SCROLL_UP), ["<Alt>k"]);
+    assert_eq!(written(&l, &KEY_RESET), Vec::<String>::new());
+    assert_eq!(written(&l, &KEY_SCROLL_DOWN), ["<Shift>Down"]);
+    let none = load_with(&[], &[]);
+    assert_eq!(none.reports, []);
+    assert_eq!(written(&none, &KEY_RESET), ["<Ctrl><Shift>Delete"]);
+    assert_eq!(written(&none, &KEY_ZOOM_IN), ["<Ctrl>plus", "<Ctrl>equal"]);
+}
+
+// ADR-1005 D10: a combination two keys bind goes to the key that comes
+// first in the key order, and the report names both keys, at the line of
+// the key the file set: the later key's line when the file set both.
+#[test]
+fn a_combination_bound_twice_is_reported_and_goes_to_the_first_key() {
+    let l = main_file("key-zoom-in = <Shift>Up,<Alt>z\n");
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: line(1),
+            problem: Problem::BoundTwice {
+                chord: "<Shift>Up".into(),
+                first: "key-scroll-up",
+                then: "key-zoom-in",
+            },
+        }]
+    );
+    assert_eq!(written(&l, &KEY_SCROLL_UP), ["<Shift>Up"]);
+    assert_eq!(written(&l, &KEY_ZOOM_IN), ["<Alt>z"]);
+    // The earlier key set in the file takes a later key's default.
+    let l = main_file("\nkey-console-next = <Ctrl>minus\n");
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: line(2),
+            problem: Problem::BoundTwice {
+                chord: "<Ctrl>minus".into(),
+                first: "key-console-next",
+                then: "key-zoom-out",
+            },
+        }]
+    );
+    assert_eq!(written(&l, &KEY_CONSOLE_NEXT), ["<Ctrl>minus"]);
+    assert_eq!(written(&l, &KEY_ZOOM_OUT), Vec::<String>::new());
+    // Both set: the report is at the later key's line.
+    let l = main_file("key-reset = <Alt>r\nkey-paste = <Alt>r\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:1: <Alt>r is bound by both key-paste and key-reset. key-paste keeps it, because vtium checks key-paste first. To use it for key-reset, remove it from key-paste, or give key-reset another combination"
+        ]
+    );
+    assert_eq!(written(&l, &KEY_PASTE), ["<Alt>r"]);
+    assert_eq!(written(&l, &KEY_RESET), Vec::<String>::new());
+}
+
+// ADR-1005 D10: Ctrl+Alt+F1 to F12 and the XF86Switch_VT keys switch the
+// VT, the rescue key among them, and no key binds them: a binding of one
+// is reported with its file and line and dropped, and the key keeps the
+// rest of its value.
+#[test]
+fn a_binding_of_a_key_that_switches_the_vt_is_reported_and_dropped() {
+    let l =
+        main_file("key-zoom-in = <Ctrl>plus\nkey-reset = <Ctrl><Alt>F2,<Alt>r,XF86Switch_VT_3\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:2: key-reset: <Ctrl><Alt>F2 switches the VT, so vtium ignores this combination. No setting can bind Ctrl+Alt+F1 to F12 or the XF86Switch_VT keys",
+            "/etc/vtium/vtium.conf:2: key-reset: XF86Switch_VT_3 switches the VT, so vtium ignores this combination. No setting can bind Ctrl+Alt+F1 to F12 or the XF86Switch_VT keys",
+        ]
+    );
+    assert_eq!(written(&l, &KEY_RESET), ["<Alt>r"]);
+}
+
+// ADR-1005 D10: a mapping that does not read is reported with its file and
+// line, and the key keeps its built-in default.
+#[test]
+fn a_bad_mapping_is_reported_with_its_file_and_line() {
+    let l = main_file("\n\nkey-page-up = <Hyper>Prior\nkey-focus-next = <Ctrl><Logo>NoSuchKey\n");
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:3: key-page-up=\"<Hyper>Prior\": a modifier other than Shift, Lock, Control, Ctrl, Alt or Logo, ignored",
+            "/etc/vtium/vtium.conf:4: key-focus-next=\"<Ctrl><Logo>NoSuchKey\": a key name xkb does not know, ignored",
+        ]
+    );
+    assert_eq!(written(&l, &KEY_PAGE_UP), ["<Shift>Prior"]);
+    assert_eq!(written(&l, &KEY_FOCUS_NEXT), ["<Ctrl><Logo>Up"]);
+}
+
+// ADR-1005 D10: vtium reads the same keys from a vtium.conf a person
+// edited by hand, with spaces and a comment, and from the same file as
+// `vtium-config set` writes it (vtium-config's test
+// `set_writes_vtiums_own_keys_as_a_person_writes_them` holds that text).
+#[test]
+fn vtium_config_set_and_a_hand_edit_give_the_same_keys() {
+    let by_set = "font-size=12\nversion = 1\nkey-scroll-up=<Alt>k\nkey-reset=\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
+    let by_hand = "font-size=12\n# my keys\nkey-scroll-up = <Alt>k\nkey-reset =\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n";
+    let set = main_file(by_set);
+    let hand = main_file(by_hand);
+    assert_eq!(
+        (set.reports.as_slice(), hand.reports.as_slice()),
+        (&[][..], &[][..])
+    );
+    for (key, _) in crate::grab::ORDER {
+        assert_eq!(
+            set.config.chords(key),
+            hand.config.chords(key),
+            "{}",
+            key.name
+        );
+    }
+    assert_eq!(written(&hand, &KEY_SCROLL_UP), ["<Alt>k"]);
+    assert_eq!(written(&hand, &KEY_RESET), Vec::<String>::new());
+}
+
+// The maintainer renamed the key bindings to more accepted terms
+// (ADR-1005 D10, 2026-11-07): vtium reads the four names that shipped
+// before, grab-paste, grab-reboot, grab-power-off and grab-suspend, as
+// their new keys, and reports each line that uses one, with the name to
+// write in its place.
+#[test]
+fn an_old_key_binding_name_is_read_as_its_new_name_and_reported() {
+    let l = main_file("\ngrab-paste = <Alt>p\n");
+    assert_eq!(
+        l.reports,
+        [Report {
+            origin: line(2),
+            problem: Problem::Renamed {
+                old: "grab-paste",
+                new: "key-paste",
+            },
+        }]
+    );
+    assert_eq!(
+        l.reports
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        [
+            "/etc/vtium/vtium.conf:2: grab-paste is now called key-paste. vtium reads grab-paste as key-paste for now; rename it"
+        ]
+    );
+    assert_eq!(written(&l, &KEY_PASTE), ["<Alt>p"]);
+    for (old, new) in [
+        ("grab-reboot", &KEY_REBOOT),
+        ("grab-power-off", &KEY_POWER_OFF),
+        ("grab-suspend", &KEY_SUSPEND),
+    ] {
+        let l = main_file(&format!("{old}=<Logo>q\n"));
+        assert_eq!(written(&l, new), ["<Logo>q"], "{old}");
+        assert_eq!(l.reports.len(), 1, "{old}");
+    }
+    // The command line reads the old names too.
+    let l = load_with(&["--grab-reboot=<Ctrl><Alt>Delete"], &[]);
+    assert_eq!(written(&l, &KEY_REBOOT), ["<Ctrl><Alt>Delete"]);
+    assert_eq!(
+        problems(&l),
+        [&Problem::Renamed {
+            old: "grab-reboot",
+            new: "key-reboot",
+        }]
+    );
+    // The seventeen keys that never shipped have no old names.
+    let l = main_file("grab-reset = <Alt>r\n");
+    assert_eq!(problems(&l), [&Problem::UnknownKey("grab-reset".into())]);
+}
+
+// When a file sets a key binding by its old name and by its new one, in
+// either order, the new name wins and the old one is reported.
+#[test]
+fn the_new_name_wins_over_the_old_one() {
+    for text in [
+        "key-paste = <Alt>n\ngrab-paste = <Alt>o\n",
+        "grab-paste = <Alt>o\nkey-paste = <Alt>n\n",
+    ] {
+        let l = main_file(text);
+        assert_eq!(written(&l, &KEY_PASTE), ["<Alt>n"], "{text:?}");
+        assert_eq!(
+            problems(&l),
+            [&Problem::Renamed {
+                old: "grab-paste",
+                new: "key-paste",
+            }],
+            "{text:?}"
+        );
+    }
+    let l = load_with(&["--key-paste=<Alt>n", "--grab-paste=<Alt>o"], &[]);
+    assert_eq!(written(&l, &KEY_PASTE), ["<Alt>n"]);
 }
 
 #[test]

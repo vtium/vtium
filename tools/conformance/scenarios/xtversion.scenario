@@ -1,0 +1,8 @@
+# XTVERSION: DCS > | text ST, the text the host sets
+# spec: ADR-1000 query.xtversion
+# capability: xtversion
+size 80 24
+cmd version;text=kmscon(probe)
+send "\e[>q"
+check
+reply "\eP>|kmscon(probe)\e\\"

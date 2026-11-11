@@ -1,0 +1,32 @@
+# OSC 133's prompt marks: A marks a prompt line, C a command's output. The
+# view jumps up to the nearest marked prompt and back down to the screen,
+# and the output of the command at a row selects and copies as whole lines
+# (ADR-1002; INTERFACE-vtium.md, Prompt jumps).
+# spec: ADR-1000 osc.133
+# capability: osc-133-marks
+size 8 2
+scrollback 20
+send "\e]133;A\a$ one\r\n\e]133;C\aa\r\nb\r\n"
+send "\e]133;A\a$ two\r\n\e]133;C\ac\r\n\e]133;A\a$ "
+scroll prompt-up
+cmd state
+check
+want row 0 |$ two|
+want row 1 |c|
+want test state scrollback lines 4 view 1 max 20
+scroll prompt-up
+check
+want row 0 |$ one|
+want row 1 |a|
+select output at 0,1
+copy
+check
+want test copy 610a620a
+scroll prompt-down
+check
+want row 0 |$ two|
+scroll prompt-down
+cmd state
+check
+want test state scrollback lines 4 view 0 max 20
+want row 1 |$|

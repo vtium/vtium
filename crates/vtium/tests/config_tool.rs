@@ -20,10 +20,9 @@ use std::sync::{Mutex, MutexGuard};
 #[path = "common/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
-// The helper that writes the stand-in programs, kept with vtium-config's
-// tests and shared by every crate whose tests run a program they made.
-#[path = "../../vtium-config/tests/common/script.rs"]
-mod script;
+// The helper that writes the stand-in programs, shared by every crate
+// whose tests run a program they made.
+use vtium_testscript as script;
 
 /// The environment variable that names the child's role.
 const ROLE: &str = "VTIUM_CONFIG_TOOL_CHILD";
@@ -112,7 +111,13 @@ fn vtium_config_replaces_itself_with_the_tool_and_passes_every_word() {
     let _one = one_at_a_time();
     let dir = scratch("runs");
     let out = dir.join("out");
-    let (pid, status, lines) = spawn("runs", &out, &[("TOOL", Path::new("/bin/sh"))]);
+    // A copy of /bin/sh that the test's own account owns: vtium runs a
+    // tool only when root or its own account owns it, and /bin/sh belongs
+    // to uid 65534 in the user namespace make arm-test runs the tests in
+    // (tools/arm/README.md).
+    let tool = dir.join("sh");
+    script::executable_copy(Path::new("/bin/sh"), &tool);
+    let (pid, status, lines) = spawn("runs", &out, &[("TOOL", &tool)]);
     assert_eq!(status, Some(7), "vtium ends with the tool's status");
     let lines = lines.expect("the tool ran");
     // The same process: vtium replaced itself with the tool, and started

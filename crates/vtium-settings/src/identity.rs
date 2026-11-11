@@ -2,7 +2,7 @@
 //! (ADR-1401 D4), with the facts the display guard reads beside them.
 //!
 //! The crate reads no device itself. vtium fills an [`Identity`] from udev,
-//! sysfs, the device and the KMS connector, and `vtiumctl` does the same,
+//! sysfs, the device and the KMS connector, and vtium-config does the same,
 //! so the verdict before install is the verdict at boot.
 
 use std::collections::BTreeMap;

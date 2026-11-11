@@ -23,7 +23,7 @@ fn kind(k: &Key) -> String {
         Kind::Command => "command".to_owned(),
         Kind::Rgb => "color, `r,g,b`".to_owned(),
         Kind::Mode => "resolution, one per line".to_owned(),
-        Kind::Grab => "key combinations, `<Mod>...key`, separated by commas".to_owned(),
+        Kind::KeyBinding => "key combinations, `<Mod>...key`, separated by commas".to_owned(),
         Kind::DecoColor => "color: `fg`, a palette number or `#rrggbb`".to_owned(),
         Kind::Char => "character".to_owned(),
         Kind::Size { .. } => "size, `WxH`".to_owned(),
@@ -47,7 +47,7 @@ fn bound(k: &Key) -> String {
         Kind::Command => format!("{TEXT_MAX} bytes in a file"),
         Kind::Rgb => "each 0 to 255".to_owned(),
         Kind::Mode => "names of 63 bytes, each side 1 to 65535".to_owned(),
-        Kind::Grab => format!(
+        Kind::KeyBinding => format!(
             "{TEXT_MAX} bytes; modifiers Shift, Lock, Control, Alt, Logo; keys as xkb names them"
         ),
         Kind::DecoColor => "a palette number from 0 to 255, or six hex digits".to_owned(),
@@ -100,6 +100,16 @@ fn option(k: &Key) -> String {
 
 /// `docs/config.md`.
 pub(super) fn markdown() -> String {
+    let renamed = {
+        let names: Vec<String> = vtium_settings::keys::RENAMED
+            .iter()
+            .map(|(old, key)| format!("`{old}` is `{}`", key.name))
+            .collect();
+        match names.split_last() {
+            Some((last, rest)) => format!("{}, and {last}", rest.join(", ")),
+            None => String::new(),
+        }
+    };
     let mut out = format!(
         "# Configuration\n\
          \n\
@@ -116,6 +126,8 @@ pub(super) fn markdown() -> String {
          A top-level line holds one key: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. `#` starts a comment at the start of a line or after a blank; a `#` inside a word, or one that opens a `#rrggbb` value, is part of the value, and `\\#` after a blank is a literal `#`. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
          \n\
          vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section never drops a top-level key. It drops the section or the rule that holds it, or every section when it leaves their structure untrustworthy, as [Invalid files](head-file.md#invalid-files) describes. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
+         \n\
+         Four key bindings had other names before the maintainer renamed them to more accepted terms: {renamed}. vtium still reads each old name as its new one and reports each line that uses it, so that you can rename it. Where a source sets both names, the new one wins.\n\
          \n\
          `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source names the GitHub issue, the specification or the released program each key comes from.\n"
     );
@@ -246,14 +258,14 @@ fn rule(rule: char, title: &str) -> String {
     line
 }
 
-/// A group's heading: `# ── TITLE ───`.
+/// A group's heading: `# -- TITLE ---`.
 fn heading(title: &str) -> String {
-    rule('─', title)
+    rule('-', title)
 }
 
-/// A section's heading, `# ══ TITLE ═══`, then what the section covers.
+/// A section's heading, `# == TITLE ===`, then what the section covers.
 fn section_heading(title: &str, about: &str) -> String {
-    format!("{}\n#\n{}", rule('═', title), paragraphs("#", [about]))
+    format!("{}\n#\n{}", rule('=', title), paragraphs("#", [about]))
 }
 
 /// A group's description. A group of one key has the key's own
@@ -268,7 +280,7 @@ fn description(keys: &[&Key]) -> String {
         let mut short_before = false;
         for (i, k) in keys.iter().enumerate() {
             let texts: Vec<String> = k
-                .paragraphs()
+                .example_paragraphs()
                 .enumerate()
                 .map(|(n, p)| {
                     if n == 0 {
@@ -288,7 +300,7 @@ fn description(keys: &[&Key]) -> String {
         }
         return out;
     };
-    paragraphs("##", only.paragraphs())
+    paragraphs("##", only.example_paragraphs())
 }
 
 /// The line that shows `k` at its default, commented out: `#key=value`, or
@@ -367,8 +379,9 @@ pub(super) fn example() -> String {
     let mut out = paragraphs(
         "#",
         [
-            format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}, and docs/config.md describes each setting.").as_str(),
+            format!("An example of vtium's configuration file. Copy it to /etc/vtium/vtium.conf and edit it. It is generated from {SOURCE}.").as_str(),
             "The settings come first, one per line: key=value. For an on/off setting, write its key to turn it on and no-key to turn it off. Each setting is shown commented out, at its default. An option on vtium's command line overrides these lines, and a [look] or [head] section below overrides both.",
+            "A comment may leave out details that docs/config.md gives for each setting.",
         ],
     );
     for section in &SECTIONS {
@@ -404,10 +417,23 @@ const SECTIONS_TITLE: &str = "Looks, heads and rules";
 /// What the example's sections are.
 const SECTIONS_ABOUT: &str = "The sections after the settings. A look is a font and its size; a head is a screen with its own consoles; the rules send each display and each input device to a head. These are the sections vtium uses, as shipped, when vtium.conf has none.";
 
-/// The most bytes the generated example may hold, so at least 16 KiB of
-/// vtium.conf's [`FILE_MAX`] stay for a user's own heads, looks and rules
-/// (ADR-1403 D3).
+/// The most bytes the generated example may hold, so that at least 16 KiB of
+/// vtium.conf's [`FILE_MAX`] (64 KiB) stay for a user's own heads, looks and
+/// rules (ADR-1403 D3). A user starts from a copy of the example, and
+/// vtium reads no file larger than [`FILE_MAX`], so every byte the example
+/// holds is a byte its copy cannot give to the user's own sections. This
+/// number is `FILE_MAX` minus that reserve. Raising it takes the reserve from
+/// the user, unless `FILE_MAX` rises too, and `FILE_MAX` is a bound that
+/// vtium-settings, its fuzz targets and ADR-1403 D3 fix. When the example
+/// needs more room, shorten the comments in the key table first.
 pub(super) const EXAMPLE_MAX: usize = 49_152;
+
+/// The room the example keeps below [`EXAMPLE_MAX`] for the settings that
+/// are planned: about 1.5 KiB for libseat's seat settings (three or four keys
+/// at 350 bytes, as a key in the Displays section takes), and about 2 KiB
+/// for further key bindings and kitty keyboard settings (five keys at 400
+/// bytes). The estimate is 4 KiB with a margin of about half a key.
+const EXAMPLE_ROOM: usize = 4_096;
 
 #[cfg(test)]
 #[expect(
@@ -456,6 +482,67 @@ mod tests {
         const { assert!(EXAMPLE_MAX + 16 * 1024 <= FILE_MAX) };
     }
 
+    // a paragraph marked for the docs is in docs/config.md and not in the
+    // example, and every other paragraph is in both
+    #[test]
+    fn a_docs_only_paragraph_is_in_the_markdown_and_not_in_the_example() {
+        let flat = |text: &str| -> String {
+            text.lines()
+                .map(|l| l.trim_start_matches('#').trim())
+                .collect::<Vec<_>>()
+                .join(" ")
+        };
+        let example = flat(&example());
+        let markdown = markdown();
+        let mut left_out = 0;
+        for k in vtium_settings::keys::KEYS.iter() {
+            let shown: Vec<&str> = k.example_paragraphs().collect();
+            let first = k.paragraphs().next().unwrap_or_default();
+            let first = first.split_whitespace().collect::<Vec<_>>().join(" ");
+            if !example.contains(&first) {
+                // a key set on the command line alone is not in the example
+                continue;
+            }
+            for p in k.paragraphs() {
+                // the markdown holds each paragraph whole, on one line
+                assert!(
+                    markdown.contains(p),
+                    "{}: {p:?} is not in docs/config.md",
+                    k.name
+                );
+                let words = p.split_whitespace().collect::<Vec<_>>().join(" ");
+                if shown.contains(&p) {
+                    assert!(
+                        example.contains(&words),
+                        "{}: {p:?} is not in the example",
+                        k.name
+                    );
+                } else {
+                    left_out += 1;
+                    assert!(
+                        !example.contains(&words),
+                        "{}: {p:?} is in the example",
+                        k.name
+                    );
+                }
+            }
+        }
+        assert!(left_out > 0);
+    }
+
+    // the example keeps room for the settings planned next
+    #[test]
+    fn the_example_keeps_room_for_the_planned_settings() {
+        let example = example();
+        assert!(
+            example.len() + EXAMPLE_ROOM <= EXAMPLE_MAX,
+            "the example holds {} bytes, which leaves {} of the {EXAMPLE_ROOM} bytes of room \
+             below {EXAMPLE_MAX}; shorten the comments in the key table",
+            example.len(),
+            EXAMPLE_MAX.saturating_sub(example.len())
+        );
+    }
+
     // ADR-1403 D3: the example is a vtium.conf whose sections are the
     // compiled-in flow, read as vtium reads it, and whose keys, all
     // commented out, set nothing
@@ -480,6 +567,54 @@ mod tests {
         });
         assert_eq!(loaded.reports, []);
         assert_eq!(loaded.config, crate::config::Config::default());
+    }
+
+    // a vtium.conf copied from an earlier example has box-drawing heading
+    // rules. They are comments, so vtium reads the file as it reads the
+    // example, and the line editor keeps them as they are.
+    #[test]
+    fn a_file_with_box_drawing_heading_rules_reads_and_edits_as_before() {
+        let example = example();
+        let old: String = example
+            .lines()
+            .map(|l| {
+                let mut line = l.to_owned();
+                for (plain, flat, boxed) in [("# == ", '=', '═'), ("# -- ", '-', '─')] {
+                    if let Some(rest) = l.strip_prefix(plain) {
+                        line = rule(boxed, rest.trim_end_matches(flat).trim_end());
+                    }
+                }
+                line + "\n"
+            })
+            .collect();
+        assert_ne!(old, example);
+        assert!(old.contains("# ── Font ─") && old.contains("# ══ Fonts and text ═"));
+        let flow = vtium_settings::parse_sections(&old)
+            .expect("the sections read whole")
+            .expect("the file holds a flow");
+        let want = vtium_settings::parse_sections(&example)
+            .expect("the example's sections read whole")
+            .expect("the example holds a flow");
+        assert_eq!(flow.config, want.config);
+        let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
+            Ok(Some(old.clone().into_bytes()))
+        });
+        assert_eq!(loaded.reports, []);
+        assert_eq!(loaded.config, crate::config::Config::default());
+        let edit = |text: &str| {
+            vtium_settings::edit_conf(text, &[vtium_settings::Edit::Set("font-size", "14")])
+                .expect("the edit applies")
+        };
+        let edited = edit(&old);
+        assert!(edited.contains("font-size=14") || edited.contains("font-size = 14"));
+        assert_eq!(
+            edited.matches("# ── ").count(),
+            old.matches("# ── ").count()
+        );
+        assert_eq!(
+            edited.matches("# ══ ").count(),
+            old.matches("# ══ ").count()
+        );
     }
 
     // ADR-1401 D5: each scheme the example carries, its six lines with the
@@ -570,7 +705,7 @@ mod tests {
         let headings: Vec<usize> = lines
             .iter()
             .enumerate()
-            .filter(|(_, l)| l.starts_with("# ══ "))
+            .filter(|(_, l)| l.starts_with("# == "))
             .map(|(i, _)| i)
             .collect();
         let sections = shown();
@@ -578,13 +713,13 @@ mod tests {
         assert_eq!(headings.len(), sections.len() + 1);
         let last = headings.last().map_or("", |&at| lines[at]);
         assert!(
-            last.starts_with(&format!("# ══ {SECTIONS_TITLE} ═")),
+            last.starts_with(&format!("# == {SECTIONS_TITLE} =")),
             "{last}"
         );
         for (n, (title, groups)) in sections.iter().enumerate() {
             let at = headings[n];
             assert!(
-                lines[at].starts_with(&format!("# ══ {title} ═")),
+                lines[at].starts_with(&format!("# == {title} =")),
                 "{title}: {}",
                 lines[at]
             );
@@ -598,13 +733,13 @@ mod tests {
             assert!(about > 0, "{title} says nothing of what it covers");
             assert_eq!(lines[at + 2 + about], "", "{title}");
             assert!(
-                lines[at + 3 + about].starts_with("# ── "),
+                lines[at + 3 + about].starts_with("# -- "),
                 "{title}: a group follows"
             );
             let end = headings.get(n + 1).copied().unwrap_or(lines.len());
             let inside: Vec<&str> = lines[at..end]
                 .iter()
-                .filter(|l| l.starts_with("# ── "))
+                .filter(|l| l.starts_with("# -- "))
                 .copied()
                 .collect();
             let mut want: Vec<String> = groups.iter().map(|(g, _)| heading(g)).collect();
@@ -627,10 +762,10 @@ mod tests {
         for (title, keys) in shown().into_iter().flat_map(|(_, groups)| groups) {
             let at = lines
                 .iter()
-                .position(|l| l.starts_with(&format!("# ── {title} ─")))
+                .position(|l| l.starts_with(&format!("# -- {title} -")))
                 .unwrap_or_else(|| panic!("no heading for {title}"));
             assert_eq!(lines[at].chars().count(), 78, "{title}");
-            assert!(lines[at].ends_with("──"), "{title}");
+            assert!(lines[at].ends_with("--"), "{title}");
             assert_eq!(lines[at - 1], "", "a blank line above {title}");
             assert_eq!(lines[at + 1], "", "a blank line below {title}");
             let rest = &lines[at + 2..];
@@ -710,7 +845,7 @@ mod tests {
         let example = example();
         let osd: Vec<&str> = example
             .lines()
-            .skip_while(|l| !l.starts_with("# ── On-screen display ─"))
+            .skip_while(|l| !l.starts_with("# -- On-screen display -"))
             .skip(2)
             .take_while(|l| !l.is_empty())
             .collect();
@@ -737,7 +872,7 @@ mod tests {
         }
         // descriptions that fit a line each stand on adjacent lines
         let keyboard = example
-            .split("# ── Keyboard ─")
+            .split("# -- Keyboard -")
             .nth(1)
             .expect("a keyboard section");
         assert!(keyboard.contains(

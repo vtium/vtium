@@ -453,7 +453,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -464,6 +464,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B docs/scripts/test_fork_refs.py
 	python3 -I -B docs/scripts/test_coverage.py
 	python3 -I -B tools/arm/test_sysroot.py
+	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
 	$(TEST_BUILD_SETTINGS)
@@ -589,6 +590,19 @@ vt-install: $(vt_build) $(vt_dev_build) ## Install a development build as vtium-
 vt-uninstall: ## Undo make vt-install on VT N: vtium-dev off, its getty back, the files it wrote removed (VT=N, DRY_RUN=1)
 	@case "$$VTIUM_VT_DRY_RUN" in '') tools/vt/vt-install.sh uninstall "$$VTIUM_VT_NR" ;; 1) tools/vt/vt-install.sh uninstall --dry-run "$$VTIUM_VT_NR" ;; *) echo "DRY_RUN=$$VTIUM_VT_DRY_RUN: 1 or nothing" >&2; exit 1 ;; esac
 
+# Mesa keeps its shader cache in files that every GL program of the user
+# shares, in ~/.cache by default, and maps those files into memory. When
+# another program rewrites a file that a run has mapped, the run dies with
+# SIGBUS, as make tier2 did while other GL runs drew. Each target that
+# starts GL therefore keeps a cache of its own in the cargo target
+# directory, which only its own runs use; a gate of make gates has a target
+# directory of its own, so it has its own cache too. The cache stays between
+# runs, so a run compiles only the shaders the last one did not, and cargo
+# clean removes it. arm-test runs the sysroot's older Mesa, so its cache
+# stays apart from the host Mesa's as well.
+MESA_CACHES = $(abspath $(or $(CARGO_TARGET_DIR),target))/mesa-shader-cache
+tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/$@
+
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
 # with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
@@ -628,7 +642,7 @@ TUI_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tui-shots)
 .PHONY: tui-shots tui-demo
 tui-shots: ## Draw every TUI screen golden as a PNG through vtium's renderer in unifont, into OUT=DIR (default target/tui-shots)
 	rm -rf $(TUI_SHOTS)/bytes
-	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 a_draft_s_card_question_and_pager_at_80x25_and_100x30
+	VTIUM_CONFIG_SHOTS=$(abspath $(TUI_SHOTS))/bytes cargo test -p vtium-config --test tui -- each_view_at_80x25_and_100x30 the_flow_view_s_states_at_80x25_and_120x32
 	cargo build --release -p vtium-tui-review --bin tui-shots
 	$(or $(CARGO_TARGET_DIR),target)/release/tui-shots crates/vtium-config/tests/screens $(TUI_SHOTS)/bytes $(TUI_SHOTS)
 
@@ -794,3 +808,14 @@ GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 .PHONY: gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
+
+# The steering session runs this before it moves stage to a commit of
+# integration (AGENTS.md, "The working loop", step 7). It fetches main from
+# origin and fails unless COMMIT descends from it, which happens when a stage
+# pull request has merged into main and main has not been merged back into
+# integration since.
+COMMIT ?= HEAD
+
+.PHONY: stage-check
+stage-check: ## Fetch main from origin and fail unless COMMIT (default HEAD) descends from it, before stage moves to COMMIT
+	@tools/stage/check '$(COMMIT)'

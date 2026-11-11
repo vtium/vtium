@@ -5,22 +5,31 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
 
-/// The console binary this workspace builds. A workspace test run has
-/// built it for the console's own tests; a run of this crate alone builds
-/// it once, in a target directory of its own, since the running cargo
-/// holds the lock of the one it was started with.
+/// The target directory the tests build the console into, their own:
+/// `vtium-config-console` beside the profile directory this test binary
+/// runs from. The running cargo holds the lock of its own build directory,
+/// so the tests cannot build the console there.
+pub fn own_target() -> PathBuf {
+    let exe = std::env::current_exe().expect("the test knows its own path");
+    // The test binary is <target>/<profile>/deps/<name>.
+    exe.ancestors()
+        .nth(3)
+        .expect("the test runs from a cargo target directory")
+        .join("vtium-config-console")
+}
+
+/// The console binary, built from the current sources once per test
+/// binary. Every call builds it with cargo into [`own_target`], and cargo
+/// rebuilds whatever changed since the last build, so the tests never run
+/// a console built from older sources, such as a `target/debug/vtium` left
+/// from an earlier build (vtium/vtium#357). Cargo's lock on the directory
+/// makes test binaries that run at once build it one after another.
 pub fn vtium() -> PathBuf {
     static BUILT: OnceLock<PathBuf> = OnceLock::new();
     BUILT
         .get_or_init(|| {
             let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-            let target = std::env::var_os("CARGO_TARGET_DIR")
-                .map_or_else(|| root.join("target"), PathBuf::from);
-            let bin = target.join("debug/vtium");
-            if bin.is_file() {
-                return bin;
-            }
-            let own = target.join("vtium-config-console");
+            let own = own_target();
             let status = Command::new(env!("CARGO"))
                 .args([
                     "build",

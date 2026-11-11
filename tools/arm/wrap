@@ -54,6 +54,12 @@ case $name in
 *-run)
     [ -n "$qemu" ] || exec "$@"
     export QEMU_LD_PREFIX="$sysroot"
+    # qemu opens a path that also exists in the sysroot from the sysroot,
+    # so a test that reads the kernel's UAPI headers from /usr/include
+    # would read Debian 12's. qemu passes the tests' ioctls to the host's
+    # kernel, so the tests read the host's headers, through a path that
+    # does not exist in the sysroot.
+    export VTIUM_KERNEL_HEADERS="${VTIUM_KERNEL_HEADERS:-/proc/self/root/usr/include}"
     # The tests qemu-user cannot judge skip when this is set and qemu's
     # symptom shows, and say so; this names them on the test binary's run.
     export VTIUM_QEMU_USER="$qemu"
@@ -64,12 +70,84 @@ case $name in
         ids=$VTIUM_ARM_IDS
         unset VTIUM_ARM_IDS
         mount -t binfmt_misc binfmt_misc "$binfmt"
-        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):" > "$binfmt/register"
-        exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" $qemu "$@"
+        # With the O flag the kernel opens the target binary and hands qemu
+        # the descriptor. vtium starts its helpers through /proc/self/fd/N,
+        # from a descriptor it closes at the exec, so that path no longer
+        # names the binary once qemu runs. With the P flag the kernel keeps
+        # the argv[0] the caller passed, which vtium sets to the helper's
+        # path, and tells qemu so in the auxiliary vector (AT_FLAGS), so
+        # the target binary sees that argv[0] and not /proc/self/fd/N.
+        printf '%s' ":$qemu:M::$magic:$mask:$(command -v $qemu):OP" > "$binfmt/register"
+        # vtium reads a file only when root or the account it runs as owns
+        # each directory above it (ADR-1403 D3). The namespace maps no root,
+        # so root's files and directories belong to the overflow uid, 65534,
+        # there. The tests therefore run in a root of their own: a tmpfs
+        # that holds the host's entries, each bound in place. The
+        # directories on the way to two places are made anew on the tmpfs
+        # instead, so they belong to the invoking user:
+        # - top, the highest directory above the test binary that the
+        #   invoking user owns (root, uid 0, in this namespace), as the
+        #   tests need those directories to belong to root or to that user
+        #   on any host;
+        # - qemu's built-in prefix, where the sysroot is bound. vtium starts
+        #   its helpers with an empty environment, so they pass on no
+        #   QEMU_LD_PREFIX, and qemu finds the target's loader there.
+        top=$(dirname "$1")
+        while [ "$top" != / ] && [ "$(stat -c %u "$(dirname "$top")")" = 0 ]; do
+            top=$(dirname "$top")
+        done
+        prefix=$(env -u QEMU_LD_PREFIX $qemu -h | sed -n 's/^QEMU_LD_PREFIX *= *//p')
+        case $prefix in
+        /?*) ;;
+        *) echo "wrap: $qemu -h names no QEMU_LD_PREFIX default" >&2; exit 1 ;;
+        esac
+        new=$sysroot.root
+        mkdir -p "$new"
+        mount -t tmpfs -o mode=755 tmpfs "$new"
+        mkdir -p "$new$top"
+        mount --rbind "$top" "$new$top"
+        # graft DIR: DIR's entries on the tmpfs, each bound in place, but an
+        # entry on the way to top or to the prefix is a directory of the
+        # tmpfs, grafted in turn.
+        graft() {
+            for entry in "$1"/* "$1"/.[!.]*; do
+                if [ "$entry" = "$top" ] || { [ ! -e "$entry" ] && [ ! -L "$entry" ]; }; then
+                    continue
+                fi
+                case "$top/:$prefix/" in
+                "$entry"/*:* | *:"$entry"/*)
+                    mkdir -p "$new$entry"
+                    graft "$entry"
+                    continue
+                    ;;
+                esac
+                if [ -L "$entry" ]; then
+                    ln -s "$(readlink "$entry")" "$new$entry"
+                elif [ -d "$entry" ]; then
+                    # an automount point that refuses the bind stays empty
+                    mkdir "$new$entry"
+                    mount --rbind "$entry" "$new$entry" 2>/dev/null || :
+                else
+                    : > "$new$entry"
+                    mount --bind "$entry" "$new$entry" 2>/dev/null || :
+                fi
+            done
+        }
+        graft ""
+        mkdir -p "$new$prefix"
+        mount --rbind "$sysroot" "$new$prefix"
+        set -- --root="$new" --wd="$PWD" "$@"
+        exec unshare --user --map-user="${ids%:*}" --map-group="${ids#*:}" "$@"
     fi
     case ${1##*/} in
     vtium_platform-*) echo "wrap: under $qemu, display::card::tests::a_render_node_through_the_real_ioctls skips if its DRM ioctl answers ENOTTY" >&2 ;;
     check_config-*) echo "wrap: under $qemu, it_opens_nothing_but_the_configuration skips if strace traces qemu" >&2 ;;
+    vtium-*) echo "wrap: under $qemu, helper::tests::a_failed_start_names_proc_self_fd skips if a program no one may execute starts, and check::tests' assertions about root's own helper skip if root does not own /bin/sh" >&2 ;;
+    commands-* | preview-* | serve-* | specimen-* | helper-* | filter-*) echo "wrap: under $qemu, the tests that start a real font or image helper, or install its filter, skip if seccomp answers ENOSYS" >&2 ;;
+    cli-*) echo "wrap: under $qemu, the_parser_runs_without_new_privileges_and_within_its_limits skips its address-space check if the parser shows no limit there" >&2 ;;
+    image_helper-*) echo "wrap: under $qemu, the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else skips its memory-cap check if the child shows no address-space limit there, and every_helper_starts_from_the_program_opened_at_start reads the child's /proc/self/exe link instead of its inode if a stat of it names qemu" >&2 ;;
+    file-*) echo "wrap: under $qemu, a_vtium_that_runs_as_a_user_reads_that_user_s_file_too skips its check of root's file if root does not own /etc/passwd" >&2 ;;
+    vtium_config-*) echo "wrap: under $qemu, serve::tests::the_helpers_socket_filter_refuses_every_new_socket skips if seccomp answers ENOSYS, and serve::tests::the_helpers_socket_filter_refuses_io_uring skips if python3 is the host's" >&2 ;;
     esac
     if [ ! -e "$binfmt/$qemu" ]; then
         # The probe mounts a binfmt_misc too: before Linux 6.7 a user

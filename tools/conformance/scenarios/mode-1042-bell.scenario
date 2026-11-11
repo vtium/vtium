@@ -1,0 +1,16 @@
+# The bell: each BEL reaches the host while mode 1042 is set, as it is at
+# start, a BEL that ends an OSC string rings no bell, and with mode 1042
+# reset no BEL reaches the host (ctlseqs, bellIsUrgent; INTERFACE-vtium.md,
+# The bell).
+# spec: ADR-1000 DEC-1042, ctl.bel
+# capability: mode-1042-bell
+size 8 1
+send "\a\e]0;title\a\a"
+check
+want bell 2
+send "\e[?1042l\a"
+check
+reject-re bell [0-9]+
+send "\e[?1042h\a"
+check
+want bell 1

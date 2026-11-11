@@ -1,0 +1,24 @@
+# A press and a drag select from the cell where the press was to the cell
+# under the pointer, forward or back, on one row or across rows. A drag
+# past the end of a row's text copies the text and no line end, and a drag
+# with no press selects nothing.
+# spec: ADR-1003, the selection; INTERFACE-vtium.md, The selection and copy
+# covers: clipboard.selection
+size 10 3
+send "alpha beta\r\ngamma\r\ndelta"
+select clear
+select to at 3,0
+copy
+select start at 1,0
+select to at 3,0
+copy
+select to at 0,0
+copy
+select to at 2,2
+copy
+select start at 3,1
+select to at 8,1
+copy
+dump frame
+select clear
+copy

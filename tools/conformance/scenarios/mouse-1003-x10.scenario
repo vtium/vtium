@@ -1,0 +1,9 @@
+# any-event tracking in the X10 encoding: motion with no button is 32 + 35
+# spec: ADR-1000 DEC-1003
+# capability: mouse-1003-x10
+size 80 4
+send "\e[?1003h"
+check
+mouse move at 2,3 px=20,30
+check
+reply "\e[MC#$"

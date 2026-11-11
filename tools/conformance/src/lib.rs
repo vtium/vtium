@@ -1,14 +1,14 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the replay interface, interface 1.4:
+//! `vtium-replay` meets the replay interface, interface 1.5:
 //! `corpus/INTERFACE.md` with vtium's additions in `INTERFACE-vtium.md`,
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
 //! `conformance` replays every case of the corpus and judges each against
 //! its golden, plays every behaviour scenario and judges each against its
-//! transcript, and judges the capability probes against
-//! `capabilities.list`. The crate's README describes each.
+//! transcript, and judges `capabilities.list` through the capability
+//! scenarios. The crate's README describes each.
 
 pub mod command;
 pub mod coverage;
@@ -82,8 +82,9 @@ pub fn describe() -> String {
             "attrs-renditions",
         ])
         .chain(animation)
-        .chain(if BIDI { &["bidi"][..] } else { &[] });
-    let mut out = String::from("interface 1.4\nview screen\nview frame\n");
+        .chain(if BIDI { &["bidi"][..] } else { &[] })
+        .chain(&["selection", "marks", "backspace", "state", "bell"]);
+    let mut out = String::from("interface 1.5\nview screen\nview frame\n");
     if BIDI {
         out.push_str("view display\n");
     }

@@ -100,6 +100,7 @@ impl Fixture {
                 new: new.to_owned(),
             }],
             removals: Vec::new(),
+            no_route: false,
         }
     }
 }
@@ -117,6 +118,42 @@ fn example(fonts: &Path) -> String {
         )],
     )
     .expect("the edit")
+}
+
+/// The console the tests check with is the one cargo builds from the
+/// current sources, never a binary an earlier build left in the profile
+/// directory (vtium/vtium#357). Cargo is the judge: asked to build the
+/// console again into the tests' own directory, it reports the binary at
+/// the path the tests run, and fresh, so there is nothing newer to build.
+#[test]
+fn the_console_the_tests_run_is_built_from_the_current_sources() {
+    let run = vtium();
+    let out = std::process::Command::new(env!("CARGO"))
+        .args([
+            "build",
+            "-q",
+            "-p",
+            "vtium",
+            "--bin",
+            "vtium",
+            "--message-format=json",
+            "--target-dir",
+        ])
+        .arg(console::own_target())
+        .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
+        .output()
+        .expect("cargo runs");
+    assert!(out.status.success(), "the console builds");
+    let json = String::from_utf8(out.stdout).expect("cargo's messages are UTF-8");
+    let path = run.to_str().expect("a UTF-8 target directory");
+    let artifact = json
+        .lines()
+        .find(|l| l.contains(&format!("\"executable\":\"{path}\"")))
+        .unwrap_or_else(|| panic!("cargo builds no console at {path}: {json}"));
+    assert!(
+        artifact.contains("\"fresh\":true"),
+        "cargo had to rebuild the console the tests ran: {artifact}"
+    );
 }
 
 #[test]
@@ -188,6 +225,7 @@ fn a_file_that_fails_its_check_stops_the_apply_before_anything_is_written() {
             },
         ],
         removals: Vec::new(),
+        no_route: false,
     };
     let draft = f.draft(&plan);
     let (status, out, err) = f.apply(&draft);
@@ -277,6 +315,7 @@ fn a_draft_with_a_frit_and_no_frits_directory_is_refused() {
             new: "source=builtin:unifont\n".to_owned(),
         }],
         removals: Vec::new(),
+        no_route: false,
     };
     let draft = f.draft(&plan);
     let mut bare = f.targets.clone();
@@ -410,6 +449,7 @@ fn a_frit_a_font_name_of_vtium_conf_names_is_not_removed() {
             path: fonts.join(format!("{name}.vtfrit")),
             old: std::fs::read(fonts.join(format!("{name}.vtfrit"))).expect("the frit"),
         }],
+        no_route: false,
     };
     for (name, says) in [
         ("tiny", "font-name in vtium.conf uses it"),
@@ -637,6 +677,7 @@ fn a_frit_the_reader_refuses_quotes_nothing_it_holds() {
             new: "source=builtin:unscii-8\nSECRET-TOKEN-4242=1\n".into(),
         }],
         removals: Vec::new(),
+        no_route: false,
     });
     let (status, out, err) = f.apply(&draft);
     assert_eq!(status, 1, "{out}{err}");

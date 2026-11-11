@@ -20,10 +20,9 @@
     reason = "a test fails by panicking"
 )]
 
-// The helper that writes the stand-in programs, kept with vtium-config's
-// tests and shared by every crate whose tests run a program they made.
-#[path = "../../vtium-config/tests/common/script.rs"]
-mod script;
+// The helper that writes the stand-in programs, shared by every crate
+// whose tests run a program they made.
+use vtium_testscript as script;
 
 use std::io::{IoSlice, IoSliceMut};
 use std::mem::MaybeUninit;
@@ -311,6 +310,12 @@ fn report(dir: &Path) {
         format!("nofile-hard {}", hard("Max open files")),
         format!("argv0 {}", std::env::args().next().unwrap_or_default()),
         format!("exe {exe}"),
+        format!(
+            "exelink {}",
+            std::fs::read_link("/proc/self/exe")
+                .unwrap_or_default()
+                .display()
+        ),
     ];
     std::fs::write(dir.join("report"), lines.join("\n")).unwrap();
 }
@@ -481,11 +486,20 @@ fn the_child_starts_alone_as_the_account_with_its_cap_and_nothing_else() {
     assert_eq!(line("cwd"), "/");
     assert_eq!(line("env"), "0", "an empty environment");
     assert_eq!(line("fds"), "[0, 1, 2, 3]", "stdio and its socket only");
-    assert_eq!(
-        line("as"),
-        memory_cap(1 << 20).to_string(),
-        "its memory cap"
-    );
+    // qemu-user keeps RLIMIT_AS to itself, because the limit would bind
+    // qemu's own mappings, so under qemu the helper shows no limit. The
+    // check still runs on x86 and on real ARM (tools/arm/README.md).
+    match std::env::var_os("VTIUM_QEMU_USER") {
+        Some(qemu) if line("as") == "unlimited" => eprintln!(
+            "skipped: {} does not pass RLIMIT_AS on to the kernel",
+            qemu.to_string_lossy()
+        ),
+        _ => assert_eq!(
+            line("as"),
+            memory_cap(1 << 20).to_string(),
+            "its memory cap"
+        ),
+    }
     assert_eq!(line("core"), "0");
     assert_eq!(
         line("fsize"),
@@ -512,10 +526,26 @@ fn every_helper_starts_from_the_program_opened_at_start() {
     std::fs::rename(&new, &path).unwrap();
     ask(&mut host, &file());
     let report = std::fs::read_to_string(dir.join("report")).unwrap();
-    assert!(
-        report.contains(&format!("exe {old}")),
-        "the old program ran: {report}"
-    );
+    // qemu-user answers a readlink of /proc/self/exe with the program it
+    // runs, but a stat of /proc/self/exe reaches the kernel, which names
+    // qemu, so under qemu the child's inode is qemu's, as this process's
+    // is. There the link shows which program ran: the opened one, which
+    // the upgrade has unlinked, reads as deleted (tools/arm/README.md).
+    let qemu = std::fs::metadata("/proc/self/exe")
+        .map(|m| std::os::unix::fs::MetadataExt::ino(&m).to_string())
+        .unwrap_or_default();
+    match std::env::var_os("VTIUM_QEMU_USER") {
+        Some(_) if report.lines().any(|l| l == format!("exe {qemu}")) => assert!(
+            report
+                .lines()
+                .any(|l| l == format!("exelink {} (deleted)", path.display())),
+            "the old program ran: {report}"
+        ),
+        _ => assert!(
+            report.lines().any(|l| l == format!("exe {old}")),
+            "the old program ran: {report}"
+        ),
+    }
     println!("test every_helper_starts_from_the_program_opened_at_start ... ok");
 }
 

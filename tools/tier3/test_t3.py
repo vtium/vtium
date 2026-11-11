@@ -103,7 +103,7 @@ class ScreenTextTest(unittest.TestCase):
         textless = ("wide-margin", "s1-scroll", "sixel", "sixel-ramps", "sixel-article",
                     "sixel-bound", "sixel-evict", "photos", "photo-scroll", "mpv-sixel",
                     "tmux-2x2", "tmux-3x3", "kitty", "kitty-photo", "kitty-files", "kitty-layers",
-                    "flood", "sync-hold")
+                    "flood", "sync-hold", "sync-clock")
         with contextlib.redirect_stderr(io.StringIO()):
             for name in textless:
                 self.assertIsNone(t3_evaluate.screen_text(name, LOG))
@@ -722,7 +722,7 @@ class ImplementationTest(unittest.TestCase):
                     with open(path) as f:
                         self.assertEqual(f.read(), binary)
                 with open(os.path.join(disc, "vtium.conf")) as f:
-                    self.assertIn("grab-reboot=", f.read())
+                    self.assertIn("key-reboot=", f.read())
         with open(os.path.join(t3_common.GUEST, "setup")) as f:
             text = f.read()
         self.assertIn('sysctl -q -p "$disc"/sysctl.conf', text)
@@ -1152,8 +1152,10 @@ class VtiumGoldenTest(unittest.TestCase):
         # four notice goldens recaptured with the reworded notices on
         # 2026-11-06, and the ten screens of each default 2D variant
         # re-baselined on vtium's captures with the font set tier3-text
-        # (vtium/vtium#275) on 2026-11-06, so the list in the tree is empty; a
-        # golden it names later must be one a case draws.
+        # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
+        # minimal variants recaptured with ADR-1302 D4's italic bands of
+        # 2026-11-07 (vtium/vtium#273) on 2026-11-08, so the list in the tree
+        # is empty; a golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
         self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
@@ -1704,9 +1706,9 @@ class VariantTest(unittest.TestCase):
             shutil.rmtree(kept, ignore_errors=True)
 
 
-# The console after grab-reboot on the guest without systemd, as sysvinit
+# The console after key-reboot on the guest without systemd, as sysvinit
 # and its scripts left it.
-REBOOT_SYSVINIT = ["[ 9.1] vtium[404]: grab-reboot: asking init to reboot",
+REBOOT_SYSVINIT = ["[ 9.1] vtium[404]: key-reboot: asking init to reboot",
                    "INIT: Switching to runlevel: 6",
                    "Will now restart.",
                    "[ 12.0] reboot: Restarting system"]
@@ -1720,36 +1722,36 @@ class PowerTest(unittest.TestCase):
     # A console log as each action leaves it, systemd's status lines
     # colored as on the guest's serial console.
     OK = "[\x1b[0;32m  OK  \x1b[0m] "
-    POWER_OFF = ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
+    POWER_OFF = ["[ 9.1] vtium[404]: key-power-off: asking init to power off",
                  OK + "Reached target Unmount All Filesystems.",
                  OK + "Reached target System Power Off.",
                  "[ 12.0] reboot: Power down"]
     LOGS = {
-        "reboot": ["[ 9.1] vtium[404]: grab-reboot: asking init to reboot",
+        "reboot": ["[ 9.1] vtium[404]: key-reboot: asking init to reboot",
                    OK + "Stopped target Graphical Interface.",
                    OK + "Reached target Unmount All Filesystems.",
                    OK + "Reached target System Reboot.",
                    "[ 12.0] reboot: Restarting system"],
-        "reboot-hard": ["[ 9.1] vtium[404]: grab-reboot: restarting the kernel at once",
+        "reboot-hard": ["[ 9.1] vtium[404]: key-reboot: restarting the kernel at once",
                         "[ 9.2] reboot: Restarting system"],
         "power-off": POWER_OFF,
         "power-off-after-s3": POWER_OFF,
-        "suspend": ["[ 9.1] vtium[404]: grab-suspend: suspending",
+        "suspend": ["[ 9.1] vtium[404]: key-suspend: suspending",
                     OK + "Reached target Sleep.",
-                    "[ 9.1] vtium[404]: grab-suspend: logind took the request",
+                    "[ 9.1] vtium[404]: key-suspend: logind took the request",
                     "         Starting System Suspend...",
                     OK + "Finished System Suspend."],
-        "suspend-sysfs": ["[ 9.1] vtium[404]: grab-suspend: suspending",
-                          "[ 9.1] vtium[404]: grab-suspend: writing mem to /sys/power/state"],
+        "suspend-sysfs": ["[ 9.1] vtium[404]: key-suspend: suspending",
+                          "[ 9.1] vtium[404]: key-suspend: writing mem to /sys/power/state"],
         "reboot-sysvinit": REBOOT_SYSVINIT,
-        "power-off-sysvinit": ["[ 9.1] vtium[404]: grab-power-off: asking init to power off",
+        "power-off-sysvinit": ["[ 9.1] vtium[404]: key-power-off: asking init to power off",
                                "INIT: Switching to runlevel: 0",
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
     }
     # vtium's warning at its start where PID 1 neither catches nor blocks
     # SIGRTMIN+4.
-    WARNING = ("[ 3.2] vtium[404]: config: the grab-power-off key will not work: the init "
+    WARNING = ("[ 3.2] vtium[404]: config: the key-power-off key will not work: the init "
                "system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt "
                "and SigBlk in /proc/1/status). Unbind the key, or use an init system that "
                "powers off on that signal, such as systemd or sysvinit.")
@@ -1819,13 +1821,13 @@ class PowerTest(unittest.TestCase):
     def test_chords_match_the_configuration(self):
         # Each qcode chord the driver presses is the chord vtium-power.conf
         # binds for its key.
-        keys = {"reboot": "grab-reboot", "reboot-hard": "grab-reboot",
-                "power-off": "grab-power-off", "power-off-after-s3": "grab-power-off",
-                "suspend": "grab-suspend", "suspend-sysfs": "grab-suspend",
-                "reboot-sysvinit": "grab-reboot",
-                "power-off-sysvinit": "grab-power-off"}
+        keys = {"reboot": "key-reboot", "reboot-hard": "key-reboot",
+                "power-off": "key-power-off", "power-off-after-s3": "key-power-off",
+                "suspend": "key-suspend", "suspend-sysfs": "key-suspend",
+                "reboot-sysvinit": "key-reboot",
+                "power-off-sysvinit": "key-power-off"}
         with open(os.path.join(t3_common.GUEST, "vtium-power.conf")) as f:
-            conf = dict(line.strip().split("=", 1) for line in f if line.startswith("grab-"))
+            conf = dict(line.strip().split("=", 1) for line in f if line.startswith("key-"))
         for case, chord in t3_power.CHORDS.items():
             with self.subTest(case):
                 mods = re.findall(r"<(\w+)>", conf[keys[case]])
@@ -1900,7 +1902,7 @@ class PowerTest(unittest.TestCase):
                             ("reboot", "[ 12.1] reboot: Power down"),
                             ("power-off", "[ 12.1] reboot: Restarting system"),
                             ("suspend", "[ 12.1] reboot: Restarting system"),
-                            ("suspend", "[ 9.1] grab-suspend: writing mem to /sys/power/state"),
+                            ("suspend", "[ 9.1] key-suspend: writing mem to /sys/power/state"),
                             ("suspend-sysfs", PowerTest.OK + "Reached target Sleep.")):
             with self.subTest(case):
                 why = self.judge(case, self.log(case, extra=[extra]))
@@ -1927,7 +1929,7 @@ class PowerTest(unittest.TestCase):
         why, note = t3_power.verdict(case, self.log(case), 0, "guest-shutdown")
         self.assertIn("no longer fails as KNOWN says", why)
         # Failing another way: vtium's line missing.
-        serial = self.log(case, drop="grab-power-off", extra=self.PANIC)
+        serial = self.log(case, drop="key-power-off", extra=self.PANIC)
         why, note = t3_power.verdict(case, serial, 0, "none: still running")
         self.assertIn("not as KNOWN says", why)
         # Only a KNOWN case passes so.

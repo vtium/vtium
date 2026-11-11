@@ -1,0 +1,9 @@
+# mintty: SGR 73 superscript, 74 subscript, 75 neither
+# spec: ADR-1000 sgr.script
+# capability: sgr-super-subscript
+size 80 4
+send "\e[73mA\e[74mB\e[75mC"
+check
+want attr 0 0-0 superscript
+want attr 0 1-1 subscript
+reject-re attr 0 2-.*

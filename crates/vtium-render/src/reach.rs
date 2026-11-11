@@ -91,6 +91,12 @@ impl Reach {
         self.0
     }
 
+    /// The reach whose counts `byte` holds, as [`Reach::byte`] gives them.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn from_byte(byte: u8) -> Reach {
+        Reach(byte)
+    }
+
     /// Whether the ink stays in its own cells.
     pub(crate) fn is_none(self) -> bool {
         self.0 == 0

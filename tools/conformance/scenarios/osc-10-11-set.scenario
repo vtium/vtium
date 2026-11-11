@@ -1,0 +1,11 @@
+# spec: ADR-1000 color.dynamic.set
+# capability: osc-10-11-set
+size 80 4
+send "\e]10;rgb:12/34/56\e\\\e]11;rgb:65/43/21\e\\"
+check
+send "\e]10;?\e\\"
+check
+reply "\e]10;rgb:1212/3434/5656\e\\"
+send "\e]11;?\e\\"
+check
+reply "\e]11;rgb:6565/4343/2121\e\\"

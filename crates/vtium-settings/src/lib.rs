@@ -38,6 +38,8 @@
 //! places one device by the first rule that matches it, reading nothing
 //! but the device's [`Identity`] and the rules, and [`Config::place`]
 //! places a set of devices and runs the guards over the result.
+//! [`Config::walk_on`] and [`Config::place_on`] do the same for the vtium
+//! on one VT, where a head runs only on the VTs its `vt` names.
 //! [`Config::builtin`] is the compiled-in configuration, the parse of
 //! [`TEMPLATE`]. [`resolve`] decides what runs for each state the file can
 //! be in: missing, untrusted, valid, partly broken or broken, and
@@ -76,10 +78,13 @@ mod write;
 
 pub use bounds::{
     CONSOLES_MAX, CONSOLES_TOTAL_DEFAULT, ERRORS_MAX, FILE_MAX, HEAD_CONSOLES_DEFAULT, HEADS_MAX,
-    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX,
+    LINE_MAX, LOOKS_MAX, NAME_MAX, QUOTE_MAX, RULES_MAX, TOKENS_MAX, VT_MAX,
 };
 pub use conf::{ConfEdit, Edit, KeyLine, edit_conf, key_line, setting, switch};
-pub use config::{Config, Head, Look, Rule, Setting, TEMPLATE, Target, WhenDisplayLost, value_for};
+pub use config::{
+    Config, Head, LABEL_MAX, Label, Look, Rule, Setting, TEMPLATE, Target, WhenDisplayLost,
+    value_for,
+};
 pub use error::{
     At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Refusal, Rejected,
     Remark, Renamed, Shown, Stating, Syntax, Warning, at,
@@ -92,7 +97,7 @@ pub use outcome::{
     DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
     Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
 };
-pub use parse::{Parsed, Reading, parse, parse_sections, reading, sections};
+pub use parse::{Parsed, Reading, escape_label, parse, parse_sections, reading, sections};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
 pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};

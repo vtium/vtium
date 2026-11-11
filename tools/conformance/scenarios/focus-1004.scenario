@@ -1,0 +1,21 @@
+# focus events, mode 1004: CSI I and CSI O for focus in and out while the
+# mode is set, and nothing before it is set or after it is reset
+# spec: ADR-1000 DEC-1004
+# capability: focus-1004
+size 80 4
+focus in
+focus out
+send "\e[?1004h"
+check
+reply ""
+focus in
+check
+reply "\e[I"
+focus out
+check
+reply "\e[O"
+send "\e[?1004l"
+focus in
+focus out
+check
+reply ""

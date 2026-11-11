@@ -1,0 +1,22 @@
+# The host moves the view through the scrollback: up and down by lines, up
+# past the oldest line, which stops there, down past the screen, and back
+# to the bottom; the state shows how far back the view is, and new output
+# leaves the view where it is.
+# spec: ADR-1000 DEC-1010; INTERFACE-vtium.md, The state
+size 6 2
+scrollback 4
+send "1\r\n2\r\n3\r\n4\r\n5\r\n6\r\n7"
+dump state
+scroll up 2
+dump screen state
+scroll up 9
+dump screen state
+scroll down 1
+dump screen state
+send "\r\n8"
+dump screen state
+scroll down 9
+dump screen state
+scroll up 1
+scroll bottom
+dump state

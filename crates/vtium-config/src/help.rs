@@ -26,7 +26,6 @@ struct Topic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
     Flow,
-    Route,
     Diff,
     Install,
     Get,
@@ -55,9 +54,8 @@ pub enum Command {
 
 impl Command {
     /// Every command, in the order the usage lists them.
-    pub const ALL: [Command; 26] = [
+    pub const ALL: [Command; 25] = [
         Command::Flow,
-        Command::Route,
         Command::Diff,
         Command::Install,
         Command::Get,
@@ -88,7 +86,6 @@ impl Command {
     pub const fn name(self) -> &'static str {
         match self {
             Command::Flow => "flow",
-            Command::Route => "route",
             Command::Diff => "diff",
             Command::Install => "install",
             Command::Get => "get",
@@ -122,7 +119,6 @@ impl Command {
         matches!(
             self,
             Command::Flow
-                | Command::Route
                 | Command::Diff
                 | Command::Install
                 | Command::Get
@@ -165,15 +161,6 @@ const TOPICS: &[Topic] = &[
         example: "vtium-config flow --json",
     },
     Topic {
-        command: Command::Route,
-        forms: &[form(
-            "route ITEM [--json]",
-            "show every route through an item",
-        )],
-        detail: "Shows each route from a display to a keyboard that passes through ITEM, with ITEM marked, or why no route does. ITEM is display NAME, rule N, head NAME, look NAME or input NAME. With --json it prints one JSON object whose version field is 1.",
-        example: "vtium-config route rule 5",
-    },
-    Topic {
         command: Command::Diff,
         forms: &[form(
             "diff",
@@ -185,10 +172,10 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Install,
         forms: &[form(
-            "install",
+            "install [--force]",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. vtium-config keeps the file it replaces, so restore can bring it back.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back.",
         example: "vtium-config install",
     },
     Topic {

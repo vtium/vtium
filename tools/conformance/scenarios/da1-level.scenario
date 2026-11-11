@@ -1,0 +1,8 @@
+# DA1's first parameter is the conformance level: 61 (VT100) to 65 (VT510)
+# spec: ADR-1000 query.da1
+# capability: da1-level
+size 80 4
+send "\e[c"
+check
+reply-re "\e\\[\\?6[1-5](;.*)?c"
+example "\e[?62;1;4c"

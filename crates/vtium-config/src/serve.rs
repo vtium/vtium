@@ -2318,12 +2318,7 @@ pub fn command(paths: &Paths) -> u8 {
 }
 
 #[cfg(test)]
-#[path = "../tests/common/ttf.rs"]
-#[expect(
-    clippy::indexing_slicing,
-    reason = "the tests' font builder, shared with the integration tests"
-)]
-mod ttf;
+use vtium_testfont::ttf;
 
 #[cfg(test)]
 #[expect(
@@ -4103,9 +4098,23 @@ mod tests {
     fn the_helpers_socket_filter_refuses_every_new_socket() {
         use std::os::unix::net::{UnixDatagram, UnixStream};
         let dir = Scratch::new("sockets");
+        // qemu-user implements no seccomp, since a filter would bind qemu
+        // itself, so there the test cannot judge the filter, and it skips
+        // and says so
+        let enosys = std::io::Error::from_raw_os_error(libc::ENOSYS).to_string();
+        let qemu = std::env::var_os("VTIUM_QEMU_USER");
         let made = std::thread::spawn(move || {
-            if !refuse_sockets().unwrap() {
-                return None;
+            match refuse_sockets() {
+                Ok(true) => {}
+                Ok(false) => return None,
+                Err(e) => {
+                    assert!(qemu.is_some() && e.contains(&enosys), "{e}");
+                    eprintln!(
+                        "skipped: {} implements no seccomp: {e}",
+                        qemu.unwrap_or_default().display()
+                    );
+                    return None;
+                }
             }
             let read = std::fs::read("/proc/self/status").is_ok();
             let written = std::fs::write(dir.join("allowed"), b"x").is_ok();
@@ -4120,7 +4129,7 @@ mod tests {
         .join()
         .unwrap();
         let Some((others, udp, tcp, unix, pair)) = made else {
-            eprintln!("skipped: seccompiler builds no filter for this architecture");
+            eprintln!("skipped: no socket filter on this architecture or under qemu-user");
             return;
         };
         assert!(others, "a call other than socket refused");
@@ -4197,6 +4206,23 @@ mod tests {
             eprintln!("skipped: no python3 to make the io_uring calls with");
             return;
         };
+        // Under qemu-user, as make arm-test runs the tests, python3 is the
+        // host's, of another architecture than the filter, which then
+        // matches none of its calls.
+        let machine = std::process::Command::new("python3")
+            .args(["-I", "-c", "import platform; print(platform.machine())"])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .map(|m| m.trim().to_owned())
+            .unwrap_or_default();
+        if machine != std::env::consts::ARCH {
+            eprintln!(
+                "skipped: python3 runs on {machine}, and the filter is for {}",
+                std::env::consts::ARCH
+            );
+            return;
+        }
         if outside.contains(&libc::EPERM) || outside.contains(&libc::ENOSYS) {
             eprintln!("skipped: this kernel refuses io_uring already: {outside:?}");
             return;

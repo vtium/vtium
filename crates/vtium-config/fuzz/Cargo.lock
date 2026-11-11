@@ -625,9 +625,9 @@ name = "vtium-config-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "miniz_oxide",
  "vtium-config",
  "vtium-font",
+ "vtium-testfont",
 ]
 
 [[package]]
@@ -676,6 +676,14 @@ name = "vtium-term"
 version = "0.1.0-alpha.6"
 dependencies = [
  "vtium-parse",
+]
+
+[[package]]
+name = "vtium-testfont"
+version = "0.1.0-alpha.6"
+dependencies = [
+ "miniz_oxide",
+ "vtium-font",
 ]
 
 [[package]]

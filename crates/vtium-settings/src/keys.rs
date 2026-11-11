@@ -182,9 +182,10 @@ pub enum Kind {
     /// words; on the command line, `--login -- ARGS...`, the words after
     /// `--`.
     Command,
-    /// Keys a grab takes: chords such as `<Ctrl><Alt>Delete`, separated by
-    /// commas, as the console's grab parser reads them. Empty, it takes none.
-    Grab,
+    /// A key binding: key combinations such as `<Ctrl><Alt>Delete`,
+    /// separated by commas, as the console's key binding parser reads them.
+    /// Empty, it binds none.
+    KeyBinding,
     /// One character, no control character or space.
     Char,
     /// A size in pixels, `WxH`, each side from 1 to `max`.
@@ -310,6 +311,14 @@ pub struct Key {
     pub cite: &'static str,
 }
 
+/// The mark that opens a paragraph of [`Key::what`] meant for docs/config.md
+/// alone. The example vtium.conf leaves such a paragraph out, to keep its
+/// size. The key's author marks a paragraph that only elaborates, gives an
+/// example, or tells background. A paragraph that says when a change takes
+/// effect, what vtium requires or refuses, or what a value means stays
+/// unmarked, so that a person editing the line in a terminal sees it.
+pub const DOCS_ONLY: &str = "[docs] ";
+
 impl Key {
     /// The default the source tree gives this key, before a build setting
     /// changes it (ADR-1500 D8): `hwaccel` off and `display-buffers`
@@ -326,9 +335,20 @@ impl Key {
         }
     }
 
-    /// The paragraphs of [`Key::what`].
+    /// The paragraphs of [`Key::what`], each without its [`DOCS_ONLY`] mark.
     pub fn paragraphs(&self) -> impl Iterator<Item = &'static str> {
-        self.what.split("\n\n")
+        self.what
+            .split("\n\n")
+            .map(|p| p.strip_prefix(DOCS_ONLY).unwrap_or(p))
+    }
+
+    /// The paragraphs of [`Key::what`] that the example vtium.conf shows:
+    /// all but those marked [`DOCS_ONLY`], which only docs/config.md shows.
+    /// The first paragraph is never marked.
+    pub fn example_paragraphs(&self) -> impl Iterator<Item = &'static str> {
+        self.what
+            .split("\n\n")
+            .filter(|p| !p.starts_with(DOCS_ONLY))
     }
 
     /// [`Key::what`] on one line, its paragraphs joined by a space, for a
@@ -499,7 +519,7 @@ pub const FOCUS_MARK: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The old name for `osd` and `osd-timeout`.\n\n\
-           vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`, and `off` means `osd = off`. When it is set, vtium logs a line that names the new keys.",
+           vtium reads it only when `osd` and `osd-timeout` are not set: `auto` means `osd = minimal`, `always` means `osd = minimal` with `osd-timeout = never`, and `off` means `osd = off`. When it is set, vtium logs the new keys.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -727,8 +747,9 @@ pub const SB_MEMORY: Key = Key {
     reader: "vtium-term",
     what: "The most memory each console's scrollback uses. When it is full, the oldest lines are dropped, as they are past `sb-size`.\n\n\
            The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `6M`), up to a quarter of the machine's memory (or up to the default when `/proc/meminfo` cannot be read).\n\n\
-           When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes. A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
-           The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
+           When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes.\n\n\
+           [docs] A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
+           [docs] The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
     cite: "[the scrollback memory issue](https://github.com/vtium/vtium/issues/131)",
 };
 
@@ -826,7 +847,8 @@ pub const PROGRAM_BLANK: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let a program set the blanking timeout and wake the displays, as `setterm --blank` does on the Linux console.\n\n\
-           A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences. A key press or mouse action wakes the displays either way.",
+           A program sets the timeout with `CSI 9 ; n ]` (n minutes, up to 60; 0 never blanks) and wakes the displays with `CSI 13 ]`. A terminal reset (RIS) returns the timeout to `dpms-timeout`. When off, vtium ignores these sequences.\n\n\
+           A key press or mouse action wakes the displays either way.",
     cite: "[the screen blanking issue](https://github.com/vtium/vtium/issues/79)",
 };
 
@@ -845,8 +867,10 @@ pub const DISPLAY_WAIT: Key = Key {
     reader: "vtium",
     what: "How long vtium waits for a display when it starts, counted from when its VT is shown.\n\n\
            If no display appears in that time, vtium exits with status 1, so the unit's `OnFailure=` can start a getty. When vtium.conf's policy is closed, vtium waits as long as it takes, as with `forever`.\n\n\
-           vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, as X does at boot when it starts on another VT, vtium waits for the VT to come back and then starts the full wait again.\n\n\
-           With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes, for a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
+           vtium counts only while the VT is its own. If another program takes the VT before vtium's first frame is on screen, vtium waits for the VT to come back and then starts the full wait again.\n\n\
+           [docs] X does this at boot when it starts on another VT.\n\n\
+           With 0, vtium does not wait: only a display that is ready when the VT is shown counts. `forever` waits as long as it takes.\n\n\
+           [docs] `forever` suits a machine whose only display is a USB adapter (DisplayLink, `udl`) that may be plugged in at any time.\n\n\
            Once a display has appeared, vtium never exits for lack of one.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21); [the issue about X starting during vtium's first frame](https://github.com/vtium/vtium/issues/270)",
 };
@@ -860,8 +884,9 @@ pub const DISPLAY_BUFFERS: Key = Key {
     levels: TOP,
     reader: "vtium-platform",
     what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
-           `3` is triple buffering: no frame waits for the previous one to reach the screen, at the cost of one more frame of memory per display (8 MB at 1080p). `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
-           A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that. `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
+           `3` is triple buffering: no frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
+           A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
+           [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
     cite: "[the displays issue](https://github.com/vtium/vtium/issues/18)",
 };
 
@@ -874,7 +899,8 @@ pub const HWACCEL: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Draw with the GPU, in a build that supports it.\n\n\
-           It is off unless vtium was built with it on (`VTIUM_HWACCEL`). `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
+           It is off unless vtium was built with it on (`VTIUM_HWACCEL`).\n\n\
+           [docs] `vtium config get hwaccel` prints the draft's value followed by `draft`, or the build's default followed by `default`. `vtium config set hwaccel on` turns it on in the draft.",
     cite: "kmscon's `hwaccel` key",
 };
 
@@ -1152,7 +1178,8 @@ pub const UNDERLINE_COLOR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "The color of underlines (SGR 4 in every style, and SGR 21).\n\n\
-           `fg` uses the text's color, a palette number uses that palette color (which a program can change with OSC 4), and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.",
+           `fg` uses the text's color, a palette number uses that palette color, and `#rrggbb` uses that color. A color a program sets with SGR 58 wins, unless `force-decoration-colors` is on.\n\n\
+           [docs] A program can change a palette color with OSC 4.",
     cite: "[the decoration colors issue](https://github.com/vtium/vtium/issues/127)",
 };
 
@@ -1189,7 +1216,8 @@ pub const CLIPBOARD_WRITE: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let programs copy text to vtium's clipboard (OSC 52). When off, vtium ignores what they send.\n\n\
-           The console has no system clipboard. vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `grab-paste` key paste it.",
+           vtium keeps the last text copied, by a program or by you, and the middle mouse button and the `key-paste` key paste it.\n\n\
+           [docs] The console has no system clipboard.",
     cite: "[the OSC 52 copy issue](https://github.com/vtium/vtium/issues/39)",
 };
 
@@ -1320,7 +1348,8 @@ pub const NATURAL_SCROLLING: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Reverse the mouse wheel.\n\n\
-           The wheel then scrolls the other way, both in vtium's scrollback and for programs, including the arrow keys it sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
+           The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
+           [docs] This includes the arrow keys vtium sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
     cite: "kmscon's `natural-scrolling` key",
 };
 
@@ -1333,7 +1362,8 @@ pub const POINTER_CHAR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Show the mouse pointer as this character, drawn with the console's font.\n\n\
-           The character fills the character cell under the pointer, white with a dark outline, like the arrow. When unset, or when the font cannot display the character, the pointer is an arrow.",
+           When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
+           [docs] The character fills the character cell under the pointer, white with a dark outline, like the arrow.",
     cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
 
@@ -1414,7 +1444,7 @@ pub const FONT_FRITS: Key = Key {
     reader: "vtium",
     what: "The directory that holds the font sets (the `NAME.vtfrit` files that `font-name` names).\n\n\
            It must be an absolute path; vtium ignores a relative or empty one and logs why.\n\n\
-           The default is the directory vtium was built with.",
+           [docs] The default is the directory vtium was built with.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126); the maintainer's decision of 2026-11-01",
 };
 
@@ -1427,7 +1457,8 @@ pub const FONT_PATHS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
-           Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list, so it can reorder or leave out the system's folders. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
+           Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
+           [docs] The list can reorder or leave out the system's folders.\n\n\
            When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A user's own folder, such as `~/.local/share/fonts`, is searched only when the list names it, and the font helper cannot read it before someone logs in, because it then runs as `nobody`.",
     cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
@@ -1442,8 +1473,8 @@ pub const FONT_HELPER: Key = Key {
     reader: "vtium",
     what: "The font helper: the program vtium starts to draw a font set's characters. It runs as `nobody` when vtium runs as root.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
-           The default is the path vtium was built with.",
+           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           [docs] The default is the path vtium was built with.",
     cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
 };
 
@@ -1493,8 +1524,8 @@ pub const FONT_LINE_SPACING: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-font",
     what: "Extra space between lines of text. It overrides a font set's `line-spacing=` line.\n\n\
-           The value is a whole percentage of the text height, rounded to whole pixels and split evenly above and below each line, so the console has fewer lines. It does not change a font set's own `cell=` size, but it applies when `font-size` overrides that size: the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
-           Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
+           The value is a whole percentage of the text height, rounded to whole pixels and split above and below each line, so the console has fewer lines. When `font-size` overrides a font set's `cell=` size, the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
+           [docs] Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
 
@@ -1520,8 +1551,10 @@ pub const ALLOW_FONT_OPS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Let programs switch the console's font, and ask which font is in use (xterm's OSC 50).\n\n\
-           A program switches with `OSC 50 ; NAME ST`, as `vtium-config use-frit NAME` does, and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
-           It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file. When off, vtium ignores OSC 50, queries included.",
+           A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
+           [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
+           When off, vtium ignores OSC 50, queries included.\n\n\
+           [docs] It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets and the built-in fonts, never another file.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
 };
 
@@ -1631,8 +1664,10 @@ pub const TEXT_DIRECTION: Key = Key {
     levels: TOP,
     reader: "vtium-term",
     what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
-           A paragraph is the text between two line ends, however many rows it wraps across. `ltr`, the default, starts each paragraph at the left edge, as most terminals do. `rtl` starts each one at the right edge, for a console used mostly in Arabic, Hebrew or another right-to-left language. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and one that starts with a Latin letter, or has no letter, runs left to right.\n\n\
-           A program can change the direction with escape sequences, and a terminal reset returns it to this setting. vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           A paragraph is the text between two line ends. `ltr`, the default, starts each paragraph at the left edge, and `rtl` at the right edge. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and any other runs left to right.\n\n\
+           [docs] A paragraph keeps its direction however many rows it wraps across. `rtl` suits a console used mostly in Arabic, Hebrew or another right-to-left language.\n\n\
+           vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           [docs] A program can change the direction with escape sequences, and a terminal reset returns it to this setting.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
     cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
 };
@@ -1658,7 +1693,8 @@ pub const DISPLAY_DEPTH: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-render",
     what: "How many colors or shades each display can show.\n\n\
-           `1` is black and white: each character cell is lit or dark by its colors, never by their brightness. `gray4` and `gray16` are for gray panels of 4 or 16 shades; vtium sends color and the panel converts it. `color` is full color. `auto` uses what the display reports: 1 bit for an fbdev device that says so, or the levels of a known DRM panel driver.",
+           `1` is black and white: each character cell is lit or dark by its colors, never by their brightness. `gray4` and `gray16` are for gray panels of 4 or 16 shades; vtium sends color and the panel converts it. `color` is full color. `auto` uses what the display reports.\n\n\
+           [docs] For `auto`, an fbdev device that reports 1 bit gets `1`, and a known DRM panel driver gives its levels.",
     cite: "[the 1-bit displays issue](https://github.com/vtium/vtium/issues/135)",
 };
 
@@ -1693,10 +1729,10 @@ pub const RENDER_TIMER: Key = Key {
     cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 
-pub const GRAB_PASTE: Key = Key {
-    name: "grab-paste",
+pub const KEY_PASTE: Key = Key {
+    name: "key-paste",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Text("<Shift>Insert"),
     scope: Scope::Anywhere,
     levels: TOP,
@@ -1706,43 +1742,257 @@ pub const GRAB_PASTE: Key = Key {
     cite: "xterm's `Shift <KeyPress> Insert` translation; [the selection issue](https://github.com/vtium/vtium/issues/95)",
 };
 
-pub const GRAB_REBOOT: Key = Key {
-    name: "grab-reboot",
+pub const KEY_REBOOT: Key = Key {
+    name: "key-reboot",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "The key that reboots the machine.\n\n\
-           When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once. When unset, no key reboots.",
-    cite: "kmscon's `grab-reboot` key",
+           When unset, no key reboots.\n\n\
+           [docs] When `/proc/sys/kernel/ctrl-alt-del` is 0, vtium asks init to reboot, as Ctrl+Alt+Del does, so the services stop first; otherwise the kernel restarts at once.",
+    cite: "the `grab-reboot` key that kmscon had",
 };
 
-pub const GRAB_POWER_OFF: Key = Key {
-    name: "grab-power-off",
+pub const KEY_POWER_OFF: Key = Key {
+    name: "key-power-off",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "The key that powers the machine off.\n\n\
-           vtium asks init with `SIGRTMIN+4`, which systemd treats as `poweroff.target`, so the services stop and the filesystems are unmounted first. When unset, no key powers off.",
+           When unset, no key powers off.\n\n\
+           [docs] vtium asks init with `SIGRTMIN+4`, which systemd treats as `poweroff.target`, so the services stop and the filesystems are unmounted first.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
 };
 
-pub const GRAB_SUSPEND: Key = Key {
-    name: "grab-suspend",
+pub const KEY_SUSPEND: Key = Key {
+    name: "key-suspend",
     short: None,
-    kind: Kind::Grab,
+    kind: Kind::KeyBinding,
     default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "The key that suspends the machine to RAM.\n\n\
-           vtium asks logind to suspend, so anything that holds off sleep through logind can still do so. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.",
+           vtium asks logind to suspend. When logind is not running, or vtium was built without `logind`, vtium writes `mem` to `/sys/power/state`. When unset, no key suspends.\n\n\
+           [docs] Because vtium asks logind, anything that holds off sleep through logind can still do so.",
     cite: "[the configuration issue](https://github.com/vtium/vtium/issues/21)",
+};
+
+/// Where the keys vtium takes for itself come from (ADR-1005 D10).
+const OWN_KEYS_CITE: &str = "[the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+/// Where the console and focus keys come from (ADR-1005 D10, ADR-1401).
+const HEAD_KEYS_CITE: &str = "[the heads issue](https://github.com/vtium/vtium/issues/156); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)";
+
+pub const KEY_SCROLL_UP: Key = Key {
+    name: "key-scroll-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_SCROLL_DOWN: Key = Key {
+    name: "key-scroll-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one line.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PAGE_UP: Key = Key {
+    name: "key-page-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Prior"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back one page. `Prior` is Page Up.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PAGE_DOWN: Key = Key {
+    name: "key-page-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Shift>Next"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward one page. `Next` is Page Down.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_PROMPT_UP: Key = Key {
+    name: "key-prompt-up",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view back to the shell prompt above, which OSC 133 marks.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const KEY_PROMPT_DOWN: Key = Key {
+    name: "key-prompt-down",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Scroll the view forward to the shell prompt below, or to the live screen.",
+    cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
+};
+
+pub const KEY_ZOOM_IN: Key = Key {
+    name: "key-zoom-in",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl>plus,<Ctrl>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen larger.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ZOOM_OUT: Key = Key {
+    name: "key-zoom-out",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the font of the console on screen smaller.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ROTATE_CW: Key = Key {
+    name: "key-rotate-cw",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Logo>plus,<Logo>equal"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn clockwise. `Logo` is Super.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_ROTATE_CCW: Key = Key {
+    name: "key-rotate-ccw",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Logo>minus"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Turn the head's displays a quarter turn counterclockwise.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_RESET: Key = Key {
+    name: "key-reset",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>Delete"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Reset the console on screen, as the `reset` command does.\n\n\
+           It clears the screen and the scrollback, and turns off every mode a program set, the keyboard's too: use it when a program left the keyboard sending escape codes.",
+    cite: OWN_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_NEXT: Key = Key {
+    name: "key-console-next",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Right"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's next console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_PREVIOUS: Key = Key {
+    name: "key-console-previous",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Left"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Show the head's previous console.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_OPEN: Key = Key {
+    name: "key-console-open",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Return"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Open a console after the one on screen, unless the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_CONSOLE_CLOSE: Key = Key {
+    name: "key-console-close",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>BackSpace"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Close the console on screen, unless it is the head's last or the policy is `closed`.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_FOCUS_NEXT: Key = Key {
+    name: "key-focus-next",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Up"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the next head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
+};
+
+pub const KEY_FOCUS_PREVIOUS: Key = Key {
+    name: "key-focus-previous",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Logo>Down"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Make the previous head active, from a keyboard that roams among the heads.",
+    cite: HEAD_KEYS_CITE,
 };
 
 pub const IMAGE_STORAGE_LIMIT: Key = Key {
@@ -1759,7 +2009,8 @@ pub const IMAGE_STORAGE_LIMIT: Key = Key {
     levels: TOP,
     reader: "vtium-image",
     what: "The most memory each console uses for images, on both its screens together.\n\n\
-           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB, and recalculates when a display is added, removed or resized. `0` turns sixel and kitty graphics off.\n\n\
+           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `64M`), up to 1 TiB. `auto` gives each console enough for four screenfuls of its head's displays, from 16 MiB to 192 MiB. `0` turns sixel and kitty graphics off.\n\n\
+           `auto` recalculates when a display is added, removed or resized.\n\n\
            A build without image support accepts this key and shows no images.",
     cite: "[the image pipeline issue](https://github.com/vtium/vtium/issues/28); Ghostty's `image-storage-limit`",
 };
@@ -1818,8 +2069,9 @@ pub const IMAGE_HELPER: Key = Key {
     reader: "vtium",
     what: "The image helper: the program vtium starts, as the logged-in user, to read image files and shared memory for kitty graphics and to decode PNG and zlib-compressed images. vtium runs as root and does neither itself.\n\n\
            vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a path that is not absolute, a file that is not a regular file, a setuid or setgid file, a file owned by anyone other than root or vtium's own account, and a file that its group or other users can write. It then logs why, and refuses those images: a file, temporary file or shared memory with `EBADF`, and PNG or zlib with `EINVAL`. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
-           The default is the path vtium was built with. A build without image support accepts this key and starts no helper.",
+           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and refuses images: `EBADF` for files and shared memory, `EINVAL` for PNG and zlib. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           A build without image support accepts this key and starts no helper.\n\n\
+           [docs] The default is the path vtium was built with.",
     cite: "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-01",
 };
 
@@ -1851,7 +2103,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 108] = [
+pub static KEYS: [Key; 125] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -1926,10 +2178,27 @@ pub static KEYS: [Key; 108] = [
     POINTER_CHAR,
     POINTER_HIDE_TIMEOUT,
     POINTER_HIDE_WHILE_TYPING,
-    GRAB_PASTE,
-    GRAB_REBOOT,
-    GRAB_POWER_OFF,
-    GRAB_SUSPEND,
+    KEY_PASTE,
+    KEY_REBOOT,
+    KEY_POWER_OFF,
+    KEY_SUSPEND,
+    KEY_SCROLL_UP,
+    KEY_SCROLL_DOWN,
+    KEY_PAGE_UP,
+    KEY_PAGE_DOWN,
+    KEY_PROMPT_UP,
+    KEY_PROMPT_DOWN,
+    KEY_ZOOM_IN,
+    KEY_ZOOM_OUT,
+    KEY_ROTATE_CW,
+    KEY_ROTATE_CCW,
+    KEY_RESET,
+    KEY_CONSOLE_NEXT,
+    KEY_CONSOLE_PREVIOUS,
+    KEY_CONSOLE_OPEN,
+    KEY_CONSOLE_CLOSE,
+    KEY_FOCUS_NEXT,
+    KEY_FOCUS_PREVIOUS,
     FONT_ENGINE,
     FONT_NAME,
     FONT_FRITS,
@@ -1986,7 +2255,7 @@ pub struct Section {
 /// change most come first, and those of vtium's own running last. Each key
 /// is in one group of one section. The example leaves out the keys only
 /// the command line takes, and a group or section left with none.
-pub const SECTIONS: [Section; 10] = [
+pub const SECTIONS: [Section; 11] = [
     Section {
         title: "Fonts and text",
         about: "The console's font and its size, who draws box-drawing and block characters, how blinking text looks, and which way text runs.",
@@ -2093,7 +2362,45 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Clipboard and paste",
-                keys: &[&CLIPBOARD_WRITE, &GRAB_PASTE],
+                keys: &[&CLIPBOARD_WRITE, &KEY_PASTE],
+            },
+        ],
+    },
+    Section {
+        title: "Key bindings",
+        about: "The keys vtium acts on itself instead of sending them to the program. Each value lists key combinations, separated by commas, and an empty value hands the key to the program. The scroll keys and the prompt jumps are vtium's only on the main screen: on the alternate screen, where editors run, they reach the program. Ctrl+Alt+F1 to F12 always switch the VT.",
+        groups: &[
+            Group {
+                title: "Scrolling and prompt jumps",
+                keys: &[
+                    &KEY_SCROLL_UP,
+                    &KEY_SCROLL_DOWN,
+                    &KEY_PAGE_UP,
+                    &KEY_PAGE_DOWN,
+                    &KEY_PROMPT_UP,
+                    &KEY_PROMPT_DOWN,
+                ],
+            },
+            Group {
+                title: "Zoom, rotation and reset",
+                keys: &[
+                    &KEY_ZOOM_IN,
+                    &KEY_ZOOM_OUT,
+                    &KEY_ROTATE_CW,
+                    &KEY_ROTATE_CCW,
+                    &KEY_RESET,
+                ],
+            },
+            Group {
+                title: "Consoles and heads",
+                keys: &[
+                    &KEY_CONSOLE_NEXT,
+                    &KEY_CONSOLE_PREVIOUS,
+                    &KEY_CONSOLE_OPEN,
+                    &KEY_CONSOLE_CLOSE,
+                    &KEY_FOCUS_NEXT,
+                    &KEY_FOCUS_PREVIOUS,
+                ],
             },
         ],
     },
@@ -2195,7 +2502,7 @@ pub const SECTIONS: [Section; 10] = [
             },
             Group {
                 title: "Power keys",
-                keys: &[&GRAB_REBOOT, &GRAB_POWER_OFF, &GRAB_SUSPEND],
+                keys: &[&KEY_REBOOT, &KEY_POWER_OFF, &KEY_SUSPEND],
             },
         ],
     },
@@ -2251,6 +2558,25 @@ pub const SECTIONS: [Section; 10] = [
 /// set.
 pub const NOT_BUILT: [&Key; 1] = [&FONT_HINTING];
 
+/// The names four key bindings had before the maintainer renamed them to
+/// more accepted terms (ADR-1005 D10): vtium still reads each old name as
+/// its key binding, and reports each line or option that uses it. The
+/// keys that never shipped under a `grab-` name have none.
+pub const RENAMED: [(&str, &Key); 4] = [
+    ("grab-paste", &KEY_PASTE),
+    ("grab-reboot", &KEY_REBOOT),
+    ("grab-power-off", &KEY_POWER_OFF),
+    ("grab-suspend", &KEY_SUSPEND),
+];
+
+/// The key binding the old name `old` names now, with that old name.
+pub fn renamed(old: &str) -> Option<(&'static str, &'static Key)> {
+    RENAMED
+        .iter()
+        .find(|(o, _)| *o == old)
+        .map(|&(o, k)| (o, k))
+}
+
 /// The keys a section of `level` may set, in the table's order.
 pub fn at(level: Level) -> impl Iterator<Item = &'static Key> {
     KEYS.iter().filter(move |k| k.levels.contains(level))
@@ -2293,6 +2619,54 @@ mod tests {
         }
     }
 
+    // ADR-1005 D10: the seventeen keys vtium takes for itself, apart from
+    // the VT keys and the rescue key, are key bindings of vtium.conf's top
+    // level, each with the combination vtium took before the keys were
+    // configurable as its built-in default, so vtium with no vtium.conf
+    // takes the same keys.
+    #[test]
+    fn vtiums_own_keys_are_key_bindings_with_their_built_in_defaults() {
+        let want = [
+            ("key-scroll-up", "<Shift>Up"),
+            ("key-scroll-down", "<Shift>Down"),
+            ("key-page-up", "<Shift>Prior"),
+            ("key-page-down", "<Shift>Next"),
+            ("key-prompt-up", "<Ctrl><Shift>Up"),
+            ("key-prompt-down", "<Ctrl><Shift>Down"),
+            ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
+            ("key-zoom-out", "<Ctrl>minus"),
+            ("key-rotate-cw", "<Logo>plus,<Logo>equal"),
+            ("key-rotate-ccw", "<Logo>minus"),
+            ("key-reset", "<Ctrl><Shift>Delete"),
+            ("key-console-next", "<Ctrl><Logo>Right"),
+            ("key-console-previous", "<Ctrl><Logo>Left"),
+            ("key-console-open", "<Ctrl><Logo>Return"),
+            ("key-console-close", "<Ctrl><Logo>BackSpace"),
+            ("key-focus-next", "<Ctrl><Logo>Up"),
+            ("key-focus-previous", "<Ctrl><Logo>Down"),
+        ];
+        for (name, default) in want {
+            let key = find(name).unwrap_or(&HELP);
+            assert_eq!(key.name, name);
+            assert_eq!(key.kind, Kind::KeyBinding, "{name}");
+            assert_eq!(key.default, Default::Text(default), "{name}");
+            assert_eq!(key.scope, Scope::Anywhere, "{name}");
+            assert_eq!(key.levels, TOP, "{name}");
+            assert_eq!(key.reader, "vtium", "{name}");
+        }
+        // with key-paste and the power keys, every key binding there is
+        let bindings = KEYS.iter().filter(|k| k.kind == Kind::KeyBinding).count();
+        assert_eq!(bindings, want.len() + 4);
+        // The VT keys and the rescue key have no key to bind or empty.
+        for k in &KEYS {
+            assert!(
+                !k.name.contains("vt-") && !k.name.contains("rescue"),
+                "{}",
+                k.name
+            );
+        }
+    }
+
     // ADR-1004 D5, D13: `text-direction` takes `ltr`, the default, `rtl`
     // and `auto`, at vtium.conf's top level and on the command line, and
     // says that a build without the bidi feature accepts it and does
@@ -2324,6 +2698,26 @@ mod tests {
                 assert_eq!(p, p.trim(), "{}: blanks around {p:?}", k.name);
             }
         }
+    }
+
+    #[test]
+    fn a_paragraph_marked_for_the_docs_is_left_out_of_the_example_only() {
+        let mut marked = 0;
+        for k in &KEYS {
+            assert!(
+                !k.what.starts_with(DOCS_ONLY),
+                "{}: the first paragraph says what the key does and is never docs-only",
+                k.name
+            );
+            let all: Vec<&str> = k.paragraphs().collect();
+            let shown: Vec<&str> = k.example_paragraphs().collect();
+            assert!(shown.len() <= all.len());
+            marked += all.len() - shown.len();
+            for p in &all {
+                assert!(!p.starts_with(DOCS_ONLY), "{}: a doubled mark", k.name);
+            }
+        }
+        assert!(marked > 0, "no key marks a paragraph for the docs");
     }
 
     #[test]

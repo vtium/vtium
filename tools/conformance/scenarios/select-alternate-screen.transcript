@@ -1,0 +1,44 @@
+> size 10 3
+> send "main text\r\n"
+> select word at 1,0
+> copy
+< copy "main"
+> send "\e[?1049h"
+> copy
+< copy none
+> send "\e[Halt one\r\nalt two"
+> select word at 4,0
+> copy
+< copy "one"
+> select line at 0,1
+> copy
+< copy "alt two\n"
+> dump frame
+size 10x3
+cursor 7,1
+flags AUTO_WRAP|ALTERNATE
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 7,1 default visible w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 inverse
+row 0 |alt one|
+row 1 |alt two|
+cells 1 0-9 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 2 ||
+> send "\e]133;C\a"
+> select output at 0,1
+> copy
+< copy none
+> select word at 4,1
+> send "\e[?1049l"
+> copy
+< copy none
+> dump frame
+size 10x3
+cursor 0,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |main text|
+row 1 ||
+row 2 ||

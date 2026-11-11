@@ -1,5 +1,5 @@
-# desktop: the outline profiles' set (vtium/vtium#142), at the two sizes
-# ADR-1200 D11 gives a 1920x1080 and a 2560x1440 display: JetBrains Mono
+# desktop: the outline profiles' set (vtium/vtium#142), drawn at a
+# 1920x1080 and a 2560x1440 display: JetBrains Mono
 # for text, Symbols Nerd Font Mono for its private-use ranges, Noto Color
 # Emoji for emoji, and the built-in unifont filling every gap. Each font's
 # SHA-256 is the bytes `make specimens-fonts` fetches from the URL
