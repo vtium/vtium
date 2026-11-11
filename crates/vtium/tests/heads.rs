@@ -6854,6 +6854,32 @@ fn a_side_of_zero_beside_one_the_display_cannot_hold_fills_at_the_largest_size()
     assert_eq!(s.app.cells(), [(8, 16)]);
 }
 
+/// ADR-1401 D1: the grid a program asked for is its console's own. Console
+/// 2, shown after console 1 asked for 15x4, fills the display at its own
+/// size, and console 1 has 15x4 again when it is shown again.
+#[test]
+fn a_programs_grid_stays_with_its_console() {
+    let (dir, fonts) = reset_fixture("window-consoles", "font-size=16\nallow-window-ops\n");
+    std::fs::write(dir.join("ask.1"), "8;4;15").expect("the request");
+    let script = asking(&dir);
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    let (_, after) = asked_lines(&mut s);
+    assert_eq!(after, "a:4 15");
+    assert_eq!(grid(&s.app, "small"), Some((15, 4)));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "console 2 shown");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)), "console 2 fills");
+    assert_eq!(s.app.cells(), [(8, 16)]);
+    press_chord(&mut s, KBD_SMALL, LEFT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "console 1 shown");
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((15, 4)),
+        "console 1's grid again"
+    );
+    assert_eq!(s.app.cells(), [(16, 32)]);
+}
+
 /// ADR-1201 D11: the size a program asked for lasts for its session, so
 /// the next login starts at the configured size, filling the display.
 #[test]
