@@ -154,7 +154,8 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
     let (damage, stats) = g.frame(&mut s, 0, &[]).unwrap();
     assert_eq!(damage, [DISPLAY.rect()]);
     assert_eq!((stats.cells, stats.misses, stats.uncached), (30, 2, 0));
-    // the sprites, a cell of each kind four across and two down, and the
+    // the sprites, a cell of each kind of line in each script's set six
+    // across and four down (ADR-1202 D8), and the
     // narrow mask pool's first texture, 64 slots of the cell
     let kinds: Vec<&Call> = g
         .calls()
@@ -164,8 +165,8 @@ fn a_frame_draws_each_cell_as_one_quad_through_the_cell_shader() {
     assert_eq!(
         kinds,
         [
-            &Call::CreateTexture(Format::R8, Size::new(32, 32)),
-            &Call::FillTexture(rect(0, 0, 32, 32)),
+            &Call::CreateTexture(Format::R8, Size::new(48, 64)),
+            &Call::FillTexture(rect(0, 0, 48, 64)),
             &Call::CreateTexture(Format::R8, Size::new(512, 16)),
             &Call::FillTexture(rect(0, 0, 8, 16)),
             &Call::FillTexture(rect(8, 0, 8, 16)),
@@ -351,7 +352,7 @@ fn a_pool_past_its_first_texture_takes_another_twice_its_size() {
     assert_eq!(
         textures,
         [
-            Call::CreateTexture(Format::R8, Size::new(32, 32)),
+            Call::CreateTexture(Format::R8, Size::new(48, 64)),
             Call::CreateTexture(Format::R8, Size::new(512, 16)),
             Call::CreateTexture(Format::R8, Size::new(1024, 16)),
         ]

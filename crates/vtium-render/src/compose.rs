@@ -15,7 +15,7 @@ use vtium_term::Rgb;
 
 use crate::blend::{argb_over, mask, over_bg, pixel, tint_over};
 use crate::cache::GlyphCache;
-use crate::deco::{Kind, Sprites};
+use crate::deco::{Line, Sprites};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, Pictures, Under, over_px, tint};
 use crate::stored::{Pens, Rows, Stored};
@@ -67,10 +67,10 @@ pub(crate) struct Job {
     pub(crate) tiles: [Area; 2],
     pub(crate) fg: Rgb,
     pub(crate) bg: Rgb,
-    pub(crate) underline: Option<(Kind, Rgb)>,
+    pub(crate) underline: Option<(Line, Rgb)>,
     /// The lines drawn over the glyph, the strike-through and the
     /// overline, as one sprite in one color.
-    pub(crate) over: Option<(Kind, Rgb)>,
+    pub(crate) over: Option<(Line, Rgb)>,
     /// The glyph's text in the row's text buffer, its width and style.
     pub(crate) text: Option<(usize, usize, FontWidth, Variant)>,
     /// A color glyph draws as its silhouette, for a 1-bit display.
@@ -497,8 +497,8 @@ fn cell_line(
     }
     prem.fill(0);
     let tiles = job.tiles.get(..job.ncells).unwrap_or_default();
-    let deco = |kind: Kind, c: Rgb, prem: &mut [u32], cov: &mut [u8]| {
-        let Some(s) = sprites.get(kind) else { return };
+    let deco = |line: Line, c: Rgb, prem: &mut [u32], cov: &mut [u8]| {
+        let Some(s) = sprites.get(line) else { return };
         for t in tiles {
             s.mask_line(x0.saturating_sub(t.x), y.saturating_sub(t.y), cov);
             for (p, &a) in prem.iter_mut().zip(cov.iter()) {
@@ -506,8 +506,8 @@ fn cell_line(
             }
         }
     };
-    if let Some((kind, c)) = job.underline {
-        deco(kind, c, prem, cov);
+    if let Some((line, c)) = job.underline {
+        deco(line, c, prem, cov);
     }
     received_over(prem, ink);
     match glyph {
@@ -526,8 +526,8 @@ fn cell_line(
         }
         None => {}
     }
-    if let Some((kind, c)) = job.over {
-        deco(kind, c, prem, cov);
+    if let Some((line, c)) = job.over {
+        deco(line, c, prem, cov);
     }
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_bg(job.bg, p);
@@ -690,19 +690,19 @@ fn pictured(
     Pictured::Drawn
 }
 
-/// `kind` tinted `c` over the premultiplied line `prem`, across the job's
+/// `line` tinted `c` over the premultiplied line `prem`, across the job's
 /// cells, at display line `y`.
 #[cfg(feature = "images")]
 #[deny(clippy::float_arithmetic)]
 fn deco_over(
     job: &Job,
     sprites: &Sprites,
-    (kind, c): (Kind, Rgb),
+    (line, c): (Line, Rgb),
     y: i64,
     prem: &mut [u32],
     cov: &mut [u8],
 ) {
-    let Some(s) = sprites.get(kind) else { return };
+    let Some(s) = sprites.get(line) else { return };
     for t in job.tiles.get(..job.ncells).unwrap_or_default() {
         s.mask_line(job.r.x.saturating_sub(t.x), y.saturating_sub(t.y), cov);
         for (p, &a) in prem.iter_mut().zip(cov.iter()) {

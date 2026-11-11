@@ -234,6 +234,10 @@ impl Face for CardFace {
         self.base.decorations()
     }
 
+    fn script_decorations(&self, script: vtium_font::Script) -> Decorations {
+        self.base.script_decorations(script)
+    }
+
     fn scale(&self) -> u32 {
         self.base.scale()
     }

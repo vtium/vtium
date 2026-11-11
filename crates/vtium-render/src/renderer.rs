@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_font::{Decorations, Face, Font, Style, Variant, Width as FontWidth};
+use vtium_font::{Decorations, Face, Font, Script, Style, Variant, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
@@ -12,7 +12,7 @@ use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, Source, int};
 use crate::damage::Cells;
-use crate::deco::{Kind, Sprites};
+use crate::deco::{Kind, Line, SCRIPTS, Sprites};
 use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
@@ -393,9 +393,9 @@ struct Place {
 struct Paint {
     fg: Rgb,
     bg: Rgb,
-    underline: Option<(Kind, Rgb)>,
+    underline: Option<(Line, Rgb)>,
     /// The strike-through and the overline, drawn over the glyph.
-    over: Option<(Kind, Rgb)>,
+    over: Option<(Line, Rgb)>,
     text: Option<(usize, usize, FontWidth, Variant)>,
     /// At 1 bit, whether the background is lit, where vtium marks the cell
     /// (`mono::marked`).
@@ -568,9 +568,9 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
-    /// The font's underline and strike-through lines the decoration
-    /// sprites were made from.
-    lines: Decorations,
+    /// The font's lines in each of [`SCRIPTS`] that the decoration sprites
+    /// were made from (ADR-1202 D8).
+    lines: [Decorations; 3],
     /// Characters the font draws differently since the last frame, with
     /// the characters of each text drawn as the font's missing glyph before
     /// an arrival since then, sorted: the cells showing one draw again
@@ -614,12 +614,19 @@ fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> A
     .unwrap_or_else(|| Arrow::upright(cell_height))
 }
 
+/// The font's lines in each of [`SCRIPTS`] in turn: the normal lines, and
+/// the lines of a superscript and of a subscript cell (ADR-1202 D8).
+fn line_sets<F: Face>(font: &Font<F>) -> [Decorations; 3] {
+    SCRIPTS.map(|script| font.script_decorations(script))
+}
+
 /// The decoration sprites for cells `cw` by `ch` in the font's `lines`,
-/// turned as `orientation` says, stored as `config` says.
+/// one set for each of [`SCRIPTS`], turned as `orientation` says, stored
+/// as `config` says.
 fn sprites(
     cw: u32,
     ch: u32,
-    lines: &Decorations,
+    lines: &[Decorations; 3],
     orientation: Orientation,
     config: Config,
 ) -> Sprites {
@@ -716,7 +723,7 @@ impl<F: Face> Renderer<F> {
         let budgets = config
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
-        let lines = font.decorations();
+        let lines = line_sets(&font);
         let upright_arrow = pointer_image(&font, ch, config);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
@@ -902,8 +909,8 @@ impl<F: Face> Renderer<F> {
         self.owes_missing
     }
 
-    /// Takes the font's underline and strike-through lines when they are
-    /// no longer the ones the renderer made its decoration sprites from:
+    /// Takes the font's lines, in each script, when they are no longer the
+    /// ones the renderer made its decoration sprites from:
     /// the sprites are made again, and the next frame draws every cell and
     /// the border. The glyph cache keeps its glyphs, because the font draws
     /// its box-drawing sprites in a weight that follows the cell, not the
@@ -911,7 +918,7 @@ impl<F: Face> Renderer<F> {
     /// renderer takes a new identity, so the pipeline makes its glyphs and
     /// sprites anew and composes whole. Unchanged lines change nothing.
     fn lines_changed(&mut self) {
-        let lines = self.font.decorations();
+        let lines = line_sets(&self.font);
         if lines == self.lines {
             return;
         }
@@ -1810,6 +1817,9 @@ impl<F: Face> Renderer<F> {
         };
         let mut ul_cursor = false;
         let mut bar = false;
+        // a superscript or subscript cell's own lines follow its small
+        // glyph (ADR-1202 D8)
+        let script = crate::variant::of(fc.attrs).script;
         let mut cell_lit = lit;
         // at 1 bit a mark's text always shows: the selection's and a block
         // cursor's ink is never their background
@@ -1860,8 +1870,17 @@ impl<F: Face> Renderer<F> {
             fc.attrs.contains(Attrs::OVERLINE),
         )
         .filter(|_| !placeholder)
-        .map(|k| (k, deco_strike.unwrap_or(fg)));
-        let mut underline = Kind::underline(underline).map(|k| (k, ul_color));
+        .map(|kind| (Line { kind, script }, deco_strike.unwrap_or(fg)));
+        // the underline cursor keeps a normal cell's rows, so it has one
+        // height along a line
+        let ul_script = if ul_cursor { Script::Baseline } else { script };
+        let mut underline = Kind::underline(underline).map(|kind| {
+            let line = Line {
+                kind,
+                script: ul_script,
+            };
+            (line, ul_color)
+        });
         let mut over = over;
         let blink = self.config.blink;
         let (hidden, dimmed) = match blink.style {
@@ -1880,7 +1899,12 @@ impl<F: Face> Renderer<F> {
         if dimmed {
             fg = dim(fg, bg);
         }
-        let style = crate::variant::of(fc.attrs);
+        // the bar cursor keeps one height along a line, so it draws its
+        // normal glyph in a superscript or subscript cell too (ADR-1202 D8)
+        let style = Variant {
+            script: if bar { Script::Baseline } else { script },
+            ..crate::variant::of(fc.attrs)
+        };
         let text = &mut self.compose.text;
         let start = text.len();
         #[cfg(feature = "bidi")]

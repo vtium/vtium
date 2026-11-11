@@ -332,6 +332,18 @@ impl Face for Scripted {
         self.normal.decorations()
     }
 
+    /// The lines the helper's strike of the script reports, as the
+    /// console takes them once that strike is held (ADR-1202 D8).
+    fn script_decorations(&self, script: vtium_font::Script) -> vtium_font::Decorations {
+        self.scripts
+            .iter()
+            .find(|f| f.set().strikes().any(|s| s.script == script))
+            .map_or_else(
+                || self.normal.script_decorations(script),
+                |f| f.script_decorations(script),
+            )
+    }
+
     fn origin(&self, cluster: &[char], style: FontStyle) -> vtium_font::Origin {
         self.normal.origin(cluster, style)
     }

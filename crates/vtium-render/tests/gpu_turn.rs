@@ -473,9 +473,10 @@ fn the_damage_is_turned_into_the_displays_pixels() {
 
 #[test]
 fn a_frame_past_the_largest_texture_presents_each_pixel_once_at_every_turn() {
-    // tiles of at most 48 pixels a side
+    // tiles of at most 64 pixels a side, the least that holds the 24
+    // line sprites of an 8x16 cell, 48x64 (ADR-1202 D8)
     let limits = Limits {
-        texture: 48,
+        texture: 64,
         ..StandIn::LIMITS
     };
     for o in ALL {

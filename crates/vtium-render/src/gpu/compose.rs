@@ -49,7 +49,7 @@ use crate::arrow::Arrow;
 use crate::blend::pixel;
 use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
-use crate::deco::Kind;
+use crate::deco::Line;
 use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
@@ -1949,13 +1949,9 @@ pub(crate) fn cell_quad(
         ),
         None => ([0, 0, col, row], 0),
     };
-    let sprite = |k: Kind| {
-        Kind::ALL
-            .iter()
-            .position(|&x| x == k)
-            .and_then(|n| u32::try_from(n).ok())
-            .map_or(0, |n| n.saturating_add(1))
-    };
+    // a line's place among the sprites, every script's set in turn
+    // (ADR-1202 D8)
+    let sprite = |line: Line| u32::try_from(line.index()).map_or(0, |n| n.saturating_add(1));
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
     Quad {
         dst: [i(r.x), i(r.y), i(r.w), i(r.h)],
