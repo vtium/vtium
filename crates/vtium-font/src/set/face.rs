@@ -159,6 +159,18 @@ impl Face for SetFace {
         self.set.last_resort(self.cell, style, 1)
     }
 
+    /// The set's strikes at the face's cell, at the face's scale. Only a
+    /// glyph from a 1-bit strike takes a smaller multiple of it
+    /// ([`Face::origin`] says which).
+    fn strike(&self) -> Option<(Cell, u32)> {
+        Some((self.cell, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        self.set
+            .draw(self.cell, *cluster.first()?, style, multiple.max(1))
+    }
+
     /// The strike's ([`Set`]'s origin): a 1-bit strike's glyph a bitmap
     /// whose widening and shear the small glyph takes, any other smooth.
     fn origin(&self, cluster: &[char], style: Style) -> Origin {
