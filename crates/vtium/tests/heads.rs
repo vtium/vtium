@@ -8191,6 +8191,55 @@ fn a_notice_shown_again_shows_no_osd() {
     assert_eq!((head.status(), head.mark()), (None, None));
 }
 
+/// Under `oneshot` a session that ends gets no hard reset, since its console
+/// never starts another: a hidden console's XTWINOPS 8 request still goes
+/// with the session, so showing the ended console leaves the grid as the
+/// display gives it.
+#[test]
+fn an_ended_hidden_consoles_grid_request_goes_with_its_session() {
+    let (dir, fonts) = reset_fixture(
+        "window-oneshot",
+        "font-size=16\nallow-window-ops\noneshot\n",
+    );
+    std::fs::write(dir.join("ask.2"), "").expect("the ask");
+    let script = format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo x >> $d/starts.$n; echo \"size:$(stty size)\"; \
+         if [ -e $d/ask.$n ]; then rm $d/ask.$n; printf '\\033[8;4;15t'; \
+         while [ ! -e $d/go.$n ]; do sleep 0.02; done; rm $d/go.$n; exit 0; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    logged();
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    assert!(s.until(BOUND, |_| starts(&dir, 2) == 1));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    let mut lines = Vec::new();
+    let ended = |lines: &[String]| {
+        lines
+            .iter()
+            .any(|l| l.contains("console 2: its program ended under oneshot"))
+    };
+    assert!(
+        s.until(BOUND, |_| {
+            lines.extend(logged());
+            ended(&lines)
+        }),
+        "console 2's session ends while it is hidden"
+    );
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some(ENDED_CONSOLE),
+        "console 2 shown, its session ended"
+    );
+    s.app.turn(now());
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "the ended session's request is gone"
+    );
+}
+
 /// A hidden console's XTWINOPS 8 request goes with its session, as an
 /// OSC 50 request does (ADR-1201 D11): the next session neither waits for
 /// it nor takes the ended program's grid when it is shown.
