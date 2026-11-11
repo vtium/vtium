@@ -21,6 +21,11 @@ basis:
     level: guided
     said: "we need some sort of coherent engine for super and subscript, for managing bitmap and outlined fonts"
     via: "the maintainer in the steering session, 2026-11-11, relayed word for word in this record's brief"
+  - operator: aaronsb
+    level: guided
+    said: "the same could be said for bitmap fonts where we have an integer multiplier for fonts - say a highdpi display (such as mine). Even a 2x multiplier on bitmap fonts would afford super and subscript for a font that has only one size. For instance, the ATASCII font is bitmapped, but if we doubled (or other full integer multiplier) the size of the font on the native display screen, we can offer placement when we have more pixels to use"
+    via: "the maintainer in the steering session, 2026-11-11, relayed word for word by the team lead after the record's first draft"
+  - evidence: "How vtium picks a bitmap font's whole multiple, at integration 44792f56: with no `font-size`, the automatic rule's height is the smaller of twice the display's width over 120 and its height over 40, and never under 16 (crates/vtium/src/font.rs:128-146, `auto_size`); a bitmap first source with no `cell=` takes the largest whole multiple of its own cell whose height is not over that height (ADR-1200 D17); the built-in fonts take the largest whole factor whose cell fits (crates/vtium/src/font.rs:413-418). So an 8×16 font draws at 1× on a 1920×1080 display (height 27), 2× on 2560×1600 (40) and 3× on 3840×2160 (54), and an 8×8 font at 3×, 5× and 6×."
   - evidence: "Measured by this record's agent on 2026-11-11 from vtium-font's data/unifont.hex at integration 44792f56, over the 94 printable ASCII characters and é, É, Å, ², α and β, each 8×16 glyph scaled to 5×11 as `scripted` sizes it (crates/vtium-font/src/script.rs:47, 110). A glyph's shape counts as kept when its number of separate strokes (8-connected ink) and of enclosed holes (4-connected background not touching the edge) are unchanged. Each small pixel the average of what it covers, as vtium draws it today, then cut at half, as a 1-bit display cuts it (crates/vtium-render/src/mono.rs:18-21): 58 of 100 changed. Each small pixel the source pixel under its centre: 60 of 100 changed, because columns 1 and 6, where unifont draws its vertical strokes, fall between centres and vanish. Each source pixel sent to the small pixel that holds its centre, a small pixel ink when any pixel sent to it is ink: 9 of 100 changed (!, %, &, ?, @, a, i, j and Å, where a gap one pixel high closes). The script and the figure's source are in the agent's scratchpad, uncommitted."
   - evidence: "Read by this record's agent on 2026-11-11 with fontTools 4.68.0 from the fonts installed on the maintainer's machine. OS/2 superscript size (x by y), superscript offset, subscript size and subscript offset, in em: Noto Sans Mono, Noto Sans, Noto Sans CJK, Fira Mono, Fira Code, Hack and JetBrains Mono all carry 0.65×0.6, 0.35, 0.6 and 0.075; DejaVu Sans Mono 0.65×0.7, 0.48, 0.7 and 0.14; Liberation Mono 0.7×0.65, 0.422, 0.65 and 0.139. DejaVu Sans Mono's ascent is 0.928 em and its descent 0.236 em."
   - evidence: "Read by this record's agent on 2026-11-11 with fontTools 4.68.0, the characters each font's `sups` and `subs` lookups map: JetBrains Mono 11 (+ and the digits) and 10 (the digits); Fira Mono 15 and 14 (the digits, parentheses, plus, minus, and = for `sups`); Hack 10 and 10 (the digits); Noto Sans Mono 16 (the digits, parentheses, +, =, − and n) and 23 (those and h, k, l, m, p, s and t); Liberation Mono 6 (4 to 9) and 10 (the digits). DejaVu Sans Mono and Noto Sans CJK have neither feature."
@@ -39,6 +44,7 @@ observable:
   - "Tier 2's `script-unifont` screen shows every superscript and subscript pixel fully on or fully off, each small glyph two thirds of its cell's height, with the shapes the figure's last row shows"
   - "The same screen in 1-bit mode shows the same small glyphs, where today it shows broken strokes"
   - "A frit of Terminus at 16 pixels with `script-source=kbd:ter-112n` draws its superscripts and subscripts with Terminus's own 12-pixel glyphs"
+  - "unifont in a 16×32 cell, drawn at twice its size, draws its superscripts and subscripts as unifont at its own 8×16, every pixel of the font one pixel of the screen"
   - "In DejaVu Sans Mono, a superscript letter's edges are as sharp as a normal letter's at the same size"
 status: proposed
 date: 2026-11-11
@@ -56,12 +62,12 @@ related:
 
 ## Summary
 
-- **Decided:** vtium draws a superscript or subscript glyph (SGR 73 or 74) as a smaller version of the character's glyph, made by the source the glyph comes from, in the way that suits that kind of source. Every kind shares one rule for size and place: two thirds of the normal glyph's size, centred across the cells, against the top of the row's text for a superscript and against its bottom for a subscript. An outline font's glyph is rasterized at two thirds of its size. A bitmap font's glyph comes from a smaller size of the same font where the font has one: the same font at a smaller whole factor, another height of a CPI file, or a smaller font that the frit names with a new key, `script-source=`. Where it has none, the glyph is scaled to two thirds with each small pixel fully on or fully off, so it stays crisp. A color glyph is scaled smoothly, once, from its source. vtium's own drawn symbols are drawn at the box's size. The helper draws the glyphs of a frit's sources, asked for by script as it is asked for by style. The console draws its built-in fonts' and its symbols' small glyphs. Both take the box and the on-or-off scale from one module of vtium-font.
+- **Decided:** vtium draws a superscript or subscript glyph (SGR 73 or 74) as a smaller version of the character's glyph, made by the source the glyph comes from, in the way that suits that kind of source. Every kind shares one rule for size and place: two thirds of the normal glyph's size, centred across the cells, against the top of the row's text for a superscript and against its bottom for a subscript. An outline font's glyph is rasterized at two thirds of its size. A bitmap font's glyph comes from a smaller size of the same font where the font has one. A font that vtium draws at a whole multiple of its own size, as on a high-DPI display, always has one: the same bitmap at a smaller multiple, each of its pixels a whole block. A smaller size can also be another height of a CPI file, or a smaller font that the frit names with a new key, `script-source=`. Only a bitmap font drawn at its own size with none of these falls through to a glyph scaled to two thirds, each small pixel fully on or fully off, so it stays crisp. A color glyph is scaled smoothly, once, from its source. vtium's own drawn symbols are drawn at the box's size. The helper draws the glyphs of a frit's sources, asked for by script as it is asked for by style. The console draws its built-in fonts' and its symbols' small glyphs. Both take the box and the on-or-off scale from one module of vtium-font.
 - **Trades away:** The single rule of today, which scales whatever glyph was drawn. A superscript in a frit's font now waits for the helper, as a bold glyph does, and draws in the built-in font for that moment. A designed smaller size can be up to three quarters of the normal height, so its superscripts are larger than another font's. In 9 of 100 unifont glyphs a gap one pixel high closes. Script glyphs keep no ink above or below their row. OpenType's designed superscript glyphs and the fonts' own superscript metrics go unused.
 - **One-way?** No. The rules live in vtium-font's script module and in the helper, and the wire format gains the script on both ends in one release, as it gained the style.
 - **Probes:**
   - *Confident:* a superscript or subscript in unifont, or in any bitmap font with no smaller size, has only fully lit or fully dark pixels, two thirds of the normal size, as the last row of the figure shows, on a color display and on a 1-bit one alike. Right?
-  - *Not confident:* a smaller size of the same font is used when it is between half and three quarters of the normal height, so Terminus at 16 pixels takes its superscripts from Terminus at 12, which is three quarters, rather than a scaled glyph at two thirds. Is a script that much closer to the normal size acceptable, to keep the font's own design?
+  - *Not confident:* a smaller size of the same font is used whenever it is between half and three quarters of the normal height, rather than a scaled glyph at two thirds. So a bitmap font drawn at twice its size on a high-DPI display takes its superscripts from itself at its own size, which is half, and Terminus at 16 pixels takes Terminus at 12, which is three quarters. Are both ends acceptable, to keep the font's own pixels?
 - **Inversion:** The decision sits between "scale every drawn glyph the same way", which vtium does today with one rule in the console, and "let each font draw its small glyphs however it likes", which would give each format its best glyph but no common size or place. vtium takes one box and one placement for every kind of source, and lets only the drawing inside the box depend on the kind.
 
 ## Context
@@ -72,7 +78,9 @@ vtium draws them today with one rule (crates/vtium-font/src/script.rs). It draws
 
 A frit (a font set file) names its fonts as sources, each a line of its own (ADR-1200 D1). A source is an outline font, or a bitmap font: a kbd console font, a PSF, CPI or raw file, a BDF file, the kernel's font, or a built-in font. Each bitmap format vtium reads holds one height, except CPI, which holds heights 8, 14 and 16, of which `cp-size=` takes one. A bitmap font is drawn at whole factors of its own size (ADR-1200 D17), so a source drawn at twice its size also has its own size available, exactly. Families such as Terminus ship each height as a file of its own, from 12 to 32 pixels (`basis`). Color glyphs come from outline files' color tables, and the helper scales each once from its source to its cells.
 
-The averaging rule turns a bitmap font's 1-bit glyph gray and soft. The maintainer reviewed the result in unifont and answered "Crisp for bitmap fonts". On a 1-bit display the gray is cut at half, and the strokes break (the figure's third row). The maintainer also suggested using a smaller size of the same bitmap font where one exists, and asked for "some sort of coherent engine for super and subscript, for managing bitmap and outlined fonts" (`basis`).
+vtium draws a bitmap font at a whole multiple of its size when the cell is larger than the font. With no `font-size` set, the cell's height comes from the display: the smaller of twice its width over 120 and its height over 40, never under 16 pixels. A bitmap font takes the largest whole multiple of its own cell that fits that height (ADR-1200 D17, `basis`). An 8×16 font therefore draws at 1× on a 1920×1080 display, 2× on a 2560×1600 one and 3× on a 3840×2160 one. An 8×8 font, such as the ATASCII font the maintainer named, draws at 3×, 5× and 6× on the same displays. vtium ships no ATASCII font set today, so the record uses unifont and Terminus as its examples.
+
+The averaging rule turns a bitmap font's 1-bit glyph gray and soft. The maintainer reviewed the result in unifont and answered "Crisp for bitmap fonts". On a 1-bit display the gray is cut at half, and the strokes break (the figure's third row). The maintainer also suggested using a smaller size of the same bitmap font where one exists, and then the same bitmap at a smaller whole multiple where vtium draws it at 2× or more, and asked for "some sort of coherent engine for super and subscript, for managing bitmap and outlined fonts" (`basis`).
 
 An outline glyph scaled from its full-size raster is softer than the same glyph rasterized at the small size, because the rasterizer and the hinter place its edges on the small size's pixel grid only when they draw at that size.
 
@@ -98,15 +106,28 @@ The words used below. A **script glyph** is the glyph of a superscript or subscr
 
 ### D3: a bitmap source with a smaller size
 
-This is the maintainer's suggestion, made a rule. A **smaller size** of a bitmap source is any of these strikes:
+This is the maintainer's two suggestions, made one rule. A **smaller size** of a bitmap source is any of these strikes, in the order the engine names them:
 
-- the source's own glyphs at a smaller whole factor than the one the cell draws it at, so unifont drawn at twice its size in a 16×32 cell has unifont at its own 8×16;
-- another height of a CPI source than the one `cp-size=` takes;
-- a font that the frit names with `script-source=` under the source (D12), at a whole factor of its own.
+- **The same bitmap at a smaller whole multiple.** Where vtium draws the source at k times its own size, as the automatic rule does on a large display (Context), the source also has every multiple from 1 to k − 1, exactly. A glyph at multiple j draws each of the font's pixels as a block of j×j screen pixels, so nothing is resampled. unifont drawn at 2× in a 16×32 cell has unifont at 1×, its own 8×16.
+- **Another height of a CPI source** than the one `cp-size=` takes, at each whole multiple that fits.
+- **A font that the frit names with `script-source=`** under the source (D12), at each whole multiple that fits.
 
-The engine takes the largest smaller size whose height is from one half to three quarters of the normal glyph's height, and whose width fits the glyph's cells. The normal glyph's height is the source's height times the factor it is drawn at. It places that strike's glyph by D1, unscaled, so every pixel stays the font's own. A character the strike lacks is drawn by D4 instead.
+The engine takes the largest smaller size whose height is from one half to three quarters of the normal glyph's height, and whose width fits the glyph's cells. The normal glyph's height is the source's height times the multiple it is drawn at. The engine places the chosen glyph by D1, unscaled: its own box, the strike's height times its multiple, against the top of the text band for a superscript and against the bottom for a subscript, and centred across the cells. A centred glyph whose spare columns are odd leaves the odd column on its right, as ADR-1200 D7 centres a built-in glyph. A character the chosen strike lacks is drawn by D4 instead.
 
-The range is half to three quarters, rather than two thirds exactly, because a font's sizes rarely fall on two thirds. A whole factor always reaches the range: for a source drawn at twice its size or more, the largest smaller factor that fits is at least half. Terminus at 16 pixels takes Terminus at 12, three quarters; at 20 it takes 14; at 24, 18. Below half, a letter loses too much to read beside its neighbours. Above three quarters, a superscript hardly differs from the normal text.
+For the source's own multiples, the rule gives these sizes:
+
+| Drawn at | Superscript at | Share of the normal height |
+|---|---|---|
+| 1× | none; D4 scales it to two thirds | 2/3 |
+| 2× | 1× | 1/2 |
+| 3× | 2× | 2/3 |
+| 4× | 3× | 3/4 |
+| 5× | 3× | 3/5 |
+| 6× | 4× | 2/3 |
+
+So only a bitmap source drawn at its own size, with no CPI height or `script-source=` in the range, reaches D4. At 2× the script is half the normal height, smaller than the two thirds an outline font gets. In unifont at 2×, a normal lowercase e is 16 screen pixels high in a 32-pixel row, and its superscript is 8, where two thirds would make it about 11. The half keeps every row and column of the font's design, one screen pixel each. The record takes the half over D4 at 2×, which would scale 32 rows to 21 and draw some of the font's rows one screen pixel high and others two, so strokes of one width in the font would come out in two widths.
+
+The range is half to three quarters, rather than two thirds exactly, because a font's sizes rarely fall on two thirds. A whole multiple always reaches the range: for a source drawn at 2× or more, the largest smaller multiple at most three quarters is at least half. Terminus at 16 pixels takes Terminus at 12, three quarters; at 20 it takes 14; at 24, 18. Below half, a letter loses too much to read beside its neighbours. Above three quarters, a superscript hardly differs from the normal text.
 
 ### D4: a bitmap source with no smaller size
 
@@ -126,7 +147,7 @@ The console draws a sprite to fill the box that D1 gives a sprite, with the ligh
 
 ### D7: bold and italic
 
-The engine draws a script glyph in its style at its own small size. An outline is emboldened and slanted at the small size (ADR-1302 D4). A bitmap glyph, from D3 or D4, is widened by a pixel and slanted by shifting its rows after it is made small, about its own baseline, so each step moves whole pixels. A frit's own bold and italic faces (`style=`, ADR-1200 D1) draw their script glyphs by D2 to D4 like the regular face.
+The engine draws a script glyph in its style at its own small size. An outline is emboldened and slanted at the small size (ADR-1302 D4). A bitmap glyph, from D3 or D4, is widened and slanted after it is made small, about its own baseline. A glyph at a whole multiple j is widened by one of its own pixels, j screen pixels, and its rows shift by whole blocks of j, so it stays the font's blocks; a glyph from D4 is widened by a screen pixel and its rows shift by whole pixels. A frit's own bold and italic faces (`style=`, ADR-1200 D1) draw their script glyphs by D2 to D4 like the regular face.
 
 ### D8: what stays where a normal cell has it
 
@@ -174,7 +195,7 @@ The code at integration 44792f56, read statement by statement against this recor
 5. **D2, D3, D5, D11, the helper.** An ask carries a style and no script (crates/vtium/src/helper.rs:1003-1006). The helper's serve loop and its outline drawer draw no script glyph (crates/vtium-config/src/serve.rs, crates/vtium-config/src/outline.rs:1060). The color path scales to the cells and has no script box (outline.rs:1175-1215).
 6. **D11, the store and the wire format.** The store's key is text and style (crates/vtium/src/deferred.rs:98-110). A strike record carries a style and no script; its reserved 16-bit field after the format (crates/vtium-font/src/set/format.rs:12) can carry it in a new minor version.
 7. **D11, meanwhile.** No stand-in path exists for a script glyph, since none is asked for today.
-8. **D3, smaller sizes.** No code chooses a smaller whole factor, keeps a CPI file's other heights, or picks a strike by the half-to-three-quarters range.
+8. **D3, smaller sizes.** No code chooses a smaller whole multiple, keeps a CPI file's other heights, or picks a strike by the half-to-three-quarters range. The multiple a bitmap source is drawn at is known to the face (`Face::scale`, crates/vtium-font/src/face.rs:118; crates/vtium-font/src/set/face.rs:133), and the helper draws a bitmap source at the cell's multiple, so both sides can find the smaller multiples. A script glyph at multiple j could be stored at 1× with scale j, as ADR-1300 D2 stores a bitmap glyph, where its place in the cell falls on whole blocks of j; `Font::glyph_unscaled_variant` hands every script glyph over at its drawn size today (face.rs:389-399).
 9. **D12, the frit key.** The frit reader has no `script-source=` (crates/vtium-config/src/frit.rs, beside `cp-size` at 375-390), and `vtium config check` has no note for it.
 10. **D8, ink.** `scripted` cuts all ink to the cells, sideways too. The helper's script glyphs need ink boxes cut to the row and not to the sides.
 11. **D10, 1-bit.** The 1-bit path gives a script mask no stand-in and cuts its gray at half (crates/vtium-render/src/mono.rs:222). With D4 in place, bitmap script glyphs arrive one bit and need nothing more there.
@@ -187,8 +208,8 @@ The work can land in slices that each show on screen. The first slice is the con
 
 Each test that drives this behaviour through vtium-font, vtium-render, vtium-config or vtium carries `// covers: sgr.script`. Tier 2's goldens change only in a commit of their own, which the maintainer reviews.
 
-- vtium-font: D4's scale of a one-pixel stroke at each of the three phases two thirds gives keeps it one pixel wide; a glyph scaled by D4 has only on and off pixels; D1's box against the text band with and without line spacing; D3's choice among a set of strikes, at each end of the range.
-- Tier 2: the `script-unifont` screen redrawn, and in 1-bit mode; a screen of a bitmap test font built in memory at two heights with `script-source=`; a screen of the outline test font with superscripts and subscripts in regular, bold and italic, beside an underline and a strike-through.
+- vtium-font: D4's scale of a one-pixel stroke at each of the three phases two thirds gives keeps it one pixel wide; a glyph scaled by D4 has only on and off pixels; D1's box against the text band with and without line spacing; D3's choice among a set of strikes, at each end of the range, and the table of whole multiples from 1× to 6×; a script glyph at a smaller multiple is the 1× glyph with each pixel a j×j block, placed against the band's edge.
+- Tier 2: the `script-unifont` screen redrawn, and in 1-bit mode; the same screen in unifont at 2× and at 3×; a screen of a bitmap test font built in memory at two heights with `script-source=`; a screen of the outline test font with superscripts and subscripts in regular, bold and italic, beside an underline and a strike-through.
 - The helper: an ask with a script answers a strike that says its script; the console refuses an answer whose script it did not ask for, as it refuses a style it did not ask for.
 
 ## Consequences
@@ -224,5 +245,6 @@ Each test that drives this behaviour through vtium-font, vtium-render, vtium-con
 - **Use OpenType's `sups` and `subs`.** Not chosen for now (D13).
 - **Find a bitmap font's other sizes by its file name or family name.** Not chosen: the names follow no common pattern, so the result would depend on how a distribution names its files (D12).
 - **Draw unifont's scripts from Unscii-8, the other built-in font,** which is exactly half of unifont's height. Not chosen: it is another font with another design, and the maintainer asked for a smaller size "from the same font".
+- **At 2×, scale the glyph to two thirds by D4 instead of taking the font at 1×.** Not chosen: the script would be about 11 rows of a 16-row font's 16 instead of 8, but the font's one-pixel strokes would come out one or two screen pixels wide in an uneven pattern, where the 1× glyph keeps the design exactly (D3).
 - **Take two thirds exactly from a smaller size, or nothing.** Not chosen: Terminus's heights never give two thirds of another, so the maintainer's suggestion would never apply to it.
 - **Let a superscript reach the row above, as other glyphs may (ADR-1306 D1).** Not chosen: it would draw over the descenders of that row, and the box already keeps the glyph in its row.
