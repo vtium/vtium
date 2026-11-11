@@ -6268,7 +6268,8 @@ mod tests {
     /// A seat on one display under `kernel-messages=always`, its kernel a
     /// stand-in that reads `queued`, shown at the returned time. The
     /// display reports no flip, so `display-wait=forever` keeps vtium from
-    /// giving up on it while the count runs.
+    /// giving up on it while the count runs, and `no-blink` arms no blink
+    /// timer, so the box's count is the loop's only timer.
     fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
         let queued: Queued = Rc::default();
         let (mut lp, mut app) = seat_with(
@@ -6276,6 +6277,7 @@ mod tests {
                 "--font-size=16",
                 "--kernel-messages=always",
                 "--display-wait=forever",
+                "--no-blink",
             ],
             None,
             no_fonts(),
@@ -6377,10 +6379,10 @@ mod tests {
                 Some(at),
                 "the box's timer is due at second {n}"
             );
-            assert!(
-                app.next_wake(at - Duration::from_secs(1))
-                    .is_some_and(|w| w <= Duration::from_secs(1)),
-                "the loop wakes for second {n}"
+            assert_eq!(
+                app.next_wake(at - Duration::from_secs(1)),
+                Some(Duration::from_secs(1)),
+                "the loop wakes for second {n}, on the box's timer alone"
             );
             app.turn(at);
             settle_frames(&mut lp, &mut app, at);
