@@ -526,6 +526,32 @@ fn ask_glyphs(
     }
 }
 
+/// The warnings the helper at `helper` sends as it answers a sources
+/// query about `frit`: the warnings of its text and of its sources, and the
+/// notes on its `script-source=` lines (ADR-1202 D12), each naming the
+/// frit by its name and the line.
+pub fn warnings_of(helper: &Helper, frit: &FritText) -> Result<Vec<String>, String> {
+    let frit = frit.clone();
+    let empty = Cell {
+        width: 0,
+        height: 0,
+    };
+    with_helper(helper, move |stdin, stdout| {
+        send_or_failure(stdin, stdout, &request(SOURCES, &frit, empty, Vec::new()))?;
+        let mut warnings = Vec::new();
+        loop {
+            match frame(stdout)? {
+                (FRAME_WARNING, payload) => warnings.push(text(&payload)),
+                (FRAME_SOURCES | FRAME_DRAWS_NOTHING, _) => return Ok(warnings),
+                (FRAME_FAILED, payload) => {
+                    return Err(format!("the font helper failed: {}", text(&payload)));
+                }
+                _ => return Err("the font helper sent an unexpected answer".to_owned()),
+            }
+        }
+    })
+}
+
 /// `frit`'s cell at `height` pixels, as the helper at `helper` gives it,
 /// and the height its faces are drawn at.
 pub fn own_cell(helper: &Helper, frit: &FritText, height: u32) -> Result<(Cell, u32), String> {

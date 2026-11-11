@@ -129,6 +129,15 @@ impl Face for Unifont {
         self.render_at(*cluster.first()?, style, 1)
     }
 
+    /// The built-in set's one 8x16 strike, at the font's scale.
+    fn strike(&self) -> Option<(Cell, u32)> {
+        Some((CELL, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        self.render_at(*cluster.first()?, style, multiple.max(1))
+    }
+
     /// A 1-bit bitmap, whose bold and italic the small glyph takes
     /// (ADR-1202 D4, D7).
     fn origin(&self, cluster: &[char], style: Style) -> Origin {

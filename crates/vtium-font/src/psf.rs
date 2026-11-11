@@ -538,6 +538,20 @@ impl Face for Psf {
         self.render_at(0, style, 1)
     }
 
+    /// The font's one strike, at the font's scale.
+    fn strike(&self) -> Option<(Cell, u32)> {
+        let own = Cell {
+            width: self.width,
+            height: self.height,
+        };
+        Some((own, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        let index = self.glyph_index(*cluster.first()?)?;
+        self.render_at(index, style, multiple.max(1))
+    }
+
     /// A 1-bit bitmap whose own box is the whole glyph, sheared about
     /// [`Psf::baseline`] at the font's scale; the small glyph takes the
     /// widening and the shear the font draws bold and italic with

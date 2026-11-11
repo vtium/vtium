@@ -307,6 +307,18 @@ const SCRIPT: &[u8] = concat!(
 )
 .as_bytes();
 
+/// The `script-source` screen: superscript and subscript beside normal
+/// text in a font that the test fonts draw, in formulas, over descenders,
+/// in bold, italic, red and reverse, and under lines.
+const SCRIPT_ASCII: &[u8] = concat!(
+    "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
+    "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
+    "gjpqy \x1b[73mgjpqy\x1b[75m \x1b[74mgjpqy\x1b[0m\r\n",
+    "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
+    "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m\r\n",
+)
+.as_bytes();
+
 /// The `overline` screen.
 const OVERLINE: &[u8] = concat!(
     "\x1b[53moverlined gjpqy \u{c9}\u{c5}\x1b[0m plain\r\n",
@@ -1822,6 +1834,45 @@ const BASE: &[Case] = &[
                 SCRIPT,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::UnifontAt(2),
+            ..Screen::new(
+                "script-unifont-2x",
+                "The script-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at its own 8x16 size, every pixel of the font one pixel of the screen, never scaled, centred across its cell with 4 columns on each side; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row, half the cell high; bold widened by one of the font's pixels and italic slanted by whole rows of them; a wide character's glyph unifont's own 16x16, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; the underline and the strike where they are on a normal cell; the normal text as usual.",
+                SCRIPT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::UnifontAt(3),
+            ..Screen::new(
+                "script-unifont-3x",
+                "The script-unifont screen in unifont drawn at three times its size, in 24x48 cells (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at twice its size, each of the font's pixels a 2x2 block, never resampled, 16x32 and centred across its cell with 4 columns on each side, two thirds of the cell high; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; bold widened by one of the font's pixels, two screen pixels, and italic slanted by whole rows of the font's pixels; a wide character's glyph unifont's 16x16 at twice its size, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; the underline and the strike where they are on a normal cell; the normal text as usual.",
+                SCRIPT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::ScriptSource {
+                font: TestFont::Small8x16,
+                small: TestFont::Small8x8,
+            },
+            ..Screen::new(
+                "script-source",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text in the 8x16 PSF1 test font, from a frit whose script-source= line names the 8x8 PSF2 test font (ADR-1202 D3, D12): in formulas, over descenders, in bold, italic, red and reverse, and under an underline and a strike. The glyphs come from vtium-config's engine, as the helper answers the console's asks. Correct: each superscript and subscript glyph is the 8x8 test font's own glyph, unscaled, filling the top half of its cell for a superscript and the bottom half for a subscript, every pixel fully lit or fully dark; bold widened by a pixel and italic slanted by whole rows, as the 8x8 font draws them; the underline and the strike where they are on a normal cell; the normal text in the 8x16 font as usual.",
+                SCRIPT_ASCII,
+                48,
+                6,
             )
         },
     },

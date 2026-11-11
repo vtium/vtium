@@ -20,6 +20,17 @@
 //! text band is the cell less the rows that line spacing adds above and
 //! below it (ADR-1302 D13).
 //!
+//! **A smaller size (D3).** A bitmap source can have its own smaller
+//! sizes: itself at a smaller whole multiple, where vtium draws it at two
+//! or more times its size, another height of a CPI file, and the fonts
+//! that a frit's `script-source=` names for it. The engine takes the
+//! tallest of these from one half to three quarters of the normal glyph's
+//! height ([`smaller`]), and places that glyph whole, unscaled
+//! ([`Glyph::placed`]). A source drawn at 2x takes itself at 1x, at 3x
+//! itself at 2x, at 4x and 5x at 3x, and at 6x at 4x, so each of the
+//! font's pixels is a square block on the screen. Only a glyph with no
+//! smaller size in the range is made small as the next paragraph says.
+//!
 //! **How the small glyph is made.** The face says what kind of source a
 //! glyph comes from ([`Origin`]):
 //!
@@ -229,6 +240,58 @@ pub fn place(
     (x, y)
 }
 
+/// Whether a strike `height` pixels high is a smaller size for a normal
+/// glyph `normal` pixels high (D3): from one half to three quarters of
+/// `normal`, both ends included.
+pub fn in_range(height: u32, normal: u32) -> bool {
+    let (h, n) = (u64::from(height), u64::from(normal));
+    height > 0 && h.saturating_mul(2) >= n && h.saturating_mul(4) <= n.saturating_mul(3)
+}
+
+/// A smaller size of a bitmap source (D3): the strike at place `strike` in
+/// the list [`smaller`] was given, drawn at the whole multiple `multiple`
+/// of its own cell, each of its pixels a block of `multiple` by `multiple`
+/// screen pixels.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Smaller {
+    pub strike: usize,
+    pub multiple: u32,
+}
+
+/// The smaller size a superscript or subscript glyph takes (D3), from
+/// `strikes`, each a strike's own cell in the order the engine names them:
+/// the source's own strike first, then a CPI source's other heights, then
+/// the fonts that `script-source=` names for the source. A strike drawn at
+/// a whole multiple is a candidate when its height there is from one half
+/// to three quarters of `normal` ([`in_range`]), the normal glyph's height,
+/// which is the source's height times the multiple it is drawn at, and when
+/// its width there is not wider than `cell_width`, one of the glyph's
+/// cells. The tallest candidate wins, and among candidates of one height
+/// the first in order. `None` when no strike has a size in the range, and
+/// the glyph is then scaled by D4.
+pub fn smaller(normal: u32, cell_width: u32, strikes: &[crate::face::Cell]) -> Option<Smaller> {
+    let mut best: Option<(u32, Smaller)> = None;
+    for (strike, cell) in strikes.iter().enumerate() {
+        if cell.height == 0 || cell.width == 0 {
+            continue;
+        }
+        // the range itself is in_range's alone; a multiple taller than
+        // the normal glyph can never lie in it, so the search ends there
+        let mut multiple = 1u32;
+        while let Some(height) = cell.height.checked_mul(multiple).filter(|&h| h <= normal) {
+            let fits = cell
+                .width
+                .checked_mul(multiple)
+                .is_some_and(|w| w <= cell_width);
+            if fits && in_range(height, normal) && best.is_none_or(|(h, _)| height > h) {
+                best = Some((height, Smaller { strike, multiple }));
+            }
+            multiple = multiple.saturating_add(1);
+        }
+    }
+    best.map(|(_, s)| s)
+}
+
 /// `c`'s sprite as `script` draws it in cells `span` pixels across and
 /// `height` high, with `band` added by line spacing (D6): drawn to fill a
 /// box two thirds of the text band's height and of the cells' width, with
@@ -417,6 +480,50 @@ impl Glyph {
             (Kind::Bitmap, Format::Mask) => self.one_bit(own, small, at, origin),
             _ => self.averaged(own, small, at),
         }
+    }
+
+    /// This glyph, which a bitmap source drew whole at a smaller size
+    /// (D3), as `script` places it in cells `span` pixels across and
+    /// `height` high, with `band` added by line spacing. Its own box is the
+    /// whole glyph, the strike's height times its multiple, and it goes
+    /// against the text band's top or bottom, centred across the cells
+    /// ([`place`]), unscaled, so each of its pixels stays where its source
+    /// drew it. The ink it has beside its cells stays within its reach, and
+    /// its ink above and below the row is cut (D8). The result is a mask
+    /// with this glyph's cells. `None` for a glyph that is not a mask, and
+    /// past the bounds.
+    pub fn placed(&self, script: Script, (span, height): (u32, u32), band: Band) -> Option<Glyph> {
+        if self.format() != Format::Mask {
+            return None;
+        }
+        let at = place(script, (self.width(), self.height()), (span, height), band);
+        let (left, top, w, h) = match self.ink() {
+            Some(ink) => (
+                i64::from(ink.left()),
+                i64::from(ink.top()),
+                i64::from(ink.width()),
+                i64::from(ink.height()),
+            ),
+            None => (0, 0, i64::from(self.width()), i64::from(self.height())),
+        };
+        let (ax, ay) = (i64::from(at.0), i64::from(at.1));
+        let mut canvas = Canvas::new(
+            ax.saturating_add(left).min(0),
+            ax.saturating_add(left)
+                .saturating_add(w)
+                .max(i64::from(span)),
+            height,
+        )?;
+        for y in top..top.saturating_add(h) {
+            for x in left..left.saturating_add(w) {
+                if self.lit_at(x, y) {
+                    canvas.set(ax.saturating_add(x), ay.saturating_add(y));
+                }
+            }
+        }
+        Glyph::mask(span, height)?
+            .with_cells(self.cells())
+            .of_canvas(&canvas)
     }
 
     /// The pixel of this glyph or its ink box at column `x` and row `y`,
@@ -887,6 +994,130 @@ mod tests {
         for origin in [bitmap(), Origin::default()] {
             assert_eq!(g.scripted(Script::Sub, &origin, Band::NONE).unwrap(), g);
         }
+    }
+
+    fn cell(width: u32, height: u32) -> crate::face::Cell {
+        crate::face::Cell { width, height }
+    }
+
+    // D3's table: a source drawn at k times its size takes its script
+    // glyph from itself at the largest whole multiple from one half to
+    // three quarters of k, and at 1x from nothing
+    // covers: sgr.script
+    #[test]
+    fn a_source_drawn_at_a_multiple_takes_the_tables_smaller_multiple() {
+        for (own, w) in [(16, 8), (8, 8), (14, 8)] {
+            let at = |k: u32| smaller(own * k, w * k, &[cell(w, own)]).map(|s| s.multiple);
+            assert_eq!(at(1), None, "{own}");
+            assert_eq!(at(2), Some(1), "{own}");
+            assert_eq!(at(3), Some(2), "{own}");
+            assert_eq!(at(4), Some(3), "{own}");
+            assert_eq!(at(5), Some(3), "{own}");
+            assert_eq!(at(6), Some(4), "{own}");
+        }
+    }
+
+    // D3: the range is from one half to three quarters, both ends in, and
+    // nothing outside it
+    // covers: sgr.script
+    #[test]
+    fn a_smaller_size_lies_from_half_to_three_quarters() {
+        assert!(in_range(8, 16) && in_range(12, 16));
+        assert!(!in_range(7, 16) && !in_range(13, 16));
+        assert!(!in_range(0, 0));
+        // Terminus at 16 takes 12; at 20, 14; at 24, 18; never 10 or 22
+        let terminus = [12, 14, 16, 18, 20, 22, 24, 28, 32].map(|h| cell(h / 2, h));
+        let pick =
+            |n: u32| smaller(n, n, &terminus).map(|s| terminus[s.strike].height * s.multiple);
+        assert_eq!(pick(16), Some(12));
+        assert_eq!(pick(20), Some(14));
+        assert_eq!(pick(24), Some(18));
+        // a strike just below half and one just above three quarters
+        assert_eq!(smaller(16, 8, &[cell(4, 7), cell(8, 13)]), None);
+        // a strike too wide for the cell is left out
+        assert_eq!(smaller(16, 8, &[cell(9, 12)]), None);
+        // the tallest wins, and among equal heights the first in order
+        let s = smaller(32, 16, &[cell(8, 16), cell(8, 20), cell(8, 20)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 1,
+                multiple: 1
+            }
+        );
+        let s = smaller(32, 16, &[cell(8, 16), cell(8, 8)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 0,
+                multiple: 1
+            }
+        );
+    }
+
+    // D3's upper bound: a source drawn at 5x takes itself at 3x, three
+    // fifths, and not at 4x, four fifths, which is past three quarters
+    // covers: sgr.script
+    #[test]
+    fn five_times_takes_three_not_four() {
+        let s = smaller(16 * 5, 8 * 5, &[cell(8, 16)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 0,
+                multiple: 3
+            }
+        );
+    }
+
+    // D3's upper bound: a strike seven eighths of the normal height is
+    // refused, and the next one in the range is taken
+    // covers: sgr.script
+    #[test]
+    fn a_strike_past_three_quarters_is_refused() {
+        assert!(!in_range(14, 16));
+        assert_eq!(smaller(16, 16, &[cell(8, 14)]), None);
+        let s = smaller(16, 16, &[cell(8, 14), cell(8, 12)]).unwrap();
+        assert_eq!(
+            s,
+            Smaller {
+                strike: 1,
+                multiple: 1
+            }
+        );
+    }
+
+    // D3: a glyph a source drew at a smaller multiple is placed whole, each
+    // of its pixels where the source put it, against the text band
+    // covers: sgr.script
+    #[test]
+    fn a_smaller_glyph_is_placed_whole_against_the_band() {
+        // a 4x8 glyph with a pixel at its corners and its centre, drawn at
+        // 2x as 8x16, in a 3x cell of 12x24
+        let mut g = Glyph::mask(8, 16).unwrap();
+        for (x, y) in [(0, 0), (3, 0), (0, 7), (3, 7), (2, 4)] {
+            g.fill(x * 2, y * 2, x * 2 + 2, y * 2 + 2, 255);
+        }
+        let band = Band { above: 1, below: 2 };
+        let sup = g.placed(Script::Super, (12, 27), band).unwrap();
+        let sub = g.placed(Script::Sub, (12, 27), band).unwrap();
+        assert!(only_on_and_off(&sup) && only_on_and_off(&sub));
+        for (out, dy) in [(&sup, 1u32), (&sub, 27 - 2 - 16)] {
+            for y in 0..27 {
+                for x in 0..12 {
+                    let inside = x >= 2 && y >= dy && x < 10 && y < dy + 16;
+                    let want = inside && g.pixel(x - 2, y - dy).unwrap()[0] == 255;
+                    assert_eq!(out.pixel(x, y).unwrap()[0] == 255, want, "{x},{y}");
+                }
+            }
+        }
+        // a smooth glyph is not placed whole
+        assert!(
+            Glyph::new(8, 16, Format::Rgba)
+                .unwrap()
+                .placed(Script::Super, (12, 24), Band::NONE)
+                .is_none()
+        );
     }
 
     // D1, D3: two thirds, rounded, and the place against the text band
