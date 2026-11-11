@@ -367,6 +367,9 @@ considered:
   - operator: aaronsb
     said: "Accept all five (Recommended) [vtium steps aside for rescue and emergency mode under both policies]"
     via: the question tool in the steering session, 2026-11-10, on the record agent's calls for card 1b
+  - operator: aaronsb
+    said: "Accept mixed (Recommended)"
+    via: the question tool in the steering session, 2026-11-10, on KillMode=mixed in the libseat build
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -1486,6 +1489,8 @@ The build made five choices of its own, each for the reason given:
 > Edited 2026-11-06: the maintainer decided what a head does at its start when it has kept sessions (`considered`, 2026-11-06). Item 6 read: "When that head starts, the session goes back to the console with that id, and a console the head does not open at its start opens again for it, within the caps (D10). A session with no place, because its head is gone from vtium.conf or the caps leave no room, is hung up, with a warning in the log."
 
 > Edited 2026-11-06: the maintainer took every lean the work that builds D13 had written for the choices D13 left open (`considered`, 2026-11-06), and the build's own choices are added with their reasons. The section was headed "The choices D13 leaves open" and gave each item as a lean pending the maintainer; the earlier text is in git at 7b555cdb.
+
+> Note 2026-11-10: in the libseat build, the unit opens a PAM session of vtium's own (ADR-1400 D3), and systemd refuses to load a unit that sets `PAMName=` together with `KillMode=process` (systemd 262, measured with `systemd-analyze verify`). So that build's drop-in sets `KillMode=mixed`, and the maintainer accepted that (`considered`, 2026-11-10, "Accept mixed (Recommended)"). The builds without libseat keep `KillMode=process`. On the libseat build, a login prompt nobody has used yet, and a program that vtium.conf's login key runs without a PAM session, live in the unit and end at a restart of vtium. The restarted vtium starts a fresh prompt as soon as it draws, so only a half-typed username is lost. A logged-in session is expected to survive, because `pam_systemd` moves it into a logind session scope of its own. That is not yet measured; tier 3 owes the measurement.
 
 ### D14: each mode set resets the connector's color
 

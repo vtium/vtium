@@ -2046,7 +2046,7 @@ class Install(Case):
         src = os.path.join(ROOT, "crates", "vtium", "install")
         dst = os.path.join(self.s.standins, "install")
         os.mkdir(dst)
-        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf"):
+        for f in ("vtium@.service", "vtium-getty@.service", "vtium-image.conf", "vtium-libseat.conf", "vtium.pam"):
             text = read(os.path.join(src, f))
             if f == "vtium@.service" and unit_lines:
                 text = "\n".join(unit_lines(text.splitlines())) + "\n"
@@ -3019,6 +3019,75 @@ exec "$@"
         record = read(self.at(self.STATE + "/files")).splitlines()
         self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.PICTURES)))
 
+    # What vt-install writes beside FILES for a console built with libseat:
+    # the unit's drop-in and the PAM file it names (ADR-1400 D3).
+    DROPIN = "etc/systemd/system/vtium-dev@.service.d/libseat.conf"
+    PAM = "etc/pam.d/vtium-dev"
+    SEAT = (DROPIN, PAM)
+
+    def test_a_console_with_libseat_installs_its_pam_session_and_uninstall_removes_it(self):
+        # A build with libseat carries the line only seat.rs logs; vt-install
+        # then installs the drop-in and the PAM file for vtium-dev@, as make
+        # install stages them for vtium@, under the development install's
+        # own PAM name.
+        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        conf = [l for l in read(self.at(self.DROPIN)).splitlines() if l and not l.startswith("#")]
+        self.assertEqual(conf, ["[Service]", "User=root", "PAMName=vtium-dev", "KillMode=mixed"])
+        shipped_pam = read(os.path.join(ROOT, "crates", "vtium", "install", "vtium.pam"))
+        pam = read(self.at(self.PAM))
+        self.assertEqual([l for l in pam.splitlines() if not l.startswith("#")],
+                         [l for l in shipped_pam.splitlines() if not l.startswith("#")])
+        self.assertTrue(pam.startswith("#%PAM-1.0\n"), pam)
+        for f in self.SEAT:
+            self.assertEqual(stat.S_IMODE(os.stat(self.at(f)).st_mode), 0o644)
+        record = read(self.at(self.STATE + "/files")).splitlines()
+        self.assertEqual(sorted(record), sorted(f"{self.sha(f)}  /{f}" for f in (*self.FILES, *self.SEAT)))
+        # The PAM file is in place before the drop-in that names it.
+        renames = [c.split()[4] for c in self.s.calls_of("sudo") if c.startswith("mv -fT -- ")]
+        self.assertLess(renames.index(self.at(self.PAM)), renames.index(self.at(self.DROPIN)))
+        # A reinstall of a build without libseat removes both, and the
+        # drop-in's directory with them.
+        write(self.s.bin, BIN)
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
+        # Uninstall removes them too.
+        write(self.s.bin, BIN + "# logs: no seat manager answered, so vtium uses the kernel's VT: {e}\n")
+        self.assertEqual(self.vt_install("install", "4").returncode, 0)
+        p = self.vt_install("uninstall", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.left(), [])
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertFalse(os.path.lexists(os.path.dirname(self.at(self.DROPIN))))
+
+    def test_a_console_without_libseat_installs_no_pam_session(self):
+        p = self.vt_install("install", "4")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        for f in self.SEAT:
+            self.assertFalse(os.path.lexists(self.at(f)), f)
+        self.assertNotIn("libseat", read(self.at(self.STATE + "/files")))
+
+    def test_the_line_that_marks_a_build_with_libseat_is_in_code_built_only_with_libseat(self):
+        # A reworded message would install no PAM session for a build with
+        # libseat, and the line anywhere else would give one to a build
+        # without it.
+        marker = next(l.split("=", 1)[1].strip('"') for l in read(VT_INSTALL).splitlines()
+                      if l.startswith("libseat_marker="))
+        seat = os.path.join("crates", "vtium-platform", "src", "seat.rs")
+        self.assertIn(f'"{marker}{{e}}"', read(os.path.join(ROOT, seat)))
+        lib = read(os.path.join(ROOT, "crates", "vtium-platform", "src", "lib.rs"))
+        self.assertIn('#[cfg(feature = "libseat")]\npub mod seat;', lib)
+        found = []
+        for d, _, names in os.walk(os.path.join(ROOT, "crates")):
+            found += [os.path.relpath(os.path.join(d, n), ROOT) for n in names
+                      if n.endswith(".rs") and marker in read(os.path.join(d, n))]
+        self.assertEqual(found, [seat])
+
     def test_a_sysusers_file_systemd_sysusers_cannot_read_fails_the_install(self):
         # systemd-sysusers refuses a line that is no u, g, m or r line, as it
         # would in a shipped vtium-image.conf that went wrong; install then
@@ -3465,7 +3534,11 @@ class Package(Case):
         for line in ("ExecStart=/usr/bin/vtium --vt=%I --no-switchvt", "OnFailure=vtium-getty@%i.service",
                      "Alias=autovt@.service", "WantedBy=getty.target", "Restart=on-failure",
                      "Conflicts=getty@%i.service", "After=getty@%i.service",
-                     "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service"):
+                     "Conflicts=kmsconvt@%i.service", "After=kmsconvt@%i.service",
+                     # vtium steps aside for rescue and emergency mode, as
+                     # getty@.service does (ADR-1401 D15).
+                     "Conflicts=rescue.service emergency.service", "Before=rescue.service emergency.service",
+                     "IgnoreOnIsolate=yes"):
             self.assertIn(line, unit)
         self.assertEqual([l for l in unit if l.startswith("DefaultInstance=")], ["DefaultInstance=name-a-VT/vtium@ttyN"], unit)
         directives = [l for l in unit if l and not l.startswith("#")]
@@ -3513,6 +3586,45 @@ class Package(Case):
         for f in ("usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"):
             self.assertIn(f, self.staged())
         self.assertIn("-p vtium-image-helper", " ".join(self.s.calls_of("cargo")))
+
+    def test_a_libseat_install_stages_the_units_pam_session_and_no_other_build_does(self):
+        # ADR-1400 D3: a console built with libseat opens a logind session of
+        # its own through its unit's PAMName=vtium, and ships the PAM file
+        # of that name. The file goes to /etc/pam.d whatever PREFIX is.
+        dropin = "lib/systemd/system/vtium@.service.d/libseat.conf"
+        for prefix, features in (("/usr", "libseat"), ("/opt/vt", "images,libseat")):
+            with self.subTest(prefix=prefix, features=features):
+                shutil.rmtree(self.dest, ignore_errors=True)
+                self.built(f"{prefix}/bin/vtium-config", f"{prefix}/bin/vtium-image" if "images" in features else None)
+                p = self.make("install", f"DESTDIR={self.dest}", f"PREFIX={prefix}",
+                              f"INSTALL_TARGET_DIR={self.build}", f"FEATURES={features}")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                staged = self.staged()
+                self.assertIn(prefix.lstrip("/") + "/" + dropin, staged)
+                self.assertIn("etc/pam.d/vtium", staged)
+                conf = read(os.path.join(self.dest, prefix.lstrip("/"), dropin)).splitlines()
+                directives = [l for l in conf if l and not l.startswith("#")]
+                # systemd refuses PAMName= beside the shipped unit's
+                # KillMode=process, so the drop-in sets mixed.
+                self.assertEqual(directives, ["[Service]", "User=root", "PAMName=vtium", "KillMode=mixed"])
+                pam = [l.split() for l in read(os.path.join(self.dest, "etc/pam.d/vtium")).splitlines()
+                       if l and not l.startswith("#")]
+                # A greeter's stack: no password to start, and a session
+                # that pam_systemd registers with logind.
+                self.assertEqual(pam, [["auth", "required", "pam_env.so"], ["auth", "required", "pam_permit.so"],
+                                       ["account", "required", "pam_permit.so"],
+                                       ["password", "required", "pam_deny.so"],
+                                       ["session", "required", "pam_unix.so"],
+                                       ["session", "optional", "pam_systemd.so"]])
+        # Without libseat the unit opens no PAM session.
+        for features in ("", "images logind gpu bidi"):
+            with self.subTest(features=features):
+                shutil.rmtree(self.dest, ignore_errors=True)
+                self.built("/usr/bin/vtium-config", "/usr/bin/vtium-image" if features else None)
+                p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
+                              f"FEATURES={features}")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual([f for f in self.staged() if "pam.d" in f or ".service.d" in f], [])
 
     def test_a_minspec_install_stages_no_image_helper(self):
         # A console built without images starts no image helper, so the
@@ -3757,6 +3869,12 @@ class Package(Case):
                     for v in verbs:
                         self.assertIn(v + "\n", comment)
                     self.assertNotIn("systemctl enable", comment)
+                    # The package's install gives vtium every free VT, and
+                    # its removal gives them back (ADR-1500 D3, D7).
+                    flat = " ".join(l.lstrip("# ") for l in comment.splitlines())
+                    self.assertIn("The package's install script gives vtium every free VT", flat)
+                    self.assertIn("Its removal script gives them back", flat)
+                    self.assertNotIn("one VT at a time", flat)
                 else:
                     self.assertIn(f"#   systemctl enable {name}@tty3.service\n", comment)
                     self.assertNotIn("vtium console", comment)

@@ -3,6 +3,10 @@
 # make install and make install-tree, and vtium-dev@.service for make
 # vt-install, and replaces its DefaultInstance= with one that names no VT
 # (ADR-1500 D3, D4). The instance is the VT's name, as getty@.service's is.
+# The package's install script gives vtium every free VT with vtium console
+# enable --all, and its removal script gives them back with vtium console
+# disable --all (ADR-1500 D3, D7). A build with libseat adds the drop-in
+# vtium-libseat.conf, which opens vtium's own PAM session (ADR-1400 D3).
 # It conflicts with getty@ on the same VT. When vtium fails, systemd starts
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
 # and from systemd 254 on each failure also starts vtium-getty@, which
@@ -34,6 +38,16 @@ Before=getty.target
 Conflicts=getty@%i.service
 After=getty@%i.service
 OnFailure=vtium-getty@%i.service
+# vtium steps aside for rescue and emergency mode, as getty@.service does
+# (ADR-1401 D15). Both modes run the rescue shell, which asks for root's
+# password on /dev/console, the VT that is shown. Entering either mode
+# therefore stops vtium on every VT first, and the prompt shows through the
+# kernel console. The conflict is what stops vtium: IgnoreOnIsolate= keeps
+# vtium running when systemd isolates any other target, such as a switch
+# between multi-user.target and graphical.target, which would otherwise end
+# every session on the VT.
+Conflicts=rescue.service emergency.service
+Before=rescue.service emergency.service
 IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0
 

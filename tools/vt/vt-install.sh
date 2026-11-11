@@ -21,7 +21,13 @@
 # which creates the vtium-image account the helper runs as at the login
 # prompt (ADR-1101 D2). An install of a binary without pictures removes the
 # image helper and the sysusers file an earlier install wrote, since every
-# VT runs the one binary.
+# VT runs the one binary. When the binary is built with libseat, which
+# install also reads from the binary, install writes the unit's drop-in
+# /etc/systemd/system/vtium-dev@.service.d/libseat.conf and the PAM file
+# /etc/pam.d/vtium-dev, made from crates/vtium/install/vtium-libseat.conf
+# and vtium.pam under the development install's PAM name, as make install
+# stages them for vtium@ (ADR-1400 D3). An install of a binary without
+# libseat removes the two files an earlier install wrote.
 # uninstall reads the manifest and undoes all of it: vtium-dev@ttyN stopped
 # and disabled, getty@ttyN enabled and started again where it was before, and
 # the files removed once no other VT's manifest needs them. It leaves the
@@ -159,7 +165,16 @@ images_marker='cannot open the image helper '
 # The image helper's account, under a name of the development install's
 # own, so it never masks a packaged /usr/lib/sysusers.d/vtium-image.conf.
 sysusers_path=/etc/sysusers.d/vtium-dev-image.conf
+# A line only a build with libseat carries: what vtium logs when no seat
+# manager answers (crates/vtium-platform/src/seat.rs, a module built only
+# with libseat). The tests hold it to that file.
+libseat_marker="no seat manager answered, so vtium uses the kernel's VT: "
 unit_dir=/etc/systemd/system
+# A build with libseat opens a PAM session of its own through its unit
+# (ADR-1400 D3): the unit's drop-in and the PAM file, under the development
+# install's own PAM name, so it never replaces a packaged /etc/pam.d/vtium.
+dropin_path=$unit_dir/vtium-dev@.service.d/libseat.conf
+pam_path=/etc/pam.d/vtium-dev
 state_dir=$vt_install_state
 unit=vtium-dev@tty$vt.service
 fallback=vtium-dev-getty@tty$vt.service
@@ -177,7 +192,12 @@ files=("$bin_path" "$helper_path" "$unit_dir/vtium-dev@.service" "$unit_dir/vtiu
 # them as they remove the retired files below; an install of a binary with
 # pictures moves them into files.
 pictures=("$image_path" "$sysusers_path")
-dropped=("${pictures[@]}")
+# What install writes only for a binary built with libseat, kept and removed
+# the same way.
+seat=("$dropin_path" "$pam_path")
+# Uninstall removes both sets; install sorts them below by what the binary
+# was built with.
+dropped=("${pictures[@]}" "${seat[@]}")
 # What an install made before the tool was renamed vtium-config (ADR-1201
 # D12) wrote under a name vt-install no longer uses. Install and uninstall
 # remove each one the record still holds unchanged, and keep any other.
@@ -296,6 +316,13 @@ written() {
 	[ -f "$root$1" ] && [ ! -L "$root$1" ] && recorded "$1" | grep -qxF -- "$(checksum "$1")"
 }
 
+# remove FILE: removes a file install wrote, and the drop-in's directory
+# with the drop-in once nothing else is in it.
+remove() {
+	as_root rm -f -- "$root$1"
+	[ "$1" != "$dropin_path" ] || as_root rmdir --ignore-fail-on-non-empty -- "$root${1%/*}"
+}
+
 # Removes each dropped and retired file that is still the one install wrote,
 # and names one the record holds that changed since; one the record does not
 # hold is someone else's, and stays without a word.
@@ -304,7 +331,7 @@ retire() {
 	for f in "${dropped[@]}" "${retired[@]}"; do
 		[ -e "$root$f" ] || [ -L "$root$f" ] || continue
 		if written "$f"; then
-			as_root rm -f -- "$root$f"
+			remove "$f"
 		elif [ -n "$(recorded "$f")" ]; then
 			echo "vt-$action: kept $f: it changed since vt-install wrote it"
 		fi
@@ -386,7 +413,7 @@ if [ "$action" = uninstall ]; then
 		for f in "${files[@]}"; do
 			[ -e "$root$f" ] || continue
 			if written "$f"; then
-				as_root rm -f -- "$root$f"
+				remove "$f"
 			else
 				echo "vt-uninstall: kept $f: it changed since vt-install wrote it"
 			fi
@@ -441,13 +468,25 @@ grep -qaF -- "$helper_path" "$bin" ||
 # that names another path would start the packaged helper, another build's,
 # or none.
 image=
+dropped=()
 if grep -qaF -- "$image_path" "$bin"; then
 	image=$(program VTIUM_VT_IMAGE "image helper" "vtium, as root, would start it" "make vt-install FEATURES=images")
 	[ -f "$src/vtium-image.conf" ] || die "no $src/vtium-image.conf, the image helper's sysusers file"
 	files+=("${pictures[@]}")
-	dropped=()
 elif grep -qaF -- "$images_marker" "$bin"; then
 	die "$bin is built with images but does not look for its image helper at $image_path, so it would start the packaged helper, another build's, or none; make vt-install FEATURES=images builds one that looks there"
+else
+	dropped+=("${pictures[@]}")
+fi
+libseat=
+if grep -qaF -- "$libseat_marker" "$bin"; then
+	libseat=1
+	for f in vtium-libseat.conf vtium.pam; do
+		[ -f "$src/$f" ] || die "no $src/$f, which a build with libseat installs"
+	done
+	files+=("${seat[@]}")
+else
+	dropped+=("${seat[@]}")
 fi
 
 # An installed kmscon's console, or the packaged vtium, on the VT would fight
@@ -502,6 +541,23 @@ if [ -n "$image" ]; then
 		cat "$src/vtium-image.conf"
 	} >"$tmp/sysusers"
 fi
+# The drop-in and the PAM file: the shipped ones under an opening line of
+# their own, with the PAM name the development install's.
+if [ -n "$libseat" ]; then
+	{
+		echo "# Written by make vt-install (tools/vt/vt-install.sh) from crates/vtium/install/vtium-libseat.conf."
+		echo "# make vt-uninstall removes it."
+		sed 's/^PAMName=vtium$/PAMName=vtium-dev/' "$src/vtium-libseat.conf"
+	} >"$tmp/libseat.conf"
+	grep -qx 'PAMName=vtium-dev' "$tmp/libseat.conf" ||
+		die "the shipped $src/vtium-libseat.conf has no PAMName=vtium line to change, so nothing is installed"
+	{
+		head -n1 "$src/vtium.pam"
+		echo "# Written by make vt-install (tools/vt/vt-install.sh) from crates/vtium/install/vtium.pam."
+		echo "# make vt-uninstall removes it."
+		tail -n +2 "$src/vtium.pam"
+	} >"$tmp/pam"
+fi
 
 # What getty@ttyN was before, so uninstall puts it back: the first install
 # on this VT records it, and a reinstall keeps that record.
@@ -532,6 +588,10 @@ fi
 		printf '%s  %s\n' "$(sha256sum <"$image" | cut -d' ' -f1)" "$image_path"
 		printf '%s  %s\n' "$(sha256sum <"$tmp/sysusers" | cut -d' ' -f1)" "$sysusers_path"
 	fi
+	if [ -n "$libseat" ]; then
+		printf '%s  %s\n' "$(sha256sum <"$tmp/libseat.conf" | cut -d' ' -f1)" "$dropin_path"
+		printf '%s  %s\n' "$(sha256sum <"$tmp/pam" | cut -d' ' -f1)" "$pam_path"
+	fi
 } >"$tmp/files"
 
 if [ -n "$dry" ]; then
@@ -541,6 +601,7 @@ if [ -n "$dry" ]; then
 		cat "$tmp/$f"
 	done
 	[ -z "$image" ] || { printf '\n--- %s\n' "$sysusers_path"; cat "$tmp/sysusers"; }
+	[ -z "$libseat" ] || { printf '\n--- %s\n' "$dropin_path"; cat "$tmp/libseat.conf"; printf '\n--- %s\n' "$pam_path"; cat "$tmp/pam"; }
 	[ -z "$write_manifest" ] || { printf '\n--- %s\n' "$manifest"; cat "$tmp/manifest"; }
 	printf '\n--- %s\n' "$record"
 	cat "$tmp/files"
@@ -606,10 +667,13 @@ if [ -n "$image" ]; then
 	put "$image" "$image_path" 0755
 	put "$tmp/sysusers" "$sysusers_path" 0644
 fi
+# The PAM file goes in before the drop-in that names it.
+[ -z "$libseat" ] || put "$tmp/pam" "$pam_path" 0644
 put "$bin" "$bin_path" 0755
 for f in vtium-dev@.service vtium-dev-getty@.service; do
 	put "$tmp/$f" "$unit_dir/$f" 0644
 done
+[ -z "$libseat" ] || put "$tmp/libseat.conf" "$dropin_path" 0644
 # The new binary is in place, so the helper under its old name goes, and so
 # do the image helper and its sysusers file when the new binary has no
 # pictures. The copies are done, so the record holds only what is there now.
