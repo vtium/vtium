@@ -201,6 +201,7 @@ Every commit to vtium is signed with the maintainer's SSH key, from 2026-11-10 o
 | For | Read |
 |---|---|
 | The crates, the tiers, determinism, the reply rule, tables and maps | [docs/architecture.md](docs/architecture.md) |
+| Work under docs/: pages for users and contributors, generated pages, figures and their claim files | [docs/AGENTS.md](docs/AGENTS.md) |
 | What a contribution must show, the code rules, the kitty source rule | [CONTRIBUTING.md](CONTRIBUTING.md) |
 | The target set and its coverage | `docs/architecture/term/ADR-1000-*` |
 | A crate's bounds and the choices it makes | `crates/<crate>/README.md` |
