@@ -8470,7 +8470,7 @@ mod enter_switch {
     const USB: &str = "/dev/input/event6";
     const LAPTOP: &str = "/dev/input/event7";
 
-    /// The test laptop's file: `[head console]` with no `vt`, and
+    /// A laptop's file: `[head console]` with no `vt`, and
     /// `[head terminal-1]` on `vts`, with `extra` among its keys, under
     /// `policy`.
     fn laptop(policy: &str, vts: &str, extra: &str) -> String {

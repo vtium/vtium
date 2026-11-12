@@ -2592,9 +2592,10 @@ fn offered(out: &str) -> Vec<Vec<String>> {
 
 #[test]
 fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
-    // padnoir: sddm's Xorg runs on VT 7, with /dev/tty7 as its controlling
-    // terminal, and the advice offered enable --direct 7 and --seat 7,
-    // which both refuse VT 7.
+    // For each VT another program holds, the advice offers neither mode's
+    // enable command for that VT, since enable refuses it. The first case
+    // is a machine whose display manager, sddm, runs Xorg on VT 7 with
+    // /dev/tty7 as its controlling terminal.
     let padnoir = |m: &mut Machine| {
         display_manager(m);
         process(
@@ -2723,8 +2724,8 @@ fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
             assert_eq!(status, 0, "{name}: {words:?} was refused: {err}{out}");
         }
     }
-    // A VT nothing holds, on padnoir: the advice offers both modes, and
-    // both work.
+    // On the same machine, the advice for a VT nothing holds offers both
+    // modes, and both commands work.
     let mut m = Machine::gettys("advise-free");
     padnoir(&mut m);
     let (status, out, _) = m.console_as(false, &["enable", "3"]);
@@ -3333,10 +3334,10 @@ fn tty(n: u32) -> u32 {
 
 #[test]
 fn a_display_server_on_a_vt_with_no_session_keeps_it() {
-    // padnoir: sddm's X11 greeter ran its Xorg on VT 2, with no logind
-    // session, while the user's Wayland session ran on VT 1. A text login
-    // on VT 4, a getty waiting on VT 5 and a debug shell on VT 9 are there
-    // too.
+    // A machine where sddm's X11 greeter runs its Xorg on VT 2, with no
+    // logind session, while the user's Wayland session runs on VT 1. A
+    // text login on VT 4, a getty waiting on VT 5 and a debug shell on
+    // VT 9 are there too.
     let mut m = Machine::gettys("display-server");
     display_manager(&m);
     m.fake.sessions = vec![
