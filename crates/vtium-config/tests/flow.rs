@@ -444,6 +444,35 @@ fn dry_run_prints_the_change_and_writes_nothing() {
     );
 }
 
+// ADR-1401, "Enter on a head's own keyboard": `head set` turns a head's
+// switch-on-enter on with yes and takes its line out with no, so a
+// vtium.conf vtium-config writes holds only what is set
+#[test]
+fn head_set_turns_switch_on_enter_on_and_off() {
+    let f = fixture("head-switch");
+    f.desk();
+    let before = f.draft();
+    let on = f.run(&["head", "set", "desk", "--switch-on-enter", "yes"]);
+    assert_eq!(on.status, 0, "{}", on.err);
+    assert_eq!(
+        f.draft(),
+        before.replace("[head desk]\n", "[head desk]\nswitch-on-enter = yes\n")
+    );
+    let off = f.run(&["head", "set", "desk", "--switch-on-enter", "no"]);
+    assert_eq!(off.status, 0, "{}", off.err);
+    assert_eq!(f.draft(), before);
+    let refused = f.run(&["head", "set", "desk", "--switch-on-enter", "maybe"]);
+    assert_eq!(refused.status, 2);
+    assert!(
+        refused
+            .err
+            .contains("--switch-on-enter takes yes or no, not maybe."),
+        "{}",
+        refused.err
+    );
+    assert_eq!(f.draft(), before);
+}
+
 #[test]
 fn a_removed_head_keeps_its_rules_and_a_rename_takes_them_along() {
     let f = fixture("head-rm");

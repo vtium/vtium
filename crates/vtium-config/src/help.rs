@@ -228,7 +228,7 @@ const TOPICS: &[Topic] = &[
         forms: &[
             form("head add NAME [--look L]", "add a head"),
             form(
-                "head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD] [--when-display-lost V] [--isolated yes|no]",
+                "head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD] [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]",
                 "change a head's settings",
             ),
             form("head rm NAME", "delete a head, keeping its rules"),

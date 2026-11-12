@@ -468,22 +468,39 @@ impl Command<'_, '_> {
                 self.change(&args, |t| ops::head_add(t, name, look.as_deref()))
             }
             "set" => {
-                const KEYS: [(&str, &str); 5] = [
+                const KEYS: [(&str, &str); 6] = [
                     ("--look", "look"),
                     ("--consoles", "consoles"),
                     ("--login", "login"),
                     ("--when-display-lost", "when-display-lost"),
                     ("--isolated", "isolated"),
+                    ("--switch-on-enter", "switch-on-enter"),
                 ];
                 let valued: Vec<&str> = KEYS.iter().map(|(o, _)| *o).chain(["--name"]).collect();
                 let args = Args::parse(rest, &CHANGE, &valued)?;
                 let [name] = args.words.as_slice() else {
                     return Err(Fail::Usage("head set takes NAME and the settings to change".to_owned()));
                 };
-                let keys: Vec<(&str, Option<&str>)> = KEYS
+                let mut keys: Vec<(&str, Option<&str>)> = KEYS
                     .iter()
                     .filter_map(|(o, k)| args.value(o).map(|v| (*k, Some(v))))
                     .collect();
+                // `switch-on-enter` is `no` when unset, so no takes its
+                // line out and the draft holds only what is set
+                for (key, value) in &mut keys {
+                    if *key == "switch-on-enter" {
+                        *value = match *value {
+                            Some("yes") => Some("yes"),
+                            Some("no") => None,
+                            other => {
+                                return Err(Fail::Usage(format!(
+                                    "--switch-on-enter takes yes or no, not {}.",
+                                    other.unwrap_or_default()
+                                )));
+                            }
+                        };
+                    }
+                }
                 let rename = args.value("--name").map(str::to_owned);
                 if keys.is_empty() && rename.is_none() {
                     return Err(Fail::Usage("head set needs at least one setting to change".to_owned()));
