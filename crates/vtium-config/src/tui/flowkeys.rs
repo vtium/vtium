@@ -1452,9 +1452,23 @@ mod tests {
         );
         // the control each hint names is the one on screen
         assert!(words::SWITCH_EVERY_VT.contains(&format!("line {}", words::VTS_LABEL)));
-        assert!(words::SWITCH_EVERY_VT.contains("press e"));
+        assert!(words::SWITCH_EVERY_VT.contains("Press e"));
         assert!(words::KEYS_FLOW_CARD.contains("e revise this path"));
         assert!(words::SWITCH_EVERY_VT_NEW.contains(&format!("line {}", words::VTS_LABEL)));
+        // each hint fits the three lines the card gives it at 80 columns
+        for why in [
+            words::SWITCH_CLOSED,
+            words::SWITCH_ISOLATED,
+            words::SWITCH_EVERY_VT,
+            words::SWITCH_EVERY_VT_NEW,
+            words::SWITCH_PAST_12,
+        ] {
+            let text = format!("{} {why}", words::SWITCH_ABOUT);
+            assert!(
+                super::super::canvas::wrap(&text, 76, 9).len() <= 3,
+                "{text}"
+            );
+        }
     }
 
     // vtium replaces a first word written `$NAME` with that variable, so
