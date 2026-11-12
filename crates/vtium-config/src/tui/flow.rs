@@ -126,6 +126,11 @@ pub struct Head {
     /// Its other keys as the file sets them: `login`, `when-display-lost`,
     /// `isolated`.
     pub keys: Vec<(String, String)>,
+    /// Whether vtium isolates the head, as vtium-settings'
+    /// `Config::isolated` decides it from its `isolated` key and the
+    /// policy (ADR-1401 D5): an isolated head is never the active head, so
+    /// no roaming input reaches it.
+    pub isolated: bool,
 }
 
 /// A `[look NAME]` section.

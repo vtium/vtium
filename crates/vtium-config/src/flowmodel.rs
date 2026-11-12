@@ -324,7 +324,8 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
     let heads = config
         .heads
         .iter()
-        .map(|h| {
+        .enumerate()
+        .map(|(i, h)| {
             let mut keys = Vec::new();
             if let Some(login) = &h.login {
                 keys.push(("login".to_owned(), login.clone()));
@@ -356,6 +357,7 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                 consoles: h.consoles,
                 look: h.look.clone(),
                 keys,
+                isolated: config.isolated(i),
             }
         })
         .collect();
