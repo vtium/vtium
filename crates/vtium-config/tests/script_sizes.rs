@@ -9,7 +9,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use vtium_config::serve::{Engine, FritText, Paths};
+use vtium_config::serve::{Engine, FritText, Made, Paths};
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Font, Glyph, Psf, Script, Style, Unifont, Variant, Width};
 
@@ -420,4 +420,85 @@ fn script_source_gives_the_smaller_fonts_lines() {
     };
     assert_eq!(strike_lines(&e, cell, Script::Super), lines(7, 4, 0));
     assert_eq!(strike_lines(&e, cell, Script::Sub), lines(15, 12, 8));
+}
+
+/// How `engine` says it made `c`'s glyph in `script` at `cell`
+/// (ADR-1202 D14), and that the set it sent holds that glyph.
+fn made(engine: &Engine, cell: Cell, script: Script, c: char) -> Made {
+    let (set, made) = engine
+        .draw_made(cell, variant(script), &[u32::from(c)], (&[], false))
+        .expect("draws");
+    let set = Arc::new(Set::from_bytes(set.expect("a set")).expect("a set"));
+    let face = SetFace::new(set, cell.height).expect("a face");
+    assert!(face.draw_variant(&[c], variant(script)).is_some(), "{c}");
+    assert_eq!(made.len(), 1, "{made:?}");
+    made.get(&u32::from(c)).cloned().expect("how it was made")
+}
+
+// D14: the engine says which way it made each superscript and subscript
+// glyph: unifont at its own size scaled (D4), at 2x and 3x from a smaller
+// whole multiple of itself, a CPI source from another of its heights, a
+// script-source= font by its spelling (D3, D12), and an outline font
+// rasterized small (D2); a normal glyph says nothing
+// covers: sgr.script
+#[test]
+fn the_engine_says_how_it_made_each_script_glyph() {
+    let unifont = engine("source=builtin:unifont\n");
+    let at = |k: u32| Cell {
+        width: 8 * k,
+        height: 16 * k,
+    };
+    for script in [Script::Super, Script::Sub] {
+        assert_eq!(made(&unifont, at(1), script, '2'), Made::Scaled);
+        assert_eq!(
+            made(&unifont, at(2), script, '2'),
+            Made::Multiple {
+                normal: 2,
+                small: 1
+            }
+        );
+        assert_eq!(
+            made(&unifont, at(3), script, '2'),
+            Made::Multiple {
+                normal: 3,
+                small: 2
+            }
+        );
+    }
+    let (_, normal) = unifont
+        .draw_made(at(2), variant(Script::Baseline), &[0x32], (&[], false))
+        .expect("draws");
+    assert!(normal.is_empty(), "{normal:?}");
+
+    let s = Scratch::new("made");
+    let cp = s.file("f.cp", &cpi_file(&[16, 14, 8]));
+    let map = s.file("f.uni", b"0x41 U+0041\n");
+    let cpi = engine(&format!("source=file:{cp}\ncp-size=16\nunimap={map}\n"));
+    assert_eq!(
+        made(&cpi, at(1), Script::Super, 'A'),
+        Made::Height {
+            height: 8,
+            multiple: 1
+        }
+    );
+
+    let big = s.file("big.psf", &psf2(16, 0, true));
+    let small = s.file("small.psf", &psf2(8, 101, true));
+    let named = engine(&format!("source=file:{big}\nscript-source=file:{small}\n"));
+    assert_eq!(
+        made(&named, at(1), Script::Sub, 'A'),
+        Made::Named {
+            spelling: format!("file:{small}"),
+            height: 8,
+            multiple: 1
+        }
+    );
+
+    let ttf = s.file("mono.ttf", &vtium_testfont::ttf::test_mono().build());
+    let outline = engine(&format!("source=outline:{ttf}\n"));
+    let cell = Cell {
+        width: 10,
+        height: 20,
+    };
+    assert_eq!(made(&outline, cell, Script::Super, 'A'), Made::Outline);
 }

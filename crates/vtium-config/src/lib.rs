@@ -51,6 +51,7 @@ pub mod glyphs;
 pub mod help;
 pub mod kitty;
 pub mod library;
+pub mod made;
 pub mod names;
 pub mod ops;
 pub mod outcome;
