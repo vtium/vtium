@@ -6,9 +6,9 @@
 //! controlling terminal, and `/proc/PID/stat` gives that terminal's device
 //! number as its seventh field, `tty_nr` (proc(5)). The file is readable
 //! by every user, so `status` sees it without root. An X server that
-//! starts on a VT makes the VT its controlling terminal, as padnoir's
-//! `/usr/lib/Xorg ... vt2` did (measured: `ps` showed it on `tty2`), and so
-//! does a getty, a login shell and a debug shell. `/proc/PID/cgroup` names
+//! starts on a VT makes the VT its controlling terminal, so `ps` shows
+//! `/usr/lib/Xorg ... vt2` on `tty2`. A getty, a login shell and a debug
+//! shell do the same. `/proc/PID/cgroup` names
 //! the systemd unit the process runs in, so vtium can tell a program that
 //! another rule already accounts for from one that holds its VT on its own
 //! ([`super::Run::judge_processes`]).

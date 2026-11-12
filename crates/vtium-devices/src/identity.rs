@@ -229,9 +229,9 @@ mod tests {
         assert_eq!(none.serial, "");
     }
 
-    // A display whose card udev never gave an ID_PATH, as padnoir's
-    // NVIDIA card when vtium listed it before udev set it up, says so, and
-    // each part of a display is judged on its own, as rule_for judges it.
+    // A display whose card has no ID_PATH from udev, as a card has when
+    // vtium lists it before udev has set it up, says so, and each part of
+    // a display is judged on its own, as rule_for judges it.
     #[test]
     fn a_display_no_rule_can_name_says_what_it_lacks() {
         let reason = |edid: Option<Edid>, card: Option<&str>, daemon: bool| {

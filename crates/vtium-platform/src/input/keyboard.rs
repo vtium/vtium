@@ -305,6 +305,8 @@ impl KeyState {
 pub(crate) struct Processed {
     /// A press to dispatch.
     pub(crate) key: Option<KeyEvent>,
+    /// A release to dispatch, of a key whose press was dispatched.
+    pub(crate) release: Option<KeyEvent>,
     /// The repeat to start (`Some`) or stop (`None` inside), if it changed.
     pub(crate) repeat: Option<RepeatChange>,
     /// The LEDs to set, when the xkb state changed them.
@@ -338,12 +340,79 @@ impl Leds {
     }
 }
 
+/// The real modifiers behind NumLock, Hyper and Meta in a keymap, where
+/// vtium reports them (ADR-1005, D8).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Special {
+    num: xkb::ModMask,
+    hyper: xkb::ModMask,
+    meta: xkb::ModMask,
+}
+
+impl Special {
+    /// NumLock's modifier is the one the Num_Lock key locks. Hyper's and
+    /// Meta's are the ones their keys set, each kept only where neither
+    /// Alt nor Super uses it: in xkeyboard-config's default keymaps Meta
+    /// shares Alt's and Hyper Super's, so neither is reported there.
+    fn of(keymap: &xkb::Keymap) -> Special {
+        let real = |name: &str| match keymap.mod_get_index(name) {
+            xkb::MOD_INVALID => 0,
+            i => 1u32.checked_shl(i).unwrap_or(0),
+        };
+        let taken = set_by(keymap, &[keysyms::KEY_Alt_L, keysyms::KEY_Alt_R])
+            | set_by(keymap, &[keysyms::KEY_Super_L, keysyms::KEY_Super_R])
+            | real(xkb::MOD_NAME_ALT)
+            | real(xkb::MOD_NAME_LOGO);
+        let own = |mask: xkb::ModMask| if mask & taken == 0 { mask } else { 0 };
+        Special {
+            num: set_by(keymap, &[keysyms::KEY_Num_Lock]),
+            hyper: own(set_by(
+                keymap,
+                &[keysyms::KEY_Hyper_L, keysyms::KEY_Hyper_R],
+            )),
+            meta: own(set_by(keymap, &[keysyms::KEY_Meta_L, keysyms::KEY_Meta_R])),
+        }
+    }
+}
+
+/// The real modifiers that a key making one of `syms` sets or locks, pressed
+/// at the first layout's level that makes it. The keymap's own actions
+/// decide them, which every libxkbcommon applies, where asking the state
+/// for a virtual modifier by name needs libxkbcommon 1.8.
+fn set_by(keymap: &xkb::Keymap, syms: &[u32]) -> xkb::ModMask {
+    let mut mask = 0;
+    keymap.key_for_each(|keymap, key| {
+        for level in 0..keymap.num_levels_for_key(key, 0) {
+            let makes = keymap
+                .key_get_syms_by_level(key, 0, level)
+                .iter()
+                .any(|s| syms.contains(&s.raw()));
+            if !makes {
+                continue;
+            }
+            let mut masks = [0; 8];
+            let n = keymap.key_get_mods_for_level(key, 0, level, &mut masks);
+            let held = masks.get(..n).and_then(|m| m.first()).copied().unwrap_or(0);
+            let mut state = xkb::State::new(keymap);
+            state.update_mask(held, 0, 0, 0, 0, 0);
+            let before = state.serialize_mods(xkb::STATE_MODS_EFFECTIVE);
+            state.update_key(key, xkb::KeyDirection::Down);
+            mask |= state.serialize_mods(xkb::STATE_MODS_EFFECTIVE) & !before;
+        }
+    });
+    mask
+}
+
 /// One keyboard's state: modifiers held on it apply to it alone.
 pub(crate) struct Keyboard {
     state: xkb::State,
     compose: Option<compose::State>,
     /// The press repeating, while it repeats.
     repeat: Option<KeyEvent>,
+    /// The presses dispatched whose keys are still held, each released
+    /// once.
+    held: Vec<KeyEvent>,
+    special: Special,
 }
 
 impl Keyboard {
@@ -355,13 +424,17 @@ impl Keyboard {
                 .as_ref()
                 .map(|table| compose::State::new(table, compose::STATE_NO_FLAGS)),
             repeat: None,
+            held: Vec::new(),
+            special: Special::of(&keymap.keymap),
         }
     }
 
     /// A key from evdev: `code` is evdev's, `state` its value. The keysyms
     /// are read before the state changes; compose sees presses; a press
     /// finishing no compose sequence is dispatched, and starts or stops the
-    /// repeat.
+    /// repeat. The release of a key whose press was dispatched is
+    /// dispatched too, with the press's keysyms and the modifiers after it
+    /// (ADR-1005, D8).
     pub(crate) fn process(&mut self, state: KeyState, code: u16) -> Processed {
         let mut out = Processed::default();
         if state == KeyState::Repeated {
@@ -401,6 +474,16 @@ impl Keyboard {
         if self.state.update_key(keycode, direction) & xkb::STATE_LEDS != 0 {
             out.leds = Some(self.leds());
         }
+        if state == KeyState::Released
+            && let Some(i) = self.held.iter().position(|k| k.keycode == keycode.raw())
+        {
+            let press = self.held.swap_remove(i);
+            out.release = Some(KeyEvent {
+                mods: self.mods(),
+                repeat: false,
+                ..press
+            });
+        }
         if syms.is_empty()
             || matches!(
                 status,
@@ -412,6 +495,8 @@ impl Keyboard {
         let event = self.event(keycode, &syms);
         out.repeat = self.repeat_change(state, &event);
         if state == KeyState::Pressed {
+            self.held.retain(|k| k.keycode != event.keycode);
+            self.held.push(event.clone());
             out.key = Some(event);
         }
         out
@@ -474,8 +559,19 @@ impl Keyboard {
         self.repeat = None;
     }
 
-    /// Shift, Lock, Control, Alt and Super, as they apply now.
+    /// Shift, Lock, Control, Alt and Super, as they apply now; NumLock
+    /// while it is on; Hyper and Meta where the keymap gives them a
+    /// modifier of their own.
     pub(crate) fn mods(&self) -> Mods {
+        let effective = self.state.serialize_mods(xkb::STATE_MODS_EFFECTIVE);
+        let special = [
+            (self.special.num, Mods::NUM),
+            (self.special.hyper, Mods::HYPER),
+            (self.special.meta, Mods::META),
+        ]
+        .into_iter()
+        .filter(|&(mask, _)| effective & mask != 0)
+        .fold(Mods::empty(), |mods, (_, m)| mods.union(m));
         [
             (xkb::MOD_NAME_SHIFT, Mods::SHIFT),
             (xkb::MOD_NAME_CAPS, Mods::LOCK),
@@ -488,7 +584,7 @@ impl Keyboard {
             self.state
                 .mod_name_is_active(name, xkb::STATE_MODS_EFFECTIVE)
         })
-        .fold(Mods::empty(), |mods, (_, m)| mods.union(m))
+        .fold(special, |mods, (_, m)| mods.union(m))
     }
 
     /// The ASCII keysym for the shortcut keys: the key's own when it is one
@@ -533,6 +629,7 @@ impl Keyboard {
         if let Some(compose) = self.compose.as_mut() {
             compose.reset();
         }
+        self.held.clear();
         self.leds()
     }
 
@@ -540,10 +637,15 @@ impl Keyboard {
     /// modifiers, such as Caps Lock and Num Lock. The locked layout group
     /// belongs to the old keymap, so the new state starts on the new
     /// keymap's first layout. A key repeating stops, and a compose sequence
-    /// in progress starts again on the new keymap's compose table.
+    /// in progress starts again on the new keymap's compose table. The
+    /// keys held stay held, so each still reports its release: the
+    /// kernel's key codes do not change with the layout, and a release
+    /// carries the keysyms its press carried (ADR-1005 D8).
     pub(crate) fn set_keymap(&mut self, keymap: &Keymap) -> Leds {
         let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);
+        let held = std::mem::take(&mut self.held);
         *self = Keyboard::new(keymap);
+        self.held = held;
         self.state.update_mask(0, 0, locked_mods, 0, 0, 0);
         self.leds()
     }

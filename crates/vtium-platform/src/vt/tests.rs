@@ -1333,3 +1333,20 @@ fn the_fake_vt_takes_the_kernels_own_key_rule_for_its_number() {
         "releasing"
     );
 }
+
+// ADR-1005 D10, the note of 2026-11-12: the locks are states, so the VT
+// keys, the rescue key among them, switch whether Caps Lock and NumLock
+// are on or off.
+#[test]
+fn the_vt_keys_switch_with_the_locks_on() {
+    let locks = Mods::LOCK.union(Mods::NUM);
+    let ctrl_alt = Mods::CTRL.union(Mods::ALT);
+    assert_eq!(
+        super::kernel::switch_target(&key(ctrl_alt.union(locks), keysyms::KEY_F2)),
+        Some(2)
+    );
+    assert_eq!(
+        super::kernel::switch_target(&key(locks, keysyms::KEY_XF86Switch_VT_3)),
+        Some(3)
+    );
+}

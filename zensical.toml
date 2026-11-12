@@ -48,6 +48,7 @@ nav = [
           { "Deployment and start-up" = "concepts/start-up.md" },
           { "Seats and sessions" = "concepts/seats-and-sessions.md" },
           { "Heads" = "concepts/heads.md" },
+          { "Security" = "concepts/security.md" },
           { "Fonts, generated at run time" = "concepts/fonts.md" },
           { "Using vtium" = "concepts/using-vtium.md" },
           { "How vtium is judged" = "concepts/how-vtium-is-judged.md" },
@@ -76,12 +77,14 @@ exclude_docs = """
 """
 
 # Pages reached by a link and not from the menu: the decision records, which
-# architecture/INDEX.md links, the specimen profiles, which
-# specimens/README.md links, and the tutorial Your first frit, which joins the
-# menu once it is written.
+# architecture/INDEX.md links, the acceptance passes, which ADR-1501 and
+# vt-review.md describe, the specimen profiles, which specimens/README.md
+# links, and the tutorial Your first frit, which joins the menu once it is
+# written.
 not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
+/acceptance/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
 """

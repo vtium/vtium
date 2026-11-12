@@ -1203,9 +1203,9 @@ fn opened_with(set: impl FnOnce(&mut super::stand_in::Server)) -> bool {
 }
 
 /// On a machine without seatd, libseat reports that seatd's socket is
-/// missing before vtium falls back to the kernel's VT, as every vtium on
-/// padnoir logged. That error is expected there, so vtium logs it at the
-/// debug level and its own line says what happened.
+/// missing before vtium falls back to the kernel's VT. That error is
+/// expected there, so vtium logs it at the debug level and its own line
+/// says what happened.
 #[test]
 fn libseats_expected_fallback_logs_only_vtiums_line() {
     logs::capture();

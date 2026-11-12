@@ -10,7 +10,7 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 - **libseat,** for seat access through seatd or logind ([the libseat issue](https://github.com/vtium/vtium/issues/34)). Today vtium opens the VT, the cards and the input devices itself, as root.
 - **Handing the display back without a VT switch,** through the `setBackground` sequence ([the hand-back issue](https://github.com/vtium/vtium/issues/36)).
 
-Also not built yet: ligatures and shaping across cells, the kitty keyboard protocol, input methods, the rest of the configuration tool's job (identifying a device by a keypress, `vtium config status`, and staging a trial; see [the issue that tracks it](https://github.com/vtium/vtium/issues/367)), `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
+Also not built yet: ligatures and shaping across cells, the rest of the kitty keyboard protocol (a program can already turn on its unambiguous escape codes and its key repeat and release events; see [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)), input methods, the rest of the configuration tool's job (identifying a device by a keypress, `vtium config status`, and staging a trial; see [the issue that tracks it](https://github.com/vtium/vtium/issues/367)), `vtium-clipboard`, and reading a changed vtium.conf without a restart. The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
 ## Displays
 

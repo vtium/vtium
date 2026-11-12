@@ -1243,6 +1243,46 @@ display card:mem-small -> small
     drop(s);
 }
 
+/// ADR-1403 D5, ADR-1200 D5, D9: a look's `font-name` that no frit bears
+/// draws a frit made on the fly under that name, and OSC 50 switches back
+/// to it by the name, in the look's cell. The look names the kbd font
+/// `ter-v16n` and states a 12x24 cell, which wins over the 8x16 cell the
+/// display's density gives; the program switches to frit `d`, and back by
+/// the name `ter-v16n`, and the head draws that font in the look's cell on
+/// the grid it started on.
+#[test]
+fn an_osc_50_switch_returns_to_a_looks_font_by_its_name() {
+    let (_dir, fonts, _starts) = frits("look-made-osc50", &["d"]);
+    let heads = "version = 1
+[look made]
+font-name = ter-v16n
+cell = 12x24
+[head small]
+look = made
+[rules]
+display card:mem-small -> small
+";
+    let script = "echo ready; read a; \
+                  printf '\\033]50;d\\007'; echo away; read b; \
+                  printf '\\033]50;ter-v16n\\007'; echo back; read c";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")));
+    assert_eq!(s.app.font_name(), "ter-v16n");
+    let started = (s.app.head("small").map(Head::cells), grid(&s.app, "small"));
+    assert_eq!(started.0, Some(vec![(12, 24)]), "the look's cell");
+    s.type_str("x\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "away")));
+    assert_eq!(s.app.font_name(), "d", "the switch took");
+    s.type_str("y\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "back")));
+    assert_eq!(s.app.font_name(), "ter-v16n", "the switch back took");
+    assert_eq!(
+        (s.app.head("small").map(Head::cells), grid(&s.app, "small")),
+        started
+    );
+}
+
 /// ADR-1200 D7, D17, ADR-1403 D5: a head that draws the built-in fonts
 /// alone draws them in the cell its look states, fitted to that cell, as
 /// it would draw a frit, and not at the display's automatic size. The
@@ -2372,6 +2412,85 @@ fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
         s.until(BOUND, |a| head_shows(a, "small", focus_in)
             && head_shows(a, "large", focus_out)),
         "the chord moves it"
+    );
+}
+
+/// ADR-1005 D7: a program that asked the kitty keyboard protocol for
+/// releases gets one for every press it got. The focus chord moves the
+/// keyboard to the other head while Escape is held, so the head it leaves
+/// gets Escape's release at once, `CSI 27 ; 1:3 u` after the press's
+/// `CSI 27 u`, and the key's real release later goes nowhere.
+// covers: input.kitty-keyboard
+#[test]
+fn the_focus_chord_lets_go_of_the_keys_held_on_the_head_it_leaves() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033[>3u'; echo ready; \
+                  while :; do echo \"k:$(head -c 14 | tr '\\033' E)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    let escape = KeyEvent {
+        keycode: 9,
+        ascii: 0,
+        mods: Mods::empty(),
+        keysyms: vec![0xff1b],
+        codepoints: vec![None],
+        repeat: false,
+    };
+    let kbd = Path::new(KBD_FOCUS);
+    s.app
+        .device_input(kbd, InputEvent::Key(escape.clone()), now());
+    s.app.device_input(kbd, ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "k:E[27uE[27;1:3u")),
+        "the head left gets the release before the key is let go: {:?}",
+        s.app.head("large").map(Head::screen_text)
+    );
+    // The key's real release goes nowhere: small never got its press.
+    s.app.device_input(kbd, InputEvent::Release(escape), now());
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "small", "k:"), "small got no release");
+}
+
+/// Mode 1035 reads NumLock from the modifiers the input reports, which
+/// the binary hands the terminal unchanged: under DECKPAM, KP_1 with
+/// NumLock on sends its digit, as xterm's numLock does, where the
+/// application keypad would send SS3 q; with NumLock off the key is KP_End,
+/// which sends what End sends (ctlseqs, mode 1035; vtium/vtium#356).
+// covers: DEC-1035
+#[test]
+fn mode_1035_reads_the_num_lock_the_input_reports() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033='; echo ready; \
+                  while :; do echo \"k:$(head -c 4 | tr '\\033' E)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(BOUND, |a| head_shows(a, "large", "ready")));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    let kp_1 = |mods: Mods| {
+        InputEvent::Key(KeyEvent {
+            keycode: 87,
+            ascii: 0,
+            mods,
+            keysyms: vec![if mods.contains(Mods::NUM) {
+                0xffb1
+            } else {
+                0xff9c
+            }],
+            codepoints: vec![mods.contains(Mods::NUM).then_some('1')],
+            repeat: false,
+        })
+    };
+    let kbd = Path::new(KBD_FOCUS);
+    s.app.device_input(kbd, kp_1(Mods::NUM), now());
+    s.app.device_input(kbd, kp_1(Mods::empty()), now());
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "k:1E[F")),
+        "{:?}",
+        s.app.head("large").map(Head::screen_text)
     );
 }
 
@@ -8470,7 +8589,7 @@ mod enter_switch {
     const USB: &str = "/dev/input/event6";
     const LAPTOP: &str = "/dev/input/event7";
 
-    /// The test laptop's file: `[head console]` with no `vt`, and
+    /// A laptop's file: `[head console]` with no `vt`, and
     /// `[head terminal-1]` on `vts`, with `extra` among its keys, under
     /// `policy`.
     fn laptop(policy: &str, vts: &str, extra: &str) -> String {

@@ -1,6 +1,6 @@
 # vtium's tier 3 goldens
 
-Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. Tier 3 began with goldens copied from an earlier harness that judged another console (`../README.md`, The copies), and ADR-1503 D1 made them vtium's. Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
+Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. The maintainer has reviewed every golden here, so `../provisional.tsv` lists none. Tier 3 began with goldens copied from an earlier harness that judged another console (`../README.md`, The copies), and ADR-1503 D1 made them vtium's. Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
 
 ## The small displays
 
@@ -25,7 +25,7 @@ The goldens of the small displays (vtium/vtium#75): vtium's captures from `make 
 | `2d-640x480-psf16/wide-margin.png` | The `wide-margin` screen at column 80, its cases as at 320x240. |
 | `2d-640x480-psf16/cjk.png` | The `cjk` screen at 8x16. |
 
-The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The guest without systemd) are vtium's captures from `make tier3-nosystemd` on the branch that added it, each pixel for pixel the reviewed `2d-640x480-psf16` golden of the same screen, as the same display, configuration and font draw it under either init. They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The guest without systemd) are vtium's captures from `make tier3-nosystemd` on the branch that added it, each pixel for pixel the reviewed `2d-640x480-psf16` golden of the same screen, as the same display, configuration and font draw it under either init. The maintainer reviewed and accepted them on 2026-11-05, so they judge.
 
 | Golden | What it shows |
 |---|---|
@@ -35,7 +35,7 @@ The goldens of the guest without systemd (vtium/vtium#104, `../README.md`, The g
 | `sysvinit-no-udev/cjk.png` | The `cjk` screen, with no udev daemon. |
 | `sysvinit-two-vts/cjk.png` | The `cjk` screen, drawn by tty2's console with a second console started on tty3 at the boot (vtium/vtium#139). |
 
-The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal`: 640x480, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1301 D2). The frit states no cell, so `2d-640x480-frit` draws in DejaVu Sans Mono's own cell, 9x16, 71 by 30 (ADR-1200 D17), recaptured at e8560705; `2d-640x480-frit-held`, whose helper never answers, draws in the built-in font's 8x16 cell, 80 by 30, as captured on the branch that added them. They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are vtium's captures from `make tier3-minimal`: 640x480, the font the frit `dejavu-mono` generated at run time by the helper (ADR-1301 D2). The frit states no cell, so `2d-640x480-frit` draws in DejaVu Sans Mono's own cell, 9x16, 71 by 30 (ADR-1200 D17), recaptured at e8560705; `2d-640x480-frit-held`, whose helper never answers, draws in the built-in font's 8x16 cell, 80 by 30, as captured on the branch that added them. The maintainer reviewed and accepted them on 2026-11-05, so they judge.
 
 | Golden | What it shows |
 |---|---|
@@ -44,7 +44,7 @@ The goldens of the frit variants (vtium/vtium#145, `../README.md`, Variants) are
 | `2d-640x480-frit-held/small-console.png` | The `small-console` screen with a helper that never answers: the screen before the helper's first answer, all in the built-in unifont, pixel for pixel the reviewed `2d-640x480-psf16/small-console.png`. |
 | `2d-640x480-frit-held/cjk.png` | The `cjk` screen with a helper that never answers, all in the built-in unifont, pixel for pixel `2d-640x480-psf16/cjk.png`. |
 
-The goldens of the device variants (`../README.md`, Outputs and keyboards) are vtium's captures from `make tier3 VARIANTS="two-outputs-mirror two-cards-mirror usb-keyboards"` at 7da1d7a: 640x480, 8x16 cells, 80 by 30, in the 8x16 test font with unifont after it. Each is pixel for pixel the `2d-640x480-psf16` golden of the same screen, as vtium draws one grid on every output today. They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the device variants (`../README.md`, Outputs and keyboards) are vtium's captures from `make tier3 VARIANTS="two-outputs-mirror two-cards-mirror usb-keyboards"` at 7da1d7a: 640x480, 8x16 cells, 80 by 30, in the 8x16 test font with unifont after it. Each is pixel for pixel the `2d-640x480-psf16` golden of the same screen, as vtium draws one grid on every output today. The maintainer reviewed and accepted them on 2026-11-05, so they judge.
 
 | Golden | What it shows |
 |---|---|
@@ -56,7 +56,7 @@ The goldens of the device variants (`../README.md`, Outputs and keyboards) are v
 
 ## Recaptured with the sets (vtium/vtium#126)
 
-vtium draws only vitrified sets, so the small displays draw sets the guest builds before the console starts: the 8x8 test font with the built-in Unscii-8 after it, and the 8x16 one with unifont after it (`../guest/frits`). The sprites win over a fill font's glyphs, so box drawing, blocks, shades and Braille draw as before. Eight goldens moved, where a character the test font lacked, `?` before, now draws as Unscii-8's U+25A1, the missing glyph, at 8x8, since Unscii-8 holds none of them, and as unifont's glyph at 8x16. They were recaptured from `make tier3-minimal` and are listed in `../provisional.tsv` until the operator reviews them; the table's descriptions of those eight are the goldens before. The rows and columns that moved, counted from 1, with the pixels that differ:
+vtium draws only vitrified sets, so the small displays draw sets the guest builds before the console starts: the 8x8 test font with the built-in Unscii-8 after it, and the 8x16 one with unifont after it (`../guest/frits`). The sprites win over a fill font's glyphs, so box drawing, blocks, shades and Braille draw as before. Eight goldens moved, where a character the test font lacked, `?` before, now draws as Unscii-8's U+25A1, the missing glyph, at 8x8, since Unscii-8 holds none of them, and as unifont's glyph at 8x16. They were recaptured from `make tier3-minimal`, and the maintainer reviewed and accepted them on 2026-11-05, so they judge. The table's descriptions of those eight are the goldens before. The rows and columns that moved, counted from 1, with the pixels that differ:
 
 - `2d-320x240-psf8/cjk`: 560 px; rows 1: cols 17-24; 2: cols 1-16,20-25; 3: cols 2-3,5-6,8-9,11-12,14-15
 - `2d-320x240-psf8/strike`: 115 px; rows 9: cols 20-23,29-34
@@ -67,7 +67,7 @@ vtium draws only vitrified sets, so the small displays draw sets the guest build
 - `2d-640x480-psf16/underline-styles`: 305 px; rows 14: cols 16-19,25-30
 - `2d-640x480-psf16/wide-margin`: 295 px; rows 2: cols 79-80; 4: cols 1-2; 6: cols 1-2; 7: cols 79-80; 10: cols 1-2
 
-The goldens of the head-file variants (`../README.md`, Head files) are vtium's captures from `make tier3` with those variants at a717d83: 640x480, the console's first screen of each head file and the `cjk` screen of the two that give a login, in the 8x16 test font with unifont after it. They stay in `../provisional.tsv` until the operator reviews them. Each first screen was the same, pixel for pixel, on three runs.
+The goldens of the head-file variants (`../README.md`, Head files) are vtium's captures from `make tier3` with those variants at a717d83: 640x480, the console's first screen of each head file and the `cjk` screen of the two that give a login, in the 8x16 test font with unifont after it. The maintainer reviewed and accepted them on 2026-11-05, so they judge. Each first screen was the same, pixel for pixel, on three runs.
 
 | Golden | What it shows |
 |---|---|
@@ -79,7 +79,7 @@ The goldens of the head-file variants (`../README.md`, Head files) are vtium's c
 | `heads-kiosk/cjk.png` | The `cjk` screen, typed through the USB keyboard that claims the closed kiosk's head, captured from `make tier3` at 043fcc7. Pixel for pixel `2d-640x480-psf16/cjk.png`. |
 | `heads-closed-unmatched/no-display-notice.png` | A red-bordered notice over the top two rows on a black screen: `vtium: no display for any head`, then `Connect a display that a rule in /etc/vtium/vtium.conf sends to a head.` Recaptured from `make tier3` at 127b2ca3. |
 
-The goldens of the images variant (`../README.md`, Pictures) are vtium's captures from `make tier3-images` at 755b04a7, the commit before them: 640x480, 8x16 cells, 80 by 30, in the 8x16 test font with unifont after it, the console built with images. The pictures are `../t3_pictures.py`'s, and `PictureGoldenTest` in `../test_t3.py` finds each one in its golden, pixel for pixel, at the cell its screen places it. They stay in `../provisional.tsv` until the operator reviews them.
+The goldens of the images variant (`../README.md`, Pictures) are vtium's captures from `make tier3-images` at 755b04a7, the commit before them: 640x480, 8x16 cells, 80 by 30, in the 8x16 test font with unifont after it, the console built with images. The pictures are `../t3_pictures.py`'s, and `PictureGoldenTest` in `../test_t3.py` finds each one in its golden, pixel for pixel, at the cell its screen places it. The maintainer reviewed and accepted them on 2026-11-05, so they judge.
 
 | Golden | What it shows |
 |---|---|
@@ -142,4 +142,4 @@ The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s
 
 | Golden | What it shows |
 |---|---|
-| `kmsg-notice/kernel-message.png` | 1366x768, the minimal configuration, once the kernel logged `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err while vtium showed its login prompt on tty2. The notice box spans the top of the boot display and holds that message, then the line `Press Esc to dismiss this message (15)`, the count at its first value, in black on pale red with a red border. It covers the row of the `tier3 login:` prompt, and the rest of the screen is black. Provisional. |
+| `kmsg-notice/kernel-message.png` | 1366x768, the minimal configuration, once the kernel logged `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err while vtium showed its login prompt on tty2. The notice box spans the top of the boot display and holds that message, then the line `Press Esc to dismiss this message (15)`, the count at its first value, in black on pale red with a red border. It covers the row of the `tier3 login:` prompt, and the rest of the screen is black. The maintainer reviewed and accepted it on 2026-11-11, so it judges. |

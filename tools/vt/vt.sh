@@ -29,6 +29,9 @@
 #                     vtium's log
 #   VTIUM_VT_FEATURES the features the binary was built with (FEATURES=),
 #                     which the acceptance pass's record names
+#   VTIUM_VT_RENDER_PATH  for the acceptance pass: gpu or cpu (RENDER_PATH=),
+#                     which run-vt.sh gives vtium as --hwaccel or
+#                     --no-hwaccel and the pass's record names
 #   VTIUM_VT_GUIDE    for guide: a name in tools/vt/checks (NAME.guide) or a
 #                     path, checked here with guide.sh --check before sudo
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
@@ -218,11 +221,12 @@ drm=
 
 # The command, once the log's name, and with it the transcript's, is final.
 build_cmd() {
-	local record=() state=()
+	local record=() state=() render=()
+	[ -z "${VTIUM_VT_RENDER_PATH:-}" ] || render=(--render-path="$VTIUM_VT_RENDER_PATH")
 	[ -z "$transcript" ] || record=(--transcript="$transcript")
 	[ -z "$drm" ] || state=(--debug="$drm")
 	cmd=("$here/run-vt.sh" --bin="$bin" "${helper_arg[@]}" --label="dev build ${label:-unknown}"
-		--features="${VTIUM_VT_FEATURES:-}" --passes="$passes" "${state[@]}" "${session[@]}"
+		--features="${VTIUM_VT_FEATURES:-}" --passes="$passes" "${render[@]}" "${state[@]}" "${session[@]}"
 		"${record[@]}" "$vt" -- "${extra[@]}")
 }
 
