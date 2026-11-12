@@ -1,4 +1,4 @@
-//! `set NAME` (ADR-1200 D5): switches the running console among the frits
+//! `use-frit NAME` (ADR-1200 D5): switches the running console among the frits
 //! and the built-in fonts through xterm's font operation, OSC 50, on the
 //! controlling terminal.
 //!
