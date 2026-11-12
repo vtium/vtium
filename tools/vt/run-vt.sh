@@ -9,7 +9,7 @@
 # docs/vt-review.md.
 #
 #   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--image=PATH] [--dry-run] [--label=TEXT] [--features=TEXT]
-#        [--passes=DIR] [--debug=DIR] [--login |
+#        [--render-path=gpu|cpu] [--passes=DIR] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
@@ -21,6 +21,9 @@
 # page and in its pass record, and --features the features it was built with;
 # --passes names the directory the acceptance pass keeps its pass records in
 # (ADR-1501), which the session, as the user, creates when it is missing.
+# --render-path chooses the path the acceptance pass judges: gpu runs vtium
+# with --hwaccel and cpu with --no-hwaccel, the pass's record names it, and
+# the vtium options after -- then name neither.
 # --login runs vtium's login prompt (/bin/login, through PAM) in place of the
 # acceptance pass, so the session is a logind session. The first logout ends the run; so
 # do Ctrl-C, a vtium crash and vtium ending on its own, the last two as
@@ -99,6 +102,7 @@ helper=
 image=
 label=
 features=
+render_path=
 passes=
 extra=()
 login=
@@ -115,6 +119,7 @@ while [ $# -gt 0 ]; do
 	--image=*) image=${1#*=}; [ -n "$image" ] || die "--image needs the image helper's path" ;;
 	--label=*) label=${1#*=} ;;
 	--features=*) features=${1#*=} ;;
+	--render-path=*) render_path=${1#*=} ;;
 	--passes=*) passes=${1#*=} ;;
 	--login) login=1 ;;
 	--guide=*) guide=${1#*=}; [ -n "$guide" ] || die "--guide needs the guide's path: --guide=tools/vt/checks/NAME.guide" ;;
@@ -253,6 +258,20 @@ done
 	die "--label takes up to 80 letters, digits, spaces and ._+:/@-, not '$label'"
 [[ $features =~ ^[a-z0-9\ ,_-]{0,80}$ ]] ||
 	die "--features takes up to 80 lowercase letters, digits, spaces and ,_-, not '$features'"
+# The render path is the acceptance pass's choice of hwaccel, so an hwaccel
+# option among vtium's would contradict it.
+case $render_path in
+'') ;;
+gpu | cpu)
+	[ -z "$login$guide$shell" ] || die "--render-path goes with the acceptance pass"
+	for o in "${extra[@]}"; do
+		[[ $o != --hwaccel && $o != --no-hwaccel ]] ||
+			die "RENDER_PATH chooses hwaccel for the acceptance pass: leave $o out of DEMO_ARGS"
+	done
+	if [ "$render_path" = gpu ]; then extra+=(--hwaccel); else extra+=(--no-hwaccel); fi
+	;;
+*) die "--render-path takes gpu or cpu, not '$render_path'" ;;
+esac
 # The path reaches the session as one word of its own (ACCEPT_DIR=...), never as shell code, so
 # a space or any other printable character is safe in it. A control character, a newline above
 # all, is refused because it would garble the lines the run prints.
@@ -735,6 +754,7 @@ terminfo=(TERMINFO="$stage/terminfo")
 # features, beside the label (ADR-1501 D5).
 accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_FEATURES="${features:-none}")
 [ -z "$passes" ] || accept+=(ACCEPT_DIR="$passes")
+[ -z "$render_path" ] || accept+=(ACCEPT_RENDER_PATH="$render_path")
 # The pages that blink text name the style vtium draws it in (blink.inc): from
 # the config this run gives vtium, the copy --configdir names, and from the
 # blink options given to vtium, the last of each winning as it does in vtium.
