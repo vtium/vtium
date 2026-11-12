@@ -154,7 +154,7 @@ class Prose(unittest.TestCase):
 
     def test_only_the_pages_people_read_are_read(self):
         long = f"{words(40)}\n"
-        self.tree({"notes.md": long, "docs/architecture/term/ADR-1.md": long, "docs/acceptance/a.md": long,
+        self.tree({"notes.md": long, "docs/architecture/term/ADR-1000-fixture.md": long, "docs/acceptance/a.md": long,
                    "docs/sub/page.md": long, "crates/x/src/README.md": long, "crates/x/fuzz/README.md": long,
                    "docs/page.txt": long, "README.md": long, "docs/page.md": long, "docs/concepts/c.md": long,
                    "crates/x/README.md": long})
