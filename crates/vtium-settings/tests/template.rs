@@ -65,6 +65,7 @@ fn the_template_writes_the_policy_and_every_head_key_as_a_commented_line() {
         "login",
         "when-display-lost",
         "isolated",
+        "switch-on-enter",
     ] {
         let commented = format!("\n# {key} = ");
         assert!(

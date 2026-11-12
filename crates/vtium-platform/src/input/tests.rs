@@ -39,6 +39,7 @@ const KEY_LEFTCTRL: u16 = 29;
 const KEY_LEFTALT: u16 = 56;
 const KEY_CAPSLOCK: u16 = 58;
 const KEY_F2: u16 = 60;
+const KEY_F3: u16 = 61;
 
 fn keymap() -> Keymap {
     Keymap::fallback().unwrap_or_else(|| panic!("the built-in keymap compiles"))
@@ -1361,10 +1362,14 @@ fn a_repeat_comes_from_its_device_and_a_watched_ones_is_dropped() {
     assert!(tagged_keys(&mut input, &vt).is_empty());
 }
 
+// ADR-1401 D3, "Who switches VTs": a keyboard the rules ignore, or one tied
+// to a head on another VT, switches VTs under the open policy, and the
+// shown VT's own key is the rescue key (D9). A watched device delivers
+// those keys alone, while the VT is ours, and vtium decides what each does.
 #[test]
-fn a_watched_device_delivers_the_vts_own_key_alone() {
+fn a_watched_device_delivers_the_vt_keys_alone() {
     // An OTP token the rules ignore: what it types is dropped, and so is
-    // every chord but the shown VT's own key.
+    // every chord but the VT keys.
     let (mut input, devices) = with_devices(&[(
         "/dev/input/event0",
         fake::keyboard(),
@@ -1389,11 +1394,15 @@ fn a_watched_device_delivers_the_vts_own_key_alone() {
             press(KEY_LEFTALT),
             press(KEY_A),
             press(KEY_F2),
+            press(KEY_F3),
         ],
     );
     assert_eq!(
         tagged_keys(&mut input, &vt),
-        [(Some(*t), true, keysyms::KEY_XF86Switch_VT_2)]
+        [
+            (Some(*t), true, keysyms::KEY_XF86Switch_VT_2),
+            (Some(*t), true, keysyms::KEY_XF86Switch_VT_3)
+        ]
     );
     feed(&mut input, token, *t, &[press(KEY_F2)]);
     assert!(tagged_keys(&mut input, &no_vt()).is_empty());

@@ -15,7 +15,7 @@
 //! `policy`, which this reader takes; it skips every other top-level line,
 //! so a top-level mistake never drops a section and an error in a section
 //! never drops a top-level key. A head takes `look`, `consoles`,
-//! `when-display-lost`, `isolated` and the key table's head keys, and a
+//! `when-display-lost`, `isolated`, `switch-on-enter` and the key table's head keys, and a
 //! look takes `vtlook` and the key table's look keys, each value checked
 //! against the key's values and bounds (ADR-1403 D5).
 //!
@@ -393,7 +393,7 @@ fn keep_first<T>(findings: &mut Vec<T>) -> usize {
 /// The words `policy` takes.
 pub(crate) const POLICY: [&str; 2] = ["open", "closed"];
 
-/// The words `isolated` takes, yes then no.
+/// The words `isolated` and `switch-on-enter` take, yes then no.
 pub(crate) const YES_NO: [&str; 2] = ["yes", "no"];
 
 /// The forms `when-display-lost` takes (D8).
@@ -403,8 +403,14 @@ pub(crate) const WHEN_DISPLAY_LOST: [&str; 3] = ["keep", "hangup", "hangup DURAT
 /// (ADR-1403 D5). Each is the head's own, even where the key table has a
 /// top-level key of the same name: the top level's `vt` is the VT vtium
 /// opens, and a head's `vt` the VTs the head runs on (ADR-1403 D4).
-pub(crate) const CONF_HEAD_KEYS: [&str; 5] =
-    ["look", "consoles", "when-display-lost", "isolated", "vt"];
+pub(crate) const CONF_HEAD_KEYS: [&str; 6] = [
+    "look",
+    "consoles",
+    "when-display-lost",
+    "isolated",
+    "switch-on-enter",
+    "vt",
+];
 
 /// The key a look names its vtlook with (ADR-1403 D1, ADR-1304 D4).
 pub(crate) const VTLOOK: &str = "vtlook";
@@ -452,7 +458,7 @@ pub(crate) enum Takes {
 pub(crate) fn takes(key: &str) -> Takes {
     match key {
         "policy" => Takes::Words(&POLICY),
-        "isolated" => Takes::Words(&YES_NO),
+        "isolated" | "switch-on-enter" => Takes::Words(&YES_NO),
         "when-display-lost" => Takes::Words(&WHEN_DISPLAY_LOST),
         "consoles" => Takes::Number { min: 1, max: None },
         "look" | VTLOOK => Takes::Name,
@@ -1116,10 +1122,16 @@ impl Parser {
                     Ok(v) => head.vts = v,
                     Err(e) => problem = Some(e),
                 },
-                "isolated" => {
+                "isolated" | "switch-on-enter" => {
                     let [yes, no] = YES_NO;
                     match value {
-                        v if v == yes || v == no => head.isolated = Some(v == yes),
+                        v if v == yes || v == no => {
+                            if key == "isolated" {
+                                head.isolated = Some(v == yes);
+                            } else {
+                                head.switch_on_enter = v == yes;
+                            }
+                        }
                         _ => problem = Some(bad()),
                     }
                 }

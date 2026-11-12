@@ -41,7 +41,6 @@ pub(crate) mod fake;
 mod tests;
 
 pub use fake_vt::FakeVt;
-#[cfg(feature = "libseat")]
 pub(crate) use kernel::switch_target;
 pub use kernel::{KernelVt, Restore};
 pub use tty::Tty;

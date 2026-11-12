@@ -78,6 +78,11 @@ pub struct Head {
     /// `isolated` as the file writes it, `None` for unset, which the
     /// policy decides (D5); [`Config::isolated`] reads it.
     pub isolated: Option<bool>,
+    /// `switch-on-enter`, unset `no`: on a VT where the head does not run,
+    /// Enter on a keyboard tied to it switches to its VT (ADR-1401 D3,
+    /// "Enter on a head's own keyboard"); [`Config::switch_on_enter`]
+    /// reads it.
+    pub switch_on_enter: bool,
     /// The VTs its `vt` names, each once, in the file's order (ADR-1403
     /// D4). Empty when the head has no `vt`, so it runs on every VT.
     pub vts: Vec<u16>,
@@ -99,6 +104,7 @@ impl Head {
             login: None,
             when_display_lost: WhenDisplayLost::Keep,
             isolated: None,
+            switch_on_enter: false,
             vts: Vec::new(),
             settings: Vec::new(),
         }
@@ -124,8 +130,8 @@ pub enum Target {
     Head(usize),
     /// `roaming`: an input that types into the active head.
     Roaming,
-    /// `ignore`: an input vtium never opens, but a keyboard watched for
-    /// the rescue key alone.
+    /// `ignore`: an input vtium never opens, but under open a keyboard
+    /// watched for the VT keys alone, the rescue key among them.
     Ignore,
     /// `off`: a display vtium sets off.
     Off,

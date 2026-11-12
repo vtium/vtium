@@ -10,7 +10,8 @@
 //! the seat's, then the terminal's grabs, then the encoder.
 //!
 //! Each device has a disposition a head file's rules set (ADR-1401 D3):
-//! delivered, watched for the rescue key alone, or closed and never
+//! delivered, watched for the VT keys alone, the rescue key among them,
+//! or closed and never
 //! opened. Until one is set, a device is taken by the rule vtium has always
 //! used ([`Input::add`]). [`Input::device_events`] drains the events with
 //! the device each came from, so a head takes its own keyboards and
@@ -217,7 +218,7 @@ impl<E> Device<E> {
 
     /// Queues [`InputEvent::Mods`] when the modifiers the owner sees it
     /// hold differ from those the owner was last told. The owner sees none
-    /// on a device watched for the rescue key, as [`Input::mods`] counts
+    /// on a device watched for the VT keys, as [`Input::mods`] counts
     /// none there, so a keyboard moved to the rescue reports none, and one
     /// moved back reports what it holds; neither event is a rescue's.
     fn tell_mods(&mut self, queue: &mut Queue) {
@@ -313,7 +314,7 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// What happened since the last drain, in order, but for the keys of
-    /// devices watched for the rescue key.
+    /// devices watched for the VT keys.
     pub fn events(&mut self) -> std::vec::Drain<'_, InputEvent> {
         let Queue { events, sources } = &mut self.queue;
         let mut from = sources.drain(..);
@@ -323,9 +324,11 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// What happened since the last drain, in order, each with the device
-    /// it came from. Of a device watched for the rescue key, only the
-    /// presses `vt` says are its own key are kept (ADR-1401 D9); its other
-    /// keys and its repeats are dropped.
+    /// it came from. Of a device watched for the VT keys, only the presses
+    /// of `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` while `vt` is ours are
+    /// kept, the VT's own key, the rescue key, among them (ADR-1401 D3,
+    /// "Who switches VTs", and D9); its other keys and its repeats are
+    /// dropped, and the app decides whether each VT key switches.
     pub fn device_events<'a>(
         &'a mut self,
         vt: &'a dyn Vt,
@@ -335,7 +338,9 @@ impl<O: Open + 'static> Input<O> {
             .drain(..)
             .zip(events.drain(..))
             .filter(move |(s, event)| {
-                !s.rescue || matches!(event, InputEvent::Key(k) if !k.repeat && vt.is_own_key(k))
+                !s.rescue
+                    || matches!(event, InputEvent::Key(k)
+                        if !k.repeat && vt.is_active() && crate::vt::switch_target(k).is_some())
             })
             .map(|(s, event)| DeviceInput {
                 device: s.device,
@@ -496,7 +501,7 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// Sets the keyboards' LEDs, as a program asks with DECLL, but for
-    /// those watched for the rescue key.
+    /// those watched for the VT keys.
     pub fn set_leds(&mut self, leds: Leds) {
         self.write_leds_where(leds, |d| !d.rescue());
     }
@@ -516,7 +521,7 @@ impl<O: Open + 'static> Input<O> {
     }
 
     /// Shift, Lock, Control, Alt and Super, held on any keyboard but those
-    /// watched for the rescue key.
+    /// watched for the VT keys.
     pub fn mods(&self) -> Mods {
         self.mods_where(|d| !d.rescue())
     }
@@ -752,7 +757,7 @@ impl<O: Open + 'static> Input<O> {
             return;
         };
         let from = Some(id);
-        // A device watched for the rescue key sends its keys alone.
+        // A device watched for the VT keys sends its keys alone.
         let pointer = !rescue;
         match ev.kind {
             EV_KEY => {
@@ -974,7 +979,7 @@ fn probe<E: EventDevice>(
     if disposition == Some(Disposition::Rescue) {
         log::info!(
             target: "input",
-            "watching {} [{name}]{id} for the rescue key",
+            "watching {} [{name}]{id} for the VT keys",
             node.display()
         );
     } else {

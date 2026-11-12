@@ -3439,3 +3439,168 @@ fn a_display_server_on_a_vt_with_no_session_keeps_it() {
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
     assert_eq!(m.snapshot(), before);
 }
+
+// ADR-1401 D3, "Enter on a head's own keyboard": vtium is enabled on a VT
+// where systemd starts it at boot, in either mode, or where logind starts
+// it at a switch through the VT's own link or the template; past logind's
+// VTs a link alone enables nothing. A host without systemd has no answer.
+#[test]
+fn the_vts_vtium_is_enabled_on_are_those_systemd_or_logind_starts_it_on() {
+    let m = Machine::gettys("enabled-vts");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.link("getty.target.wants/vtium-seat@tty12.service", "vtium-seat");
+    m.link("autovt@tty5.service", "vtium");
+    m.link("autovt@tty9.service", "vtium");
+    assert_eq!(
+        enabled_vts(m.root()),
+        Some(Enabled {
+            vts: BTreeSet::from([3, 5, 12]),
+            mode: Mode::Direct,
+        }),
+        "the getty template keeps VTs 2, 4 and 6, VT 9 is past logind's VTs, and the modes mix"
+    );
+    std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
+    m.link(TEMPLATE, "vtium");
+    assert_eq!(
+        enabled_vts(m.root()).map(|e| e.vts),
+        Some(BTreeSet::from([2, 3, 4, 5, 6, 12]))
+    );
+    std::fs::remove_dir_all(m.root().join(BOOTED)).unwrap();
+    assert_eq!(enabled_vts(m.root()), None);
+}
+
+// The VTs vtium runs on are those of its running units, in either mode, as
+// `status` reads them; a systemctl that fails gives the reason.
+#[test]
+fn the_vts_vtium_runs_on_are_those_of_its_running_units() {
+    let mut m = Machine::new("running-vts");
+    m.fake.running = vec![
+        "vtium@tty3.service".to_owned(),
+        "vtium-seat@tty12.service".to_owned(),
+        "getty@tty4.service".to_owned(),
+        "vtium-dev@tty7.service".to_owned(),
+    ];
+    assert_eq!(running_vts(&mut m.fake), Ok(BTreeSet::from([3, 12])));
+    m.fake.fail = Some("list-units --plain --no-legend --state=active *@tty*.service".to_owned());
+    assert!(running_vts(&mut m.fake).is_err());
+}
+
+/// The cells of each row of `status`'s table in `out`, by the column
+/// titles' places in the header, as vtium-config reads the table.
+fn status_table(out: &str) -> Vec<Vec<String>> {
+    let mut lines = out.lines().skip_while(|l| !l.starts_with("VT "));
+    let header = lines.next().unwrap();
+    let starts: Vec<usize> = text::STATUS_HEADER
+        .iter()
+        .map(|title| header.find(title).unwrap())
+        .collect();
+    lines
+        .take_while(|l| {
+            l.split_whitespace()
+                .next()
+                .is_some_and(|n| n.parse::<u16>().is_ok())
+        })
+        .map(|l| {
+            starts
+                .iter()
+                .enumerate()
+                .map(|(i, &at)| {
+                    let end = starts
+                        .get(i.saturating_add(1))
+                        .copied()
+                        .unwrap_or(l.len())
+                        .min(l.len());
+                    l.get(at.min(end)..end)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+// vtium-config reads `status`'s table by its column titles, so the titles
+// and their order are a contract: VT, at boot, when switched to, running,
+// each column as wide as its widest cell and two spaces apart, the last
+// unpadded, and "-" for an empty cell.
+#[test]
+fn the_status_tables_header_and_columns_are_fixed() {
+    assert_eq!(
+        text::STATUS_HEADER,
+        ["VT", "at boot", "when switched to", "running"]
+    );
+    let mut m = Machine::gettys("status-layout");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.fake.running = vec!["vtium@tty3.service".to_owned()];
+    let (status, out, _) = m.console(&["status"]);
+    assert_eq!(status, 0, "{out}");
+    let header = out.lines().find(|l| l.starts_with("VT ")).unwrap();
+    assert_eq!(
+        header,
+        "VT  at boot                 when switched to  running"
+    );
+    let row = out.lines().find(|l| l.starts_with("3 ")).unwrap();
+    assert_eq!(
+        row,
+        "3   getty@tty3, vtium@tty3  getty@tty3        vtium@tty3"
+    );
+    let table = status_table(&out);
+    assert_eq!(
+        table.iter().find(|r| r[0] == "7"),
+        None,
+        "a VT nothing names has no row"
+    );
+    assert_eq!(table.iter().find(|r| r[0] == "2").unwrap()[3], "-");
+}
+
+// ADR-1401 D3: check-config's VTs where vtium is enabled are those whose
+// row in `status`'s table names vtium@ttyN or vtium-seat@ttyN as a part of
+// its "at boot" or "when switched to" cell, the reading of vtium-config's
+// install; a mask's part and the development install's unit count for
+// neither.
+#[test]
+fn the_vts_vtium_is_enabled_on_are_those_status_names_it_on() {
+    let mut m = Machine::gettys("enabled-as-status");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.link("getty.target.wants/vtium-dev@tty4.service", "vtium-dev");
+    m.link("autovt@tty5.service", "vtium-seat");
+    m.link("vtium@tty2.service", "vtium");
+    std::fs::remove_file(m.root().join(ETC).join("vtium@tty2.service")).unwrap();
+    symlink("/dev/null", m.root().join(ETC).join("vtium@tty2.service")).unwrap();
+    let (_, out, _) = m.console(&["status"]);
+    let table = status_table(&out);
+    assert!(
+        table.iter().any(|r| r[1].contains("vtium@tty2 masked")),
+        "{out}"
+    );
+    let named: BTreeSet<u16> = table
+        .iter()
+        .filter_map(|r| {
+            let n: u16 = r[0].parse().ok()?;
+            let own = [format!("vtium@tty{n}"), format!("vtium-seat@tty{n}")];
+            r[1..3]
+                .iter()
+                .any(|cell| cell.split(", ").any(|p| own.iter().any(|o| o == p)))
+                .then_some(n)
+        })
+        .collect();
+    assert_eq!(named, BTreeSet::from([3, 5]), "{out}");
+    assert_eq!(enabled_vts(m.root()).map(|e| e.vts), Some(named));
+}
+
+// The command that enables another VT names the mode the VTs vtium is
+// enabled on share, as vtium-config's install reads it: seat mode where
+// every one is seat mode's, and direct mode where they mix or none is
+// enabled.
+#[test]
+fn the_mode_to_enable_is_the_one_the_enabled_vts_share_else_direct() {
+    let m = Machine::gettys("enable-mode");
+    let mode = |m: &Machine| enabled_vts(m.root()).map(|e| e.mode);
+    assert_eq!(mode(&m), Some(Mode::Direct), "none enabled");
+    m.link("getty.target.wants/vtium-seat@tty3.service", "vtium-seat");
+    m.link("autovt@tty5.service", "vtium-seat");
+    assert_eq!(mode(&m), Some(Mode::Seat), "every one in seat mode");
+    m.link("getty.target.wants/vtium@tty4.service", "vtium");
+    assert_eq!(mode(&m), Some(Mode::Direct), "the modes mix");
+}

@@ -987,6 +987,14 @@ version = 1
 # and it is never the active head, so no roaming input device reaches it. When
 # unset, it is no with policy = open and yes with policy = closed.
 # isolated = no
+#
+# yes lets the head's own keyboards reach it from another VT. On a VT where
+# the head does not run, its displays show a notice that names its VT, and
+# Enter on a keyboard the rules send to the head switches to the first of the
+# head's VTs on which vtium runs. Other keys only wake the notice, but
+# Ctrl-Alt and a function key still switch the VT. It works only with
+# policy = open, and never on an isolated head.
+# switch-on-enter = no
 
 [rules]
 # Each display and each input device goes through these rules on its own, top
