@@ -224,12 +224,14 @@ A display or an input can be in one path for each VT. Two paths can share a disp
 
 #### A terminal's card
 
-Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login` and `When its screen is unplugged`. Up and Down move between the lines, Left and Right move between a line's choices, and Enter sets the choice. On `Name`, Enter lets you type a new name.
+Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login`, `When its screen is unplugged` and `Switch on Enter`. Up and Down move between the lines, Left and Right move between a line's choices, and Enter sets the choice. On `Name`, Enter lets you type a new name.
 
 The `Login` line sets the program each console of the terminal starts. It has two choices:
 
 - `Default: /bin/login -p` leaves the terminal's own `login` key unset. The choice shows the command that runs then: the `login` key at the top of vtium.conf, or vtium's default, `/bin/login -p`.
 - `Other…` lets you type a command. vtium-config keeps it only when its first word is the full path of a program that exists and can run, or a variable such as `$SHELL`, which vtium replaces with its value when the console starts. Otherwise it says in one sentence what is wrong, such as `The login program login is not a full path. Type a path that starts with /, such as /bin/login.`
+
+The `Switch on Enter` line sets the terminal's `switch-on-enter` key. With `on`, you can press Enter on one of the terminal's own keyboards while another VT shows, and vtium switches to the terminal's VT. With `off`, the default, vtium-config leaves the key unset. The switch has no effect under `policy = closed`, on an isolated terminal, on a terminal that runs on every VT, and on a terminal whose VTs are all above 12. While the cursor is on the line, the card says when one of these applies, such as `It has no effect now, because this terminal runs on every VT. Give it VTs of its own in NEW PATH to use it.` See [The sections of vtium.conf](head-file.md) for details.
 
 Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right.
 

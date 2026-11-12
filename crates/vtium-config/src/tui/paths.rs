@@ -65,11 +65,19 @@ pub fn expand(part: &str) -> Vec<&str> {
 }
 
 /// The terminal settings a path carries: how many consoles, the login,
-/// what happens when its screen is unplugged, and the VTs it runs on.
-/// `isolated` is kept as the draft has it. The card changes the first
-/// three in place; the VTs change only in NEW PATH, so that vtium-config
-/// checks each VT for a clash when the path is added (ADR-1403 D7).
-pub const SETTINGS: [&str; 5] = ["consoles", "login", "when-display-lost", "isolated", "vt"];
+/// what happens when its screen is unplugged, whether Enter on its own
+/// keyboard switches to its VT, and the VTs it runs on. `isolated` is
+/// kept as the draft has it. The card changes the first four in place;
+/// the VTs change only in NEW PATH, so that vtium-config checks each VT
+/// for a clash when the path is added (ADR-1403 D7).
+pub const SETTINGS: [&str; 6] = [
+    "consoles",
+    "login",
+    "when-display-lost",
+    "switch-on-enter",
+    "isolated",
+    "vt",
+];
 
 /// The command a console of a head with no `login` of its own runs: the
 /// top level's `login`, or else vtium's default, `/bin/login -p` with

@@ -1314,6 +1314,121 @@ mod tests {
         assert!(state(&app).new.displays.is_empty());
     }
 
+    /// The Flow view on the draft `text`, with `head`'s card open.
+    fn card_of(text: &str, head: &str) -> App {
+        let mut app = app();
+        app.inputs.flow =
+            crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
+        app.draft = Some(super::super::desk::Opened {
+            name: "north".into(),
+            text: text.into(),
+            ..Default::default()
+        });
+        app.flow_settle();
+        let card = Obj::Doc(head.into(), Slot::Terminal);
+        highlight(&mut app, card.clone());
+        keys(&mut app, &[Key::Enter]);
+        assert_eq!(state(&app).layer, Some(card));
+        app
+    }
+
+    /// The draft text that Enter on the choice `pick` of `line` sends to
+    /// check-config, from the card `card_of` opened.
+    fn card_writes(app: &mut App, line: &flowdraw::CardLine, pick: usize) -> String {
+        let path = flowdraw::card_path(app, &state(app).layer.clone().expect("a card"))
+            .expect("the card's path");
+        let at = flowdraw::card_lines(&path, false)
+            .iter()
+            .position(|l| l == line)
+            .expect("the line on the card");
+        keys(app, &vec![Key::Down; at]);
+        keys(app, &[Key::Left, Key::Left]);
+        keys(app, &vec![Key::Right; pick]);
+        app.event(Event::Input(Input::Key(Key::Enter)))
+            .iter()
+            .find_map(|e| match e {
+                Effect::Desk(super::super::desk::Op::Check(t)) => Some(t.clone()),
+                _ => None,
+            })
+            .expect("the draft written")
+    }
+
+    // The maintainer chose that vtium-config sets a head's
+    // `switch-on-enter` (2026-11-12): its card shows the key as the file
+    // has it, and a change writes that key's line alone, with none of the
+    // head template's comments
+    #[test]
+    fn a_terminal_s_card_turns_switch_on_enter_on_and_off() {
+        let line = flowdraw::CardLine::Setting("switch-on-enter");
+        let off = "version = 1\npolicy = open\n[head desk]\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let mut app = card_of(off, "desk");
+        let words: Vec<String> = flowdraw::card_choices(&app, &line)
+            .into_iter()
+            .map(|(w, _)| w)
+            .collect();
+        assert_eq!(words, [words::SWITCH_OFF, words::SWITCH_ON]);
+        let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+        assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(0));
+        assert_eq!(
+            card_writes(&mut app, &line, 1),
+            "version = 1\npolicy = open\n[head desk]\nswitch-on-enter = yes\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n"
+        );
+        let on = "version = 1\npolicy = open\n[head desk]\nswitch-on-enter = yes\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let mut app = card_of(on, "desk");
+        let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+        assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(1));
+        // unsetting comments the line out, as every key the card unsets
+        assert_eq!(
+            card_writes(&mut app, &line, 0),
+            on.replace("switch-on-enter", "#switch-on-enter")
+        );
+    }
+
+    // ADR-1401, "Enter on a head's own keyboard": the switch works only
+    // under policy = open, for a head that is not isolated and runs on a
+    // VT of its own from 1 to 12, and the hint says when it does nothing
+    #[test]
+    fn the_switch_on_enter_hint_says_when_the_key_has_no_effect() {
+        let line = flowdraw::CardLine::Setting("switch-on-enter");
+        let hint = |text: &str| -> String {
+            let app = card_of(text, "desk");
+            let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+            flowdraw::card_about(&app, &path, &line).expect("a hint")
+        };
+        let rules = "[rules]\ndisplay * -> desk\ninput * -> desk\n";
+        let cases = [
+            ("policy = open\n[head desk]\nvt = 3\n", None),
+            ("policy = open\n[head desk]\nvt = 13 3\n", None),
+            (
+                "policy = closed\n[head desk]\nvt = 3\n",
+                Some(words::SWITCH_CLOSED),
+            ),
+            (
+                "policy = open\n[head desk]\nvt = 3\nisolated = yes\n",
+                Some(words::SWITCH_ISOLATED),
+            ),
+            ("policy = open\n[head desk]\n", Some(words::SWITCH_EVERY_VT)),
+            (
+                "policy = open\n[head desk]\nvt = 13\n",
+                Some(words::SWITCH_PAST_12),
+            ),
+        ];
+        for (head, none) in cases {
+            let text = format!("version = 1\n{head}{rules}");
+            let want = match none {
+                None => words::SWITCH_ABOUT.to_owned(),
+                Some(why) => format!("{} {why}", words::SWITCH_ABOUT),
+            };
+            assert_eq!(hint(&text), want, "{text}");
+        }
+        // a terminal with no input of its own is isolated too
+        let text = "version = 1\npolicy = open\n[head desk]\nvt = 3\nisolated = yes\n[rules]\ndisplay * -> desk\n";
+        assert_eq!(
+            hint(text),
+            format!("{} {}", words::SWITCH_ABOUT, words::SWITCH_ISOLATED)
+        );
+    }
+
     // vtium replaces a first word written `$NAME` with that variable, so
     // the check takes it as vtium does; `$$` is a literal `$`
     #[test]
