@@ -1045,6 +1045,13 @@ impl Generated {
         Some(e.face.script_decorations(script))
     }
 
+    /// How many cells the store's normal glyph for `c` at `at` spans, as
+    /// its set's map marks it, without drawing it; `None` when the store
+    /// holds no such glyph.
+    fn advance(&self, at: SpacedCell, c: char) -> Option<Width> {
+        self.entry(at, Variant::default(), &[c])?.face.advance(c)
+    }
+
     /// `text`'s glyph at `at` in `variant`, from the store: a set of that
     /// variant's, drawn as it is.
     fn draw(&self, at: SpacedCell, text: &[char], variant: Variant) -> Option<Glyph> {
@@ -1424,6 +1431,15 @@ impl Face for DeferredFace {
         self.builtin.sprite_policy()
     }
 
+    /// The store's glyph's cells, else the built-in font's: the glyph
+    /// [`Face::draw`] gives `c`, measured without drawing it. A built-in
+    /// glyph keeps its cells when it is fitted to the face's cell.
+    fn advance(&self, c: char) -> Option<Width> {
+        lock(&self.generated)
+            .advance(self.at(), c)
+            .or_else(|| self.builtin.advance(c))
+    }
+
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.draw_in(cluster, style.into())
     }
@@ -1576,6 +1592,10 @@ impl Face for Builtins<'_> {
 
     fn sprite_policy(&self) -> SpritePolicy {
         self.0.builtin.sprite_policy()
+    }
+
+    fn advance(&self, c: char) -> Option<Width> {
+        self.0.builtin.advance(c)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
@@ -2895,6 +2915,46 @@ mod tests {
         let runs = glyphs.iter().map(|&(c, _)| (u32::from(c), 1)).collect();
         add(&mut lock(&generated), CELL, set, runs, 1);
         face(&generated)
+    }
+
+    // vtium/vtium#159: the face measures a character by the store's
+    // glyph for it, else the built-in font's, without drawing either: the
+    // store holds a wide `W`, which the built-in font draws narrow, and the
+    // set's chunk stays undecoded. The built-in fonts alone, which the
+    // console draws its notices with, measure `W` by the built-in font's
+    #[test]
+    fn the_face_measures_by_the_store_else_the_built_in_font() {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(true);
+        let g = s.glyph(
+            Width::Wide,
+            vec![255; (2 * CELL.width * CELL.height) as usize],
+        );
+        s.map('W', g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let generated = Shared::default();
+        add(
+            &mut lock(&generated),
+            CELL,
+            Arc::clone(&set),
+            vec![(0x57, 1)],
+            1,
+        );
+        let f = face(&generated);
+        assert_eq!(f.advance('W'), Some(Width::Wide), "the store's glyph");
+        assert_eq!(f.advance('\u{4e00}'), Some(Width::Wide), "unifont's glyph");
+        assert_eq!(f.advance('A'), Some(Width::Narrow), "unifont's glyph");
+        assert_eq!(f.advance('\u{10ffff}'), None);
+        assert_eq!(set.loaded_chunks(), 0, "measuring drew the store's glyph");
+        let builtins = f.builtins().unwrap();
+        assert_eq!(builtins.advance('W'), Some(Width::Narrow));
+        assert_eq!(builtins.advance('\u{4e00}'), Some(Width::Wide));
+        assert_eq!(builtins.advance('\u{10ffff}'), None);
+        for c in ['W', '\u{4e00}', 'A', '\u{10ffff}'] {
+            let drawn = |face: &dyn Face| face.draw(&[c], Style::default()).map(|g| g.cells());
+            assert_eq!(f.advance(c), drawn(&f), "{c:?}");
+            assert_eq!(builtins.advance(c), drawn(&*builtins), "{c:?}");
+        }
     }
 
     const KA: char = '\u{915}';
