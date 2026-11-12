@@ -46,17 +46,17 @@ Agents prepare decisions, and the maintainer makes them. The steering session is
 
 The steering session plans the work, writes the briefs, and merges the results. It runs agents in waves, several at a time. Each agent works in its own git worktree, a separate checkout of the same repository. Each agent also has its own build directory, its own scratch directory, and its own files. No two agents edit the same file. When an agent needs a change to a file that another agent owns, it asks the steering session, which routes the change.
 
-The author of a change commits on its branch and runs the gates. The gates are the checks every change must pass: formatting, lints, the tests, the smallest build, the record checks, and the first two tiers. The author does not push.
+The gates are the checks a change must pass before it reaches main: formatting, lints, the tests, the smallest build, the record checks, and the first two tiers. The author of a change does not run all of them. While it works, the author runs the formatter, the linter and the tests of the crates it touched. It watches each new test fail before the change and pass after it, and it plants defects. When the work is done, the author runs the gates that the touched files feed, once. For example, it runs tier 1 when the change touched the terminal, and tier 2 when it touched drawing or fonts. AGENTS.md calls these two levels V0 and V1. The author commits on its branch and does not push.
 
-A fresh reviewer then reads the diff. A fresh reviewer is a different agent, one that did not write the change. It runs the gates again and plants defects. The author gets two rounds to fix what the reviewer finds. After that, a newly briefed agent takes the work over.
+A change gets a fresh review when it holds logic that a picture cannot show, such as a new algorithm, concurrency, or the GPU path. A fresh reviewer is a different agent, one that did not write the change. It reads the diff, runs the tests of what the change touched, and plants the defects that the change claims to catch. The author gets one round to fix what the reviewer finds. The steering session checks that round by planting the defects again. If the change needs a second round, it goes to the maintainer, who judges it by looking at the result.
 
-Reviewed branches merge into a branch called integration. The gates run again on the merged tree, because two changes that each pass on their own can fail together.
+Reviewed branches merge into a branch called integration. The steering session runs every gate on the merged tree before it pushes, because two changes that each pass on their own can fail together.
 
 At a merge point, the steering session picks a commit of integration that passed the gates. It moves a branch called stage to that commit, and opens one pull request from stage to main. The maintainer reads a diff that does not move, while new work goes on in integration. The pull request merges only when every CI job passes, including the one that runs on ARM hardware.
 
 ## A report is a claim
 
-An agent's account of what it did is a claim, however confident it sounds. The steering session reads the diff and runs the gates itself before it merges. A reviewer runs the gates instead of trusting the author's results.
+An agent's account of what it did is a claim, however confident it sounds. The steering session reads the diff, and it runs the gates itself on the merged tree before it pushes. A reviewer runs the tests itself instead of trusting the author's results.
 
 ## The rules are written where every agent reads them
 
@@ -82,7 +82,7 @@ The maintainer does four things:
 - Agents make mistakes, and some of them look plausible. The gates and the fresh reviewers catch most of them, but not all.
 - The goldens judge only what they cover. Nobody judges behaviour that no test covers, until someone writes the test. The table of the modes and features vtium supports lists the tests that cover each one, so it shows where a mode or feature has no test.
 - When the maintainer approves a golden by mistake, the mistake becomes the expected result. Every later run passes against it until someone notices.
-- The checks cost machine time and money. Each change runs the gates at least three times: for the author, for the reviewer, and on the merged tree. Tier 3 boots virtual machines. Every agent is paid for.
+- The checks cost machine time and money. Each change is checked at least twice: by its author, and in the full set of gates on the merged tree. A change with a fresh review is checked a third time, by the reviewer. Tier 3 boots virtual machines. Every agent is paid for.
 - The maintainer's attention is the part that does not scale. The process spends it on the decisions, the goldens and the screen.
 
 ## How the Linux kernel treats AI tools
