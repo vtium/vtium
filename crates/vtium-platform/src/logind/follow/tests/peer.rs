@@ -9,7 +9,7 @@
 #![expect(unsafe_code, reason = "sd-bus's C interface, to build the peer")]
 
 use std::ffi::{CStr, c_char, c_int, c_void};
-use std::os::fd::IntoRawFd;
+use std::os::fd::{BorrowedFd, IntoRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::ptr;
@@ -75,10 +75,23 @@ fn connection(fd: UnixStream) -> *mut c_void {
 /// The end that stands in for localed.
 struct Localed(*mut c_void);
 
+/// Closing a descriptor ends the connection only when it is the last open
+/// descriptor for the socket. A child that a test running in parallel
+/// forks holds a copy of every descriptor in the test process until the
+/// child execs. While it holds one, vtium's end sees no end of file, so
+/// `take` finds nothing to read and says the connection is fine. So
+/// localed's end shuts its socket down before it closes, which ends the
+/// connection for every descriptor at once.
 impl Drop for Localed {
     fn drop(&mut self) {
-        // SAFETY: the connection `pair` made, freed once.
+        // SAFETY: the connection `pair` made, freed once; sd-bus keeps its
+        // descriptor open until sd_bus_flush_close_unref closes it.
         unsafe {
+            sd_bus_flush(self.0);
+            let fd = sd_bus_get_fd(self.0);
+            if fd >= 0 {
+                libc::shutdown(fd, libc::SHUT_RDWR);
+            }
             sd_bus_flush_close_unref(self.0);
         }
     }
@@ -148,6 +161,18 @@ fn byte(c: u8) -> c_char {
 }
 
 impl Localed {
+    /// A second descriptor for this end's socket, as a forked child holds.
+    fn another_descriptor(&self) -> OwnedFd {
+        // SAFETY: `self.0` is open.
+        let fd = unsafe { sd_bus_get_fd(self.0) };
+        check("sd_bus_get_fd", fd);
+        // SAFETY: sd-bus keeps `fd` open until the connection closes, and
+        // the borrow ends at the copy.
+        unsafe { BorrowedFd::borrow_raw(fd) }
+            .try_clone_to_owned()
+            .unwrap_or_else(|e| panic!("a copy of the descriptor: {e}"))
+    }
+
     /// Sends `signal`, built with sd-bus as localed builds its own.
     fn send(&self, signal: &Signal<'_>) {
         let mut m = ptr::null_mut();
@@ -321,6 +346,19 @@ fn a_closed_connection_is_an_error() {
     let (localed, mut vtium) = watching();
     drop(localed);
     assert!(vtium.take().is_err(), "the connection is gone");
+}
+
+/// The other end closes while another descriptor for its socket is still
+/// open, and `take` still says the connection failed. A child that a test
+/// running in parallel forks holds such a copy of every descriptor in the
+/// test process until the child execs.
+#[test]
+fn a_closed_connection_is_an_error_while_a_child_holds_its_socket() {
+    let (localed, mut vtium) = watching();
+    let copy = localed.another_descriptor();
+    drop(localed);
+    assert!(vtium.take().is_err(), "the connection is gone");
+    drop(copy);
 }
 
 /// The whole follow over the real connection: localed's broadcast gives
