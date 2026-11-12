@@ -717,3 +717,72 @@ fn install_force_still_refuses_a_draft_made_before_the_installed_file_changed() 
     assert_eq!(ran.status, 3, "{}{}", ran.out, ran.err);
     assert_eq!(f.installed(), by_hand);
 }
+
+/// The maintainer, 2026-11-11: with no vtium.conf installed, a new draft
+/// is vtium-config's short header and nothing else, and each change adds
+/// only the lines it sets.
+#[test]
+fn a_draft_made_with_nothing_installed_is_the_header_alone() {
+    let f = fixture("lean");
+    std::fs::remove_file(f.path("etc/vtium.conf")).expect("no vtium.conf");
+    f.desk();
+    let header = vtium_config::drafts::HEADER;
+    assert_eq!(f.draft(), header);
+    assert!(
+        header.starts_with("# This is vtium's configuration file, /etc/vtium/vtium.conf."),
+        "{header}"
+    );
+    assert!(
+        header
+            .lines()
+            .all(|l| l.is_empty() || (l.starts_with('#') && l.chars().count() <= 78)),
+        "the header is comments wrapped at 78 columns"
+    );
+    assert_eq!(header.lines().count(), 6);
+    // a key the file does not have adds its own line and nothing else
+    assert_eq!(f.run(&["set", "font-size", "14"]).status, 0);
+    assert_eq!(f.draft(), format!("{header}font-size=14\n"));
+    assert_eq!(f.run(&["set", "--unset", "font-size"]).status, 0);
+    assert_eq!(f.draft(), format!("{header}#font-size=14\n"));
+    // new and revert start from the header too
+    assert_eq!(f.run(&["new"]).status, 0);
+    assert_eq!(
+        f.draft(),
+        format!("{}\n\nversion = 1\n\n[look default]\n", header.trim_end())
+    );
+    assert_eq!(f.run(&["revert"]).status, 0);
+    assert_eq!(f.draft(), header);
+    // a draft from empty is new's text
+    assert_eq!(
+        f.run(&["draft", "new", "spare", "--from", "empty"]).status,
+        0
+    );
+    let spare =
+        std::fs::read_to_string(f.path("home/config/vtium/drafts/spare.conf")).expect("spare");
+    assert_eq!(
+        spare,
+        format!("{}\n\nversion = 1\n\n[look default]\n", header.trim_end())
+    );
+}
+
+/// The maintainer, 2026-11-11, "Leave it": an installed vtium.conf that
+/// holds the whole shipped example keeps every line it had, comments
+/// included, when a change sets a key.
+#[test]
+fn a_full_installed_file_keeps_every_line_but_the_one_a_change_sets() {
+    let f = fixture("full");
+    let example = vtium_config::drafts::EXAMPLE;
+    std::fs::write(f.path("etc/vtium.conf"), example).expect("vtium.conf");
+    f.desk();
+    assert_eq!(f.draft(), example);
+    assert_eq!(f.run(&["set", "font-size", "14"]).status, 0);
+    let draft = f.draft();
+    let mut kept: Vec<&str> = draft.lines().collect();
+    let at = kept
+        .iter()
+        .position(|l| *l == "font-size=14")
+        .expect("the new line");
+    assert_eq!(kept.get(at - 1), Some(&"#font-size=0"), "below its comment");
+    kept.remove(at);
+    assert_eq!(kept, example.lines().collect::<Vec<_>>());
+}

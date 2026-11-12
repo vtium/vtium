@@ -265,10 +265,9 @@ pub fn unset_top(text: &str, key: &str) -> Result<String, Fail> {
         .map_err(|e| Fail::Usage(crate::tui::words::conf_edit(&e)))
 }
 
-/// The top level of `example`, the shipped vtium.conf: every line above
-/// its first section.
-fn top_of(example: &str) -> String {
-    let parts = split(example.as_bytes());
+/// The top level of `text`: every line above its first section.
+fn top_of(text: &str) -> String {
+    let parts = split(text.as_bytes());
     parts
         .top_lines()
         .map(|(_, line)| String::from_utf8_lossy(line).into_owned())
@@ -276,11 +275,12 @@ fn top_of(example: &str) -> String {
         .join("\n")
 }
 
-/// What `new` empties the draft to: the top level of the shipped example,
-/// every key at its default and commented out, then `version = 1` and one
-/// look, `[look default]`, with no keys (ADR-1403 D7).
-pub fn new_text(example: &str) -> String {
-    let mut out = top_of(example).trim_end().to_owned();
+/// What `new` empties the draft to: the top level of `top`, then
+/// `version = 1` and one look, `[look default]`, with no keys (ADR-1403
+/// D7). vtium-config passes its header, [`crate::drafts::HEADER`], so the
+/// new draft sets no key.
+pub fn new_text(top: &str) -> String {
+    let mut out = top_of(top).trim_end().to_owned();
     let versioned = split(out.as_bytes())
         .top_lines()
         .any(|(_, l)| vtium_settings::key_line(l).is_some_and(|k| k.key == b"version"));
@@ -300,7 +300,9 @@ pub fn new_text(example: &str) -> String {
 /// D7). A change to a section must first write that flow into the file:
 /// a section alone, such as `[labels]`, would make the file one with
 /// sections, no `version` line and no rules, which turns every display
-/// off. A draft with sections is returned as it is.
+/// off. vtium-config writes the flow as [`shipped_flow`] has it: the
+/// `version` line, the head and the rules, with none of the template's
+/// comments. A draft with sections is returned as it is.
 pub fn with_flow(text: &str) -> String {
     if vtium_settings::sections(text.as_bytes()).is_some() {
         return text.to_owned();
@@ -309,7 +311,29 @@ pub fn with_flow(text: &str) -> String {
     if !out.is_empty() {
         out.push_str("\n\n");
     }
-    out.push_str(vtium_settings::TEMPLATE);
+    out.push_str(&shipped_flow());
+    out
+}
+
+/// The compiled-in flow as the fewest lines that run it: the head file's
+/// template, [`vtium_settings::TEMPLATE`], without its comments, and with
+/// one blank line before each section heading. The template is the one
+/// source of the compiled-in flow (ADR-1403 D3), so this text runs the
+/// same heads and rules. A commented-out line such as `# policy = open`
+/// sets nothing, so it goes with the comments.
+fn shipped_flow() -> String {
+    let mut out = String::new();
+    for line in vtium_settings::TEMPLATE.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') && !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
     out
 }
 
@@ -484,6 +508,67 @@ mod tests {
             new_text("#mouse\n"),
             "#mouse\n\nversion = 1\n\n[look default]\n"
         );
+    }
+
+    // the maintainer, 2026-11-11: a vtium.conf vtium-config writes holds a
+    // short header, then only what is set
+    #[test]
+    fn a_new_configuration_from_the_header_is_the_header_and_one_empty_look() {
+        let out = new_text(crate::drafts::HEADER);
+        let header = crate::drafts::HEADER.trim_end();
+        assert_eq!(out, format!("{header}\n\nversion = 1\n\n[look default]\n"));
+        assert!(
+            !out.contains("## "),
+            "no description of a key comes from the shipped example"
+        );
+    }
+
+    // ADR-1403 D3, D7: a draft with no section first gets the compiled-in
+    // flow, written as the smallest file that runs it, with none of the head
+    // template's comments
+    #[test]
+    fn the_flow_a_change_needs_is_the_compiled_in_flow_with_no_comment() {
+        let out = with_flow("# mine\nfont-size=14\n");
+        assert_eq!(
+            out,
+            "# mine\nfont-size=14\n\nversion = 1\n\n[head console]\n\n[rules]\n\
+             display * -> console\n\
+             input class:keyboard -> roaming\n\
+             input class:mouse -> roaming\n\
+             input class:touchpad -> roaming\n\
+             input class:touchscreen -> roaming\n\
+             input class:trackball -> roaming\n\
+             input class:pointingstick -> roaming\n\
+             input class:key -> roaming\n\
+             input * -> ignore\n"
+        );
+        for line in out.lines().skip(1) {
+            assert!(!line.trim_start().starts_with('#'), "a comment: {line}");
+        }
+        // it runs what the file ran before: the compiled-in flow, valid,
+        // with every display sent to a head that the keyboards reach
+        let read = vtium_settings::sections(out.as_bytes()).unwrap();
+        assert!(
+            read.parsed.warnings.is_empty(),
+            "{:?}",
+            read.parsed.warnings
+        );
+        let builtin = vtium_settings::Config::builtin();
+        let names = |c: &vtium_settings::Config| -> Vec<String> {
+            c.heads.iter().map(|h| h.name.clone()).collect()
+        };
+        assert_eq!(names(&read.parsed.config), names(&builtin));
+        let rules = |c: &vtium_settings::Config| -> Vec<String> {
+            c.rules
+                .iter()
+                .map(|r| format!("{:?} {:?} {:?}", r.kind, r.matcher, r.target))
+                .collect()
+        };
+        assert_eq!(rules(&read.parsed.config), rules(&builtin));
+        assert_eq!(read.parsed.config.policy, builtin.policy);
+        assert!(vtium_settings::complete_route(&read.parsed.config, None).complete());
+        // a draft with sections is left as it is
+        assert_eq!(with_flow(&out), out);
     }
 
     #[test]

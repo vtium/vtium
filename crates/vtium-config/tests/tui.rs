@@ -3204,7 +3204,7 @@ mod draft_flow {
         run(&b, &[b"n", b"y"]);
         assert_eq!(
             b.draft(),
-            vtium_config::ops::new_text(vtium_config::drafts::EXAMPLE)
+            vtium_config::ops::new_text(vtium_config::drafts::HEADER)
         );
     }
 

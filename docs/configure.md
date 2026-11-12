@@ -58,7 +58,11 @@ The configuration means the installed file and your draft together.
 
 ### The draft
 
-The first command that needs a draft makes one, as a copy of the installed file, or of the shipped example when none is installed. It names the draft after the machine's hostname, adding `-2`, `-3` and so on when that name is taken, so that no draft is overwritten. Your drafts and everything else the tool keeps live under your home directory:
+The first command that needs a draft makes one, as a copy of the installed file. It names the draft after the machine's hostname, adding `-2`, `-3` and so on when that name is taken, so that no draft is overwritten.
+
+When no vtium.conf is installed, the draft starts as a short comment and nothing else. The comment says what the file is, and that `/etc/vtium/vtium.conf.example` and `vtium --help` describe every setting. Each change you make then adds only the lines it needs. A setting you change adds its own line, with no description above it. The first change to the looks, heads or rules adds `version = 1`, the head `console` and the rules that vtium runs when the file has no section, without the comments of the shipped example. A draft copied from an installed file keeps every line of that file, your own comments included.
+
+Your drafts and everything else the tool keeps live under your home directory:
 
 | Path | What it holds |
 |---|---|
@@ -96,7 +100,7 @@ These commands change the draft. `vtium config --help` lists every command, and 
 | `vtium config edit [--install]` | opens the draft in your editor, as `visudo` opens sudoers |
 | `vtium config install` | checks the draft and installs it as `/etc/vtium/vtium.conf` |
 | `vtium config revert` | throws away the draft's changes and copies the installed file back over it |
-| `vtium config new` | empties the draft to the settings at their defaults and one look, `[look default]` |
+| `vtium config new` | empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting |
 | `vtium config history`, `restore [N]` | lists the files earlier installs replaced, newest first, and copies one into the draft |
 | `vtium config draft list`, `draft new [NAME]`, `draft switch NAME`, `draft rm [NAME]` | lists the drafts, makes one, makes another the one you work on, or deletes one |
 | `vtium config library ...` | copies looks, heads and rules between the draft and the library |
@@ -239,7 +243,7 @@ The tab bar shows the Flow view's actions beside the views' names: `v View file`
 - **Install**, on `i`, saves first and runs the check. When the check fails, Install refuses and lists what fails. Otherwise it asks `Install the draft? 3 lines added, 1 removed.` and installs as [above](#when-vtium-config-asks-for-sudo). When the only problem is that no complete route exists, it asks before it installs anyway. The TUI leaves its screen while sudo asks for your password.
 - **Revert**, on `r`, asks `Throw away the draft's changes? 3 lines added and 1 removed will be lost.` and then copies the installed file back over the draft.
 - **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.`
-- **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` and then empties the draft to the settings at their defaults and one look, `[look default]`.
+- **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` and then empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting.
 
 When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.`
 

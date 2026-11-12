@@ -15,9 +15,24 @@ use crate::store::{Store, hash};
 use crate::tui::Paths;
 
 /// The shipped example vtium.conf: the key table's commented lines and the
-/// compiled-in flow's sections. A draft starts from it when no vtium.conf
-/// is installed.
+/// compiled-in flow's sections. vtium installs it as
+/// `/etc/vtium/vtium.conf.example`, and vtium-config copies none of it into
+/// a draft.
 pub const EXAMPLE: &str = include_str!("../../vtium/install/vtium.conf.example");
+
+/// The comment that opens a vtium.conf vtium-config writes from nothing:
+/// what the file is, and where every setting is described. A draft made
+/// when no vtium.conf is installed is this comment alone, and every change
+/// then adds only the lines it sets. The comment is wrapped at 78 columns,
+/// as the shipped example's comments are.
+pub const HEADER: &str = "\
+# This is vtium's configuration file, /etc/vtium/vtium.conf. It holds only
+# the settings you change, and vtium uses its default for every other setting.
+#
+# /etc/vtium/vtium.conf.example describes every setting and shows its default.
+# vtium --help lists every setting with a one-line description.
+
+";
 
 /// How a draft stands against the installed file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +252,7 @@ impl Session<'_> {
 
     /// The current draft's name and text. When the settings name no draft,
     /// or one that is gone, vtium-config makes one from the installed file,
-    /// or from the shipped example when none is installed, named for the
+    /// or from [`HEADER`] alone when none is installed, named for the
     /// machine's hostname with an increment so nothing is overwritten, and
     /// records its base.
     pub fn current(&self) -> Result<(String, String), Fail> {
@@ -258,8 +273,8 @@ impl Session<'_> {
     pub fn make(&self, name: &str, from: From) -> Result<String, Fail> {
         let installed = self.installed()?;
         let text = match from {
-            From::Installed => installed.clone().unwrap_or_else(|| EXAMPLE.to_owned()),
-            From::Empty => crate::ops::new_text(EXAMPLE),
+            From::Installed => installed.clone().unwrap_or_else(|| HEADER.to_owned()),
+            From::Empty => crate::ops::new_text(HEADER),
             From::Draft(other) => self
                 .store
                 .read_draft(&other)?
