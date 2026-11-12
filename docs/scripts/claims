@@ -193,7 +193,8 @@ def tracked(root):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip(),
+    head, _, rest = __doc__.strip().partition("\n\n")
+    parser = argparse.ArgumentParser(description=head, epilog=rest,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--root", default=None)
     parser.add_argument("files", nargs="*")
