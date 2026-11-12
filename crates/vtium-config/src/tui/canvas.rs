@@ -17,6 +17,10 @@ pub struct Span {
 /// One row of the screen.
 pub type Row = Vec<Span>;
 
+/// The mark of a cell that the wide character before it covers, which no
+/// row's text holds: [`Canvas::put`] writes a control as `?`.
+const WIDE_TAIL: char = '\0';
+
 /// A span of plain text.
 pub fn span(text: impl Into<String>, style: Style) -> Span {
     Span {
@@ -60,6 +64,35 @@ impl Canvas {
             // a name read from a file never carries a control onto the screen
             *cell = (if c.is_control() { '?' } else { c }, style);
             at = at.saturating_add(1);
+        }
+        at
+    }
+
+    /// Writes `text` from column `x` of row `y` in `style` as a terminal
+    /// lays it out: a wide character, by the console's own width rule,
+    /// takes two cells, and one that would cross the screen's edge ends
+    /// the text there. Returns the column after it. The font preview in a
+    /// vtium console writes the specimen's lines with it, which hold CJK
+    /// and emoji (ADR-1201 D4).
+    pub fn put_cells(&mut self, x: usize, y: usize, text: &str, style: Style) -> usize {
+        let Some(row) = self.cells.get_mut(y) else {
+            return x;
+        };
+        let mut at = x;
+        for c in text.chars() {
+            let c = if c.is_control() { '?' } else { c };
+            let wide = vtium_term::cluster_width(&[c]) >= 2;
+            let end = at.saturating_add(usize::from(wide));
+            if end >= row.len() {
+                break;
+            }
+            if let Some(cell) = row.get_mut(at) {
+                *cell = (c, style);
+            }
+            if wide && let Some(cell) = row.get_mut(end) {
+                *cell = (WIDE_TAIL, style);
+            }
+            at = end.saturating_add(1);
         }
         at
     }
@@ -115,7 +148,8 @@ impl Canvas {
                     return vec![raw];
                 }
                 let mut row: Row = Vec::new();
-                for (c, style) in cells {
+                // the second cell of a wide character is the character's
+                for (c, style) in cells.into_iter().filter(|(c, _)| *c != WIDE_TAIL) {
                     match row.last_mut() {
                         Some(s) if s.style == style => s.text.push(c),
                         _ => row.push(span(c.to_string(), style)),
@@ -261,6 +295,23 @@ mod tests {
     #[test]
     fn a_raw_span_s_width_leaves_out_its_escapes() {
         assert_eq!(width("\x1b[38;2;1;2;3mab\x1b[0mc"), 3);
+    }
+
+    #[test]
+    fn a_wide_character_takes_two_cells_and_never_crosses_the_edge() {
+        let mut c = Canvas::new(5, 1);
+        // 日 takes two cells, as the console's width rule gives it
+        let after = c.put_cells(0, 0, "a日b日", Style::PLAIN);
+        assert_eq!(after, 4, "the second 日 would cross the edge");
+        let rows = c.into_rows();
+        assert_eq!(rows[0][0].text, "a日b ");
+        // the row's cells still number five once drawn: 1 + 2 + 1 + 1
+        let cells: usize = rows[0][0]
+            .text
+            .chars()
+            .map(|c| usize::from(vtium_term::cluster_width(&[c])))
+            .sum();
+        assert_eq!(cells, 5);
     }
 
     #[test]

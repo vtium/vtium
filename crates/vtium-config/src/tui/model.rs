@@ -111,6 +111,13 @@ pub struct Inputs {
     /// What the message line says once about that file: where vtium-config
     /// wrote it, or a line of it that it skipped.
     pub colors_note: Option<String>,
+    /// The head of the console the TUI runs in, from `VTIUM_HEAD`, which
+    /// vtium sets in each console's session (ADR-1401 D5): where `s` in
+    /// the Fonts view of a vtium console saves the font the console shows.
+    pub head: Option<String>,
+    /// The locale the specimen's line follows, as [`super::locale`] reads
+    /// it, for the preview a vtium console draws as text.
+    pub locale: String,
 }
 
 /// One thing that happened.
@@ -450,6 +457,9 @@ pub struct App {
     pub flow_view: super::flowview::State,
     /// The notice that the live trial is off has been shown.
     live_said: bool,
+    /// What the message line says once the draft holds the font the
+    /// console shows, which `s` in a vtium console's Fonts view wrote.
+    pub(crate) saving_tried: Option<String>,
     /// The changes made since the draft was last read or saved, which
     /// [`App::draft`]'s text holds and the store does not yet (ADR-1403 D7,
     /// "Changes wait for Save").
@@ -544,6 +554,7 @@ impl App {
             select_after: None,
             flow_view: super::flowview::State::default(),
             live_said: false,
+            saving_tried: None,
             unsaved: 0,
         };
         // the Flow view's highlight on its first box from the first frame,
@@ -1077,6 +1088,11 @@ impl App {
         if key == Key::Char('n') {
             return self.set_view(View::New);
         }
+        // in a vtium console the preview is text and needs no switch, so
+        // `s` saves the font the console shows, as Save does elsewhere
+        if key == Key::Char('s') && self.text_preview() {
+            return self.save_tried();
+        }
         if key == Key::Char('s') {
             self.detail = !self.detail;
             return Vec::new();
@@ -1332,8 +1348,8 @@ impl App {
     }
 
     /// After an install: the frits it removed leave the list, nothing is
-    /// pending, and on a live console the draft's font is the one leaving
-    /// gives back (ADR-1201 D4).
+    /// pending, and on a live console the font the draft gives the
+    /// console's head is the one leaving gives back (ADR-1201 D4).
     pub(crate) fn frits_installed(&mut self) {
         let removed = std::mem::take(&mut self.pending.removals);
         self.inputs.fonts.retain(|f| !removed.contains(&f.name));
@@ -1345,12 +1361,14 @@ impl App {
             self.inputs.installed.insert(name, text.into_bytes());
         }
         self.font_at = self.font_at.min(self.inputs.fonts.len().saturating_sub(1));
+        self.inputs.conf = self.draft.as_ref().map(|d| d.text.clone());
+        // the font the installed file gives the console's head, from its
+        // look where the look names one
         if self.live == Live::On
-            && let Some(name) = self.drafted("font-name")
+            && let Some(name) = self.head_font()
         {
             self.start_font = Some(name);
         }
-        self.inputs.conf = self.draft.as_ref().map(|d| d.text.clone());
     }
 }
 

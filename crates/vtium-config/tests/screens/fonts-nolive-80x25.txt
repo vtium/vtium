@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help                               Save  Install
+ draft workstation · 1 change · no problems        text preview · no live trial
+--------------------------------------------------------------------------------
+   broken     cannot be read: line 2: unknown key colour
+   minspec-16 reads
+   proof      reads, 1 font file missing
+   tiny5      no font file on this machine
+ > unifont    built in, installed
+   unscii-8   built in
+
+ This terminal does not support images, so here is a written description
+ instead. With this font and size, each character cell is 8x16 pixels, the
+ console will be 80x30 characters, and the font can display 40 of the 51
+ characters in the preview. Superscripts and subscripts are this font's own
+ characters, scaled to two thirds of their size. Each pixel stays fully on or
+ fully off, so the edges stay sharp.
+
+
+
+
+ Live trial is off: this vtium console has allow-font-ops turned off, so t
+ cannot try a font on it. To turn it on, press o in the Fonts view, then
+ install.
+--------------------------------------------------------------------------------
+ Enter choose  t try live  s preview  n new  r remove  i install  q quit

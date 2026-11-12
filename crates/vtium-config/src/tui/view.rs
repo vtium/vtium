@@ -194,7 +194,7 @@ fn body(app: &App) -> Body {
                 })
                 .collect();
             let (list, keep) = list(&items, app.size_at, 10, cols);
-            let sentence = if !app.graphics {
+            let sentence = if app.text_preview() || !app.graphics {
                 app.preview_line()
                     .unwrap_or_else(|| words::NO_PICTURES.to_owned())
             } else if app.size() == 0 {
@@ -341,6 +341,12 @@ pub fn help_rows(app: &App) -> Vec<Row> {
     rows.extend(prose(words::HELP_TABS, cols));
     rows.push(plain(""));
     for (name, does, keys) in words::HELP_VIEWS {
+        // the Fonts view's keys in a vtium console, where `s` saves
+        let (does, keys) = if name == words::FONTS && app.text_preview() {
+            (words::HELP_FONTS_LIVE, words::KEYS_FONTS_LIVE)
+        } else {
+            (does, keys)
+        };
         let mut first = true;
         for line in wrap(
             &format!("{name} {does}"),
@@ -556,7 +562,9 @@ fn status(canvas: &mut Canvas, app: &App) {
         left
     };
     // the right side, in its long or its short words
-    let live_with = |short: bool| match (&app.live, app.graphics) {
+    // a vtium console draws the preview as text, pictures or not
+    let pictures = app.graphics && !app.text_preview();
+    let live_with = |short: bool| match (&app.live, pictures) {
         (Live::Asking, _) => words::PREVIEW_ASKING.to_owned(),
         (live, graphics) => format!(
             "{} · {}",
@@ -615,6 +623,7 @@ fn view_keys(app: &App) -> &'static str {
         View::Flow if app.restore.is_some() => words::KEYS_RESTORE,
         View::Flow => words::KEYS_FLOW,
         View::Looks => words::KEYS_LOOKS,
+        View::Fonts if app.text_preview() => words::KEYS_FONTS_LIVE,
         View::Fonts => words::KEYS_FONTS,
         View::Settings if app.editing.is_some() => words::KEYS_EDITING,
         View::Settings => words::KEYS_SETTINGS,
@@ -914,6 +923,8 @@ pub fn screen(app: &App) -> Vec<Row> {
             y = y.saturating_add(1);
         }
     }
+    // in a vtium console, the preview's text where a picture would go
+    super::console::draw(&mut canvas, app);
     let foot = rows
         .saturating_sub(1)
         .saturating_sub(message.len())

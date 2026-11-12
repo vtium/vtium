@@ -8,23 +8,23 @@
  > unifont    built in, installed
    unscii-8   built in
 
- This terminal does not support images, so here is a written description instead. With this font
- and size, each character cell is 8x16 pixels, the console will be 80x30 characters, and the font
- can display 40 of the 51 characters in the preview. Superscripts and subscripts are this font's
- own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the
- edges stay sharp.
+ The console draws these characters in unifont, the font it uses now. Press t to try the
+ highlighted font on the console, k to keep it, and s to save it in the draft.
 
-
-
-
-
-
-
-
-
-
+  !"#$%&'()*+,-./0123456789:;<=>?
+ @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+ `abcdefghijklmnopqrstuvwxyz{|}~
+ ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
+ óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
+ ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
+ ├─┼─┤ ╠═╬═╣ ╰─╯ ┗━┻━┛ ■□▪▫ ▲▼◆◇○●
+ €£¥¢§¶©®™°±×÷µ ←↑→↓↔↕⇐⇒ ✓✗★☆♠♣♥♦
+         
+ Αα Ββ Γγ Δδ Λλ Ξξ Ππ Σσ Φφ Ψψ Ωω
+ Аа Бб Вв Гг Дд Жж Ии Лл Фф Щщ Ыы Яя
+ 日 本 語  中 文  한 국 어  ひ ら が な  カ タ カ ナ
 
 
 
 ----------------------------------------------------------------------------------------------------
- Enter choose  t try live  s preview  n new  r remove  i install  q quit
+ Enter choose  t try live  s save  n new  r remove  i install  q quit

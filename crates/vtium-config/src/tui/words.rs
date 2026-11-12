@@ -43,7 +43,7 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
 }
 pub fn trial_kept(font: impl Display) -> String {
     format!(
-        "The console keeps {font} until you quit vtium-config. Press Enter to put it in the draft, then install to keep it for good."
+        "The console keeps {font} until you quit vtium-config. Press s to save it in the draft, then i to install it."
     )
 }
 pub fn trial_back(font: impl Display) -> String {
@@ -55,6 +55,46 @@ pub fn trial_same(font: impl Display) -> String {
 pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}. Its log says why.")
 }
+
+/// The line above the preview in a vtium console, where the console draws
+/// the preview's characters itself (ADR-1201 D4): in the Fonts view, the
+/// font it draws them in, which `t` changes; in the Looks view, the size,
+/// which the TUI cannot change on the console.
+pub fn console_font_caption(font: Option<&str>) -> String {
+    let font = match font {
+        Some(f) => format!("{f}, the font it uses now"),
+        None => "the font it uses now".to_owned(),
+    };
+    format!(
+        "The console draws these characters in {font}. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft."
+    )
+}
+pub const CONSOLE_SIZE_CAPTION: &str = "These characters are drawn at the console's current size. A size you choose takes effect when vtium starts on this console again.";
+
+/// What `s` in the Fonts view of a vtium console says: the font the
+/// console shows saved where the console's terminal takes its font from,
+/// or why not.
+pub fn tried_saved_look(font: &str, head: &str, look: &str, draft: &str) -> String {
+    format!(
+        "Saved {font} into draft {draft} as the font of the look {look}. This console belongs to {}, which draws with that look. Press i to install it.",
+        terminal(head)
+    )
+}
+pub fn tried_saved_top(font: &str, draft: &str) -> String {
+    format!(
+        "Saved {font} into draft {draft} as the font of every terminal whose look names no font. Press i to install it."
+    )
+}
+pub fn tried_already(font: &str) -> String {
+    format!("Nothing to save: the draft already gives this console's terminal {font}.")
+}
+pub const TRIED_UNKNOWN: &str = "Nothing to save: the console has not said which font it draws.";
+pub fn tried_no_head(font: &str) -> String {
+    format!(
+        "Nothing saved: vtium-config cannot tell which terminal this console belongs to, because VTIUM_HEAD is not set, and the draft's looks name fonts of their own. Choose {font} on a terminal's card in the Flow view instead."
+    )
+}
+pub const TRIED_REFUSED: &str = "Nothing saved, because vtium check-config found problems:";
 
 /// The line beside the detailed specimen (ADR-1201 D4).
 pub fn detail_caption(
@@ -292,6 +332,10 @@ pub fn saved(files: usize) -> String {
 pub const KEYS_LOOKS: &str = "Enter choose  Tab next view  i install  q quit without installing";
 pub const KEYS_FONTS: &str =
     "Enter choose  t try live  s preview  n new  r remove  i install  q quit";
+/// The Fonts view's keys in a vtium console, where `s` saves the font the
+/// console shows (ADR-1201 D4).
+pub const KEYS_FONTS_LIVE: &str =
+    "Enter choose  t try live  s save  n new  r remove  i install  q quit";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next view  i install  q quit without installing";
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next view  q quit";
 pub const KEYS_NEW: &str =
@@ -407,6 +451,9 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
         KEYS_HELP,
     ),
 ];
+/// What the Help view says of the Fonts view in a vtium console, which
+/// previews as text (ADR-1201 D4).
+pub const HELP_FONTS_LIVE: &str = "lists the font sets (frits) and the built-in fonts, with any font files each is missing. Below the list, the console draws every character of the preview in the font it uses now. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n to make a new font set.";
 pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab answers no.";
 pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
