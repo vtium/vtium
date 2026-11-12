@@ -385,6 +385,7 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                     .filter(|s| !matches!(s.key.name, "font-name" | "font-size"))
                     .map(|s| (s.key.name.to_owned(), s.value.clone()))
                     .collect(),
+                vtlook: l.vtlook.clone(),
                 fonts: Vec::new(),
                 problem,
             }

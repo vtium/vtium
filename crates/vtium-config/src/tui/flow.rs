@@ -139,6 +139,8 @@ pub struct Look {
     /// Its other keys as the file sets them, such as `cell`, each with its
     /// value.
     pub keys: Vec<(String, String)>,
+    /// The vtlook its `vtlook =` line names, `None` when it has none.
+    pub vtlook: Option<String>,
     /// The fonts its frit draws with, each with whether this machine has it.
     pub fonts: Vec<(String, bool)>,
     /// What the check finds wrong with it, in the check's words, such as a
