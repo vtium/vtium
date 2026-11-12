@@ -3178,6 +3178,7 @@ impl App {
             // them, read from each head's own keyboards, and a modifier is
             // not the user's activity.
             InputEvent::Mods(_) => self.rehover(),
+            InputEvent::Release(_) => {}
         }
     }
 

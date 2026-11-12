@@ -124,9 +124,16 @@ impl Bindings {
         }
     }
 
-    /// The action a key held with `mods` (the bits `SHIFT` to `LOGO`) and
-    /// making `keysyms` is bound to, the first in the key order.
+    /// The action a key held with `mods` (the bits `SHIFT` to `META`) and
+    /// making `keysyms` is bound to, the first in the key order. NumLock is
+    /// a state, which no binding names, so it changes nothing. No binding
+    /// names Hyper or Meta either, so a key held with one of them is bound
+    /// to nothing and reaches the program (ADR-1005, D8).
     pub fn action(&self, mods: u8, keysyms: &[u32]) -> Option<Action> {
+        if mods & (HYPER | META) != 0 {
+            return None;
+        }
+        let mods = mods & !NUM;
         self.bound
             .iter()
             .find(|(_, chords)| matches(chords, mods, keysyms))
@@ -157,6 +164,11 @@ const LOCK: u8 = 2;
 pub(crate) const CTRL: u8 = 4;
 pub(crate) const ALT: u8 = 8;
 pub(crate) const LOGO: u8 = 16;
+/// NumLock is on, Hyper and Meta: the modifiers the input reports that no
+/// binding names.
+const NUM: u8 = 32;
+const HYPER: u8 = 64;
+const META: u8 = 128;
 
 /// The modifiers as vtium.conf writes them, in the order [`written`]
 /// writes them.
@@ -332,6 +344,19 @@ mod tests {
     /// The action the built-in bindings give a key.
     fn action(mods: u8, keysyms: &[u32]) -> Option<Action> {
         Bindings::default().action(mods, keysyms)
+    }
+
+    // ADR-1005 D8: NumLock is a state, as Caps Lock is, so a binding
+    // matches whether it is on or off; no binding can name Hyper or Meta,
+    // so a key held with either matches none.
+    #[test]
+    fn num_lock_leaves_a_binding_and_hyper_or_meta_matches_none() {
+        assert_eq!(
+            action(SHIFT | NUM, &[UP]),
+            Some(Action::Grab(Grab::ScrollUp))
+        );
+        assert_eq!(action(SHIFT | HYPER, &[UP]), None);
+        assert_eq!(action(SHIFT | META, &[UP]), None);
     }
 
     // ADR-1005 D10: with no vtium.conf, each key does what it did before

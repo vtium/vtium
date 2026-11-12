@@ -40,6 +40,9 @@ const KEY_LEFTALT: u16 = 56;
 const KEY_CAPSLOCK: u16 = 58;
 const KEY_F2: u16 = 60;
 const KEY_F3: u16 = 61;
+const KEY_NUMLOCK: u16 = 69;
+const KEY_KP1: u16 = 79;
+const KEY_LEFTMETA: u16 = 125;
 
 fn keymap() -> Keymap {
     Keymap::fallback().unwrap_or_else(|| panic!("the built-in keymap compiles"))
@@ -85,7 +88,7 @@ fn keys(input: &mut Input<Nodes>) -> Vec<KeyEvent> {
         .events()
         .filter_map(|e| match e {
             InputEvent::Key(k) => Some(k),
-            InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
+            InputEvent::Release(_) | InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
         })
         .collect()
 }
@@ -329,7 +332,7 @@ fn seen(input: &mut Input<Nodes>) -> Vec<Seen> {
         .filter_map(|e| match e {
             InputEvent::Key(k) => Some(Seen::Key(k.keysyms.first().copied()?)),
             InputEvent::Mods(m) => Some(Seen::Mods(m)),
-            InputEvent::Pointer(_) => None,
+            InputEvent::Release(_) | InputEvent::Pointer(_) => None,
         })
         .collect()
 }
@@ -680,7 +683,7 @@ fn pointers(input: &mut Input<Nodes>) -> Vec<PointerEvent> {
         .events()
         .filter_map(|e| match e {
             InputEvent::Pointer(p) => Some(p),
-            InputEvent::Key(_) | InputEvent::Mods(_) => None,
+            InputEvent::Key(_) | InputEvent::Release(_) | InputEvent::Mods(_) => None,
         })
         .collect()
 }
@@ -1125,7 +1128,7 @@ fn tagged_keys(input: &mut Input<Nodes>, vt: &dyn Vt) -> Vec<(Option<super::Devi
                  event,
              }| match event {
                 InputEvent::Key(k) => Some((device, rescue, k.keysyms.first().copied()?)),
-                InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
+                InputEvent::Release(_) | InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
             },
         )
         .collect()
@@ -1501,5 +1504,280 @@ fn vtium_confs_xkb_keys_win_over_the_systems_names() {
     assert_eq!(
         (variant_only.layout.as_str(), variant_only.variant.as_str()),
         ("de", "dvorak")
+    );
+}
+
+/// What a key did, as the input reports it: pressed or repeated, or let
+/// go.
+#[derive(Debug, PartialEq, Eq)]
+enum Did {
+    Press(u32, Mods),
+    Release(u32, Mods),
+}
+
+/// The keys' presses and releases, each with its keysym and modifiers.
+fn presses_and_releases(input: &mut Input<Nodes>) -> Vec<Did> {
+    input
+        .events()
+        .filter_map(|e| match e {
+            InputEvent::Key(k) => Some(Did::Press(*k.keysyms.first()?, k.mods)),
+            InputEvent::Release(k) => Some(Did::Release(*k.keysyms.first()?, k.mods)),
+            InputEvent::Pointer(_) | InputEvent::Mods(_) => None,
+        })
+        .collect()
+}
+
+// ADR-1005 D8: a keyboard reports a release for every key whose press it
+// reported, with the keysyms the press reported and the modifiers after
+// the release, so the release of Shift holds no Shift.
+// covers: input.kitty-keyboard
+#[test]
+fn a_release_is_reported_for_every_reported_press() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_A), release(KEY_A)]);
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_a, Mods::empty()),
+            Did::Release(keysyms::KEY_a, Mods::empty()),
+        ]
+    );
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_LEFTSHIFT),
+            press(KEY_A),
+            release(KEY_LEFTSHIFT),
+            release(KEY_A),
+        ],
+    );
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_Shift_L, Mods::SHIFT),
+            Did::Press(keysyms::KEY_A, Mods::SHIFT),
+            Did::Release(keysyms::KEY_Shift_L, Mods::empty()),
+            Did::Release(keysyms::KEY_A, Mods::empty()),
+        ]
+    );
+    // a release with no press reported before it is not reported
+    feed(&mut input, &node, id, &[release(KEY_E)]);
+    assert_eq!(presses_and_releases(&mut input), []);
+}
+
+// ADR-1005 D8: a key whose press went into a compose sequence reports no
+// release, since no press was reported for it; the key that ends the
+// sequence reports its release with the keysym the sequence made.
+// covers: input.kitty-keyboard
+#[test]
+fn a_key_that_went_into_a_compose_sequence_reports_no_release() {
+    let (mut input, node, id) = with_compose();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[press(KEY_A), release(KEY_A), press(KEY_E), release(KEY_E)],
+    );
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_x, Mods::empty()),
+            Did::Release(keysyms::KEY_x, Mods::empty()),
+        ]
+    );
+}
+
+// A wake-up starts a fresh keyboard state, so a key held across a sleep
+// reports no release: its press belongs to the state before.
+#[test]
+fn a_key_held_across_a_sleep_reports_no_release() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_A)]);
+    presses_and_releases(&mut input);
+    input.sleep();
+    input.wake_up();
+    feed(&mut input, &node, id, &[release(KEY_A)]);
+    assert_eq!(presses_and_releases(&mut input), []);
+}
+
+// ADR-1005 D8: NumLock is a modifier while it is on, which the kitty
+// keyboard protocol reports and mode 1035 reads.
+// covers: DEC-1035
+#[test]
+fn num_lock_is_a_modifier_while_it_is_on() {
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_KP1), release(KEY_KP1)]);
+    assert_eq!(
+        presses_and_releases(&mut input).first(),
+        Some(&Did::Press(keysyms::KEY_KP_End, Mods::empty()))
+    );
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_NUMLOCK),
+            release(KEY_NUMLOCK),
+            press(KEY_KP1),
+            release(KEY_KP1),
+        ],
+    );
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_Num_Lock, Mods::NUM),
+            Did::Release(keysyms::KEY_Num_Lock, Mods::NUM),
+            Did::Press(keysyms::KEY_KP_1, Mods::NUM),
+            Did::Release(keysyms::KEY_KP_1, Mods::NUM),
+        ]
+    );
+    assert_eq!(input.mods(), Mods::NUM);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[press(KEY_NUMLOCK), release(KEY_NUMLOCK)],
+    );
+    assert_eq!(input.mods(), Mods::empty(), "NumLock off again");
+}
+
+/// The input awake with one keyboard at /dev/input/event0, under the
+/// built-in keymap with each of `edits` made to its text.
+fn with_edited_keymap(
+    edits: &[(&str, &str)],
+) -> (Input<Nodes>, Rc<RefCell<Node>>, super::DeviceId) {
+    let mut text = String::from(include_str!("fallback.xkb"));
+    for (from, to) in edits {
+        assert!(text.contains(from), "the built-in keymap holds {from}");
+        text = text.replace(from, to);
+    }
+    let keymap = Keymap::from_text(&text).unwrap_or_else(|| panic!("the keymap compiles"));
+    let nodes = Nodes::default();
+    let node = nodes.add("/dev/input/event0", fake::keyboard());
+    let mut input = Input::new(nodes, keymap, InputConfig::default());
+    input.wake_up();
+    let id = input
+        .add(Path::new("/dev/input/event0"))
+        .unwrap_or_else(|| panic!("the keyboard is taken"));
+    (input, node, id)
+}
+
+// ADR-1005 D8: in the built-in keymap, as in xkeyboard-config's default
+// keymaps, Meta shares Alt's modifier and Hyper shares Super's, so a key
+// reports Alt and Super alone, and never Meta beside Alt.
+// covers: input.kitty-keyboard
+#[test]
+fn the_default_keymap_reports_neither_hyper_nor_meta() {
+    let (mut input, node, id) = with_keyboard();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_LEFTALT),
+            press(KEY_A),
+            release(KEY_A),
+            release(KEY_LEFTALT),
+            press(KEY_LEFTSHIFT),
+            press(KEY_LEFTALT),
+            release(KEY_LEFTALT),
+            release(KEY_LEFTSHIFT),
+            press(KEY_LEFTMETA),
+        ],
+    );
+    let did = presses_and_releases(&mut input);
+    assert_eq!(did.get(1), Some(&Did::Press(keysyms::KEY_a, Mods::ALT)));
+    assert_eq!(
+        did.get(5),
+        Some(&Did::Press(
+            keysyms::KEY_Meta_L,
+            Mods::SHIFT.union(Mods::ALT)
+        )),
+        "Shift+Alt makes Meta_L, which sets Alt's modifier"
+    );
+    assert_eq!(
+        did.last(),
+        Some(&Did::Press(keysyms::KEY_Super_L, Mods::LOGO))
+    );
+}
+
+// ADR-1005 D8: a keymap that gives Hyper a modifier of its own, Mod3,
+// which neither Alt nor Super uses, reports Hyper while a Hyper key is
+// held, and not Super.
+// covers: input.kitty-keyboard
+#[test]
+fn a_keymap_that_gives_hyper_a_modifier_of_its_own_reports_it() {
+    let (mut input, node, id) = with_edited_keymap(&[
+        ("key <LWIN> { [ Super_L ] };", "key <LWIN> { [ Hyper_L ] };"),
+        (
+            "modifier_map Mod4 { <LWIN> };",
+            "modifier_map Mod3 { <LWIN> };",
+        ),
+        (
+            "modifier_map Mod4 { <HYPR> };",
+            "modifier_map Mod3 { <HYPR> };",
+        ),
+    ]);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_LEFTMETA),
+            press(KEY_A),
+            release(KEY_A),
+            release(KEY_LEFTMETA),
+        ],
+    );
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_Hyper_L, Mods::HYPER),
+            Did::Press(keysyms::KEY_a, Mods::HYPER),
+            Did::Release(keysyms::KEY_a, Mods::HYPER),
+            Did::Release(keysyms::KEY_Hyper_L, Mods::empty()),
+        ]
+    );
+}
+
+// ADR-1005 D8: a keymap that gives Meta a modifier of its own, Mod3,
+// reports Meta while a Meta key is held, and not Alt.
+// covers: input.kitty-keyboard
+#[test]
+fn a_keymap_that_gives_meta_a_modifier_of_its_own_reports_it() {
+    let (mut input, node, id) = with_edited_keymap(&[
+        (
+            "key <LALT> { [ Alt_L, Meta_L ] };",
+            "key <LALT> { [ Alt_L, Alt_L ] };",
+        ),
+        (
+            "key <RALT> { type= \"TWO_LEVEL\", symbols[Group1]= [ Alt_R, Meta_R ] };",
+            "key <RALT> { type= \"TWO_LEVEL\", symbols[Group1]= [ Alt_R, Alt_R ] };",
+        ),
+        ("key <LWIN> { [ Super_L ] };", "key <LWIN> { [ Meta_L ] };"),
+        (
+            "modifier_map Mod4 { <LWIN> };",
+            "modifier_map Mod3 { <LWIN> };",
+        ),
+        (
+            "modifier_map Mod1 { <META> };",
+            "modifier_map Mod3 { <META> };",
+        ),
+    ]);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[press(KEY_LEFTMETA), press(KEY_A), press(KEY_LEFTALT)],
+    );
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [
+            Did::Press(keysyms::KEY_Meta_L, Mods::META),
+            Did::Press(keysyms::KEY_a, Mods::META),
+            Did::Press(keysyms::KEY_Alt_L, Mods::META.union(Mods::ALT)),
+        ]
     );
 }
