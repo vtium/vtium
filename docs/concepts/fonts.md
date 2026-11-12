@@ -1,23 +1,28 @@
 # Fonts, generated at run time
 
-This page describes how vtium gets the glyphs it draws. The helper, the console's per-boot store, the built-in fonts, switching, preview and new are all built.
+This page describes how vtium gets the glyphs it renders. A glyph is the image of one character in a font. These parts are all built: the font helper, the console's per-boot store, the built-in fonts, switching, preview, and new-frit.
 
-The console parses no font. A **frit** names a font's sources, and the **helper**, vtium-config's serve command in a sandbox, reads them, rasterises them and sends their glyphs at the console's cell, ready-to-draw bitmaps with their map from Unicode characters to glyphs and their metrics. The console checks each answer, holds the glyphs in memory for the boot and draws them. Nothing is prerendered, and no glyph outlives the boot.
+The console does not read font files itself. Two parts do that work for it:
 
-[why-vtium.md](../why-vtium.md) tells, for a newcomer, why these font terms come from glassmaking.
+- A **frit**, or font set file, names a font's sources.
+- The **font helper** is vtium-config's serve command, which runs in a sandbox. It reads the frit's sources and rasterises them, which means it turns each character into a bitmap. It sends the console those glyphs at the size of the console's character cell, the box on the screen that holds one character. The glyphs come ready to draw, with their map from Unicode characters to glyphs and their metrics, the measurements that place each glyph in the cell.
 
-The figure follows a font from choosing it to the console. Each command is vtium-config's.
+The console checks each answer from the font helper. It keeps the glyphs in memory until the machine restarts, and draws them. Nothing is rendered ahead of time, and no glyph lasts past a restart.
+
+The font terms come from glassmaking. [why-vtium.md](../why-vtium.md) explains why, for a newcomer.
+
+The figure follows a font from the moment someone chooses it to the console. Each command in the figure is a vtium-config command.
 
 ```mermaid
 flowchart LR
     P["preview<br>try many fonts<br>(the user)"] --> R
-    W["new: from fonts named<br>or a template<br>(the user)"] --> R
+    W["new-frit: from fonts named<br>or a template<br>(the user)"] --> R
     H["by hand"] --> R
     R["frit<br>names the sources<br>(written by root)"] --> HE["serve, the helper<br>sandboxed,<br>never root"]
     HE -->|"glyphs, checked"| ST[("the per-boot store<br>in vtium's memory")]
     ST --> V["vtium"]
     B["built-in fonts<br>Unifont, Unscii-8"] -->|"the first frame<br>and the fallback"| V
-    S["set<br>(the user,<br>in the session)"] -->|"OSC 50"| V
+    S["use-frit<br>(the user,<br>in the session)"] -->|"OSC 50"| V
     classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
     classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
     classDef store fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
@@ -32,18 +37,47 @@ flowchart LR
 
 ## Try many, keep one
 
-Someone choosing a font tries many and keeps one. `vtium config preview` draws a sample of each font it names as the helper would draw it, at the size its `--size` gives, else vtium.conf's font size. In a terminal that shows kitty graphics it draws the sample as a picture, and elsewhere it prints a line of text for each font. It writes nothing.
+Someone choosing a font tries many and keeps one. `vtium config preview` renders a sample of each font it names, the way the font helper would render it. It uses the size that its `--size` option gives. Without `--size`, it uses the font size in vtium.conf. In a terminal that shows kitty graphics images, it shows the sample as an image. In other terminals, it prints a line of text for each font. It writes nothing.
 
 ## The frit
 
-A font is declared as a **frit**, named for the ground glass a glassmaker melts again: a small text file, `/etc/vtium/fonts/NAME.vtfrit`, naming its sources in order, later ones filling characters the earlier ones lack, and the cell it is drawn in. Its sources can be console fonts, font files, the kernel's own font, and outline fonts, color emoji among them, found among the fonts installed on the machine by their family. A frit is written in one of three ways, which give the same file. You can write it by hand. `vtium config new-frit FONT...` makes a frit of the fonts you name, in order, and `vtium config new-frit` alone at a terminal opens vtium config's full-screen tool at its new-frit view. `vtium config new-frit --template` prints a frit with each key explained, and `vtium config new-frit --from FILE` installs the frit you wrote from it, so a script or a package can make a frit without questions. Installing a frit asks for sudo once, for a command the tool shows first. vtium reads a frit only when root owns it and no other user can change it, and the same goes for every folder above it, as for vtium.conf. When a frit fails that check, vtium logs the file and the reason and renders with its built-in fonts, and `vtium check-config` reports the same refusal. `vtium-config --help about` draws the tool's name in glass. See [the glass banner issue](https://github.com/vtium/vtium/issues/112). Later, vtium-config may find installed fonts that match chosen looks without a frit written for each. That direction is not decided yet; see [the issue about matching installed fonts](https://github.com/vtium/vtium/issues/117).
+A font is declared in a **frit**. The name comes from glassmaking, where frit is the ground glass that a glassmaker melts again. A frit is a small text file, `/etc/vtium/fonts/NAME.vtfrit`. It names the font's sources in order, and a later source fills in only the characters that the earlier sources do not have. The frit also names the character cell the font is drawn in.
+
+A frit's sources can be any of these:
+
+- console fonts
+- font files
+- the kernel's own font
+- outline fonts, color emoji among them, which the font helper finds among the fonts installed on the machine by their family name
+
+There are three ways to write a frit, and all three give the same file:
+
+- You can write it by hand.
+- `vtium config new-frit FONT...` makes a frit of the fonts you name, in the order you name them. `vtium config new-frit` with no fonts, run at a terminal, opens vtium config's full-screen tool at its new-frit view.
+- `vtium config new-frit --template` prints a frit with each key explained. `vtium config new-frit --from FILE` installs the frit you wrote from that template. This way, a script or a package can make a frit without answering questions.
+
+Installing a frit asks for sudo once. The tool shows you the command before it runs it.
+
+vtium reads a frit only when it passes the same ownership check as vtium.conf. Root must own the frit, and no other user may be able to change it or any folder above it. When a frit fails that check, vtium does not read it. vtium logs the file and the reason, and draws with its built-in fonts. `vtium check-config` reports the same refusal.
+
+`vtium-config --help about` draws the tool's name in glass. See [the glass banner issue](https://github.com/vtium/vtium/issues/112).
+
+Later, vtium-config may find installed fonts that match the looks people choose, without a frit written for each. A look is a named set of font settings in vtium.conf, such as a font and its size. That direction is not decided yet. See [the issue about matching installed fonts](https://github.com/vtium/vtium/issues/117).
 
 ## Drawing at run time
 
-At start the built-in font draws the first frame at once, in the cell the frit states, and the frit's glyphs replace it, character by character, as the helper sends them: the characters on the screen first, and while nothing is asked, printable Latin and box drawing, then the rest of the frit's coverage. The glyphs live in a per-boot store whose limit follows the machine's memory: the helper's fill stops at it, and only an ask for the screen's characters evicts, the glyphs least recently shown first. The helper starts on the console's first need, exits when idle, and is started again after a crash a bounded number of times a boot.
+When vtium starts, it draws the first frame at once in the built-in font, in the character cell that the frit states. The frit's glyphs then replace the built-in ones, character by character, as the font helper sends them. The font helper sends the characters on the screen first. While the console asks for nothing else, it goes on to printable Latin characters and box-drawing characters. After those, it sends the rest of the characters the frit covers.
+
+The glyphs live in a per-boot store, which lasts until the machine restarts. The store's limit depends on how much memory the machine has. When the store reaches its limit, the font helper stops filling it. Only a request for characters on the screen makes room in a full store. It evicts the glyphs least recently shown first.
+
+The font helper starts the first time the console needs it, and exits when it has nothing to do. If it crashes, vtium starts it again, up to a limited number of times per boot.
 
 ## The fallback and switching
 
-When the configured font names no frit, and no font a frit can be made from on the fly, or the helper is unavailable, the console draws the built-in fonts and logs why. The built-in fonts are Unifont, and Unscii-8 for cells under 16 pixels, compiled into vtium; they also draw each character a frit lacks.
+The console uses the built-in fonts in two cases, and it logs the reason. In the first case, the configured font names no frit, and no font that vtium can make a frit from on the fly. In the second case, the font helper is not available.
 
-vtium-config's set command switches the running console among the frits and the built-in fonts through the terminal, with xterm's font control sequence (OSC 50), which vtium takes while its allow-font-ops setting is on, as it is by default. A switch lasts until the session it came from ends, when its program exits, its console closes, or vtium hangs it up; vtium then returns the console to the font the configuration gives.
+The built-in fonts are compiled into vtium. They are Unifont, and Unscii-8 for character cells under 16 pixels high. They also draw each character that a frit does not have.
+
+vtium-config's use-frit command switches the running console to another frit or to a built-in font. It does this through the terminal, with xterm's font control sequence, OSC 50. vtium acts on that sequence while its allow-font-ops setting is on, as it is by default.
+
+A switch lasts until the session it came from ends. The session ends when its program exits, when its console closes, or when vtium hangs it up. vtium then returns the console to the font the configuration gives.

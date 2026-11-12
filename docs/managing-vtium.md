@@ -1,12 +1,12 @@
 # Managing VTium
 
-The guides below hold the steps you take to run vtium, a terminal for the Linux virtual console, day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium, and [Concepts](concepts/index.md) explains its pieces.
+vtium is a terminal for the Linux virtual console. The virtual console is the set of text screens that you switch between with Ctrl+Alt and a function key, and each of those screens is a VT. The guides below give the steps you take to run vtium day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium. [Concepts](concepts/index.md) explains its pieces.
 
-- [Install vtium and give it VTs](install.md): installing on Arch Linux or from a checkout, giving vtium one VT or every VT, moving from another terminal on a DRM/KMS VT, sharing VTs with `kmscon`, upgrading and removing.
-- [Configure vtium](configure.md): vtium.conf, checking it, changing it through a draft with `vtium config` and installing it, and blanking a VT from a script.
-- [Choose a font](fonts.md): an outline font or a console font, its size, choosing one with `vtium config`, and switching and zooming for a session.
-- [Set up heads](heads.md): the sections of vtium.conf for each common setup.
-- [Find out what went wrong](troubleshooting.md): getting out of a VT where vtium misbehaves, reading what each VT runs, and collecting a report for an issue.
+- [Install vtium and give it VTs](install.md) covers installing on Arch Linux or from a checkout, and giving vtium one VT or every VT. It also covers moving from another terminal on a DRM/KMS VT, sharing VTs with `kmscon`, and upgrading and removing vtium.
+- [Configure vtium](configure.md) covers vtium.conf and checking it. It shows how to change the file through a draft with `vtium config`, and how to install the draft. It also covers blanking a VT from a script.
+- [Choose a font](fonts.md) covers an outline font or a console font, and its size. It shows how to choose one with `vtium config`, and how to switch fonts and zoom for a session.
+- [Set up heads](heads.md) gives the sections of vtium.conf for each common setup.
+- [Find out what went wrong](troubleshooting.md) shows how to get out of a VT where vtium misbehaves, and how to read what each VT runs. It also shows how to collect a report for an issue.
 
 [Keys](keys.md) lists the keys vtium keeps for itself.
 

@@ -1,12 +1,12 @@
 //! The mode table: one row per ANSI mode (SM, RM: `CSI Pm h`, `CSI Pm l`)
 //! and DEC private mode (DECSET, DECRST: `CSI ? Pm h`, `CSI ? Pm l`) vtium
-//! recognises.
+//! recognizes.
 //!
 //! The table is the single source for SM and RM, DECRQM's reports, what
 //! DECSTR and RIS restore, and `docs/modes.md` and `docs/modes.tsv`, which
 //! a test generates from it and compares with the committed files
 //! (`VTIUM_TERM_BLESS=1` rewrites them). A number with no row is not
-//! recognised: DECRQM reports 0 and SM and RM change nothing.
+//! recognized: DECRQM reports 0 and SM and RM change nothing.
 //!
 //! A supported row's state is read and written only through the two
 //! accessors here, [`State::mode`] and [`State::set_mode`]. The state the
@@ -229,7 +229,7 @@ mod bidi_modes {
 }
 
 /// The bidi modes (ADR-1004 D12, D13), in the table for its documents in
-/// every build that tests them, and recognised only in a build with the
+/// every build that tests them, and recognized only in a build with the
 /// bidi feature, so a build without it carries none of them.
 #[cfg(any(test, feature = "bidi"))]
 #[rustfmt::skip]
@@ -241,7 +241,7 @@ static BIDI_MODES: &[Row] = &[
     row!(DEC, 2501, "BIDIAUTO", Supported, Initial::Host("text-direction"), Soft, Nothing, "", "the Terminal Working Group's BiDi recommendation, as mintty documents it: set, each paragraph's direction is detected from its first strong character; SM and RM set the current value, which each new paragraph takes, and mark the cursor's paragraph when the cursor stands at its first position, and DECSTR and RIS return it to vtium.conf's `text-direction`, set under `auto`; in a build with the bidi feature, and a build without it has no such row, so DECRQM answers 0", &["bidi.rs::mode_2501_marks_detection_and_starts_as_text_direction_says", BIDI_RESETS], bidi_modes::DETECT),
 ];
 
-/// Every mode vtium recognises, ANSI modes first, each kind by number,
+/// Every mode vtium recognizes, ANSI modes first, each kind by number,
 /// but the bidi modes, which are in `BIDI_MODES`.
 #[rustfmt::skip]
 pub(crate) static MODES: &[Row] = &[
@@ -766,7 +766,7 @@ pub(super) fn set(state: &mut State, dec: bool, number: u32, on: bool) {
 }
 
 /// DECRQM's value for a mode number: 1 set, 2 reset, 3 permanently set, 4
-/// permanently reset, 0 not recognised. An ignored or refused row, and a
+/// permanently reset, 0 not recognized. An ignored or refused row, and a
 /// row the host does not offer, reports its initial state as permanent.
 pub(super) fn report(state: &State, dec: bool, number: u32) -> u8 {
     let Some(row) = find(dec, number) else {
@@ -1112,27 +1112,37 @@ mod tests {
     /// `docs/modes.md`, generated from the table.
     fn markdown() -> String {
         let mut out = String::from(
-            "# The modes vtium recognises\n\n\
-             Generated from the mode table in `crates/vtium-term/src/terminal/modes.rs` by the \
-             test `generated_documents_match_the_table`; `VTIUM_TERM_BLESS=1 cargo test -p \
-             vtium-term generated_documents` rewrites it and `docs/modes.tsv`. A row's status is supported, when set and reset do \
-             what the specification says, ignored, when vtium accepts the mode and it has no \
-             effect, or refused, when vtium deliberately does not implement it. The spec \
-             column says why a mode is ignored or refused. A number with no row is not recognised: DECRQM reports 0, and \
-             SM and RM change nothing. An ignored or refused row reports its default as \
-             permanent, 3 when set and 4 when reset.\n\n\
-             XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists, and \
-             XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the state saved, through \
-             SM or RM; a mode nothing was saved for stays as it is. With an empty list they \
-             save and restore every mode free of side effects, as kitty's misc-protocol has \
-             it: every supported DEC private mode but DECOM (6), which moves the cursor home, \
-             47, 1047 and 1049, which switch screens, 1048 and 2026; no ANSI mode is in it. \
-             Modes that share one state share one saved state, as xterm keeps them: the \
-             tracking modes 1000, 1002 and 1003, while 9 has a saved state of its own holding \
-             the same tracking, the encodings 1006, 1015 and 1016, and the \
-             alternate screen modes 47, 1047 and 1049, which XTRESTORE of one of them switches \
-             as 47 does, neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE \
-             of it saves the cursor as DECSC does and XTRESTORE restores it as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",
+            "# The modes vtium recognizes\n\
+             \n\
+             This page is generated from the mode table in `crates/vtium-term/src/terminal/modes.rs`, by the test `generated_documents_match_the_table`. `VTIUM_TERM_BLESS=1 cargo test -p vtium-term generated_documents` rewrites it and `docs/modes.tsv`.\n\
+             \n\
+             A row's status is one of three:\n\
+             \n\
+             - supported, when set and reset do what the specification says,\n\
+             - ignored, when vtium accepts the mode and the mode has no effect, or\n\
+             - refused, when vtium deliberately does not implement the mode.\n\
+             \n\
+             The spec column says why a mode is ignored or refused. vtium does not recognize a number that has no row. DECRQM reports 0 for such a number, and SM and RM change nothing. An ignored or refused row reports its default as permanent: 3 when the default is set, and 4 when it is reset.\n\
+             \n\
+             XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists. XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the saved state, through SM or RM. A mode that nothing was saved for stays as it is.\n\
+             \n\
+             With an empty list, XTSAVE and XTRESTORE save and restore every mode that is free of side effects. vtium follows the misc-protocol specification in kitty's documentation for what the empty list holds. The empty list holds every supported DEC private mode except these:\n\
+             \n\
+             - DECOM (6), which moves the cursor home,\n\
+             - 47, 1047 and 1049, which switch screens, and\n\
+             - 1048 and 2026.\n\
+             \n\
+             The empty list holds no ANSI mode.\n\
+             \n\
+             Modes that share one state also share one saved state. These modes share a saved state:\n\
+             \n\
+             - the tracking modes 1000, 1002 and 1003, while mode 9 has a saved state of its own that holds the same tracking,\n\
+             - the encodings 1006, 1015 and 1016, and\n\
+             - the alternate screen modes 47, 1047 and 1049.\n\
+             \n\
+             XTRESTORE of any of the alternate screen modes switches screens as 47 does. It neither clears the screen nor moves the cursor.\n\
+             \n\
+             Mode 1048 holds no state. XTSAVE of 1048 saves the cursor as DECSC does, and XTRESTORE of 1048 restores the cursor as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.\n\n",
         );
         out += &format!("| {} |\n", COLUMNS.join(" | "));
         out += &format!("|{}\n", "---|".repeat(COLUMNS.len()));
