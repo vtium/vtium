@@ -196,7 +196,7 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Revert,
         forms: &[form("revert [--dry-run]", "throw away the draft's changes")],
-        detail: "Replaces the current draft with a copy of the installed vtium.conf, so the draft's changes are lost. The installed file does not change. --dry-run says how many lines would be lost.",
+        detail: "Replaces the current draft with a copy of the installed vtium.conf, so the draft's changes are lost. When no vtium.conf is installed, the draft becomes a short comment that says what the file is, and sets no setting. The installed file does not change. --dry-run says how many lines would be lost.",
         example: "vtium-config revert",
     },
     Topic {
@@ -205,7 +205,7 @@ const TOPICS: &[Topic] = &[
             "new [--dry-run]",
             "start the draft over from the defaults",
         )],
-        detail: "Starts the current draft over: every setting at its default (commented out, as in the example file vtium ships) and one empty look, [look default]. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
+        detail: "Starts the current draft over: a short comment that says what the file is, version = 1 and one empty look, [look default]. The draft sets no setting, so vtium uses every default. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
         example: "vtium-config new",
     },
     Topic {

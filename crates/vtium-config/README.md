@@ -103,7 +103,7 @@ The flow's commands and the TUI change the user's draft, a whole vtium.conf kept
 
 | Path | What it holds |
 |---|---|
-| `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | Each draft. The first is made from the installed file, or from the shipped example when none is installed, and is named for the machine's hostname, with `-2`, `-3` and so on appended so that no draft is overwritten. |
+| `$XDG_CONFIG_HOME/vtium/drafts/NAME.conf` | Each draft. The first is made from the installed file, or, when none is installed, from the six-line comment `HEADER` in `src/drafts.rs` alone, and is named for the machine's hostname, with `-2`, `-3` and so on appended so that no draft is overwritten. |
 | `$XDG_CONFIG_HOME/vtium/vtium-config.conf` | `draft = NAME`, the current draft, and `history = N`, how many installed files the history keeps, 10 unless set. |
 | `$XDG_CONFIG_HOME/vtium/library.conf` | The library, in vtium.conf's section syntax. |
 | `$XDG_CONFIG_HOME/vtium/installed/DRAFT-N.conf` | Each installed file an install of DRAFT replaced. |
