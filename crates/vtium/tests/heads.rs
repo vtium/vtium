@@ -6921,7 +6921,7 @@ fn a_looks_frit_others_can_change_draws_the_built_in_font_with_one_line() {
             .collect()
     };
     let started = logged();
-    assert_eq!(about(&started), [line.clone()], "{started:?}");
+    assert_eq!(about(&started), std::slice::from_ref(&line), "{started:?}");
     assert!(s.until(BOUND, |a| a.font_name() == "a"), "switched to a");
     assert_eq!(s.app.cells(), [(10, 20)]);
     end_shown_session(&mut s);
