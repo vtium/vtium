@@ -1385,6 +1385,12 @@ const OVERHANG_WIDE_DESC: &str = "The ideograph 一, two cells wide, in the ink 
 /// braces; the Arabic as-salamu alaykum, whose lam and alef join into
 /// their ligature, then a date; and the Hebrew shalom olam with olam in
 /// brackets, then 3.14.
+/// A right-to-left paragraph, set by SCP 2, that names Article 1 of the
+/// Universal Declaration of Human Rights by the Declaration's Arabic
+/// title, with the Latin UDHR in brackets and the numbers 1 and 1948.
+const BIDI_TITLE: &[u8] =
+    "\x1b[2 kالمادة 1 من الإعلان العالمي لحقوق الإنسان (UDHR) لعام 1948.".as_bytes();
+
 const BIDI_MIXED: &[u8] = concat!(
     "abc \u{5e9}\u{5dc}\u{5d5}\u{5dd} (1) def\r\n",
     "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645}: 123 (abc)\r\n",
@@ -1438,8 +1444,9 @@ const BIDI_UNIFONT: &[u8] = concat!(
 
 /// The right-to-left screens (ADR-1004 D14), each followed by its twin on
 /// a 1-bit display.
-const BIDI_CASES: [Case; 14] = bidi_cases([
+const BIDI_CASES: [Case; 16] = bidi_cases([
     outline("bidi-mixed", BIDI_MIXED_DESC, BIDI_MIXED, 26, 5),
+    outline("bidi-title", BIDI_TITLE_DESC, BIDI_TITLE, 64, 2),
     outline("bidi-mixed-rtl", BIDI_MIXED_RTL_DESC, BIDI_MIXED_RTL, 26, 5),
     outline("bidi-explicit", BIDI_EXPLICIT_DESC, BIDI_EXPLICIT, 18, 4),
     Screen {
@@ -1478,9 +1485,10 @@ const BIDI_CASES: [Case; 14] = bidi_cases([
 
 /// Each of `screens`, then the same screen on a 1-bit display, named with
 /// `-1bit` after its name.
-const fn bidi_cases(screens: [Screen; 7]) -> [Case; 14] {
-    const NAMES: [&str; 7] = [
+const fn bidi_cases(screens: [Screen; 8]) -> [Case; 16] {
+    const NAMES: [&str; 8] = [
         "bidi-mixed-1bit",
+        "bidi-title-1bit",
         "bidi-mixed-rtl-1bit",
         "bidi-explicit-1bit",
         "bidi-cursor-block-1bit",
@@ -1488,9 +1496,9 @@ const fn bidi_cases(screens: [Screen; 7]) -> [Case; 14] {
         "bidi-selection-1bit",
         "bidi-unifont-1bit",
     ];
-    let mut all = [Case { screen: screens[0] }; 14];
+    let mut all = [Case { screen: screens[0] }; 16];
     let mut i = 0;
-    while i < 7 {
+    while i < 8 {
         all[2 * i] = Case { screen: screens[i] };
         all[2 * i + 1] = Case {
             screen: Screen {
@@ -1504,6 +1512,8 @@ const fn bidi_cases(screens: [Screen; 7]) -> [Case; 14] {
 }
 
 const BIDI_ONE_BIT_DESC: &str = "The screen of the same name without `-1bit`, drawn the same way on a 1-bit display, every pixel black or white. Correct: the same letters in the same places and forms as on the color screen, lit on an unlit background, with a cursor or a selection drawn lit and its text unlit.";
+
+const BIDI_TITLE_DESC: &str = "A right-to-left paragraph, set by SCP 2, drawn in the test font set at 16 pixels, 64 by 2 cells, its second row empty so the dots under final yeh show, with Arabic from Noto Sans Arabic: al-madda 1 min al-i'lan al-'alami li-huquq al-insan (UDHR) li-'am 1948, Article 1 of the Universal Declaration of Human Rights, named by its Arabic title. Noto Sans Arabic draws lam-alef as two glyphs, lam's and alef's joined forms. Correct: the row ends at the right edge and reads from the right, with the full stop at the left end. UDHR in its brackets and the numbers 1 and 1948 read left to right inside it. Each word is joined. In al-i'lan the alef stands alone, since alef never joins the letter after it; lam with alef-hamza-below draws as one ligature across its two cells; ain takes its initial form and joins the final lam-alef on its left; and the noon stands alone after it. Each lam-alef ligature stands against the right edge of its two cells, where its lam joins the letter before it, so ain and the ligature meet; any space inside the two cells lies on the ligature's left, the side where alef joins nothing.";
 
 const BIDI_MIXED_DESC: &str = "Right-to-left text mixed with Latin, digits and brackets, in the default mode: vtium runs the Unicode bidirectional algorithm over each paragraph, and every paragraph runs left to right (ADR-1004 D3, D5). Drawn in the test font set at 16 pixels, 26 by 5 cells, with Hebrew from Noto Sans Hebrew and Arabic from Noto Sans Arabic. The program writes each row in the order it is read: abc, the Hebrew word shalom, (1) and def; the Arabic words marhaban bil-alam, a colon, 123 and (abc); the Hebrew word tapuz, [42], and, the Arabic word burtuqal and {7}; the Arabic words as-salamu alaykum and the date 2024-11-06; and the Hebrew words shalom and olam, olam in brackets, then 3.14. Correct: every row starts at the left edge. Each run of Hebrew or Arabic reads right to left, so shalom's shin is its rightmost letter, and the words of a run stand from right to left in the order they were written. The first row reads abc (1) shalom def: the number and its brackets go with the Hebrew word before them. The second row reads 123, the colon, the two Arabic words and (abc): the colon and 123 go with the Arabic before them. The third row reads [42], tapuz, and, {7}, burtuqal. In the fourth row the date's three numbers stand in right-to-left order, 06-11-2024, each number still read left to right, because numbers after Arabic letters take the Arabic text's direction. The fifth row reads 3.14, then olam in its brackets, then shalom. Digits always read left to right. A bracket inside right-to-left text draws the glyph of its mirror image, so each pair still opens toward what it holds. Each Arabic letter takes the form its neighbours give it, so each word is joined, and the lam and alef of salam draw as their single ligature across their two cells.";
 

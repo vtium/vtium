@@ -66,6 +66,7 @@ The right-to-left screens judge how vtium draws Hebrew and Arabic (ADR-1004 D14)
 |---|---|
 | `bidi-mixed` | Hebrew, Arabic, Latin, digits and brackets mixed in five left-to-right paragraphs, in the test font set: each right-to-left run reordered, digits left to right, brackets mirrored, Arabic joined and the lam-alef ligature across two cells (ADR-1004 D3, D6, D7) |
 | `bidi-mixed-rtl` | The same rows as right-to-left paragraphs, set by SCP 2 (ADR-1004 D2, D5) |
+| `bidi-title` | A right-to-left paragraph naming Article 1 of the Universal Declaration of Human Rights by its Arabic title, with UDHR and two numbers inside it: Noto Sans Arabic's lam-alef, drawn as two glyphs, as one ligature against the right edge of its two cells, and ain in its initial form joining the final lam-alef in al-i'lan (vtium/vtium#389) |
 | `bidi-explicit` | Explicit mode, BDSM reset: two left-to-right and two right-to-left paragraphs a program laid out itself, drawn in the order written, brackets mirrored in the right-to-left ones (ADR-1004 D4) |
 | `bidi-cursor-block`, `bidi-cursor-bar` | A block and a bar cursor on a right-to-left Arabic letter: the block covers the letter's cell, and the bar stands on the cell's right side (ADR-1004 D9) |
 | `bidi-selection` | A selection dragged across a mixed row, which holds the cells between its ends in written order and so shows in pieces (ADR-1004 D10) |
