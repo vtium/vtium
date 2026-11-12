@@ -59,6 +59,15 @@ pub fn keys(config: &Config, of: Of<'_>) -> Option<Vec<(String, String)>> {
                     if isolated { "yes" } else { "no" }.to_owned(),
                 ));
             }
+            // the VTs the head runs on, none for every VT (ADR-1403 D4)
+            if !head.vts.is_empty() {
+                let vts: Vec<String> = head.vts.iter().map(u16::to_string).collect();
+                out.push(("vt".to_owned(), vts.join(" ")));
+            }
+            // `switch-on-enter` is `no` unless the file turns it on
+            if head.switch_on_enter {
+                out.push(("switch-on-enter".to_owned(), "yes".to_owned()));
+            }
             Some(out)
         }
     }
@@ -152,5 +161,32 @@ mod tests {
         let pulled = copy(changed, &library, Of::Look("big")).unwrap();
         assert_eq!(list(&pulled), ["look big"]);
         assert!(!differs(changed, &pulled, Of::Look("big")));
+    }
+
+    // a head goes to the library and back with every key it sets, its VTs
+    // and switch-on-enter among them (ADR-1403 D4, D8; ADR-1401, "Enter
+    // on a head's own keyboard")
+    #[test]
+    fn a_head_is_copied_with_its_vts_and_switch_on_enter() {
+        let draft = "version = 1\n[head desk]\nconsoles = 2\nvt = 3 4\nswitch-on-enter = yes\n[rules]\ndisplay * -> desk\n";
+        let library = copy(draft, "", Of::Head("desk")).unwrap();
+        assert_eq!(
+            library,
+            "version = 1\n\n[head desk]\nconsoles = 2\nvt = 3 4\nswitch-on-enter = yes\n"
+        );
+        assert!(!differs(draft, &library, Of::Head("desk")));
+        // pulled back into a draft whose head sets neither key
+        let bare = "version = 1\n[head desk]\nconsoles = 2\n[rules]\ndisplay * -> desk\n";
+        assert!(differs(bare, &library, Of::Head("desk")));
+        // a key the head lacks goes in below its heading
+        let pulled = copy(&library, bare, Of::Head("desk")).unwrap();
+        assert_eq!(
+            pulled,
+            "version = 1\n[head desk]\nvt = 3 4\nswitch-on-enter = yes\nconsoles = 2\n[rules]\ndisplay * -> desk\n"
+        );
+        assert!(!differs(draft, &pulled, Of::Head("desk")));
+        // and a head that sets neither takes both out of the library's
+        let cleared = copy(bare, &library, Of::Head("desk")).unwrap();
+        assert_eq!(cleared, "version = 1\n\n[head desk]\nconsoles = 2\n");
     }
 }
