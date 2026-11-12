@@ -632,7 +632,7 @@ pub struct Scheme {
 /// The example's scheme for a light terminal background.
 pub const LIGHT: Scheme = Scheme {
     name: "light",
-    what: "For a light terminal background: the on-screen display is a pale grey box with dark text and a grey edge, and a notice a dark red box with white text and a darker edge, so a problem differs from a status in brightness as well as in hue.",
+    what: "For a light terminal background. The on-screen display is a pale grey box with dark text and a grey edge. A notice is a dark red box with white text and a darker edge. So a problem differs from a status in brightness as well as in hue.",
     notice: [[255, 255, 255], [153, 27, 27], [69, 10, 10]],
     osd: [[31, 41, 51], [243, 244, 246], [156, 163, 175]],
 };
@@ -640,7 +640,7 @@ pub const LIGHT: Scheme = Scheme {
 /// The example's scheme for a dark terminal background.
 pub const DARK: Scheme = Scheme {
     name: "dark",
-    what: "Both boxes are dark, for a dark terminal background: a notice is deep red with pale text and a light red edge, and the on-screen display near black with light grey text and a grey edge.",
+    what: "For a dark terminal background, with both boxes dark. A notice is deep red, with pale text and a light red edge. The on-screen display is near black, with light grey text and a grey edge.",
     notice: [[254, 226, 226], [185, 28, 28], [248, 113, 113]],
     osd: [[209, 213, 219], [17, 24, 39], [75, 85, 99]],
 };
@@ -648,7 +648,7 @@ pub const DARK: Scheme = Scheme {
 /// The example's scheme for color blindness.
 pub const COLOR_BLIND_SAFE: Scheme = Scheme {
     name: "color-blind-safe",
-    what: "For color blindness, a problem differs from a status in brightness and in an orange and blue pair, never in red against green: a notice is a bright orange box with near-black text, and the on-screen display a dark blue box with near-white text.",
+    what: "For color blindness. A problem differs from a status in brightness, and in an orange and blue pair, never in red against green. A notice is a bright orange box with near-black text. The on-screen display is a dark blue box with near-white text.",
     notice: [[28, 25, 23], [255, 176, 0], [254, 97, 0]],
     osd: [[238, 242, 255], [11, 42, 91], [100, 143, 255]],
 };
@@ -759,11 +759,11 @@ pub const SB_MEMORY: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-term",
-    what: "The most memory each console's scrollback uses. When it is full, the oldest lines are dropped, as they are past `sb-size`.\n\n\
-           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G` (such as `6M`), up to a quarter of the machine's memory (or up to the default when `/proc/meminfo` cannot be read).\n\n\
+    what: "The most memory each console's scrollback uses. When it is full, vtium drops the oldest lines, as it does past `sb-size`.\n\n\
+           The value is in bytes, or in KiB, MiB or GiB with `K`, `M` or `G`, such as `6M`. It can be up to a quarter of the machine's memory. When vtium cannot read `/proc/meminfo`, it can be up to the default.\n\n\
            When unset, vtium sizes it to fit each console's size in characters, and sizes it again when that changes.\n\n\
-           [docs] A console up to 170x48 characters gets what is left of a 16 MiB budget after the console's screens and the rest of vtium, so a smaller console keeps more lines. A larger console gets the 170x48 value shown here.\n\n\
-           [docs] The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback; a set value stays fixed.",
+           [docs] A console of up to 170×48 characters gets what is left of a 16 MiB budget, after the console's screens and the rest of vtium. So a smaller console keeps more lines. A larger console gets the 170×48 value shown here.\n\n\
+           [docs] The default does not grow with the display or the machine's memory. On a machine with memory to spare, set `sb-memory` for a deeper scrollback. A value that you set stays fixed.",
     cite: "[the scrollback memory issue](https://github.com/vtium/vtium/issues/131)",
 };
 
@@ -897,10 +897,10 @@ pub const DISPLAY_BUFFERS: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-platform",
-    what: "How many frame buffers each display keeps (DRM displays only; every display gets the same number).\n\n\
-           `3` is triple buffering: no frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory, but vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
-           A framebuffer device (fbdev) always keeps one buffer. When unset, the build decides: the number it was built with (`VTIUM_DISPLAY_BUFFERS`), or else 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
-           [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`, or the build's default followed by `default` (`unset` when the build sets no number, in which case the rule above decides).",
+    what: "How many frame buffers each DRM display keeps, the same number for every display.\n\n\
+           `3` is triple buffering. No frame waits for the previous one to reach the screen, and each display needs one more frame of memory. `2` is double buffering. `1` is single buffering, which uses the least memory. vtium then draws into the buffer on screen, so a half-drawn frame can show.\n\n\
+           A framebuffer device (fbdev) always keeps one buffer. When the key is unset, the build decides. A build uses the number it was built with, `VTIUM_DISPLAY_BUFFERS`. Without one, it uses 3 in a build with optional features, 2 in the smallest build (minspec), and 1 only in a build smaller than that.\n\n\
+           [docs] `vtium config get display-buffers` prints the draft's value followed by `draft`. When the draft sets none, it prints the build's default followed by `default`. That default is `unset` when the build sets no number, and the rule above then decides.",
     cite: "[the displays issue](https://github.com/vtium/vtium/issues/18)",
 };
 
@@ -1471,9 +1471,9 @@ pub const FONT_PATHS: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The folders where vtium looks, in order, for installed fonts that a font set's `font:` lines name.\n\n\
-           Separate the folders with `:`, as in `PATH`; each must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, uses the rest, and logs why.\n\n\
+           Separate the folders with `:`, as in `PATH`. Each folder must be an absolute path. The list replaces the built-in list. vtium skips a folder that is not an absolute path, logs why, and uses the rest.\n\n\
            [docs] The list can reorder or leave out the system's folders.\n\n\
-           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. A user's own folder, such as `~/.local/share/fonts`, is searched only when the list names it, and the font helper cannot read it before someone logs in, because it then runs as `nobody`.",
+           When unset, vtium searches `/usr/share/fonts` and `/usr/local/share/fonts`. vtium searches a user's own folder, such as `~/.local/share/fonts`, only when the list names it. The font helper cannot read such a folder before someone logs in, because the helper then runs as `nobody`.",
     cite: "[the configuration flow issue](https://github.com/vtium/vtium/issues/299)",
 };
 
@@ -1486,8 +1486,8 @@ pub const FONT_HELPER: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "The font helper: the program vtium starts to draw a font set's characters. It runs as `nobody` when vtium runs as root.\n\n\
-           vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+           vtium opens the program once, when it starts, and runs every helper from that open file. So a newly installed helper takes effect when vtium restarts.\n\n\
+           vtium refuses a helper whose path is not absolute, or that is not a regular file. It refuses a helper that is setuid or setgid. It also refuses a helper that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and uses its built-in font. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            [docs] The default is the path vtium was built with.",
     cite: "[the issue that renders glyphs in the font helper](https://github.com/vtium/vtium/issues/145); the maintainer's decision of 2026-11-01",
 };
@@ -1693,10 +1693,10 @@ pub const TEXT_DIRECTION: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-term",
-    what: "Which way a paragraph of text runs when the program writing it does not say: `ltr`, left to right, `rtl`, right to left, or `auto`, which takes each paragraph's direction from its first letter.\n\n\
-           A paragraph is the text between two line ends. `ltr`, the default, starts each paragraph at the left edge, and `rtl` at the right edge. Under `auto`, a paragraph that starts with an Arabic or Hebrew letter runs right to left, and any other runs left to right.\n\n\
+    what: "Which way a paragraph of text runs when the program that writes it does not say.\n\n\
+           A paragraph is the text between two line ends. `ltr`, the default, runs each paragraph left to right, from the left edge. `rtl` runs it right to left, from the right edge. `auto` takes each paragraph's direction from its first letter. A paragraph that starts with an Arabic or Hebrew letter runs right to left, and any other paragraph runs left to right.\n\n\
            [docs] A paragraph keeps its direction however many rows it wraps across. `rtl` suits a console used mostly in Arabic, Hebrew or another right-to-left language.\n\n\
-           vtium reads this key when it starts, so a change takes effect when vtium restarts, and it never changes text already on the screen.\n\n\
+           vtium reads this key when it starts, so a change takes effect when vtium restarts. The key never changes text that is already on the screen.\n\n\
            [docs] A program can change the direction with escape sequences, and a terminal reset returns it to this setting.\n\n\
            A build without right-to-left support (the `bidi` feature) accepts this key and does nothing with it.",
     cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
@@ -2097,9 +2097,9 @@ pub const IMAGE_HELPER: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The image helper: the program vtium starts, as the logged-in user, to read image files and shared memory for kitty graphics and to decode PNG and zlib-compressed images. vtium runs as root and does neither itself.\n\n\
-           vtium opens the program once, when it starts, and runs every helper from that file, so a newly installed helper takes effect when vtium restarts.\n\n\
-           vtium refuses a helper whose path is not absolute, that is not a regular file, that is setuid or setgid, that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why and refuses images: `EBADF` for files and shared memory, `EINVAL` for PNG and zlib. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
+    what: "The image helper: the program that vtium starts, as the logged-in user, to read and decode images. It reads image files and shared memory for kitty graphics, and decodes PNG and zlib-compressed images. vtium runs as root and does neither itself.\n\n\
+           vtium opens the program once, when it starts, and runs every helper from that open file. So a newly installed helper takes effect when vtium restarts.\n\n\
+           vtium refuses a helper whose path is not absolute, or that is not a regular file. It refuses a helper that is setuid or setgid. It also refuses a helper that anyone but root or vtium's own account owns, or that its group or other users can write. It then logs why, and refuses images. It answers `EBADF` for files and shared memory, and `EINVAL` for PNG and zlib. vtium starts the helper through `/proc/self/fd`, so `/proc` must be mounted.\n\n\
            A build without image support accepts this key and starts no helper.\n\n\
            [docs] The default is the path vtium was built with.",
     cite: "[the image helper issue](https://github.com/vtium/vtium/issues/31); the maintainer's decision of 2026-11-01",
@@ -2482,7 +2482,7 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "On-screen display and notices",
-        about: "What vtium shows on top of the console, and in which colors: which head and console you are looking at, a notice about a problem, and the kernel's warnings.",
+        about: "What vtium shows on top of the console, and in which colors. It shows which head and console you are looking at, a notice about a problem, and the kernel's warnings.",
         groups: &[
             Group {
                 title: "On-screen display",
