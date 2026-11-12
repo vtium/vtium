@@ -16,8 +16,9 @@ vtium (binary)
 │   │   ├── vtium-parse   bytes to actions: the bounded escape-sequence parser
 │   │   └── vtium-image   the image store, its rules, the handler trait, the decode types (feature `images`)
 │   │       └── vtium-parse
+│   ├── vtium-image  (feature `images`): the placements of the pictures it draws
 │   └── vtium-font   glyphs: the built-in Unifont and Unscii-8, the glyph chunk format, sprites
-└── vtium-image      (feature `images`; not used by the binary yet)
+└── vtium-image      (feature `images`): the image helper's requests and replies, the `auto` budget, animation
 
 vtium-config (binary)   the configuration tool and the glyph helper: the drafts, the Flow view, every font decoder, the outline rasterizer and shaping
 ├── vtium-devices
@@ -26,7 +27,7 @@ vtium-config (binary)   the configuration tool and the glyph helper: the drafts,
 └── vtium-settings
 ```
 
-The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone and names a line by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). The binary also lists vtium-image as an optional dependency, behind the binary's own `images` feature, and is to use it to send the image helper its requests and to work out the `auto` budget; no code in the binary uses it yet. Once a renderer draws placements, vtium-render is to reach the image types through vtium-term's frame. The minspec build links none of the image code.
+The tree is the workspace as built today. vtium-term takes vtium-image as an optional dependency, behind vtium-term's `images` feature. vtium-image depends on vtium-parse alone and names a line by an opaque key, so it never needs vtium-term (ADR-1100 D1, D10). vtium-render and the binary take vtium-image too, each behind its own `images` feature. vtium-render reads from it the placements of the pictures a frame draws. The binary uses it to send the image helper its requests and to check the helper's replies. It also uses it to work out the `auto` budget and to pick the frame each animated picture shows. The minspec build links none of the image code.
 
 vtium-config, the configuration tool, is a binary of its own, which a user runs as `vtium config`: the console binary replaces itself with vtium-config and holds nothing of the tool but that hand-off (ADR-1201 D12). The install tree carries it beside the console, outside the console's binary and outside the minspec size budget, which judges the console alone. The console starts it as its glyph helper, which reads a frit's fonts and sends their glyphs to the console (ADR-1200), so the font decoders and the rasterizer stay out of the console.
 
