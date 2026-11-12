@@ -1,5 +1,1 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
-flow-kiosk-admin-80x25	The Flow view of docs/heads/kiosk-admin.conf, a closed file: the kiosk, the operator's head admin, and a spare port that roams.
-flow-kiosk-admin-120x32	The same at 120x32, which docs/concepts/flows.md shows.
-flow-stations-80x25	The Flow view of docs/heads/stations.conf, a closed file: three stations, each with its display and its USB port.
-flow-stations-120x32	The same at 120x32, which docs/concepts/flows.md shows.
