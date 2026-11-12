@@ -485,7 +485,7 @@ impl FritText {
             .filter(|n| !n.is_empty())
             .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
         let text = crate::font::frit_text(path, trust)
-            .map_err(|why| format!("cannot read {}: {why}", path.display()))?;
+            .map_err(|why| crate::font::refusal(name, path, &why))?;
         Ok(FritText {
             name: name.to_owned(),
             text,

@@ -6877,19 +6877,20 @@ fn a_frit_others_can_change_is_not_read() {
     }
     mode(&fonts.frits.join("g.vtfrit"), 0o664);
     mode(&open, 0o775);
-    let refusal = |file: &Path, failed: &Path, mode: &str| {
+    let refusal = |name: &str, file: &Path, failed: &Path, mode: &str| {
         format!(
-            "cannot read {file}: vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it",
+            "vtium does not read the font set {name} from \"{file}\", because other users can change \"{failed}\" (mode {mode}). Run `chmod go-w {failed}` so that only its owner can change it.",
             file = file.display(),
             failed = failed.display(),
         )
     };
     let g = refusal(
+        "g",
         &fonts.frits.join("g.vtfrit"),
         &fonts.frits.join("g.vtfrit"),
         "664",
     );
-    let o = refusal(&open.join("o.vtfrit"), &open, "775");
+    let o = refusal("o", &open.join("o.vtfrit"), &open, "775");
     let in_open = Sources {
         frits: open.clone(),
         ..fonts.clone()
@@ -6902,8 +6903,8 @@ fn a_frit_others_can_change_is_not_read() {
         });
     assert_eq!(started, ["t", "unifont", "unifont"]);
     let lines = logged();
-    for (name, why) in [("g", &g), ("o", &o)] {
-        let line = format!("the font {name} is not drawn ({why}): vtium draws its built-in font");
+    for why in [&g, &o] {
+        let line = format!("{why} vtium draws its built-in font instead.");
         assert_eq!(
             lines.iter().filter(|l| **l == line).count(),
             1,
@@ -6913,7 +6914,8 @@ fn a_frit_others_can_change_is_not_read() {
     let h = osc50(&["--font-name=t"], "\\033]50;g\\007", fonts.clone());
     assert_eq!(h.app.font_name(), "t");
     let line = format!(
-        "OSC 50 asked for the font g: {g}; the font stays t, and OSC 50's further refusals are counted until a switch"
+        "OSC 50 asked for the font g: {}; the font stays t, and OSC 50's further refusals are counted until a switch",
+        g.trim_end_matches('.')
     );
     let lines = logged();
     assert!(lines.contains(&line), "{line}: {lines:?}");
@@ -6943,11 +6945,13 @@ fn a_refused_frit_is_logged_once_at_the_start() {
     assert_eq!(h.app.font_name(), "unifont");
     let lines = logged();
     let about: Vec<&String> = lines.iter().filter(|l| l.contains("g.vtfrit")).collect();
-    let mend = format!("run `chmod go-w {}`", file.display());
-    assert_eq!(about.len(), 1, "{lines:?}");
-    assert!(
-        about[0].contains(&mend) && about[0].ends_with("vtium draws its built-in font"),
-        "{about:?}"
+    let shown = file.display();
+    assert_eq!(
+        about,
+        [&format!(
+            "vtium does not read the font set g from \"{shown}\", because other users can change \"{shown}\" (mode 664). Run `chmod go-w {shown}` so that only its owner can change it. vtium draws its built-in font instead."
+        )],
+        "{lines:?}"
     );
 }
 

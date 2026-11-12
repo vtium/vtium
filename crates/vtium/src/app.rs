@@ -1158,11 +1158,17 @@ impl App {
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
         let on_the_fly = font::frit(&s.frits, &wanted.name).is_none();
-        let chosen = font::frit_named(s, &wanted).and_then(|frit| {
-            let made = on_the_fly.then(|| frit.clone());
-            Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made))
-        });
-        match chosen {
+        let frit = match font::frit_named(s, &wanted) {
+            Ok(frit) => frit,
+            // the one line a frit vtium does not read gets at the start: the
+            // start's warnings leave it to this read
+            Err(refusal) => {
+                log::warn!("{refusal} vtium draws its built-in font instead.");
+                return (Chosen::builtins(look), None);
+            }
+        };
+        let made = on_the_fly.then(|| frit.clone());
+        match Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made)) {
             Ok((chosen, made)) => {
                 log::info!(
                     "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
@@ -1375,7 +1381,8 @@ impl App {
             Err(why) => {
                 if head.font_refused == 0 {
                     log::warn!(
-                        "OSC 50 asked for the font {name}: {why}; the font stays {current}, and OSC 50's further refusals are counted until a switch"
+                        "OSC 50 asked for the font {name}: {}; the font stays {current}, and OSC 50's further refusals are counted until a switch",
+                        why.trim_end_matches('.')
                     );
                 }
                 head.font_refused = head.font_refused.saturating_add(1);

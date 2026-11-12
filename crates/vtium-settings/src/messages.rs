@@ -21,8 +21,8 @@
 use std::fmt;
 
 use crate::error::{
-    AtStart, Drops, Fate, Mend, Note, PolicyFault, Problem, Refusal, Remark, Renamed, Shown,
-    Stating, Syntax, Untrusted, Warning,
+    AtStart, Drops, Fate, Mend, Note, PolicyFault, Problem, Reason, Refusal, Remark, Renamed,
+    Shown, Stating, Syntax, Untrusted, Warning,
 };
 use crate::identity::{Class, Kind};
 use crate::keys::{Level, Levels};
@@ -775,19 +775,29 @@ impl fmt::Display for Mend<'_> {
     }
 }
 
-impl fmt::Display for Refusal<'_> {
+impl fmt::Display for Reason<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mend = self.0.mend();
         match self.0 {
             Untrusted::Owner { path, uid } => write!(
                 f,
-                "vtium ignores this file and uses its built-in configuration, because {path} belongs to user {uid}, not to root. Run `{mend}` to make root the owner.",
+                "{path} belongs to user {uid}, not to root. Run `{mend}` to make root the owner.",
             ),
             Untrusted::Writable { path, mode } => write!(
                 f,
-                "vtium ignores this file and uses its built-in configuration, because other users can change {path} (mode {mode:o}). Run `{mend}` so that only its owner can change it.",
+                "other users can change {path} (mode {mode:o}). Run `{mend}` so that only its owner can change it.",
             ),
         }
+    }
+}
+
+impl fmt::Display for Refusal<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "vtium ignores this file and uses its built-in configuration, because {}",
+            self.0.reason()
+        )
     }
 }
 

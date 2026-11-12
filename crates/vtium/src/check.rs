@@ -124,8 +124,14 @@ fn font_name_frit(
     };
     match judge(&file, trust) {
         Judged::Read => (None, None),
-        Judged::Refused(why) => (Some(check_config::frit_unreadable(&name, &why)), None),
-        Judged::RootRefuses(why) => (None, Some(check_config::frit_refused_as_root(&name, &why))),
+        Judged::Refused(why) => (
+            Some(check_config::frit_unreadable(&name, &file, &why)),
+            None,
+        ),
+        Judged::RootRefuses(why) => (
+            None,
+            Some(check_config::frit_refused_as_root(&name, &file, &why)),
+        ),
     }
 }
 
@@ -654,11 +660,13 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         match judge(&file, &settings.trust) {
             Judged::Read => {}
             Judged::Refused(why) => {
-                let said = check_config::look_frit_unreadable(&look.name, &named.value, &why);
+                let said =
+                    check_config::look_frit_unreadable(&look.name, &named.value, &file, &why);
                 out.counted.push(at(path, line, said).to_string());
             }
             Judged::RootRefuses(why) => {
-                let said = check_config::look_frit_refused_as_root(&look.name, &named.value, &why);
+                let said =
+                    check_config::look_frit_refused_as_root(&look.name, &named.value, &file, &why);
                 out.notes.push(at(path, line, said).to_string());
             }
         }
@@ -1203,25 +1211,24 @@ mod tests {
             frit(&config("t"), &open, &mine),
         ];
         std::fs::remove_dir_all(&dir).unwrap();
-        let writable = |failed: &Path, mode: &str| {
-            let failed = failed.display();
+        let refused = |name: &str, file: &Path, failed: &Path, mode: &str| {
+            let (file, failed) = (file.display(), failed.display());
             format!(
-                "vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it"
+                "vtium does not read the font set {name} from \"{file}\", because other users can change \"{failed}\" (mode {mode}). Run `chmod go-w {failed}` so that only its owner can change it. vtium uses its built-in font instead."
             )
         };
-        let file = dir.join("t.vtfrit");
-        let owner = format!(
-            "vtium does not trust the file, because \"{file}\" belongs to user {uid}, not to root; run `chown root:root {file}` to make root the owner",
-            file = file.display()
+        let (g, t) = (dir.join("g.vtfrit"), dir.join("t.vtfrit"));
+        let as_root = format!(
+            "When vtium runs as root, it does not read the font set t from \"{t}\", because \"{t}\" belongs to user {uid}, not to root. Run `chown root:root {t}` to make root the owner. vtium would then use its built-in font.",
+            t = t.display()
         );
-        let g = writable(&dir.join("g.vtfrit"), "664");
         assert_eq!(
             results,
             [
-                (None, Some(check_config::frit_refused_as_root("t", &owner))),
-                (Some(check_config::frit_unreadable("g", &g)), None),
+                (None, Some(as_root)),
+                (Some(refused("g", &g, &g, "664")), None),
                 (
-                    Some(check_config::frit_unreadable("t", &writable(&open, "775"))),
+                    Some(refused("t", &open.join("t.vtfrit"), &open, "775")),
                     None
                 ),
                 (None, None),
@@ -1801,32 +1808,23 @@ mod tests {
         let out = conf_file(&file, false, &trust, &machine(true), &settings);
         std::fs::remove_dir_all(file.parent().unwrap()).ok();
         let (g, t) = (frits.join("g.vtfrit"), frits.join("t.vtfrit"));
-        let writable = format!(
-            "vtium does not trust the file, because other users can change \"{g}\", whose mode is 664; run `chmod go-w {g}` so that only its owner can change it",
-            g = g.display()
-        );
-        let owner = format!(
-            "vtium does not trust the file, because \"{t}\" belongs to user {uid}, not to root; run `chown root:root {t}` to make root the owner",
-            t = t.display()
-        );
         let refused: Vec<&String> = out
             .counted
             .iter()
             .filter(|l| l.contains("vtfrit"))
             .collect();
+        let (g, t) = (g.display(), t.display());
         assert_eq!(
             refused,
             [&format!(
-                "{f}:3: {}",
-                check_config::look_frit_unreadable("big", "g", &writable)
+                "{f}:3: Look \"big\": vtium does not read its font set g from \"{g}\", because other users can change \"{g}\" (mode 664). Run `chmod go-w {g}` so that only its owner can change it. vtium draws that look in its built-in font."
             )]
         );
         let noted: Vec<&String> = out.notes.iter().filter(|l| l.contains("vtfrit")).collect();
         assert_eq!(
             noted,
             [&format!(
-                "{f}:5: {}",
-                check_config::look_frit_refused_as_root("small", "t", &owner)
+                "{f}:5: Look \"small\": when vtium runs as root, it does not read its font set t from \"{t}\", because \"{t}\" belongs to user {uid}, not to root. Run `chown root:root {t}` to make root the owner. vtium would then draw that look in its built-in font."
             )]
         );
     }

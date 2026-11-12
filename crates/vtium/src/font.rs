@@ -198,48 +198,53 @@ pub fn trust() -> Trust {
 
 /// The frit at `path`'s text, once the ownership check `trust` makes
 /// passes ([`trust`]): a regular file of at most `FILE_MAX` bytes, as
-/// vtium-config's `FRIT_BYTES_MAX`, in UTF-8. A frit the check refuses is
-/// not read, and the error names the path that failed and the command
-/// that mends it.
+/// vtium-config's `FRIT_BYTES_MAX`, in UTF-8. The error is why vtium does
+/// not read it, worded to follow "because" and ending in a full stop: for
+/// a frit the check refuses, the path that fails and the command that
+/// mends it, in the words vtium.conf's refusal uses
+/// ([`vtium_settings::Untrusted::reason`]).
 pub fn frit_text(path: &Path, trust: &Trust) -> Result<String, String> {
     let inspected = match vtium_settings::inspect(path, trust) {
         Ok(Some(inspected)) => inspected,
-        Ok(None) => return Err("the file is missing".to_owned()),
+        Ok(None) => return Err("the file is missing.".to_owned()),
         Err(rejected) => return Err(unread(&rejected)),
     };
-    inspected.trusted.map_err(|why| distrusted(&why))?;
+    inspected.trusted.map_err(|why| why.reason().to_string())?;
     let bytes = inspected.bytes;
     if bytes.len() > crate::config::FILE_MAX {
         return Err(format!(
-            "the file is longer than {} bytes",
+            "the file is longer than {} bytes.",
             crate::config::FILE_MAX
         ));
     }
-    String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text".to_owned())
+    String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text.".to_owned())
 }
 
-/// Why a frit that cannot be opened is not read.
+/// Why a frit that cannot be opened is not read, worded as [`frit_text`]
+/// words it.
 fn unread(rejected: &vtium_settings::Rejected) -> String {
     match rejected.errors.first().map(|e| &e.problem) {
-        Some(vtium_settings::Problem::NotAFile) => "the file is not a regular file".to_owned(),
-        Some(vtium_settings::Problem::Unreadable(kind)) => std::io::Error::from(*kind).to_string(),
-        _ => "the file cannot be read".to_owned(),
+        Some(vtium_settings::Problem::NotAFile) => "the file is not a regular file.".to_owned(),
+        Some(vtium_settings::Problem::Unreadable(kind)) => {
+            format!("{}.", std::io::Error::from(*kind))
+        }
+        _ => "the file cannot be read.".to_owned(),
     }
 }
 
-/// Why vtium does not read a frit the ownership check refuses: the path
-/// that fails, which is the file or a directory above it, and the command
-/// that mends it.
-fn distrusted(why: &vtium_settings::Untrusted) -> String {
-    let mend = why.mend();
-    match why {
-        vtium_settings::Untrusted::Owner { path, uid } => format!(
-            "vtium does not trust the file, because {path} belongs to user {uid}, not to root; run `{mend}` to make root the owner"
-        ),
-        vtium_settings::Untrusted::Writable { path, mode } => format!(
-            "vtium does not trust the file, because other users can change {path}, whose mode is {mode:o}; run `{mend}` so that only its owner can change it"
-        ),
-    }
+/// `path` in double quotes, escaped as vtium-settings quotes a path.
+pub fn quoted(path: &Path) -> String {
+    format!("{:?}", path.to_string_lossy())
+}
+
+/// The sentence that says vtium does not read the frit `name` at `path`,
+/// and `reason`, why, as [`frit_text`] words it. The start logs it, OSC
+/// 50's refusal quotes it and `vtium check-config` prints it.
+pub fn refusal(name: &str, path: &Path, reason: &str) -> String {
+    format!(
+        "vtium does not read the font set {name} from {}, because {reason}",
+        quoted(path)
+    )
 }
 
 /// The value of the one `key=` line in a frit's `text`, with its line
@@ -2129,15 +2134,15 @@ mod tests {
         ];
         let _ = std::fs::remove_dir_all(&dir);
         let read = Ok("source=kbd:x\n".to_owned());
-        let refused = |file: &Path, failed: &Path, mode: &str| {
+        let refused = |name: &str, file: &Path, failed: &Path, mode: &str| {
             Err(format!(
-                "cannot read {file}: vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it",
+                "vtium does not read the font set {name} from \"{file}\", because other users can change \"{failed}\" (mode {mode}). Run `chmod go-w {failed}` so that only its owner can change it.",
                 file = file.display(),
                 failed = failed.display(),
             ))
         };
-        let writable = refused(&dir.join("g.vtfrit"), &dir.join("g.vtfrit"), "664");
-        let in_open = refused(&open.join("t.vtfrit"), &open, "775");
+        let writable = refused("g", &dir.join("g.vtfrit"), &dir.join("g.vtfrit"), "664");
+        let in_open = refused("t", &open.join("t.vtfrit"), &open, "775");
         assert_eq!(
             results,
             [

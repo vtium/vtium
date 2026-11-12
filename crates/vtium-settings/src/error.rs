@@ -80,12 +80,24 @@ impl Untrusted {
     pub fn refusal(&self) -> Refusal<'_> {
         Refusal(self)
     }
+
+    /// Why vtium does not read the path's file, and the command that
+    /// mends it, in the words vtium.conf's [`Refusal`] and a font set's
+    /// refusal share: what follows "because".
+    pub fn reason(&self) -> Reason<'_> {
+        Reason(self)
+    }
 }
 
 /// The command that mends an [`Untrusted`] path, which
 /// [`Untrusted::mend`] gives.
 #[derive(Clone, Copy, Debug)]
 pub struct Mend<'a>(pub(crate) &'a Untrusted);
+
+/// Why vtium does not read a file, and the command that mends it, which
+/// [`Untrusted::reason`] gives.
+#[derive(Clone, Copy, Debug)]
+pub struct Reason<'a>(pub(crate) &'a Untrusted);
 
 /// Why vtium does not read vtium.conf, and the command that mends it,
 /// which [`Untrusted::refusal`] gives.
