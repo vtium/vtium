@@ -907,8 +907,10 @@ pub fn card_types(app: &App, line: &CardLine, pick: usize) -> bool {
 /// `path`, as vtium decides (ADR-1401, "Enter on a head's own keyboard"):
 /// under policy = closed, on an isolated head, on a head that runs on
 /// every VT, and on one whose VTs are all past 12, which the VT keys
-/// cannot reach.
-pub fn card_about(app: &App, path: &Path, line: &CardLine) -> Option<String> {
+/// cannot reach. On a terminal that runs on every VT, it names the
+/// control that gives it a VT: `e` on an added path's card, and the line
+/// VTs on the `editor`'s card in NEW PATH.
+pub fn card_about(app: &App, path: &Path, line: &CardLine, editor: bool) -> Option<String> {
     match line {
         CardLine::Setting("login") => Some(words::LOGIN_ABOUT.to_owned()),
         CardLine::Setting("switch-on-enter") => {
@@ -917,6 +919,8 @@ pub fn card_about(app: &App, path: &Path, line: &CardLine) -> Option<String> {
                 Some(words::SWITCH_CLOSED)
             } else if path.no_input || path.setting("isolated") == "yes" {
                 Some(words::SWITCH_ISOLATED)
+            } else if vts.is_empty() && editor {
+                Some(words::SWITCH_EVERY_VT_NEW)
             } else if vts.is_empty() {
                 Some(words::SWITCH_EVERY_VT)
             } else if vts.iter().all(|v| *v > 12) {
@@ -1022,7 +1026,7 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
     );
     let about = lines
         .get(state.line)
-        .and_then(|l| card_about(app, &path, l))
+        .and_then(|l| card_about(app, &path, l, editor))
         .map(|a| wrap(&a, app.cols.saturating_sub(4), 3))
         .unwrap_or_default();
     let room = bottom

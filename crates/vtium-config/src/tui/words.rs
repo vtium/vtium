@@ -932,7 +932,10 @@ pub const SWITCH_CLOSED: &str =
     "It has no effect now, because the policy is closed. It works only with policy = open.";
 pub const SWITCH_ISOLATED: &str =
     "It has no effect now, because this terminal is isolated, so its keyboards switch no VT.";
-pub const SWITCH_EVERY_VT: &str = "It has no effect now, because this terminal runs on every VT. Give it VTs of its own in NEW PATH to use it.";
+/// On an added path's card, where e revises the path, and in NEW PATH,
+/// whose card has the line VTs.
+pub const SWITCH_EVERY_VT: &str = "It has no effect now, because this terminal runs on every VT. To give it a VT of its own, press e to revise the path, and choose a VT on the line VTs.";
+pub const SWITCH_EVERY_VT_NEW: &str = "It has no effect now, because this terminal runs on every VT. Choose a VT of its own on the line VTs above.";
 pub const SWITCH_PAST_12: &str = "It has no effect now, because Enter switches only to VTs 1 to 12, and this terminal runs on none of them.";
 /// The Login line of a terminal's card: what it sets, its two choices,
 /// and what is wrong with a command the person types.

@@ -1406,7 +1406,7 @@ mod tests {
                 .path("desk")
                 .cloned()
                 .expect("desk");
-            flowdraw::card_about(&app, &path, &line).expect("a hint")
+            flowdraw::card_about(&app, &path, &line, false).expect("a hint")
         };
         let rules = "[rules]\ndisplay * -> desk\ninput * -> desk\n";
         let cases = [
@@ -1440,6 +1440,21 @@ mod tests {
             hint(text),
             format!("{} {}", words::SWITCH_ABOUT, words::SWITCH_ISOLATED)
         );
+        // in NEW PATH, the card's own line VTs gives the terminal a VT
+        let app = app();
+        let new = Path {
+            displays: vec!["*".into()],
+            ..Default::default()
+        };
+        assert_eq!(
+            flowdraw::card_about(&app, &new, &line, true).as_deref(),
+            Some(format!("{} {}", words::SWITCH_ABOUT, words::SWITCH_EVERY_VT_NEW).as_str())
+        );
+        // the control each hint names is the one on screen
+        assert!(words::SWITCH_EVERY_VT.contains(&format!("line {}", words::VTS_LABEL)));
+        assert!(words::SWITCH_EVERY_VT.contains("press e"));
+        assert!(words::KEYS_FLOW_CARD.contains("e revise this path"));
+        assert!(words::SWITCH_EVERY_VT_NEW.contains(&format!("line {}", words::VTS_LABEL)));
     }
 
     // vtium replaces a first word written `$NAME` with that variable, so
