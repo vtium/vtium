@@ -58,8 +58,8 @@ pub fn semantics(config: &Config) -> Vec<String> {
     // Any user may read PID 1's status; `SigCgt` says what it catches.
     let status = std::fs::read_to_string("/proc/1/status").map_err(|e| e.to_string());
     let mut out = semantics_under(config, &status, vtium_platform::power::power_off_signal());
-    // the start, which runs as root, reads only root's frits
-    out.extend(frit(config, &font::frits(config), &Trust::ROOT));
+    // judged as the start reads it, for the account vtium runs as
+    out.extend(frit(config, &font::frits(config), &font::trust()));
     out
 }
 
@@ -68,16 +68,33 @@ pub fn semantics(config: &Config) -> Vec<String> {
 /// makes passes; nothing when the name is no frit's. A frit the check
 /// refuses is reported as the start reports it.
 fn frit(config: &Config, frits: &Path, trust: &Trust) -> Vec<String> {
-    let Some(wanted) = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config) else {
-        return Vec::new();
-    };
-    let Some(path) = font::frit(frits, &wanted.name) else {
+    let Some((name, path)) = named_frit(config, frits) else {
         return Vec::new();
     };
     match font::frit_text(&path, trust) {
-        Ok(text) => font::frit_warnings(&wanted.name, &text),
-        Err(why) => vec![check_config::frit_unreadable(&wanted.name, &why)],
+        Ok(text) => font::frit_warnings(&name, &text),
+        Err(why) => vec![check_config::frit_unreadable(&name, &why)],
     }
+}
+
+/// The name of the frit `font-name` names in `frits`, and its file; none
+/// when the name is no frit's there.
+fn named_frit(config: &Config, frits: &Path) -> Option<(String, PathBuf)> {
+    let wanted = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config)?;
+    let path = font::frit(frits, &wanted.name)?;
+    Some((wanted.name, path))
+}
+
+/// What check-config notes of the frit `font-name` names in `frits` when
+/// it runs as an account other than root, which `mine` trusts: the
+/// refusal of a start as root, which reads only root's frits, where the
+/// check reads the frit. A refusal for the account itself is a warning
+/// already ([`frit`]).
+fn frit_note(config: &Config, frits: &Path, mine: &Trust) -> Option<String> {
+    let (name, path) = named_frit(config, frits)?;
+    font::frit_text(&path, mine).ok()?;
+    let why = font::frit_text(&path, &Trust::ROOT).err()?;
+    Some(check_config::frit_refused_as_root(&name, &why))
 }
 
 /// Whether PID 1 takes `signal`, from the text of `/proc/1/status`. The
@@ -179,6 +196,11 @@ pub fn notes(config: &Config) -> Vec<String> {
     let me = rustix::process::geteuid().as_raw();
     let notes = std::iter::once(density)
         .chain(helper_note(&helper::program(config), me))
+        .chain(
+            (me != 0)
+                .then(|| frit_note(config, &font::frits(config), &font::trust()))
+                .flatten(),
+        )
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
     let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
@@ -1057,9 +1079,11 @@ mod tests {
     }
 
     // ADR-1401 D10, ADR-1403 D3: check-config reads the frit font-name
-    // names under the ownership check the start makes, root's for the
-    // installed configuration, and reports a frit the check refuses as the
-    // start does, with the path that fails and the command that mends it
+    // names under the ownership check the start makes for the account it
+    // runs as, and reports a frit the check refuses as the start does,
+    // with the path that fails and the command that mends it. Run as
+    // another account than root, it notes where a start as root refuses a
+    // frit the account reads, as it notes for the font helper
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_frit_the_ownership_check_refuses_is_reported() {
@@ -1095,7 +1119,11 @@ mod tests {
             frit(&config("t"), &dir, &mine),
             frit(&config("g"), &dir, &mine),
             frit(&config("t"), &open, &mine),
-            frit(&config("t"), &dir, &Trust::ROOT),
+        ];
+        let notes = [
+            frit_note(&config("t"), &dir, &mine),
+            frit_note(&config("g"), &dir, &mine),
+            frit_note(&config("ter-v16n"), &dir, &mine),
         ];
         std::fs::remove_dir_all(&dir).unwrap();
         let writable = |failed: &Path, mode: &str| {
@@ -1104,10 +1132,10 @@ mod tests {
                 "vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it"
             )
         };
-        let mine = dir.join("t.vtfrit");
+        let file = dir.join("t.vtfrit");
         let owner = format!(
             "vtium does not trust the file, because \"{file}\" belongs to user {uid}, not to root; run `chown root:root {file}` to make root the owner",
-            file = mine.display()
+            file = file.display()
         );
         assert_eq!(
             results,
@@ -1118,7 +1146,14 @@ mod tests {
                     &writable(&dir.join("g.vtfrit"), "664")
                 )],
                 vec![check_config::frit_unreadable("t", &writable(&open, "775"))],
-                vec![check_config::frit_unreadable("t", &owner)],
+            ]
+        );
+        assert_eq!(
+            notes,
+            [
+                Some(check_config::frit_refused_as_root("t", &owner)),
+                None,
+                None
             ]
         );
     }

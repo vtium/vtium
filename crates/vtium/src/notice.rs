@@ -356,6 +356,14 @@ and changes nothing.\n";
         )
     }
 
+    /// The frit `font-name` names is one a start as root does not read,
+    /// `why`, though the account the check runs as reads it.
+    pub fn frit_refused_as_root(name: &str, why: &str) -> String {
+        format!(
+            "font set {name}: when vtium runs as root, it does not read this font set: {why}. vtium would then use its built-in font."
+        )
+    }
+
     /// The helper `image-helper` names is one vtium refuses, `why`, for
     /// the account the check runs as; the start, which may run as
     /// another, checks it again.
