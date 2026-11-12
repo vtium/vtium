@@ -291,7 +291,14 @@ impl Port for Console {
             said.push_str(&String::from_utf8_lossy(&out.stderr));
             Ok((out.status.success(), said))
         };
-        step(&mut run)
+        // what the step writes for the person, and each question it asks,
+        // which this console answers no
+        let mut talk: Vec<u8> = Vec::new();
+        let mut ask = |out: &mut dyn std::io::Write, question: &str| -> bool {
+            let _ = writeln!(out, "{question} [y/N]");
+            false
+        };
+        step(&mut run, &mut talk, &mut ask)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {
@@ -466,6 +473,9 @@ struct Desk {
     plans: Vec<vtium_config::draft::Plan>,
     /// A Prepare readied an install that has not yet run.
     ready: bool,
+    /// What the step after the install did on the VTs, as an install of
+    /// the system's vtium.conf answers; `None` for other directories.
+    after: Option<vtium_config::vts::Outcome>,
 }
 
 fn desk() -> Desk {
@@ -475,6 +485,7 @@ fn desk() -> Desk {
         draft: conf,
         plans: Vec::new(),
         ready: false,
+        after: None,
     }
 }
 
@@ -534,6 +545,8 @@ impl vtium_config::tui::desk::Desk for Desk {
         &mut self,
         plan: &vtium_config::draft::Plan,
         run: vtium_config::apply::Runner<'_>,
+        _out: &mut dyn std::io::Write,
+        _ask: vtium_config::apply::Ask<'_>,
     ) -> Result<Done, String> {
         if !std::mem::take(&mut self.ready) {
             return Err(vtium_config::tui::words::NOT_PREPARED.to_owned());
@@ -548,7 +561,10 @@ impl vtium_config::tui::desk::Desk for Desk {
             return Err(said);
         }
         self.installed.clone_from(&self.draft);
-        Ok(Done::Draft(self.opened(), None))
+        Ok(match self.after.clone() {
+            Some(outcome) => Done::Installed(self.opened(), outcome),
+            None => Done::Draft(self.opened(), None),
+        })
     }
 }
 
@@ -800,6 +816,27 @@ fn installing_runs_one_install_and_the_console_keeps_the_installed_font() {
     assert_eq!(file.new, format!("# mine\nfont-name=tiny5\n{SECTIONS}"));
     // after installing, leaving does not switch back
     assert_eq!(c.switches(), ["tiny5"]);
+}
+
+/// After an install of the system's vtium.conf, the message line says
+/// where vtium now runs with it, and each VT a head names that vtium
+/// console would not enable (ADR-1201 D5).
+#[test]
+fn the_message_line_says_what_the_install_did_on_the_vts() {
+    use vtium_config::vts::{Applied, Outcome};
+    let mut d = desk();
+    d.after = Some(Outcome {
+        refused: vec![(7, vec!["terminal-1".to_owned()])],
+        applied: Applied::Done(vec![2, 3, 12]),
+    });
+    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let joined = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        joined.contains("Installed draft mine. vtium now runs with it on VTs 2, 3, and 12. vtium is not enabled on VT 7, so head terminal-1 does not appear there."),
+        "{screen}"
+    );
 }
 
 #[test]
@@ -3666,12 +3703,19 @@ mod draft_flow {
                 Ok((true, String::new()))
             };
             let plan = vtium_config::draft::Plan::default();
-            let why = d.install(&plan, &mut run).expect_err("no Prepare");
+            let mut out = Vec::new();
+            let mut ask = |_: &mut dyn std::io::Write, _: &str| -> bool { false };
+            let why = d
+                .install(&plan, &mut run, &mut out, &mut ask)
+                .expect_err("no Prepare");
             assert_eq!(why, words::NOT_PREPARED, "desk {n}");
             assert!(matches!(d.run(&Op::Prepare), Ok(Done::Plan(_))), "desk {n}");
-            assert!(d.install(&plan, &mut run).is_ok(), "desk {n}");
+            assert!(
+                d.install(&plan, &mut run, &mut out, &mut ask).is_ok(),
+                "desk {n}"
+            );
             let why = d
-                .install(&plan, &mut run)
+                .install(&plan, &mut run, &mut out, &mut ask)
                 .expect_err("one install a Prepare");
             assert_eq!(why, words::NOT_PREPARED, "desk {n}");
             assert_eq!(ran, 1, "desk {n}");

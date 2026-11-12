@@ -8,7 +8,7 @@
 //! console binary, and a source of the devices present, which is the seam
 //! a test fills with devices of its own instead of the machine's.
 
-use crate::apply::Runner;
+use crate::apply::{Ask, Runner};
 use crate::drafts::{HEADER, Session, State};
 use crate::flowmodel::Present;
 use crate::outcome::Fail;
@@ -81,6 +81,9 @@ pub enum Done {
     /// The draft after the op, and the devices present when the op read
     /// them.
     Draft(Opened, Option<Present>),
+    /// The draft after an install of the system's vtium.conf, and what the
+    /// step after it did on the VTs (ADR-1201 D5).
+    Installed(Opened, crate::vts::Outcome),
     /// The plan an install hands the privileged step.
     Plan(crate::draft::Plan),
     /// The install is refused: why, and what the check printed.
@@ -93,9 +96,18 @@ pub enum Done {
 pub trait Desk {
     fn run(&mut self, op: &Op) -> Result<Done, String>;
     /// Installs `plan`, the prepared draft's and the frits beside it,
-    /// through the privileged step `run` runs, then records the install;
-    /// the draft afterwards.
-    fn install(&mut self, plan: &crate::draft::Plan, run: Runner<'_>) -> Result<Done, String>;
+    /// through the privileged step `run` runs, then records the install,
+    /// then, for the system's vtium.conf, enables vtium on the VTs its
+    /// heads name and asks through `ask` whether to start and restart
+    /// vtium, writing what that step does to `out` (ADR-1201 D5); the draft
+    /// afterwards.
+    fn install(
+        &mut self,
+        plan: &crate::draft::Plan,
+        run: Runner<'_>,
+        out: &mut dyn std::io::Write,
+        ask: Ask<'_>,
+    ) -> Result<Done, String>;
 }
 
 /// Reads the devices present.
@@ -291,26 +303,41 @@ impl Desk for Store {
         self.step(op).map_err(|f| f.text().to_owned())
     }
 
-    fn install(&mut self, plan: &crate::draft::Plan, run: Runner<'_>) -> Result<Done, String> {
+    fn install(
+        &mut self,
+        plan: &crate::draft::Plan,
+        run: Runner<'_>,
+        out: &mut dyn std::io::Write,
+        ask: Ask<'_>,
+    ) -> Result<Done, String> {
         let Some(Prepared { name, text, conf }) = self.ready.take() else {
             return Err(crate::tui::words::NOT_PREPARED.to_owned());
         };
         let session = self.session();
         let mut said = Vec::new();
-        let done = session
-            .put(plan, run, &mut said)
+        let opened = session
+            .put(plan, &mut *run, &mut said)
             .and_then(|()| match &conf {
                 Conf::Same => Ok(()),
                 Conf::Replaces(replaced) => {
                     session.finish(&name, &text, replaced.as_deref(), &mut said)
                 }
             })
-            .and_then(|()| self.opened(&name, &text));
-        done.map(|opened| Done::Draft(opened, None))
+            .and_then(|()| self.opened(&name, &text))
             .map_err(|fail| {
                 let said = String::from_utf8_lossy(&said);
                 format!("{}\n{}", fail.text(), said.trim_end())
-            })
+            })?;
+        // the step after an install runs when it wrote vtium.conf, as the
+        // command line's install does
+        let after = match conf {
+            Conf::Same => None,
+            Conf::Replaces(_) => session.after(&text, run, Some(ask), out),
+        };
+        Ok(match after {
+            Some(outcome) => Done::Installed(opened, outcome),
+            None => Done::Draft(opened, None),
+        })
     }
 }
 

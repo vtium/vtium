@@ -6,8 +6,10 @@
 //! prints what `vtium check-config` finds in it; `--dry-run` prints the
 //! change as a difference and the check's verdict and writes nothing, and
 //! `--install` then installs the draft. Every command asks nothing but
-//! sudo's password, and that only when it installs. The exit codes are
-//! [`Fail`]'s.
+//! sudo's password, and that only when it installs, apart from `install`
+//! at a terminal, which asks before it installs a draft with no complete
+//! route and before it starts and restarts vtium after the install
+//! ([`crate::vts`]). The exit codes are [`Fail`]'s.
 
 use std::collections::BTreeMap;
 use std::io::{BufRead, Write};
@@ -16,7 +18,8 @@ use std::path::{Path, PathBuf};
 use vtium_platform::listing::Roots;
 use vtium_settings::Of;
 
-use crate::drafts::{Checked, From, Session, State, Unrouted, diff};
+use crate::apply::Ask;
+use crate::drafts::{Checked, From, Session, State, Unrouted, diff, run_child};
 use crate::flowmodel::{self, Present};
 use crate::ops::{self, RuleChange, To};
 use crate::outcome::Fail;
@@ -229,30 +232,19 @@ impl Command<'_, '_> {
             return Err(Fail::Usage("install takes only --force".to_owned()));
         }
         let (name, text) = self.session.current()?;
-        if args.has("--force") {
-            return self
-                .session
-                .install(&name, &text, Unrouted::Install, self.out);
-        }
-        if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
-            return self
-                .session
-                .install(&name, &text, Unrouted::Refuse, self.out);
-        }
-        let out = &mut *self.out;
-        let mut ask = |question: &str| -> bool {
-            let _ = write!(out, "{question} [y/N] ");
-            let _ = out.flush();
-            let mut answer = String::new();
-            let _ = std::io::stdin().lock().read_line(&mut answer);
-            matches!(answer.trim(), "y" | "Y" | "yes")
+        let terminal = std::io::IsTerminal::is_terminal(&std::io::stdin());
+        let mut no_route = crate::vts::ask_line;
+        let mut restart = crate::vts::ask_line;
+        let unrouted = if args.has("--force") {
+            Unrouted::Install
+        } else if terminal {
+            Unrouted::Ask(&mut no_route)
+        } else {
+            Unrouted::Refuse
         };
-        let mut said = Vec::new();
-        let done = self
-            .session
-            .install(&name, &text, Unrouted::Ask(&mut ask), &mut said);
-        let _ = self.out.write_all(&said);
-        done
+        let ask: Option<Ask<'_>> = if terminal { Some(&mut restart) } else { None };
+        self.session
+            .install(&name, &text, unrouted, &mut run_child, ask, self.out)
     }
 
     /// `get KEY`: the key, its value in the draft's top level and where it
@@ -349,7 +341,7 @@ impl Command<'_, '_> {
         self.say(&flowmodel::state_line(name, &state, checked.count()));
         if install {
             self.session
-                .install(name, new, Unrouted::Refuse, self.out)?;
+                .install(name, new, Unrouted::Refuse, &mut run_child, None, self.out)?;
         }
         Ok(())
     }
@@ -824,8 +816,14 @@ impl Command<'_, '_> {
             }
         }
         if install {
-            self.session
-                .install(name, &draft, Unrouted::Refuse, self.out)?;
+            self.session.install(
+                name,
+                &draft,
+                Unrouted::Refuse,
+                &mut run_child,
+                None,
+                self.out,
+            )?;
         }
         Ok(())
     }

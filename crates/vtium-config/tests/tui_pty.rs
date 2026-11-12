@@ -676,6 +676,161 @@ fn saving_the_system_s_files_runs_exactly_sudo_vtium_config_apply_dir() {
     assert_eq!(blocked.trim(), "SigBlk:\t0000000000000000", "{blocked}");
 }
 
+/// A fixture for an install of the system's vtium.conf: stand-ins for
+/// sudo, `vtium` and `systemctl` that refuse what the real ones refuse,
+/// `vtium console enable` and `systemctl` a user who is not root, and that
+/// write each command root ran to `ran`; sudo's stand-in installs nothing.
+/// vtium runs on VT 2, and the current draft, `pty`, gives a head VT 12.
+/// Returns the fixture's root and the options that name the stand-ins.
+fn system_install(name: &str) -> (PathBuf, Vec<std::ffi::OsString>) {
+    let (root, _fonts) = fixture(name);
+    let bin = root.join("bin");
+    std::fs::create_dir_all(&bin).expect("the stand-ins");
+    script::executable(
+        &root.join("sudo"),
+        "#!/bin/sh\nd=$(dirname \"$0\")\nif [ \"$2\" = apply ]; then echo \"wrote /etc/vtium/vtium.conf\"; exit 0; fi\nVTIUM_ROOT=1 PATH=\"$d/bin:$PATH\" exec \"$@\"\n",
+    );
+    script::executable(
+        &root.join("vtium"),
+        "#!/bin/sh\nd=$(dirname \"$0\")\ncase \"$1 $2\" in\n\"check-config \"*) echo \"$4: checked\"; exit 0 ;;\n\"console status\") cat \"$d/status\"; exit 0 ;;\n\"console enable\")\n  [ -n \"$VTIUM_ROOT\" ] || { echo \"vtium console enable $3 $4: this needs root, because it changes systemd units. For example: sudo vtium console enable $3 $4\" >&2; exit 1; }\n  echo \"enable $3 $4\" >> \"$d/ran\"\n  echo \"vtium is enabled in direct mode on VT $4. systemd starts it there at the next boot.\"; exit 0 ;;\nesac\nexit 9\n",
+    );
+    script::executable(
+        &bin.join("systemctl"),
+        "#!/bin/sh\n[ -n \"$VTIUM_ROOT\" ] || { echo \"Failed to $1: Access denied\" >&2; exit 1; }\necho \"systemctl $*\" >> \"$(dirname \"$0\")/../ran\"\n",
+    );
+    std::fs::write(
+        root.join("status"),
+        "VT  at boot                        when switched to  running\n1   getty@tty1                     -                 -\n2   vtium@tty2, getty to restore   vtium@tty2        vtium@tty2\n",
+    )
+    .expect("the status");
+    let drafts = root.join("config/vtium/drafts");
+    std::fs::create_dir_all(&drafts).expect("the store");
+    std::fs::write(
+        drafts.join("pty.conf"),
+        format!("# the {name} test's draft\nversion = 1\n[look default]\n[head desk]\n[head terminal-1]\nvt = 12\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"),
+    )
+    .expect("the draft");
+    std::fs::write(root.join("config/vtium/vtium-config.conf"), "draft = pty\n")
+        .expect("the settings");
+    let options = vec![
+        "--sudo".into(),
+        root.join("sudo").into(),
+        "--vtium".into(),
+        root.join("vtium").into(),
+        "--sys".into(),
+        root.join("sys").into(),
+        "--udev-data".into(),
+        root.join("udev").into(),
+    ];
+    (root, options)
+}
+
+/// What root ran in a [`system_install`] fixture.
+fn ran(root: &Path) -> String {
+    std::fs::read_to_string(root.join("ran")).expect("the stand-ins ran")
+}
+
+/// Installing the system's vtium.conf from the TUI enables vtium on the VT
+/// a head names, through sudo, and asks on the terminal before it starts
+/// and restarts vtium (ADR-1201 D5).
+#[test]
+fn installing_the_system_s_file_enables_the_head_s_vt_and_asks_before_a_restart() {
+    let (master, slave) = pair(100, 30);
+    let (root, options) = system_install("save-vts");
+    let mut c = Console::start(master, 100, 30, Kind::Vtium { ops: true }, TAKES);
+    let options: Vec<&std::ffi::OsStr> = options.iter().map(AsRef::as_ref).collect();
+    let child = tui_with(&slave, &root, &options);
+    c.until("opened", |s| s.screen.contains("draft pty"));
+    c.key(b"i");
+    c.until("asked to install", |s| {
+        s.screen.contains("Install the draft?")
+    });
+    c.key(b"y");
+    // the plain terminal, with vtium console's words and the question; the
+    // terminal wraps the long lines, so their rows are read joined
+    let asked = c
+        .until("asked to restart", |s| s.screen.contains("[y/N]"))
+        .replace('\n', "");
+    assert!(
+        asked.contains("vtium is enabled in direct mode on VT 12."),
+        "{asked}"
+    );
+    assert!(
+        asked.contains("Start vtium on VT 12, and restart it on VT 2? [y/N]"),
+        "{asked}"
+    );
+    assert_eq!(
+        ran(&root),
+        "enable --direct 12\n",
+        "nothing restarts before the answer"
+    );
+    c.key(b"y\r");
+    c.until("done", |s| {
+        s.screen.contains(vtium_config::vts::PRESS_ENTER)
+    });
+    c.key(b"\r");
+    let screen = c.until("back", |s| s.screen.contains("vtium now runs with it"));
+    assert!(
+        screen.contains("vtium now runs with it on VTs 2 and 12."),
+        "{screen}"
+    );
+    c.key(b"q");
+    assert_eq!(status(child), 0);
+    c.drained(&slave);
+    assert_eq!(
+        ran(&root),
+        "enable --direct 12\nsystemctl start vtium@tty12\nsystemctl restart vtium@tty2\n"
+    );
+}
+
+/// `vtium config install` at a terminal does what the TUI's Install does:
+/// it enables vtium on the VT a head names and asks before it starts and
+/// restarts vtium, and a no starts and restarts nothing (ADR-1201 D5).
+#[test]
+fn the_command_line_install_at_a_terminal_asks_as_the_tui_does() {
+    for (answer, restarted) in [
+        (
+            "y",
+            "systemctl start vtium@tty12\nsystemctl restart vtium@tty2\n",
+        ),
+        ("n", ""),
+    ] {
+        let (master, slave) = pair(100, 30);
+        let (root, options) = system_install(&format!("install-vts-{answer}"));
+        let c = Console::start(master, 100, 30, Kind::Vtium { ops: true }, TAKES);
+        let io = || Stdio::from(slave.as_fd().try_clone_to_owned().expect("dup"));
+        let child = home::command("setsid")
+            .arg("--ctty")
+            .arg(env!("CARGO_BIN_EXE_vtium-config"))
+            .arg("--no-banner")
+            .args(&options)
+            .arg("install")
+            .env("XDG_STATE_HOME", root.join("state"))
+            .env("XDG_CONFIG_HOME", root.join("config"))
+            .stdin(io())
+            .stdout(io())
+            .stderr(io())
+            .spawn()
+            .expect("setsid runs");
+        let asked = c
+            .until("asked to restart", |s| s.screen.contains("[y/N]"))
+            .replace('\n', "");
+        assert!(
+            asked.contains("Start vtium on VT 12, and restart it on VT 2? [y/N]"),
+            "{asked}"
+        );
+        let mut c = c;
+        c.key(format!("{answer}\r").as_bytes());
+        assert_eq!(status(child), 0, "{answer}");
+        c.drained(&slave);
+        assert_eq!(
+            ran(&root),
+            format!("enable --direct 12\n{restarted}"),
+            "{answer}"
+        );
+    }
+}
+
 /// The command line's `--udev-data` reaches the TUI: beside a database
 /// with no udev control socket, the status line says the view cannot
 /// follow hotplug, where this machine's own udev runs.
