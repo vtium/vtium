@@ -393,7 +393,8 @@ impl Terminal {
     }
 
     /// The selection a program set with OSC 52 since the last call, decoded,
-    /// at most [`CLIPBOARD_MAX`](crate::CLIPBOARD_MAX) bytes; a later set
+    /// as UTF-8 text with each ill-formed sequence replaced by U+FFFD, at
+    /// most [`CLIPBOARD_MAX`](crate::CLIPBOARD_MAX) bytes; a later set
     /// replaced an earlier one. The host puts it in its selection buffer, or
     /// drops it when its configuration turns copy-out off.
     pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
