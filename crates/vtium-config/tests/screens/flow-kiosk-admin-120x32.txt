@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench   All devices are in a path · no changes · no problems
+ policy closed: vtium ignores a keyboard that no rule names
+ CONFIGURATION
+ DISPLAYS                            TERMINALS                                     INPUTS
+ ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ ┃ DP-1                  ┃━━━━━━━━━━▶│ kiosk                        │◄─┬───────────│ keyboards on USB 3.1             │
+ ┃ KIOSK00001 · by EDID  ┃           │ default font set · every VT  │  ┆           │ every input on that port         │
+ ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘  ┆           └──────────────────────────────────┘
+                                                                       └┄┄┄┄┄┄┄┄┄┄┄roaming inputs
+
+ ┌───────────────────────┐           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ │ HDMI-A-1              │──────────►│ admin                        │◄─┬───────────│ keyboards on USB 3.2             │
+ │ ADMIN00001 · by EDID  │           │ default font set · every VT  │  ┆           │ every input on that port         │
+ └───────────────────────┘           └──────────────────────────────┘  ┆           └──────────────────────────────────┘
+                                                                       └┄┄┄┄┄┄┄┄┄┄┄roaming inputs
+
+                                     ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
+ ROAMING                             ┆ Active terminal              ┆◄┄┄┄┄┄┄┄┄┄┄┄┄┄│ inputs on USB 3.3                │
+ These inputs type into the active   ┆ Terminal on screen, followi… ┆              │ every input on that port         │
+ terminal.                           └┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┘              └──────────────────────────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔═════════════════╗                 ╔══════════════════════════════╗              ╔═════════════════╗
+ ║ Display         ║                 ║ Terminal                     ║              ║ Input           ║
+ ║ Choose… [Enter] ║                 ║ new: terminal-1              ║              ║ Choose… [Enter] ║
+ ╚═════════════════╝                 ╚══════════════════════════════╝              ╚═════════════════╝
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit
