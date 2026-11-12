@@ -121,7 +121,7 @@ use crate::head::route::{self, Routes};
 use crate::head::session::{self, AfterExit, Caps};
 use crate::head::vt::VtHeads;
 use crate::head::{Attached, Frit, Head, Start, place_display};
-use crate::helper::{self, Answer, Helper};
+use crate::helper::{self, Answer, FritText, Helper};
 use crate::layout::{self, Zoom};
 use crate::osd::{self, Osd};
 use crate::painter::Painter;
@@ -1102,9 +1102,10 @@ impl App {
         if self.heads.get(h).is_none_or(|head| head.font.is_some()) {
             return;
         }
-        let chosen = self.configured_font(h);
+        let (chosen, made) = self.configured_font(h);
         if let Some(head) = self.heads.get_mut(h) {
             head.font = Some(chosen);
+            head.made = made;
         }
         self.share(h);
     }
@@ -1128,10 +1129,12 @@ impl App {
     /// path or vconsole's font, generated at run time (ADR-1301 D2); else
     /// the built-in font, with one line naming the font and why. The font
     /// draws in the cell the head's look states, the built-in font as a
-    /// frit does (ADR-1200 D7, ADR-1403 D5).
-    fn configured_font(&self, h: usize) -> Chosen {
+    /// frit does (ADR-1200 D7, ADR-1403 D5). With it comes the frit made
+    /// on the fly, where no frit bears the name, which OSC 50 switches
+    /// back to by that name ([`font::by_name`]).
+    fn configured_font(&self, h: usize) -> (Chosen, Option<FritText>) {
         let Some(head) = self.heads.get(h) else {
-            return Chosen::BUILTINS;
+            return (Chosen::BUILTINS, None);
         };
         let look = head.look_cell();
         let s = &self.font_sources;
@@ -1147,29 +1150,32 @@ impl App {
             ),
         };
         let Some(wanted) = wanted else {
-            return Chosen::builtins(look);
+            return (Chosen::builtins(look), None);
         };
         if let Some(builtin) = font::builtin_named(&wanted.name, look) {
-            return builtin;
+            return (builtin, None);
         }
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
-        let chosen = font::frit_named(&s.frits, &wanted)
-            .and_then(|frit| Chosen::frit(frit, head.sized(), look));
+        let on_the_fly = font::frit(&s.frits, &wanted.name).is_none();
+        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| {
+            let made = on_the_fly.then(|| frit.clone());
+            Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made))
+        });
         match chosen {
-            Ok(chosen) => {
+            Ok((chosen, made)) => {
                 log::info!(
                     "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
                     chosen.name(0, &self.locale)
                 );
-                chosen
+                (chosen, made)
             }
             Err(why) => {
                 log::warn!(
                     "the font {} is not drawn ({why}): vtium draws its built-in font",
                     wanted.name
                 );
-                Chosen::builtins(look)
+                (Chosen::builtins(look), None)
             }
         }
     }
@@ -1317,7 +1323,8 @@ impl App {
         }
         let (sized, look) = (head.sized(), head.look_cell());
         let was = head.frit().map(str::to_owned);
-        let new = font::by_name(&self.font_sources, name, sized, look).and_then(|new| {
+        let new = font::by_name(&self.font_sources, name, sized, look, head.made.as_ref());
+        let new = new.and_then(|new| {
             let Some(head) = self.heads.get_mut(h) else {
                 return Ok(());
             };
@@ -3834,9 +3841,14 @@ impl App {
         let was_sized = head.sized();
         head.reconfigure(&config);
         let shown = head.console.id == id;
+        // The frit made on the fly for the configured font, the head's
+        // once the return holds.
+        let mut made = None;
         let new = if due.font {
             head.switched = None;
-            Some(self.configured_font(h))
+            let (chosen, configured) = self.configured_font(h);
+            made = Some(configured);
+            Some(chosen)
         } else if head.sized() != was_sized {
             // The frit drawn, with its own cell or without it as the
             // `font-size` read again now says (ADR-1200 D16).
@@ -3884,6 +3896,11 @@ impl App {
                 );
             }
             return;
+        }
+        if let Some(made) = made
+            && let Some(head) = self.heads.get_mut(h)
+        {
+            head.made = made;
         }
         let hidden = self
             .heads

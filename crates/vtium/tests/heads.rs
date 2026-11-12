@@ -1243,6 +1243,46 @@ display card:mem-small -> small
     drop(s);
 }
 
+/// ADR-1403 D5, ADR-1200 D5, D9: a look's `font-name` that no frit bears
+/// draws a frit made on the fly under that name, and OSC 50 switches back
+/// to it by the name, in the look's cell. The look names the kbd font
+/// `ter-v16n` and states a 12x24 cell, which wins over the 8x16 cell the
+/// display's density gives; the program switches to frit `d`, and back by
+/// the name `ter-v16n`, and the head draws that font in the look's cell on
+/// the grid it started on.
+#[test]
+fn an_osc_50_switch_returns_to_a_looks_font_by_its_name() {
+    let (_dir, fonts, _starts) = frits("look-made-osc50", &["d"]);
+    let heads = "version = 1
+[look made]
+font-name = ter-v16n
+cell = 12x24
+[head small]
+look = made
+[rules]
+display card:mem-small -> small
+";
+    let script = "echo ready; read a; \
+                  printf '\\033]50;d\\007'; echo away; read b; \
+                  printf '\\033]50;ter-v16n\\007'; echo back; read c";
+    let [small, _] = two_displays();
+    let mut s = Seat::with_fonts(&[], Some(heads), [small], script, fonts);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")));
+    assert_eq!(s.app.font_name(), "ter-v16n");
+    let started = (s.app.head("small").map(Head::cells), grid(&s.app, "small"));
+    assert_eq!(started.0, Some(vec![(12, 24)]), "the look's cell");
+    s.type_str("x\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "away")));
+    assert_eq!(s.app.font_name(), "d", "the switch took");
+    s.type_str("y\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "back")));
+    assert_eq!(s.app.font_name(), "ter-v16n", "the switch back took");
+    assert_eq!(
+        (s.app.head("small").map(Head::cells), grid(&s.app, "small")),
+        started
+    );
+}
+
 /// ADR-1200 D7, D17, ADR-1403 D5: a head that draws the built-in fonts
 /// alone draws them in the cell its look states, fitted to that cell, as
 /// it would draw a frit, and not at the display's automatic size. The

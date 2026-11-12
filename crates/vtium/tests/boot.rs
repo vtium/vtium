@@ -6911,6 +6911,127 @@ fn a_flood_of_refused_osc_50_requests_logs_one_line() {
     );
 }
 
+/// The lines in `lines` that OSC 50 logged as switches, each the name of
+/// the font switched to.
+fn switches(lines: &[String]) -> Vec<&str> {
+    lines
+        .iter()
+        .filter_map(|l| l.strip_prefix("OSC 50: the font is now "))
+        .collect()
+}
+
+// ADR-1200 D5, D9: the name OSC 50's query reports for vconsole's font,
+// a frit vtium made on the fly, switches back to that font. A program
+// asks for the name, switches to unifont, and switches back by the name
+// it was told; the query then reports that name again, and the font
+// draws in its own 12x24 cell on the grid it started on, as the helper
+// tells the cell again for the frit made anew.
+// covers: text.font-change
+#[test]
+fn osc_50_switches_back_to_vconsoles_font_by_the_name_its_query_reported() {
+    let _wait = vtium::helper::CellWait::new(IN_TIME);
+    let (_dir, mut fonts, _go) = frit_fonts_of(
+        "osc50-vconsole",
+        "source=kbd:x\n",
+        &own_cell(12, 24),
+        "cat >/dev/null & cat \"$1\"; wait",
+    );
+    fonts.vconsole_conf = fonts.frits.join("vconsole.conf");
+    std::fs::write(&fonts.vconsole_conf, "FONT=ter-124n\n").expect("vconsole.conf");
+    let start = with_fonts(&["--font-size=0"], fonts.clone());
+    let started = (start.app.cells(), start.app.grid());
+    assert_eq!(start.app.font_name(), "ter-124n");
+    assert_eq!(started, (vec![(12, 24)], (26, 6)));
+    drop(start);
+    logged();
+    let mut h = osc50(
+        &["--font-size=0"],
+        "\\033]50;?\\007\\033]50;unifont\\007\\033]50;ter-124n\\007\\033]50;?\\007",
+        fonts.clone(),
+    );
+    let lines = logged();
+    assert_eq!(switches(&lines), ["unifont", "ter-124n"], "{lines:?}");
+    assert_eq!(h.app.font_name(), "ter-124n");
+    // The tty echoes both replies to `read`, wrapped across the grid's
+    // lines.
+    assert!(
+        h.until(BOUND, |a| a
+            .screen_text()
+            .concat()
+            .matches("]50;ter-124n")
+            .count()
+            == 2),
+        "{:?}",
+        h.app.screen_text()
+    );
+    assert_eq!((h.app.cells(), h.app.grid()), started);
+}
+
+// ADR-1200 D5, D7, D9: the name OSC 50 reports for every font a head
+// starts in switches back to it at the size it had: a kbd name, a frit
+// made on the fly; the kernel command line's vconsole font; and the
+// built-in font by the name its height gives it. A name no frit bears
+// that the configuration did not give stays refused, as
+// osc_50_leaves_the_font_for_a_name_no_frit_bears_or_with_font_ops_off
+// checks.
+#[test]
+fn osc_50_switches_back_to_each_font_a_head_starts_in() {
+    let cases: [(&[&str], &str, &str); 4] = [
+        (&["--font-name=ter-v16n"], "", "ter-v16n"),
+        (&[], "quiet vconsole.font=ter-v32n\n", "ter-v32n"),
+        (&["--font-size=8"], "", "unscii-8"),
+        (&[], "", "unifont"),
+    ];
+    for (n, (args, cmdline, name)) in cases.into_iter().enumerate() {
+        let (_dir, mut fonts) = recording(&format!("osc50-back-{n}"));
+        fonts.kernel_cmdline = fonts.frits.join("cmdline");
+        std::fs::write(&fonts.kernel_cmdline, cmdline).expect("cmdline");
+        std::fs::write(fonts.frits.join("t.vtfrit"), "source=kbd:x\ncell=10x20\n")
+            .expect("the frit");
+        let start = with_fonts(args, fonts.clone());
+        assert_eq!(start.app.font_name(), name, "{args:?}");
+        let started = (start.app.cells(), start.app.grid());
+        drop(start);
+        logged();
+        let mut h = osc50(
+            args,
+            &format!("\\033]50;t\\007\\033]50;{name}\\007\\033]50;?\\007"),
+            fonts.clone(),
+        );
+        let lines = logged();
+        assert_eq!(switches(&lines), ["t", name], "{args:?}: {lines:?}");
+        assert_eq!(h.app.font_name(), name, "{args:?}");
+        assert!(replied(&mut h, name), "{args:?}: {:?}", h.app.screen_text());
+        assert_eq!((h.app.cells(), h.app.grid()), started, "{args:?}");
+    }
+}
+
+// ADR-1200 D1, D5: a path under font-engine=psf and a family under
+// font-engine=pango are not frits' names, so OSC 50's query names no font
+// for them, and OSC 50 cannot name them
+#[test]
+fn osc_50_names_no_font_for_a_path_or_a_family() {
+    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
+    for (n, args) in [
+        ["--font-engine=psf", &format!("--font-name={path}")],
+        ["--font-engine=pango", "--font-name=DejaVu Sans Mono"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let (_dir, fonts) = recording(&format!("osc50-unnamed-{n}"));
+        let mut h = osc50(&args, "\\033]50;?\\007", fonts);
+        assert!(
+            h.until(BOUND, |a| a
+                .screen_text()
+                .iter()
+                .any(|l| l.ends_with("]50;^G"))),
+            "{args:?}: {:?}",
+            h.app.screen_text()
+        );
+    }
+}
+
 // ADR-1200 D8: the kernel's font, read at start, is handed to the helper
 // with each request, for a frit's console: source to read
 #[test]

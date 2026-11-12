@@ -242,6 +242,11 @@ pub struct Head {
     /// OSC 50; a frit's store is the one every head drawing it shares
     /// ([`Frit`]).
     pub(crate) font: Option<Chosen>,
+    /// The frit vtium made on the fly for the font the configuration
+    /// gives the head, where no frit bears its name (ADR-1200 D9): kept
+    /// while the head draws another font, so that OSC 50 switches back to
+    /// it by the name its query reported (D5).
+    pub(crate) made: Option<crate::helper::FritText>,
     /// The font changed: every display's renderer is rebuilt.
     pub(crate) refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
@@ -489,6 +494,7 @@ impl Head {
             step: 16,
             cell: CELL,
             font: None,
+            made: None,
             refont: false,
             font_refused: 0,
             switched: None,
