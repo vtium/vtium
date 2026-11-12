@@ -2434,8 +2434,8 @@ impl App {
             // nothing until the modeset that lights it says to redraw.
             Event::Unlit(id) => {
                 let name = self.videos.get(node).map(|video| video.name(id));
-                log::warn!(
-                    "display {} cannot be lit beside the others: its head keeps it, dark, until it lights",
+                log::info!(
+                    "display {} is dark but still connected, so its head keeps its sessions until the display lights",
                     name.as_deref().unwrap_or("?")
                 );
             }

@@ -40,10 +40,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         if !o.announced {
             return;
         }
-        log::info!(
-            "display {} stays connected but dark until a placement lights it",
-            o.name
-        );
         let edid = self.known_edid(o.id).cloned();
         self.events.push(Event::Unlit(o.id));
         self.left_off.push(LeftOff {
