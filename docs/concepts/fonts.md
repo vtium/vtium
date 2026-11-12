@@ -1,6 +1,6 @@
 # Fonts, generated at run time
 
-This page describes how vtium gets the glyphs it renders. A glyph is the image of one character in a font. These parts are all built: the font helper, the console's per-boot store, the built-in fonts, switching, preview, and new.
+This page describes how vtium gets the glyphs it renders. A glyph is the image of one character in a font. These parts are all built: the font helper, the console's per-boot store, the built-in fonts, switching, preview, and new-frit.
 
 The console does not read font files itself. Two parts do that work for it:
 
@@ -16,13 +16,13 @@ The figure follows a font from the moment someone chooses it to the console. Eac
 ```mermaid
 flowchart LR
     P["preview<br>try many fonts<br>(the user)"] --> R
-    W["new: from fonts named<br>or a template<br>(the user)"] --> R
+    W["new-frit: from fonts named<br>or a template<br>(the user)"] --> R
     H["by hand"] --> R
     R["frit<br>names the sources<br>(written by root)"] --> HE["serve, the helper<br>sandboxed,<br>never root"]
     HE -->|"glyphs, checked"| ST[("the per-boot store<br>in vtium's memory")]
     ST --> V["vtium"]
     B["built-in fonts<br>Unifont, Unscii-8"] -->|"the first frame<br>and the fallback"| V
-    S["set<br>(the user,<br>in the session)"] -->|"OSC 50"| V
+    S["use-frit<br>(the user,<br>in the session)"] -->|"OSC 50"| V
     classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
     classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
     classDef store fill:#2d8e5e,color:#ffffff,stroke:#94a3b8
@@ -76,6 +76,6 @@ The console uses the built-in fonts in two cases, and it logs the reason. In the
 
 The built-in fonts are compiled into vtium. They are Unifont, and Unscii-8 for character cells under 16 pixels high. They also draw each character that a frit does not have.
 
-vtium-config's set command switches the running console to another frit or to a built-in font. It does this through the terminal, with xterm's font control sequence, OSC 50. vtium acts on that sequence while its allow-font-ops setting is on, as it is by default.
+vtium-config's use-frit command switches the running console to another frit or to a built-in font. It does this through the terminal, with xterm's font control sequence, OSC 50. vtium acts on that sequence while its allow-font-ops setting is on, as it is by default.
 
 A switch lasts until the session it came from ends. The session ends when its program exits, when its console closes, or when vtium hangs it up. vtium then returns the console to the font the configuration gives.
