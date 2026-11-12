@@ -5,7 +5,8 @@
 //! cells' size, and each sheared glyph's ink box inside its reach: its
 //! cell and `REACH_CELLS` cells past it on each side, over its own row's
 //! height, since a bitmap glyph's shear moves rows sideways only
-//! (ADR-1302 D1, D4, D6).
+//! (ADR-1302 D1, D4, D6). Each of those codepoints' advance is the cells
+//! of the glyph the face draws for it, and none where it draws none.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -42,6 +43,8 @@ fuzz_target!(|data: &[u8]| {
     }
     let font = Font::new(psf);
     for c in (0..0x300).filter_map(char::from_u32).chain(['\u{10ffff}']) {
+        let drawn = font.face().draw(&[c], Style::default()).map(|g| g.cells());
+        assert_eq!(font.face().advance(c), drawn);
         for width in [Width::Narrow, Width::Wide] {
             for style in [styles[1], styles[3]] {
                 let g = font.glyph(&[c], width, style).expect("every character draws");

@@ -30,7 +30,7 @@ use crate::bounds::{
     CELL_SIDE_MAX, GZIP_BYTES_MAX, PSF_BYTES_MAX, PSF_ENTRIES_MAX, PSF_GLYPHS_MAX, PSF_HEIGHT_MAX,
     PSF_WIDTH_MAX, RAW_HEIGHT_MAX,
 };
-use crate::face::{Cell, Face, Style};
+use crate::face::{Cell, Face, Style, Width};
 use crate::glyph::Glyph;
 use crate::script::Origin;
 
@@ -513,6 +513,12 @@ impl Face for Psf {
 
     fn has_glyph(&self, c: char) -> bool {
         self.glyph_index(c).is_some_and(|g| g < self.count)
+    }
+
+    /// One cell for every glyph the font holds: a PSF font's glyphs are
+    /// all one size.
+    fn advance(&self, c: char) -> Option<Width> {
+        self.has_glyph(c).then_some(Width::Narrow)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
