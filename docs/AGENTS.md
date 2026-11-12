@@ -43,4 +43,4 @@ A page whose sentences rest on the code can have a claim file too, such as `conc
 
 Run `docs/scripts/claims`. It names each claim file and row whose file is gone, or whose symbol is no longer defined there. Update the page or the figure that row describes in the same change, and the row with it. When a figure changes, render it again and check it at its natural size.
 
-A claim file names a symbol, never a line number: a `fn`, a type, a `const`, a `mod`, a key of the key table written as `key NAME`, or a unit file's directive. The script's own help, `docs/scripts/claims --help`, lists what each kind of symbol must match.
+A claim file names a symbol, never a line number. The symbol is a `fn`, a type, a `const` or a `mod`. It can also be a key of the key table, written as `key NAME`, or a unit file's directive. `docs/scripts/claims --help` lists what each kind of symbol must match.

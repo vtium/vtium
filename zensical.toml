@@ -68,11 +68,14 @@ nav = [
   ] },
 ]
 
-# Files under docs/ that the site leaves out: the scripts, the tables (a page
-# links a TSV by its GitHub address), and the notes on how each figure is
-# made. The patterns are read as a .gitignore's are.
+# Files under docs/ that the site leaves out: the scripts, the instructions
+# for agents that work under docs/ (AGENTS.md and CLAUDE.md), the tables (a
+# page links a TSV by its GitHub address), and the notes on how each figure
+# is made. The patterns are read as a .gitignore's are.
 exclude_docs = """
 /scripts/
+/AGENTS.md
+/CLAUDE.md
 *.tsv
 **/figures/README.md
 """
