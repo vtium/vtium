@@ -1383,11 +1383,15 @@ mod tests {
             .cloned()
             .expect("desk");
         assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(1));
-        // unsetting comments the line out, as every key the card unsets
-        assert_eq!(
-            card_writes(&mut app, &line, 0),
-            on.replace("switch-on-enter", "#switch-on-enter")
-        );
+        assert_eq!(card_writes(&mut app, &line, 0), off);
+        // toggling on, off, on and off leaves the draft as it was, with no
+        // line left behind, commented out or not (the maintainer,
+        // 2026-11-11: "only what's set")
+        let mut text = off.to_owned();
+        for pick in [1, 0, 1, 0] {
+            text = card_writes(&mut card_of(&text, "desk"), &line, pick);
+        }
+        assert_eq!(text, off);
     }
 
     // ADR-1401, "Enter on a head's own keyboard": the switch works only

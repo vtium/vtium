@@ -125,13 +125,37 @@ pub fn rule_rm(text: &str, number: usize) -> Result<String, Fail> {
 }
 
 /// Sets each of `keys`, a key and its value or `None` to unset it, in the
-/// section `of`, in order.
+/// section `of`, in order. Unsetting takes the key's line out, its comment
+/// with it, so a vtium.conf vtium-config writes holds only what is set,
+/// and a key set and unset over and over leaves no line behind (the
+/// maintainer, 2026-11-11).
 pub fn section_keys(text: &str, of: Of<'_>, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let mut out = text.to_owned();
     for (key, value) in keys {
-        out = set_key(&out, of, key, *value).map_err(|e| refused(&e))?;
+        out = match value {
+            Some(_) => set_key(&out, of, key, *value).map_err(|e| refused(&e))?,
+            None => unset_key(&out, of, key)?,
+        };
     }
     Ok(out)
+}
+
+/// `text` without the line that sets `key` in the section `of`. The
+/// section writer unsets a key by commenting its line out and changes no
+/// other line, so the one line it changed is the line that goes.
+fn unset_key(text: &str, of: Of<'_>, key: &str) -> Result<String, Fail> {
+    let commented = set_key(text, of, key, None).map_err(|e| refused(&e))?;
+    let before: Vec<&str> = text.split_inclusive('\n').collect();
+    let after: Vec<&str> = commented.split_inclusive('\n').collect();
+    let Some(at) = before.iter().zip(&after).position(|(b, a)| b != a) else {
+        return Ok(text.to_owned());
+    };
+    Ok(before
+        .iter()
+        .enumerate()
+        .filter(|(n, _)| *n != at)
+        .map(|(_, l)| *l)
+        .collect())
 }
 
 /// Adds `[head NAME]`, naming the look `look` where one is given; without
@@ -223,7 +247,7 @@ pub fn head_rm(text: &str, name: &str) -> Result<String, Fail> {
 
 /// Deletes `[look NAME]`. While a head names it, it refuses and names the
 /// heads; with `force` it sets those heads to the default look first, by
-/// commenting out their `look` lines.
+/// taking out their `look` lines.
 pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
     let users = heads_using(text, name);
     if !users.is_empty() && !force {
@@ -419,6 +443,37 @@ mod tests {
 
     const DESK: &str = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming  # every keyboard\n";
 
+    // the maintainer, 2026-11-11: a vtium.conf vtium-config writes holds
+    // "only what's set", so unsetting a key takes its line out, and a key
+    // set and unset over and over leaves the file as it was
+    #[test]
+    fn a_section_key_set_and_unset_leaves_no_line_behind() {
+        let start = "version = 1\n[look big]\nfont-size = 16  # big\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n";
+        let keys: [(Of<'_>, &str, &str); 6] = [
+            (Of::Head("panel"), "isolated", "yes"),
+            (Of::Head("panel"), "switch-on-enter", "yes"),
+            (Of::Head("panel"), "login", "/bin/sh -l"),
+            (Of::Head("panel"), "when-display-lost", "hangup"),
+            (Of::Head("panel"), "vt", "3"),
+            (Of::Look("big"), "font-name", "monoid"),
+        ];
+        for (of, key, value) in keys {
+            let mut text = start.to_owned();
+            for _ in 0..3 {
+                text = section_keys(&text, of, &[(key, Some(value))]).expect("set");
+                assert!(text.contains(&format!("{key} = {value}\n")), "{text}");
+                text = section_keys(&text, of, &[(key, None)]).expect("unset");
+            }
+            assert_eq!(text, start, "{key}");
+        }
+        // a key the file set takes its line, and its comment, out with it
+        let unset = section_keys(start, Of::Look("big"), &[("font-size", None)]).expect("unset");
+        assert_eq!(
+            unset,
+            "version = 1\n[look big]\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n"
+        );
+    }
+
     // ADR-1403 D5, D8: `look add`, `look set` and the look card offer
     // every key a look takes, `cell` among them, by one option each
     #[test]
@@ -581,7 +636,7 @@ mod tests {
         assert_eq!(rules_to(text, "desk"), [1]);
         assert_eq!(
             look_rm(text, "big", true).unwrap(),
-            "version = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\n"
+            "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n"
         );
     }
 

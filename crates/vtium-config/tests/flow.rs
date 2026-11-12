@@ -493,7 +493,7 @@ fn a_look_in_use_is_kept_unless_forced_to_the_default() {
     assert_eq!(f.run(&["look", "rm", "big", "--force"]).status, 0);
     assert_eq!(
         f.draft(),
-        "font-size=12\nversion = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
+        "font-size=12\nversion = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming\n"
     );
 }
 
