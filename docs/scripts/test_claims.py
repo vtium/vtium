@@ -158,13 +158,35 @@ class Claims(unittest.TestCase):
                          "docs/figures/fig.claims.tsv:2: install/vtium@.service: no line 'Restart=always'",
                          "docs/figures/fig.claims.tsv:3: install/vtium@.service: no directive 'FileDescriptorStoreMax='")
 
-    def test_a_conf_drop_in_with_a_section_is_a_unit_and_one_without_is_text(self):
-        self.tree({"install/vtium-libseat.conf": "# a drop-in\n[Service]\nPAMName=vtium\n",
+    def test_a_drop_in_under_a_unit_s_d_folder_is_a_unit(self):
+        self.tree({"install/vtium@.service.d/libseat.conf": "# a drop-in\n[Service]\nPAMName=vtium\n"})
+        self.assertHolds(("seat mode", "install/vtium@.service.d/libseat.conf", "PAMName=vtium"),
+                         ("seat mode", "install/vtium@.service.d/libseat.conf", "PAMName"))
+        self.assertFails(claims(("seat mode", "install/vtium@.service.d/libseat.conf", "PAMName=other")),
+                         "docs/figures/fig.claims.tsv:2: install/vtium@.service.d/libseat.conf: no line 'PAMName=other'")
+
+    def test_each_kind_of_unit_is_a_unit(self):
+        files = {f"install/vtium.{kind}": "[Unit]\nDescription=vtium\n"
+                 for kind in ("service", "socket", "target", "timer", "path", "mount")}
+        self.tree(files)
+        for name in files:
+            self.assertFails(claims(("a unit", name, "Description=other")),
+                             f"docs/figures/fig.claims.tsv:2: {name}: no line 'Description=other'")
+
+    def test_a_conf_outside_a_unit_s_d_folder_is_plain_text_even_with_a_section(self):
+        self.tree({"templates/heads.conf": "[head console]\nisolated = no\n[rules]\ninput * -> ignore\n",
+                   "install/vtium-libseat.conf": "# a drop-in's source\n[Service]\nPAMName=vtium\n",
                    "install/vtium-image.conf": "# the account\nu vtium-image - \"vtium image helper\" / -\n"})
-        self.assertHolds(("seat mode", "install/vtium-libseat.conf", "PAMName=vtium"),
+        self.assertHolds(("a head setting", "templates/heads.conf", "isolated = no"),
+                         ("a rule", "templates/heads.conf", "input * -> ignore"),
+                         ("seat mode", "install/vtium-libseat.conf", "PAMName=vtium"),
                          ("the account", "install/vtium-image.conf", "u vtium-image"))
-        self.assertFails(claims(("seat mode", "install/vtium-libseat.conf", "PAMName=other")),
-                         "docs/figures/fig.claims.tsv:2: install/vtium-libseat.conf: no line 'PAMName=other'")
+        self.assertFails(claims(("a head setting", "templates/heads.conf", "isolated = yes")),
+                         "docs/figures/fig.claims.tsv:2: templates/heads.conf: no text 'isolated = yes'")
+
+    def test_a_d_folder_of_something_other_than_a_unit_is_plain_text(self):
+        self.tree({"etc/pam.d/vtium.conf": "[Service]\nsession required pam_unix.so\n"})
+        self.assertHolds(("pam", "etc/pam.d/vtium.conf", "session required pam_unix.so"))
 
     def test_another_file_holds_on_plain_text(self):
         self.assertHolds(("idle", "notes.txt", "idles out"))

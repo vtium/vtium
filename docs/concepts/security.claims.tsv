@@ -37,7 +37,7 @@ allow-window-ops, off by default	crates/vtium-settings/src/keys.rs	key allow-win
 a link is copied, never opened	crates/vtium/src/head.rs	copy_link
 clipboard-write, on by default, with no system clipboard	crates/vtium-settings/src/keys.rs	key clipboard-write
 vtium.conf is trusted only when root owns it and its directories	crates/vtium-settings/src/file.rs	Trust::check
-the trust check follows each directory and link	crates/vtium-settings/src/file.rs	directories
+the trust check covers every folder above the file, through each link, on descriptors	crates/vtium-settings/src/file.rs	walk
 the console reads vtium.conf through the trust check	crates/vtium/src/config/mod.rs	read_file
 an untrusted vtium.conf: the compiled-in configuration and a notice	crates/vtium/src/head.rs	rules
 the login key runs as root	crates/vtium-settings/src/keys.rs	key login
