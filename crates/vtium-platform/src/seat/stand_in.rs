@@ -48,6 +48,11 @@ pub(crate) struct Server {
     pub(crate) backend_named: bool,
     /// The opens of the seat asked so far.
     pub(crate) opens: usize,
+    /// The errors libseat reports at each open, as its log handler hands
+    /// them to vtium, and those of the last open, which
+    /// [`Manager::said`] takes.
+    pub(crate) says: Vec<String>,
+    said: Vec<String>,
     /// Whether seatd's socket accepts a connection.
     pub(crate) seatd: bool,
     /// Whether an open enables the client at once, as seatd does when the
@@ -188,6 +193,7 @@ impl Manager for StandIn {
     fn open(&mut self, inbox: Inbox) -> io::Result<StandInSeat> {
         let mut s = self.0.borrow_mut();
         s.opens = s.opens.saturating_add(1);
+        s.said = s.says.clone();
         if let Some(e) = s.open_answers.pop_front() {
             return Err(e.into());
         }
@@ -222,6 +228,10 @@ impl Manager for StandIn {
             inbox,
             conn,
         })
+    }
+
+    fn said(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.0.borrow_mut().said)
     }
 
     fn seatd_listens(&self) -> bool {

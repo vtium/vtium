@@ -40,6 +40,15 @@ pub enum Holder {
     },
     /// Another console running on the VT now, `PREFIX@ttyN.service`.
     Console { unit: String },
+    /// A program whose controlling terminal is the VT now, that neither a
+    /// logind session on the VT nor a console unit on it accounts for, such
+    /// as a display manager's X server ([`super::process`]).
+    Process {
+        pid: u32,
+        program: String,
+        /// The systemd unit it runs in, when its control group names one.
+        unit: Option<String>,
+    },
 }
 
 /// A display manager's setting that starts its greeter on a VT.

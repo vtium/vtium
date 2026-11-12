@@ -34,7 +34,7 @@ mod dma_buf;
 mod drm2d;
 mod edid;
 #[cfg(test)]
-mod fake;
+pub(crate) mod fake;
 mod fbdev;
 mod kms;
 mod mode;

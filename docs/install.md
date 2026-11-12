@@ -214,6 +214,7 @@ VT 6 is logind's reserved VT, where logind starts a console at every switch, eve
 - VT 1, while a display manager is enabled, whatever VT the display manager uses now: `/etc/systemd/system/display-manager.service` links to it, or a unit that starts at boot runs one vtium knows by name, such as ly's `ly@tty2`, which ly enables without that link;
 - a VT whose getty a unit that starts at boot names in `Conflicts=`, as Arch's `sddm.service` names `getty@tty1.service`;
 - a graphical session or a greeter on the VT now, which it asks logind for;
+- a program whose controlling terminal is the VT now, with or without a logind session, such as the X server that SDDM's X11 greeter runs on VT 2. The controlling terminal is the terminal the kernel ties a program's session to, and vtium reads it from `/proc`. A getty on the VT and a login on the VT do not count;
 - another console running on the VT now, such as `fbterm@tty4.service`;
 - a unit that starts at boot and runs on the VT, such as `cage@tty3.service` or a unit with `TTYPath=/dev/tty9`;
 - a VT your display manager's own configuration starts its greeter on: LightDM's `minimum-vt`, 7 unless you set it, greetd's `vt`, and SDDM's `MinimumVT`.

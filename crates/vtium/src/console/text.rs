@@ -341,7 +341,8 @@ pub fn template_masked(prefix: &str) -> String {
 }
 
 /// Who holds a VT, in words: "the display manager sddm.service", "the
-/// graphical session of aaron (sddm, wayland)".
+/// graphical session of aaron (sddm, wayland)", "the program
+/// /usr/lib/Xorg (process 1207, in sddm.service)".
 fn who(holder: &Holder) -> String {
     match holder {
         Holder::Unit {
@@ -351,6 +352,12 @@ fn who(holder: &Holder) -> String {
         } => format!("the display manager {unit}"),
         Holder::Unit { unit, .. } => unit.clone(),
         Holder::Console { unit } => format!("another console, {unit},"),
+        Holder::Process {
+            pid,
+            program,
+            unit: Some(unit),
+        } => format!("the program {program} (process {pid}, in {unit})"),
+        Holder::Process { pid, program, .. } => format!("the program {program} (process {pid})"),
         Holder::Session {
             user,
             service,
@@ -372,6 +379,10 @@ fn holders(n: u16, list: &[Holder]) -> String {
             Holder::Unit { reason, .. } => {
                 format!("{} uses VT {n} at boot{}", who(h), reason_tail(n, reason))
             }
+            Holder::Process { .. } => format!(
+                "{} uses VT {n} now: /dev/tty{n} is its controlling terminal, the terminal the kernel ties its session to",
+                who(h)
+            ),
             _ => format!("{} uses VT {n} now", who(h)),
         })
         .collect::<Vec<_>>()
@@ -556,7 +567,8 @@ pub fn kept_graphics(n: u16, list: &[Holder]) -> String {
 }
 
 /// What holds a VT, in a cell of `status`'s table: "display manager
-/// (sddm.service)", "cage@tty1", "login screen of sddm (sddm-greeter)".
+/// (sddm.service)", "cage@tty1", "login screen of sddm (sddm-greeter)",
+/// "/usr/lib/Xorg (sddm.service)".
 pub fn holder_cell(h: &Holder) -> String {
     match h {
         Holder::Unit {
@@ -567,6 +579,12 @@ pub fn holder_cell(h: &Holder) -> String {
         Holder::Unit { unit, .. } | Holder::Console { unit } => {
             unit.strip_suffix(".service").unwrap_or(unit).to_owned()
         }
+        Holder::Process {
+            program,
+            unit: Some(unit),
+            ..
+        } => format!("{program} ({unit})"),
+        Holder::Process { pid, program, .. } => format!("{program} (process {pid})"),
         Holder::Session {
             user,
             service,

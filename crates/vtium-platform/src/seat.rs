@@ -117,6 +117,10 @@ pub(crate) trait Manager {
     /// Opens the seat, with its listener putting what it is told in
     /// `inbox`.
     fn open(&mut self, inbox: Inbox) -> io::Result<Self::Seat>;
+    /// The errors libseat reported while the last [`Manager::open`] ran,
+    /// which it holds back so that vtium decides how to log them
+    /// ([`report`]).
+    fn said(&mut self) -> Vec<String>;
     /// Whether seatd listens on its socket, which decides whether a VT not
     /// shown must be waited for before the seat opens.
     fn seatd_listens(&self) -> bool;
@@ -127,6 +131,30 @@ pub(crate) trait Manager {
     /// Whether vtium is in a logind session of its own, the session
     /// libseat's logind backend takes the seat from.
     fn own_session(&self) -> bool;
+}
+
+/// What vtium logs for an error that libseat, the library vtium opens the
+/// seat through, reports in its own words, `text`.
+pub(crate) fn libseat_error(text: &str) -> String {
+    format!("libseat, the seat library, reports an error: {text}")
+}
+
+/// Logs the errors libseat reported while vtium opened the seat, `said`.
+/// When the open ends as vtium expects, they are logged at the debug
+/// level, and vtium's own line says what happened: the seat opened,
+/// perhaps through the second seat manager libseat tried; the seat is busy
+/// and vtium waits for it; or no seat manager runs, so vtium uses the
+/// kernel's VT, as on every machine without seatd, where libseat reports
+/// that seatd's socket is missing. Otherwise each is a warning, so a real
+/// error stays in the log.
+fn report(said: Vec<String>, expected: bool) {
+    for text in said {
+        if expected {
+            log::debug!(target: "seat", "{}", libseat_error(&text));
+        } else {
+            log::warn!(target: "seat", "{}", libseat_error(&text));
+        }
+    }
 }
 
 /// What vtium logs when it leaves libseat's logind backend alone because
@@ -157,7 +185,7 @@ static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::ne
 /// one thread, and after reading the environment that sessions inherit, so
 /// that no login sees the variable. Returns whether it pinned.
 pub fn keep_from_logind() -> bool {
-    let manager = binding::Libseat;
+    let manager = binding::Libseat::default();
     if !pin_needed(manager.backend_named().as_deref(), manager.own_session()) {
         return false;
     }
@@ -395,7 +423,7 @@ impl LibseatVt<Libseat, Tty> {
         D: 'static,
         A: Fn(&mut D) -> Option<&mut LibseatVt<Libseat, Tty>> + Clone + 'static,
     {
-        LibseatVt::start_with(lp, Libseat, tty, Tries::bounds(), access)
+        LibseatVt::start_with(lp, Libseat::default(), tty, Tries::bounds(), access)
     }
 }
 
@@ -445,13 +473,22 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             log::info!(target: "seat", "seatd listens: the seat opens once the VT is shown");
             (Conn::Shown, None)
         } else {
-            match manager.open(Rc::clone(&inbox)) {
-                Ok(seat) => (Conn::Open, Some(seat)),
+            let opened = manager.open(Rc::clone(&inbox));
+            let said = manager.said();
+            match opened {
+                Ok(seat) => {
+                    report(said, true);
+                    (Conn::Open, Some(seat))
+                }
                 Err(e) if busy(&e, seatd) => {
+                    report(said, true);
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
                     (Conn::Opening(1), None)
                 }
                 Err(e) => {
+                    // No seat manager libseat reaches runs: seatd does not
+                    // listen, and libseat would not try logind.
+                    report(said, !seatd && !logind);
                     log::info!(target: "seat", "no seat manager answered, so vtium uses the kernel's VT: {e}");
                     return Ok(Chosen::Kernel(tty));
                 }
@@ -609,19 +646,24 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
             Conn::Opening(n) => n,
             _ => 0,
         };
-        match self.manager.open(Rc::clone(&self.inbox)) {
+        let opened = self.manager.open(Rc::clone(&self.inbox));
+        let said = self.manager.said();
+        match opened {
             Ok(seat) => {
+                report(said, true);
                 self.shared.borrow_mut().seat = Some(seat);
                 self.conn = Conn::Open;
                 self.opened();
             }
             Err(e) if busy(&e, self.seatd) && tried.saturating_add(1) < self.tries.seat => {
+                report(said, true);
                 if tried == 0 {
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
                 }
                 self.conn = Conn::Opening(tried.saturating_add(1));
             }
             Err(e) => {
+                report(said, false);
                 log::error!(target: "seat", "cannot open the seat after {} tries: {e}", tried.saturating_add(1));
                 self.gone();
             }

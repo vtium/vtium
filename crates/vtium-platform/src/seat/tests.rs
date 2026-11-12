@@ -21,6 +21,7 @@ use std::time::Instant;
 
 use super::stand_in::{Client, StandIn, StandInSeat};
 use super::{Chosen, LibseatVt, SeatInput, Told, Tries};
+use crate::display::fake::logs;
 use crate::event_loop::{Loop, Signal};
 use crate::input::fake::{self, FakeDevice, Node, Nodes};
 use crate::input::{DeviceId, Input, InputConfig, InputEvent, Keymap, RawEvent};
@@ -1149,4 +1150,110 @@ fn libseat_is_pinned_to_seatd_only_outside_a_session_with_no_backend_named() {
     assert!(!super::pin_needed(None, true));
     assert!(!super::pin_needed(Some(OsStr::new("logind")), false));
     assert!(!super::pin_needed(Some(OsStr::new("seatd")), false));
+}
+
+/// What libseat reports on a machine without seatd: its socket is missing.
+const NO_SEATD: &str = "Backend 'seatd' failed to open seat: No such file or directory";
+
+/// The seat started on VT 3, the stand-in's answers set by `set`; whether
+/// it opened.
+fn opened_with(set: impl FnOnce(&mut super::stand_in::Server)) -> bool {
+    let server = StandIn::new();
+    set(&mut server.0.borrow_mut());
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    let mut lp: Loop<Data> = ok(Loop::new(), "loop");
+    let chosen = ok(
+        LibseatVt::start_with(
+            &mut lp,
+            server.clone(),
+            Some((console, 3)),
+            tries(50, 20),
+            access,
+        ),
+        "start",
+    );
+    matches!(chosen, Chosen::Seat(_))
+}
+
+/// On a machine without seatd, libseat reports that seatd's socket is
+/// missing before vtium falls back to the kernel's VT, as every vtium on
+/// padnoir logged. That error is expected there, so vtium logs it at the
+/// debug level and its own line says what happened.
+#[test]
+fn libseats_expected_fallback_logs_only_vtiums_line() {
+    logs::capture();
+    let opened = opened_with(|s| {
+        s.backend_named = true;
+        s.open_answers = [Errno::NOENT].into();
+        s.says = vec![NO_SEATD.to_owned()];
+    });
+    assert!(!opened);
+    let shown = logs::at_least(log::Level::Info);
+    assert!(
+        shown
+            .iter()
+            .any(|l| l.starts_with("no seat manager answered, so vtium uses the kernel's VT")),
+        "{shown:?}"
+    );
+    assert!(
+        !shown.iter().any(|l| l.contains("Backend 'seatd'")),
+        "{shown:?}"
+    );
+    assert!(
+        logs::at_least(log::Level::Debug).contains(&format!(
+            "libseat, the seat library, reports an error: {NO_SEATD}"
+        )),
+        "the line is still there at the debug level"
+    );
+    // The same error before logind opens the seat is expected too.
+    logs::capture();
+    assert!(opened_with(|s| {
+        s.logind = true;
+        s.says = vec![NO_SEATD.to_owned()];
+    }));
+    assert!(logs::at_least(log::Level::Warn).is_empty());
+}
+
+/// An error libseat reports when a seat manager runs and still refuses
+/// the seat is real, so vtium logs it as a warning.
+#[test]
+fn a_real_libseat_error_stays_in_the_log() {
+    let refused = "Could not take control of session: Permission denied";
+    // seatd listens, or logind runs, and refuses.
+    for logind in [false, true] {
+        logs::capture();
+        let opened = opened_with(|s| {
+            s.seatd = !logind;
+            s.logind = logind;
+            s.open_answers = [Errno::ACCESS].into();
+            s.says = vec![refused.to_owned()];
+        });
+        assert!(!opened);
+        assert_eq!(
+            logs::at_least(log::Level::Warn),
+            [format!(
+                "libseat, the seat library, reports an error: {refused}"
+            )],
+            "logind {logind}"
+        );
+    }
+    // A busy seat that never comes free: its last try's error stays.
+    logs::capture();
+    let server = StandIn::new();
+    {
+        let mut s = server.0.borrow_mut();
+        s.seatd = true;
+        s.held = 3;
+        s.says = vec!["Could not open seat: Broken pipe".to_owned()];
+    }
+    let (mut lp, mut data) = start(&server, None, tries(3, 20));
+    let events = run_until(&mut lp, &mut data, |_, events| !events.is_empty());
+    assert_eq!(events, [VtEvent::Hangup]);
+    let shown = logs::at_least(log::Level::Warn);
+    assert_eq!(
+        shown.first().map(String::as_str),
+        Some("libseat, the seat library, reports an error: Could not open seat: Broken pipe"),
+        "{shown:?}"
+    );
+    assert_eq!(shown.len(), 2, "the error and vtium's own line: {shown:?}");
 }

@@ -317,7 +317,8 @@ impl Systemd for Fake {
                 let n = self.sessions.len();
                 let ids: Vec<String> = (0..n).map(id).collect();
                 let props = [
-                    "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
+                    "-p", "Id", "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p",
+                    "Class",
                 ];
                 assert_eq!(
                     rest.get(..n).unwrap(),
@@ -3139,4 +3140,135 @@ fn a_move_cut_short_between_the_two_modes_is_finished_by_a_rerun() {
     assert!(!out.contains("already"), "{out}");
     assert_eq!(at_boot(&m, VTIUM), [3]);
     assert_eq!(boot_links(&m, SEAT), Vec::<u16>::new());
+}
+
+/// Writes process `pid` under the root's `/proc`, as the kernel shows it:
+/// its `stat` line with `program`'s short name and the controlling
+/// terminal `tty_nr`, its command line, and its control group `cgroup`.
+fn process(m: &Machine, pid: u32, program: &str, tty_nr: u32, cgroup: &str) {
+    let dir = m.root().join("proc").join(pid.to_string());
+    std::fs::create_dir_all(&dir).unwrap();
+    let comm = program.rsplit('/').next().unwrap();
+    std::fs::write(
+        dir.join("stat"),
+        format!("{pid} ({comm}) S 1 {pid} {pid} {tty_nr} {pid} 4194560 1 0 0 0\n"),
+    )
+    .unwrap();
+    std::fs::write(dir.join("cmdline"), format!("{program}\0-seat\0seat0\0")).unwrap();
+    std::fs::write(dir.join("cgroup"), format!("0::{cgroup}\n")).unwrap();
+}
+
+/// `tty_nr` for `/dev/ttyN`, major 4 and minor N, as the kernel encodes it
+/// in `/proc/PID/stat` (proc(5)).
+fn tty(n: u32) -> u32 {
+    (4 << 8) | n
+}
+
+#[test]
+fn a_display_server_on_a_vt_with_no_session_keeps_it() {
+    // padnoir: sddm's X11 greeter ran its Xorg on VT 2, with no logind
+    // session, while the user's Wayland session ran on VT 1. A text login
+    // on VT 4, a getty waiting on VT 5 and a debug shell on VT 9 are there
+    // too.
+    let mut m = Machine::gettys("display-server");
+    display_manager(&m);
+    m.fake.sessions = vec![
+        ["aaron", "1", "sddm", "wayland", "user"],
+        ["carol", "4", "login", "tty", "user"],
+    ];
+    m.fake.running = vec!["getty@tty4.service".into(), "getty@tty5.service".into()];
+    process(
+        &m,
+        1207,
+        "/usr/lib/Xorg",
+        tty(2),
+        "/system.slice/sddm.service",
+    );
+    process(
+        &m,
+        1208,
+        "/usr/lib/Xorg",
+        tty(2),
+        "/system.slice/sddm.service",
+    );
+    process(
+        &m,
+        46206,
+        "/usr/bin/startplasma-wayland",
+        tty(1),
+        "/user.slice/user-1000.slice/session-c0.scope",
+    );
+    process(
+        &m,
+        500,
+        "-bash",
+        tty(4),
+        "/user.slice/user-1001.slice/session-c1.scope",
+    );
+    process(
+        &m,
+        501,
+        "/sbin/agetty",
+        tty(5),
+        "/system.slice/system-getty.slice/getty@tty5.service",
+    );
+    process(
+        &m,
+        600,
+        "/bin/bash",
+        tty(9),
+        "/system.slice/debug-shell.service",
+    );
+    // A serial line's getty is on no VT.
+    process(
+        &m,
+        700,
+        "/sbin/agetty",
+        (4 << 8) | 64,
+        "/system.slice/serial-getty@ttyS0.service",
+    );
+    let (_, out, _) = m.console_as(false, &["status"]);
+    let row = |n: &str| {
+        out.lines()
+            .find(|l| l.split_whitespace().next() == Some(n))
+            .unwrap()
+            .to_owned()
+    };
+    assert!(row("2").ends_with("/usr/lib/Xorg (sddm.service)"), "{out}");
+    assert!(
+        out.contains("VT 2: the program /usr/lib/Xorg (process 1207, in sddm.service) uses VT 2 now: /dev/tty2 is its controlling terminal, the terminal the kernel ties its session to."),
+        "{out}"
+    );
+    assert!(
+        !out.contains("process 1208"),
+        "one line for each program: {out}"
+    );
+    assert!(
+        row("9").ends_with("/bin/bash (debug-shell.service)"),
+        "{out}"
+    );
+    for n in ["1", "4", "5"] {
+        assert!(!row(n).contains("(process"), "{out}");
+        assert!(!out.contains(&format!("VT {n}: the program")), "{out}");
+    }
+    let (status, _, err) = m.console(&["enable", "--direct", "2"]);
+    assert_eq!(status, 1, "{err}");
+    assert!(
+        err.contains("the program /usr/lib/Xorg (process 1207, in sddm.service) uses VT 2 now"),
+        "{err}"
+    );
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+    assert_eq!(m.console(&["enable", "--direct", "5"]).0, 0);
+    assert_eq!(m.console(&["disable", "5"]).0, 0);
+    let before = m.snapshot();
+    let (status, out, err) = m.console(&["enable", "--direct", "--all"]);
+    assert_eq!((status, err.as_str()), (0, ""), "{out}");
+    assert!(
+        out.contains("VT 2 is unchanged: the program /usr/lib/Xorg (process 1207, in sddm.service) uses VT 2 now"),
+        "{out}"
+    );
+    assert!(!m.wanted("vtium@tty2.service") && m.wanted("getty@tty2.service"));
+    assert!(m.wanted("vtium@tty4.service") && m.wanted("vtium@tty5.service"));
+    assert_eq!(m.console(&["disable", "--all"]).0, 0);
+    assert_eq!(m.snapshot(), before);
 }
