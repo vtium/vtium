@@ -130,6 +130,11 @@ pub enum Disposition {
     /// Opened while vtium's VT is shown to watch for the rescue key alone;
     /// nothing else it sends is delivered or logged.
     RescueOnly,
+    /// Opened to watch for Enter, which switches to the VT of the head on
+    /// another VT that it stays with, and for the rescue key (ADR-1401 D3,
+    /// "Enter on a head's own keyboard"); any other key it sends only wakes
+    /// the notices, and reaches no session.
+    EnterAndRescue,
     /// Never opened.
     Closed,
 }
@@ -211,6 +216,16 @@ impl Config {
                 .heads
                 .get(head)
                 .is_some_and(|h| h.isolated.unwrap_or(unset))
+    }
+
+    /// Whether Enter, pressed on a keyboard that stays with the head at
+    /// `head` on a VT where that head does not run, switches to the head's
+    /// VT (ADR-1401 D3, "Enter on a head's own keyboard"): under open, for
+    /// a head that writes `switch-on-enter = yes` and is not isolated.
+    pub fn switch_on_enter(&self, head: usize) -> bool {
+        self.policy == Policy::Open
+            && !self.isolated(head)
+            && self.heads.get(head).is_some_and(|h| h.switch_on_enter)
     }
 
     /// Whether the head at `head` runs on `vt`, where `None` names no VT
@@ -582,10 +597,18 @@ impl Config {
 
     /// Whether vtium opens an input placed so: under open an ignored
     /// keyboard-class device, or one that stays with a head on another VT,
-    /// is opened for the rescue key alone; every other such device, and
+    /// is opened for the rescue key alone, and one that stays with a head
+    /// that switches on Enter for Enter too; every other such device, and
     /// under closed every one, stays closed (D3, D9).
     pub fn disposition(&self, placed: &Placed, id: &Identity) -> Disposition {
         match placed.place {
+            Place::Elsewhere(i)
+                if self.switch_on_enter(i)
+                    && self.policy.unset(SwitchKey::RescueKey)
+                    && id.classes.has(Class::Keyboard) =>
+            {
+                Disposition::EnterAndRescue
+            }
             Place::Ignore | Place::Elsewhere(_)
                 if self.policy.unset(SwitchKey::RescueKey) && id.classes.has(Class::Keyboard) =>
             {

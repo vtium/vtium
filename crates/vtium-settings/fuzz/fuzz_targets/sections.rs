@@ -71,6 +71,7 @@ const KEYS: &[&str] = &[
     "look",
     "consoles",
     "isolated",
+    "switch-on-enter",
     "when-display-lost",
     "vtlook",
     "font-size",
