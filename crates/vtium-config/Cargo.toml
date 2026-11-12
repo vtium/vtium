@@ -44,7 +44,7 @@ miniz_oxide = "0.8.9"
 # helper's no-new-privileges and limits, the
 # effective uid, `set`'s raw mode, and the terminal's width for the
 # banner; vtium-platform already builds this version with these features.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "termios", "thread"] }
 # The decoders kbd's other compressions need (ADR-1200 D6), each pure
 # Rust with no C compiled, in this binary only; the README says why each.
 bzip2 = "=0.6.1"
@@ -88,7 +88,7 @@ libc = "=0.2.191"
 [dev-dependencies]
 # A pty for `set`'s and the banner's tests; vtium-platform already builds
 # this version with these features.
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "process", "pty", "termios", "thread"] }
 # The tests read gzipped fonts back with the PSF loader.
 vtium-font = { workspace = true, features = ["psf", "gzip"] }
 # The xz encoder, for the tests' fixtures only.

@@ -14,7 +14,7 @@ workspace = true
 [dependencies]
 # opens the head file without blocking and without taking a tty as the
 # controlling one, as the console opens vtium.conf; vtium links it already
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs"] }
 # The bounds and defaults the key table states: the cell's largest side,
 # and the scrollback's sizes. Constants only; both crates are vtium's own,
 # and vtium links them already.
