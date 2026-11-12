@@ -73,6 +73,32 @@ pub fn unused_display(vt: u16, connector: &str, owner: Option<&Owner<'_>>) -> St
     )
 }
 
+/// The line a display's notice adds while Enter on a keyboard of the
+/// display's head switches to VT `vt`, where the head runs (ADR-1401 D3,
+/// "Enter on a head's own keyboard"), in the maintainer's words.
+pub fn enter_switches(vt: u16) -> String {
+    format!("Press Enter on this keyboard to switch to VT {vt}.")
+}
+
+/// The line a display's notice adds while vtium runs on none of `vts`,
+/// the VTs of the display's head that Enter could switch to (ADR-1401 D3):
+/// which VT to enable, and the command that enables vtium there.
+pub fn enable_to_switch(vts: &[u16]) -> String {
+    let first = vts.first().copied().unwrap_or_default();
+    match vts {
+        [_] => format!(
+            "vtium is not running on VT {first}. To enable it there, run sudo vtium console enable {first}."
+        ),
+        _ => {
+            let each: Vec<String> = vts.iter().map(u16::to_string).collect();
+            format!(
+                "vtium is not running on VTs {}. To enable it on VT {first}, run sudo vtium console enable {first}.",
+                listed(&each)
+            )
+        }
+    }
+}
+
 /// `sentence` with the keys `bindings` binds to `chord` in place of its
 /// `{}`, after a space; nothing when vtium.conf leaves the chord empty.
 fn press(bindings: &Bindings, chord: HeadChord, sentence: &str) -> String {
@@ -524,6 +550,25 @@ mod tests {
         assert_eq!(
             unused_display(4, "DP-9", None),
             "DP-9 is not configured for any terminal."
+        );
+    }
+
+    // ADR-1401 D3, "Enter on a head's own keyboard": the switch's line in
+    // the maintainer's words, and the line that names the VT to enable
+    // where vtium runs on none of the head's VTs.
+    #[test]
+    fn the_enter_lines_name_the_vt_it_switches_to_or_the_vt_to_enable() {
+        assert_eq!(
+            enter_switches(12),
+            "Press Enter on this keyboard to switch to VT 12."
+        );
+        assert_eq!(
+            enable_to_switch(&[12]),
+            "vtium is not running on VT 12. To enable it there, run sudo vtium console enable 12."
+        );
+        assert_eq!(
+            enable_to_switch(&[7, 12]),
+            "vtium is not running on VTs 7 and 12. To enable it on VT 7, run sudo vtium console enable 7."
         );
     }
 

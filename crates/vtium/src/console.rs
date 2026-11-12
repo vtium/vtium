@@ -520,7 +520,152 @@ fn names_vtium(link: &Link) -> bool {
     VTIUMS.iter().any(|p| link.names(p))
 }
 
+/// The template link in each unit directory under `root` that has one,
+/// in the search path's order.
+fn templates(root: &Path) -> Vec<Link> {
+    UNIT_DIRS
+        .iter()
+        .map(|dir| Link::read(&root.join(dir).join(TEMPLATE)))
+        .filter(|link| *link != Link::Absent)
+        .collect()
+}
+
+/// Whether logind starts a console by itself on VT `n` when the user
+/// switches there: on its VTs and its reserved VT, and never on VT 1,
+/// since to ask whether a VT is busy it opens /dev/tty1 itself, and that
+/// open makes VT 1 busy.
+fn logind_starts(n: u16) -> bool {
+    n != 1 && (n <= LOGIND_VTS || n == RESERVED_VT)
+}
+
+/// The VTs vtium is enabled on under `root`, in either mode: where
+/// systemd starts it at boot, or where logind starts it when the user
+/// switches there, as the columns of `vtium console status` show them.
+/// It reads systemd's links alone, and runs nothing. `None` when `root`
+/// was not booted with systemd, so no link says anything.
+pub fn enabled_vts(root: &Path) -> Option<BTreeSet<u16>> {
+    if !root.join(BOOTED).is_dir() {
+        return None;
+    }
+    let state = State::links(root, VTIUM);
+    let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
+    vts.insert(RESERVED_VT);
+    vts.extend(state.vts());
+    Some(
+        vts.into_iter()
+            .filter(|&n| state.vtium_enabled(n))
+            .collect(),
+    )
+}
+
+/// The VTs vtium runs on now, in either mode, from systemd's running
+/// units as `vtium console status` reads them, or why systemctl could not
+/// say.
+pub fn running_vts(systemd: &mut dyn Systemd) -> Result<BTreeSet<u16>, String> {
+    let running = running(systemd).map_err(|Stop(why)| why)?;
+    Ok(running
+        .into_iter()
+        .filter(|(_, prefixes)| VTIUMS.iter().any(|p| prefixes.contains(*p)))
+        .map(|(n, _)| n)
+        .collect())
+}
+
+/// The consoles running on each VT, from the running manager: every
+/// active unit named `PREFIX@ttyN.service`.
+fn running(systemd: &mut dyn Systemd) -> Step<BTreeMap<u16, BTreeSet<String>>> {
+    let args = [
+        "list-units",
+        "--plain",
+        "--no-legend",
+        "--state=active",
+        "*@tty*.service",
+    ];
+    let reply = systemctl_quiet(systemd, &args)?;
+    let mut running: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for line in reply.stdout.lines() {
+        if let Some((prefix, n)) = line.split_whitespace().next().and_then(instance) {
+            running.entry(n).or_default().insert(prefix.to_owned());
+        }
+    }
+    Ok(running)
+}
+
+/// Runs systemctl and fails the step when it fails, printing nothing.
+fn systemctl_quiet(systemd: &mut dyn Systemd, args: &[&str]) -> Step<Reply> {
+    let line = args.join(" ");
+    let reply = systemd
+        .systemctl(args)
+        .map_err(|e| Stop(text::cannot_run(&line, &e.to_string())))?;
+    if reply.ok {
+        Ok(reply)
+    } else {
+        Err(Stop(text::failed(&line, &reply.stderr)))
+    }
+}
+
 impl State {
+    /// What systemd's links under `root` say for the mode whose unit's
+    /// prefix is `prefix`: the template link, the units `getty.target`
+    /// wants on each VT, each VT's own link, and the VTs where the mode's
+    /// unit is masked.
+    fn links(root: &Path, prefix: &'static str) -> State {
+        let etc = root.join(ETC);
+        let template_etc = Link::read(&etc.join(TEMPLATE));
+        let templates = templates(root);
+        let below = usize::from(template_etc != Link::Absent);
+        let mut state = State {
+            prefix,
+            template: templates.first().cloned().unwrap_or_default(),
+            template_below: templates.len() > below,
+            template_etc,
+            ..State::default()
+        };
+        let wants = root.join(WANTS);
+        for name in names(&wants) {
+            if let Some((prefix, n)) = instance(&name) {
+                let link = Link::read(&wants.join(&name));
+                state
+                    .wants
+                    .entry(n)
+                    .or_default()
+                    .insert(prefix.to_owned(), link);
+            }
+        }
+        for name in names(&etc) {
+            match instance(&name) {
+                Some(("autovt", n)) => {
+                    state.own.insert(n, Link::read(&etc.join(&name)));
+                }
+                Some((p, n)) if p == prefix && Link::read(&etc.join(&name)).masks() => {
+                    state.masked.insert(n);
+                }
+                _ => {}
+            }
+        }
+        state
+    }
+
+    /// The template prefix of the unit logind starts on VT `n` when the
+    /// user switches there: the unit the VT's own link names, else the
+    /// template link's. `None` where logind starts nothing by itself, and
+    /// where the link it follows names no template.
+    fn switched_unit(&self, n: u16) -> Option<&str> {
+        if !logind_starts(n) {
+            return None;
+        }
+        match self.own(n) {
+            Link::Absent => self.template().unit(),
+            link => link.unit(),
+        }
+    }
+
+    /// Whether vtium is enabled on VT `n`, in either mode: systemd starts
+    /// it there at boot, or logind starts it there at a switch.
+    fn vtium_enabled(&self, n: u16) -> bool {
+        VTIUMS.iter().any(|p| self.wanted(n, p))
+            || self.switched_unit(n).is_some_and(|u| VTIUMS.contains(&u))
+    }
+
     fn template(&self) -> &Link {
         &self.template
     }
@@ -859,39 +1004,8 @@ impl Run<'_, '_, '_> {
         UnitFile::Missing
     }
 
-    /// The template link in each unit directory that has one, in the
-    /// search path's order.
-    fn templates(&self) -> Vec<Link> {
-        UNIT_DIRS
-            .iter()
-            .map(|dir| Link::read(&self.path(dir).join(TEMPLATE)))
-            .filter(|link| *link != Link::Absent)
-            .collect()
-    }
-
     fn read(&mut self, prefix: &'static str) -> Step<State> {
-        let etc = self.path(ETC);
-        let template_etc = Link::read(&etc.join(TEMPLATE));
-        let templates = self.templates();
-        let below = usize::from(template_etc != Link::Absent);
-        let mut state = State {
-            prefix,
-            template: templates.first().cloned().unwrap_or_default(),
-            template_below: templates.len() > below,
-            template_etc,
-            ..State::default()
-        };
-        let wants = self.path(WANTS);
-        for name in names(&wants) {
-            if let Some((prefix, n)) = instance(&name) {
-                let link = Link::read(&wants.join(&name));
-                state
-                    .wants
-                    .entry(n)
-                    .or_default()
-                    .insert(prefix.to_owned(), link);
-            }
-        }
+        let mut state = State::links(&self.host.root, prefix);
         state.display_manager = self.display_manager();
         let mut scopes = BTreeMap::new();
         match self.sessions() {
@@ -916,17 +1030,6 @@ impl Run<'_, '_, '_> {
         }
         self.judge_processes(&mut state, &scopes);
         self.judge_boot_units(&mut state);
-        for name in names(&etc) {
-            match instance(&name) {
-                Some(("autovt", n)) => {
-                    state.own.insert(n, Link::read(&etc.join(&name)));
-                }
-                Some((p, n)) if p == prefix && Link::read(&etc.join(&name)).masks() => {
-                    state.masked.insert(n);
-                }
-                _ => {}
-            }
-        }
         let records = self.path(RECORDS);
         for name in names(&records) {
             if let Some(n) = name.strip_prefix("tty").and_then(vt_digits) {
@@ -1142,39 +1245,14 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// The consoles running on each VT, from the running manager: every
-    /// active unit named `PREFIX@ttyN.service`.
+    /// The consoles running on each VT ([`running`]).
     fn running(&mut self) -> Step<BTreeMap<u16, BTreeSet<String>>> {
-        let args = [
-            "list-units",
-            "--plain",
-            "--no-legend",
-            "--state=active",
-            "*@tty*.service",
-        ];
-        let reply = self.systemctl_quiet(&args)?;
-        let mut running: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
-        for line in reply.stdout.lines() {
-            if let Some((prefix, n)) = line.split_whitespace().next().and_then(instance) {
-                running.entry(n).or_default().insert(prefix.to_owned());
-            }
-        }
-        Ok(running)
+        running(self.host.systemd)
     }
 
     /// Runs systemctl and fails the step when it fails, printing nothing.
     fn systemctl_quiet(&mut self, args: &[&str]) -> Step<Reply> {
-        let line = args.join(" ");
-        let reply = self
-            .host
-            .systemd
-            .systemctl(args)
-            .map_err(|e| Stop(text::cannot_run(&line, &e.to_string())))?;
-        if reply.ok {
-            Ok(reply)
-        } else {
-            Err(Stop(text::failed(&line, &reply.stderr)))
-        }
+        systemctl_quiet(self.host.systemd, args)
     }
 
     /// Runs systemctl, saying so first and passing on what it printed.
@@ -1731,13 +1809,10 @@ impl Run<'_, '_, '_> {
                     }
                 }
                 // logind starts a console by itself only on its VTs, and
-                // never on VT 1: to ask whether a VT is busy it opens
-                // /dev/tty1 itself, and that open makes VT 1 busy.
+                // never on VT 1 ([`logind_starts`]).
                 let switched = match state.own(n) {
-                    _ if n == 1 || (n > LOGIND_VTS && n != RESERVED_VT) => None,
-                    Link::Absent => state.template().unit().map(|u| format!("{u}@tty{n}")),
-                    Link::Other => Some(format!("autovt@tty{n}")),
-                    link => link.unit().map(|u| format!("{u}@tty{n}")),
+                    Link::Other if logind_starts(n) => Some(format!("autovt@tty{n}")),
+                    _ => state.switched_unit(n).map(|u| format!("{u}@tty{n}")),
                 };
                 let running = join(
                     &state

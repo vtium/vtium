@@ -8381,3 +8381,269 @@ fn a_hidden_consoles_grid_request_goes_with_its_session() {
         "the ended session's request is gone"
     );
 }
+
+/// ADR-1401 D3, "Enter on a head's own keyboard": a head on VT 12 holds
+/// an external display and a USB keyboard, and the laptop's own display
+/// and keyboard go to a head with no `vt`. On VT 2, the external display
+/// shows its notice, and Enter on the USB keyboard switches to VT 12 when
+/// the head lets it.
+mod enter_switch {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    use vtium_platform::vt::{Switch, Vt, VtEvent};
+
+    use super::*;
+
+    /// `XF86Switch_VT_1`, whose next eleven keysyms name VTs 2 to 12.
+    const SWITCH_VT_1: u32 = 0x1008_fe01;
+
+    /// A fake VT that records the VT each VT key asks for, as the kernel
+    /// VT would switch to it.
+    struct RecordingVt {
+        vt: FakeVt,
+        switched: Rc<RefCell<Vec<u16>>>,
+    }
+
+    impl Vt for RecordingVt {
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.vt.events()
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            self.vt.acknowledge_release()
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            self.vt.refuse_release()
+        }
+        fn activate(&mut self) -> io::Result<Switch> {
+            self.vt.activate()
+        }
+        fn leave(&mut self) -> io::Result<Switch> {
+            self.vt.leave()
+        }
+        fn wait(&mut self) -> io::Result<Switch> {
+            self.vt.wait()
+        }
+        fn is_active(&self) -> bool {
+            self.vt.is_active()
+        }
+        /// A VT key for another VT is taken and recorded, as the kernel VT
+        /// takes it while it is shown.
+        fn key(&mut self, key: &KeyEvent) -> bool {
+            let sym = key.keysyms.first().copied().unwrap_or_default();
+            let ctrl_alt = key.mods.contains(Mods::CTRL) && key.mods.contains(Mods::ALT);
+            let target = if (SWITCH_VT_1..SWITCH_VT_1 + 12).contains(&sym) {
+                u16::try_from(sym - SWITCH_VT_1 + 1).ok()
+            } else if ctrl_alt && (0xffbe..0xffbe + 12).contains(&sym) {
+                u16::try_from(sym - 0xffbe + 1).ok()
+            } else {
+                None
+            };
+            match target {
+                Some(n) if self.vt.is_active() => {
+                    if Some(n) != self.vt.number() {
+                        self.switched.borrow_mut().push(n);
+                    }
+                    true
+                }
+                Some(_) => false,
+                None => self.vt.key(key),
+            }
+        }
+        fn is_own_key(&self, key: &KeyEvent) -> bool {
+            self.vt.is_own_key(key)
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            self.vt.restore()
+        }
+        fn bell(&mut self) {
+            self.vt.bell();
+        }
+        fn number(&self) -> Option<u16> {
+            self.vt.number()
+        }
+    }
+
+    const USB: &str = "/dev/input/event6";
+    const LAPTOP: &str = "/dev/input/event7";
+
+    /// The test laptop's file: `[head console]` with no `vt`, and
+    /// `[head terminal-1]` on `vts`, with `extra` among its keys, under
+    /// `policy`.
+    fn laptop(policy: &str, vts: &str, extra: &str) -> String {
+        format!(
+            "version = 1
+policy = {policy}
+[head console]
+[head terminal-1]
+vt = {vts}
+{extra}
+[rules]
+display card:mem-ext -> terminal-1
+input path:kbd-usb -> terminal-1
+display * -> console
+input * -> roaming
+"
+        )
+    }
+
+    /// The seat of the vtium on VT 2 booted on `text`, with the laptop's
+    /// display and the external one, the USB keyboard and the laptop's,
+    /// where vtium runs on `running` or cannot tell; and the VTs the VT
+    /// keys asked for.
+    fn on_vt2(text: &str, running: Result<BTreeSet<u16>, String>) -> (Seat, Rc<RefCell<Vec<u16>>>) {
+        let rules = start(text);
+        assert_eq!(rules.line(), None, "a valid vtium.conf");
+        let switched = Rc::new(RefCell::new(Vec::new()));
+        let recorded = Rc::clone(&switched);
+        let displays = [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-int").lit()),
+            ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-ext").lit()),
+        ];
+        let script = "echo ready; while read a; do echo \"got:$a\"; done";
+        let mut s = Seat::set_up(
+            &[],
+            Some(rules.on_vt(Some(2))),
+            displays,
+            script,
+            no_fonts(),
+            move |app| {
+                app.vt = Box::new(RecordingVt {
+                    vt: FakeVt::with_number(2),
+                    switched: recorded,
+                });
+                app.set_running_vts(Box::new(move || running.clone()));
+            },
+        );
+        s.app.add_input(Path::new(USB), keyboard("kbd-usb"));
+        s.app.add_input(Path::new(LAPTOP), keyboard("kbd-laptop"));
+        assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
+        (s, switched)
+    }
+
+    fn vts(list: &[u16]) -> Result<BTreeSet<u16>, String> {
+        Ok(list.iter().copied().collect())
+    }
+
+    const NOTICE: &str =
+        "MEM-2 is not configured for VT 2. It is configured for terminal terminal-1, on VT 12.";
+
+    /// The notice of the external display, once it shows.
+    fn notice_of(s: &mut Seat) -> String {
+        assert!(
+            s.until(BOUND, |a| a
+                .display_notice("MEM-2")
+                .is_some_and(|(_, on)| on)),
+            "the external display shows its notice"
+        );
+        s.app
+            .display_notice("MEM-2")
+            .map(|(t, _)| t.to_owned())
+            .unwrap_or_default()
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn enter_on_the_heads_own_keyboard_switches_to_its_vt_and_no_other_key_does() {
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "12", "switch-on-enter = yes"),
+            vts(&[2, 3, 12]),
+        );
+        assert_eq!(
+            notice_of(&mut s),
+            format!("{NOTICE}\nPress Enter on this keyboard to switch to VT 12.")
+        );
+        // any other key wakes the notice and switches nothing
+        s.type_on(USB, "x");
+        s.app.device_input(Path::new(USB), ctrl_alt_f(5), now());
+        s.until(Duration::from_millis(50), |_| false);
+        assert_eq!(*switched.borrow(), [] as [u16; 0], "a key other than Enter");
+        // Enter on the laptop's keyboard types into the console
+        s.type_on(LAPTOP, "l\r");
+        assert!(s.until(BOUND, |a| head_shows(a, "console", "got:l")));
+        assert_eq!(
+            *switched.borrow(),
+            [] as [u16; 0],
+            "Enter on another keyboard"
+        );
+        assert!(
+            !head_shows(&s.app, "console", "got:x"),
+            "the USB keyboard types nowhere"
+        );
+        // Enter on the USB keyboard switches to VT 12
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [12]);
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn enter_switches_to_the_first_vt_of_the_head_where_vtium_runs() {
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "7 12", "switch-on-enter = yes"),
+            vts(&[2, 12]),
+        );
+        assert_eq!(
+            notice_of(&mut s),
+            "MEM-2 is not configured for VT 2. It is configured for terminal terminal-1, on VTs 7 and 12.\nPress Enter on this keyboard to switch to VT 12."
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [12], "VT 7 runs no vtium");
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn where_vtium_runs_on_none_of_the_heads_vts_enter_switches_nowhere_and_the_notice_says_what_to_enable()
+     {
+        let (mut s, switched) = on_vt2(&laptop("open", "12", "switch-on-enter = yes"), vts(&[2]));
+        assert_eq!(
+            notice_of(&mut s),
+            format!(
+                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable 12."
+            )
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+        // where vtium cannot tell, the notice keeps its text and nothing
+        // switches
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "12", "switch-on-enter = yes"),
+            Err("systemctl is missing".to_owned()),
+        );
+        assert_eq!(notice_of(&mut s), NOTICE);
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn with_the_key_off_or_on_an_isolated_head_enter_switches_nothing_and_the_notice_keeps_its_text()
+     {
+        for extra in [
+            "",
+            "switch-on-enter = no",
+            "switch-on-enter = yes\nisolated = yes",
+        ] {
+            let (mut s, switched) = on_vt2(&laptop("open", "12", extra), vts(&[2, 12]));
+            assert_eq!(notice_of(&mut s), NOTICE, "{extra:?}");
+            s.type_on(USB, "\r");
+            s.until(Duration::from_millis(50), |_| false);
+            assert_eq!(*switched.borrow(), [] as [u16; 0], "{extra:?}");
+        }
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn under_the_closed_policy_enter_switches_nothing() {
+        let text = laptop("closed", "12", "switch-on-enter = yes\nisolated = no")
+            .replace("[head console]", "[head console]\nisolated = no");
+        let (mut s, switched) = on_vt2(&text, vts(&[2, 12]));
+        s.until(Duration::from_millis(100), |_| false);
+        assert_eq!(
+            s.app.display_notice("MEM-2"),
+            None,
+            "closed shows no notice"
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+    }
+}

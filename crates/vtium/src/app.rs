@@ -132,6 +132,7 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+mod enter_switch;
 #[cfg(feature = "logind")]
 pub mod keyboard_layout;
 #[cfg(test)]
@@ -140,6 +141,8 @@ mod login_scope;
 mod rapid;
 mod survive;
 mod window_ops;
+
+pub use enter_switch::RunningVts;
 
 /// How long the loop is served at exit while the switch back is pending,
 /// so the kernel's SIGUSR2 for the switch back is answered before vtium
@@ -223,6 +226,8 @@ struct Unused {
     /// Set off and its buffers freed once the time was up, until a key on
     /// this VT or a switch back to it.
     parked: bool,
+    /// What the notice says.
+    text: String,
 }
 
 /// How a session's child gets a systemd scope of its own: given the VT's
@@ -414,6 +419,9 @@ pub struct App {
     /// scope of its own on a seat that libseat's logind backend opened,
     /// answering the scope's name or why not; the tests stand in for it.
     pub login_scope: LoginScope,
+    /// Asks which VTs vtium runs on, for Enter on a keyboard of a head on
+    /// another VT (ADR-1401 D3); the tests stand in for it.
+    running_vts: RunningVts,
     /// `oneshot`: a console's exit ends that console, and a head ends once
     /// every one of its consoles has.
     oneshot: bool,
@@ -604,6 +612,7 @@ impl App {
             // No session inherits systemd's word to vtium (ADR-1401 D13).
             inherited: crate::survive::session_env(inherited),
             login_scope: Box::new(login_scope),
+            running_vts: Box::new(enter_switch::running_vts),
             survival: survive::Survival::default(),
         }
     }
@@ -2106,19 +2115,28 @@ impl App {
         let Some(vt) = self.vt_heads.vt() else {
             return;
         };
+        // Which VTs vtium runs on, asked once for every notice that needs
+        // it (ADR-1401 D3, "Enter on a head's own keyboard").
+        let mut running = None;
         for (key, owner) in unused {
-            let owner =
-                owner
-                    .and_then(|h| self.rules.heads.get(h))
-                    .map(|head| crate::notice::Owner {
-                        head: &head.name,
-                        vts: &head.vts,
-                    });
-            let text = crate::notice::unused_display(vt, &key.1, owner.as_ref());
             let head = match self.notices.get(key) {
                 Some(n) if n.parked => continue,
-                Some(n) => n.head,
+                Some(n) => {
+                    let head = n.head;
+                    let text = self.unused_text(vt, &key.1, *owner, &mut running);
+                    if let Some(n) = self.notices.get_mut(key)
+                        && n.text != text
+                    {
+                        if let Some(h) = self.heads.get_mut(head) {
+                            h.set_notice(&text);
+                        }
+                        log::info!("display {}: {text}", key.1);
+                        n.text = text;
+                    }
+                    head
+                }
                 None => {
+                    let text = self.unused_text(vt, &key.1, *owner, &mut running);
                     let spare = self
                         .spare_notices
                         .pop()
@@ -2146,6 +2164,7 @@ impl App {
                             head,
                             due: None,
                             parked: false,
+                            text,
                         },
                     );
                     head
@@ -3098,6 +3117,16 @@ impl App {
         {
             self.activity(now);
             self.rescue(node);
+            return;
+        }
+        // A key of a keyboard that stays with a head on another VT reaches
+        // no session: it wakes the notices, and Enter may switch to that
+        // head's VT (D3, "Enter on a head's own keyboard").
+        if let InputEvent::Key(key) = &event
+            && let Some(head) = self.routes.elsewhere(node)
+        {
+            self.activity(now);
+            self.key_elsewhere(head, node, key);
             return;
         }
         // The head the device types into: its rule's, or the active head's
