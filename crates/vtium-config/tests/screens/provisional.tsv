@@ -1,3 +1,1 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
-fonts-80x25	The Fonts view at 80x25 in a terminal that shows no images: the written description of unifont at 12 pt, with the sentence that says how the font makes its superscripts and subscripts (ADR-1202 D14).
-fonts-100x30	The Fonts view at 100x30 in a terminal that shows no images: the written description of unifont at 12 pt, with the sentence that says how the font makes its superscripts and subscripts (ADR-1202 D14).
