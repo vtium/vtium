@@ -681,14 +681,17 @@ pub fn detail(
     height: u32,
     locale: &str,
 ) -> Result<Sample, String> {
+    sample_of(helper, frit, height, locale, (detail_lines(locale), true))
+}
+
+/// The detailed specimen's lines of text for `locale`: [`DETAIL`], then
+/// the locale's line where it has one. [`SCRIPT_LINE`] follows them in
+/// the specimen. The picture of the detailed specimen and the Fonts
+/// view's preview in a vtium console both take their lines from here
+/// (ADR-1201 D4).
+pub fn detail_lines(locale: &str) -> Vec<&'static str> {
     let own = lines(locale).into_iter().skip(LINES.len());
-    sample_of(
-        helper,
-        frit,
-        height,
-        locale,
-        (DETAIL.into_iter().chain(own).collect(), true),
-    )
+    DETAIL.into_iter().chain(own).collect()
 }
 
 /// `lines` of `frit` at `height` pixels, as the helper at `helper` draws

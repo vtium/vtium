@@ -188,6 +188,8 @@ pub fn inputs() -> Inputs {
         hotplug: false,
         flow_colors: super::flowcolor::Palette::console(),
         colors_note: None,
+        head: None,
+        locale: String::new(),
         installed: [
             ("broken", &b"source=builtin:unifont\ncolour=red\n"[..]),
             ("minspec-16", b"source=builtin:unifont\n"),

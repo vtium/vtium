@@ -23,6 +23,12 @@ pub enum Op {
     /// Writes `text` as the current draft, whatever the check says, and
     /// checks it: Save (ADR-1403 D7).
     Write(String),
+    /// Writes `text` as the current draft only where `vtium check-config`
+    /// passes it, or fails it only because it wires no complete route,
+    /// which Install asks about (ADR-1403 D8); otherwise writes nothing
+    /// and gives what the check printed. The save of the font a vtium
+    /// console shows (ADR-1201 D4).
+    WriteChecked(String),
     /// Checks `text`, the current draft with the TUI's unsaved changes,
     /// and counts it against the installed file, and writes nothing.
     Check(String),
@@ -181,6 +187,18 @@ impl Store {
         let session = self.session();
         match op {
             Op::Write(text) => self.write(text),
+            Op::WriteChecked(text) => {
+                let (name, _) = session.current()?;
+                let shown = self.store.draft_path(&name)?;
+                let checked = session.check(text, &shown)?;
+                if !checked.passed && !checked.no_route_only(&shown.to_string_lossy()) {
+                    return Ok(Done::Refused(
+                        crate::tui::words::TRIED_REFUSED.to_owned(),
+                        checked.problems,
+                    ));
+                }
+                self.write(text)
+            }
             Op::Check(text) => {
                 let (name, _) = session.current()?;
                 Ok(Done::Draft(self.opened(&name, text)?, None))

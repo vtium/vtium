@@ -179,6 +179,11 @@ impl App {
 
     /// What the desk answered `op` with.
     pub(crate) fn desked(&mut self, op: &Op, done: Result<Done, String>) -> Vec<Effect> {
+        let tried = if matches!(op, Op::WriteChecked(_)) {
+            self.saving_tried.take()
+        } else {
+            None
+        };
         let done = match done {
             Ok(done) => done,
             Err(why) => {
@@ -198,6 +203,10 @@ impl App {
                     Op::Check(_) => {}
                     Op::Write(_) if self.unsaved > 0 => {
                         self.message = Some(words::saved_draft(self.unsaved, &opened.name));
+                        self.unsaved = 0;
+                    }
+                    Op::WriteChecked(_) => {
+                        self.message = tried;
                         self.unsaved = 0;
                     }
                     _ => self.unsaved = 0,
@@ -256,7 +265,13 @@ impl App {
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];
                 lines.extend(problems);
-                self.message = Some(lines.join("\n"));
+                // the views beside the flow show one paragraph
+                let sep = if matches!(op, Op::WriteChecked(_)) {
+                    " "
+                } else {
+                    "\n"
+                };
+                self.message = Some(lines.join(sep));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.restore = Some((kept, 0)),

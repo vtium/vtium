@@ -20,6 +20,7 @@
 
 pub mod canvas;
 pub mod color;
+mod console;
 pub mod desk;
 pub mod edit;
 #[doc(hidden)]
@@ -235,6 +236,8 @@ pub fn gather(paths: &Paths, view: model::View) -> Result<Inputs, String> {
         hotplug: false,
         flow_colors,
         colors_note,
+        head: std::env::var("VTIUM_HEAD").ok().filter(|h| !h.is_empty()),
+        locale: locale(),
     })
 }
 
