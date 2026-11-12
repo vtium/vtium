@@ -48,6 +48,7 @@ nav = [
           { "Deployment and start-up" = "concepts/start-up.md" },
           { "Seats and sessions" = "concepts/seats-and-sessions.md" },
           { "Heads" = "concepts/heads.md" },
+          { "Security" = "concepts/security.md" },
           { "Fonts, generated at run time" = "concepts/fonts.md" },
           { "Using vtium" = "concepts/using-vtium.md" },
           { "How vtium is judged" = "concepts/how-vtium-is-judged.md" },

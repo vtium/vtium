@@ -9,6 +9,7 @@ Each page holds one concept, so a reader can open one at a time. Each links to t
 - [Deployment and start-up](start-up.md): how a package installs vtium, how it takes the place of getty, and what happens when it takes a VT and when the user switches away.
 - [Seats and sessions](seats-and-sessions.md): who opens the screen and the keyboards, who holds your login session, and what that session can do, for each build of vtium, each init system and seat manager, and direct mode and seat mode.
 - [Heads](heads.md): a terminal for each display, the rules of vtium.conf, its two policies, open and closed, and the operator's way back in.
+- [Security](security.md): what runs as root and what runs with fewer rights, what a program in your session can make vtium do, who may change vtium.conf, which keyboard can reach whose session, and where the protection ends.
 - [Fonts, generated at run time](fonts.md): the frit, the helper that draws its glyphs, the built-in fonts and switching between fonts.
 - [Using vtium](using-vtium.md): the configuration, the selection and the clipboard, links and prompts, keys and blanking.
 - [How vtium is judged](how-vtium-is-judged.md): the tiers of tests, from unit tests to a virtual machine and the maintainer's review on a real VT, and the goldens that judge them.
