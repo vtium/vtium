@@ -675,7 +675,7 @@ impl Run<'_, '_, '_> {
             return Err(Stop(text::NO_SYSTEMD.to_owned()));
         }
         if let Verb::Advise(which) = verb {
-            return Ok(self.advise(which));
+            return self.advise(which);
         }
         // Seat mode's refusals come before the root check, so a user is
         // never told to use sudo for a command that cannot work.
@@ -741,28 +741,9 @@ impl Run<'_, '_, '_> {
         match verb {
             Verb::Status | Verb::Advise(_) => Ok(0),
             Verb::Enable(Which::Vt(n), mode) => {
-                self.refuse_kmscon(&state, n)?;
-                self.refuse_held(&state, n)?;
-                self.refuse_vt(&state, n)?;
-                if state.given(n) {
+                if self.refuse_one(&state, n, mode)? {
                     self.say(&text::already_given(n, mode));
                     return Ok(0);
-                }
-                // logind starts autovt@tty6 on every switch to its reserved
-                // VT, so vtium enabled there would end a login there at
-                // the next switch, unless vtium runs there already and the
-                // login is inside it.
-                if n == RESERVED_VT
-                    && !state.vtium_runs(n)
-                    && let Some(logins) = state.logins.get(&n)
-                {
-                    return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
-                }
-                // vtium in the other mode there would be stopped at the
-                // next switch. Seat mode's logins carry no VT number, so
-                // the logins on the VT cannot show what that would end.
-                if n == RESERVED_VT && state.runs(n, other_vtium(prefix)) {
-                    return Err(Stop(text::other_mode_on_reserved_vt(n, mode)));
                 }
                 let moved = state.other_mode(n);
                 if self.enable_vt(&mut state, n, &unit)? {
@@ -819,16 +800,42 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// `enable` with no mode: says what vtium finds on this machine and
-    /// which command it recommends, and changes nothing.
-    fn advise(&mut self, which: Option<Which>) -> i32 {
+    /// `enable` with no mode: says what vtium finds on this machine, which
+    /// command it recommends, and why `enable` would refuse the VTs named
+    /// in a mode, and changes nothing. It offers no command that `enable`
+    /// would refuse.
+    fn advise(&mut self, which: Option<Which>) -> Step<i32> {
         let facts = self.facts();
-        let words = which_word(which.unwrap_or(Which::All));
+        let which = which.unwrap_or(Which::All);
+        let refusals = advice::Refusals {
+            direct: self.refusal(which, Mode::Direct)?,
+            seat: match advice::seat_block(&facts) {
+                None => self.refusal(which, Mode::Seat)?,
+                Some(_) => None,
+            },
+        };
         let sudo = !self.host.root_user;
-        for line in text::advice(&facts, &words, sudo) {
+        for line in text::advice(&facts, which, &refusals, sudo) {
             self.say(&line);
         }
-        0
+        Ok(0)
+    }
+
+    /// Why `enable` in `mode` would refuse `which` now, in its own words,
+    /// or None when it would go ahead. It reads what `enable` reads, makes
+    /// the checks `enable` makes before it changes anything, and changes
+    /// nothing.
+    fn refusal(&mut self, which: Which, mode: Mode) -> Step<Option<String>> {
+        let state = self.read(mode.prefix())?;
+        let refused = match self.unit_file(mode.prefix()) {
+            UnitFile::At(_) => match which {
+                Which::Vt(n) => self.refuse_one(&state, n, mode).map(drop),
+                Which::All => self.refuse_all(&state, mode),
+            },
+            UnitFile::Masked => Err(Stop(text::template_masked(mode.prefix()))),
+            UnitFile::Missing => Err(Stop(text::not_installed(mode.prefix()))),
+        };
+        Ok(refused.err().map(|Stop(why)| why))
     }
 
     /// Where systemd finds `PREFIX@.service`: in the first unit directory
@@ -1208,6 +1215,33 @@ impl Run<'_, '_, '_> {
         }
     }
 
+    /// Refuses VT `n` for `enable N` in `mode` before it changes anything,
+    /// or says whether vtium is enabled there in `mode` already.
+    fn refuse_one(&self, state: &State, n: u16, mode: Mode) -> Step<bool> {
+        self.refuse_kmscon(state, n)?;
+        self.refuse_held(state, n)?;
+        self.refuse_vt(state, n)?;
+        if state.given(n) {
+            return Ok(true);
+        }
+        // logind starts autovt@tty6 on every switch to its reserved VT, so
+        // vtium enabled there would end a login there at the next switch,
+        // unless vtium runs there already and the login is inside it.
+        if n == RESERVED_VT
+            && !state.vtium_runs(n)
+            && let Some(logins) = state.logins.get(&n)
+        {
+            return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
+        }
+        // vtium in the other mode there would be stopped at the next
+        // switch. Seat mode's logins carry no VT number, so the logins on
+        // the VT cannot show what that would end.
+        if n == RESERVED_VT && state.runs(n, other_vtium(state.prefix)) {
+            return Err(Stop(text::other_mode_on_reserved_vt(n, mode)));
+        }
+        Ok(false)
+    }
+
     /// Refuses VT `n` for `enable N` when the development install holds
     /// it, vtium's unit is masked there, or its own link names another
     /// unit.
@@ -1401,7 +1435,13 @@ impl Run<'_, '_, '_> {
         Ok(by_hand)
     }
 
-    fn enable_all(&mut self, state: &mut State, unit: &str, mode: Mode) -> Step<i32> {
+    /// Refuses `enable --all` in `mode` before it changes anything: while
+    /// kmscon holds the template link or someone wrote it as a file, while
+    /// vtium cannot tell which sessions run, while a program on logind's
+    /// reserved VT would meet vtium there at the next switch, while a mask
+    /// does not keep vtium from a VT the template link reaches, and where
+    /// `enable 1` would refuse VT 1.
+    fn refuse_all(&self, state: &State, mode: Mode) -> Step {
         if state.template().names(KMSCON) {
             return Err(Stop(text::KMSCON_TEMPLATE.to_owned()));
         }
@@ -1446,6 +1486,33 @@ impl Run<'_, '_, '_> {
                 return Err(Stop(text::dev_on_reserved_vt(RESERVED_VT)));
             }
         }
+        // A mask keeps vtium from a VT only where logind does not load
+        // vtium through the template link: on VT 1, where logind starts no
+        // console, above its VTs, and where an enabled getty holds the VT
+        // from boot. On VT 6, logind's reserved VT, it loads vtium at every
+        // switch. A VT that another program, kmscon or the development
+        // install holds keeps it whatever its mask.
+        let mut vts = state.vts();
+        vts.extend(2..=LOGIND_VTS);
+        for n in vts {
+            let kept = state.held.contains_key(&n) || state.holds(n, KMSCON) || state.holds(n, DEV);
+            let through_template = state.templated(n)
+                && (n == RESERVED_VT || ((2..=LOGIND_VTS).contains(&n) && !state.wanted(n, GETTY)));
+            if !kept && state.masked.contains(&n) && through_template {
+                return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
+            }
+        }
+        // VT 1 gets `enable N` unless the development install, kmscon or
+        // graphics hold it or vtium is masked there, so it is refused as
+        // `enable N` would be.
+        if !vt1_kept(state) {
+            self.refuse_vt(state, 1)?;
+        }
+        Ok(())
+    }
+
+    fn enable_all(&mut self, state: &mut State, unit: &str, mode: Mode) -> Step<i32> {
+        self.refuse_all(state, mode)?;
         // What each VT keeps, the VTs from 2 to 6 that vtium starts on at
         // boot, and the VTs above 6 that move from the other mode.
         let mut kept: Vec<String> = Vec::new();
@@ -1470,18 +1537,8 @@ impl Run<'_, '_, '_> {
                 kept.push(text::kept_dev(n));
                 continue;
             }
-            // A mask keeps vtium from a VT only where logind does not load
-            // vtium through the template link: on VT 1, where logind starts
-            // no console, above its VTs, and where an enabled getty holds
-            // the VT from boot. On VT 6, logind's reserved VT, it loads
-            // vtium at every switch.
             if state.masked.contains(&n) {
-                let through_template = state.templated(n)
-                    && (n == RESERVED_VT
-                        || ((2..=LOGIND_VTS).contains(&n) && !state.wanted(n, GETTY)));
-                if through_template {
-                    return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
-                }
+                // refuse_all refused a mask the template link reaches.
                 // The mask does not reach autovt@ttyN.service, which the
                 // VT's own link still loads as vtium (measured).
                 kept.push(if names_vtium(state.own(n)) {
@@ -1521,16 +1578,7 @@ impl Run<'_, '_, '_> {
                 kept.push(text::kept_high_getty(n));
             }
         }
-        // VT 1 gets `enable N` unless the development install, kmscon or
-        // graphics hold it or vtium is masked there, so it is refused as
-        // `enable N` would be.
-        let vt1_kept = state.holds(1, DEV)
-            || state.holds(1, KMSCON)
-            || state.held.contains_key(&1)
-            || state.masked.contains(&1);
-        if !vt1_kept {
-            self.refuse_vt(state, 1)?;
-        }
+        let vt1_kept = vt1_kept(state);
         let template_done = state.template_etc.names(state.prefix);
         let vt1_done = vt1_kept || state.given(1);
         if template_done && vt1_done && boot.is_empty() && moves.is_empty() {
@@ -1762,6 +1810,15 @@ impl Run<'_, '_, '_> {
             }
         }
     }
+}
+
+/// Whether VT 1 keeps what it has at `enable --all`: the development
+/// install, kmscon or graphics hold it, or vtium is masked there.
+fn vt1_kept(state: &State) -> bool {
+    state.holds(1, DEV)
+        || state.holds(1, KMSCON)
+        || state.held.contains_key(&1)
+        || state.masked.contains(&1)
 }
 
 fn units<'p>(prefixes: impl Iterator<Item = &'p String>, n: u16) -> String {
