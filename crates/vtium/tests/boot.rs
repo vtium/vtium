@@ -6919,6 +6919,38 @@ fn a_frit_others_can_change_is_not_read() {
     assert!(lines.contains(&line), "{line}: {lines:?}");
 }
 
+// ADR-1401 D10: at a start, a font-name frit the ownership check refuses
+// is logged in one line, the font's own read's, which names the file, the
+// command that mends it and the built-in font vtium draws instead. The
+// start's warnings, logged as main logs them before the seat starts, leave
+// the refusal to that read.
+#[test]
+fn a_refused_frit_is_logged_once_at_the_start() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_dir, fonts) = recording("untrusted-once");
+    let file = fonts.frits.join("g.vtfrit");
+    std::fs::write(&file, "source=kbd:x\n").expect("the frit");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o664)).expect("the mode");
+    let frits = format!("--font-frits={}", fonts.frits.display());
+    let args = ["--font-name=g", frits.as_str()];
+    logged();
+    let os: Vec<OsString> = args.iter().map(OsString::from).collect();
+    let loaded = config::load(&os, &mut |_: &Path| Ok(None));
+    for w in vtium::check::warnings(&loaded) {
+        vtium::warn::warn(w);
+    }
+    let h = with_fonts(&args, fonts.clone());
+    assert_eq!(h.app.font_name(), "unifont");
+    let lines = logged();
+    let about: Vec<&String> = lines.iter().filter(|l| l.contains("g.vtfrit")).collect();
+    let mend = format!("run `chmod go-w {}`", file.display());
+    assert_eq!(about.len(), 1, "{lines:?}");
+    assert!(
+        about[0].contains(&mend) && about[0].ends_with("vtium draws its built-in font"),
+        "{about:?}"
+    );
+}
+
 // ADR-1200 D5: `OSC 50 ; ?` names the current frit, a frit made on the fly
 // included
 #[test]

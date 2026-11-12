@@ -364,6 +364,22 @@ and changes nothing.\n";
         )
     }
 
+    /// A look whose `font-name` names a frit vtium cannot read, `why`, for
+    /// the account the check runs as.
+    pub fn look_frit_unreadable(look: &str, name: &str, why: &str) -> String {
+        format!(
+            "Look {look:?} uses the font set {name:?}, which vtium cannot read: {why}. vtium then uses its built-in font for that look."
+        )
+    }
+
+    /// A look whose `font-name` names a frit a start as root does not read,
+    /// `why`, though the account the check runs as reads it.
+    pub fn look_frit_refused_as_root(look: &str, name: &str, why: &str) -> String {
+        format!(
+            "Look {look:?} uses the font set {name:?}. When vtium runs as root, it does not read this font set: {why}. vtium would then use its built-in font for that look."
+        )
+    }
+
     /// The helper `image-helper` names is one vtium refuses, `why`, for
     /// the account the check runs as; the start, which may run as
     /// another, checks it again.

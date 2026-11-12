@@ -58,23 +58,23 @@ pub fn semantics(config: &Config) -> Vec<String> {
     // Any user may read PID 1's status; `SigCgt` says what it catches.
     let status = std::fs::read_to_string("/proc/1/status").map_err(|e| e.to_string());
     let mut out = semantics_under(config, &status, vtium_platform::power::power_off_signal());
-    // judged as the start reads it, for the account vtium runs as
+    // read as the start reads it, for the account vtium runs as
     out.extend(frit(config, &font::frits(config), &font::trust()));
     out
 }
 
 /// What the frit `font-name` names in `frits` says of its cell, as
 /// [`font::frit_warnings`] reads it, once the ownership check `trust`
-/// makes passes; nothing when the name is no frit's. A frit the check
-/// refuses is reported as the start reports it.
+/// makes passes; nothing when the name is no frit's. A frit that cannot be
+/// read says nothing here: at the start the font's own read logs why, for
+/// the font-name frit and every look's alike, and check-config reports it
+/// with [`font_name_frit`] and [`look_frits`].
 fn frit(config: &Config, frits: &Path, trust: &Trust) -> Vec<String> {
     let Some((name, path)) = named_frit(config, frits) else {
         return Vec::new();
     };
-    match font::frit_text(&path, trust) {
-        Ok(text) => font::frit_warnings(&name, &text),
-        Err(why) => vec![check_config::frit_unreadable(&name, &why)],
-    }
+    font::frit_text(&path, trust)
+        .map_or_else(|_| Vec::new(), |text| font::frit_warnings(&name, &text))
 }
 
 /// The name of the frit `font-name` names in `frits`, and its file; none
@@ -85,16 +85,48 @@ fn named_frit(config: &Config, frits: &Path) -> Option<(String, PathBuf)> {
     Some((wanted.name, path))
 }
 
-/// What check-config notes of the frit `font-name` names in `frits` when
-/// it runs as an account other than root, which `mine` trusts: the
-/// refusal of a start as root, which reads only root's frits, where the
-/// check reads the frit. A refusal for the account itself is a warning
-/// already ([`frit`]).
-fn frit_note(config: &Config, frits: &Path, mine: &Trust) -> Option<String> {
-    let (name, path) = named_frit(config, frits)?;
-    font::frit_text(&path, mine).ok()?;
-    let why = font::frit_text(&path, &Trust::ROOT).err()?;
-    Some(check_config::frit_refused_as_root(&name, &why))
+/// What check-config finds of a frit's file read under `trust`, the
+/// ownership check of the account the check runs as (ADR-1401 D10).
+#[derive(Debug, PartialEq, Eq)]
+enum Judged {
+    /// The account reads it, and so would a start as root.
+    Read,
+    /// The account's own check refuses it, or it cannot be read: why.
+    Refused(String),
+    /// The account reads it, but a start as root, which reads only root's
+    /// frits, would refuse it: why. Only a check run as another account
+    /// than root finds this.
+    RootRefuses(String),
+}
+
+/// How the frit at `file` reads under `trust`, and, where `trust` is not
+/// root's, under root's too, as `helper_note` judges the font helper.
+fn judge(file: &Path, trust: &Trust) -> Judged {
+    match font::frit_text(file, trust) {
+        Err(why) => Judged::Refused(why),
+        Ok(_) if *trust == Trust::ROOT => Judged::Read,
+        Ok(_) => font::frit_text(file, &Trust::ROOT)
+            .err()
+            .map_or(Judged::Read, Judged::RootRefuses),
+    }
+}
+
+/// What check-config says of the frit `font-name` names in `frits`, read
+/// under `trust`: the refusal, which counts against the configuration, or
+/// the refusal of a start as root, which is a note.
+fn font_name_frit(
+    config: &Config,
+    frits: &Path,
+    trust: &Trust,
+) -> (Option<String>, Option<String>) {
+    let Some((name, file)) = named_frit(config, frits) else {
+        return (None, None);
+    };
+    match judge(&file, trust) {
+        Judged::Read => (None, None),
+        Judged::Refused(why) => (Some(check_config::frit_unreadable(&name, &why)), None),
+        Judged::RootRefuses(why) => (None, Some(check_config::frit_refused_as_root(&name, &why))),
+    }
 }
 
 /// Whether PID 1 takes `signal`, from the text of `/proc/1/status`. The
@@ -196,11 +228,6 @@ pub fn notes(config: &Config) -> Vec<String> {
     let me = rustix::process::geteuid().as_raw();
     let notes = std::iter::once(density)
         .chain(helper_note(&helper::program(config), me))
-        .chain(
-            (me != 0)
-                .then(|| frit_note(config, &font::frits(config), &font::trust()))
-                .flatten(),
-        )
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
     let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
@@ -289,6 +316,10 @@ pub struct Host {
     pub udev_control: PathBuf,
     pub roots: Roots,
     pub frits: PathBuf,
+    /// The ownership check a frit there is read under: [`font::trust`],
+    /// or in a test whose frits sit under a directory others can write,
+    /// one that stops below it.
+    pub frit_trust: Trust,
     /// The root under which systemd's unit links say which VTs vtium is
     /// enabled on: `/`, or a scratch directory in a test.
     pub systemd_root: PathBuf,
@@ -303,6 +334,7 @@ impl Host {
             udev_control: PathBuf::from(UDEV_CONTROL),
             roots: Roots::system(),
             frits: font::frits(config),
+            frit_trust: font::trust(),
             systemd_root: PathBuf::from("/"),
         }
     }
@@ -369,7 +401,7 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         devices: (!loaded.no_devices).then_some(devices.as_slice()),
         vts,
     };
-    let settings = Settings::of(&loaded.config, &host.frits);
+    let settings = Settings::of(&loaded.config, &host.frits, host.frit_trust.clone());
     // a candidate that is the installed file is checked as the start
     // reads it, ownership and all
     let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
@@ -389,11 +421,15 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         .iter()
         .filter(|r| !counts(r) && !(heads.refused && from_file(r)))
         .map(ToString::to_string);
+    // the font-name frit, which at the start the font's own read reports
+    let (refused, root_refuses) = font_name_frit(&loaded.config, settings.frits, &settings.trust);
+    let stderr: Vec<String> = stderr.into_iter().chain(refused).collect();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
         stdout: renamed
             .chain(notes(&loaded.config))
+            .chain(root_refuses)
             .chain(heads.notes)
             .collect(),
         status,
@@ -438,18 +474,22 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// What vtium.conf's sections are checked against of its top level and
 /// the machine's frits: the console caps (ADR-1401 D10) and the frits
 /// directory a look's frit is looked up in (D7).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Settings<'a> {
     /// `head-consoles-max`.
     pub head_cap: u32,
     /// `consoles-max`.
     pub total: u32,
     pub frits: &'a Path,
+    /// The ownership check a frit is read under: the one the start makes
+    /// for the account the check runs as ([`font::trust`]).
+    pub trust: Trust,
 }
 
 impl Settings<'_> {
-    /// The caps `config` sets, and the frits in `frits`.
-    pub fn of<'a>(config: &Config, frits: &'a Path) -> Settings<'a> {
+    /// The caps `config` sets, and the frits in `frits`, read under
+    /// `trust`.
+    pub fn of<'a>(config: &Config, frits: &'a Path, trust: Trust) -> Settings<'a> {
         let number = |key, unset: u32| {
             config
                 .number(key)
@@ -462,6 +502,7 @@ impl Settings<'_> {
             ),
             total: number(&keys::CONSOLES_MAX, vtium_settings::CONSOLES_TOTAL_DEFAULT),
             frits,
+            trust,
         }
     }
 }
@@ -590,6 +631,40 @@ fn errors(out: &mut HeadCheck, path: &Path, rejected: &Rejected) {
     }
 }
 
+/// Each look's frit in `settings`' directory as check-config judges it
+/// (ADR-1401 D10, ADR-1403 D5), on the look's `font-name` line: one the
+/// ownership check of the account the check runs as refuses, or that
+/// cannot be read, counts against the file, since the start draws that
+/// look in its built-in font; one a start as root would refuse though the
+/// account reads it is a note. A name no frit bears there is
+/// `vtium_settings::warnings`' to report.
+fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Settings) {
+    for look in &parsed.config.looks {
+        let Some(named) = look
+            .settings
+            .iter()
+            .find(|s| s.key.name == keys::FONT_NAME.name)
+        else {
+            continue;
+        };
+        let Some(file) = font::frit(settings.frits, &named.value) else {
+            continue;
+        };
+        let line = Some(named.line);
+        match judge(&file, &settings.trust) {
+            Judged::Read => {}
+            Judged::Refused(why) => {
+                let said = check_config::look_frit_unreadable(&look.name, &named.value, &why);
+                out.counted.push(at(path, line, said).to_string());
+            }
+            Judged::RootRefuses(why) => {
+                let said = check_config::look_frit_refused_as_root(&look.name, &named.value, &why);
+                out.notes.push(at(path, line, said).to_string());
+            }
+        }
+    }
+}
+
 /// What survives of the file, which a start `runs`: its warnings, counted,
 /// with those measured against `settings`, a head's `consoles` past a cap
 /// and a profile naming a missing frit (ADR-1401 D7, D10); and its notes:
@@ -615,6 +690,7 @@ fn findings(
     for w in &vtium_settings::warnings(parsed, &against) {
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
+    look_frits(out, path, parsed, settings);
     if parsed.more_warnings > 0 {
         out.counted.push(
             at(
@@ -1080,10 +1156,11 @@ mod tests {
 
     // ADR-1401 D10, ADR-1403 D3: check-config reads the frit font-name
     // names under the ownership check the start makes for the account it
-    // runs as, and reports a frit the check refuses as the start does,
-    // with the path that fails and the command that mends it. Run as
-    // another account than root, it notes where a start as root refuses a
-    // frit the account reads, as it notes for the font helper
+    // runs as, and counts a frit the check refuses, with the path that
+    // fails and the command that mends it. Run as another account than
+    // root, it notes where a start as root refuses a frit the account
+    // reads, as it notes for the font helper. The start's warnings say
+    // nothing of a refusal, which the font's own read logs at the start
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_frit_the_ownership_check_refuses_is_reported() {
@@ -1116,14 +1193,14 @@ mod tests {
         let uid = std::fs::metadata(&dir).unwrap().uid();
         let mine = font::trust().below(&dir);
         let results = [
-            frit(&config("t"), &dir, &mine),
+            font_name_frit(&config("t"), &dir, &mine),
+            font_name_frit(&config("g"), &dir, &mine),
+            font_name_frit(&config("t"), &open, &mine),
+            font_name_frit(&config("ter-v16n"), &dir, &mine),
+        ];
+        let at_start = [
             frit(&config("g"), &dir, &mine),
             frit(&config("t"), &open, &mine),
-        ];
-        let notes = [
-            frit_note(&config("t"), &dir, &mine),
-            frit_note(&config("g"), &dir, &mine),
-            frit_note(&config("ter-v16n"), &dir, &mine),
         ];
         std::fs::remove_dir_all(&dir).unwrap();
         let writable = |failed: &Path, mode: &str| {
@@ -1137,25 +1214,20 @@ mod tests {
             "vtium does not trust the file, because \"{file}\" belongs to user {uid}, not to root; run `chown root:root {file}` to make root the owner",
             file = file.display()
         );
+        let g = writable(&dir.join("g.vtfrit"), "664");
         assert_eq!(
             results,
             [
-                vec![],
-                vec![check_config::frit_unreadable(
-                    "g",
-                    &writable(&dir.join("g.vtfrit"), "664")
-                )],
-                vec![check_config::frit_unreadable("t", &writable(&open, "775"))],
+                (None, Some(check_config::frit_refused_as_root("t", &owner))),
+                (Some(check_config::frit_unreadable("g", &g)), None),
+                (
+                    Some(check_config::frit_unreadable("t", &writable(&open, "775"))),
+                    None
+                ),
+                (None, None),
             ]
         );
-        assert_eq!(
-            notes,
-            [
-                Some(check_config::frit_refused_as_root("t", &owner)),
-                None,
-                None
-            ]
-        );
+        assert_eq!(at_start, [[] as [String; 0], []]);
     }
 
     // the operator on #145, 2026-10-28: the density points convert at,
@@ -1375,6 +1447,7 @@ mod tests {
             head_cap,
             total: vtium_settings::CONSOLES_TOTAL_DEFAULT,
             frits: Path::new("/nonexistent/vtium/frits"),
+            trust: font::trust(),
         }
     }
 
@@ -1638,7 +1711,7 @@ mod tests {
     // seat does, 4 consoles a head and 8 in all
     #[test]
     fn the_caps_unset_are_the_seats() {
-        let k = Settings::of(&config::Config::default(), Path::new("/f"));
+        let k = Settings::of(&config::Config::default(), Path::new("/f"), Trust::ROOT);
         assert_eq!((k.head_cap, k.total), (4, 8));
         assert_eq!(
             (k.head_cap, k.total),
@@ -1682,6 +1755,7 @@ mod tests {
         std::fs::create_dir_all(&frits).unwrap();
         let settings = Settings {
             frits: &frits,
+            trust: font::trust().below(file.parent().unwrap()),
             ..caps(4)
         };
         let missing = conf_file(&file, false, &trust, &machine(true), &settings);
@@ -1696,6 +1770,65 @@ mod tests {
             )]
         );
         assert_eq!(installed.counted, [] as [String; 0]);
+    }
+
+    // ADR-1401 D10, ADR-1403 D5: a look's frit the ownership check refuses
+    // counts against the file on its `font-name` line, as the font-name
+    // frit's refusal counts, with the path that fails and the command that
+    // mends it; a frit the account reads but a start as root would refuse
+    // is noted on that line
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_looks_frit_the_ownership_check_refuses_is_reported() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let text = "version = 1\n[look big]\nfont-name = g\n[look small]\nfont-name = t\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\n";
+        let (file, trust) = heads_fixture("look-trust", text, 0o644);
+        let f = file.display().to_string();
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::set_permissions(&frits, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for (name, mode) in [("g", 0o664), ("t", 0o644)] {
+            let path = frits.join(format!("{name}.vtfrit"));
+            std::fs::write(&path, "source=builtin:unifont\n").unwrap();
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(mode)).unwrap();
+        }
+        let uid = std::fs::metadata(&frits).unwrap().uid();
+        let settings = Settings {
+            frits: &frits,
+            trust: font::trust().below(file.parent().unwrap()),
+            ..caps(4)
+        };
+        let out = conf_file(&file, false, &trust, &machine(true), &settings);
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
+        let (g, t) = (frits.join("g.vtfrit"), frits.join("t.vtfrit"));
+        let writable = format!(
+            "vtium does not trust the file, because other users can change \"{g}\", whose mode is 664; run `chmod go-w {g}` so that only its owner can change it",
+            g = g.display()
+        );
+        let owner = format!(
+            "vtium does not trust the file, because \"{t}\" belongs to user {uid}, not to root; run `chown root:root {t}` to make root the owner",
+            t = t.display()
+        );
+        let refused: Vec<&String> = out
+            .counted
+            .iter()
+            .filter(|l| l.contains("vtfrit"))
+            .collect();
+        assert_eq!(
+            refused,
+            [&format!(
+                "{f}:3: {}",
+                check_config::look_frit_unreadable("big", "g", &writable)
+            )]
+        );
+        let noted: Vec<&String> = out.notes.iter().filter(|l| l.contains("vtfrit")).collect();
+        assert_eq!(
+            noted,
+            [&format!(
+                "{f}:5: {}",
+                check_config::look_frit_refused_as_root("small", "t", &owner)
+            )]
+        );
     }
 
     // ADR-1401 D7: the two drops the rest of the tests leave unsaid: an
@@ -2477,6 +2610,7 @@ mod tests {
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
             systemd_root: root.clone(),
         };
         let off = "Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12";
@@ -2526,6 +2660,7 @@ mod tests {
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
@@ -2562,6 +2697,7 @@ mod tests {
             udev_control: file.with_file_name("no-udev"),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let out = outcome_on(&[], &host);
@@ -2638,6 +2774,7 @@ mod tests {
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         for named in [&file, &link] {
@@ -2671,6 +2808,7 @@ mod tests {
             udev_control: anchor.clone(),
             roots: nowhere(),
             frits: frits.clone(),
+            frit_trust: font::trust().below(anchor.parent().unwrap()),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let mut files: Vec<PathBuf> = std::fs::read_dir(docs)
@@ -2874,6 +3012,7 @@ mod tests {
             udev_control: file.clone(),
             roots: stand_in_machine(file.parent().unwrap()),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            frit_trust: font::trust(),
             systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let out = outcome_on(&[file.to_str().unwrap()], &host);
