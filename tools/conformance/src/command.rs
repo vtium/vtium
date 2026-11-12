@@ -33,6 +33,16 @@ pub enum Event {
     Move,
 }
 
+/// What a key did, as the `key` command's `event` names it (the feature
+/// `key-events`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum KeyAction {
+    #[default]
+    Press,
+    Repeat,
+    Release,
+}
+
 /// What the `select` command does, as its `how` names it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum How {
@@ -64,6 +74,7 @@ pub enum Command {
         ascii: u32,
         unicode: Option<u32>,
         mods: u8,
+        event: KeyAction,
     },
     Mouse {
         col: u64,
@@ -178,7 +189,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.7, in the order of its describe blocks:
+/// Every command of interface 1.8, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -215,7 +226,7 @@ pub const SPECS: &[Spec] = &[
     spec(
         "key",
         Some("input"),
-        &["sym", "ascii", "unicode", "mods"],
+        &["sym", "ascii", "unicode", "mods", "event"],
         true,
     ),
     spec(
@@ -444,6 +455,17 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 None => None,
             },
             mods: to_u8(f.decimal("mods", 255, Some(0))?),
+            event: match f.get("event") {
+                Some(_) => f.name_of(
+                    "event",
+                    &[
+                        ("press", KeyAction::Press),
+                        ("repeat", KeyAction::Repeat),
+                        ("release", KeyAction::Release),
+                    ],
+                )?,
+                None => KeyAction::Press,
+            },
         },
         "mouse" => {
             let button = f.name_of(
@@ -672,9 +694,30 @@ mod tests {
                 sym: 0x62,
                 ascii: 0,
                 unicode: Some(0x62),
-                mods: 0
+                mods: 0,
+                event: KeyAction::Press,
             })
         );
+        // INTERFACE-vtium.md, the feature key-events
+        for (name, event) in [
+            ("press", KeyAction::Press),
+            ("repeat", KeyAction::Repeat),
+            ("release", KeyAction::Release),
+        ] {
+            let text = format!("key;sym=ff1b;mods=4;event={name}");
+            assert_eq!(
+                parse(text.as_bytes()),
+                Ok(Command::Key {
+                    sym: 0xff1b,
+                    ascii: 0,
+                    unicode: None,
+                    mods: 4,
+                    event,
+                }),
+                "{text}"
+            );
+        }
+        assert_eq!(code("key;sym=ff1b;event=hold"), Some(2));
         assert_eq!(parse(b"sb-up;;"), Ok(Command::SbUp(1)));
         assert_eq!(
             parse(b"resize;c=2048;r=1024"),
