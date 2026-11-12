@@ -12,15 +12,15 @@ vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28 rows of 1
 
 ## Outline text
 
-![A console screen in a smooth monospaced font: a paragraph about vtium, a short Rust function with colored keywords, strings and comments beside line numbers, words underlined in single, double, curly, dotted and dashed lines in several colors, and rows of arrows, mathematical symbols and typographic marks.](text.png)
+![A console screen in a smooth monospaced font: a paragraph about vtium, a short Rust function with colored keywords, strings and comments beside line numbers, words underlined in single, double, curly, dotted and dashed lines in several colors, words in italic, struck through, dim, reversed and in 24-bit color, raised and lowered small text such as E = mc² and H₂O with an underlined footnote mark and struck small text, an overlined word, and rows of arrows, mathematical symbols and typographic marks.](text.png)
 
-vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points on a 1920x1080 display, prose, a code listing in 24-bit color, every underline style a program can ask for, and the symbols of mathematics and typography.
+vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points on a 1920x1080 display, prose, a code listing in 24-bit color, every underline style a program can ask for, the other text styles, and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
 
 ## Emoji
 
-![A console screen with lines of text mixing words and color emoji, then rows of faces, animals, food and objects, people and families drawn as single pictures, national flags, number keycaps, and hands in five skin tones.](emoji.png)
+![A console screen with lines of text mixing words and color emoji, a family, a flag, a raised fist, scales and a dove each under a single, struck, red curly, over or double line, then rows of faces, animals, food and objects, people and families drawn as single pictures, national flags, number keycaps, and hands in five skin tones.](emoji.png)
 
-vtium draws color emoji from Noto Color Emoji beside the text, two cells wide, with the sequences that join several emoji into one picture: people and families joined by zero-width joiners, flags, keycaps and skin tones.
+vtium draws color emoji from Noto Color Emoji beside the text, two cells wide, with the sequences that join several emoji into one picture: people and families joined by zero-width joiners, flags, keycaps and skin tones. An underline, a strike or an overline reaches across the whole emoji.
 
 ## Scripts
 
@@ -48,9 +48,9 @@ vtium shows pictures in the console as desktop terminals do: on the left a sixel
 
 ## Fonts
 
-![Four horizontal bands on a black background, each naming its font, Iosevka Term, Terminus, GNU Unifont and JetBrains Mono, then showing in that font the same pangrams, digits and symbols, accented, Greek and Cyrillic letters, and a line of box drawing and block elements.](fonts.png)
+![Four horizontal bands on a black background, each naming its font, Iosevka Term, Terminus, GNU Unifont and JetBrains Mono, then showing in that font the same pangrams, digits and symbols, accented, Greek and Cyrillic letters, a line of styles (italic, struck, curly underlined, E = mc² and H₂O in raised and lowered text, and dim), and a line of box drawing and block elements.](fonts.png)
 
-vtium draws any font a frit names, bitmap or outline. These four bands are four captures of the same screen, each in one font and starting with its name and kind: Iosevka Term and JetBrains Mono are outline fonts, which vtium scales to the cell and antialiases; Terminus is a PSF console font, and GNU Unifont, which vtium carries, is drawn at twice its size, both as bitmaps of whole pixels. [Choose a font](../fonts.md) shows how to choose your own.
+vtium draws any font a frit names, bitmap or outline. These four bands are four captures of the same screen, each in one font and starting with its name and kind: Iosevka Term and JetBrains Mono are outline fonts, which vtium scales to the cell and antialiases; Terminus is a PSF console font, and GNU Unifont, which vtium carries, is drawn at twice its size, both as bitmaps of whole pixels. Each band's styles line shows italic, which vtium slants itself where a font has no italic face, in whole pixels in the two bitmap fonts; strike, a curly underline, raised and lowered text at two thirds of the size, and dim. [Choose a font](../fonts.md) shows how to choose your own.
 
 ## Small machines
 
@@ -66,7 +66,7 @@ The same build draws this in the same guest on a 320x240 display, the smallest v
 
 ## How these screens are made
 
-`tools/tier3/showcase.sh` built vtium at commit `97473d78`, whose console logged itself as vtium v0.1.0-alpha.1-676-g97473d78, ran tier 3's variant `showcase-1920x1080` on 2026-11-04, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+`tools/tier3/showcase.sh` built vtium at commit `c21716af`, whose console logged itself as vtium v0.1.0-alpha.7-49-gc21716af, ran tier 3's variant `showcase-1920x1080` on 2026-11-12, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
 
 Every font may be redistributed. vtium carries no font file but GNU Unifont, so `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
 

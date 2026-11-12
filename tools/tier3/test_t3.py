@@ -5211,9 +5211,10 @@ class ShowcaseTest(unittest.TestCase):
         return out
 
     def test_scenes_show_only_what_vtium_draws_right(self):
-        # No scene draws bold, italic or blinking text, which vtium draws
-        # as the regular face widened, upright and blinking, or a script it
-        # does not draw right yet: Devanagari, Hebrew or Arabic.
+        # No scene draws bold or blinking text, which vtium draws as the
+        # regular face widened and blinking, or a script it does not draw
+        # right yet: Devanagari, Hebrew or Arabic. Italic is allowed: vtium
+        # slants the regular face where a font has no italic one.
         self.assertEqual(self.styles(b"\x1b[1;38;2;1;3;5m\x1b[3m\x1b[4:3;58:2::1:3:5m"),
                          {"1", "3", "4:3", "58:2::1:3:5"})
         wrong = re.compile("[\u0590-\u06ff\u0900-\u097f]")
@@ -5221,8 +5222,20 @@ class ShowcaseTest(unittest.TestCase):
             with self.subTest(screen):
                 data = self.scene_bytes(screen)
                 self.assertGreater(len(data), 100)
-                self.assertFalse(self.styles(data) & {"1", "3", "5", "6"})
+                self.assertFalse(self.styles(data) & {"1", "5", "6"})
                 self.assertIsNone(wrong.search(data.decode()))
+
+    def test_text_and_fonts_scenes_show_the_styles(self):
+        # The outline text scene and each band of the fonts scene show
+        # italic, strike, dim, a curly underline, and raised and lowered text
+        # (SGR 73 and 74); the text scene also overline, and an underline and
+        # a strike on small text.
+        for screen in ["showcase-text"] + [s for s in self.SCREENS if "fonts-" in s]:
+            with self.subTest(screen):
+                styles = self.styles(self.scene_bytes(screen))
+                self.assertLessEqual({"3", "9", "2", "4:3", "73", "74"}, styles)
+        self.assertLessEqual({"53", "73;4", "74;9"}, set(re.findall(
+            r"\x1b\[([0-9;:]*)m", self.scene_bytes("showcase-text").decode())))
 
     def test_faults(self):
         # A font switch vtium did not take, pictures missing from the disc,
