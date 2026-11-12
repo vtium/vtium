@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_config::kitty;
+use vtium_config::made::Made;
 use vtium_config::serve::LeftOut;
 use vtium_config::specimen::{Picture, Shot, Sources, Summary};
 use vtium_config::tui::desk::Done;
@@ -358,7 +359,7 @@ impl Port for Console {
                             grid,
                             covered: 300,
                             of: 323,
-                            script: None,
+                            script: Some(Made::Scaled),
                         },
                     )),
                 }
@@ -376,7 +377,7 @@ impl Port for Console {
                         grid: Some((80, 30)),
                         covered: 40,
                         of: 51,
-                        script: None,
+                        script: Some(Made::Scaled),
                     }),
                 }
             }
