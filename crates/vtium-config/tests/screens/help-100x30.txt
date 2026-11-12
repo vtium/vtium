@@ -16,15 +16,15 @@
  manage the looks, each a font set and a size.
      Enter choose  Tab next view  i install  q quit without installing
 
- Fonts lists the font sets (frits) and the built-in fonts, with any font files each is missing. It
- shows each as an image of the console, or with s as a preview of every character it can display.
- On a vtium console, t tries a font live. Press n to make a new font set.
-     Enter choose  t try live  s preview  n new  r remove  i install  q quit
+ Fonts lists the font sets (frits) and the built-in fonts, with any font files each is missing.
+ Below the list, the console draws every character of the preview in the font it uses now. Press t
+ to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n
+ to make a new font set.
+     Enter choose  t try live  s save  n new  r remove  i install  q quit
 
  Settings lists every setting at the top of vtium.conf, with its value and what it does.
      Enter change  Tab next view  i install  q quit without installing
 
- Help shows this page, and About, with vtium-config's name and version.
 
 ----------------------------------------------------------------------------------------------------
  ←→ Help, About  ↑↓ scroll  Tab next view  q quit

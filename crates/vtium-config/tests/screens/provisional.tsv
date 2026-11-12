@@ -1,1 +1,6 @@
 # The TUI's screen goldens that judge nothing until the maintainer reviews the layout (ADR-1201 D8). One name a line, a tab, and what the screen shows.
+looks-80x25	The Looks view at 80x25 in a vtium console the TUI can switch: the sample screen of a size's picture printed as the console's own text beside the sizes, and the caption that says a size takes effect when vtium starts again (ADR-1201 D4).
+looks-100x30	The Looks view at 100x30 in a vtium console the TUI can switch: the sample screen of a size's picture printed as the console's own text beside the sizes, and the caption that says a size takes effect when vtium starts again (ADR-1201 D4).
+fonts-80x25	The Fonts view at 80x25 in a vtium console the TUI can switch: the detailed specimen's lines printed as the console's own text in unifont, the caption that names the font, and the key line with s save (ADR-1201 D4).
+fonts-100x30	The Fonts view at 100x30 in a vtium console the TUI can switch: the detailed specimen's lines printed as the console's own text in unifont, the caption that names the font, and the key line with s save (ADR-1201 D4).
+help-100x30	The Help view at 100x30 in a vtium console the TUI can switch: the Fonts view's entry says the console draws the preview's characters and s saves the font tried (ADR-1201 D4).
