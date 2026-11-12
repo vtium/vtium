@@ -78,9 +78,11 @@
 //!   never lit receives nothing, and the focus never moves because a
 //!   display left or came back.
 //! - **Drawing** (D2). Each head's render thread composes its frames
-//!   ([`crate::painter`]); the loop takes each frame from the screen,
-//!   and at the next turn's start, after the VT's events, copies it into
-//!   the display's buffer and presents it.
+//!   ([`crate::painter`]). The loop takes each frame from the screen with
+//!   the buffer its display lends, and the thread composes the frame
+//!   straight into that buffer; no copy is kept. At the next turn's
+//!   start, after the VT's events, the loop gives the buffer back to the
+//!   display, which presents it ([`crate::term::View::present`]).
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
