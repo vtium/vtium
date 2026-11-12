@@ -1,6 +1,6 @@
 # Try vtium on one VT
 
-In this tutorial, you install vtium and give it one spare VT. You log in there and try what it renders. Then you go back to your desktop, and take vtium off again. A VT, or virtual terminal, is one of the full-screen text screens that the Linux kernel keeps beside your desktop. You switch between them with Ctrl+Alt and a function key. vtium only ever takes the one VT that you give it. So your desktop keeps running the whole time, and at the end vtium is off the machine again.
+In this tutorial, you install vtium and give it one spare VT. You log in there and try what it renders. Then you go back to your desktop, and take vtium off again. A VT, or virtual terminal, is one of the full-screen text screens that the Linux kernel keeps beside your desktop. You switch between them with Ctrl+Alt and a function key. The package's install gives vtium every free VT, from the next boot. In step 3, you take those VTs back and give vtium only one. vtium never takes the VT that your desktop runs on, so your desktop keeps running the whole time. At the end, vtium is off the machine again.
 
 You need these things:
 
@@ -31,7 +31,7 @@ Here is what makepkg does:
 3. It asks pacman to install two packages, because of the `-i` flag. They are `vtium`, the console itself, and `vtium-terminfo`, which tells programs what vtium's terminal can do. Answer yes again.
 4. It removes the build-only packages that it installed at the start. The `-r` flag does this.
 
-Installing starts nothing and changes no VT, so nothing on your screen changes yet.
+The install gives vtium every free VT, but it starts nothing. Each of those VTs changes at its next start, so nothing on your screen changes yet. The install message lists the VTs that vtium now holds. Step 3 takes them back, so do steps 2 and 3 before you next restart the machine.
 
 ## 2. Find your desktop's VT and a free one
 
@@ -43,17 +43,20 @@ $ vtium console status
 
 It first prints a line or two about the machine as a whole. The first line says which console logind starts on a VT that has no setting of its own. A display manager is the program that shows the desktop's login screen. Where the machine has one, the second line names it.
 
-Then it prints a table, with a row for each of VTs 1 to 6, and for any other VT that has something on it. The first column is the VT's number. The other three columns say what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. A dash means nothing. Your desktop's row says `graphical session of` and your user name, in its **running** column. That row is your desktop's VT. Remember its number, since you switch back to it in step 6.
+Then it prints a table, with a row for each of VTs 1 to 6, and for any other VT that has something on it. The first column is the VT's number. The other three columns say what systemd starts there at boot, what logind starts when you switch to it, and what runs there now. A dash means nothing. After the install, the **at boot** column names `vtium@ttyN` on each VT that vtium now holds. Your desktop's row says `graphical session of` and your user name, in its **running** column. That row is your desktop's VT. Remember its number, since you switch back to it in step 6.
 
 Pick a VT that runs no graphical session and that nobody is logged in on. This tutorial uses VT 3. If VT 3 is your desktop's, use another number from 2 to 6 everywhere the steps say 3.
 
 ## 3. Give vtium VT 3
 
+The install gave vtium every free VT. First take them all back, then give vtium VT 3 alone:
+
 ```
+$ sudo vtium console disable --all
 $ sudo vtium console enable --direct 3
 ```
 
-This makes vtium the console that starts on VT 3. It takes effect the next time something starts on VT 3, so nothing changes yet. Before it changes anything, vtium writes down what VT 3 had, so that it can put it back in step 7. It refuses a VT that a desktop or a display manager is using, so it cannot take yours. It ends by printing the command that starts vtium on VT 3 now, which is the next step.
+`disable --all` gives every VT back what it had before the install. `enable --direct 3` makes vtium the console that starts on VT 3. It takes effect the next time something starts on VT 3, so nothing changes yet. Before it changes anything, vtium writes down what VT 3 had, so that it can put it back in step 7. It refuses a VT that a desktop or a display manager is using, so it cannot take yours. It ends by printing the command that starts vtium on VT 3 now, which is the next step.
 
 ## 4. Start vtium on VT 3
 
@@ -101,7 +104,7 @@ $ sudo vtium console disable 3
 $ sudo systemctl stop vtium@tty3.service
 ```
 
-`disable` puts back what VT 3 had before step 3, from the VT's next start. `stop` ends vtium on VT 3 now. The next time you switch to VT 3, you find the machine's own login prompt there again. Now remove the packages:
+`disable` puts back what VT 3 had before `enable` took it in step 3, from the VT's next start. `stop` ends vtium on VT 3 now. The next time you switch to VT 3, you find the machine's own login prompt there again. Now remove the packages. Their removal script runs `vtium console disable --all` once more. vtium holds no VT by then, so it gives nothing back:
 
 ```
 $ sudo pacman -R vtium vtium-terminfo
