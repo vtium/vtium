@@ -50,6 +50,9 @@ considered:
     said: "A language page takes one answer, with the comment naming any style that looked wrong. Keep the UDHR text. Keep the u key for unsure. One pass covers both font sets."
     via: the maintainer's answers in the steering session's interview, 2026-11-03, relayed by the team lead; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Fix gaps, then accept (Recommended)"
+    via: steering session, 2026-11-12, at the question tool, after a records check found four gaps
 status: proposed
 date: 2026-11-03
 deciders:
@@ -61,8 +64,8 @@ related: []
 
 ## Summary
 
-- **Decided:** The acceptance pass is one walk, by the operator on a VT, through every page in `tools/vt/sections/`. A page draws one thing vtium supports and says below itself, in plain words, what right and wrong look like. The operator answers each page with one key (y looks right, n looks wrong, u unsure, s skip), may type a comment first, may go back a page, and may quit and resume later; no command is typed between pages. Each pass is a markdown record in `~/.local/state/vtium/acceptance/`, rewritten after every answer, that names the build, the hardware it ran on, the fonts, the VT, the terminal and each page's answer and comment, and says it is evidence about that hardware only. `make vt-accept` runs a pass, with pictures unless `FEATURES` is named, and one pass on the build of each batch that goes from `stage` to main is committed under `docs/acceptance/`. `tools/vt/feedback.sh --compare A B` prints the pages whose answer changed between two passes, warns first when the two ran on different hardware, and exits 1 when a page went from yes to no. Thirteen language pages each show one sentence under every style, and the walk shows each twice, switching the console with OSC 50 to an outline font set and then a bitmap one, and records every font file's SHA-256.
-- **Trades away:** `make vt-demo`, its keys 1, 2 and 3 and its answers file in `/tmp`; earlier runs' answers are not read. Pages that need programs on the host (chafa, mpv, tmux), file media in a login, or the GPU path have no page yet. A pass takes the operator most of an hour. A pass is evidence about one machine's GPU and displays only.
+- **Decided:** The acceptance pass is one walk, by the operator on a VT, through every page in `tools/vt/sections/`. A page draws one thing vtium supports and says below itself, in plain words, what right and wrong look like. The operator answers each page with one key (y looks right, n looks wrong, u unsure, s skip), may type a comment first, may go back a page, and may quit and resume later; no command is typed between pages. Each pass is a markdown record in `~/.local/state/vtium/acceptance/`, rewritten after every answer, that names the build, the hardware it ran on, the fonts, the VT, the terminal and each page's answer and comment, and says it is evidence about that hardware only. `make vt-accept` runs a pass, with pictures and bidirectional text unless `FEATURES` is named, on the render path `RENDER_PATH` names, `cpu` or `gpu`, and the pass of each render path on the build of each batch that goes from `stage` to main is committed under `docs/acceptance/`, where `tools/vt/feedback.sh --save` puts it. `tools/vt/feedback.sh --compare A B` prints the pages whose answer changed between two passes, warns first when the two ran on different hardware, and exits 1 when a page went from yes to no. Thirteen language pages each show one sentence under every style, and the walk shows each twice, switching the console with OSC 50 to an outline font set and then a bitmap one, and records every font file's SHA-256.
+- **Trades away:** `make vt-demo`, its keys 1, 2 and 3 and its answers file in `/tmp`; earlier runs' answers are not read. Pages that need programs on the host (chafa, mpv, tmux) or file media in a login have no page yet. A pass takes the operator most of an hour, and a batch takes two, one on each render path. A pass is evidence about one machine's GPU and displays only.
 - **One-way?** No. The pages are shell scripts and the record is a generated text file; the format can change with its reader in one change, and each of the maintainer's answers below is one setting. Committed records stay as they were written.
 - **Probes:** *Confident (keys):* one key per answer, a typed comment, back, and quit-and-resume cover the interview the maintainer asked for, the way the guides' y, n and skip already do. *Not confident (cadence):* one committed pass per batch is often enough to catch a regression before main. The maintainer answered both (`considered`).
 - **Inversion:** Between "record every answer in one log and compute passes from it" (a pass is a run id among many, and nothing can be resumed or committed on its own) and "commit every pass" (the repository grows with every look at the VT). The answer keeps one file per pass outside the repository, readable as it stands, and commits only the passes the maintainer chooses.
@@ -123,32 +126,43 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 40-boxdraw, 45-blocks, 47-mosaic | box drawing, block elements, Braille, sextants and octants, stacked across cells | `text.sprites` |
 | 50-cjk | double-width characters beside Latin | `text.grapheme` |
 | 55-wide-margin | wide characters placed and typed at the right margin | `text.vs-width` |
+| 31-conceal | SGR 8 and 28: concealed text between brackets, its background kept | `sgr.conceal` |
+| 32-overline | SGR 53 and 55 with color, underline, strike, reverse and CJK | `sgr.overline` |
+| 33-script | SGR 73, 74 and 75: superscripts and subscripts with tails, accents, wide characters, styles and lines, walked in three font sets (D6) | `sgr.script` |
+| 36-rapid-blink | SGR 6 beside SGR 5, and SGR 25 halfway along a line | `sgr.rapid-blink`, `sgr.blink.style` |
 | 60-combining | letters built from a base and combining marks beside the precomposed ones | `text.grapheme` |
+| 62-ink | glyph ink past its cell: accents over the row above, descenders meeting accents, leaning italics, Arabic marks and a parked cursor, in both font sets (D6) | `text.outline` |
 | 65-charsets | DEC special graphics through G0 and G1, and REP, each beside what it must look like | `text.charsets`, `text.rep` |
 | 66-rectangles | DECCRA copying a box with its colors, DECFRA filling one, DECERA emptying one | `ctl.rect` |
 | 67-scroll-region | twelve lines printed into a scroll region of six rows | `ctl.decstbm` |
+| 68-bidi | Hebrew among Latin, after a number and in brackets, and two paragraphs that start right to left, one of them Arabic | `text.bidi`, `ANSI-8`, `DEC-2501` |
 | 70-emoji | a ZWJ family, a flag, a keycap, a skin tone, VS15 and VS16, each between bars | `text.emoji`, `text.vs-width` |
+| 71-kitty-animation | two kitty animations of three frames, one looping for ever and one that plays twice and stops | `image.kitty-animation` |
+| 72-kitty-placeholders | one kitty picture placed virtually and shown three times by its placeholder characters, the third copy with its rows swapped | `image.kitty-placeholders` |
+| 73-kitty-relative | a kitty picture placed relative to another, which follows it when the other moves | `image.kitty-relative` |
 | 75-cursor-shape | DECSCUSR 4, a steady underline cursor | `cursor.style` |
 | 77-reverse-screen | DECSCNM, the whole screen in reverse video | `DEC-5` |
 | 78-palette-change | OSC 4 changing color 1 after the text in it was written | `color.palette.set`, `sgr.draw-time-color` |
+| 79-reflow | two long lines, one written with mode 2028 reset, then the grid halved by a font switch: the first rewraps and the second is cut | `text.reflow`, `DEC-2028` |
 | 80-links | OSC 8 links, underlined only under the pointer, and their address while Ctrl is held | `osc.8` |
 | 81-english to 93-emoji-styles | the language pages (D7): one sentence in English, Vietnamese twice (precomposed, and every mark combining), Greek, Russian, Hebrew, Arabic, Hindi, Thai, Chinese, Japanese and Korean, and an emoji line, each under every style, each walked in both font sets (D6) | `sgr.*`, `text.grapheme`, `text.vs-width`, `text.emoji`, `text.outline` (the outline set's glyphs, in every style the page shows, bold and italic among them) |
+| 94-ink-move | glyph ink beside kitty pictures in three layers and two sixels, moved a step at a time by a key, in both font sets (D6) | `text.outline`, `image.compositor` |
 | 95-sixel | sixel bars beside text cells of the same color, and a frame with a clear middle over words | `image.sixel`, `image.compositor` |
 | 96-kitty | kitty pictures sent as raw pixels, one in each layer, and a placement that moves the cursor | `image.kitty`, `image.compositor` |
 | 97-kitty-layers | one kitty picture placed over and under text, and a placement deleted | `image.kitty`, `image.overlap` |
 | 98-kitty-png | kitty pictures sent as PNG and as zlib, which the image helper decodes | `image.kitty`, `image.helper` |
 | 99-iterm2 | iTerm2 pictures, OSC 1337 File=, at two sizes | `image.iterm2`, `image.helper` |
 
-The four picture pages that sixel and kitty's raw pixels serve need a build with pictures, which DA1's attribute 4 and an answer to a kitty query show. The two that the helper serves also need the image helper to decode a PNG, which a kitty query of one PNG pixel shows. Each says which of these it lacks and records skip.
+The picture pages that sixel and kitty's raw pixels serve need a build with pictures, which DA1's attribute 4 and an answer to a kitty query show. The two that the helper serves also need the image helper to decode a PNG, which a kitty query of one PNG pixel shows. The bidirectional page needs a build with the bidi feature, which DECRQM shows by answering mode 8 with a value other than 0. The reflow page needs a terminal that answers OSC 50's query and a walk that asks for answers, because the walk puts the console's font back after it. Each says which of these it lacks and records skip.
 
 These rows have a visible effect and no page yet. Each page comes with the change that makes it drawable or the change that adds it:
 
-- `sgr.conceal`, `sgr.overline`, `sgr.script` and `text.line-size`: vtium-term keeps them, and vtium-render does not draw them yet.
-- `sgr.rapid-blink`: vtium-render blinks SGR 6 at SGR 5's rate, so its page waits for the faster rate that ADR-1000 states.
-- `text.ligatures`, `text.font-merge`, `text.bidi` and `text.kitty-sizing`: not built yet.
-- `image.kitty-animation`, `image.kitty-placeholders` and `image.kitty-relative`: built; their pages are owed.
-- `text.reflow` and `DEC-2028`: built; a page needs the grid to change size while it shows, which a font switch does, and is owed.
+- `text.line-size`: vtium-term keeps a line's size, and no sequence sets it yet.
+- `text.ligatures` and `text.kitty-sizing`: not built yet.
+- `text.font-merge`: partial. A frit's `cover=` line draws a range from a second font, and the page waits for those glyphs to fit the main font's cell.
 - The C reference's pages that need programs on the host (photos, photo-scroll, mpv-sixel and the tmux grids need chafa, mpv and tmux and the C reference's photograph), its sixel ramps, article and eviction pages, its kitty-files page, which needs a logind session of the program's own that a review run's session lacks, and its glyph cache pages, which judged the C reference's GPU renderer.
+
+> Edited 2026-11-12: a records check found that the table lacked 62-ink and 94-ink-move, and that the list of rows with no page named rows ADR-1000 calls supported. The table gains both pages and nine new ones: 31-conceal, 32-overline, 33-script, 36-rapid-blink, 68-bidi, 71-kitty-animation, 72-kitty-placeholders, 73-kitty-relative and 79-reflow. The list keeps only the rows still planned or partial, and the paragraph on picture pages says what the bidirectional and reflow pages need. `tools/vt/tests/test_accept.py` checks that the table names every page in `tools/vt/sections/`. The earlier text is in git at 7ad138f0.
 
 ### D3: the pass record
 
@@ -156,7 +170,7 @@ A pass is one walk through the pages, named by the time it started and the walk'
 
 The record holds, in order:
 
-1. a list: the pass, the label (`ACCEPT_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`ACCEPT_VT`, `ACCEPT_BINARY` and `ACCEPT_FEATURES`, or `not given`), the terminal's `TERM` and size, its DA1 answer, the font OSC 50's query named at the start, the blink style the pages that blink text are judged in and where it comes from, each font set the pass uses with its frit file's SHA-256, each font file it names with its SHA-256 and the package that owns it (or `missing`), one SHA-256 over those font lines, the hardware (below), when the pass started, when it was last written, and how many pages it has answered;
+1. a list: the pass, the label (`ACCEPT_LABEL`, which a review run sets to `vtium dev build <git describe>`), the VT, the binary and its features (`ACCEPT_VT`, `ACCEPT_BINARY` and `ACCEPT_FEATURES`, or `not given`), the render path (`ACCEPT_RENDER_PATH`: `gpu, vtium run with --hwaccel`, `cpu, vtium run with --no-hwaccel`, or `not given`), the terminal's `TERM` and size, its DA1 answer, the font OSC 50's query named at the start, the blink style the pages that blink text are judged in and where it comes from, each font set the pass uses with its frit file's SHA-256, each font file it names with its SHA-256 and the package that owns it (or `missing`), one SHA-256 over those font lines, the hardware (below), when the pass started, when it was last written, and how many pages it has answered;
 2. a table of every page in order, with its answer (yes, no, unsure, skip, or `-` for none yet) and its comment, in which `&`, `<` and `>` are entities, a backslash and `|` are escaped with a backslash, and each line break is `<br>`;
 3. what each page shows when it is right, its `# look-for:` text, so the record reads on its own after the pages change.
 
@@ -164,32 +178,45 @@ The hardware is what the walk reads from `/sys` and `/proc` as the user: the mac
 
 The walk writes the whole record after every answer, to a file beside it that it then renames into place, so a record is never seen half written and a pass that ends any way keeps every answer given.
 
-When the walk starts and the newest pass with the same label still has a page without an answer, the title page offers to resume it at that page, or to start a new pass. A pass is never resumed under another label, once any font file it named has changed, or on other hardware, so one pass judges one build in one set of fonts on one machine.
+When the walk starts and the newest pass with the same label still has a page without an answer, the title page offers to resume it at that page, or to start a new pass. A pass is never resumed under another label, once any font file it named has changed, on other hardware, or on the other render path, so one pass judges one build in one set of fonts on one machine and one render path.
+
+> Edited 2026-11-12: the record names the render path, and a pass resumes only on its own (D5). The list and the resume rule named neither. The earlier text is in git at 7ad138f0.
 
 ### D4: comparing passes
 
-`tools/vt/feedback.sh` reads records. With no option it prints the newest pass, or the one named; `--list` lists every pass; `--compare A B` compares two passes, each named by its id or by the path of a record, such as one committed to the repository; `--compare` alone compares the two newest. The comparison names both passes, then lists each page whose answer differs, with both answers and both comments, and marks a page that went from yes to no. It then lists every font set or font file line that is in one pass and not the other, so a page that changed between two passes is not blamed on vtium when a font package changed under it. When the two passes name different hardware, the comparison prints a warning before the pages, listing each hardware line that is in one pass and not the other: a page that changed may be the hardware's doing, and each pass is evidence about its own hardware only. It exits 1 when any page went from yes to no, and 0 otherwise.
+`tools/vt/feedback.sh` reads records. With no option it prints the newest pass, or the one named; `--list` lists every pass; `--compare A B` compares two passes, each named by its id or by the path of a record, such as one committed to the repository; `--compare` alone compares the two newest. The comparison names both passes, then lists each page whose answer differs, with both answers and both comments, and marks a page that went from yes to no. It then lists every font set or font file line that is in one pass and not the other, so a page that changed between two passes is not blamed on vtium when a font package changed under it. When the two passes name different hardware, the comparison prints a warning before the pages, listing each hardware line that is in one pass and not the other: a page that changed may be the hardware's doing, and each pass is evidence about its own hardware only. When they name different render paths, it says so after the pages, since a page that changed may be the path's doing. It exits 1 when any page went from yes to no, and 0 otherwise.
+
+> Edited 2026-11-12: the comparison names a render path that differs (D5). The earlier text is in git at 7ad138f0.
 
 ### D5: running a pass
 
 A pass runs as the session of a review run (`docs/vt-review.md`), with the build's details passed to the walk:
 
-- `make vt-accept` runs it, in place of `make vt-demo`, and builds the console with pictures (`FEATURES=images`) unless `FEATURES` is named on make's command line, so a pass covers every page; a pass of the minspec build is `make vt-accept FEATURES=`. A binary named with `VTIUM_BIN` is run as it is, so without `FEATURES` the target takes its features from the binary: images when it carries the line only a build with pictures carries, the one `make vt-install` tells such a build by, and none otherwise. The target exports `FEATURES` to `vt.sh`;
-- `vt.sh` passes `run-vt.sh` the VT, the binary, the features and the passes directory, and after the run prints the pass the run wrote with `feedback.sh`;
-- `run-vt.sh` puts `ACCEPT_VT`, `ACCEPT_BINARY`, `ACCEPT_FEATURES` and `ACCEPT_DIR` into the session's environment beside `ACCEPT_LABEL`, each checked for the characters it may hold, and copies the system's frits and the acceptance pass's into `/run/vtium-vt/frits`, a directory of root's alone made for the run, and runs vtium with `--font-frits` naming it, so the walk can switch among them (D6). With pictures in the build, it copies the image helper built with the console, `vtium-image`, into the same directory and runs vtium with `--image-helper` naming the copy, as it does for the glyph helper, so the helper pages show pictures.
+- `make vt-accept` runs it, in place of `make vt-demo`, and builds the console with pictures and bidirectional text (`FEATURES='images bidi'`) unless `FEATURES` is named on make's command line, so a pass covers every page; a pass of the minspec build is `make vt-accept FEATURES=`. A binary named with `VTIUM_BIN` is run as it is, so without `FEATURES` the target takes its features from the binary: images when it carries the line only a build with pictures carries, the one `make vt-install` tells such a build by, and none otherwise. The target exports `FEATURES` to `vt.sh`;
+- `make vt-accept RENDER_PATH=gpu` or `RENDER_PATH=cpu` chooses the render path the pass judges, and `cpu` is the default. A batch gets a pass on each, as the maintainer's look (AGENTS.md, V3) asks. The run gives vtium `--hwaccel` for `gpu` and `--no-hwaccel` for `cpu`, the `hwaccel` key of the configuration (`docs/config.md`), so one build serves both paths. `RENDER_PATH=gpu` adds `gpu` to the default features and refuses `FEATURES` named without it. A binary named with `VTIUM_BIN` is run as it is, and vtium shows a notice when it lacks the GPU path that `--hwaccel` asks for. `DEMO_ARGS` may not name `hwaccel` beside the render path. `make vt-accept` reads `RENDER_PATH` from its command line only, and the other review targets do not read it;
+- `vt.sh` passes `run-vt.sh` the VT, the binary, the features, the render path and the passes directory, and after the run prints the pass the run wrote with `feedback.sh`;
+- `run-vt.sh` puts `ACCEPT_VT`, `ACCEPT_BINARY`, `ACCEPT_FEATURES`, `ACCEPT_RENDER_PATH` and `ACCEPT_DIR` into the session's environment beside `ACCEPT_LABEL`, each checked for the characters it may hold, and copies the system's frits and the acceptance pass's into `/run/vtium-vt/frits`, a directory of root's alone made for the run, and runs vtium with `--font-frits` naming it, so the walk can switch among them (D6). With pictures in the build, it copies the image helper built with the console, `vtium-image`, into the same directory and runs vtium with `--image-helper` naming the copy, as it does for the glyph helper, so the helper pages show pictures.
 
 The walk also runs in any terminal by hand, `ACCEPT_LABEL='foot 1.21' tools/vt/accept.sh`, so a page can be compared in vtium and in another terminal; that pass carries its own label.
 
+> Edited 2026-11-12: a records check found that AGENTS.md's V3 runs the acceptance pass on the GPU path and on the CPU path, and that nothing chose the path. `RENDER_PATH` chooses it, and the default features gain `bidi`, so that the bidirectional page and the Hebrew and Arabic pages are judged in the build they describe. The variable is not `HWACCEL`, which sets the default a build bakes in and which the review targets refuse beside a built `VTIUM_BIN`. The earlier text is in git at 7ad138f0.
+
 ### D6: font sets
 
-A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps two in `tools/vt/sections/frits/`:
+A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps four in `tools/vt/sections/frits/`:
 
 - `acceptance-outline`: DejaVu Sans Mono, then Noto Sans Hebrew, Arabic, Devanagari and Thai, Noto Sans CJK and Noto Color Emoji, each by its file in Arch Linux's packages, then the built-in unifont.
 - `acceptance-bitmap`: Terminus at 8x16 (`ter-v16n`, from `terminus-font`) for Latin, Greek and Cyrillic, then the built-in GNU Unifont, which holds every other script on the pages. GNU Unifont is vtium's own built-in font, so no unifont file is needed.
+- `script-terminus`: Terminus at 8x16 with a `script-source=` line naming Terminus at 6x12 (`ter-v12n`), a smaller size of the same font, which draws its superscripts and subscripts (ADR-1202 D3). The superscript page is walked in it beside the other two, and the superscript guide (`tools/vt/checks/script.guide`) switches to it too.
+- `acceptance-large`: Terminus at 16x32 (`ter-v32n`), then the built-in GNU Unifont. Its cells are twice as wide and twice as tall as the 8x16 fonts', so the reflow page switches the console to it to halve the grid's columns while the page shows.
 
 A page whose `# frits:` line names font sets is an entry of the walk for each, as `84-greek@acceptance-outline` and `84-greek@acceptance-bitmap`. Before such an entry the walk switches the console to the frit with OSC 50, makes a round trip to the terminal so the switch has been read, and asks OSC 50's query which font is in use; a page with no `# frits:` line switches the console back to the font the query named when the walk started. vtium switches the live console among the frits in its frits directory, so one pass covers both font sets, and the review run gives vtium a frits directory holding the acceptance pass's frits (D5). The page prints which font set it is drawn in and, from the frit's `# checks:` lines, what that set checks: glyphs scaled to the cell with marks placed from the font's own data, or whole-multiple bitmaps with marks placed by vtium's rules.
 
+A page whose `# font-switch:` line names a font set switches the console to it itself, part way through the page, as the reflow page does after it writes its lines. The walk records that set's files with the others, records the page as skip when one is missing, and switches the console back to its own font before the next page.
+
 An entry is recorded as skip, with the reason as its comment, when a file its frit names is missing on this machine (the comment names the file), or when vtium does not switch to it (the comment names what OSC 50's query answered). Neither acceptance frit names a bold or an italic face, so vtium draws both styles from each set's regular glyphs: the outline set's bold grows each stroke sideways by a 24th of the size, a pixel at least, and its italic slants the glyph by 0.2 about the baseline; the bitmap set's bold widens each row by a pixel, and its italic shears the glyph by 0.2 one pixel row at a time (ADR-1302 D4).
+
+> Edited 2026-11-12: a records check found that the list named two font sets while the walk loads `script-terminus` too. The list names it and `acceptance-large`, which the reflow page added, and the paragraph on `# font-switch:` describes how the reflow page switches. `tools/vt/tests/test_accept.py` checks that the list names every frit in `tools/vt/sections/frits/`. The earlier text is in git at 7ad138f0.
 
 ### D7: the language pages
 
@@ -198,24 +225,27 @@ Each language page shows, from `tools/vt/sections/text/udhr-article1.tsv`:
 1. the first sentence of Article 1 of the Universal Declaration of Human Rights in its language, which may wrap onto a second row, and its English: "All human beings are born free and equal in dignity and rights.";
 2. a few of its words, with their English, in sixteen styles, two to a row: plain, bold, italic, bold italic, dim, reverse, underline, double, curly, dotted and dashed underlines, a red underline, strike, overline, and SGR 73 and 74, superscript and subscript;
 3. Unicode's superscript and subscript characters, digits for every script and the small letters where Unicode has them (Latin, Greek and one Cyrillic letter), with a sentence that says where it has none;
-4. a line marking the styles vtium does not draw yet with `*`: overline and SGR 73 and 74, which look plain;
-5. the font set (D6) and what it checks.
+4. the font set (D6) and what it checks.
 
-The sentences come from the UDHR in XML project at a fixed commit; `tools/vt/sections/text/README.md` names it and the three entries that differ from the files. Each page's guidance describes the right picture in shapes: marks stacked on their letters and not cut at the row's top, Arabic letters each with its dots, Hangul syllables as square blocks, a decoration reaching across both cells of a wide character. Where vtium does not yet do what the script needs, the guidance says what vtium draws today and that it is expected: Hebrew and Arabic run left to right in typed order, since vtium does not order right-to-left text yet, and Arabic letters stand apart, since the console does not key joining forms yet. In the bitmap set, which has no outline source to shape a cluster, a Devanagari vowel sign that stands beside its letter is drawn over that letter. The operator judges the rest of the page and answers yes when only those look as described. The two Vietnamese pages draw the same words, once precomposed and once with every mark a combining character, so a difference between them is vtium's handling of combining marks.
+The sentences come from the UDHR in XML project at a fixed commit; `tools/vt/sections/text/README.md` names it and the three entries that differ from the files. Each page's guidance describes the right picture in shapes: marks stacked on their letters and not cut at the row's top, Arabic letters each with its dots, Hangul syllables as square blocks, a decoration reaching across both cells of a wide character. Hebrew and Arabic read right to left, in the order the bidirectional algorithm gives, and Arabic letters join (ADR-1004), in a build with the bidi feature, which the pass builds by default (D5). Where vtium does not do what the script needs, the guidance says what vtium draws and that it is expected: in the bitmap set, which has no outline source to shape a cluster, a Devanagari vowel sign that stands beside its letter is drawn over that letter. The operator judges the rest of the page and answers yes when only those look as described. The two Vietnamese pages draw the same words, once precomposed and once with every mark a combining character, so a difference between them is vtium's handling of combining marks.
 
 > Edited 2026-11-04: the work that draws bold and italic through the glyph helper (ADR-1302 D4). D2, D6 and D7 said that a frit takes only regular faces, so bold was the regular glyph widened a pixel and italic stayed upright, and D2 listed `text.outline`'s bold and italic faces among the rows with no page. A frit can now name bold, italic and bold-italic faces of its own, and vtium synthesises the styles it names no face for, so the language pages draw bold, italic and bold italic, and italic leaves the list of styles marked `*`. The earlier text is in git at 2aea866a.
+
+> Edited 2026-11-12: a records check found that the language pages still marked overline and SGR 73 and 74 with `*` as styles vtium does not draw, and that this decision said Hebrew and Arabic run left to right with their letters apart. vtium draws all three styles (ADR-1000's `sgr.overline` and `sgr.script`) and orders and joins right-to-left text in a build with bidi, so the pages label SGR 73 and 74 raised and lowered, mark no style, and the list loses its fourth item. The earlier text is in git at 7ad138f0.
 
 ### D8: committing passes, and the maintainer's answers
 
 The maintainer answered the record's questions in the steering session's interview of 2026-11-03 (`considered`):
 
 1. **The name.** It is the acceptance pass, run by `make vt-accept`, which replaces `make vt-demo`.
-2. **Committed passes.** The steering session runs a pass on the build of each batch that goes from `stage` to main, compares it with the last committed pass, names any page that went from yes to no in the stage PR's body, and commits the pass on `integration` with the batch, as `docs/acceptance/<YYYY-MM-DD>-<git describe>.md`, the record as it stands. One pass a batch is enough because a batch is the unit that reaches main: a pass between batches judges work that has not landed, and a pass for each batch puts the judgement next to the change it judges. Passes between batches stay in the passes directory. Each committed pass is evidence about the hardware it names (D3), and the comparison warns when two passes ran on different hardware (D4).
+2. **Committed passes.** The steering session runs a pass on each render path (D5) on the build of each batch that goes from `stage` to main, compares each with the last committed pass of its path, names any page that went from yes to no in the stage PR's body, and commits the passes on `integration` with the batch. `tools/vt/feedback.sh --save PASS` copies a pass, the record as it stands, to `docs/acceptance/<YYYY-MM-DD>-<git describe>-<render path>.md`, from the day the pass started, the build its label names and the path its record names. It refuses a pass whose label is not a review run's, one that names no render path, and a file already there. No pass is committed yet: the first comes from the maintainer's next walk. One pass a batch is enough because a batch is the unit that reaches main: a pass between batches judges work that has not landed, and a pass for each batch puts the judgement next to the change it judges. Passes between batches stay in the passes directory. Each committed pass is evidence about the hardware it names (D3), and the comparison warns when two passes ran on different hardware (D4).
 3. **Pictures.** On by default: `make vt-accept` builds with pictures unless `FEATURES` is named (D5).
 4. **A language page** takes one answer, with the comment naming any style that looked wrong (D7).
 5. **The UDHR text** stays as it is (D7).
 6. **unsure** keeps its key, u: a page looked at and not judged is different from a page skipped.
 7. **Fonts.** One pass walks both font sets (D6).
+
+> Edited 2026-11-12: a records check found no committed pass and no tool that writes one where this item says. `feedback.sh --save` writes it, and a committed pass's name carries its render path, because a batch has a pass on each. The item read: "The steering session runs a pass on the build of each batch that goes from `stage` to main, compares it with the last committed pass, names any page that went from yes to no in the stage PR's body, and commits the pass on `integration` with the batch, as `docs/acceptance/<YYYY-MM-DD>-<git describe>.md`, the record as it stands."
 
 ## C notes: the C reference's demo
 
@@ -243,8 +273,8 @@ The C reference's `fork/demo/demo.sh` walked the section scripts in `fork/demo/s
 
 ### Negative
 
-- A pass takes most of an hour: 27 pages and the 13 language pages twice. A page added later is unanswered in every earlier pass.
-- The pages that need programs, file media or the GPU path, and the rows vtium does not draw yet, are not judged by a pass.
+- A pass takes most of an hour: 68 entries: the 35 pages with no font set of their own once each, the 13 language pages, 62-ink and 94-ink-move once in each of two font sets, and 33-script in three. A batch takes a pass on each render path. A page added later is unanswered in every earlier pass.
+- The pages that need programs or file media, and the rows vtium does not draw yet, are not judged by a pass.
 - The tests of the earlier demo in `tools/vt/tests/test_vt.py` move to `tools/vt/tests/test_accept.py`, and `vt.sh`, `run-vt.sh` and the Makefile change with the walk.
 - A committed pass says nothing of other GPUs, display controllers or displays; vtium on other hardware needs its own pass.
 
