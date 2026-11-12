@@ -2769,4 +2769,64 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[];
+pub const WAITING: &[Case] = &[
+    Case {
+        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (64, 2)),
+    },
+    Case {
+        screen: scripts(
+            "scripts-arabic",
+            SCRIPTS_ARABIC_DESC,
+            SCRIPTS_ARABIC,
+            (64, 2),
+        ),
+    },
+];
+
+/// The scripts screens' one drawing, at 40 pixels, in Iosevka Term's
+/// 16x40 cell.
+const AT_40: [Take; 1] = [Take::at(crate::fonts::SCRIPTS_HEIGHT)];
+
+/// A screen of `cols` by `rows` cells drawn in the scripts frit
+/// ([`InkFonts::Scripts`]) at 40 pixels, in Iosevka Term's 16x40 cell, the
+/// showcase's.
+const fn scripts(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    (cols, rows): (usize, usize),
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_40,
+            spacing: None,
+            fonts: InkFonts::Scripts,
+        },
+        ..Screen::new(name, desc, bytes, cols, rows)
+    }
+}
+
+/// The `scripts-indic` screen: the first sentence of the Universal
+/// Declaration of Human Rights in Hindi, then in Bengali, as the
+/// showcase's scripts scene writes them.
+const SCRIPTS_INDIC: &[u8] = concat!(
+    "सभी मनुष्यों को गौरव और अधिकारों के मामले में जन्मजात स्वतन्त्रता और समानता प्राप्त है ।\r\n",
+    "সমস্ত মানুষ স্বাধীনভাবে সমান মর্যাদা এবং অধিকার নিয়ে জন্মগ্রহণ করে।",
+)
+.as_bytes();
+
+const SCRIPTS_INDIC_DESC: &str = "The first sentence of the Universal Declaration of Human Rights in Hindi and in Bengali, as the showcase's scripts scene writes them, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Devanagari and Noto Sans Bengali behind it, 64 by 2 cells.";
+
+/// The `scripts-arabic` screen: two right-to-left paragraphs, set by SCP
+/// 2: the first sentence of the Universal Declaration of Human Rights in
+/// Arabic, as the showcase's scripts scene writes it, and a line that
+/// mixes directions, which names the Declaration by its Arabic title with
+/// the Latin UDHR and the numbers 1 and 1948 inside it.
+const SCRIPTS_ARABIC: &[u8] = concat!(
+    "\x1b[2 k",
+    "يولد جميع الناس أحرارًا متساوين في الكرامة والحقوق.\r\n",
+    "المادة 1 من الإعلان العالمي لحقوق الإنسان (UDHR) لعام 1948.",
+)
+.as_bytes();
+
+const SCRIPTS_ARABIC_DESC: &str = "Two right-to-left paragraphs, set by SCP 2, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Arabic behind it, 64 by 2 cells: the first sentence of the Universal Declaration of Human Rights in Arabic, as the showcase's scripts scene writes it, and Article 1 of the Declaration named by its Arabic title, with the Latin UDHR in brackets and the numbers 1 and 1948.";

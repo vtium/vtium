@@ -252,7 +252,12 @@ fn compare_cmd(opts: &[(String, String)], files: &[String]) -> ExitCode {
 
 fn fetch_fonts() -> ExitCode {
     let dir = vtium_tier2::fonts::cache_dir();
-    match vtium_tier2::fonts::fetch(&dir, &vtium_tier2::fonts::FONTS) {
+    let fonts = vtium_tier2::fonts::FONTS
+        .iter()
+        .chain(&vtium_tier2::fonts::SCRIPT_FONTS)
+        .copied()
+        .collect::<Vec<_>>();
+    match vtium_tier2::fonts::fetch(&dir, &fonts) {
         Ok(()) => {
             println!("tier2: the outline fonts are in {}", dir.display());
             ExitCode::SUCCESS
