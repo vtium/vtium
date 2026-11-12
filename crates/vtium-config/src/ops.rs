@@ -460,14 +460,14 @@ mod tests {
         for (of, key, value) in keys {
             let mut text = start.to_owned();
             for _ in 0..3 {
-                text = section_keys(&text, of, &[(key, Some(value))]).expect("set");
+                text = section_keys(&text, of, &[(key, Some(value))]).unwrap();
                 assert!(text.contains(&format!("{key} = {value}\n")), "{text}");
-                text = section_keys(&text, of, &[(key, None)]).expect("unset");
+                text = section_keys(&text, of, &[(key, None)]).unwrap();
             }
             assert_eq!(text, start, "{key}");
         }
         // a key the file set takes its line, and its comment, out with it
-        let unset = section_keys(start, Of::Look("big"), &[("font-size", None)]).expect("unset");
+        let unset = section_keys(start, Of::Look("big"), &[("font-size", None)]).unwrap();
         assert_eq!(
             unset,
             "version = 1\n[look big]\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n"
