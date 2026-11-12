@@ -1590,8 +1590,14 @@ impl App {
             }
         };
         head.font_size = base;
+        // OSC 50's query reports the font on screen by a name OSC 50
+        // takes, or no name, as for a font file's path or a family, never
+        // the name of a font no longer shown.
         let name = head.chosen().name(base, locale).to_owned();
-        head.console.term.terminal.set_font_name(&name);
+        let terminal = &mut head.console.term.terminal;
+        if !terminal.set_font_name(&name) {
+            terminal.clear_font_name();
+        }
         let cell = |head: &Head, at: u32| {
             head.face(at, locale).ok().map(|f| {
                 let c = f.cell();

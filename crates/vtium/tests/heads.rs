@@ -6855,6 +6855,44 @@ fn end_shown_session(s: &mut Seat) -> String {
         .unwrap_or_default()
 }
 
+/// vtium/vtium#384, ADR-1200 D5: OSC 50's query reports a name OSC 50
+/// takes for the font on screen, or none, never a font that is not shown.
+/// The first session switches to frit b; when it ends, vtium returns the
+/// head to the font file vtium.conf's `font-name` gives, which has no
+/// font set's name, so the next session's query names no font, not b.
+#[test]
+fn after_a_return_to_a_font_file_the_query_names_no_font() {
+    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
+    let conf = format!("font-engine=psf\nfont-name={path}\nfont-size=16\n");
+    let (dir, fonts) = reset_fixture("reset-path", &conf);
+    // The first session switches to b, and the next asks which font is in
+    // use; the tty echoes the reply.
+    let script = format!(
+        "d={d}; echo x >> $d/runs; k=$(wc -l < $d/runs); echo \"size:$(stty size)\"; \
+         if [ $k = 1 ]; then printf '\\033]50;b\\007'; else printf '\\033]50;?\\007'; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let (mut s, _) = seat_running(&dir, &small_consoles(1), fonts, &script);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    end_shown_session(&mut s);
+    assert_eq!(s.app.font_name(), path, "returned to the font file");
+    let replied = |a: &App| head_shows(a, "small", "]50;");
+    assert!(
+        s.until(BOUND, replied),
+        "{:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    let text = s
+        .app
+        .head("small")
+        .map(Head::screen_text)
+        .unwrap_or_default();
+    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
+    assert_eq!(replies.len(), 1, "{text:?}");
+    assert!(replies[0].ends_with("]50;^G"), "no font named: {replies:?}");
+}
+
 /// ADR-1201 D11: an OSC 50 switch lasts for the session. When the session
 /// in the console it came from ends, vtium returns the head to the font
 /// vtium.conf configures, at its size, before the console's next session

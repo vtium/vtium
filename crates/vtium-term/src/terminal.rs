@@ -420,6 +420,13 @@ impl Terminal {
         ok
     }
 
+    /// Says that the font in use has no name a set can take, as a font
+    /// file's path or a family has: OSC 50's query then reports no name,
+    /// so it never names a set that is no longer shown.
+    pub fn clear_font_name(&mut self) {
+        self.state.host.font_name = None;
+    }
+
     /// A set asked for with OSC 50 waits for the host to take it.
     pub fn font_requested(&self) -> bool {
         self.state.font_request.is_some()

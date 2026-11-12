@@ -1567,6 +1567,7 @@ pub const ALLOW_FONT_OPS: Key = Key {
     what: "Let programs switch the console's font, and ask which font is in use (xterm's OSC 50).\n\n\
            A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. A switch lasts until that program's session ends; then vtium returns to the font and size that `font-name` and `font-size` set.\n\n\
            [docs] `vtium-config use-frit NAME` switches the font with the same sequence.\n\n\
+           [docs] The query reports the name of the font on screen, or no name when that font has none a switch takes, such as a font file's path or a font family.\n\n\
            When off, vtium ignores OSC 50, queries included.\n\n\
            [docs] It is on by default, as xterm's `allowFontOps` is, because a program can choose only the installed font sets, the built-in fonts and the font its console started in, never another file. vtium reads a font set only when root owns it and no other user can change it or a folder above it.",
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
