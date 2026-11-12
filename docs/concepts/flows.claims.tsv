@@ -1,0 +1,49 @@
+element	file	symbol
+a head is a terminal for one or more displays, with its own grid, look and consoles	crates/vtium-settings/src/config.rs	Head
+a console is one session of a head with its own screen and scrollback	crates/vtium/src/head/console.rs	Console
+a head that names no look uses the default look	crates/vtium-settings/src/config.rs	Config::look
+in vtium.conf a path is one head section and the rules that name it	crates/vtium-config/src/tui/paths.rs	read
+vtium checks each device against the rules from the top, and the first match decides	crates/vtium-settings/src/place.rs	Config::walk_at
+a rule sends a device to a head, roaming, ignore or off	crates/vtium-settings/src/config.rs	Target
+an ignored input's keys reach no session, and an off display shows nothing	crates/vtium-settings/src/place.rs	Disposition
+vtium places a device by its own identity and the rules alone, so a hotplugged keyboard goes where it would at start	crates/vtium-settings/src/place.rs	Config::walk
+a roaming input types into the active head	crates/vtium/src/head/route.rs	head_of
+the active head is one head at a time	crates/vtium-settings/src/place.rs	Placement
+the roaming chord on a roaming keyboard makes another head the active head	crates/vtium/src/head/chord.rs	HeadChord::NextHead
+Ctrl-Super-Up is the roaming chord's key for the next head	crates/vtium-settings/src/keys.rs	key key-focus-next
+an isolated head is never the active head	crates/vtium-settings/src/place.rs	Config::can_be_active
+on an isolated head's keyboards the VT keys reach the session as keys	crates/vtium/src/head/route.rs	Routes::vt_keys
+a file that does not set policy is open	crates/vtium-settings/src/outcome.rs	Policy::default
+under both policies vtium turns off a display that no rule names	crates/vtium-settings/src/place.rs	Config::walk_at
+an input no rule names roams under open and is ignored under closed	crates/vtium-settings/src/place.rs	Config::walk_at
+a head is isolated as its isolated key says, else as the policy leaves it	crates/vtium-settings/src/place.rs	Config::isolated
+the policy's answer for an unset isolated key: no under open, yes under closed	crates/vtium-settings/src/outcome.rs	Policy::unset
+the vt key	crates/vtium-settings/src/keys.rs	key vt
+the Flow view states the policy on its third line	crates/vtium-config/src/tui/words.rs	flow_policy
+with no sections vtium runs its built-in configuration	crates/vtium-settings/src/config.rs	Config::builtin
+the built-in configuration's lines	crates/vtium-settings/src/config.rs	TEMPLATE
+the built-in configuration ignores every input its classes do not name	crates/vtium-settings/templates/heads.conf	input * -> ignore
+vtium runs the built-in default only for an open file with no head and no rule	crates/vtium-settings/src/place.rs	Config::builtin_at
+the default picture groups the keyboard and key classes as All keyboards	crates/vtium-config/src/tui/paths.rs	ANY_KEYBOARD
+the default picture groups the pointer classes as All mice and touchpads	crates/vtium-config/src/tui/paths.rs	POINTER_CLASSES
+a head with no vt key runs on every VT	crates/vtium-settings/src/config.rs	Head::runs_on
+the kiosk file's admin head sets isolated = no	docs/heads/kiosk-admin.conf	isolated = no
+the kiosk file sends the spare port 3.3 to roaming	docs/heads/kiosk-admin.conf	input path:pci-0000:15:00.0-usb-0:3.3 -> roaming
+a path: rule that ends at a port takes every device on a hub in that port	crates/vtium-settings/src/matching.rs	Token::matches
+no station can be the active head, so vtium never moves a keyboard between stations	crates/vtium-settings/src/place.rs	Config::can_be_active
+each vtium builds only the heads that run on its own VT	crates/vtium-settings/src/place.rs	Config::heads_on_vt
+two heads on different VTs can both show every display: a rule whose head runs elsewhere only notes the head	crates/vtium-settings/src/place.rs	Config::walk_at
+on VT 3 the keyboard on port 3.3 stays with panel and types into nothing	crates/vtium-settings/src/place.rs	Place::Elsewhere
+its Ctrl-Alt-F4 still switches to VT 4, since panel is not isolated	crates/vtium/src/head/route.rs	Routes::vt_keys
+switch-on-enter lets Enter on that keyboard switch to VT 4	crates/vtium-settings/src/place.rs	Config::switch_on_enter
+picture: each flow head carries vtium's own isolation answer	crates/vtium-config/src/flowmodel.rs	build
+picture: the roaming inputs line is drawn only beside a head that is not isolated	crates/vtium-config/src/tui/flowview.rs	isolated
+picture: the flow head's isolated field	crates/vtium-config/src/tui/flow.rs	Head
+pictures: the Flow view states each picture is drawn from	crates/vtium-config/tests/tui.rs	the_flow_view_s_states_at_80x25_and_120x32
+picture of the kiosk: the machine it is drawn on	crates/vtium-config/tests/tui.rs	kiosk_machine
+picture of the stations: the machine it is drawn on	crates/vtium-config/tests/tui.rs	stations_machine
+picture of the default: the built-in default's sentence	crates/vtium-config/tests/screens/flow-default-120x32.txt	This is vtium's built-in default
+picture of the kiosk: kiosk's row has no roaming line	crates/vtium-config/tests/screens/flow-kiosk-admin-120x32.txt	policy closed: vtium ignores a keyboard that no rule names
+picture of the stations: three stations, each on its port	crates/vtium-config/tests/screens/flow-stations-120x32.txt	station-3
+picture of two heads on two VTs: desk on VT 3	crates/vtium-config/tests/screens/flow-shared-vts-120x32.txt	font set proof · VT 3
+picture of two heads on two VTs: panel on VT 4	crates/vtium-config/tests/screens/flow-shared-vts-120x32.txt	default font set · VT 4
