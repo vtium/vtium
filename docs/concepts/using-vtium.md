@@ -20,7 +20,7 @@ A proposed tool, vtium-clipboard, would let scripts make the same copy from the 
 
 ## Links and prompts
 
-A program can mark text as a link, and a shell can mark its prompts. vtium keeps the links and the prompt marks. When you Ctrl+click a link, vtium copies its address so that you can paste it. Ctrl+Shift+Up and Ctrl+Shift+Down move the view from one prompt to the next. vtium does not yet show a link's address on screen. See [the OSC 8 links issue](https://github.com/vtium/vtium/issues/40).
+A program can mark text as a link, and a shell can mark its prompts. vtium keeps the links and the prompt marks. When you Ctrl+click a link, vtium copies its address so that you can paste it. Ctrl+Shift+Up and Ctrl+Shift+Down move the view from one prompt to the next. While you hold Ctrl over a link, vtium shows the link's address on the bottom row of the screen. When the pointer is on the bottom row, vtium shows the address on the top row instead.
 
 ## Keys
 
