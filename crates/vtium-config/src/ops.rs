@@ -140,22 +140,48 @@ pub fn section_keys(text: &str, of: Of<'_>, keys: &[(&str, Option<&str>)]) -> Re
     Ok(out)
 }
 
-/// `text` without the line that sets `key` in the section `of`. The
-/// section writer unsets a key by commenting its line out and changes no
-/// other line, so the one line it changed is the line that goes.
+/// `text` without the line that sets `key` in the section `of`, or `text`
+/// as it is when the section does not set `key`. The section writer
+/// unsets a key by commenting its line out and changes no other line, so
+/// that one line goes. A section the file lacks is refused, as setting a
+/// key of it is.
 fn unset_key(text: &str, of: Of<'_>, key: &str) -> Result<String, Fail> {
     let commented = set_key(text, of, key, None).map_err(|e| refused(&e))?;
-    let before: Vec<&str> = text.split_inclusive('\n').collect();
-    let after: Vec<&str> = commented.split_inclusive('\n').collect();
-    let Some(at) = before.iter().zip(&after).position(|(b, a)| b != a) else {
+    if commented == text {
         return Ok(text.to_owned());
-    };
-    Ok(before
+    }
+    without_commented(text, &commented).ok_or_else(|| {
+        Fail::Usage(format!(
+            "vtium-config cannot unset {key} in this section. Remove its line by hand."
+        ))
+    })
+}
+
+/// `before` without the one line that `after` has commented out, when
+/// `after` has the same lines as `before` but for one, which is that line
+/// with a `#` in front; `None` otherwise.
+fn without_commented(before: &str, after: &str) -> Option<String> {
+    let old: Vec<&str> = before.split_inclusive('\n').collect();
+    let new: Vec<&str> = after.split_inclusive('\n').collect();
+    if old.len() != new.len() {
+        return None;
+    }
+    let mut changed = old
         .iter()
+        .zip(&new)
         .enumerate()
-        .filter(|(n, _)| *n != at)
-        .map(|(_, l)| *l)
-        .collect())
+        .filter(|(_, (o, n))| o != n);
+    let (at, (o, n)) = changed.next()?;
+    if changed.next().is_some() || n.strip_prefix('#') != Some(*o) {
+        return None;
+    }
+    Some(
+        old.iter()
+            .enumerate()
+            .filter(|(i, _)| *i != at)
+            .map(|(_, l)| *l)
+            .collect(),
+    )
 }
 
 /// Adds `[head NAME]`, naming the look `look` where one is given; without
@@ -472,6 +498,46 @@ mod tests {
             unset,
             "version = 1\n[look big]\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n"
         );
+    }
+
+    // unsetting a key the section does not set changes nothing, and
+    // unsetting a key of a section the file lacks is refused and writes
+    // nothing, as setting one is
+    #[test]
+    fn unsetting_a_key_that_is_not_there_changes_no_line() {
+        let text =
+            "version = 1\n[head desk]\nconsoles = 2\nlogin = /bin/sh\n[rules]\ndisplay * -> desk\n";
+        for key in ["switch-on-enter", "isolated", "vt"] {
+            assert_eq!(
+                section_keys(text, Of::Head("desk"), &[(key, None)]).unwrap(),
+                text,
+                "{key}"
+            );
+        }
+        let missing = section_keys(text, Of::Head("nobody"), &[("vt", None)]).unwrap_err();
+        assert_eq!(missing.code(), 2);
+    }
+
+    // a line goes only when the section writer changed exactly one line
+    // and added none: a writer that inserted a line would otherwise take
+    // an unrelated line of the file out
+    #[test]
+    fn only_the_one_line_the_writer_commented_out_goes() {
+        let text = "a = 1\nb = 2\nc = 3\n";
+        assert_eq!(
+            without_commented(text, "a = 1\n#b = 2\nc = 3\n"),
+            Some("a = 1\nc = 3\n".to_owned())
+        );
+        assert_eq!(without_commented(text, text), None);
+        // an inserted line, two changed lines, and a line changed in
+        // another way than by a leading `#` take nothing out
+        for after in [
+            "a = 1\nnew = 0\nb = 2\nc = 3\n",
+            "#a = 1\n#b = 2\nc = 3\n",
+            "a = 1\nb = 9\nc = 3\n",
+        ] {
+            assert_eq!(without_commented(text, after), None, "{after}");
+        }
     }
 
     // ADR-1403 D5, D8: `look add`, `look set` and the look card offer
