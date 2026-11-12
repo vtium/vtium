@@ -3481,3 +3481,107 @@ fn the_vts_vtium_runs_on_are_those_of_its_running_units() {
     m.fake.fail = Some("list-units --plain --no-legend --state=active *@tty*.service".to_owned());
     assert!(running_vts(&mut m.fake).is_err());
 }
+
+/// The cells of each row of `status`'s table in `out`, by the column
+/// titles' places in the header, as vtium-config reads the table.
+fn status_table(out: &str) -> Vec<Vec<String>> {
+    let mut lines = out.lines().skip_while(|l| !l.starts_with("VT "));
+    let header = lines.next().unwrap();
+    let starts: Vec<usize> = text::STATUS_HEADER
+        .iter()
+        .map(|title| header.find(title).unwrap())
+        .collect();
+    lines
+        .take_while(|l| {
+            l.split_whitespace()
+                .next()
+                .is_some_and(|n| n.parse::<u16>().is_ok())
+        })
+        .map(|l| {
+            starts
+                .iter()
+                .enumerate()
+                .map(|(i, &at)| {
+                    let end = starts
+                        .get(i.saturating_add(1))
+                        .copied()
+                        .unwrap_or(l.len())
+                        .min(l.len());
+                    l.get(at.min(end)..end)
+                        .unwrap_or_default()
+                        .trim()
+                        .to_owned()
+                })
+                .collect()
+        })
+        .collect()
+}
+
+// vtium-config reads `status`'s table by its column titles, so the titles
+// and their order are a contract: VT, at boot, when switched to, running,
+// each column as wide as its widest cell and two spaces apart, the last
+// unpadded, and "-" for an empty cell.
+#[test]
+fn the_status_tables_header_and_columns_are_fixed() {
+    assert_eq!(
+        text::STATUS_HEADER,
+        ["VT", "at boot", "when switched to", "running"]
+    );
+    let mut m = Machine::gettys("status-layout");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.fake.running = vec!["vtium@tty3.service".to_owned()];
+    let (status, out, _) = m.console(&["status"]);
+    assert_eq!(status, 0, "{out}");
+    let header = out.lines().find(|l| l.starts_with("VT ")).unwrap();
+    assert_eq!(
+        header,
+        "VT  at boot                 when switched to  running"
+    );
+    let row = out.lines().find(|l| l.starts_with("3 ")).unwrap();
+    assert_eq!(
+        row,
+        "3   getty@tty3, vtium@tty3  getty@tty3        vtium@tty3"
+    );
+    let table = status_table(&out);
+    assert_eq!(
+        table.iter().find(|r| r[0] == "7"),
+        None,
+        "a VT nothing names has no row"
+    );
+    assert_eq!(table.iter().find(|r| r[0] == "2").unwrap()[3], "-");
+}
+
+// ADR-1401 D3: check-config's VTs where vtium is enabled are those whose
+// row in `status`'s table names vtium@ttyN or vtium-seat@ttyN as a part of
+// its "at boot" or "when switched to" cell, the reading of vtium-config's
+// install; a mask's part and the development install's unit count for
+// neither.
+#[test]
+fn the_vts_vtium_is_enabled_on_are_those_status_names_it_on() {
+    let mut m = Machine::gettys("enabled-as-status");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.link("getty.target.wants/vtium-dev@tty4.service", "vtium-dev");
+    m.link("autovt@tty5.service", "vtium-seat");
+    m.link("vtium@tty2.service", "vtium");
+    std::fs::remove_file(m.root().join(ETC).join("vtium@tty2.service")).unwrap();
+    symlink("/dev/null", m.root().join(ETC).join("vtium@tty2.service")).unwrap();
+    let (_, out, _) = m.console(&["status"]);
+    let table = status_table(&out);
+    assert!(
+        table.iter().any(|r| r[1].contains("vtium@tty2 masked")),
+        "{out}"
+    );
+    let named: BTreeSet<u16> = table
+        .iter()
+        .filter_map(|r| {
+            let n: u16 = r[0].parse().ok()?;
+            let own = [format!("vtium@tty{n}"), format!("vtium-seat@tty{n}")];
+            r[1..3]
+                .iter()
+                .any(|cell| cell.split(", ").any(|p| own.iter().any(|o| o == p)))
+                .then_some(n)
+        })
+        .collect();
+    assert_eq!(named, BTreeSet::from([3, 5]), "{out}");
+    assert_eq!(enabled_vts(m.root()), Some(named));
+}
