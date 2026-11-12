@@ -14,7 +14,7 @@ crate list: vtium-image in the images build	crates/vtium/Cargo.toml	images = ["d
 crate list: vtium-render on the render thread	crates/vtium-render/src/renderer.rs	Renderer
 the VT, /dev/ttyN: mode ioctls, SIGUSR1 and SIGUSR2	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acquire_signal
 the VT's release signal	crates/vtium-platform/src/vt/kernel.rs	KernelVt::release_signal
-KMS/DRM card: buffers lent, page flips	crates/vtium-platform/src/display.rs	Token
+KMS/DRM card: buffers lent, page flips	crates/vtium-platform/src/display/token.rs	Token
 or fbdev	crates/vtium-platform/src/display/fbdev.rs	Fbdev
 evdev devices: key and pointer events	crates/vtium-platform/src/input/evdev.rs	EVENTS_PER_READ
 /dev/kmsg: kernel messages	crates/vtium/src/main.rs	kernel_messages

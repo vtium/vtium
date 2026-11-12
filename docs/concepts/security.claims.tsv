@@ -1,7 +1,7 @@
 # Claims of docs/concepts/security.md, converted from its author's claim list.
 element	file	symbol
 the console runs as root for its whole life, and its unit sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
-the parser's bounds, with no input-reachable panic	crates/vtium-parse/src/bounds.rs	ROWS
+the parser's bounds, with no input-reachable panic	crates/vtium-parse/src/bounds.rs	PARAMS
 the parser is fuzzed	crates/vtium-parse/fuzz/Cargo.toml	name = "parse"
 the screen is fuzzed	crates/vtium-term/fuzz/Cargo.toml	name = "screen"
 the font helper runs as nobody	crates/vtium/src/helper.rs	nobody
@@ -16,7 +16,7 @@ the helper program checks: absolute, regular, owner, mode	crates/vtium/src/helpe
 the helper program's refusals	crates/vtium/src/helper.rs	refusal
 the image helper runs as the session's user, or vtium-image before login	crates/vtium-platform/src/image_helper/identity.rs	PRELOGIN_ACCOUNTS
 the login classes that count as a logged-in user	crates/vtium-platform/src/image_helper/identity.rs	LOGIN_CLASSES
-the pre-login account the package creates	crates/vtium/install/vtium-image.conf	pictures a program sends inline at the login prompt decode as this
+the pre-login account the package creates	crates/vtium/install/vtium-image.conf	u vtium-image
 the image helper starts from the program opened and checked once	crates/vtium-platform/src/image_helper/start.rs	open_program
 the image helper's child setup: session, signals, descriptors, limits, ids	crates/vtium-platform/src/image_helper/start.rs	child
 a root helper has every capability removed	crates/vtium-platform/src/image_helper/start.rs	drop_bounding_set
@@ -45,7 +45,7 @@ vtium-config installs through sudo, with no path or program option	crates/vtium-
 check-config opens nothing under /dev and writes nothing	crates/vtium/src/check.rs	main
 open and closed policies	crates/vtium-settings/src/outcome.rs	Policy
 ignored keyboards are watched only for the VT keys	crates/vtium-platform/src/input/event.rs	Disposition
-switch-on-enter only under the open policy	crates/vtium-settings/src/config.rs	switch_on_enter
+switch-on-enter only under the open policy	crates/vtium-settings/src/config.rs	Config::switch_on_enter
 the closed policy keeps the getty off: the marker	crates/vtium/src/getty.rs	mark
 the getty fallback skips the VT while the marker exists	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed
 /bin/login -p with reset-env	crates/vtium/src/child.rs	child
