@@ -1322,8 +1322,21 @@ fn reach(cols: usize, rows: usize, keys: &[&[u8]]) -> String {
 /// The screen the script `keys` reaches at `cols` by `rows`, from `view`,
 /// and the bytes the TUI wrote to draw it.
 fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> (String, Vec<u8>) {
+    reach_on(true, view, cols, rows, keys)
+}
+
+/// The screen the script `keys` reaches at `cols` by `rows`, from `view`,
+/// in a vtium console with `allow-font-ops` on or, with `ops` false, off,
+/// and the bytes the TUI wrote to draw it.
+fn reach_on(
+    ops: bool,
+    view: model::View,
+    cols: usize,
+    rows: usize,
+    keys: &[&[u8]],
+) -> (String, Vec<u8>) {
     let grid = (cols, rows);
-    let mut c = Console::vtium(cols, rows, true, "unifont")
+    let mut c = Console::vtium(cols, rows, ops, "unifont")
         .takes("minspec-16", grid)
         .takes("proof", grid)
         .takes("tiny5", grid)
@@ -1361,6 +1374,18 @@ fn each_view_at_80x25_and_100x30() {
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }
+}
+
+/// The Fonts view at 80x25 in a vtium console with `allow-font-ops` off,
+/// where the TUI cannot switch the font: the written description, as in
+/// any terminal that shows no images, and the notice that the live trial
+/// is off (ADR-1201 D4).
+#[test]
+fn the_fonts_view_without_font_operations_at_80x25() {
+    let (screen, bytes) = reach_on(false, model::View::Fonts, 80, 25, &[]);
+    assert!(screen.contains("does not support images"), "{screen}");
+    assert!(screen.contains(words::KEYS_FONTS), "{screen}");
+    golden("fonts-nolive-80x25", &screen, &bytes);
 }
 
 // Tab and Shift-Tab step the views wherever the selection is, and the
