@@ -15,6 +15,8 @@
 mod back;
 mod buffers;
 mod dark;
+mod left_off;
+mod legacy_search;
 mod matching;
 mod output;
 
@@ -175,11 +177,15 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// A modeset could not set the dark connectors off beside the lit
     /// displays, and that was logged as a warning.
     dark_refused: bool,
+    /// The displays left off while their monitors are still plugged in,
+    /// which keep their ids with no CRTC until a placement lights them
+    /// ([`left_off::LeftOff`]).
+    left_off: Vec<left_off::LeftOff>,
     /// The connectors whose display the card refused to set beside the
     /// others even with lit displays moved for it. Until such a connector
-    /// is unplugged, a hotplug moves no lit display for it, so the lit
-    /// displays do not blank at each hotplug for a display that cannot
-    /// light.
+    /// is unplugged or a modeset lights its display, a hotplug moves no lit
+    /// display for it and no search tries it again, so the lit displays do
+    /// not blank at each hotplug for a display that cannot light.
     move_refused: Vec<u32>,
     /// The CRTCs that owe the event of a flip whose display was let go while
     /// the flip was in flight, one entry for each such flip, oldest first,
@@ -214,8 +220,11 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// the displays since: the next input tries again.
     wake_failed: bool,
     /// The displays the last legacy modeset could not set, at the mode
-    /// chosen or at the mode they were set to. The wake-up retries try them
-    /// again, and none is asked to redraw until a modeset sets it.
+    /// chosen or at the mode they were set to: each whose set failed for a
+    /// reason that may pass, or every display, where the card refused them
+    /// all. A display the card refused beside others that lit is left off
+    /// instead. The wake-up retries try these again, and none is asked to
+    /// redraw until a modeset sets it.
     unset: Vec<DisplayId>,
     /// The card was let go after the kernel removed it: each display was
     /// reported removed, and drm2d sends the card nothing again.
@@ -270,6 +279,7 @@ impl<K: Kms> Drm2d<K> {
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
+            left_off: Vec::new(),
             move_refused: Vec::new(),
             stale: Vec::new(),
             color_refused: RefCell::new(Vec::new()),
@@ -394,9 +404,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.outputs.iter_mut().find(|o| o.id == id && o.announced)
     }
 
-    /// The connector's name, as `HDMI-A-1`.
+    /// The connector's name, as `HDMI-A-1`, of a display online or left
+    /// off.
     pub fn name(&self, id: DisplayId) -> Option<&str> {
-        self.output(id).map(|o| o.name.as_str())
+        self.output(id)
+            .map(|o| o.name.as_str())
+            .or_else(|| self.left_off(id).map(|l| l.name.as_str()))
     }
 
     /// The size in pixels of the display's mode.
@@ -1197,6 +1210,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.events.push(Event::Removed(o.id));
             }
         }
+        // Each display gets one event from here, its removal: a display
+        // left off in the same operation, whose Unlit the owner has not read
+        // yet, is reported removed alone.
+        self.events.retain(|e| !matches!(e, Event::Unlit(_)));
+        for l in std::mem::take(&mut self.left_off) {
+            self.events.push(Event::Removed(l.id));
+        }
         for (_, timer) in std::mem::take(&mut self.stale) {
             if let (Some(link), Some(t)) = (&self.link, timer) {
                 link.disarm(t);
@@ -1443,6 +1463,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         for d in &mut self.dark {
             d.available = false;
         }
+        for l in &mut self.left_off {
+            l.available = false;
+        }
         let mut needs = scan != Scan::Hotplug;
         // The set of displays changed: one was bound or let go.
         let mut changed = false;
@@ -1507,9 +1530,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     d.id != id
                 });
             }
+            self.see_left_off(id);
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
-                needs |= !o.online;
+                // A display the last legacy modeset could not set is set
+                // again at each scan, so a hotplug lights it where the card
+                // now takes it.
+                needs |= !o.online || self.unset.contains(&o.id);
                 // The same monitor listing other modes than those the
                 // display's mode was chosen from, as after a DisplayPort
                 // link is trained again, gets its mode chosen again from
@@ -1562,6 +1589,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .is_some_and(|dark| dark(&identity))
             {
                 log::info!("display {} is left dark", found.name);
+                self.darken_left_off(id);
                 self.dark.push(Dark {
                     id,
                     identity,
@@ -1580,6 +1608,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             d.available
         });
+        self.drop_left_off_gone();
         self.dark
             .sort_by_key(|d| res.connectors.iter().position(|&c| c == d.id));
         let (kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
@@ -2329,6 +2358,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if self.card.removed() {
                 return Err(Errno::NODEV.into());
             }
+            // The card refused displays where they are placed: another
+            // placement of them all, one that moves a lit display included,
+            // may light them ([`Self::legacy_relight`]).
+            unset = self.legacy_relight(unset);
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
             // The moved displays whose set failed. One new to the modeset
             // among them never goes back, as `going_back` leaves it out.
             let failed: Vec<(DisplayId, bool)> = unset
@@ -2386,6 +2422,29 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     unset = self.legacy_modeset();
                 }
             }
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
+            // The legacy calls say which display the card refused. Each one
+            // still refused here is left off, present but dark, so the
+            // retries do not set it again; a display whose set failed for a
+            // reason that may pass stays bound and unset, for the retries.
+            // Where no display is set, every one stays, and the retries try
+            // them again, as they try an atomic modeset the card refuses
+            // whole.
+            let refused: Vec<DisplayId> = unset.iter().filter(|u| u.1).map(|u| u.0).collect();
+            let set_any = self
+                .outputs
+                .iter()
+                .any(|o| !unset.iter().any(|u| u.0 == o.id));
+            if !refused.is_empty() && set_any {
+                let (off, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
+                    .into_iter()
+                    .partition(|o| refused.contains(&o.id));
+                self.outputs = kept;
+                self.leave_off(off, "the card refuses it beside the other displays");
+                unset.retain(|u| !u.1);
+            }
             (Ok(()), unset.into_iter().map(|(id, _)| id).collect())
         } else {
             let mut set = self.atomic_modeset_or_default(true);
@@ -2427,12 +2486,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         };
         self.unset = unset;
         if set.is_ok() {
-            // Each display set is on its new CRTC for good.
+            // Each display set is on its new CRTC for good, and lit, so no
+            // record of the card refusing it is needed any more.
             for o in self.outputs.iter_mut() {
                 if !self.unset.contains(&o.id) {
                     o.moved_from = None;
                 }
             }
+            let lit: Vec<u32> = self
+                .outputs
+                .iter()
+                .filter(|o| !self.unset.contains(&o.id))
+                .map(|o| o.id.0)
+                .collect();
+            self.move_refused.retain(|id| !lit.contains(id));
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;
@@ -2449,13 +2516,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC
-    /// for `why`: it stays off until a scan finds a CRTC for it, and the
-    /// owner hears it removed.
+    /// for `why`: it stays off until a scan finds a CRTC for it, present
+    /// but dark ([`Self::keep_left_off`]).
     fn let_go(&mut self, o: Output<S::Memory>, why: &str) {
         log::warn!("{why}; it stays off until a scan finds a CRTC for it");
-        if o.announced {
-            self.events.push(Event::Removed(o.id));
-        }
+        self.keep_left_off(&o);
         self.identities.retain(|(i, _)| *i != o.id);
         self.free(o);
     }
@@ -2565,7 +2630,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 }
             } else {
                 o.announced = true;
-                self.events.push(Event::Added(o.id));
+                // The owner has heard of a display left off, which it is
+                // told to draw whole now that it lights.
+                let before = self.left_off.len();
+                self.left_off.retain(|l| l.id != o.id);
+                if self.left_off.len() == before {
+                    self.events.push(Event::Added(o.id));
+                } else {
+                    self.events.push(Event::Redraw(o.id));
+                }
             }
         }
     }

@@ -175,7 +175,7 @@ const TOPICS: &[Topic] = &[
             "install [--force]",
             "check the draft and install it as /etc/vtium/vtium.conf",
         )],
-        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back.",
+        detail: "Checks the current draft with vtium check-config, then installs it with sudo vtium-config apply DIR, which asks for your password (as root, it installs without sudo). It does not install a draft that fails the check (exit 1), or a draft made before the installed file last changed (exit 3). It exits 4 when sudo refuses. A draft whose only problem is that it has no complete path, so that no connected keyboard can type into a terminal on a connected display, is the one exception. At a terminal, install asks before it installs that draft. --force installs it without asking. Without a terminal and without --force, install refuses it (exit 1). vtium-config keeps the file it replaces, so restore can bring it back. vtium reads vtium.conf only when it starts on a VT. So after it installs /etc/vtium/vtium.conf, install enables vtium with sudo vtium console enable on each VT a head names where vtium is not enabled, and shows what vtium console says, refusals included. At a terminal, it then asks whether to start vtium on those VTs and restart it where it runs, so the new file applies now. Each session keeps running through a restart, but its screen is cleared. Without a terminal, install prints those commands instead.",
         example: "vtium-config install",
     },
     Topic {
@@ -196,7 +196,7 @@ const TOPICS: &[Topic] = &[
     Topic {
         command: Command::Revert,
         forms: &[form("revert [--dry-run]", "throw away the draft's changes")],
-        detail: "Replaces the current draft with a copy of the installed vtium.conf, so the draft's changes are lost. The installed file does not change. --dry-run says how many lines would be lost.",
+        detail: "Replaces the current draft with a copy of the installed vtium.conf, so the draft's changes are lost. When no vtium.conf is installed, the draft becomes a short comment that says what the file is, and sets no setting. The installed file does not change. --dry-run says how many lines would be lost.",
         example: "vtium-config revert",
     },
     Topic {
@@ -205,7 +205,7 @@ const TOPICS: &[Topic] = &[
             "new [--dry-run]",
             "start the draft over from the defaults",
         )],
-        detail: "Starts the current draft over: every setting at its default (commented out, as in the example file vtium ships) and one empty look, [look default]. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
+        detail: "Starts the current draft over: a short comment that says what the file is, version = 1 and one empty look, [look default]. The draft sets no setting, so vtium uses every default. The draft's heads, rules and looks are lost. --dry-run says how many lines would be lost.",
         example: "vtium-config new",
     },
     Topic {
@@ -228,7 +228,7 @@ const TOPICS: &[Topic] = &[
         forms: &[
             form("head add NAME [--look L]", "add a head"),
             form(
-                "head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD] [--when-display-lost V] [--isolated yes|no]",
+                "head set NAME [--name NEW] [--look L] [--consoles N] [--login CMD] [--when-display-lost V] [--isolated yes|no] [--switch-on-enter yes|no]",
                 "change a head's settings",
             ),
             form("head rm NAME", "delete a head, keeping its rules"),

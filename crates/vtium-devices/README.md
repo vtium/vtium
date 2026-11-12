@@ -9,7 +9,7 @@ The crate depends on vtium-platform and vtium-settings, which both binaries alre
 | Path | What it is |
 |---|---|
 | `src/lib.rs` | The crate's documentation, lints and public names. |
-| `src/identity.rs` | `display` and `unnamed_display`, a display with its `Card` and its place among the card's displays; `input`, an input device with its udev classes, path, USB serial, Bluetooth address, ids, name and udev properties; and the EDID's maker, product code and serial as an `edid:` rule matches them. |
+| `src/identity.rs` | `display` and `unnamed_display`, a display with its `Card` and its place among the card's displays; `input`, an input device with its udev classes, path, USB serial, Bluetooth address, ids, name and udev properties; the EDID's maker, product code and serial as an `edid:` rule matches them; and `why_unnamed`, which says why vtium cannot write a rule that names a display, judging each part through vtium-settings's `rule_for`, for the display's log line. |
 | `src/listing.rs` | `SEAT`, the seat whose devices are listed; `devices`, a listing of that seat's devices mapped as the start maps them; `UDEV_CONTROL` and `udev_daemon_runs`, whether a udev daemon runs to fill the database that some rule keys read. |
 
 `cargo test -p vtium-devices` runs the crate's tests. `vtium check-config`'s tests in `crates/vtium/src/check.rs` and the console's head tests in `crates/vtium/tests/heads.rs` also run through these functions.

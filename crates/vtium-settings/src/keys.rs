@@ -559,6 +559,20 @@ pub const NOTICE_BORDER: Key = Key {
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
+pub const KERNEL_MESSAGES: Key = Key {
+    name: "kernel-messages",
+    short: None,
+    kind: Kind::Choice(&["after-plymouth", "always"]),
+    default: Default::Text("after-plymouth"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "When vtium shows the kernel's warnings and errors on the screen.\n\n\
+           vtium shows each new kernel message whose level is warning or more severe, on top of the console, as long as the kernel's console log level lets it through. `quiet` and `loglevel=` on the kernel command line set that level. vtium never writes them into a console's session.\n\n\
+           `after-plymouth` leaves the messages to Plymouth, the boot splash program, while it runs, and vtium shows them once Plymouth has quit. Once Plymouth has quit, vtium does not go back and show the messages that came while it ran. On a machine without Plymouth, vtium shows them from its start. `always` shows them whether Plymouth runs or not.",
+    cite: "[the boot messages issue](https://github.com/vtium/vtium/issues/266)",
+};
+
 pub const OSD_FOREGROUND: Key = Key {
     name: "osd-foreground",
     short: None,
@@ -1558,6 +1572,22 @@ pub const ALLOW_FONT_OPS: Key = Key {
     cite: "[the issue that loads the configured font set](https://github.com/vtium/vtium/issues/126)",
 };
 
+pub const ALLOW_WINDOW_OPS: Key = Key {
+    name: "allow-window-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(false),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Let programs set the size of the console's text area in rows and columns (xterm's window operation `CSI 8 ; ROWS ; COLUMNS t`).\n\n\
+           vtium meets the request by changing the font size. It draws at the largest font size at which the displays hold that many rows and columns, and the console's grid becomes exactly that size. When the displays cannot hold the size even at the smallest font size, the grid gets as many rows and columns as they hold there. A number left out keeps that side as it is, and 0 fills the display on that side.\n\n\
+           The grid is exact, but a display may draw it in larger character cells than that font size gives, to fill more of the screen. A program that asks for the cell size, as with `CSI 16 t`, is told the cell of that font size.\n\n\
+           The size lasts until the session of the program that asked for it ends, or until you zoom. Then vtium returns to the size that `font-size` sets.\n\n\
+           When off, vtium ignores the request and changes nothing. It is off by default, as xterm's `allowWindowOps` is. A program can ask for the size in any case, with `CSI 18 t`.",
+    cite: "[the font and window operations issue](https://github.com/vtium/vtium/issues/44)",
+};
+
 pub const GLYPH_SOURCE: Key = Key {
     name: "glyph-source",
     short: None,
@@ -2103,7 +2133,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 125] = [
+pub static KEYS: [Key; 127] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2117,6 +2147,7 @@ pub static KEYS: [Key; 125] = [
     OSD,
     OSD_TIMEOUT,
     FOCUS_MARK,
+    KERNEL_MESSAGES,
     NOTICE_FOREGROUND,
     NOTICE_BACKGROUND,
     NOTICE_BORDER,
@@ -2209,6 +2240,7 @@ pub static KEYS: [Key; 125] = [
     FONT_LINE_SPACING,
     CELL,
     ALLOW_FONT_OPS,
+    ALLOW_WINDOW_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
@@ -2291,6 +2323,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Font switching by programs",
                 keys: &[&ALLOW_FONT_OPS],
+            },
+            Group {
+                title: "Text area size set by programs",
+                keys: &[&ALLOW_WINDOW_OPS],
             },
             Group {
                 title: "Right-to-left text",
@@ -2446,11 +2482,15 @@ pub const SECTIONS: [Section; 11] = [
     },
     Section {
         title: "On-screen display and notices",
-        about: "What vtium shows on top of the console to say which head and console you are looking at, and to report a problem, and their colors.",
+        about: "What vtium shows on top of the console, and in which colors: which head and console you are looking at, a notice about a problem, and the kernel's warnings.",
         groups: &[
             Group {
                 title: "On-screen display",
                 keys: &[&OSD, &OSD_TIMEOUT, &FOCUS_MARK],
+            },
+            Group {
+                title: "Kernel messages",
+                keys: &[&KERNEL_MESSAGES],
             },
             Group {
                 title: "Notice colors",

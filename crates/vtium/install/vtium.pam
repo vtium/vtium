@@ -1,0 +1,31 @@
+#%PAM-1.0
+# The PAM stack of vtium's own session, which seat mode's unit,
+# vtium-seat@.service, opens through PAMName=vtium (ADR-1400 D3). vtium
+# needs no password to start: the person logs in later, at the login prompt
+# that vtium shows, and /bin/login runs its own PAM stack for that. This
+# stack opens a session so that pam_systemd registers it with logind, and
+# libseat's logind backend then takes the seat from it. It is the session
+# stack of a display manager's greeter, as Arch's sddm package ships it in
+# /etc/pam.d/sddm-greeter.
+
+# Load the environment from /etc/environment.
+auth		required	pam_env.so
+# vtium starts without authentication.
+auth		required	pam_permit.so
+# No account check is needed.
+account		required	pam_permit.so
+# No password can be changed here.
+password	required	pam_deny.so
+# The session, registered with logind by pam_systemd, or with elogind by
+# pam_elogind. The leading - keeps PAM quiet about whichever of the two
+# modules is not installed, since a machine has only one of them. Seat mode
+# under elogind is untested. The session's class is a greeter's, as a
+# display manager's greeter session has (ADR-1400 D3). Without a class,
+# pam_systemd gives a root session on a tty the class user-early, and logind
+# stops an idle session of that class when StopIdleSessionSec= is set.
+# vtium never reads its tty, so logind would always judge it idle and stop
+# vtium. A greeter's session also does not count as another user's session
+# when the machine powers off.
+session		required	pam_unix.so
+-session	optional	pam_systemd.so class=greeter
+-session	optional	pam_elogind.so class=greeter

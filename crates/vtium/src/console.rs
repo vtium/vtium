@@ -1,19 +1,27 @@
-//! `vtium console`: gives one VT, or every VT, to the packaged vtium,
-//! `vtium@.service`, and takes them back (ADR-1500 D7).
+//! `vtium console`: gives one VT, or every VT, to the packaged vtium, and
+//! takes them back (ADR-1500 D7). vtium runs on a VT in one of two modes
+//! (ADR-1400 D3): direct mode through `vtium@.service`, and seat mode
+//! through `vtium-seat@.service`. `enable` takes the mode as `--direct` or
+//! `--seat`, and moves a VT that has the other mode to the one asked for.
+//! Without a mode it changes nothing and gives advice ([`advice`]).
 //!
 //! systemd starts the units `getty.target` wants at boot, and logind starts
 //! `autovt@ttyN.service` on a VT that nothing holds when the user switches
 //! to it. `/etc/systemd/system/autovt@ttyN.service`, a VT's own link, wins
 //! over `/etc/systemd/system/autovt@.service`, the template link that every
-//! other VT follows. `enable N` enables `vtium@ttyN` and disables the VT's
-//! getty; `enable --all` also links the template to vtium and disables the
-//! gettys on VTs 2 to 6, which logind then fills with vtium. Before vtium
+//! other VT follows. `enable N` enables the mode's unit on VT N, such as
+//! `vtium@ttyN`, and disables the VT's getty; `enable --all` also links the
+//! template to the mode's unit and does `enable N` on each free VT from 1 to
+//! 6. So systemd starts vtium at boot on each VT it claims, and vtium holds
+//! each one open from boot, where a display manager that puts a desktop
+//! session on the first free VT would otherwise take it. Before vtium
 //! disables a getty or moves the template link, it writes a record of
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
 //! what the records say. It passes by every VT another program holds: a
 //! VT that a unit enabled at boot, such as the display manager's, claims,
 //! judged from what is on the machine ([`held`]), and a VT a graphical
-//! session, a greeter or another console is on now. `fallback N`, which
+//! session, a greeter or another console is on now, or that is the
+//! controlling terminal of a program running now ([`process`]). `fallback N`, which
 //! `vtium-getty@.service` runs when vtium on VT N fails, starts the VT's
 //! getty only when that start stops no other program ([`fallback`]).
 //!
@@ -37,9 +45,11 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+mod advice;
 mod fallback;
 mod graphical;
 mod held;
+mod process;
 mod text;
 
 use held::Holder;
@@ -51,8 +61,13 @@ pub const LAST_VT: u16 = 63;
 /// default is 6 (logind.conf(5)).
 const LOGIND_VTS: u16 = 6;
 
-/// The packaged vtium's unit, `vtium@.service`, by its template's prefix.
+/// The packaged vtium's unit in direct mode, `vtium@.service`, by its
+/// template's prefix.
 const VTIUM: &str = "vtium";
+/// The packaged vtium's unit in seat mode, `vtium-seat@.service`.
+const SEAT: &str = "vtium-seat";
+/// The packaged vtium's units, one for each mode.
+const VTIUMS: [&str; 2] = [VTIUM, SEAT];
 /// The development install's unit (ADR-1500 D4).
 const DEV: &str = "vtium-dev";
 /// systemd's getty.
@@ -60,7 +75,7 @@ const GETTY: &str = "getty";
 /// kmscon's console, the released `kmscon`'s unit `kmsconvt@.service`.
 const KMSCON: &str = "kmsconvt";
 /// The consoles `vtium console` knows by name, each with rules of its own.
-const CONSOLES: [&str; 4] = [VTIUM, DEV, GETTY, KMSCON];
+const CONSOLES: [&str; 5] = [VTIUM, SEAT, DEV, GETTY, KMSCON];
 
 /// systemd's system unit directories that the administrator, the running
 /// system or a package installs into, in the order systemd's unit search
@@ -92,6 +107,46 @@ const MASK: &str = "/dev/null";
 const RECORDS: &str = "var/lib/vtium/console";
 /// A directory only a host booted with systemd has (sd_booted(3)).
 const BOOTED: &str = "run/systemd/system";
+/// The file logind keeps for seat0 while it runs and manages that seat, in
+/// the directory sd-login's `sd_get_seats` lists.
+const SEAT0: &str = "run/systemd/seats/seat0";
+/// The PAM stack seat mode's unit opens vtium's own session through
+/// (`PAMName=vtium`, ADR-1400 D3).
+const SEAT_PAM: &str = "etc/pam.d/vtium";
+
+/// How vtium runs on a VT (ADR-1400 D3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// vtium opens the screen and the keyboards itself, through
+    /// `vtium@.service`.
+    Direct,
+    /// vtium takes the seat from logind through a session of its own,
+    /// through `vtium-seat@.service`.
+    Seat,
+}
+
+impl Mode {
+    /// The prefix of the mode's unit.
+    fn prefix(self) -> &'static str {
+        match self {
+            Mode::Direct => VTIUM,
+            Mode::Seat => SEAT,
+        }
+    }
+
+    /// The flag that names the mode.
+    pub fn flag(self) -> &'static str {
+        match self {
+            Mode::Direct => "--direct",
+            Mode::Seat => "--seat",
+        }
+    }
+}
+
+/// The prefix of the other mode's unit.
+fn other_vtium(prefix: &str) -> &'static str {
+    if prefix == SEAT { VTIUM } else { SEAT }
+}
 
 /// Which VTs a verb acts on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -103,7 +158,10 @@ pub enum Which {
 /// What the subcommand's words ask.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verb {
-    Enable(Which),
+    Enable(Which, Mode),
+    /// `enable` with no mode: advice on the mode, for the VTs named or for
+    /// every VT.
+    Advise(Option<Which>),
     Disable(Which),
     Status,
     /// Starts VT N's getty in place of a vtium that failed there, unless
@@ -115,7 +173,9 @@ impl Verb {
     /// The verb and its argument, as the user types them.
     fn words(self) -> String {
         match self {
-            Verb::Enable(w) => format!("enable {}", which_word(w)),
+            Verb::Enable(w, m) => format!("enable {} {}", m.flag(), which_word(w)),
+            Verb::Advise(Some(w)) => format!("enable {}", which_word(w)),
+            Verb::Advise(None) => "enable".to_owned(),
             Verb::Disable(w) => format!("disable {}", which_word(w)),
             Verb::Status => "status".to_owned(),
             Verb::Fallback(n) => format!("fallback {n}"),
@@ -170,17 +230,47 @@ fn parse_words(args: &[OsString]) -> Result<Parsed, String> {
             },
             [_, extra, ..] => Err(text::extra_word(extra)),
         },
-        "enable" | "disable" => {
+        "enable" => {
+            let mut mode: Option<Mode> = None;
+            let mut vts: Option<Which> = None;
+            for word in rest {
+                let flag = match *word {
+                    "--direct" => Some(Mode::Direct),
+                    "--seat" => Some(Mode::Seat),
+                    _ => None,
+                };
+                if let Some(flag) = flag {
+                    if mode.is_some_and(|m| m != flag) {
+                        return Err(text::TWO_MODES.to_owned());
+                    }
+                    if mode.is_some() {
+                        return Err(text::extra_word(word));
+                    }
+                    mode = Some(flag);
+                } else if vts.is_some() {
+                    return Err(text::extra_word(word));
+                } else {
+                    vts = Some(which(word)?);
+                }
+            }
+            Ok(Parsed::Run(match mode {
+                Some(mode) => match vts {
+                    Some(vts) => Verb::Enable(vts, mode),
+                    None => return Err(text::needs_which(&format!("enable {}", mode.flag()))),
+                },
+                None => Verb::Advise(vts),
+            }))
+        }
+        "disable" => {
             let which = match rest {
                 [] => return Err(text::needs_which(verb)),
+                [word] if *word == "--direct" || *word == "--seat" => {
+                    return Err(text::disable_no_mode(word));
+                }
                 [word] => which(word)?,
                 [_, extra, ..] => return Err(text::extra_word(extra)),
             };
-            Ok(Parsed::Run(if *verb == "enable" {
-                Verb::Enable(which)
-            } else {
-                Verb::Disable(which)
-            }))
+            Ok(Parsed::Run(Verb::Disable(which)))
         }
         other => Err(text::unknown_verb(other)),
     }
@@ -261,6 +351,9 @@ pub struct Host<'a> {
     pub root: PathBuf,
     /// Whether the effective user is root.
     pub root_user: bool,
+    /// Whether this vtium is built with `libseat` and `logind`, which seat
+    /// mode needs.
+    pub seat_build: bool,
     pub systemd: &'a mut dyn Systemd,
 }
 
@@ -383,6 +476,9 @@ fn instance(name: &str) -> Option<(&str, u16)> {
 /// What vtium reads of systemd's state and its own records.
 #[derive(Debug, Default)]
 struct State {
+    /// The prefix of the unit of the mode a verb gives VTs to: `vtium`, or
+    /// `vtium-seat` for `enable --seat`.
+    prefix: &'static str,
     /// The template link in force: `autovt@.service` in the first unit
     /// directory that has it.
     template: Link,
@@ -407,7 +503,8 @@ struct State {
     sessions_unknown: Option<String>,
     /// Each VT's own `autovt@ttyN.service` link.
     own: BTreeMap<u16, Link>,
-    /// The VTs whose `vtium@ttyN` is masked.
+    /// The VTs whose unit of the mode asked for, such as `vtium@ttyN`, is
+    /// masked.
     masked: BTreeSet<u16>,
     /// The units running on each VT, by prefix.
     running: BTreeMap<u16, BTreeSet<String>>,
@@ -418,7 +515,240 @@ struct State {
     template_record: Option<Option<String>>,
 }
 
+/// Whether a link names one of vtium's two units.
+fn names_vtium(link: &Link) -> bool {
+    VTIUMS.iter().any(|p| link.names(p))
+}
+
+/// The prefixes of vtium's two units that a cell of `status`'s table
+/// names on VT `n`, `vtium@ttyN` or `vtium-seat@ttyN`, each as one of its
+/// parts, which `, ` separates.
+fn vtium_parts(cell: &str, n: u16) -> impl Iterator<Item = &'static str> + '_ {
+    cell.split(", ").filter_map(move |part| {
+        VTIUMS
+            .iter()
+            .copied()
+            .find(|p| part == format!("{p}@tty{n}"))
+    })
+}
+
+/// The VTs vtium is enabled on, and the mode `vtium console enable` gives
+/// another VT to match them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Enabled {
+    pub vts: BTreeSet<u16>,
+    /// Seat mode when every unit of vtium's that the VTs name is seat
+    /// mode's, and direct mode when they mix or none is enabled, the
+    /// reading vtium-config's install uses.
+    pub mode: Mode,
+}
+
+/// The template link in each unit directory under `root` that has one,
+/// in the search path's order.
+fn templates(root: &Path) -> Vec<Link> {
+    UNIT_DIRS
+        .iter()
+        .map(|dir| Link::read(&root.join(dir).join(TEMPLATE)))
+        .filter(|link| *link != Link::Absent)
+        .collect()
+}
+
+/// Whether logind starts a console by itself on VT `n` when the user
+/// switches there: on its VTs and its reserved VT, and never on VT 1,
+/// since to ask whether a VT is busy it opens /dev/tty1 itself, and that
+/// open makes VT 1 busy.
+fn logind_starts(n: u16) -> bool {
+    n != 1 && (n <= LOGIND_VTS || n == RESERVED_VT)
+}
+
+/// The VTs vtium is enabled on under `root`, in either mode: where
+/// systemd starts it at boot, or where logind starts it when the user
+/// switches there, as the "at boot" and "when switched to" cells of
+/// `vtium console status`'s table name them ([`State::vtium_enabled`]).
+/// It reads systemd's links alone, and runs nothing, so the cells hold
+/// every part that names a unit of vtium's. The mode is the one those
+/// units share, else direct mode. `None` when `root` was not booted with
+/// systemd, so no link says anything.
+pub fn enabled_vts(root: &Path) -> Option<Enabled> {
+    if !root.join(BOOTED).is_dir() {
+        return None;
+    }
+    let state = State::links(root, VTIUM);
+    let mut all: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
+    all.insert(RESERVED_VT);
+    all.extend(state.vts());
+    let mut vts = BTreeSet::new();
+    let mut prefixes = BTreeSet::new();
+    for n in all {
+        let named = state.vtium_enabled(n);
+        if !named.is_empty() {
+            vts.insert(n);
+            prefixes.extend(named);
+        }
+    }
+    let mode = if prefixes.iter().eq([SEAT].iter()) {
+        Mode::Seat
+    } else {
+        Mode::Direct
+    };
+    Some(Enabled { vts, mode })
+}
+
+/// The VTs vtium runs on now, in either mode, from systemd's running
+/// units as `vtium console status` reads them, or why systemctl could not
+/// say.
+pub fn running_vts(systemd: &mut dyn Systemd) -> Result<BTreeSet<u16>, String> {
+    let running = running(systemd).map_err(|Stop(why)| why)?;
+    Ok(running
+        .into_iter()
+        .filter(|(_, prefixes)| VTIUMS.iter().any(|p| prefixes.contains(*p)))
+        .map(|(n, _)| n)
+        .collect())
+}
+
+/// The consoles running on each VT, from the running manager: every
+/// active unit named `PREFIX@ttyN.service`.
+fn running(systemd: &mut dyn Systemd) -> Step<BTreeMap<u16, BTreeSet<String>>> {
+    let args = [
+        "list-units",
+        "--plain",
+        "--no-legend",
+        "--state=active",
+        "*@tty*.service",
+    ];
+    let reply = systemctl_quiet(systemd, &args)?;
+    let mut running: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
+    for line in reply.stdout.lines() {
+        if let Some((prefix, n)) = line.split_whitespace().next().and_then(instance) {
+            running.entry(n).or_default().insert(prefix.to_owned());
+        }
+    }
+    Ok(running)
+}
+
+/// Runs systemctl and fails the step when it fails, printing nothing.
+fn systemctl_quiet(systemd: &mut dyn Systemd, args: &[&str]) -> Step<Reply> {
+    let line = args.join(" ");
+    let reply = systemd
+        .systemctl(args)
+        .map_err(|e| Stop(text::cannot_run(&line, &e.to_string())))?;
+    if reply.ok {
+        Ok(reply)
+    } else {
+        Err(Stop(text::failed(&line, &reply.stderr)))
+    }
+}
+
 impl State {
+    /// What systemd's links under `root` say for the mode whose unit's
+    /// prefix is `prefix`: the template link, the units `getty.target`
+    /// wants on each VT, each VT's own link, and the VTs where the mode's
+    /// unit is masked.
+    fn links(root: &Path, prefix: &'static str) -> State {
+        let etc = root.join(ETC);
+        let template_etc = Link::read(&etc.join(TEMPLATE));
+        let templates = templates(root);
+        let below = usize::from(template_etc != Link::Absent);
+        let mut state = State {
+            prefix,
+            template: templates.first().cloned().unwrap_or_default(),
+            template_below: templates.len() > below,
+            template_etc,
+            ..State::default()
+        };
+        let wants = root.join(WANTS);
+        for name in names(&wants) {
+            if let Some((prefix, n)) = instance(&name) {
+                let link = Link::read(&wants.join(&name));
+                state
+                    .wants
+                    .entry(n)
+                    .or_default()
+                    .insert(prefix.to_owned(), link);
+            }
+        }
+        for name in names(&etc) {
+            match instance(&name) {
+                Some(("autovt", n)) => {
+                    state.own.insert(n, Link::read(&etc.join(&name)));
+                }
+                Some((p, n)) if p == prefix && Link::read(&etc.join(&name)).masks() => {
+                    state.masked.insert(n);
+                }
+                _ => {}
+            }
+        }
+        state
+    }
+
+    /// The template prefix of the unit logind starts on VT `n` when the
+    /// user switches there: the unit the VT's own link names, else the
+    /// template link's. `None` where logind starts nothing by itself, and
+    /// where the link it follows names no template.
+    fn switched_unit(&self, n: u16) -> Option<&str> {
+        if !logind_starts(n) {
+            return None;
+        }
+        match self.own(n) {
+            Link::Absent => self.template().unit(),
+            link => link.unit(),
+        }
+    }
+
+    /// The "at boot" cell of VT `n`'s row in `status`'s table: the units
+    /// `getty.target` wants there, the units that start at boot and hold
+    /// it, a mask of the mode's unit, and the VT's record, each a part of
+    /// its own.
+    fn boot_cell(&self, n: u16) -> String {
+        let mut cell = self
+            .wants
+            .get(&n)
+            .map(|w| units(w.keys(), n))
+            .unwrap_or_default();
+        for holder in self.held.get(&n).into_iter().flatten() {
+            let part = text::holder_cell(holder);
+            // An instance getty.target wants shows already.
+            if let Holder::Unit { .. } = holder
+                && !cell.split(", ").any(|c| c == part)
+            {
+                cell = join(&cell, &part);
+            }
+        }
+        if self.masked.contains(&n) {
+            cell = join(&cell, &text::masked_cell(n));
+        }
+        if let Some(record) = self.records.get(&n) {
+            cell = join(&cell, text::recorded_cell(record));
+        }
+        cell
+    }
+
+    /// The "when switched to" cell of VT `n`'s row in `status`'s table:
+    /// the unit logind starts there at a switch. logind starts a console
+    /// by itself only on its VTs, and never on VT 1 ([`logind_starts`]).
+    fn switched_cell(&self, n: u16) -> String {
+        match self.own(n) {
+            Link::Other if logind_starts(n) => format!("autovt@tty{n}"),
+            _ => self
+                .switched_unit(n)
+                .map(|u| format!("{u}@tty{n}"))
+                .unwrap_or_default(),
+        }
+    }
+
+    /// Where vtium is enabled on VT `n`, in either mode, read from
+    /// `status`'s table as vtium-config reads it: the row's "at boot" or
+    /// "when switched to" cell names `vtium@ttyN` or `vtium-seat@ttyN` as a
+    /// part of its own. A mask's part, `vtium@ttyN masked`, and the
+    /// development install's unit name neither. Gives the prefix of each
+    /// unit of vtium's they name, none where vtium is not enabled.
+    fn vtium_enabled(&self, n: u16) -> BTreeSet<&'static str> {
+        [self.boot_cell(n), self.switched_cell(n)]
+            .iter()
+            .flat_map(|cell| vtium_parts(cell, n).collect::<Vec<_>>())
+            .collect()
+    }
+
     fn template(&self) -> &Link {
         &self.template
     }
@@ -446,14 +776,53 @@ impl State {
         self.wanted(n, prefix) || self.own(n).names(prefix) || self.runs(n, prefix)
     }
 
-    /// Whether `enable N` is done on VT `n`.
+    /// Whether `enable N` in the mode asked for is done on VT `n`: its unit
+    /// enabled there, and neither the getty nor the other mode's unit.
     fn given(&self, n: u16) -> bool {
-        self.wanted(n, VTIUM) && self.own(n).names(VTIUM) && !self.wanted(n, GETTY)
+        self.wanted(n, self.prefix)
+            && self.own(n).names(self.prefix)
+            && !self.wanted(n, GETTY)
+            && !self.wanted(n, other_vtium(self.prefix))
     }
 
-    /// Whether anything of `enable N`'s is on VT `n`.
+    /// Whether VT `n`'s own link is a getty's that an earlier claim left
+    /// behind: `systemctl enable getty@ttyN.service` links
+    /// `autovt@ttyN.service` to the getty, from the getty's
+    /// `Alias=autovt@.service`, and a claim that disabled the getty's want
+    /// kept its record and left that link. `enable` claims such a VT.
+    fn stranded_getty(&self, n: u16) -> bool {
+        self.own(n).names(GETTY)
+            && !self.wanted(n, GETTY)
+            && matches!(self.records.get(&n), Some(Record::Getty(_)))
+    }
+
+    /// Whether VT `n` has the other mode: its unit enabled there, or the
+    /// VT's own link naming it.
+    fn other_mode(&self, n: u16) -> bool {
+        let other = other_vtium(self.prefix);
+        self.wanted(n, other) || self.own(n).names(other)
+    }
+
+    /// Whether anything of `enable N`'s, in either mode, is on VT `n`.
     fn vtium_on(&self, n: u16) -> bool {
-        self.wanted(n, VTIUM) || self.own(n).names(VTIUM) || self.records.contains_key(&n)
+        VTIUMS
+            .iter()
+            .any(|p| self.wanted(n, p) || self.own(n).names(p))
+            || self.records.contains_key(&n)
+    }
+
+    /// Whether vtium runs on VT `n`, in either mode.
+    fn vtium_runs(&self, n: u16) -> bool {
+        VTIUMS.iter().any(|p| self.runs(n, p))
+    }
+
+    /// The units of vtium that run on VT `n`, such as `vtium@tty3.service`.
+    fn vtium_running(&self, n: u16) -> Vec<String> {
+        VTIUMS
+            .iter()
+            .filter(|p| self.runs(n, p))
+            .map(|p| format!("{p}@tty{n}.service"))
+            .collect()
     }
 
     /// Every VT anything is enabled, linked, running or recorded on.
@@ -483,6 +852,17 @@ fn names(dir: &Path) -> Vec<String> {
 
 /// Who holds which VT, a VT once for each holder.
 type OnVts = Vec<(u16, Holder)>;
+
+/// What logind says of the sessions on the VTs.
+#[derive(Default)]
+struct Sessions {
+    /// The graphical sessions and greeters.
+    graphics: OnVts,
+    /// The other sessions, such as a user's login at a getty.
+    logins: OnVts,
+    /// The VT of each session, by its scope's name.
+    scopes: BTreeMap<String, u16>,
+}
 
 /// A step that could not be taken: what to print, on stderr.
 struct Stop(String);
@@ -522,54 +902,88 @@ impl Run<'_, '_, '_> {
         if !self.path(BOOTED).is_dir() {
             return Err(Stop(text::NO_SYSTEMD.to_owned()));
         }
+        if let Verb::Advise(which) = verb {
+            return self.advise(which);
+        }
+        // Seat mode's refusals come before the root check, so a user is
+        // never told to use sudo for a command that cannot work.
+        if let Verb::Enable(which, Mode::Seat) = verb
+            && let Some(block) = advice::seat_block(&self.facts())
+        {
+            return Err(Stop(text::seat_cannot_run(block, &which_word(which))));
+        }
         if verb != Verb::Status && !self.host.root_user {
             return Err(Stop(text::needs_root(&verb.words())));
         }
         if let Verb::Fallback(n) = verb {
             return self.fallback(n);
         }
-        let unit = self.unit_file(VTIUM);
-        let mut state = self.read()?;
+        let prefix = match verb {
+            Verb::Enable(_, mode) => mode.prefix(),
+            _ => VTIUM,
+        };
+        let unit = self.unit_file(prefix);
+        let mut state = self.read(prefix)?;
         let problem = match unit {
             UnitFile::At(_) => None,
-            UnitFile::Masked => Some(text::TEMPLATE_MASKED),
-            UnitFile::Missing => Some(text::NOT_INSTALLED),
+            UnitFile::Masked => Some(text::template_masked(prefix)),
+            UnitFile::Missing => Some(text::not_installed(prefix)),
+        };
+        // enable needs its mode's unit. disable and status work on whichever
+        // mode each VT has, so either unit will do for them.
+        let usable = match verb {
+            Verb::Enable(..) => problem.is_none(),
+            _ => VTIUMS
+                .iter()
+                .any(|p| matches!(self.unit_file(p), UnitFile::At(_))),
         };
         if verb == Verb::Status {
-            if let Some(problem) = problem {
-                self.say(problem);
+            // A line on a unit that is masked or missing, when vtium has
+            // neither unit, or when a link still names it: a line on a mode
+            // nothing uses means nothing to the person who reads it.
+            for p in VTIUMS {
+                let problem = match self.unit_file(p) {
+                    UnitFile::At(_) => continue,
+                    UnitFile::Masked => text::template_masked(p),
+                    UnitFile::Missing => text::not_installed(p),
+                };
+                let named = state.template().names(p)
+                    || state
+                        .vts()
+                        .into_iter()
+                        .any(|n| state.wanted(n, p) || state.own(n).names(p));
+                if named || (!usable && p == VTIUM) {
+                    self.say(&problem);
+                }
             }
             self.status(&state);
             return Ok(0);
         }
-        let UnitFile::At(unit) = unit else {
-            return Err(Stop(problem.unwrap_or_default().to_owned()));
+        if !usable {
+            return Err(Stop(problem.unwrap_or_default()));
+        }
+        let unit = match unit {
+            UnitFile::At(unit) => unit,
+            UnitFile::Masked | UnitFile::Missing => String::new(),
         };
         match verb {
-            Verb::Status => Ok(0),
-            Verb::Enable(Which::Vt(n)) => {
-                self.refuse_kmscon(&state, n)?;
-                self.refuse_held(&state, n)?;
-                self.refuse_vt(&state, n)?;
-                if state.given(n) {
-                    self.say(&text::already_given(n));
+            Verb::Status | Verb::Advise(_) => Ok(0),
+            Verb::Enable(Which::Vt(n), mode) => {
+                if self.refuse_one(&state, n, mode)? {
+                    self.say(&text::already_given(n, mode));
                     return Ok(0);
                 }
-                // logind starts autovt@tty6 on every switch to its reserved
-                // VT, so vtium enabled there would end a login there at
-                // the next switch, unless vtium runs there already and the
-                // login is inside it.
-                if n == RESERVED_VT
-                    && !state.runs(n, VTIUM)
-                    && let Some(logins) = state.logins.get(&n)
-                {
-                    return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
+                let moved = state.other_mode(n);
+                if self.enable_vt(&mut state, n, &unit)? {
+                    self.reload()?;
                 }
-                self.enable_vt(&mut state, n)?;
-                self.say(&text::given(n, state.runs(n, VTIUM)));
+                if moved {
+                    self.say(&text::moved(n, mode));
+                }
+                self.say(&text::given(n, mode, state.runs(n, prefix)));
                 Ok(0)
             }
-            Verb::Enable(Which::All) => self.enable_all(&mut state, &unit),
+            Verb::Enable(Which::All, mode) => self.enable_all(&mut state, &unit, mode),
             Verb::Disable(Which::Vt(n)) => {
                 if !state.vtium_on(n) {
                     // A run whose last step, the reload, failed finds its
@@ -582,18 +996,74 @@ impl Run<'_, '_, '_> {
                 if by_hand {
                     self.reload()?;
                 }
-                self.say(&text::taken_back(n, state.runs(n, VTIUM)));
+                self.say(&text::taken_back(n, &state.vtium_running(n)));
                 // `disable N` has undone everything `enable N` did, so it
                 // succeeds, and it says what the template link still does
                 // on the VT, which only `disable --all` changes.
-                if state.template().names(VTIUM) && !state.wanted(n, GETTY) {
-                    self.say(&text::template_still_vtium(n));
+                if names_vtium(state.template()) && !state.wanted(n, GETTY) {
+                    self.say(&text::template_still_vtium(
+                        n,
+                        state.template().unit().unwrap_or(VTIUM),
+                    ));
                 }
                 Ok(0)
             }
             Verb::Disable(Which::All) => self.disable_all(&mut state),
             Verb::Fallback(_) => Ok(0),
         }
+    }
+
+    /// What the advice and seat mode's refusals judge, read from the host.
+    fn facts(&self) -> advice::Facts {
+        advice::Facts {
+            seat0: self.path(SEAT0).exists(),
+            seat_build: self.host.seat_build,
+            seat_unit: match self.unit_file(SEAT) {
+                UnitFile::At(_) => advice::SeatUnit::Present,
+                UnitFile::Masked => advice::SeatUnit::Masked,
+                UnitFile::Missing => advice::SeatUnit::Missing,
+            },
+            pam: self.path(SEAT_PAM).is_file(),
+            display_manager: self.display_manager(),
+        }
+    }
+
+    /// `enable` with no mode: says what vtium finds on this machine, which
+    /// command it recommends, and why `enable` would refuse the VTs named
+    /// in a mode, and changes nothing. It offers no command that `enable`
+    /// would refuse.
+    fn advise(&mut self, which: Option<Which>) -> Step<i32> {
+        let facts = self.facts();
+        let which = which.unwrap_or(Which::All);
+        let refusals = advice::Refusals {
+            direct: self.refusal(which, Mode::Direct)?,
+            seat: match advice::seat_block(&facts) {
+                None => self.refusal(which, Mode::Seat)?,
+                Some(_) => None,
+            },
+        };
+        let sudo = !self.host.root_user;
+        for line in text::advice(&facts, which, &refusals, sudo) {
+            self.say(&line);
+        }
+        Ok(0)
+    }
+
+    /// Why `enable` in `mode` would refuse `which` now, in its own words,
+    /// or None when it would go ahead. It reads what `enable` reads, makes
+    /// the checks `enable` makes before it changes anything, and changes
+    /// nothing.
+    fn refusal(&mut self, which: Which, mode: Mode) -> Step<Option<String>> {
+        let state = self.read(mode.prefix())?;
+        let refused = match self.unit_file(mode.prefix()) {
+            UnitFile::At(_) => match which {
+                Which::Vt(n) => self.refuse_one(&state, n, mode).map(drop),
+                Which::All => self.refuse_all(&state, mode),
+            },
+            UnitFile::Masked => Err(Stop(text::template_masked(mode.prefix()))),
+            UnitFile::Missing => Err(Stop(text::not_installed(mode.prefix()))),
+        };
+        Ok(refused.err().map(|Stop(why)| why))
     }
 
     /// Where systemd finds `PREFIX@.service`: in the first unit directory
@@ -617,47 +1087,19 @@ impl Run<'_, '_, '_> {
         UnitFile::Missing
     }
 
-    /// The template link in each unit directory that has one, in the
-    /// search path's order.
-    fn templates(&self) -> Vec<Link> {
-        UNIT_DIRS
-            .iter()
-            .map(|dir| Link::read(&self.path(dir).join(TEMPLATE)))
-            .filter(|link| *link != Link::Absent)
-            .collect()
-    }
-
-    fn read(&mut self) -> Step<State> {
-        let etc = self.path(ETC);
-        let template_etc = Link::read(&etc.join(TEMPLATE));
-        let templates = self.templates();
-        let below = usize::from(template_etc != Link::Absent);
-        let mut state = State {
-            template: templates.first().cloned().unwrap_or_default(),
-            template_below: templates.len() > below,
-            template_etc,
-            ..State::default()
-        };
-        let wants = self.path(WANTS);
-        for name in names(&wants) {
-            if let Some((prefix, n)) = instance(&name) {
-                let link = Link::read(&wants.join(&name));
-                state
-                    .wants
-                    .entry(n)
-                    .or_default()
-                    .insert(prefix.to_owned(), link);
-            }
-        }
+    fn read(&mut self, prefix: &'static str) -> Step<State> {
+        let mut state = State::links(&self.host.root, prefix);
         state.display_manager = self.display_manager();
+        let mut scopes = BTreeMap::new();
         match self.sessions() {
-            Ok((graphics, logins)) => {
-                for (n, holder) in graphics {
+            Ok(sessions) => {
+                for (n, holder) in sessions.graphics {
                     state.held.entry(n).or_default().push(holder);
                 }
-                for (n, holder) in logins {
+                for (n, holder) in sessions.logins {
                     state.logins.entry(n).or_default().push(holder);
                 }
+                scopes = sessions.scopes;
             }
             Err(Stop(why)) => state.sessions_unknown = Some(why),
         }
@@ -669,18 +1111,8 @@ impl Run<'_, '_, '_> {
                 });
             }
         }
+        self.judge_processes(&mut state, &scopes);
         self.judge_boot_units(&mut state);
-        for name in names(&etc) {
-            match instance(&name) {
-                Some(("autovt", n)) => {
-                    state.own.insert(n, Link::read(&etc.join(&name)));
-                }
-                Some((VTIUM, n)) if Link::read(&etc.join(&name)).masks() => {
-                    state.masked.insert(n);
-                }
-                _ => {}
-            }
-        }
         let records = self.path(RECORDS);
         for name in names(&records) {
             if let Some(n) = name.strip_prefix("tty").and_then(vt_digits) {
@@ -695,8 +1127,8 @@ impl Run<'_, '_, '_> {
                 if path.is_empty() {
                     Some(None)
                 } else {
-                    let fits =
-                        template_prefix(path).is_some_and(|p| p != VTIUM) && !path.contains('\n');
+                    let fits = template_prefix(path).is_some_and(|p| !VTIUMS.contains(&p))
+                        && !path.contains('\n');
                     fits.then(|| Some(path.to_owned()))
                 }
             });
@@ -834,23 +1266,49 @@ impl Run<'_, '_, '_> {
     }
 
     /// The sessions on a VT now, from logind: the graphical sessions and
-    /// greeters, and the others.
-    fn sessions(&mut self) -> Step<(OnVts, OnVts)> {
+    /// greeters, the others, and the VT of each session's scope
+    /// ([`graphical::scopes`]).
+    fn sessions(&mut self) -> Step<Sessions> {
         let list = self.loginctl(&["list-sessions", "--no-legend"])?;
         let ids = graphical::session_ids(&list.stdout);
         if ids.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(Sessions::default());
         }
         let mut args = vec!["show-session"];
         args.extend(ids.iter().map(String::as_str));
         args.extend([
-            "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
+            "-p", "Id", "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
         ]);
         let show = self.loginctl(&args)?;
-        Ok((
-            graphical::graphical(&show.stdout),
-            graphical::logins(&show.stdout),
-        ))
+        Ok(Sessions {
+            graphics: graphical::graphical(&show.stdout),
+            logins: graphical::logins(&show.stdout),
+            scopes: graphical::scopes(&show.stdout),
+        })
+    }
+
+    /// Adds to `state` each program whose controlling terminal is a VT now
+    /// ([`process`]) and that nothing else on that VT accounts for: a
+    /// process in a unit that is an instance on the same VT, such as
+    /// `getty@ttyN.service`, which the rules for consoles judge, or in the
+    /// scope of a logind session on the same VT, which the sessions judge,
+    /// holds nothing more. Any other such program holds its VT, whether or
+    /// not it has a session: a display manager's X server, a debug shell,
+    /// or an X server started from a text login on another VT.
+    fn judge_processes(&self, state: &mut State, scopes: &BTreeMap<String, u16>) {
+        let processes = process::on_vts(&self.host.root);
+        for p in process::one_each(processes) {
+            let accounted = p.unit.as_deref().is_some_and(|unit| {
+                instance(unit).is_some_and(|(_, n)| n == p.vt) || scopes.get(unit) == Some(&p.vt)
+            });
+            if !accounted {
+                state.held.entry(p.vt).or_default().push(Holder::Process {
+                    pid: p.pid,
+                    program: p.program,
+                    unit: p.unit,
+                });
+            }
+        }
     }
 
     fn loginctl(&mut self, args: &[&str]) -> Step<Reply> {
@@ -870,39 +1328,14 @@ impl Run<'_, '_, '_> {
         }
     }
 
-    /// The consoles running on each VT, from the running manager: every
-    /// active unit named `PREFIX@ttyN.service`.
+    /// The consoles running on each VT ([`running`]).
     fn running(&mut self) -> Step<BTreeMap<u16, BTreeSet<String>>> {
-        let args = [
-            "list-units",
-            "--plain",
-            "--no-legend",
-            "--state=active",
-            "*@tty*.service",
-        ];
-        let reply = self.systemctl_quiet(&args)?;
-        let mut running: BTreeMap<u16, BTreeSet<String>> = BTreeMap::new();
-        for line in reply.stdout.lines() {
-            if let Some((prefix, n)) = line.split_whitespace().next().and_then(instance) {
-                running.entry(n).or_default().insert(prefix.to_owned());
-            }
-        }
-        Ok(running)
+        running(self.host.systemd)
     }
 
     /// Runs systemctl and fails the step when it fails, printing nothing.
     fn systemctl_quiet(&mut self, args: &[&str]) -> Step<Reply> {
-        let line = args.join(" ");
-        let reply = self
-            .host
-            .systemd
-            .systemctl(args)
-            .map_err(|e| Stop(text::cannot_run(&line, &e.to_string())))?;
-        if reply.ok {
-            Ok(reply)
-        } else {
-            Err(Stop(text::failed(&line, &reply.stderr)))
-        }
+        systemctl_quiet(self.host.systemd, args)
     }
 
     /// Runs systemctl, saying so first and passing on what it printed.
@@ -943,6 +1376,33 @@ impl Run<'_, '_, '_> {
         }
     }
 
+    /// Refuses VT `n` for `enable N` in `mode` before it changes anything,
+    /// or says whether vtium is enabled there in `mode` already.
+    fn refuse_one(&self, state: &State, n: u16, mode: Mode) -> Step<bool> {
+        self.refuse_kmscon(state, n)?;
+        self.refuse_held(state, n)?;
+        self.refuse_vt(state, n)?;
+        if state.given(n) {
+            return Ok(true);
+        }
+        // logind starts autovt@tty6 on every switch to its reserved VT, so
+        // vtium enabled there would end a login there at the next switch,
+        // unless vtium runs there already and the login is inside it.
+        if n == RESERVED_VT
+            && !state.vtium_runs(n)
+            && let Some(logins) = state.logins.get(&n)
+        {
+            return Err(Stop(text::login_on_reserved_vt(n, logins, false)));
+        }
+        // vtium in the other mode there would be stopped at the next
+        // switch. Seat mode's logins carry no VT number, so the logins on
+        // the VT cannot show what that would end.
+        if n == RESERVED_VT && state.runs(n, other_vtium(state.prefix)) {
+            return Err(Stop(text::other_mode_on_reserved_vt(n, mode)));
+        }
+        Ok(false)
+    }
+
     /// Refuses VT `n` for `enable N` when the development install holds
     /// it, vtium's unit is masked there, or its own link names another
     /// unit.
@@ -951,11 +1411,12 @@ impl Run<'_, '_, '_> {
             return Err(Stop(text::dev_holds(n)));
         }
         if state.masked.contains(&n) {
-            return Err(Stop(text::masked(n)));
+            return Err(Stop(text::masked(n, state.prefix)));
         }
         match state.own(n) {
             Link::Absent => Ok(()),
-            link if link.names(VTIUM) => Ok(()),
+            link if names_vtium(link) => Ok(()),
+            _ if state.stranded_getty(n) => Ok(()),
             Link::To(to) => Err(Stop(text::own_link_elsewhere(n, to))),
             _ => Err(Stop(text::own_link_not_link(n))),
         }
@@ -1021,19 +1482,47 @@ impl Run<'_, '_, '_> {
         Ok(())
     }
 
-    /// `enable N`'s changes on VT `n`, once its refusals have passed:
-    /// the getty's record, vtium's enable, then the getty's disable, each
-    /// skipped when done.
-    fn enable_vt(&mut self, state: &mut State, n: u16) -> Step {
+    /// `enable N`'s changes on VT `n`, once its refusals have passed, for
+    /// the mode whose unit file is at `unit`: the getty's record; the VT's
+    /// own link moved from the other mode's unit to `unit`, where it names
+    /// the other mode; the mode's enable; the other mode's disable; then
+    /// the getty's disable, each skipped when done. So a run cut short
+    /// always leaves a console enabled on VT `n`. Returns whether a link
+    /// was changed by hand, which the manager has yet to read.
+    fn enable_vt(&mut self, state: &mut State, n: u16, unit: &str) -> Step<bool> {
+        let (prefix, other) = (state.prefix, other_vtium(state.prefix));
         let getty = state.wanted(n, GETTY);
         self.record_vt(state, n)?;
-        if !(state.wanted(n, VTIUM) && state.own(n).names(VTIUM)) {
-            self.systemctl(&["enable", &format!("vtium@tty{n}.service")])?;
+        let mut by_hand = false;
+        // systemctl enable refuses an alias that links elsewhere, so the
+        // VT's own link moves to the mode's unit first, from the other
+        // mode's unit or from a getty an earlier claim left it naming.
+        if state.own(n).names(other) || state.stranded_getty(n) {
+            self.link(ETC, &format!("autovt@tty{n}.service"), Some(unit))?;
+            state.own.insert(n, Link::To(unit.to_owned()));
+            by_hand = true;
+        }
+        if !(state.wanted(n, prefix) && state.own(n).names(prefix)) {
+            self.systemctl(&["enable", &format!("{prefix}@tty{n}.service")])?;
+            state
+                .wants
+                .entry(n)
+                .or_default()
+                .insert(prefix.to_owned(), Link::To(unit.to_owned()));
+            // The enable links the VT's own link too, from the unit's
+            // Alias=autovt@.service.
+            state.own.insert(n, Link::To(unit.to_owned()));
+        }
+        if state.wanted(n, other) {
+            self.systemctl(&["disable", &format!("{other}@tty{n}.service")])?;
+            if let Some(w) = state.wants.get_mut(&n) {
+                w.remove(other);
+            }
         }
         if getty {
             self.disable_getty(state, n)?;
         }
-        Ok(())
+        Ok(by_hand)
     }
 
     /// Writes VT `n`'s record, unless one is there: the path its getty's
@@ -1092,10 +1581,12 @@ impl Run<'_, '_, '_> {
                 None | Some(Record::Unreadable) => {}
             }
         }
-        if state.wanted(n, VTIUM) {
-            self.systemctl(&["disable", &format!("vtium@tty{n}.service")])?;
+        for prefix in VTIUMS {
+            if state.wanted(n, prefix) {
+                self.systemctl(&["disable", &format!("{prefix}@tty{n}.service")])?;
+            }
         }
-        if state.own(n).names(VTIUM) {
+        if names_vtium(state.own(n)) {
             self.link(ETC, &format!("autovt@tty{n}.service"), None)?;
             by_hand = true;
         }
@@ -1105,7 +1596,13 @@ impl Run<'_, '_, '_> {
         Ok(by_hand)
     }
 
-    fn enable_all(&mut self, state: &mut State, unit: &str) -> Step<i32> {
+    /// Refuses `enable --all` in `mode` before it changes anything: while
+    /// kmscon holds the template link or someone wrote it as a file, while
+    /// vtium cannot tell which sessions run, while a program on logind's
+    /// reserved VT would meet vtium there at the next switch, while a mask
+    /// does not keep vtium from a VT the template link reaches, and where
+    /// `enable 1` would refuse VT 1.
+    fn refuse_all(&self, state: &State, mode: Mode) -> Step {
         if state.template().names(KMSCON) {
             return Err(Stop(text::KMSCON_TEMPLATE.to_owned()));
         }
@@ -1125,13 +1622,21 @@ impl Run<'_, '_, '_> {
         if let Some(holders) = state.held.get(&RESERVED_VT) {
             return Err(Stop(text::graphics_on_reserved_vt(RESERVED_VT, holders)));
         }
+        // vtium in the other mode on VT 6 would be stopped at the next
+        // switch, when logind starts the asked mode's unit there through
+        // the template link or through VT 6's own link once it moves.
+        if state.runs(RESERVED_VT, other_vtium(state.prefix))
+            && (state.templated(RESERVED_VT) || state.other_mode(RESERVED_VT))
+        {
+            return Err(Stop(text::other_mode_on_reserved_vt(RESERVED_VT, mode)));
+        }
         if state.templated(RESERVED_VT) {
             // A login inside a vtium that runs on VT 6 already is safe: the
             // switch's start of vtium@tty6 finds it active.
             if let Some(logins) = state
                 .logins
                 .get(&RESERVED_VT)
-                .filter(|_| !state.runs(RESERVED_VT, VTIUM))
+                .filter(|_| !state.vtium_runs(RESERVED_VT))
             {
                 return Err(Stop(text::login_on_reserved_vt(RESERVED_VT, logins, true)));
             }
@@ -1142,13 +1647,44 @@ impl Run<'_, '_, '_> {
                 return Err(Stop(text::dev_on_reserved_vt(RESERVED_VT)));
             }
         }
-        // What each VT keeps, and the VTs whose gettys go.
+        // A mask keeps vtium from a VT only where logind does not load
+        // vtium through the template link: on VT 1, where logind starts no
+        // console, above its VTs, and where an enabled getty holds the VT
+        // from boot. On VT 6, logind's reserved VT, it loads vtium at every
+        // switch. A VT that another program, kmscon or the development
+        // install holds keeps it whatever its mask.
+        let mut vts = state.vts();
+        vts.extend(2..=LOGIND_VTS);
+        for n in vts {
+            let kept = state.held.contains_key(&n) || state.holds(n, KMSCON) || state.holds(n, DEV);
+            let through_template = state.templated(n)
+                && (n == RESERVED_VT || ((2..=LOGIND_VTS).contains(&n) && !state.wanted(n, GETTY)));
+            if !kept && state.masked.contains(&n) && through_template {
+                return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
+            }
+        }
+        // VT 1 gets `enable N` unless the development install, kmscon or
+        // graphics hold it or vtium is masked there, so it is refused as
+        // `enable N` would be.
+        if !vt1_kept(state) {
+            self.refuse_vt(state, 1)?;
+        }
+        Ok(())
+    }
+
+    fn enable_all(&mut self, state: &mut State, unit: &str, mode: Mode) -> Step<i32> {
+        self.refuse_all(state, mode)?;
+        // What each VT keeps, the VTs from 2 to 6 that vtium starts on at
+        // boot, and the VTs above 6 that move from the other mode.
         let mut kept: Vec<String> = Vec::new();
-        let mut gettys: Vec<u16> = Vec::new();
+        let mut boot: Vec<u16> = Vec::new();
+        let mut moves: Vec<u16> = Vec::new();
         for (n, holders) in &state.held {
             kept.push(text::kept_graphics(*n, holders));
         }
-        for n in state.vts() {
+        let mut vts = state.vts();
+        vts.extend(2..=LOGIND_VTS);
+        for n in vts {
             if state.held.contains_key(&n) {
                 continue;
             }
@@ -1162,64 +1698,72 @@ impl Run<'_, '_, '_> {
                 kept.push(text::kept_dev(n));
                 continue;
             }
-            // A mask keeps vtium from a VT only where logind does not load
-            // vtium through the template link: on VT 1, where logind starts
-            // no console, above its VTs, and where an enabled getty holds
-            // the VT from boot. On VT 6, logind's reserved VT, it loads
-            // vtium at every switch.
             if state.masked.contains(&n) {
-                let through_template = state.templated(n)
-                    && (n == RESERVED_VT
-                        || ((2..=LOGIND_VTS).contains(&n) && !state.wanted(n, GETTY)));
-                if through_template {
-                    return Err(Stop(text::masked_under_template(n, n == RESERVED_VT)));
-                }
+                // refuse_all refused a mask the template link reaches.
                 // The mask does not reach autovt@ttyN.service, which the
                 // VT's own link still loads as vtium (measured).
-                kept.push(if state.own(n).names(VTIUM) {
+                kept.push(if names_vtium(state.own(n)) {
                     text::kept_masked_own_link(n)
                 } else {
                     text::kept_masked(n, state.wanted(n, GETTY))
                 });
                 continue;
             }
-            if n != 1
-                && let Some(unit) = state.own(n).unit().filter(|u| *u != VTIUM)
-            {
-                kept.push(text::kept_own_link(n, unit));
+            if n == 1 {
+                continue;
             }
-            if n != 1 && state.wanted(n, GETTY) {
-                if n <= LOGIND_VTS {
-                    gettys.push(n);
-                } else {
-                    kept.push(text::kept_high_getty(n));
+            // A VT whose own link names another unit keeps that unit, its
+            // getty included: `enable N` refuses it. A getty's link that an
+            // earlier claim left behind is claimed like the rest.
+            match state.own(n) {
+                link @ Link::To(_) if !names_vtium(link) && !state.stranded_getty(n) => {
+                    kept.push(text::kept_own_link(n, link.unit().unwrap_or("?")));
+                    continue;
                 }
+                Link::Other => {
+                    kept.push(text::kept_own_link(n, "autovt"));
+                    continue;
+                }
+                _ => {}
+            }
+            // vtium starts at boot on each VT it claims from 2 to 6, so it
+            // holds each one open from boot and a display manager that
+            // picks the first free VT passes it by.
+            if n <= LOGIND_VTS {
+                if !state.given(n) {
+                    boot.push(n);
+                }
+            } else if state.other_mode(n) {
+                moves.push(n);
+            } else if state.wanted(n, GETTY) {
+                kept.push(text::kept_high_getty(n));
             }
         }
-        // VT 1 gets `enable N` unless the development install, kmscon or
-        // graphics hold it or vtium is masked there, so it is refused as
-        // `enable N` would be.
-        let vt1_kept = state.holds(1, DEV)
-            || state.holds(1, KMSCON)
-            || state.held.contains_key(&1)
-            || state.masked.contains(&1);
-        if !vt1_kept {
-            self.refuse_vt(state, 1)?;
-        }
-        let template_done = state.template_etc.names(VTIUM);
+        let vt1_kept = vt1_kept(state);
+        let template_done = state.template_etc.names(state.prefix);
         let vt1_done = vt1_kept || state.given(1);
-        if template_done && vt1_done && gettys.is_empty() {
+        if template_done && vt1_done && boot.is_empty() && moves.is_empty() {
             // A run whose last step, the reload, failed finds its links
             // done, so a run that changes nothing reloads.
             self.reload()?;
-            self.say(text::ALREADY_ALL);
+            self.say(&text::already_all(mode));
             for line in &kept {
                 self.say(line);
             }
             return Ok(0);
         }
+        // The VTs from 1 to 6 that move from the other mode, named once
+        // their move is done.
+        let mut moved: Vec<u16> = Vec::new();
+        if !vt1_kept && state.other_mode(1) {
+            moved.push(1);
+        }
+        moved.extend(boot.iter().copied().filter(|&n| state.other_mode(n)));
         if !template_done {
-            if state.template_record.is_none() {
+            // The record keeps what the template named before vtium took
+            // it, never one of vtium's own units: a move between modes
+            // keeps the record the first enable wrote.
+            if state.template_record.is_none() && !names_vtium(&state.template_etc) {
                 let body = match &state.template_etc {
                     Link::To(to) => format!("{to}\n"),
                     _ => String::new(),
@@ -1229,14 +1773,29 @@ impl Run<'_, '_, '_> {
             self.link(ETC, TEMPLATE, Some(unit))?;
         }
         if !vt1_done {
-            self.enable_vt(state, 1)?;
+            self.enable_vt(state, 1, unit)?;
         }
-        for n in gettys {
-            self.record_vt(state, n)?;
-            self.disable_getty(state, n)?;
+        for &n in boot.iter().chain(&moves) {
+            self.enable_vt(state, n, unit)?;
         }
         self.reload()?;
-        self.say(&text::given_all(!vt1_kept, state.templated(RESERVED_VT)));
+        moved.extend(&moves);
+        for &n in &moved {
+            self.say(&text::moved(n, mode));
+        }
+        let at_boot: Vec<u16> = (1..=LOGIND_VTS).filter(|&n| state.given(n)).collect();
+        // The VTs from 2 to 5 where logind starts vtium through the
+        // template link: no link of their own, nothing at boot, and no
+        // other program on them.
+        let switched: Vec<u16> = (2..RESERVED_VT)
+            .filter(|&n| {
+                state.templated(n)
+                    && state.wants.get(&n).is_none_or(BTreeMap::is_empty)
+                    && !state.held.contains_key(&n)
+            })
+            .collect();
+        let vt6 = boot.contains(&RESERVED_VT) || state.templated(RESERVED_VT);
+        self.say(&text::given_all(mode, &at_boot, &switched, vt6));
         for line in &kept {
             self.say(line);
         }
@@ -1249,7 +1808,7 @@ impl Run<'_, '_, '_> {
             .into_iter()
             .filter(|&n| state.vtium_on(n))
             .collect();
-        let template = state.template_etc.names(VTIUM);
+        let template = names_vtium(&state.template_etc);
         if vts.is_empty() && !template && state.template_record.is_none() {
             // A run whose last step, the reload, failed finds its links
             // done, so a run that changes nothing reloads.
@@ -1260,7 +1819,7 @@ impl Run<'_, '_, '_> {
         let mut running: Vec<u16> = Vec::new();
         for &n in &vts {
             self.disable_vt(state, n)?;
-            if state.runs(n, VTIUM) {
+            if state.vtium_runs(n) {
                 running.push(n);
             }
         }
@@ -1285,7 +1844,7 @@ impl Run<'_, '_, '_> {
         // Every vtium still running, the ones logind started through the
         // template included.
         let mut still: BTreeSet<u16> = running.into_iter().collect();
-        still.extend(state.vts().into_iter().filter(|&n| state.runs(n, VTIUM)));
+        still.extend(state.vts().into_iter().filter(|&n| state.vtium_runs(n)));
         if !still.is_empty() {
             self.say(&text::still_running(&still.into_iter().collect::<Vec<_>>()));
         }
@@ -1311,36 +1870,14 @@ impl Run<'_, '_, '_> {
         let rows: Vec<[String; 4]> = vts
             .into_iter()
             .map(|n| {
-                let mut at_boot = state
-                    .wants
-                    .get(&n)
-                    .map(|w| units(w.keys(), n))
-                    .unwrap_or_default();
                 let mut running_graphics = String::new();
                 for holder in state.held.get(&n).into_iter().flatten() {
-                    let cell = text::holder_cell(holder);
-                    match holder {
-                        // An instance getty.target wants shows already.
-                        Holder::Unit { .. } if !at_boot.split(", ").any(|c| c == cell) => {
-                            at_boot = join(&at_boot, &cell);
-                        }
-                        Holder::Session { .. } => {
-                            running_graphics = join(&running_graphics, &cell);
-                        }
-                        // A console running there shows in the running
-                        // column already.
-                        Holder::Unit { .. } | Holder::Console { .. } => {}
+                    // A unit that holds the VT shows at boot, and a console
+                    // running there in the running column already.
+                    if let Holder::Session { .. } | Holder::Process { .. } = holder {
+                        running_graphics = join(&running_graphics, &text::holder_cell(holder));
                     }
                 }
-                // logind starts a console by itself only on its VTs, and
-                // never on VT 1: to ask whether a VT is busy it opens
-                // /dev/tty1 itself, and that open makes VT 1 busy.
-                let switched = match state.own(n) {
-                    _ if n == 1 || (n > LOGIND_VTS && n != RESERVED_VT) => None,
-                    Link::Absent => state.template().unit().map(|u| format!("{u}@tty{n}")),
-                    Link::Other => Some(format!("autovt@tty{n}")),
-                    link => link.unit().map(|u| format!("{u}@tty{n}")),
-                };
                 let running = join(
                     &state
                         .running
@@ -1349,15 +1886,13 @@ impl Run<'_, '_, '_> {
                         .unwrap_or_default(),
                     &running_graphics,
                 );
-                let mut boot = at_boot;
-                if state.masked.contains(&n) {
-                    boot = join(&boot, &text::masked_cell(n));
-                }
-                if let Some(record) = state.records.get(&n) {
-                    boot = join(&boot, text::recorded_cell(record));
-                }
-                [n.to_string(), boot, switched.unwrap_or_default(), running]
-                    .map(|c| if c.is_empty() { "-".to_owned() } else { c })
+                [
+                    n.to_string(),
+                    state.boot_cell(n),
+                    state.switched_cell(n),
+                    running,
+                ]
+                .map(|c| if c.is_empty() { "-".to_owned() } else { c })
             })
             .collect();
         let header = text::STATUS_HEADER.map(str::to_owned);
@@ -1378,11 +1913,33 @@ impl Run<'_, '_, '_> {
             }
             self.say(line.trim_end());
         }
-        // Why each VT a unit that starts at boot holds is held.
+        // The VTs from 2 to 5 that nothing holds open at boot, whatever
+        // their own links name, as on a machine claimed before vtium
+        // started at boot on each claimed VT: a display manager that picks
+        // the first free VT can take them. logind holds VT 6 open itself,
+        // so no display manager takes it.
+        let mode = match state.template().unit() {
+            Some(VTIUM) => Some(Mode::Direct),
+            Some(SEAT) => Some(Mode::Seat),
+            _ => None,
+        };
+        if let Some(mode) = mode {
+            let free: Vec<u16> = (2..RESERVED_VT.min(LOGIND_VTS + 1))
+                .filter(|&n| {
+                    state.wants.get(&n).is_none_or(BTreeMap::is_empty)
+                        && !state.held.contains_key(&n)
+                })
+                .collect();
+            if !free.is_empty() {
+                self.say(&text::not_held_at_boot(&free, mode));
+            }
+        }
+        // Why each VT a unit that starts at boot, or a program with no
+        // session, holds is held.
         for (n, holders) in &state.held {
             let units: Vec<Holder> = holders
                 .iter()
-                .filter(|h| matches!(h, Holder::Unit { .. }))
+                .filter(|h| matches!(h, Holder::Unit { .. } | Holder::Process { .. }))
                 .cloned()
                 .collect();
             if !units.is_empty() {
@@ -1390,6 +1947,15 @@ impl Run<'_, '_, '_> {
             }
         }
     }
+}
+
+/// Whether VT 1 keeps what it has at `enable --all`: the development
+/// install, kmscon or graphics hold it, or vtium is masked there.
+fn vt1_kept(state: &State) -> bool {
+    state.holds(1, DEV)
+        || state.holds(1, KMSCON)
+        || state.held.contains_key(&1)
+        || state.masked.contains(&1)
 }
 
 fn units<'p>(prefixes: impl Iterator<Item = &'p String>, n: u16) -> String {
@@ -1422,6 +1988,7 @@ pub fn subcommand(args: &[OsString]) -> Option<i32> {
             let mut host = Host {
                 root: PathBuf::from("/"),
                 root_user: rustix::process::geteuid().is_root(),
+                seat_build: cfg!(all(feature = "libseat", feature = "logind")),
                 systemd: &mut systemd,
             };
             run(verb, &mut host, &mut io::stdout(), &mut io::stderr())

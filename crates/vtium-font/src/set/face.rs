@@ -7,6 +7,8 @@ use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
+use crate::script::lines::at_multiple;
+use crate::script::{self, Origin, Script, Variant};
 use crate::sprite::Range;
 
 /// A set drawn at one of its cell sizes, scaled by a whole factor.
@@ -68,22 +70,21 @@ impl SetFace {
     pub fn cluster(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.set.cluster(self.cell, cluster, style, self.scale)
     }
-}
 
-/// The decorations `d` of a strike `height` tall, drawn at `scale`. A
-/// strike whose lines are [`Decorations::for_height`] of its height, as
-/// every bitmap source gives, takes `for_height` of the scaled height, the
-/// lines the bitmap faces draw at that size; any other strike's lines
-/// scale as its glyphs do, each row a band `scale` rows tall.
-pub(crate) fn scale_decorations(d: Decorations, height: u32, scale: u32) -> Decorations {
-    if d == Decorations::for_height(height) {
-        return Decorations::for_height(height.saturating_mul(scale));
-    }
-    Decorations {
-        underline: d.underline.saturating_mul(scale),
-        underline_thickness: d.underline_thickness.saturating_mul(scale),
-        strike: d.strike.saturating_mul(scale),
-        strike_thickness: d.strike_thickness.saturating_mul(scale),
+    /// The glyph the set holds for `cluster` in `variant`, at this face's
+    /// cell and scale, from a strike of the variant's script alone
+    /// (ADR-1202 D11): a codepoint's from the strike's map, and a longer
+    /// cluster's from its cluster map. A superscript or subscript glyph
+    /// comes as its source made it, small and placed in the whole cell;
+    /// `None` when the set holds none, so a set of normal glyphs gives no
+    /// script glyph.
+    pub fn draw_variant(&self, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        match cluster {
+            [c] => self.set.draw_variant(self.cell, *c, variant, self.scale),
+            _ => self
+                .set
+                .cluster_variant(self.cell, cluster, variant, self.scale),
+        }
     }
 }
 
@@ -126,8 +127,27 @@ impl Face for SetFace {
     fn decorations(&self) -> Decorations {
         self.set
             .decorations(self.cell)
-            .map(|d| scale_decorations(d, self.cell.height, self.scale))
+            .map(|d| at_multiple(d, self.cell.height, self.scale))
             .unwrap_or_else(|| Decorations::for_height(self.cell().height))
+    }
+
+    /// The lines the set's strike of `script` at the face's cell reports,
+    /// at the face's scale, as the glyph helper's script strikes report
+    /// them (ADR-1202 D8 step 3); else the lines vtium-font's script rule
+    /// makes from the set's own strike ([`script::lines::of_face`]).
+    fn script_decorations(&self, script: Script) -> Decorations {
+        match self.set.script_decorations(self.cell, script) {
+            Some(d) => at_multiple(d, self.cell.height, self.scale),
+            None => script::lines::of_face(self, script),
+        }
+    }
+
+    /// The lines of the set's regular strike at the face's cell, at its
+    /// own size.
+    fn strike_decorations(&self) -> Decorations {
+        self.set
+            .decorations(self.cell)
+            .unwrap_or_else(|| Decorations::for_height(self.cell.height))
     }
 
     fn scale(&self) -> u32 {
@@ -140,5 +160,25 @@ impl Face for SetFace {
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         self.set.last_resort(self.cell, style, 1)
+    }
+
+    /// The set's strikes at the face's cell, at the face's scale. Only a
+    /// glyph from a 1-bit strike takes a smaller multiple of it
+    /// ([`Face::origin`] says which).
+    fn strike(&self) -> Option<(Cell, u32)> {
+        Some((self.cell, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        self.set
+            .draw(self.cell, *cluster.first()?, style, multiple.max(1))
+    }
+
+    /// The strike's ([`Set`]'s origin): a 1-bit strike's glyph a bitmap
+    /// whose widening and shear the small glyph takes, any other smooth.
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        self.set
+            .origin(self.cell, cluster.first().copied(), style, self.scale)
+            .unwrap_or_default()
     }
 }

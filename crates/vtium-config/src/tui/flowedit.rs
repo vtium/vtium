@@ -179,6 +179,11 @@ impl App {
 
     /// What the desk answered `op` with.
     pub(crate) fn desked(&mut self, op: &Op, done: Result<Done, String>) -> Vec<Effect> {
+        let tried = if matches!(op, Op::WriteChecked(_)) {
+            self.saving_tried.take()
+        } else {
+            None
+        };
         let done = match done {
             Ok(done) => done,
             Err(why) => {
@@ -198,6 +203,10 @@ impl App {
                     Op::Check(_) => {}
                     Op::Write(_) if self.unsaved > 0 => {
                         self.message = Some(words::saved_draft(self.unsaved, &opened.name));
+                        self.unsaved = 0;
+                    }
+                    Op::WriteChecked(_) => {
+                        self.message = tried;
                         self.unsaved = 0;
                     }
                     _ => self.unsaved = 0,
@@ -256,30 +265,42 @@ impl App {
             Done::Refused(why, problems) => {
                 let mut lines = vec![why];
                 lines.extend(problems);
-                self.message = Some(lines.join("\n"));
+                // the views beside the flow show one paragraph
+                let sep = if matches!(op, Op::WriteChecked(_)) {
+                    " "
+                } else {
+                    "\n"
+                };
+                self.message = Some(lines.join(sep));
             }
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.restore = Some((kept, 0)),
             Done::Present(present) => self.set_present(present),
+            // only an install answers with this, as [`App::installed`]
+            Done::Installed(..) => {}
         }
         Vec::new()
     }
 
     /// The privileged step's end: the draft installed and recorded in the
-    /// installed history, with the frits beside it, or why nothing is.
+    /// installed history, with the frits beside it, and what the step after
+    /// the install did on the VTs (ADR-1201 D5), or why nothing is.
     pub(crate) fn installed(&mut self, result: Result<Done, String>) -> Vec<Effect> {
         self.installing = false;
-        match result {
-            Ok(Done::Draft(opened, _)) => {
-                let name = opened.name.clone();
-                self.draft = Some(opened);
-                self.frits_installed();
-                self.rebuild(None);
-                self.say(&words::installed(&name))
-            }
-            Ok(_) => Vec::new(),
-            Err(why) => self.say(&words::install_failed(&why)),
-        }
+        let (opened, outcome) = match result {
+            Ok(Done::Draft(opened, _)) => (opened, None),
+            Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
+            Ok(_) => return Vec::new(),
+            Err(why) => return self.say(&words::install_failed(&why)),
+        };
+        let message = match &outcome {
+            Some(outcome) => crate::vts::message(&opened.name, outcome),
+            None => words::installed(&opened.name),
+        };
+        self.draft = Some(opened);
+        self.frits_installed();
+        self.rebuild(None);
+        self.say(&message)
     }
 
     /// Takes the devices present, says what came and went, and redraws

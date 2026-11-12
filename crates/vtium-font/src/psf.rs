@@ -32,6 +32,7 @@ use crate::bounds::{
 };
 use crate::face::{Cell, Face, Style};
 use crate::glyph::Glyph;
+use crate::script::Origin;
 
 const PSF1_MAGIC: [u8; 2] = [0x36, 0x04];
 const PSF1_MODE512: u8 = 0x01;
@@ -535,5 +536,27 @@ impl Face for Psf {
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         self.render_at(0, style, 1)
+    }
+
+    /// The font's one strike, at the font's scale.
+    fn strike(&self) -> Option<(Cell, u32)> {
+        let own = Cell {
+            width: self.width,
+            height: self.height,
+        };
+        Some((own, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        let index = self.glyph_index(*cluster.first()?)?;
+        self.render_at(index, style, multiple.max(1))
+    }
+
+    /// A 1-bit bitmap whose own box is the whole glyph, sheared about
+    /// [`Psf::baseline`] at the font's scale; the small glyph takes the
+    /// widening and the shear the font draws bold and italic with
+    /// (ADR-1202 D4, D7).
+    fn origin(&self, _cluster: &[char], style: Style) -> Origin {
+        Origin::bitmap(self.baseline.saturating_mul(self.scale), style)
     }
 }

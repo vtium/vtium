@@ -384,7 +384,7 @@ fn path_test_5_a_keyboard_whose_only_terminal_is_on_another_vt_types_nowhere() {
     assert_eq!(placement.placed[0].place, head(&c, "four"));
     assert_eq!(placement.placed[1].place, elsewhere(&c, "three"));
     assert!(!placement.anti_lockout);
-    // under open, vtium watches it for the rescue key alone, and the key
+    // under open, vtium watches it for the VT keys alone, and the rescue key
     // works
     let stays = placement.placed[1];
     assert_eq!(c.disposition(&stays, &kb), Disposition::RescueOnly);
@@ -675,5 +675,86 @@ input * -> here
             .placed
             .iter()
             .all(|p| !matches!(p.place, Place::Unused(_)))
+    );
+}
+
+/// [`TIED_KEYBOARD`] with `switch-on-enter = yes` on head three, under
+/// `policy` and with head three's `isolated` as `isolated` says.
+fn switching(policy: &str, isolated: &str, switch: &str) -> String {
+    format!(
+        "version = 1
+policy = {policy}
+[head three]
+vt = 3
+isolated = {isolated}
+switch-on-enter = {switch}
+[head four]
+vt = 4
+[rules]
+display connector:card0/DP-1 -> three
+display connector:card0/DP-1 -> four
+input path:usb-0:1 -> three
+"
+    )
+}
+
+/// ADR-1401 D3, "Enter on a head's own keyboard": a head's
+/// `switch-on-enter` is off unless the file sets it, and it switches only
+/// under the open policy, for a head that is not isolated. A keyboard that
+/// stays with such a head on another VT is opened for Enter and the VT
+/// keys; one of a head that is not isolated is opened for the VT keys alone,
+/// under either policy, and one of an isolated head under closed is never
+/// opened.
+#[test]
+fn switch_on_enter_is_off_unless_set_and_switches_only_under_open_for_a_head_not_isolated() {
+    let kb = keyboard("usb-0:1");
+    let unset = config(TIED_KEYBOARD);
+    assert!(!unset.heads.iter().any(|h| h.switch_on_enter));
+    for (policy, isolated, switch, on, disposition) in [
+        ("open", "no", "yes", true, Disposition::EnterAndRescue),
+        ("open", "no", "no", false, Disposition::RescueOnly),
+        ("open", "yes", "yes", false, Disposition::RescueOnly),
+        // under closed a path places it, so it is opened for the VT keys
+        // alone (D3, "Who switches VTs"), unless its head is isolated
+        ("closed", "no", "yes", false, Disposition::RescueOnly),
+        ("closed", "yes", "yes", false, Disposition::Closed),
+    ] {
+        let c = config(&switching(policy, isolated, switch));
+        let three = c
+            .heads
+            .iter()
+            .position(|h| h.name == "three")
+            .expect("three");
+        assert_eq!(
+            c.switch_on_enter(three),
+            on,
+            "policy {policy}, isolated {isolated}, switch-on-enter {switch}"
+        );
+        let stays = c.walk_on(&kb, 4);
+        assert_eq!(stays.place, Place::Elsewhere(three));
+        assert_eq!(
+            c.disposition(&stays, &kb),
+            disposition,
+            "policy {policy}, isolated {isolated}, switch-on-enter {switch}"
+        );
+    }
+}
+
+/// `switch-on-enter` takes yes or no; any other value is an error at its
+/// line that drops the head (ADR-1401 D7).
+#[test]
+fn switch_on_enter_takes_yes_or_no() {
+    let text = "version = 1\n[head a]\nvt = 3\nswitch-on-enter = maybe\n";
+    let errors = reading(text.as_bytes()).errors;
+    assert!(
+        errors.errors.iter().any(|e| e.line == Some(4)
+            && matches!(
+                e.problem,
+                Problem::BadValue {
+                    key: "switch-on-enter",
+                    ..
+                }
+            )),
+        "{errors:?}"
     );
 }

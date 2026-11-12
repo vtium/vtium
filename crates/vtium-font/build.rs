@@ -138,6 +138,7 @@ fn pack(b: &Builtin) -> Vec<u8> {
     let strike = RawStrike {
         style: 0,
         format: FORMAT_BITS,
+        script: 0,
         cell_width: b.width,
         cell_height: h,
         baseline: b.baseline,
@@ -145,6 +146,7 @@ fn pack(b: &Builtin) -> Vec<u8> {
         underline_thickness: thick,
         strike: (h / 2).min(h - thick),
         strike_thickness: thick,
+        overline: 0,
         // built in, the chunks are deflated to fit the binary's budget
         // (ADR-1200 D7)
         compress: true,

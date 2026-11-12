@@ -12,6 +12,7 @@ use crate::bounds::{
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::glyph::{Format, Glyph};
 use crate::policy::{Coverage, RangeCoverage, SpritePolicy};
+use crate::script::{Origin, Script, Variant};
 use crate::set::format::{
     CHUNK_RECORD, CLUS, CMAP, FORMAT_BITS, FORMAT_R8, FORMAT_RGBA, GLYF, INK_GLYPH, INKX, MAGIC,
     MAJOR, META, POLY, PRELUDE_BYTES, SECTION_BYTES, STRK, TABLE_HEAD_BYTES, glyph_bytes,
@@ -102,6 +103,10 @@ impl PixelFormat {
 pub struct StrikeInfo {
     pub style: Style,
     pub format: PixelFormat,
+    /// Where its glyphs sit in their cells (ADR-1202 D11): normal glyphs,
+    /// or superscript or subscript glyphs that the source made small and
+    /// placed in the whole cell.
+    pub script: Script,
     pub cell: Cell,
     /// The baseline's row from the cell's top.
     pub baseline: u32,
@@ -530,10 +535,17 @@ impl Set {
     /// Each cluster `CLUS` maps, with its strike's cell and style, strike
     /// after strike, each strike's sorted by key.
     pub fn clusters(&self) -> impl Iterator<Item = (Cell, Style, Vec<char>)> + '_ {
+        self.strike_clusters()
+            .map(|(info, key)| (info.cell, info.style, key))
+    }
+
+    /// Each cluster `CLUS` maps, with its whole strike's description, its
+    /// script among it (ADR-1202 D11), as [`Set::clusters`] lists them.
+    pub fn strike_clusters(&self) -> impl Iterator<Item = (StrikeInfo, Vec<char>)> + '_ {
         self.strikes.iter().flat_map(|s| {
             (s.clusters.0..s.clusters.1).filter_map(|i| {
                 let key = self.clusters.key_of(i)?;
-                Some((s.info.cell, s.info.style, key))
+                Some((s.info, key))
             })
         })
     }
@@ -600,33 +612,38 @@ impl Set {
             .as_deref()
     }
 
-    /// The strike that draws `cp` at `cell` in `style`, and how the style
-    /// it lacks is drawn ([`Synth`]): the style's own strike, else the
-    /// regular one, widened for bold and, where it is 1-bit, sheared for
-    /// italic after the widening (ADR-1302 D4). Bold italic with no strike
-    /// of its own is the regular glyph widened and sheared, never a bold
-    /// or an italic strike drawn in the other style (the maintainer,
-    /// 2026-11-04). Of a style's strikes, one a
-    /// pixel format, the one that maps `cp` draws it. A strike lacking
+    /// The strike that draws `cp` at `cell` in `variant`, and how the
+    /// style it lacks is drawn ([`Synth`]): the style's own strike in the
+    /// variant's script, else the regular one in that script, widened for
+    /// bold and, where it is 1-bit, sheared for italic after the widening
+    /// (ADR-1302 D4). Bold italic with no strike of its own is the regular
+    /// glyph widened and sheared, never a bold or an italic strike drawn in
+    /// the other style (the maintainer, 2026-11-04). Of a style's strikes,
+    /// one a pixel format, the one that maps `cp` draws it. A strike lacking
     /// `cp` passes it on, so a style drawn from fewer sources than the
-    /// regular falls back to the regular glyphs (ADR-1200 D1, `style=`).
-    fn strike_for(&self, cell: Cell, style: Style, cp: u32) -> Option<(&Strike, Synth)> {
-        self.strike_by(cell, style, |k| k.run(cp).is_some())
+    /// regular falls back to the regular glyphs (ADR-1200 D1, `style=`). A
+    /// strike of another script never draws it: a superscript strike's
+    /// glyph is small and placed for a superscript cell (ADR-1202 D11).
+    fn strike_for(&self, cell: Cell, variant: Variant, cp: u32) -> Option<(&Strike, Synth)> {
+        self.strike_by(cell, variant, |k| k.run(cp).is_some())
     }
 
     /// The strike [`Set::strike_for`] picks, of those `holds` takes.
     fn strike_by(
         &self,
         cell: Cell,
-        style: Style,
+        variant: Variant,
         holds: impl Fn(&Strike) -> bool,
     ) -> Option<(&Strike, Synth)> {
         let find = |bold: bool, italic: bool| {
-            self.strikes
-                .iter()
-                .find(|k| k.info.cell == cell && k.info.style == Style { bold, italic } && holds(k))
+            self.strikes.iter().find(|k| {
+                k.info.cell == cell
+                    && k.info.script == variant.script
+                    && k.info.style == Style { bold, italic }
+                    && holds(k)
+            })
         };
-        let Style { bold, italic } = style;
+        let Style { bold, italic } = variant.style;
         if let Some(own) = find(bold, italic) {
             return Some((own, Synth::of(own, false, false)));
         }
@@ -634,11 +651,11 @@ impl Set {
         Some((regular, Synth::of(regular, bold, italic)))
     }
 
-    /// Every regular strike, in order.
+    /// Every regular strike of normal glyphs, in order.
     fn regulars(&self) -> impl Iterator<Item = &Strike> {
         self.strikes
             .iter()
-            .filter(|k| k.info.style == Style::default())
+            .filter(|k| k.info.style == Style::default() && k.info.script == Script::Baseline)
     }
 
     /// The regular strikes for `cell`, one a pixel format, their
@@ -664,7 +681,8 @@ impl Set {
     }
 
     /// The first regular strike's decorations at `cell`, else, in a set
-    /// that holds only another style's strikes there, the first of those.
+    /// that holds only another style's or another script's strikes there,
+    /// the first of those.
     pub(crate) fn decorations(&self, cell: Cell) -> Option<Decorations> {
         let strike = self
             .regular(cell)
@@ -673,10 +691,41 @@ impl Set {
         Some(strike.info.decorations)
     }
 
+    /// The lines the strikes of `script` at `cell` report, as the glyph
+    /// helper's superscript and subscript strikes report them (ADR-1202
+    /// D8): the regular style's first, else another style's. `None` for
+    /// the baseline and while the set holds no strike of `script` there.
+    pub(crate) fn script_decorations(&self, cell: Cell, script: Script) -> Option<Decorations> {
+        if script == Script::Baseline {
+            return None;
+        }
+        let of = |k: &&Strike| k.info.cell == cell && k.info.script == script;
+        let strike = self
+            .strikes
+            .iter()
+            .filter(of)
+            .find(|k| k.info.style == Style::default())
+            .or_else(|| self.strikes.iter().find(of))?;
+        Some(strike.info.decorations)
+    }
+
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
     /// lacks it or its chunk does not decode.
     pub(crate) fn draw(&self, cell: Cell, c: char, style: Style, scale: u32) -> Option<Glyph> {
-        let (strike, synth) = self.strike_for(cell, style, u32::from(c))?;
+        self.draw_variant(cell, c, style.into(), scale)
+    }
+
+    /// The glyph for `c` at `cell` in `variant`, drawn at `scale`, from a
+    /// strike of the variant's script alone (ADR-1202 D11); `None` when
+    /// the set holds no such glyph or its chunk does not decode.
+    pub(crate) fn draw_variant(
+        &self,
+        cell: Cell,
+        c: char,
+        variant: Variant,
+        scale: u32,
+    ) -> Option<Glyph> {
+        let (strike, synth) = self.strike_for(cell, variant, u32::from(c))?;
         let index = strike.index(u32::from(c))?;
         self.draw_index(strike, index, synth, scale)
     }
@@ -691,7 +740,18 @@ impl Set {
         style: Style,
         scale: u32,
     ) -> Option<Glyph> {
-        let (strike, synth) = self.strike_by(cell, style, |k| {
+        self.cluster_variant(cell, cluster, style.into(), scale)
+    }
+
+    /// [`Set::cluster`] in `variant`, from a strike of its script alone.
+    pub(crate) fn cluster_variant(
+        &self,
+        cell: Cell,
+        cluster: &[char],
+        variant: Variant,
+        scale: u32,
+    ) -> Option<Glyph> {
+        let (strike, synth) = self.strike_by(cell, variant, |k| {
             self.clusters.find(k.clusters, cluster).is_some()
         })?;
         let at = self.clusters.find(strike.clusters, cluster)?;
@@ -708,6 +768,38 @@ impl Set {
             Synth::of(strike, style.bold, style.italic),
             scale,
         )
+    }
+
+    /// What the glyph for `c` at `cell` in `style` is made from, at
+    /// `scale` (ADR-1202 D4, D7), or for the last resort when `c` is
+    /// `None`: a 1-bit strike's glyph is a bitmap whose own box is the
+    /// whole glyph, sheared about the strike's baseline, with the bold and
+    /// italic that the strike draws by widening and shearing left to the
+    /// small glyph; any other strike's is smooth. `None` when the set
+    /// lacks the glyph.
+    pub(crate) fn origin(
+        &self,
+        cell: Cell,
+        c: Option<char>,
+        style: Style,
+        scale: u32,
+    ) -> Option<Origin> {
+        let (strike, synth) = match c {
+            Some(c) => self.strike_for(cell, style.into(), u32::from(c))?,
+            None => {
+                let strike = self.regular(cell).find(|s| s.info.glyph_count > 0)?;
+                (strike, Synth::of(strike, style.bold, style.italic))
+            }
+        };
+        if strike.info.format != PixelFormat::Bits {
+            return Some(Origin::default());
+        }
+        let baseline = strike.info.baseline.saturating_mul(scale.max(1));
+        let synth = Style {
+            bold: synth.widen,
+            italic: synth.slant,
+        };
+        Some(Origin::bitmap(baseline, synth))
     }
 
     /// Glyph `glyph` of `strike` drawn at `scale`, a 1-bit glyph expanded

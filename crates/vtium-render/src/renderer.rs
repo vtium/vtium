@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use vtium_font::{Decorations, Face, Font, Style, Width as FontWidth};
+use vtium_font::{Decorations, Face, Font, Script, Style, Variant, Width as FontWidth};
 use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
 
 use crate::arrow::{Arrow, Over};
@@ -12,7 +12,8 @@ use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
 use crate::compose::{Area, Composer, Job, Source, int};
 use crate::damage::Cells;
-use crate::deco::{Kind, Sprites};
+use crate::deco::{Kind, Line, SCRIPTS, Sprites};
+use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
@@ -142,6 +143,9 @@ pub struct DrawState {
     /// The text blink is in its off phase, which draws blinking text as
     /// [`Config::blink`] says.
     pub blink_hidden: bool,
+    /// The rapid blink, SGR 6's, is in its off phase, which draws rapidly
+    /// blinking text as [`Config::blink`] says. It has a timer of its own.
+    pub rapid_hidden: bool,
     /// The palette's default background, around the grid.
     pub background: Rgb,
     /// The pointer's tip in the grid's pixels, unturned, for the renderer
@@ -346,6 +350,9 @@ struct Pass<'p, 'f> {
     /// ink lands outside the selection (ADR-1306 D6). Made the first time
     /// it is read.
     plain: core::cell::OnceCell<Frame<'f>>,
+    /// The overlay row showing the hovered link's address (ADR-1002,
+    /// "Drawing"), whose cells take the place of the screen's.
+    link_row: Option<LinkRow<'f>>,
 }
 
 impl<'f> Pass<'_, 'f> {
@@ -353,6 +360,23 @@ impl<'f> Pass<'_, 'f> {
     fn plain(&self) -> &Frame<'f> {
         self.plain
             .get_or_init(|| self.frame.clone().with_selection(Vec::new()))
+    }
+
+    /// The cell drawn at `row`, column `col`, the overlay row's where it
+    /// covers the cell ([`Frame::cell`]).
+    fn cell(&self, row: usize, col: usize) -> Option<FrameCell<'f>> {
+        let fc = self.frame.cell(row, col)?;
+        Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
+    }
+
+    /// The cells of `row` as drawn, left to right, the overlay row's where
+    /// it covers them ([`Frame::cells`]).
+    fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
+        let link_row = self.link_row;
+        self.frame
+            .cells(row)
+            .enumerate()
+            .map(move |(col, fc)| link_row.map_or(fc, |o| o.cell(col, row, fc)))
     }
 }
 
@@ -369,10 +393,10 @@ struct Place {
 struct Paint {
     fg: Rgb,
     bg: Rgb,
-    underline: Option<(Kind, Rgb)>,
+    underline: Option<(Line, Rgb)>,
     /// The strike-through and the overline, drawn over the glyph.
-    over: Option<(Kind, Rgb)>,
-    text: Option<(usize, usize, FontWidth, Style)>,
+    over: Option<(Line, Rgb)>,
+    text: Option<(usize, usize, FontWidth, Variant)>,
     /// At 1 bit, whether the background is lit, where vtium marks the cell
     /// (`mono::marked`).
     lit: Option<bool>,
@@ -431,7 +455,7 @@ pub(crate) trait Back {
         font: &Font<F>,
         text: &[char],
         width: FontWidth,
-        style: Style,
+        style: Variant,
     ) -> Reach;
 
     /// Whether it draws the ink a cell receives from its neighbours' glyphs,
@@ -497,7 +521,7 @@ impl<T: Target> Back for Cpu<'_, T> {
         font: &Font<F>,
         text: &[char],
         width: FontWidth,
-        style: Style,
+        style: Variant,
     ) -> Reach {
         compose.cache.reach(font, text, width, style)
     }
@@ -514,7 +538,8 @@ pub struct Renderer<F> {
     grid: Option<Grid>,
     cells: Cells,
     background: Option<Rgb>,
-    blink_hidden: bool,
+    /// The off phases of the text blink and the rapid blink last frame.
+    blink_hidden: (bool, bool),
     cursor_at: Option<(usize, usize)>,
     /// Where the visible cursor stood last frame, in either blink phase.
     held_at: Option<(usize, usize)>,
@@ -543,9 +568,9 @@ pub struct Renderer<F> {
     /// drawn's palette; `None` follows the foreground.
     deco: (Option<Rgb>, Option<Rgb>),
     compose: Composer,
-    /// The font's underline and strike-through lines the decoration
-    /// sprites were made from.
-    lines: Decorations,
+    /// The font's lines in each of [`SCRIPTS`] that the decoration sprites
+    /// were made from (ADR-1202 D8).
+    lines: [Decorations; 3],
     /// Characters the font draws differently since the last frame, with
     /// the characters of each text drawn as the font's missing glyph before
     /// an arrival since then, sorted: the cells showing one draw again
@@ -589,12 +614,19 @@ fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> A
     .unwrap_or_else(|| Arrow::upright(cell_height))
 }
 
+/// The font's lines in each of [`SCRIPTS`] in turn: the normal lines, and
+/// the lines of a superscript and of a subscript cell (ADR-1202 D8).
+fn line_sets<F: Face>(font: &Font<F>) -> [Decorations; 3] {
+    SCRIPTS.map(|script| font.script_decorations(script))
+}
+
 /// The decoration sprites for cells `cw` by `ch` in the font's `lines`,
-/// turned as `orientation` says, stored as `config` says.
+/// one set for each of [`SCRIPTS`], turned as `orientation` says, stored
+/// as `config` says.
 fn sprites(
     cw: u32,
     ch: u32,
-    lines: &Decorations,
+    lines: &[Decorations; 3],
     orientation: Orientation,
     config: Config,
 ) -> Sprites {
@@ -626,6 +658,14 @@ fn span(width: Width, before: Option<Width>, next: impl FnOnce() -> Option<Width
 /// ligature, and 0 for the lam beside it; `None` for any other cell.
 #[cfg(feature = "bidi")]
 fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<usize> {
+    // the overlay's characters join nothing, and the letter beside them
+    // joins none of them
+    let (col, row) = at;
+    if p.link_row
+        .is_some_and(|o| o.covers(col.saturating_sub(1), row))
+    {
+        return None;
+    }
     match crate::joined::span(p.frame, at, fc, p.held) {
         crate::joined::Span::Pair => Some(2),
         crate::joined::Span::Tail => Some(0),
@@ -642,19 +682,24 @@ fn sorted(chars: &[char]) -> Vec<char> {
 }
 
 /// The width of the cell after `col` in `row`, among the grid's `cols`.
-fn next_width(frame: &Frame<'_>, row: usize, col: usize, cols: usize) -> Option<Width> {
+fn next_width(p: &Pass<'_, '_>, row: usize, col: usize, cols: usize) -> Option<Width> {
     let next = col.saturating_add(1);
     (next < cols)
-        .then(|| frame.cell(row, next))
+        .then(|| p.cell(row, next))
         .flatten()
         .map(|fc| fc.width)
 }
 
 /// Whether `fc` draws in the text blink's off phase: blinking, not under
-/// the cursor, in the off phase, with `blink` not off.
+/// the cursor, in the off phase of its own blink, with `blink` not off. A
+/// cell with SGR 6 blinks at the rapid blink's phase, SGR 5 or not.
 fn blink_off(fc: &FrameCell<'_>, is_cursor: bool, state: &DrawState, blink: TextBlink) -> bool {
-    let blinks = fc.attrs.contains(Attrs::BLINK) || fc.attrs.contains(Attrs::RAPID_BLINK);
-    !is_cursor && blinks && state.blink_hidden && blink.style != BlinkStyle::Off
+    let hidden = if fc.attrs.contains(Attrs::RAPID_BLINK) {
+        state.rapid_hidden
+    } else {
+        fc.attrs.contains(Attrs::BLINK) && state.blink_hidden
+    };
+    !is_cursor && hidden && blink.style != BlinkStyle::Off
 }
 
 impl<F: Face> Renderer<F> {
@@ -678,7 +723,7 @@ impl<F: Face> Renderer<F> {
         let budgets = config
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
-        let lines = font.decorations();
+        let lines = line_sets(&font);
         let upright_arrow = pointer_image(&font, ch, config);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
@@ -707,7 +752,7 @@ impl<F: Face> Renderer<F> {
             grid: None,
             cells: Cells::default(),
             background: None,
-            blink_hidden: false,
+            blink_hidden: (false, false),
             cursor_at: None,
             held_at: None,
             reaches_kept: true,
@@ -864,8 +909,8 @@ impl<F: Face> Renderer<F> {
         self.owes_missing
     }
 
-    /// Takes the font's underline and strike-through lines when they are
-    /// no longer the ones the renderer made its decoration sprites from:
+    /// Takes the font's lines, in each script, when they are no longer the
+    /// ones the renderer made its decoration sprites from:
     /// the sprites are made again, and the next frame draws every cell and
     /// the border. The glyph cache keeps its glyphs, because the font draws
     /// its box-drawing sprites in a weight that follows the cell, not the
@@ -873,7 +918,7 @@ impl<F: Face> Renderer<F> {
     /// renderer takes a new identity, so the pipeline makes its glyphs and
     /// sprites anew and composes whole. Unchanged lines change nothing.
     fn lines_changed(&mut self) {
-        let lines = self.font.decorations();
+        let lines = line_sets(&self.font);
         if lines == self.lines {
             return;
         }
@@ -1154,9 +1199,14 @@ impl<F: Face> Renderer<F> {
     }
 
     /// Where the cursor draws: the leading cell of a wide character whose
-    /// trailing half it sits on.
-    fn cursor_cell(frame: &Frame<'_>, c: &Cursor) -> (usize, usize) {
-        let width_at = |col: usize| frame.cell(c.row, col).map(|fc| fc.width);
+    /// trailing half it sits on. The overlay row's cells are narrow.
+    fn cursor_cell(frame: &Frame<'_>, link_row: Option<LinkRow<'_>>, c: &Cursor) -> (usize, usize) {
+        let width_at = |col: usize| {
+            let covered = link_row.is_some_and(|o| o.covers(col, c.row));
+            frame
+                .cell(c.row, col)
+                .map(|fc| if covered { Width::Narrow } else { fc.width })
+        };
         let before = c.col.checked_sub(1).and_then(width_at);
         let tail = width_at(c.col).is_some_and(|w| span(w, before, || None) == 0);
         match c.col.checked_sub(1) {
@@ -1175,10 +1225,16 @@ impl<F: Face> Renderer<F> {
         state: &DrawState,
     ) -> (u32, u32) {
         let cursor = frame.cursor();
-        let held = cursor.visible.then(|| Self::cursor_cell(frame, &cursor));
+        let link_row = LinkRow::new(frame, g.cols, g.rows);
+        // the cursor is not drawn under the overlay row
+        let held = cursor
+            .visible
+            .then(|| Self::cursor_cell(frame, link_row, &cursor))
+            .filter(|&(c, r)| !link_row.is_some_and(|o| o.covers(c, r)));
         let at = held.filter(|_| state.cursor_on);
-        let blink_toggled = state.blink_hidden != self.blink_hidden;
-        self.blink_hidden = state.blink_hidden;
+        let phases = (state.blink_hidden, state.rapid_hidden);
+        let blink_toggled = phases != self.blink_hidden;
+        self.blink_hidden = phases;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
         let last_held = core::mem::replace(&mut self.held_at, held);
         let pass = Pass {
@@ -1189,12 +1245,16 @@ impl<F: Face> Renderer<F> {
             at,
             held,
             plain: core::cell::OnceCell::new(),
+            link_row,
         };
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
             let scan = self.cells.row_stale(row)
                 || self.row_shows_changed(frame, row, g.cols)
+                || link_row.is_some_and(|o| {
+                    o.row() == row && o.chars().any(|c| self.shows_changed(&Glyph::Char(c)))
+                })
                 || blink_toggled
                 || frame.row_changed(row)
                 || [at, last_cursor, held, last_held]
@@ -1263,7 +1323,7 @@ impl<F: Face> Renderer<F> {
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         if ncells == 2 {
             let tail = col.saturating_add(1);
-            changed |= p.frame.cell(row, tail).is_some_and(|t| t.changed);
+            changed |= p.cell(row, tail).is_some_and(|t| t.changed);
             if let Some(t) = self.cells.get_mut(tail, row) {
                 changed |= t.replace_span(0) != 0;
             }
@@ -1337,10 +1397,7 @@ impl<F: Face> Renderer<F> {
         if !steady || fc.fg == fc.bg || concealed || draws_no_text(fc.glyph) {
             return Reach::NONE;
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
-        };
+        let style = crate::variant::of(fc.attrs);
         let width = if fc.width == Width::Wide {
             FontWidth::Wide
         } else {
@@ -1396,8 +1453,8 @@ impl<F: Face> Renderer<F> {
         self.reaches_kept &= reads;
         let mut count = 0u32;
         let mut before = None;
-        for (here, fc) in p.frame.cells(row).take(g.cols).enumerate() {
-            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+        for (here, fc) in p.cells(row).take(g.cols).enumerate() {
+            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);
@@ -1484,7 +1541,16 @@ impl<F: Face> Renderer<F> {
             .unwrap_or(0)
             .min(cols.saturating_sub(1));
         let line = p.frame.line(row);
-        let width = |c: usize| line.filter(|_| c < cols).map(|l| l.cell(c).width());
+        let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
+        let width = |c: usize| {
+            line.filter(|_| c < cols).map(|l| {
+                if covered(c) {
+                    Width::Narrow
+                } else {
+                    l.cell(c).width()
+                }
+            })
+        };
         let mut count = 0u32;
         let mut col = first;
         while col <= last && col < cols {
@@ -1496,11 +1562,7 @@ impl<F: Face> Renderer<F> {
             };
             // a lam-alef ligature is drawn whole by its alef, on the left
             #[cfg(feature = "bidi")]
-            let (lead, n) = match p
-                .frame
-                .cell(row, col)
-                .and_then(|fc| paired(p, (col, row), &fc))
-            {
+            let (lead, n) = match p.cell(row, col).and_then(|fc| paired(p, (col, row), &fc)) {
                 Some(0) => (col.saturating_sub(1), 2),
                 Some(n) => (col, n),
                 None => (lead, n),
@@ -1511,7 +1573,7 @@ impl<F: Face> Renderer<F> {
                 .jobs
                 .iter()
                 .any(|j| lead < j.posx.saturating_add(j.ncells) && j.posx < end);
-            if let Some(fc) = p.frame.cell(row, lead).filter(|_| !held) {
+            if let Some(fc) = p.cell(row, lead).filter(|_| !held) {
                 count = count.saturating_add(self.push_cell(p, (lead, row), &fc, n));
             }
             col = lead.saturating_add(n);
@@ -1610,8 +1672,8 @@ impl<F: Face> Renderer<F> {
             found.sort_unstable();
             // a block cursor or the selection marks the job's cell
             let block = matches!(p.cursor.shape, CursorShape::Block);
-            let marked = (block && p.at == Some((a, row)))
-                || p.frame.cell(row, a).is_some_and(|c| c.selected);
+            let marked =
+                (block && p.at == Some((a, row))) || p.cell(row, a).is_some_and(|c| c.selected);
             let from = self.compose.sources.len();
             for &(_, _, k, r, span) in &found {
                 if let Some(src) = self.source(p, (&job, marked), (k, r, span)) {
@@ -1641,7 +1703,7 @@ impl<F: Face> Renderer<F> {
         (job, marked): (&Job, bool),
         (k, r, span): (usize, usize, usize),
     ) -> Option<Source> {
-        let fc = p.frame.cell(r, k)?;
+        let fc = p.cell(r, k)?;
         let own = if self.config.depth == Depth::One {
             mono::opposite(job.bg)
         } else if fc.selected {
@@ -1657,10 +1719,7 @@ impl<F: Face> Renderer<F> {
             Glyph::Char(c) => text.push(c),
             Glyph::Cluster(t) => text.extend(t.chars()),
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
-        };
+        let style = crate::variant::of(fc.attrs);
         let (width, cells) = if fc.width == Width::Wide {
             (FontWidth::Wide, 2)
         } else {
@@ -1758,6 +1817,9 @@ impl<F: Face> Renderer<F> {
         };
         let mut ul_cursor = false;
         let mut bar = false;
+        // a superscript or subscript cell's own lines follow its small
+        // glyph (ADR-1202 D8)
+        let script = crate::variant::of(fc.attrs).script;
         let mut cell_lit = lit;
         // at 1 bit a mark's text always shows: the selection's and a block
         // cursor's ink is never their background
@@ -1808,8 +1870,17 @@ impl<F: Face> Renderer<F> {
             fc.attrs.contains(Attrs::OVERLINE),
         )
         .filter(|_| !placeholder)
-        .map(|k| (k, deco_strike.unwrap_or(fg)));
-        let mut underline = Kind::underline(underline).map(|k| (k, ul_color));
+        .map(|kind| (Line { kind, script }, deco_strike.unwrap_or(fg)));
+        // the underline cursor keeps a normal cell's rows, so it has one
+        // height along a line
+        let ul_script = if ul_cursor { Script::Baseline } else { script };
+        let mut underline = Kind::underline(underline).map(|kind| {
+            let line = Line {
+                kind,
+                script: ul_script,
+            };
+            (line, ul_color)
+        });
         let mut over = over;
         let blink = self.config.blink;
         let (hidden, dimmed) = match blink.style {
@@ -1828,9 +1899,11 @@ impl<F: Face> Renderer<F> {
         if dimmed {
             fg = dim(fg, bg);
         }
-        let style = Style {
-            bold: fc.attrs.contains(Attrs::BOLD),
-            italic: fc.attrs.contains(Attrs::ITALIC),
+        // the bar cursor keeps one height along a line, so it draws its
+        // normal glyph in a superscript or subscript cell too (ADR-1202 D8)
+        let style = Variant {
+            script: if bar { Script::Baseline } else { script },
+            ..crate::variant::of(fc.attrs)
         };
         let text = &mut self.compose.text;
         let start = text.len();
@@ -1976,11 +2049,11 @@ impl<F: Face> Renderer<F> {
         let g = &p.g;
         let mut before = first
             .checked_sub(1)
-            .and_then(|c| p.frame.cell(row, c))
+            .and_then(|c| p.cell(row, c))
             .map(|fc| fc.width);
-        let run = p.frame.cells(row).take(end.min(g.cols)).enumerate();
+        let run = p.cells(row).take(end.min(g.cols)).enumerate();
         for (here, fc) in run.skip(first) {
-            let ncells = span(fc.width, before, || next_width(p.frame, row, here, g.cols));
+            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
             #[cfg(feature = "bidi")]
             let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
             before = Some(fc.width);

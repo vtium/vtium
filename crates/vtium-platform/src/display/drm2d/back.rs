@@ -7,8 +7,8 @@
 
 use std::io;
 
+use super::super::DisplayId;
 use super::super::kms::Kms;
-use super::super::{DisplayId, Event};
 use super::buffers::Source;
 use super::matching::index_bit;
 use super::output::{Moved, Output};
@@ -150,8 +150,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             o.cursor_set = None;
         }
-        self.move_refused
-            .retain(|id| !self.outputs.iter().any(|o| o.id.0 == *id));
     }
 
     /// The placements of the displays [`Self::relight`] tries, by index
@@ -166,7 +164,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// card's order of CRTCs. A display wants the CRTC the placement moved
     /// it off, and else the one it is on; it is lit there where the
     /// placement says so, and else where it is online.
-    fn placements(&self) -> Vec<Vec<usize>> {
+    pub(super) fn placements(&self) -> Vec<Vec<usize>> {
         let wants: Vec<(usize, bool)> = self
             .outputs
             .iter()
@@ -198,18 +196,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         all
     }
 
-    /// Lets go of the new displays `new`, which a modeset could not set
-    /// beside the others, for `why`; each stays off, and the next scan, at
-    /// a hotplug or a wake-up, places it again. Returns each one's
+    /// Lets go of the displays `new`, which a modeset could not set beside
+    /// the others, for `why`; each stays off, present but dark where the
+    /// owner has heard of it ([`Self::keep_left_off`]), and the next scan,
+    /// at a hotplug or a wake-up, places it again. Returns each one's
     /// connector with the CRTC it sat on, for [`Self::record_refused`].
     pub(super) fn leave_off(&mut self, new: Vec<Output<S::Memory>>, why: &str) -> Vec<(u32, u32)> {
         let mut sat = Vec::with_capacity(new.len());
         for o in new {
             log::warn!("{} stays off: {why}; the next scan tries it again", o.name);
             sat.push((o.id.0, o.crtc));
-            if o.announced {
-                self.events.push(Event::Removed(o.id));
-            }
+            self.keep_left_off(&o);
             self.identities.retain(|(i, _)| *i != o.id);
             self.free(o);
         }

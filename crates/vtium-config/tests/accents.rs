@@ -88,6 +88,7 @@ fn helper(
         cell,
         band,
         style: Style::default(),
+        script: vtium_font::Script::Baseline,
         codepoints: chars.iter().map(|&c| u32::from(c)).collect(),
         clusters: clusters
             .iter()
@@ -144,6 +145,7 @@ fn uncut(path: &Path, text: u32, width: u32, key: &[char]) -> Vec<u8> {
         hinting: Hinting::Light,
         fit: false,
         synth: Default::default(),
+        script: Default::default(),
     })
     .unwrap();
     let s = &o.strikes[0];

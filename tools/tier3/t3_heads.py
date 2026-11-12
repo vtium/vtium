@@ -50,6 +50,9 @@ HEADS = os.path.join(GUEST, "heads")
 # The units of VT 2, as the agent reports them: vtium's, its fallback's and
 # the getty the fallback starts.
 VTIUM_UNIT = "vtium@tty2.service"
+# vtium's unit in seat mode, which the agent reports in VTIUM_UNIT's place on
+# a guest in seat mode (guest/setup, ADR-1400 D3).
+SEAT_UNIT = "vtium-seat@tty2.service"
 FALLBACK_UNIT = "vtium-getty@tty2.service"
 GETTY_UNIT = "getty@tty2.service"
 # The gettys the guest could start on tty2, whose last exit from their
@@ -279,8 +282,12 @@ def parse_state(lines):
 
 
 def unit(state, name):
-    """The agent's reading of unit `name`, {} when it gave none."""
-    return state["units"].get(name, {})
+    """The agent's reading of unit `name`, {} when it gave none. vtium's
+    unit is VTIUM_UNIT, or SEAT_UNIT on a guest in seat mode."""
+    units = state["units"]
+    if name == VTIUM_UNIT and name not in units:
+        return units.get(SEAT_UNIT, {})
+    return units.get(name, {})
 
 
 def getty_on_tty2(state):

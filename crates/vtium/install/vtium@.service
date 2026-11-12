@@ -3,6 +3,13 @@
 # make install and make install-tree, and vtium-dev@.service for make
 # vt-install, and replaces its DefaultInstance= with one that names no VT
 # (ADR-1500 D3, D4). The instance is the VT's name, as getty@.service's is.
+# The package's install script gives vtium every free VT in direct mode
+# with vtium console enable --direct --all, and its removal script gives
+# them back with vtium console disable --all (ADR-1500 D3, D7). This is the
+# unit of direct mode. With
+# --seat, units.sh also makes vtium-seat@.service, the unit of seat mode,
+# from this unit and the lines of vtium-libseat.conf, which open vtium's own
+# PAM session (ADR-1400 D3).
 # It conflicts with getty@ on the same VT. When vtium fails, systemd starts
 # it again after 100 ms, up to systemd's default limit of 5 starts in 10 s,
 # and from systemd 254 on each failure also starts vtium-getty@, which
@@ -24,6 +31,11 @@ After=plymouth-quit-wait.service
 After=rc-local.service
 After=systemd-vconsole-setup.service
 Before=getty.target
+# The display manager starts only once vtium holds its VT open, so a display
+# manager that asks the kernel for a free VT the moment it starts passes
+# the VTs vtium claims (ADR-1500 D7). display-manager.service is the alias
+# that display managers' units take; with none enabled this orders nothing.
+Before=display-manager.service
 # Conflicts= orders nothing (systemd.unit(5): to have the conflicting unit
 # stopped before this one starts, an After= or Before= is needed, and stop
 # jobs then always run before start jobs). Without it, starting vtium while
@@ -34,10 +46,24 @@ Before=getty.target
 Conflicts=getty@%i.service
 After=getty@%i.service
 OnFailure=vtium-getty@%i.service
+# vtium steps aside for rescue and emergency mode, as getty@.service does
+# (ADR-1401 D15). Both modes run the rescue shell, which asks for root's
+# password on /dev/console, the VT that is shown. Entering either mode
+# therefore stops vtium on every VT first, and the prompt shows through the
+# kernel console. The conflict is what stops vtium: IgnoreOnIsolate= keeps
+# vtium running when systemd isolates any other target, such as a switch
+# between multi-user.target and graphical.target, which would otherwise end
+# every session on the VT.
+Conflicts=rescue.service emergency.service
+Before=rescue.service emergency.service
 IgnoreOnIsolate=yes
 ConditionPathExists=/dev/tty0
 
 [Service]
+# vtium sends READY=1 once it holds its VT open, before it opens a display
+# card, and that ends the start (ADR-1500 D7). A vtium that exits first
+# fails its start, which Restart= and OnFailure= treat as any failure.
+Type=notify
 ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
 UtmpIdentifier=%I
 TTYPath=/dev/%I
@@ -57,6 +83,8 @@ Restart=on-failure
 # used yet, and a program that vtium.conf's login key runs without a PAM
 # session, live in this unit; without KillMode=process systemd would end
 # them at each restart.
+# NotifyAccess=main takes the store's datagrams and READY=1 from vtium
+# alone, and from no program a session runs.
 NotifyAccess=main
 FileDescriptorStoreMax=50
 KillMode=process

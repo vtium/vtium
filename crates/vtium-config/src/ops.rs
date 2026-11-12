@@ -125,13 +125,63 @@ pub fn rule_rm(text: &str, number: usize) -> Result<String, Fail> {
 }
 
 /// Sets each of `keys`, a key and its value or `None` to unset it, in the
-/// section `of`, in order.
+/// section `of`, in order. Unsetting takes the key's line out, its comment
+/// with it, so a vtium.conf vtium-config writes holds only what is set,
+/// and a key set and unset over and over leaves no line behind (the
+/// maintainer, 2026-11-11).
 pub fn section_keys(text: &str, of: Of<'_>, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let mut out = text.to_owned();
     for (key, value) in keys {
-        out = set_key(&out, of, key, *value).map_err(|e| refused(&e))?;
+        out = match value {
+            Some(_) => set_key(&out, of, key, *value).map_err(|e| refused(&e))?,
+            None => unset_key(&out, of, key)?,
+        };
     }
     Ok(out)
+}
+
+/// `text` without the line that sets `key` in the section `of`, or `text`
+/// as it is when the section does not set `key`. The section writer
+/// unsets a key by commenting its line out and changes no other line, so
+/// that one line goes. A section the file lacks is refused, as setting a
+/// key of it is.
+fn unset_key(text: &str, of: Of<'_>, key: &str) -> Result<String, Fail> {
+    let commented = set_key(text, of, key, None).map_err(|e| refused(&e))?;
+    if commented == text {
+        return Ok(text.to_owned());
+    }
+    without_commented(text, &commented).ok_or_else(|| {
+        Fail::Usage(format!(
+            "vtium-config cannot unset {key} in this section. Remove its line by hand."
+        ))
+    })
+}
+
+/// `before` without the one line that `after` has commented out, when
+/// `after` has the same lines as `before` but for one, which is that line
+/// with a `#` in front; `None` otherwise.
+fn without_commented(before: &str, after: &str) -> Option<String> {
+    let old: Vec<&str> = before.split_inclusive('\n').collect();
+    let new: Vec<&str> = after.split_inclusive('\n').collect();
+    if old.len() != new.len() {
+        return None;
+    }
+    let mut changed = old
+        .iter()
+        .zip(&new)
+        .enumerate()
+        .filter(|(_, (o, n))| o != n);
+    let (at, (o, n)) = changed.next()?;
+    if changed.next().is_some() || n.strip_prefix('#') != Some(*o) {
+        return None;
+    }
+    Some(
+        old.iter()
+            .enumerate()
+            .filter(|(i, _)| *i != at)
+            .map(|(_, l)| *l)
+            .collect(),
+    )
 }
 
 /// Adds `[head NAME]`, naming the look `look` where one is given; without
@@ -165,15 +215,18 @@ pub fn look_option(key: &str) -> Option<&'static str> {
 }
 
 /// Adds `[look NAME]` with each of `keys` that has a value, in the order
-/// of [`LOOK_KEYS`]; a key left out is inherited from the top level.
+/// of [`LOOK_KEYS`], and then its `vtlook` when `keys` gives one; a key
+/// left out is inherited from the top level.
 pub fn look_add(text: &str, name: &str, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let added = add_section(text, Of::Look(name)).map_err(|e| refused(&e))?;
     // the section writer puts each new key first in its section, so the
     // keys go in last to first
     let keys: Vec<(&str, Option<&str>)> = LOOK_KEYS
         .iter()
+        .map(|(k, _)| *k)
+        .chain(["vtlook"])
         .rev()
-        .filter_map(|(k, _)| keys.iter().find(|(given, _)| given == k).copied())
+        .filter_map(|k| keys.iter().find(|(given, _)| *given == k).copied())
         .filter(|(_, v)| v.is_some())
         .collect();
     section_keys(&added, Of::Look(name), &keys)
@@ -220,7 +273,7 @@ pub fn head_rm(text: &str, name: &str) -> Result<String, Fail> {
 
 /// Deletes `[look NAME]`. While a head names it, it refuses and names the
 /// heads; with `force` it sets those heads to the default look first, by
-/// commenting out their `look` lines.
+/// taking out their `look` lines.
 pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
     let users = heads_using(text, name);
     if !users.is_empty() && !force {
@@ -262,10 +315,9 @@ pub fn unset_top(text: &str, key: &str) -> Result<String, Fail> {
         .map_err(|e| Fail::Usage(crate::tui::words::conf_edit(&e)))
 }
 
-/// The top level of `example`, the shipped vtium.conf: every line above
-/// its first section.
-fn top_of(example: &str) -> String {
-    let parts = split(example.as_bytes());
+/// The top level of `text`: every line above its first section.
+fn top_of(text: &str) -> String {
+    let parts = split(text.as_bytes());
     parts
         .top_lines()
         .map(|(_, line)| String::from_utf8_lossy(line).into_owned())
@@ -273,11 +325,12 @@ fn top_of(example: &str) -> String {
         .join("\n")
 }
 
-/// What `new` empties the draft to: the top level of the shipped example,
-/// every key at its default and commented out, then `version = 1` and one
-/// look, `[look default]`, with no keys (ADR-1403 D7).
-pub fn new_text(example: &str) -> String {
-    let mut out = top_of(example).trim_end().to_owned();
+/// What `new` empties the draft to: the top level of `top`, then
+/// `version = 1` and one look, `[look default]`, with no keys (ADR-1403
+/// D7). vtium-config passes its header, [`crate::drafts::HEADER`], so the
+/// new draft sets no key.
+pub fn new_text(top: &str) -> String {
+    let mut out = top_of(top).trim_end().to_owned();
     let versioned = split(out.as_bytes())
         .top_lines()
         .any(|(_, l)| vtium_settings::key_line(l).is_some_and(|k| k.key == b"version"));
@@ -297,7 +350,9 @@ pub fn new_text(example: &str) -> String {
 /// D7). A change to a section must first write that flow into the file:
 /// a section alone, such as `[labels]`, would make the file one with
 /// sections, no `version` line and no rules, which turns every display
-/// off. A draft with sections is returned as it is.
+/// off. vtium-config writes the flow as [`shipped_flow`] has it: the
+/// `version` line, the head and the rules, with none of the template's
+/// comments. A draft with sections is returned as it is.
 pub fn with_flow(text: &str) -> String {
     if vtium_settings::sections(text.as_bytes()).is_some() {
         return text.to_owned();
@@ -306,7 +361,29 @@ pub fn with_flow(text: &str) -> String {
     if !out.is_empty() {
         out.push_str("\n\n");
     }
-    out.push_str(vtium_settings::TEMPLATE);
+    out.push_str(&shipped_flow());
+    out
+}
+
+/// The compiled-in flow as the fewest lines that run it: the head file's
+/// template, [`vtium_settings::TEMPLATE`], without its comments, and with
+/// one blank line before each section heading. The template is the one
+/// source of the compiled-in flow (ADR-1403 D3), so this text runs the
+/// same heads and rules. A commented-out line such as `# policy = open`
+/// sets nothing, so it goes with the comments.
+fn shipped_flow() -> String {
+    let mut out = String::new();
+    for line in vtium_settings::TEMPLATE.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        if trimmed.starts_with('[') && !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
     out
 }
 
@@ -391,6 +468,77 @@ mod tests {
     use super::*;
 
     const DESK: &str = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming  # every keyboard\n";
+
+    // the maintainer, 2026-11-11: a vtium.conf vtium-config writes holds
+    // "only what's set", so unsetting a key takes its line out, and a key
+    // set and unset over and over leaves the file as it was
+    #[test]
+    fn a_section_key_set_and_unset_leaves_no_line_behind() {
+        let start = "version = 1\n[look big]\nfont-size = 16  # big\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n";
+        let keys: [(Of<'_>, &str, &str); 6] = [
+            (Of::Head("panel"), "isolated", "yes"),
+            (Of::Head("panel"), "switch-on-enter", "yes"),
+            (Of::Head("panel"), "login", "/bin/sh -l"),
+            (Of::Head("panel"), "when-display-lost", "hangup"),
+            (Of::Head("panel"), "vt", "3"),
+            (Of::Look("big"), "font-name", "monoid"),
+        ];
+        for (of, key, value) in keys {
+            let mut text = start.to_owned();
+            for _ in 0..3 {
+                text = section_keys(&text, of, &[(key, Some(value))]).unwrap();
+                assert!(text.contains(&format!("{key} = {value}\n")), "{text}");
+                text = section_keys(&text, of, &[(key, None)]).unwrap();
+            }
+            assert_eq!(text, start, "{key}");
+        }
+        // a key the file set takes its line, and its comment, out with it
+        let unset = section_keys(start, Of::Look("big"), &[("font-size", None)]).unwrap();
+        assert_eq!(
+            unset,
+            "version = 1\n[look big]\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n"
+        );
+    }
+
+    // unsetting a key the section does not set changes nothing, and
+    // unsetting a key of a section the file lacks is refused and writes
+    // nothing, as setting one is
+    #[test]
+    fn unsetting_a_key_that_is_not_there_changes_no_line() {
+        let text =
+            "version = 1\n[head desk]\nconsoles = 2\nlogin = /bin/sh\n[rules]\ndisplay * -> desk\n";
+        for key in ["switch-on-enter", "isolated", "vt"] {
+            assert_eq!(
+                section_keys(text, Of::Head("desk"), &[(key, None)]).unwrap(),
+                text,
+                "{key}"
+            );
+        }
+        let missing = section_keys(text, Of::Head("nobody"), &[("vt", None)]).unwrap_err();
+        assert_eq!(missing.code(), 2);
+    }
+
+    // a line goes only when the section writer changed exactly one line
+    // and added none: a writer that inserted a line would otherwise take
+    // an unrelated line of the file out
+    #[test]
+    fn only_the_one_line_the_writer_commented_out_goes() {
+        let text = "a = 1\nb = 2\nc = 3\n";
+        assert_eq!(
+            without_commented(text, "a = 1\n#b = 2\nc = 3\n"),
+            Some("a = 1\nc = 3\n".to_owned())
+        );
+        assert_eq!(without_commented(text, text), None);
+        // an inserted line, two changed lines, and a line changed in
+        // another way than by a leading `#` take nothing out
+        for after in [
+            "a = 1\nnew = 0\nb = 2\nc = 3\n",
+            "#a = 1\n#b = 2\nc = 3\n",
+            "a = 1\nb = 9\nc = 3\n",
+        ] {
+            assert_eq!(without_commented(text, after), None, "{after}");
+        }
+    }
 
     // ADR-1403 D5, D8: `look add`, `look set` and the look card offer
     // every key a look takes, `cell` among them, by one option each
@@ -483,6 +631,67 @@ mod tests {
         );
     }
 
+    // the maintainer, 2026-11-11: a vtium.conf vtium-config writes holds a
+    // short header, then only what is set
+    #[test]
+    fn a_new_configuration_from_the_header_is_the_header_and_one_empty_look() {
+        let out = new_text(crate::drafts::HEADER);
+        let header = crate::drafts::HEADER.trim_end();
+        assert_eq!(out, format!("{header}\n\nversion = 1\n\n[look default]\n"));
+        assert!(
+            !out.contains("## "),
+            "no description of a key comes from the shipped example"
+        );
+    }
+
+    // ADR-1403 D3, D7: a draft with no section first gets the compiled-in
+    // flow, written as the smallest file that runs it, with none of the head
+    // template's comments
+    #[test]
+    fn the_flow_a_change_needs_is_the_compiled_in_flow_with_no_comment() {
+        let out = with_flow("# mine\nfont-size=14\n");
+        assert_eq!(
+            out,
+            "# mine\nfont-size=14\n\nversion = 1\n\n[head console]\n\n[rules]\n\
+             display * -> console\n\
+             input class:keyboard -> roaming\n\
+             input class:mouse -> roaming\n\
+             input class:touchpad -> roaming\n\
+             input class:touchscreen -> roaming\n\
+             input class:trackball -> roaming\n\
+             input class:pointingstick -> roaming\n\
+             input class:key -> roaming\n\
+             input * -> ignore\n"
+        );
+        for line in out.lines().skip(1) {
+            assert!(!line.trim_start().starts_with('#'), "a comment: {line}");
+        }
+        // it runs what the file ran before: the compiled-in flow, valid,
+        // with every display sent to a head that the keyboards reach
+        let read = vtium_settings::sections(out.as_bytes()).unwrap();
+        assert!(
+            read.parsed.warnings.is_empty(),
+            "{:?}",
+            read.parsed.warnings
+        );
+        let builtin = vtium_settings::Config::builtin();
+        let names = |c: &vtium_settings::Config| -> Vec<String> {
+            c.heads.iter().map(|h| h.name.clone()).collect()
+        };
+        assert_eq!(names(&read.parsed.config), names(&builtin));
+        let rules = |c: &vtium_settings::Config| -> Vec<String> {
+            c.rules
+                .iter()
+                .map(|r| format!("{:?} {:?} {:?}", r.kind, r.matcher, r.target))
+                .collect()
+        };
+        assert_eq!(rules(&read.parsed.config), rules(&builtin));
+        assert_eq!(read.parsed.config.policy, builtin.policy);
+        assert!(vtium_settings::complete_route(&read.parsed.config, None).complete());
+        // a draft with sections is left as it is
+        assert_eq!(with_flow(&out), out);
+    }
+
     #[test]
     fn a_look_a_head_names_is_kept_without_force() {
         let text = "version = 1\n[look big]\n[head desk]\nlook = big\n[rules]\ndisplay * -> desk\n";
@@ -493,7 +702,7 @@ mod tests {
         assert_eq!(rules_to(text, "desk"), [1]);
         assert_eq!(
             look_rm(text, "big", true).unwrap(),
-            "version = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\n"
+            "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n"
         );
     }
 

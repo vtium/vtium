@@ -1,12 +1,13 @@
 # VTium's concepts
 
-These pages explain vtium, a terminal for the Linux virtual console, the VT, that draws the screen itself with no display server, on machines from a small board with a 320x240 panel to a desktop with a large monitor.
+These pages explain vtium, a terminal for the Linux virtual console, the VT, that renders the screen itself, so it needs no display server. It runs on machines from a small board with a 320×240 panel to a desktop with a large monitor.
 
 Each page holds one concept, so a reader can open one at a time. Each links to the decision record, issue or document that holds the detail, and the commands and setting names live there too. A piece that is not built yet is marked proposed, with the issue or record that holds it.
 
 - [What vtium is](what-vtium-is.md): what vtium draws, how it draws it, and the small machines it is built for first.
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.
 - [Deployment and start-up](start-up.md): how a package installs vtium, how it takes the place of getty, and what happens when it takes a VT and when the user switches away.
+- [Seats and sessions](seats-and-sessions.md): who opens the screen and the keyboards, who holds your login session, and what that session can do, for each build of vtium, each init system and seat manager, and direct mode and seat mode.
 - [Heads](heads.md): a terminal for each display, the rules of vtium.conf, its two policies, open and closed, and the operator's way back in.
 - [Fonts, generated at run time](fonts.md): the frit, the helper that draws its glyphs, the built-in fonts and switching between fonts.
 - [Using vtium](using-vtium.md): the configuration, the selection and the clipboard, links and prompts, keys and blanking.

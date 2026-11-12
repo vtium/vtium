@@ -369,6 +369,68 @@ fn every_command_acts_in(f: &Fixture, elsewhere: &Path) {
     assert!(!f.etc().join("fonts/made.vtfrit").exists());
 }
 
+/// A PSF2 font of 128 glyphs 8 wide and `height` high, each glyph mapping
+/// the codepoint of its number.
+fn psf2(height: u32) -> Vec<u8> {
+    let mut f = Vec::new();
+    for v in [0x864a_b572u32, 0, 32, 1, 128, height, height, 8] {
+        f.extend_from_slice(&v.to_le_bytes());
+    }
+    for g in 0..128 * height {
+        f.push((g % 251) as u8);
+    }
+    for g in 0..128u8 {
+        f.extend_from_slice(&[g, 0xff]);
+    }
+    f
+}
+
+// ADR-1202 D12: check notes a script-source= font whose height gives no
+// superscript or subscript in the frit's own cell, naming its line, and
+// says nothing of one that does
+// covers: sgr.script
+#[test]
+fn check_notes_a_script_source_outside_the_range() {
+    let f = fixture("check-script-source", None);
+    let small = f.root.join("small.psf");
+    let tiny = f.root.join("tiny.psf");
+    std::fs::write(&small, psf2(8)).expect("a font");
+    std::fs::write(&tiny, psf2(7)).expect("a font");
+    let frit = f.root.join("t.vtfrit");
+    std::fs::write(
+        &frit,
+        format!(
+            "source=builtin:unifont\nscript-source=file:{}\nscript-source=file:{}\n",
+            small.display(),
+            tiny.display()
+        ),
+    )
+    .expect("a frit");
+    let ran = f.run(&["check", frit.to_str().expect("a path")]);
+    assert_eq!(ran.status, 0, "{}", ran.err);
+    let notes: Vec<&str> = ran
+        .out
+        .lines()
+        .filter(|l| l.starts_with("note\t"))
+        .collect();
+    assert_eq!(notes.len(), 1, "{}", ran.out);
+    assert!(
+        notes[0].starts_with(&format!("note\t{}:3: script-source=file:", frit.display())),
+        "{}",
+        ran.out
+    );
+    assert!(
+        notes[0].contains("8x16 character cell") && notes[0].contains("from 8 to 12 pixels"),
+        "{}",
+        ran.out
+    );
+    assert!(
+        ran.out.ends_with(&format!("ok\t{}\n", frit.display())),
+        "{}",
+        ran.out
+    );
+}
+
 #[test]
 fn check_judges_a_frit_and_a_vtium_conf_and_writes_nothing() {
     let f = fixture("check", None);

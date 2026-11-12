@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use vtium_config::kitty;
+use vtium_config::made::Made;
 use vtium_config::serve::LeftOut;
 use vtium_config::specimen::{Picture, Shot, Sources, Summary};
 use vtium_config::tui::desk::Done;
@@ -290,7 +291,14 @@ impl Port for Console {
             said.push_str(&String::from_utf8_lossy(&out.stderr));
             Ok((out.status.success(), said))
         };
-        step(&mut run)
+        // what the step writes for the person, and each question it asks,
+        // which this console answers no
+        let mut talk: Vec<u8> = Vec::new();
+        let mut ask = |out: &mut dyn std::io::Write, question: &str| -> bool {
+            let _ = writeln!(out, "{question} [y/N]");
+            false
+        };
+        step(&mut run, &mut talk, &mut ask)
     }
 
     fn on_panic(&mut self, bytes: Vec<u8>) {
@@ -358,6 +366,7 @@ impl Port for Console {
                             grid,
                             covered: 300,
                             of: 323,
+                            script: Some(Made::Scaled),
                         },
                     )),
                 }
@@ -375,6 +384,7 @@ impl Port for Console {
                         grid: Some((80, 30)),
                         covered: 40,
                         of: 51,
+                        script: Some(Made::Scaled),
                     }),
                 }
             }
@@ -434,6 +444,19 @@ fn console() -> Console {
         .takes("unscii-8", (80, 25))
 }
 
+/// A vtium console like [`console`]'s with `allow-font-ops` off, so the
+/// TUI cannot switch its font and previews each change as a picture, or
+/// as a written description where it draws none, as it does in every
+/// terminal but a vtium console it can switch (ADR-1201 D4).
+fn outside() -> Console {
+    Console::vtium(80, 25, false, "unifont")
+        .takes("minspec-16", (80, 25))
+        .takes("proof", (80, 25))
+        .takes("tiny5", (80, 25))
+        .takes("unifont", (80, 25))
+        .takes("unscii-8", (80, 25))
+}
+
 fn run(console: &mut Console) -> u8 {
     drive(console, inputs()).expect("the loop")
 }
@@ -450,6 +473,9 @@ struct Desk {
     plans: Vec<vtium_config::draft::Plan>,
     /// A Prepare readied an install that has not yet run.
     ready: bool,
+    /// What the step after the install did on the VTs, as an install of
+    /// the system's vtium.conf answers; `None` for other directories.
+    after: Option<vtium_config::vts::Outcome>,
 }
 
 fn desk() -> Desk {
@@ -459,6 +485,7 @@ fn desk() -> Desk {
         draft: conf,
         plans: Vec::new(),
         ready: false,
+        after: None,
     }
 }
 
@@ -518,6 +545,8 @@ impl vtium_config::tui::desk::Desk for Desk {
         &mut self,
         plan: &vtium_config::draft::Plan,
         run: vtium_config::apply::Runner<'_>,
+        _out: &mut dyn std::io::Write,
+        _ask: vtium_config::apply::Ask<'_>,
     ) -> Result<Done, String> {
         if !std::mem::take(&mut self.ready) {
             return Err(vtium_config::tui::words::NOT_PREPARED.to_owned());
@@ -532,7 +561,10 @@ impl vtium_config::tui::desk::Desk for Desk {
             return Err(said);
         }
         self.installed.clone_from(&self.draft);
-        Ok(Done::Draft(self.opened(), None))
+        Ok(match self.after.clone() {
+            Some(outcome) => Done::Installed(self.opened(), outcome),
+            None => Done::Draft(self.opened(), None),
+        })
     }
 }
 
@@ -556,9 +588,8 @@ fn the_four_requests_go_first_in_their_order() {
     );
 }
 
-/// Moving the highlight previews each font as a picture and sends the
-/// live console nothing (ADR-1201 D4): no switch goes, and leaving has no
-/// font to give back.
+/// Moving the highlight sends the live console nothing (ADR-1201 D4): no
+/// switch goes, and leaving has no font to give back.
 #[test]
 fn each_highlighted_font_leaves_the_live_console_alone() {
     let mut c = console().keys(&[UP, &[DOWN, DOWN].concat(), DOWN, b"q"]);
@@ -566,11 +597,11 @@ fn each_highlighted_font_leaves_the_live_console_alone() {
     assert_eq!(run(&mut c), 0);
     assert_eq!(c.switches(), Vec::<String>::new(), "{:?}", c.log);
     assert!(!c.log.iter().any(|l| l.starts_with("set ")), "{:?}", c.log);
-    // each font highlighted got its specimen instead; of the two Downs of
-    // one read, the first asks for unifont's, and the second waits for it
-    // and asks for unscii-8's
-    let fonts: Vec<&str> = c.specimens.iter().map(|(f, _, _)| f.as_str()).collect();
-    assert_eq!(fonts, ["unifont", "tiny5", "unifont", "unscii-8"]);
+    // and the console draws the preview's characters itself, so no font
+    // highlighted is drawn as a picture, though the console draws them
+    assert!(c.specimens.is_empty(), "{:?}", c.specimens);
+    assert!(c.shots.is_empty() && c.summaries.is_empty());
+    assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
 }
 
 /// `t` switches the console to the highlighted font, one switch at a
@@ -785,6 +816,27 @@ fn installing_runs_one_install_and_the_console_keeps_the_installed_font() {
     assert_eq!(file.new, format!("# mine\nfont-name=tiny5\n{SECTIONS}"));
     // after installing, leaving does not switch back
     assert_eq!(c.switches(), ["tiny5"]);
+}
+
+/// After an install of the system's vtium.conf, the message line says
+/// where vtium now runs with it, and each VT a head names that vtium
+/// console would not enable (ADR-1201 D5).
+#[test]
+fn the_message_line_says_what_the_install_did_on_the_vts() {
+    use vtium_config::vts::{Applied, Outcome};
+    let mut d = desk();
+    d.after = Some(Outcome {
+        refused: vec![(7, vec!["terminal-1".to_owned()])],
+        applied: Applied::Done(vec![2, 3, 12]),
+    });
+    let mut c = console().keys(&[UP, b"\r", b"i", b"y"]);
+    run_desk(&mut c, &mut d);
+    let screen = c.seen.clone().expect("the screen");
+    let joined = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        joined.contains("Installed draft mine. vtium now runs with it on VTs 2, 3, and 12. vtium is not enabled on VT 7, so head terminal-1 does not appear there."),
+        "{screen}"
+    );
 }
 
 #[test]
@@ -1307,8 +1359,21 @@ fn reach(cols: usize, rows: usize, keys: &[&[u8]]) -> String {
 /// The screen the script `keys` reaches at `cols` by `rows`, from `view`,
 /// and the bytes the TUI wrote to draw it.
 fn reach_from(view: model::View, cols: usize, rows: usize, keys: &[&[u8]]) -> (String, Vec<u8>) {
+    reach_on(true, view, cols, rows, keys)
+}
+
+/// The screen the script `keys` reaches at `cols` by `rows`, from `view`,
+/// in a vtium console with `allow-font-ops` on or, with `ops` false, off,
+/// and the bytes the TUI wrote to draw it.
+fn reach_on(
+    ops: bool,
+    view: model::View,
+    cols: usize,
+    rows: usize,
+    keys: &[&[u8]],
+) -> (String, Vec<u8>) {
     let grid = (cols, rows);
-    let mut c = Console::vtium(cols, rows, true, "unifont")
+    let mut c = Console::vtium(cols, rows, ops, "unifont")
         .takes("minspec-16", grid)
         .takes("proof", grid)
         .takes("tiny5", grid)
@@ -1346,6 +1411,18 @@ fn each_view_at_80x25_and_100x30() {
             golden(&format!("{name}-{cols}x{rows}"), &screen, &bytes);
         }
     }
+}
+
+/// The Fonts view at 80x25 in a vtium console with `allow-font-ops` off,
+/// where the TUI cannot switch the font: the written description, as in
+/// any terminal that shows no images, and the notice that the live trial
+/// is off (ADR-1201 D4).
+#[test]
+fn the_fonts_view_without_font_operations_at_80x25() {
+    let (screen, bytes) = reach_on(false, model::View::Fonts, 80, 25, &[]);
+    assert!(screen.contains("does not support images"), "{screen}");
+    assert!(screen.contains(words::KEYS_FONTS), "{screen}");
+    golden("fonts-nolive-80x25", &screen, &bytes);
 }
 
 // Tab and Shift-Tab step the views wherever the selection is, and the
@@ -1390,7 +1467,7 @@ fn tab_and_shift_tab_step_every_other_view_and_the_arrows_stay_in_it() {
     use model::View::{Flow, Fonts, Help, Looks, Settings};
     let own = |view| match view {
         Looks => words::KEYS_LOOKS,
-        Fonts => words::KEYS_FONTS,
+        Fonts => words::KEYS_FONTS_LIVE,
         Settings => words::KEYS_SETTINGS,
         _ => words::KEYS_HELP,
     };
@@ -1446,7 +1523,7 @@ fn tab_answers_a_question_no_on_any_view_and_stays() {
     let screen = c.seen.clone().expect("the screen");
     assert!(screen.contains(words::NOT_LEFT), "{screen}");
     let line = screen.lines().last().unwrap_or_default().trim();
-    assert_eq!(line, words::KEYS_FONTS, "{screen}");
+    assert_eq!(line, words::KEYS_FONTS_LIVE, "{screen}");
 }
 
 #[test]
@@ -1470,7 +1547,7 @@ fn tab_does_nothing_in_the_new_frit_view_and_esc_goes_back_to_fonts() {
         assert!(screen.contains("abc"), "{screen}");
     }
     let line = key_line(model::View::Fonts, &[b"n", b"abc", TAB, b"\x1b"]);
-    assert_eq!(line, words::KEYS_FONTS);
+    assert_eq!(line, words::KEYS_FONTS_LIVE);
 }
 
 #[test]
@@ -1487,21 +1564,9 @@ fn a_console_that_never_answers_the_give_back_is_left_after_the_wait() {
         started.extend(app.event(Event::Input(Input::Reply(r))));
     }
     // once the terminal is known, the helper is asked which sources each
-    // frit that reads lacks
-    // and, as the terminal draws no pictures, for the line that describes
-    // the highlighted font at 12 points
+    // frit that reads lacks, and for no preview, which the console draws
     let frits = ["minspec-16", "proof", "tiny5"].map(String::from).to_vec();
-    assert_eq!(
-        started,
-        [
-            Effect::Sources(frits),
-            Effect::Summary {
-                font: "unifont".into(),
-                height: 16
-            }
-        ]
-    );
-    // unifont's line is still being drawn, so tiny5's waits for it
+    assert_eq!(started, [Effect::Sources(frits)]);
     assert_eq!(app.event(Event::Input(Input::Key(Key::Up))), []);
     let tried = app.event(Event::Input(Input::Key(Key::Char('t'))));
     assert_eq!(
@@ -1568,11 +1633,7 @@ fn one_preview_is_drawn_at_a_time() {
     use vtium_config::tui::model::{App, Effect, Event};
     let (mut app, _) = App::new(inputs(), 80, 25);
     let mut out = Vec::new();
-    for r in [
-        Reply::Version("vtium(test)".into()),
-        Reply::Font("unifont".into()),
-        Reply::Attributes,
-    ] {
+    for r in [Reply::Version("vtium(test)".into()), Reply::Attributes] {
         out.extend(app.event(Event::Input(Input::Reply(r))));
     }
     assert!(out.contains(&Effect::Summary {
@@ -1589,6 +1650,7 @@ fn one_preview_is_drawn_at_a_time() {
         grid: Some((80, 30)),
         covered: 1,
         of: 1,
+        script: None,
     };
     let next = app.event(Event::Summarized {
         font: "unifont".into(),
@@ -1615,7 +1677,6 @@ fn a_picture_that_comes_after_the_highlight_moved_is_not_shown() {
     let (mut app, _) = App::new(inputs(), 80, 25);
     for r in [
         Reply::Version("vtium(test)".into()),
-        Reply::Font("unifont".into()),
         Reply::Graphics(true),
         Reply::Attributes,
     ] {
@@ -1824,7 +1885,7 @@ fn the_small_screen_shows_the_live_trial_s_countdown() {
 /// the screen that says the grid is too small included (ADR-1201 D4).
 #[test]
 fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
-    let mut c = console().keys(&[b"s", UP]);
+    let mut c = outside().keys(&[b"s", UP]);
     c.graphics = true;
     run(&mut c);
     // unifont's 8x16 and tiny5's 4x6 on the fixture's 640x480 display
@@ -1848,7 +1909,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
     );
     // on a display too small for the TUI at that cell, the picture is the
     // screen that says so
-    let mut c = console().keys(&[b"s"]);
+    let mut c = outside().keys(&[b"s"]);
     c.graphics = true;
     let mut small = inputs();
     small.display = Some((320, 240));
@@ -1864,7 +1925,7 @@ fn the_picture_shows_the_display_at_the_grid_the_font_gives() {
 /// the line beside it still counts the real display's grid.
 #[test]
 fn the_looks_preview_draws_a_fixed_screen_of_sample_content() {
-    let mut c = console().keys(&[BACKTAB, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN]);
     c.graphics = true;
     let mut wide = inputs();
     wide.display = Some((7680, 2160));
@@ -1951,7 +2012,7 @@ fn count(haystack: &[u8], needle: &[u8]) -> usize {
 
 #[test]
 fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
-    let mut c = console().keys(&[BACKTAB, DOWN, DOWN, b"\t", b"q"]);
+    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN, b"\t", b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     // 6 pt and 7 pt at 96 dpi, unifont highlighted in the font view, in
@@ -2001,7 +2062,7 @@ fn each_highlighted_size_shows_its_specimen_and_deletes_the_last() {
 /// view starts on the specimen.
 #[test]
 fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
-    let mut c = console().keys(&[b"s", UP, b"s", b"q"]);
+    let mut c = outside().keys(&[b"s", UP, b"s", b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
     // below the list and the line beside the specimen: rows 14 to 20 at
@@ -2019,7 +2080,7 @@ fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
     assert_eq!(fonts, ["unifont", "tiny5"]);
     // the line beside the specimen gives the cell, the grid on the display
     // and how many characters the font draws itself, and its marks
-    let mut c = console().keys(&[]);
+    let mut c = outside().keys(&[]);
     c.graphics = true;
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
@@ -2037,7 +2098,7 @@ fn s_switches_the_fonts_view_between_the_console_and_the_detailed_specimen() {
 
 /// The font view shows each highlighted font as its detailed specimen, at
 /// 12 points where nothing names a size, below the list and the line that
-/// describes it, whether or not the console can be switched live.
+/// describes it, where the console cannot be switched live.
 #[test]
 fn each_highlighted_font_is_shown_as_its_specimen() {
     let mut c = Console::vtium(80, 25, false, "unifont").keys(&[UP, UP, UP, UP, b"q"]);
@@ -2067,8 +2128,8 @@ fn each_highlighted_font_is_shown_as_its_specimen() {
     let mut live = console().keys(&[UP, b"q"]);
     live.graphics = true;
     run(&mut live);
-    let fonts: Vec<&str> = live.specimens.iter().map(|(f, _, _)| f.as_str()).collect();
-    assert_eq!(fonts, ["unifont", "tiny5"]);
+    // a vtium console it can switch draws the preview as text instead
+    assert!(live.specimens.is_empty(), "{:?}", live.specimens);
     assert_eq!(live.switches(), Vec::<String>::new());
 }
 
@@ -2076,7 +2137,7 @@ fn each_highlighted_font_is_shown_as_its_specimen() {
 /// cell, its grid and how much of the specimen the font draws itself.
 #[test]
 fn without_pictures_a_size_shows_its_cell_grid_and_coverage() {
-    let mut c = console().keys(&[BACKTAB, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN, DOWN]);
     run(&mut c);
     let screen = c.seen.clone().expect("the screen");
     let text = screen.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -2129,22 +2190,147 @@ fn the_font_list_names_the_sources_a_frit_lacks() {
     assert!(screen.contains("minspec-16 reads\n"), "{screen}");
 }
 
+/// The text a run of the TUI left on the console's screen, from the row
+/// below the caption of the preview: the preview's rows, trimmed.
+fn preview_rows(screen: &str, first: &str) -> Vec<String> {
+    screen
+        .lines()
+        .skip_while(|l| !l.contains(first))
+        .map(|l| l.trim().to_owned())
+        .collect()
+}
+
+/// In a vtium console the TUI can switch, the Fonts view prints the
+/// detailed specimen's characters, its lines and the locale's line, as
+/// the console's own text, in the font the console draws now, and asks
+/// the helper for no picture; after `t` the console draws them in the font
+/// tried, and the caption names it (ADR-1201 D4).
 #[test]
-fn leaving_with_a_picture_deletes_it_before_the_font_comes_back() {
+fn a_vtium_console_prints_the_specimen_as_its_own_text_and_t_redraws_it() {
+    let grid = (100, 50);
+    let mut c = Console::vtium(grid.0, grid.1, true, "unifont")
+        .takes("tiny5", grid)
+        .takes("unifont", grid)
+        .keys(&[UP, b"t", b"k"]);
+    let mut i = inputs();
+    i.locale = "ru_RU.UTF-8".into();
+    drive(&mut c, i).expect("the loop");
+    let screen = c.seen.clone().expect("the screen");
+    // every line the picture of the specimen draws, in its order, with the
+    // Russian locale's own line after the samples, then its line of
+    // superscripts and subscripts
+    let mut want: Vec<String> = vtium_config::specimen::detail_lines("ru_RU.UTF-8")
+        .iter()
+        .map(|l| l.trim().to_owned())
+        .collect();
+    assert!(
+        want.iter().any(|l| l.starts_with("Съешь же ещё")),
+        "{want:?}"
+    );
+    let script: String = vtium_config::specimen::SCRIPT_LINE
+        .iter()
+        .map(|(run, _)| *run)
+        .collect();
+    want.push(script.trim().to_owned());
+    // the console's grid gives a wide character two cells, which the
+    // screen's text shows as the character and an empty cell
+    let shown: Vec<String> = preview_rows(&screen, "!\"#$%")
+        .into_iter()
+        .take(want.len())
+        .map(|l| l.replace(' ', ""))
+        .collect();
+    let want: Vec<String> = want.iter().map(|l| l.replace(' ', "")).collect();
+    assert_eq!(shown, want, "{screen}");
+    // the superscripts and subscripts are SGR 73 and 74
+    let text = String::from_utf8_lossy(&c.written).into_owned();
+    assert!(text.contains("\x1b[73m2"), "a superscript");
+    assert!(text.contains("\x1b[74m2"), "a subscript");
+    // no picture, and no written description in its place
+    assert!(c.specimens.is_empty() && c.summaries.is_empty() && c.cells.is_empty());
+    assert!(!screen.contains("does not support images"), "{screen}");
+    // the console draws tiny5 now, and the caption says so; leaving gives
+    // unifont back
+    assert_eq!(c.switches(), ["tiny5", "unifont"]);
+    let flat = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        flat.contains(&words::console_font_caption(Some("tiny5"))),
+        "{screen}"
+    );
+    assert!(screen.contains(words::KEYS_FONTS_LIVE), "{screen}");
+}
+
+/// In a vtium console the Looks view prints the sample screen the picture
+/// of a size draws, in its colors, at the console's current size, and its
+/// caption says that a size takes effect when vtium starts again.
+#[test]
+fn a_vtium_console_prints_the_looks_sample_at_its_current_size() {
+    let mut c = console().keys(&[BACKTAB, DOWN, DOWN]);
+    c.graphics = true;
+    run(&mut c);
+    let screen = c.seen.clone().expect("the screen");
+    let rows = preview_rows(&screen, "user@desk:~/notes$ ls -l");
+    let sample: Vec<String> = vtium_config::tui::shot::sample_rows()
+        .iter()
+        .map(|line| line.iter().map(|(t, _)| *t).collect::<String>())
+        .collect();
+    for (i, line) in sample.iter().enumerate() {
+        let row = rows.get(i).map(String::as_str).unwrap_or_default();
+        assert!(
+            row.ends_with(line.trim()),
+            "row {i}: {row:?} for {line:?}\n{screen}"
+        );
+    }
+    let flat = screen.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains(words::CONSOLE_SIZE_CAPTION), "{screen}");
+    // the colors are the console's own: the prompt in bright green
+    let text = String::from_utf8_lossy(&c.written).into_owned();
+    assert!(text.contains("\x1b[92muser@desk"), "the prompt's color");
+    assert!(c.pictures.is_empty() && c.cells.is_empty());
+}
+
+/// Outside a vtium console the TUI can switch, the Fonts view keeps
+/// today's preview: the written description where the terminal shows no
+/// images, the helper's picture where it does, and `s` switches the
+/// picture. It never prints the specimen as text.
+#[test]
+fn outside_a_vtium_console_the_preview_is_a_picture_or_a_description() {
+    for graphics in [false, true] {
+        let mut c = outside().keys(&[b"s"]);
+        c.graphics = graphics;
+        run(&mut c);
+        let screen = c.seen.clone().expect("the screen");
+        assert!(!screen.contains("@ABCDEFGHIJ"), "{screen}");
+        assert!(screen.contains(words::KEYS_FONTS), "{screen}");
+        if graphics {
+            assert!(!c.specimens.is_empty() && !c.shots.is_empty());
+        } else {
+            assert!(screen.contains("does not support images"), "{screen}");
+            assert!(!c.summaries.is_empty());
+        }
+    }
+    // a terminal that is not vtium at all asks for the description too
+    let mut c = Console::da1_only(80, 25).keys(&[]);
+    run(&mut c);
+    assert_eq!(c.summaries, [("unifont".to_owned(), 16)]);
+}
+
+/// A vtium console the TUI can switch gets no picture, even where it
+/// draws kitty graphics: the preview is its own text (ADR-1201 D4), and a
+/// font tried and kept still comes back when the TUI leaves.
+#[test]
+fn a_vtium_console_that_draws_pictures_gets_no_picture() {
     let mut c = console().keys(&[UP, b"t", b"k", BACKTAB, DOWN, b"q"]);
     c.graphics = true;
     assert_eq!(run(&mut c), 0);
+    assert!(c.pictures.is_empty() && c.specimens.is_empty() && c.cells.is_empty());
+    assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
     let text = String::from_utf8_lossy(&c.written).into_owned();
-    let delete = text
-        .rfind("\x1b_Ga=d,d=I,i=1201,q=2\x1b\\")
-        .expect("deleted");
-    let back = text.rfind("\x1b]50;unifont\x1b\\").expect("the font back");
-    assert!(delete < back, "deleted, then the font given back");
+    assert!(text.contains("\x1b]50;unifont\x1b\\"), "the font back");
 }
 
 #[test]
 fn automatic_has_no_picture() {
-    let mut c = console().keys(&[BACKTAB, DOWN, UP]);
+    let mut c = outside().keys(&[BACKTAB, DOWN, UP]);
     c.graphics = true;
     run(&mut c);
     let heights: Vec<u32> = c.pictures.iter().map(|(_, h, _)| *h).collect();
@@ -2158,7 +2344,7 @@ fn automatic_has_no_picture() {
 
 #[test]
 fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
-    let mut c = console().keys(&[BACKTAB, DOWN, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN, DOWN]);
     run(&mut c);
     assert!(c.pictures.is_empty());
     assert_eq!(count(&c.written, b"\x1b_Ga=T"), 0);
@@ -2169,13 +2355,13 @@ fn without_kitty_graphics_no_picture_is_sent_and_the_view_says_so() {
 #[test]
 fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
     // 80x25 at 8x16: rows 7 to 20 are the area, above the longest message
-    let mut c = console().keys(&[BACKTAB, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN]);
     c.graphics = true;
     run(&mut c);
     let (_, _, (w, h)) = c.pictures.last().cloned().expect("6 pt's picture");
     assert!(h <= (25 - 8) * 16 && w <= (80 - 25) * 8, "{w}x{h}");
     // a terminal of very large cells is capped
-    let mut c = console().keys(&[BACKTAB, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN]);
     c.graphics = true;
     c.cell_px = Some((200, 400));
     run(&mut c);
@@ -2189,7 +2375,7 @@ fn the_picture_never_reaches_the_footer_and_never_passes_the_cap() {
 fn a_preview_area_less_than_one_line_high_says_so_on_the_message_line() {
     // cells of 2x1 pixels leave the Looks view's area 14 pixels high, and
     // the stand-in's 8x16 cell needs 16
-    let mut c = console().keys(&[BACKTAB, DOWN]);
+    let mut c = outside().keys(&[BACKTAB, DOWN]);
     c.graphics = true;
     c.cell_px = Some((2, 1));
     run(&mut c);
@@ -2324,8 +2510,12 @@ fn at_80x25_no_key_or_sentence_is_cut() {
     // the keys that reach a view, its key line, and its sentences
     type Case<'a> = (&'a [&'a [u8]], &'a str, &'a [&'a str]);
     let views: [Case; 4] = [
-        (&[], words::KEYS_FONTS, &[]),
-        (&[BACKTAB], words::KEYS_LOOKS, &[words::NO_PICTURES]),
+        (&[], words::KEYS_FONTS_LIVE, &[]),
+        (
+            &[BACKTAB],
+            words::KEYS_LOOKS,
+            &[words::CONSOLE_SIZE_CAPTION],
+        ),
         (&[b"\t"], words::KEYS_SETTINGS, &[words::SETTINGS_HINT]),
         (&[b"\t", b"\t"], words::KEYS_HELP, &[]),
     ];
@@ -2378,7 +2568,7 @@ fn at_80x25_the_size_list_scrolls_and_its_sentence_shows_whole_or_not_at_all() {
     use vtium_config::tui::words;
     let joined = |screen: &str| screen.lines().map(str::trim).collect::<Vec<_>>().join(" ");
     let top = reach(80, 25, &[BACKTAB]);
-    assert!(joined(&top).contains(words::NO_PICTURES), "{top}");
+    assert!(joined(&top).contains(words::CONSOLE_SIZE_CAPTION), "{top}");
     assert!(
         !top.contains("32 pt"),
         "the list is longer than its room: {top}"
@@ -2386,10 +2576,10 @@ fn at_80x25_the_size_list_scrolls_and_its_sentence_shows_whole_or_not_at_all() {
     // the last size scrolls into sight, and the sentence stays whole
     let bottom = reach(80, 25, &[BACKTAB, b"\x1b[4~"]);
     assert!(bottom.contains("> 32 pt"), "{bottom}");
-    let first = words::NO_PICTURES.split(", ").next().unwrap_or("");
+    let first = words::CONSOLE_SIZE_CAPTION.split(". ").next().unwrap_or("");
     assert_eq!(
         joined(&bottom).contains(first),
-        joined(&bottom).contains(words::NO_PICTURES),
+        joined(&bottom).contains(words::CONSOLE_SIZE_CAPTION),
         "whole or not at all:\n{bottom}"
     );
 }
@@ -2900,6 +3090,24 @@ mod draft_flow {
         fn installed(&self) -> String {
             std::fs::read_to_string(self.root.join("etc/vtium.conf")).expect("vtium.conf")
         }
+
+        /// The width at which a message that names one of the bench's
+        /// files keeps the words after the path on screen. The message
+        /// line wraps to three rows, and it breaks a path that is wider
+        /// than a row across rows. The bench lives under the test
+        /// target's temporary directory, so its paths are as long as the
+        /// checkout's and the target directory's names make them. At this
+        /// width a row holds the bench's longest path, its draft's, whole,
+        /// with room for the `:LINE:` that the check adds after it, so
+        /// the words after the path fit on the rows that are left.
+        fn cols(&self) -> usize {
+            let path = self.store().draft_path("bench").expect("the draft's path");
+            path.to_string_lossy()
+                .chars()
+                .count()
+                .saturating_add(8)
+                .max(100)
+        }
     }
 
     /// What a run on the bench left: the console and the app's last screen.
@@ -2956,6 +3164,120 @@ mod draft_flow {
 
     fn run(b: &Bench, keys: &[&[u8]]) -> Ran {
         run_on(b, vec![present(vec![keyboard()], true)], true, keys)
+    }
+
+    /// Runs the TUI on `b`'s desk, 30 rows high and [`Bench::cols`] wide,
+    /// in the Fonts view of a vtium console of the head `head`, which
+    /// draws unifont and takes tiny5 and a font set named BADX, which the
+    /// bench's check refuses, typing `keys`.
+    fn run_fonts(b: &Bench, head: Option<&str>, keys: &[&[u8]]) -> Ran {
+        let grid = (b.cols(), 30);
+        let mut console = Console::vtium(grid.0, grid.1, true, "unifont")
+            .takes("tiny5", grid)
+            .takes("unifont", grid)
+            .takes("BADX", grid)
+            .keys(keys);
+        let mut desk = b.desk(vec![present(vec![keyboard()], true)]);
+        let mut i = inputs();
+        i.view = model::View::Fonts;
+        i.head = head.map(str::to_owned);
+        i.fonts.push(font("BADX", FontState::Reads));
+        i.flow = vtium_config::tui::flow::Flow::default();
+        drive_with(&mut console, i, Some(&mut desk)).expect("the loop");
+        Ran { console }
+    }
+
+    /// The keys that try tiny5 on the console and keep it: from unifont,
+    /// one row up.
+    const TRY_TINY5: [&[u8]; 3] = [UP, b"t", b"k"];
+
+    /// `s` in a vtium console's Fonts view saves the font the console
+    /// shows where the console's head takes its font from. The bench's
+    /// head desk draws the look big, which names proof, so the save makes
+    /// a look for tiny5, gives it to desk, and removes big, which no head
+    /// uses then, through the Flow card's plan; the top level's font-name
+    /// stays unset (ADR-1201 D4, ADR-1403 D8).
+    #[test]
+    fn s_saves_the_tried_font_into_the_look_of_the_consoles_head() {
+        let b = bench("tried-look");
+        let ran = run_fonts(&b, Some("desk"), &[&TRY_TINY5[..], &[b"s"]].concat());
+        let draft = b.draft();
+        assert!(
+            draft.contains("[look tiny5]\nfont-name = tiny5\n"),
+            "{draft}"
+        );
+        assert!(draft.contains("[head desk]\nlook = tiny5\n"), "{draft}");
+        assert!(!draft.contains("[look big]"), "{draft}");
+        assert_eq!(
+            vtium_settings::setting(&draft, "font-name"),
+            None,
+            "{draft}"
+        );
+        assert!(
+            flat(ran.screen()).contains(&flat(&words::tried_saved_look(
+                "tiny5", "desk", "tiny5", "bench"
+            ))),
+            "{}",
+            ran.screen()
+        );
+        assert!(ran.status().contains("no problems"), "{}", ran.status());
+        // the draft is the installed file until the save, which waits for
+        // nothing else
+        assert_ne!(draft, INSTALLED);
+    }
+
+    /// A head whose look names no font takes the top level's: the save
+    /// writes `font-name` there and leaves the looks alone.
+    #[test]
+    fn s_saves_the_tried_font_at_the_top_level_for_a_head_whose_look_names_none() {
+        let b = bench("tried-top");
+        let ran = run_fonts(&b, Some("panel"), &[&TRY_TINY5[..], &[b"s"]].concat());
+        let draft = b.draft();
+        assert_eq!(
+            vtium_settings::setting(&draft, "font-name").as_deref(),
+            Some("tiny5"),
+            "{draft}"
+        );
+        assert!(draft.contains("[look big]\nfont-name = proof\n"), "{draft}");
+        assert!(draft.contains("[head desk]\nlook = big\n"), "{draft}");
+        assert!(
+            flat(ran.screen()).contains(&flat(&words::tried_saved_top("tiny5", "bench"))),
+            "{}",
+            ran.screen()
+        );
+        // without VTIUM_HEAD, where a look names a font of its own, the
+        // TUI cannot tell where the console takes its font from, and
+        // writes nothing
+        let b = bench("tried-no-head");
+        let ran = run_fonts(&b, None, &[&TRY_TINY5[..], &[b"s"]].concat());
+        assert_eq!(b.draft(), INSTALLED);
+        assert!(
+            flat(ran.screen()).contains(&flat(&words::tried_no_head("tiny5"))),
+            "{}",
+            ran.screen()
+        );
+    }
+
+    /// A save the check fails writes nothing: the draft stays as it was,
+    /// and the message line shows what `vtium check-config` printed.
+    #[test]
+    fn s_refuses_a_tried_font_the_check_fails_and_shows_the_checks_words() {
+        let b = bench("tried-refused");
+        let end: &[u8] = b"\x1b[4~";
+        let ran = run_fonts(&b, Some("panel"), &[end, b"t", b"k", b"s"]);
+        assert_eq!(ran.console.switches(), ["BADX", "unifont"]);
+        assert_eq!(b.draft(), INSTALLED);
+        let said = flat(ran.screen());
+        assert!(
+            said.contains(&flat(words::TRIED_REFUSED)),
+            "{}",
+            ran.screen()
+        );
+        assert!(
+            said.contains("BAD is not a key vtium reads"),
+            "{}",
+            ran.screen()
+        );
     }
 
     #[test]
@@ -3118,7 +3440,14 @@ mod draft_flow {
         run(&b, &[&CHANGE[..], &[b"s"]].concat());
         let edited = INSTALLED.replace("font-size=12", "font-size=14");
         std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
-        let ran = run(&b, &[b"i"]);
+        // the refusal names the installed file's path before its words
+        let ran = run_at(
+            &b,
+            (b.cols(), 30),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &[b"i"],
+        );
         assert!(ran.said().contains("changed after"), "{}", ran.screen());
         // and no question asked, so a y installs nothing
         let ran = run(&b, &[b"i", b"y"]);
@@ -3200,7 +3529,7 @@ mod draft_flow {
         run(&b, &[b"n", b"y"]);
         assert_eq!(
             b.draft(),
-            vtium_config::ops::new_text(vtium_config::drafts::EXAMPLE)
+            vtium_config::ops::new_text(vtium_config::drafts::HEADER)
         );
     }
 
@@ -3374,12 +3703,19 @@ mod draft_flow {
                 Ok((true, String::new()))
             };
             let plan = vtium_config::draft::Plan::default();
-            let why = d.install(&plan, &mut run).expect_err("no Prepare");
+            let mut out = Vec::new();
+            let mut ask = |_: &mut dyn std::io::Write, _: &str| -> bool { false };
+            let why = d
+                .install(&plan, &mut run, &mut out, &mut ask)
+                .expect_err("no Prepare");
             assert_eq!(why, words::NOT_PREPARED, "desk {n}");
             assert!(matches!(d.run(&Op::Prepare), Ok(Done::Plan(_))), "desk {n}");
-            assert!(d.install(&plan, &mut run).is_ok(), "desk {n}");
+            assert!(
+                d.install(&plan, &mut run, &mut out, &mut ask).is_ok(),
+                "desk {n}"
+            );
             let why = d
-                .install(&plan, &mut run)
+                .install(&plan, &mut run, &mut out, &mut ask)
                 .expect_err("one install a Prepare");
             assert_eq!(why, words::NOT_PREPARED, "desk {n}");
             assert_eq!(ran, 1, "desk {n}");
@@ -3410,10 +3746,13 @@ mod draft_flow {
         let clash: Vec<&[u8]> = [&[HOME][..], &[DOWN; 4][..], &[space][..]].concat();
         // the terminal desk's card with the cursor on its Login line
         let login: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 4][..]].concat();
+        // the same card with the cursor on its Switch on Enter line: desk
+        // runs on every VT, so the hint says the key has no effect
+        let switch: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 6][..]].concat();
         // each golden's name, the vtium.conf it starts from when not the
         // fixture's, and the keys that reach it
         type Script<'a> = (&'a str, Option<&'a str>, &'a [&'a [u8]]);
-        let scripts: [Script<'_>; 10] = [
+        let scripts: [Script<'_>; 11] = [
             ("flow-default", Some(shipped), &[]),
             ("flow-paths", None, &[]),
             ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
@@ -3421,6 +3760,7 @@ mod draft_flow {
             ("flow-picker", None, &picker),
             ("flow-terminal-card", None, &[HOME, RIGHT, b"\r"]),
             ("flow-login", None, &login),
+            ("flow-switch-on-enter", None, &switch),
             ("flow-label", None, &label),
             ("flow-shared-vts", Some(vts), &[]),
             ("flow-vt-clash", Some(vts), &clash),

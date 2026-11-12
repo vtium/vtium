@@ -709,21 +709,22 @@ fn a_release_frees_the_glyph_and_picture_textures_and_the_next_frame_draws_whole
     assert_eq!(g.gl.live(), (textures, targets, programs));
 }
 
-// ADR-1303 D2, D3: on a GL whose largest texture is 60, with no limit of
+// ADR-1303 D2, D3: on a GL whose largest texture is 68, with no limit of
 // the renderer's own, a picture's textures and the upright frame's tiles
 // stay within it, and each picture and tint quad draws into its tile in
-// the tile's own pixels, every pixel of the frame once. 60 is no multiple
+// the tile's own pixels, every pixel of the frame once. 68 is no multiple
 // of a cell's 8 or 16, so the tiles' seams cross the picture and the
-// selected cells.
+// selected cells. It holds the 24 line sprites of an 8x16 cell, six
+// across and four down in 48x64 (ADR-1202 D8).
 #[test]
 fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles() {
     let limits = vtium_render::gpu::Limits {
-        texture: 60,
+        texture: 68,
         ..StandIn::LIMITS
     };
     let mut g = Gpu::with_limits(limits);
     // 150x100 fitted into 10 by 3 cells from cell 1, 2: drawn 72x48 at
-    // 12, 32, across the tiles' seams at x 60 and y 60
+    // 12, 32, across the tiles' seams at x 68 and y 68
     let p = placements(&[pic(1, (150, 100), (1, 2), (10, 3))]);
     // cells 6 to 9 of rows 3 and 4 selected, x 48 to 80 and y 48 to 80,
     // across both seams
@@ -743,7 +744,7 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
             &[],
         )
         .unwrap();
-    let over = |s: &Size| s.width > 60 || s.height > 60;
+    let over = |s: &Size| s.width > 68 || s.height > 68;
     assert!(!g.made().iter().any(over), "{:?}", g.made());
     for c in g.calls() {
         if let Call::CreateFrame(s) = c {
@@ -751,7 +752,7 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
         }
     }
     // the upright frame's tiles, in the order the pipeline made them
-    let layout = tiles(DISPLAY, Size::new(60, 60), 0).unwrap();
+    let layout = tiles(DISPLAY, Size::new(68, 68), 0).unwrap();
     assert_eq!(layout.len(), 6, "{layout:?}");
     let origin = |name: u32| {
         let k = g.gl.frame_names().iter().position(|&n| n == name)?;
@@ -862,8 +863,8 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
 }
 
 // the issue on the arrow's blend and the copy frame: on a GL whose largest
-// texture is 60, a picture that is not opaque, the text layers beneath it
-// and the pointer's arrow all cross the tiles' seams at x 60 and y 60. In
+// texture is 68, a picture that is not opaque, the text layers beneath it
+// and the pointer's arrow all cross the tiles' seams at x 68 and y 68. In
 // every tile, each draw over a copy follows a copy of exactly the pixels it
 // writes in that tile, taken from that tile into the copy's own target and
 // inside it, and reads each pixel where the copy put it; each covers its
@@ -871,7 +872,7 @@ fn pictures_and_tints_draw_tile_local_across_an_upright_frame_of_several_tiles()
 #[test]
 fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
     let limits = vtium_render::gpu::Limits {
-        texture: 60,
+        texture: 68,
         ..StandIn::LIMITS
     };
     let mut g = Gpu::with_limits(limits);
@@ -885,9 +886,9 @@ fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
         alpha: 0x80,
         ..pic(1, (32, 48), (5, 2), (4, 3))
     };
-    // the arrow's tip at 58, 58, two pixels short of both seams
+    // the arrow's tip at 66, 66, two pixels short of both seams
     let state = DrawState {
-        pointer: Some((58, 58)),
+        pointer: Some((66, 66)),
         ..DrawState::default()
     };
     let frame = g
@@ -906,7 +907,7 @@ fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
             &[],
         )
         .unwrap();
-    let layout = tiles(DISPLAY, Size::new(60, 60), 0).unwrap();
+    let layout = tiles(DISPLAY, Size::new(68, 68), 0).unwrap();
     let tile = |name: u32| {
         let k = g.gl.frame_names().iter().position(|&n| n == name)?;
         layout.get(k).map(|t| t.held)
@@ -996,8 +997,8 @@ fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
     let arrow = g.renderer.upright_arrow();
     let (hx, hy) = arrow.hot();
     let pointer = Rect {
-        x: 58 - hx,
-        y: 58 - hy,
+        x: 66 - hx,
+        y: 66 - hy,
         width: arrow.width(),
         height: arrow.height(),
     };

@@ -33,5 +33,5 @@
 mod identity;
 mod listing;
 
-pub use identity::{Card, display, input, unnamed_display};
+pub use identity::{Card, display, input, unnamed_display, why_unnamed};
 pub use listing::{SEAT, UDEV_CONTROL, devices, udev_daemon_runs};

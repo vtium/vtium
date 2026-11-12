@@ -96,6 +96,10 @@ struct Memory {
     /// How many times vtium parked the display: set it off and freed its
     /// buffer, which [`Memory::pixels`] then no longer holds.
     parks: u32,
+    /// Connected, but the device cannot light it, as a DRM card leaves a
+    /// display that no placement of the card's displays lights: it shows
+    /// nothing and lends no buffer.
+    unlit: bool,
 }
 
 impl Memory {
@@ -127,6 +131,7 @@ impl Memory {
             unblanks: 0,
             dpms_sets: Vec::new(),
             parks: 0,
+            unlit: false,
         }
     }
 
@@ -180,6 +185,23 @@ impl Memory {
     /// owner is told to redraw.
     fn set_refresh(&mut self, mhz: u32) {
         self.refresh_mhz = mhz;
+        self.age = 0;
+        self.events.push(Event::Redraw(ID));
+    }
+
+    /// The device can no longer light the display, which stays connected:
+    /// the owner hears it unlit.
+    fn unlight(&mut self) {
+        self.unlit = true;
+        self.lease += 1;
+        self.events.push(Event::Unlit(ID));
+    }
+
+    /// A modeset lights the display again, with what its buffer held
+    /// unknown: the owner is told to draw it whole.
+    fn relight(&mut self) {
+        self.unlit = false;
+        self.lease += 1;
         self.age = 0;
         self.events.push(Event::Redraw(ID));
     }
@@ -276,7 +298,10 @@ impl Video for Memory {
         false
     }
     fn ready_for_frame(&self, _: DisplayId) -> bool {
-        self.awake && self.dpms == Some(Dpms::On) && Arc::strong_count(&self.drawn) == 1
+        self.awake
+            && !self.unlit
+            && self.dpms == Some(Dpms::On)
+            && Arc::strong_count(&self.drawn) == 1
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
@@ -4223,6 +4248,20 @@ impl Seat {
         self.app.turn(at);
     }
 
+    /// The memory device at `node` can no longer light its display, which
+    /// stays connected, in a turn at `at`.
+    fn unlight(&mut self, node: &str, at: Instant) {
+        self.memory(node).unlight();
+        self.app.turn(at);
+    }
+
+    /// The memory device at `node` lights its display again, in a turn at
+    /// `at`.
+    fn relight(&mut self, node: &str, at: Instant) {
+        self.memory(node).relight();
+        self.app.turn(at);
+    }
+
     /// The display of the memory device at `node` comes back, in a turn at
     /// `at`.
     fn plug(&mut self, node: &str, at: Instant) {
@@ -4289,6 +4328,41 @@ fn under_keep_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_retu
     assert!(
         s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
         "drawn again on its return"
+    );
+    assert_eq!(s.session("small"), before);
+}
+
+/// D8: a display the device cannot light beside the others, its monitor
+/// still plugged in, stays present but dark. Under `when-display-lost =
+/// hangup` its head keeps the display and its session while the display
+/// stays dark, nothing is drawn on it, and the keys of the devices reaching
+/// the head still type into it. Once a modeset lights the display, the
+/// head draws on it again.
+#[test]
+fn under_hangup_a_display_left_unlit_hangs_nothing_up_and_draws_once_lit() {
+    let (mut s, f) = losing("unlit", &[], "when-display-lost = hangup", false);
+    let before = s.session("small");
+    let t = now();
+    s.unlight("/dev/mem0", t);
+    let frames = s.memory("/dev/mem0").frames;
+    s.app.turn(t + Duration::from_secs(1));
+    assert!(!s.hung_up(&f.mark, Duration::from_millis(300)), "no SIGHUP");
+    assert_eq!(s.session("small"), before, "the session runs on");
+    assert_eq!(
+        s.app.head("small").map(|h| h.cells().len()),
+        Some(1),
+        "the head keeps its display"
+    );
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:x")),
+        "the keys still reach it"
+    );
+    assert_eq!(s.memory("/dev/mem0").frames, frames, "nothing drawn");
+    s.relight("/dev/mem0", t + Duration::from_secs(2));
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "drawn again once lit"
     );
     assert_eq!(s.session("small"), before);
 }
@@ -6035,6 +6109,40 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
     assert!(!head_shows(&s.app, "large", "got:c"));
 }
 
+/// D8 and D9: a display its device cannot light, though still plugged in,
+/// does not count as lit for the guards. Here `small`'s display is lit, and
+/// the keyboards it claims type into it; then the device leaves it unlit.
+/// No keyboard reaches a lit head, so the anti-lockout guard sends each to
+/// the focus on `large`, with a notice, as when the display goes. Once the
+/// device lights the display again, the keyboards type into `small` again.
+#[test]
+fn a_display_left_unlit_does_not_count_as_lit_for_the_guards() {
+    let mut s = stranded(start(STRANDED));
+    s.app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Memory::new(320, 160, "MEM-1", "mem-small")),
+    );
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_A, "a\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:a")));
+    s.unlight("/dev/mem0", now());
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
+    s.type_on(KBD_A, "b\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "got:b")),
+        "the keyboard types into the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "got:b"));
+    s.relight("/dev/mem0", now());
+    s.type_on(KBD_A, "c\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:c")),
+        "lit again, the guard lets go"
+    );
+    assert!(!head_shows(&s.app, "large", "got:c"));
+}
+
 /// D9: when the anti-lockout guard fires it moves the focus to a lit head,
 /// the boot display's when lit, and the on-screen display shows on the
 /// lit head; the head that lost its display shows none.
@@ -6558,19 +6666,16 @@ fn reset_fixture(test: &str, conf: &str) -> (Scratch, Sources) {
 /// session's end the seat reads the configuration again through the same
 /// reader (ADR-1201 D11); the seat and the count of those reads.
 fn reset_seat(dir: &Path, heads: &str, fonts: Sources) -> (Seat, Rc<Cell<u32>>) {
-    let script = switching(dir);
+    seat_running(dir, heads, fonts, &switching(dir))
+}
+
+/// [`reset_seat`], with every console running `script`.
+fn seat_running(dir: &Path, heads: &str, fonts: Sources, script: &str) -> (Seat, Rc<Cell<u32>>) {
     let configdir = format!("--configdir={}", dir.display());
-    let args: Vec<OsString> = [
-        configdir.as_str(),
-        "--login",
-        "--",
-        "/bin/sh",
-        "-c",
-        &script,
-    ]
-    .iter()
-    .map(OsString::from)
-    .collect();
+    let args: Vec<OsString> = [configdir.as_str(), "--login", "--", "/bin/sh", "-c", script]
+        .iter()
+        .map(OsString::from)
+        .collect();
     let loaded = config::load(&args, &mut config::read_file);
     assert_eq!(loaded.reports, [], "the seat's configuration");
     let lp: Loop<App> = Loop::new().expect("a loop");
@@ -6718,6 +6823,202 @@ fn a_sessions_end_returns_to_its_looks_size() {
     );
     assert_eq!(s.app.cells(), [(16, 32)]);
     assert_eq!(reads.get(), 1, "vtium.conf read again once");
+}
+
+/// What each console of the window tests runs: it shows its pty's size
+/// as it starts, as `size:ROWS COLS`. Where the file `ask.N` in `dir`
+/// holds the parameters of an XTWINOPS 8 request, N being its console's
+/// id, it removes the file, sends `CSI 8 ; PARAMS t` and the size report's
+/// request `CSI 18 t` in one write, and shows the reply it reads, as `r:`
+/// and the bytes as od prints them, then its pty's size, as `a:ROWS COLS`.
+/// It then echoes each line it reads, ending at `q`.
+fn asking(dir: &Path) -> String {
+    format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
+         f=$d/ask.$n; if [ -e $f ]; then x=$(cat $f); rm $f; \
+         stty -echo -icanon min 0 time 5; printf \"\\033[${{x}}t\\033[18t\"; \
+         r=$(dd bs=1 count=32 2>/dev/null | od -An -c | tr -d ' \\n'); \
+         stty echo icanon; echo \"r:$r\"; echo \"a:$(stty size)\"; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    )
+}
+
+/// The seat of the window tests on the small display, 320x160, whose one
+/// console runs [`asking`] with `conf` as its vtium.conf and `ask` as the
+/// request's parameters. Unifont draws 40x10 cells of 8x16 there at 16
+/// pixels, 20x5 of 16x32 at 32, and 13x3 of 24x48 at 48.
+fn window_seat(test: &str, conf: &str, ask: &str) -> (Scratch, Seat) {
+    let (dir, fonts) = reset_fixture(test, conf);
+    std::fs::write(dir.join("ask.1"), ask).expect("the request");
+    let script = asking(&dir);
+    let (s, _) = seat_running(&dir, &small_consoles(1), fonts, &script);
+    (dir, s)
+}
+
+/// The `r:` and `a:` lines of head small's console, once both show.
+fn asked_lines(s: &mut Seat) -> (String, String) {
+    let line = |a: &App, p: &str| console_lines(a, "small", p).into_iter().flatten().next();
+    assert!(
+        s.until(BOUND, |a| line(a, "a:").is_some()),
+        "the session read the reply"
+    );
+    (
+        line(&s.app, "r:").unwrap_or_default(),
+        line(&s.app, "a:").unwrap_or_default(),
+    )
+}
+
+/// ctlseqs, XTWINOPS 8: under `allow-window-ops`, a program's request for
+/// 4 rows of 15 columns makes a grid of exactly that size, at the largest
+/// font size whose cells the display holds 15x4 of: unifont's 32, as 48
+/// holds 13x3. The pty is resized before the size report that followed in
+/// the same write is answered, and the report answers the new size. A
+/// zoom then fills the display again.
+// covers: window.resize
+#[test]
+fn a_programs_request_for_a_grid_takes_the_zoom_path() {
+    let (_dir, mut s) = window_seat(
+        "window-allowed",
+        "font-size=16\nallow-window-ops\n",
+        "8;4;15",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;4;15t", "CSI 18 t answers the new size");
+    assert_eq!(after, "a:4 15", "the pty is resized");
+    assert_eq!(grid(&s.app, "small"), Some((15, 4)));
+    assert_eq!(s.app.cells(), [(16, 32)]);
+    let minus = InputEvent::Key(KeyEvent {
+        mods: Mods::CTRL,
+        ..char_key('-')
+    });
+    s.app.device_input(Path::new(KBD_SMALL), minus, now());
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)), "a zoom fills again");
+}
+
+/// ctlseqs: an omitted side keeps its length and a side of 0 takes the
+/// display's. 15 columns with 0 rows draws at 32, the largest size that
+/// holds 15 columns, with the 5 rows the display holds there.
+#[test]
+fn a_side_of_zero_takes_what_the_display_holds() {
+    let (_dir, mut s) = window_seat("window-zero", "font-size=16\nallow-window-ops\n", "8;0;15");
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(
+        (reply.as_str(), after.as_str()),
+        ("r:033[8;5;15t", "a:5 15")
+    );
+    assert_eq!(grid(&s.app, "small"), Some((15, 5)));
+}
+
+/// With `allow-window-ops` off, its default, vtium ignores the request:
+/// the grid, the font size and the pty stay, and the size report answers
+/// them.
+// covers: window.resize
+#[test]
+fn a_request_with_allow_window_ops_off_changes_nothing() {
+    let (_dir, mut s) = window_seat("window-refused", "font-size=16\n", "8;4;15");
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;10;40t");
+    assert_eq!(after, "a:10 40");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// A size the display cannot hold even at the smallest font size takes,
+/// on that side, what the display holds there: from 20x5 at 32, 8 rows of
+/// 100 columns draws at 16, unifont's smallest, with its 8 rows and the 40
+/// columns the display holds.
+// covers: window.resize
+#[test]
+fn a_size_the_display_cannot_hold_takes_what_it_holds_at_the_smallest_size() {
+    let (_dir, mut s) = window_seat(
+        "window-too-large",
+        "font-size=32\nallow-window-ops\n",
+        "8;8;100",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(reply, "r:033[8;8;40t");
+    assert_eq!(after, "a:8 40");
+    assert_eq!(grid(&s.app, "small"), Some((40, 8)));
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// A row count far past the display, 5000000000, takes the most rows the
+/// display holds, as 100 rows does: both draw at unifont's smallest size, 8
+/// pixels, whose 8x8 cells give the 40 columns and 20 rows the display
+/// holds.
+#[test]
+fn a_huge_row_count_takes_the_most_rows_the_display_holds() {
+    for (test, ask) in [
+        ("window-huge", "8;5000000000;80"),
+        ("window-tall", "8;100;80"),
+    ] {
+        let (_dir, mut s) = window_seat(test, "font-size=16\nallow-window-ops\n", ask);
+        let (reply, after) = asked_lines(&mut s);
+        assert_eq!(
+            (reply.as_str(), after.as_str()),
+            ("r:033[8;20;40t", "a:20 40"),
+            "{ask}"
+        );
+        assert_eq!(s.app.cells(), [(8, 8)], "{ask}");
+    }
+}
+
+/// A side of 0 beside a side the display cannot hold fills the display at
+/// the largest size that holds the most of the other side: 100 columns
+/// with 0 rows from 20x5 at 32 draws 40 columns at 16, as unifont's
+/// smallest, 8, holds no more of them, with the 10 rows 16 holds.
+#[test]
+fn a_side_of_zero_beside_one_the_display_cannot_hold_fills_at_the_largest_size() {
+    let (_dir, mut s) = window_seat(
+        "window-too-wide",
+        "font-size=32\nallow-window-ops\n",
+        "8;0;100",
+    );
+    let (reply, after) = asked_lines(&mut s);
+    assert_eq!(
+        (reply.as_str(), after.as_str()),
+        ("r:033[8;10;40t", "a:10 40")
+    );
+    assert_eq!(s.app.cells(), [(8, 16)]);
+}
+
+/// ADR-1401 D1: the grid a program asked for is its console's own. Console
+/// 2, shown after console 1 asked for 15x4, fills the display at its own
+/// size, and console 1 has 15x4 again when it is shown again.
+#[test]
+fn a_programs_grid_stays_with_its_console() {
+    let (dir, fonts) = reset_fixture("window-consoles", "font-size=16\nallow-window-ops\n");
+    std::fs::write(dir.join("ask.1"), "8;4;15").expect("the request");
+    let script = asking(&dir);
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    let (_, after) = asked_lines(&mut s);
+    assert_eq!(after, "a:4 15");
+    assert_eq!(grid(&s.app, "small"), Some((15, 4)));
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 1)), "console 2 shown");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)), "console 2 fills");
+    assert_eq!(s.app.cells(), [(8, 16)]);
+    press_chord(&mut s, KBD_SMALL, LEFT);
+    assert_eq!(consoles(&s.app, "small"), Some((2, 0)), "console 1 shown");
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((15, 4)),
+        "console 1's grid again"
+    );
+    assert_eq!(s.app.cells(), [(16, 32)]);
+}
+
+/// ADR-1201 D11: the size a program asked for lasts for its session, so
+/// the next login starts at the configured size, filling the display.
+#[test]
+fn a_sessions_end_undoes_a_programs_grid() {
+    let (_dir, mut s) = window_seat("window-reset", "font-size=16\nallow-window-ops\n", "8;4;15");
+    let (_, after) = asked_lines(&mut s);
+    assert_eq!(after, "a:4 15");
+    let size = end_shown_session(&mut s);
+    assert_eq!(size, "size:10 40", "the next login starts at 16 points");
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
 }
 
 /// ADR-1201 D11: one font for a head. A session ending in another console
@@ -7996,4 +8297,378 @@ fn a_notice_shown_again_shows_no_osd() {
     let head = s.app.notice_head("MEM-1").expect("the notice's screen");
     assert!(!head.shows_osd(), "the notice's screen shows no OSD");
     assert_eq!((head.status(), head.mark()), (None, None));
+}
+
+/// Under `oneshot` a session that ends gets no hard reset, since its console
+/// never starts another: a hidden console's XTWINOPS 8 request still goes
+/// with the session, so showing the ended console leaves the grid as the
+/// display gives it.
+#[test]
+fn an_ended_hidden_consoles_grid_request_goes_with_its_session() {
+    let (dir, fonts) = reset_fixture(
+        "window-oneshot",
+        "font-size=16\nallow-window-ops\noneshot\n",
+    );
+    std::fs::write(dir.join("ask.2"), "").expect("the ask");
+    let script = format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo x >> $d/starts.$n; echo \"size:$(stty size)\"; \
+         if [ -e $d/ask.$n ]; then rm $d/ask.$n; printf '\\033[8;4;15t'; \
+         while [ ! -e $d/go.$n ]; do sleep 0.02; done; rm $d/go.$n; exit 0; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    logged();
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    assert!(s.until(BOUND, |_| starts(&dir, 2) == 1));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    let mut lines = Vec::new();
+    let ended = |lines: &[String]| {
+        lines
+            .iter()
+            .any(|l| l.contains("console 2: its program ended under oneshot"))
+    };
+    assert!(
+        s.until(BOUND, |_| {
+            lines.extend(logged());
+            ended(&lines)
+        }),
+        "console 2's session ends while it is hidden"
+    );
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    assert_eq!(
+        notice(&s.app, "small").as_deref(),
+        Some(ENDED_CONSOLE),
+        "console 2 shown, its session ended"
+    );
+    s.app.turn(now());
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "the ended session's request is gone"
+    );
+}
+
+/// A hidden console's XTWINOPS 8 request goes with its session, as an
+/// OSC 50 request does (ADR-1201 D11): the next session neither waits for
+/// it nor takes the ended program's grid when it is shown.
+#[test]
+fn a_hidden_consoles_grid_request_goes_with_its_session() {
+    let (dir, fonts) = reset_fixture("review-hidden-grid", "font-size=16\nallow-window-ops\n");
+    std::fs::write(dir.join("ask.2"), "").expect("the ask");
+    let script = format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo x >> $d/starts.$n; echo \"size:$(stty size)\"; \
+         if [ -e $d/ask.$n ]; then rm $d/ask.$n; printf '\\033[8;4;15t'; \
+         while [ ! -e $d/go.$n ]; do sleep 0.02; done; rm $d/go.$n; exit 0; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    assert!(s.until(BOUND, |_| starts(&dir, 2) == 1));
+    std::fs::write(dir.join("go.2"), "").expect("the go mark");
+    assert!(
+        s.until(BOUND, |_| starts(&dir, 2) == 2),
+        "console 2 started again"
+    );
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:x")),
+        "console 2's new session runs, shown"
+    );
+    assert_eq!(
+        grid(&s.app, "small"),
+        Some((40, 10)),
+        "the ended session's request is gone"
+    );
+}
+
+/// ADR-1401 D3, "Enter on a head's own keyboard": a head on VT 12 holds
+/// an external display and a USB keyboard, and the laptop's own display
+/// and keyboard go to a head with no `vt`. On VT 2, the external display
+/// shows its notice, and Enter on the USB keyboard switches to VT 12 when
+/// the head lets it.
+mod enter_switch {
+    use std::cell::RefCell;
+    use std::collections::BTreeSet;
+
+    use vtium_platform::vt::{Switch, Vt, VtEvent};
+
+    use vtium::app::VtiumVts;
+    use vtium::console::Mode;
+
+    use super::*;
+
+    /// `XF86Switch_VT_1`, whose next eleven keysyms name VTs 2 to 12.
+    const SWITCH_VT_1: u32 = 0x1008_fe01;
+
+    /// A fake VT that records the VT each VT key asks for, as the kernel
+    /// VT would switch to it.
+    struct RecordingVt {
+        vt: FakeVt,
+        switched: Rc<RefCell<Vec<u16>>>,
+    }
+
+    impl Vt for RecordingVt {
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.vt.events()
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            self.vt.acknowledge_release()
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            self.vt.refuse_release()
+        }
+        fn activate(&mut self) -> io::Result<Switch> {
+            self.vt.activate()
+        }
+        fn leave(&mut self) -> io::Result<Switch> {
+            self.vt.leave()
+        }
+        fn wait(&mut self) -> io::Result<Switch> {
+            self.vt.wait()
+        }
+        fn is_active(&self) -> bool {
+            self.vt.is_active()
+        }
+        /// A VT key for another VT is taken and recorded, as the kernel VT
+        /// takes it while it is shown.
+        fn key(&mut self, key: &KeyEvent) -> bool {
+            let sym = key.keysyms.first().copied().unwrap_or_default();
+            let ctrl_alt = key.mods.contains(Mods::CTRL) && key.mods.contains(Mods::ALT);
+            let target = if (SWITCH_VT_1..SWITCH_VT_1 + 12).contains(&sym) {
+                u16::try_from(sym - SWITCH_VT_1 + 1).ok()
+            } else if ctrl_alt && (0xffbe..0xffbe + 12).contains(&sym) {
+                u16::try_from(sym - 0xffbe + 1).ok()
+            } else {
+                None
+            };
+            match target {
+                Some(n) if self.vt.is_active() => {
+                    if Some(n) != self.vt.number() {
+                        self.switched.borrow_mut().push(n);
+                    }
+                    true
+                }
+                Some(_) => false,
+                None => self.vt.key(key),
+            }
+        }
+        fn is_own_key(&self, key: &KeyEvent) -> bool {
+            self.vt.is_own_key(key)
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            self.vt.restore()
+        }
+        fn bell(&mut self) {
+            self.vt.bell();
+        }
+        fn number(&self) -> Option<u16> {
+            self.vt.number()
+        }
+    }
+
+    const USB: &str = "/dev/input/event6";
+    const LAPTOP: &str = "/dev/input/event7";
+
+    /// The test laptop's file: `[head console]` with no `vt`, and
+    /// `[head terminal-1]` on `vts`, with `extra` among its keys, under
+    /// `policy`.
+    fn laptop(policy: &str, vts: &str, extra: &str) -> String {
+        format!(
+            "version = 1
+policy = {policy}
+[head console]
+[head terminal-1]
+vt = {vts}
+{extra}
+[rules]
+display card:mem-ext -> terminal-1
+input path:kbd-usb -> terminal-1
+display * -> console
+input * -> roaming
+"
+        )
+    }
+
+    /// The seat of the vtium on VT 2 booted on `text`, with the laptop's
+    /// display and the external one, the USB keyboard and the laptop's,
+    /// where vtium runs on `running` or cannot tell; and the VTs the VT
+    /// keys asked for.
+    fn on_vt2(text: &str, running: Result<VtiumVts, String>) -> (Seat, Rc<RefCell<Vec<u16>>>) {
+        let rules = start(text);
+        assert_eq!(rules.line(), None, "a valid vtium.conf");
+        let switched = Rc::new(RefCell::new(Vec::new()));
+        let recorded = Rc::clone(&switched);
+        let displays = [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-int").lit()),
+            ("/dev/mem1", Memory::new(320, 160, "MEM-2", "mem-ext").lit()),
+        ];
+        let script = "echo ready; while read a; do echo \"got:$a\"; done";
+        let mut s = Seat::set_up(
+            &[],
+            Some(rules.on_vt(Some(2))),
+            displays,
+            script,
+            no_fonts(),
+            move |app| {
+                app.vt = Box::new(RecordingVt {
+                    vt: FakeVt::with_number(2),
+                    switched: recorded,
+                });
+                app.set_running_vts(Box::new(move || running.clone()));
+            },
+        );
+        s.app.add_input(Path::new(USB), keyboard("kbd-usb"));
+        s.app.add_input(Path::new(LAPTOP), keyboard("kbd-laptop"));
+        assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
+        (s, switched)
+    }
+
+    /// vtium runs on the VTs of `list`, and is enabled in direct mode.
+    fn vts(list: &[u16]) -> Result<VtiumVts, String> {
+        Ok(VtiumVts {
+            running: list.iter().copied().collect(),
+            mode: Mode::Direct,
+        })
+    }
+
+    const NOTICE: &str =
+        "MEM-2 is not configured for VT 2. It is configured for terminal terminal-1, on VT 12.";
+
+    /// The notice of the external display, once it shows.
+    fn notice_of(s: &mut Seat) -> String {
+        assert!(
+            s.until(BOUND, |a| a
+                .display_notice("MEM-2")
+                .is_some_and(|(_, on)| on)),
+            "the external display shows its notice"
+        );
+        s.app
+            .display_notice("MEM-2")
+            .map(|(t, _)| t.to_owned())
+            .unwrap_or_default()
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn enter_on_the_heads_own_keyboard_switches_to_its_vt_and_no_other_key_does() {
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "12", "switch-on-enter = yes"),
+            vts(&[2, 3, 12]),
+        );
+        assert_eq!(
+            notice_of(&mut s),
+            format!("{NOTICE}\nPress Enter on this keyboard to switch to VT 12.")
+        );
+        // any other key wakes the notice and switches nothing, Ctrl+Enter
+        // among them
+        s.type_on(USB, "x");
+        let ctrl_enter = KeyEvent {
+            mods: Mods::CTRL,
+            ..char_key('\r')
+        };
+        s.app
+            .device_input(Path::new(USB), InputEvent::Key(ctrl_enter), now());
+        s.until(Duration::from_millis(50), |_| false);
+        assert_eq!(*switched.borrow(), [] as [u16; 0], "a key other than Enter");
+        // Enter on the laptop's keyboard types into the console
+        s.type_on(LAPTOP, "l\r");
+        assert!(s.until(BOUND, |a| head_shows(a, "console", "got:l")));
+        assert_eq!(
+            *switched.borrow(),
+            [] as [u16; 0],
+            "Enter on another keyboard"
+        );
+        assert!(
+            !head_shows(&s.app, "console", "got:x"),
+            "the USB keyboard types nowhere"
+        );
+        // Enter on the USB keyboard switches to VT 12
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [12]);
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn enter_switches_to_the_first_vt_of_the_head_where_vtium_runs() {
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "7 12", "switch-on-enter = yes"),
+            vts(&[2, 12]),
+        );
+        assert_eq!(
+            notice_of(&mut s),
+            "MEM-2 is not configured for VT 2. It is configured for terminal terminal-1, on VTs 7 and 12.\nPress Enter on this keyboard to switch to VT 12."
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [12], "VT 7 runs no vtium");
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn where_vtium_runs_on_none_of_the_heads_vts_enter_switches_nowhere_and_the_notice_says_what_to_enable()
+     {
+        let (mut s, switched) = on_vt2(&laptop("open", "12", "switch-on-enter = yes"), vts(&[2]));
+        assert_eq!(
+            notice_of(&mut s),
+            format!(
+                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable --direct 12."
+            )
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+        // the command names the mode the VTs vtium is enabled on use
+        let seat = VtiumVts {
+            running: BTreeSet::from([2]),
+            mode: Mode::Seat,
+        };
+        let (mut s, _) = on_vt2(&laptop("open", "12", "switch-on-enter = yes"), Ok(seat));
+        assert_eq!(
+            notice_of(&mut s),
+            format!(
+                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable --seat 12."
+            )
+        );
+        // where vtium cannot tell, the notice keeps its text and nothing
+        // switches
+        let (mut s, switched) = on_vt2(
+            &laptop("open", "12", "switch-on-enter = yes"),
+            Err("systemctl is missing".to_owned()),
+        );
+        assert_eq!(notice_of(&mut s), NOTICE);
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn with_the_key_off_or_on_an_isolated_head_enter_switches_nothing_and_the_notice_keeps_its_text()
+     {
+        for extra in [
+            "",
+            "switch-on-enter = no",
+            "switch-on-enter = yes\nisolated = yes",
+        ] {
+            let (mut s, switched) = on_vt2(&laptop("open", "12", extra), vts(&[2, 12]));
+            assert_eq!(notice_of(&mut s), NOTICE, "{extra:?}");
+            s.type_on(USB, "\r");
+            s.until(Duration::from_millis(50), |_| false);
+            assert_eq!(*switched.borrow(), [] as [u16; 0], "{extra:?}");
+        }
+    }
+
+    // covers: platform.heads.rules
+    #[test]
+    fn under_the_closed_policy_enter_switches_nothing() {
+        let text = laptop("closed", "12", "switch-on-enter = yes\nisolated = no")
+            .replace("[head console]", "[head console]\nisolated = no");
+        let (mut s, switched) = on_vt2(&text, vts(&[2, 12]));
+        s.until(Duration::from_millis(100), |_| false);
+        assert_eq!(
+            s.app.display_notice("MEM-2"),
+            None,
+            "closed shows no notice"
+        );
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [] as [u16; 0]);
+    }
 }

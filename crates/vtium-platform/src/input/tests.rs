@@ -19,8 +19,8 @@ use super::evdev::RawEvent;
 use super::fake::{self, Node, Nodes};
 use super::pointer::Range;
 use super::{
-    Button, DeviceInput, Disposition, Input, InputConfig, InputEvent, KeyEvent, Keymap, Leds, Mods,
-    PointerEvent,
+    Button, DeviceInput, Disposition, Input, InputConfig, InputEvent, KeyEvent, Keymap,
+    KeymapConfig, Leds, Mods, PointerEvent, RuleNames,
 };
 use crate::ioctl::{
     ABS_X, ABS_Y, BTN_LEFT, BTN_RIGHT, BTN_TOUCH, EV_ABS, EV_KEY, EV_REL, EV_SYN, LED_CAPSL,
@@ -39,6 +39,7 @@ const KEY_LEFTCTRL: u16 = 29;
 const KEY_LEFTALT: u16 = 56;
 const KEY_CAPSLOCK: u16 = 58;
 const KEY_F2: u16 = 60;
+const KEY_F3: u16 = 61;
 
 fn keymap() -> Keymap {
     Keymap::fallback().unwrap_or_else(|| panic!("the built-in keymap compiles"))
@@ -1361,10 +1362,14 @@ fn a_repeat_comes_from_its_device_and_a_watched_ones_is_dropped() {
     assert!(tagged_keys(&mut input, &vt).is_empty());
 }
 
+// ADR-1401 D3, "Who switches VTs": a keyboard the rules ignore, or one tied
+// to a head on another VT, switches VTs under the open policy, and the
+// shown VT's own key is the rescue key (D9). A watched device delivers
+// those keys alone, while the VT is ours, and vtium decides what each does.
 #[test]
-fn a_watched_device_delivers_the_vts_own_key_alone() {
+fn a_watched_device_delivers_the_vt_keys_alone() {
     // An OTP token the rules ignore: what it types is dropped, and so is
-    // every chord but the shown VT's own key.
+    // every chord but the VT keys.
     let (mut input, devices) = with_devices(&[(
         "/dev/input/event0",
         fake::keyboard(),
@@ -1389,11 +1394,15 @@ fn a_watched_device_delivers_the_vts_own_key_alone() {
             press(KEY_LEFTALT),
             press(KEY_A),
             press(KEY_F2),
+            press(KEY_F3),
         ],
     );
     assert_eq!(
         tagged_keys(&mut input, &vt),
-        [(Some(*t), true, keysyms::KEY_XF86Switch_VT_2)]
+        [
+            (Some(*t), true, keysyms::KEY_XF86Switch_VT_2),
+            (Some(*t), true, keysyms::KEY_XF86Switch_VT_3)
+        ]
     );
     feed(&mut input, token, *t, &[press(KEY_F2)]);
     assert!(tagged_keys(&mut input, &no_vt()).is_empty());
@@ -1445,4 +1454,52 @@ fn a_watched_device_sends_no_pointer_events_and_arms_no_hide() {
             .all(|d| !matches!(d.event, InputEvent::Pointer(_)))
     );
     assert_eq!(input.hide_at, None);
+}
+
+/// The `xkb-*` keys that vtium.conf sets keep their values, and the
+/// system's names fill the keys left unset. The system's variant comes only
+/// with the system's layout.
+// covers: platform.system-layout
+#[test]
+fn vtium_confs_xkb_keys_win_over_the_systems_names() {
+    let system = RuleNames {
+        model: "pc105".to_owned(),
+        layout: "de".to_owned(),
+        variant: "nodeadkeys".to_owned(),
+        options: "compose:ralt".to_owned(),
+    };
+    let set = KeymapConfig {
+        layout: "us".to_owned(),
+        options: "ctrl:nocaps".to_owned(),
+        ..KeymapConfig::default()
+    }
+    .follow(&system);
+    assert_eq!(
+        (
+            set.model.as_str(),
+            set.layout.as_str(),
+            set.variant.as_str(),
+            set.options.as_str()
+        ),
+        ("pc105", "us", "", "ctrl:nocaps")
+    );
+    let unset = KeymapConfig::default().follow(&system);
+    assert_eq!(
+        (
+            unset.model.as_str(),
+            unset.layout.as_str(),
+            unset.variant.as_str(),
+            unset.options.as_str()
+        ),
+        ("pc105", "de", "nodeadkeys", "compose:ralt")
+    );
+    let variant_only = KeymapConfig {
+        variant: "dvorak".to_owned(),
+        ..KeymapConfig::default()
+    }
+    .follow(&system);
+    assert_eq!(
+        (variant_only.layout.as_str(), variant_only.variant.as_str()),
+        ("de", "dvorak")
+    );
 }

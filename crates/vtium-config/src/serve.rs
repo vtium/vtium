@@ -45,9 +45,16 @@
 //! (ADR-1201 D2, D3), so they learn it without parsing a font in their own
 //! process. It is answered at once, like a cell query.
 //!
+//! An ask that says how its glyphs were made is vtium-config's own too, and
+//! the console never sends it. It is answered as an ask is, and before its
+//! done frame the helper sends how it made each superscript or subscript
+//! glyph it drew ([`Made`]), which the font preview's caption names
+//! (ADR-1202 D14).
+//!
 //! ```text
-//! request  magic "VTVSREQ5", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
-//!          query, 5 sources query, 6 ask that takes parts), frit name length u32, the name (ADR-1200 D1's
+//! request  magic "VTVSREQ6", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//!          query, 5 sources query, 6 ask that takes parts, 7 ask that
+//!          says how its glyphs were made), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a cell or sources query), cell height u32 (for a
 //!          sources query 0, for a cell query
@@ -56,7 +63,9 @@
 //!          (both 0 for a query, and together less than the cell's
 //!          height), style u32 (0
 //!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
-//!          name one other than regular), capabilities
+//!          name one other than regular), script u32 (0 normal, 1
+//!          superscript, 2 subscript; an ask's alone may name one other
+//!          than normal), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
@@ -72,7 +81,8 @@
 //!          ask's glyphs and 4 a fill's, each the rows line spacing adds
 //!          above and below the cell u32 and u32, as the request named
 //!          them, then a vitrified set of one cell's
-//!          glyphs, its strikes in the style the request named, an ask's
+//!          glyphs, its strikes in the style and the script the request
+//!          named, an ask's
 //!          clusters in its cluster map; kind 2 the oldest ask answered (no payload); kind 5 a
 //!          cell's fill done (its width u32, height u32, and rows added
 //!          above u32 and below u32); kind 6 a
@@ -87,7 +97,9 @@
 //!          `refused`, a tab, the source's line in the frit, a tab, its
 //!          spelling, a tab and why (UTF-8, empty when none is left out);
 //!          kind 12 a sources query's answer for a frit the helper draws
-//!          nothing from (UTF-8 reason); kind 3 a failure (UTF-8 reason),
+//!          nothing from (UTF-8 reason); kind 13 how an ask of kind 7
+//!          made its superscript and subscript glyphs, once before its
+//!          done frame ([`Made::encode_all`]); kind 3 a failure (UTF-8 reason),
 //!          the helper's own, as when it fails as it starts
 //! ```
 //!
@@ -109,6 +121,21 @@
 //! each style is drawn from, in order. A fill, a stop and the queries are
 //! regular: the fill fills only the regular glyphs, and the other styles
 //! come by ask.
+//!
+//! An ask also names a script, normal, superscript or subscript (ADR-1202
+//! D11), and its glyphs come in strikes of that script, each made small by
+//! the source that draws the character's normal glyph (ADR-1202 D15): the
+//! same order of steps and sources picks it. The helper never draws a
+//! script glyph from another source than that. An outline source's glyph
+//! is rasterised at two thirds of the size its normal glyph is drawn at,
+//! never scaled from a full-size raster, and stands on the script baseline
+//! ([`script_baseline`], ADR-1202 D2). A color glyph is scaled once from
+//! its source to two thirds of its cells and placed against the cell's top
+//! or bottom (ADR-1202 D5). A bitmap source's glyph is drawn upright and
+//! unstyled in the text band and made small by vtium-font's script rule
+//! ([`vtium_font::Glyph::scripted`]), each pixel fully on or off, and then
+//! takes its bold and italic (ADR-1202 D4, D7). A script glyph's ink stays inside its
+//! row (ADR-1202 D8). The fill and the stops draw normal glyphs alone.
 //!
 //! The kernel's font reaches a frit's `console:` source only as the bytes
 //! the console read from its own VT at start and handed over
@@ -148,17 +175,19 @@ use landlock::{
     Scope,
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
+use vtium_font::script::Rect;
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, InkRows, SpacedCell};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, REACH_CELLS, REACH_ROWS,
-    SET_CHUNK_BYTES, Style, Width,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Glyph, Origin, REACH_CELLS, REACH_ROWS,
+    SET_CHUNK_BYTES, Script, Style, Variant, Width,
 };
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
@@ -173,7 +202,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ5";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -211,6 +240,9 @@ pub const FRAME_SOURCES: u32 = 11;
 /// which the helper also sends when it fails as it starts, is never taken
 /// as a frit's answer.
 pub const FRAME_DRAWS_NOTHING: u32 = 12;
+/// How an [`ASK_MADE`] made the superscript and subscript glyphs it drew
+/// ([`Made::encode_all`]), sent once before its [`FRAME_DONE`].
+pub const FRAME_MADE: u32 = 13;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -218,6 +250,11 @@ pub const ASK: u32 = 1;
 /// (ADR-1200 D22 step 3): a console built with right-to-left text. It is
 /// answered as [`ASK`] is, the parts added.
 pub const ASK_PARTS: u32 = 6;
+/// An ask from vtium-config's font preview, which also wants to know how
+/// each superscript and subscript glyph was made (ADR-1202 D14). It is
+/// answered as [`ASK`] is, with a [`FRAME_MADE`] before its
+/// [`FRAME_DONE`], and the console never sends it.
+pub const ASK_MADE: u32 = 7;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
 /// The end of a cell's fill.
@@ -266,7 +303,8 @@ pub struct FritText {
 /// What the console sends.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ServeRequest {
-    /// [`ASK`], [`FILL`], [`STOP`], [`OWN_CELL`] or [`SOURCES`].
+    /// [`ASK`], [`ASK_PARTS`], [`ASK_MADE`], [`FILL`], [`STOP`],
+    /// [`OWN_CELL`] or [`SOURCES`].
     pub kind: u32,
     pub frit: FritText,
     pub cell: Cell,
@@ -278,6 +316,9 @@ pub struct ServeRequest {
     /// The style an ask's glyphs are drawn in; regular for every other
     /// request.
     pub style: Style,
+    /// Where an ask's glyphs sit in their cells (ADR-1202 D11): normal, or
+    /// superscript or subscript; normal for every other request.
+    pub script: Script,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
@@ -352,6 +393,7 @@ impl ServeRequest {
         put32(&mut out, self.band.above);
         put32(&mut out, self.band.below);
         put32(&mut out, style_code(self.style));
+        put32(&mut out, script_code(self.script));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -389,14 +431,15 @@ impl ServeRequest {
     }
 
     /// Reads one request from `r`: `None` at the end of the input between
-    /// requests. Every field is checked: the kind one of four, the frit's
+    /// requests. Every field is checked: the kind one of the seven, the frit's
     /// name a frit name (ADR-1200 D1), checked before it is allocated, and
     /// its text UTF-8, each inside its bound, the cell inside
     /// [`CELL_SIDE_MAX`], a cell query's at a width of 0, a height inside
     /// [`CELL_SIDE_MAX`] or 0, and naming no codepoint and no range, the
     /// rows line spacing adds none for a query and leaving any other
     /// request's cell a text band at least a row high, the
-    /// style one of four and regular but for an ask, the reserved capabilities empty, each codepoint a
+    /// style one of four and regular but for an ask, the script one of
+    /// three and normal but for an ask, the reserved capabilities empty, each codepoint a
     /// scalar value, clusters in an ask alone, each 1 to
     /// [`CLUSTER_SCALARS_MAX`] scalar values, each held range in order and inside Unicode, the
     /// kernel's font inside the kernel's own bounds with its data exactly
@@ -422,7 +465,10 @@ impl ServeRequest {
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
-        if !matches!(kind, ASK | ASK_PARTS | FILL | STOP | OWN_CELL | SOURCES) {
+        if !matches!(
+            kind,
+            ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES
+        ) {
             return Err("an unknown request kind".to_owned());
         }
         let n = f.count(NAME_BYTES_MAX, "a frit's name")?;
@@ -468,9 +514,13 @@ impl ServeRequest {
             return Err("line spacing that leaves the cell no text band".to_owned());
         }
         let style = style_of(f.u32()?).ok_or("an unknown style")?;
-        let ask = matches!(kind, ASK | ASK_PARTS);
+        let ask = matches!(kind, ASK | ASK_PARTS | ASK_MADE);
         if !ask && style != Style::default() {
             return Err("a style other than regular on a request that is not an ask".to_owned());
+        }
+        let script = script_of(f.u32()?).ok_or("an unknown script")?;
+        if !ask && script != Script::Baseline {
+            return Err("a superscript or subscript on a request that is not an ask".to_owned());
         }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
@@ -553,6 +603,7 @@ impl ServeRequest {
             cell,
             band,
             style,
+            script,
             codepoints,
             clusters,
             held,
@@ -565,6 +616,48 @@ impl ServeRequest {
 /// carries its style.
 pub fn style_code(style: Style) -> u32 {
     u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// A script as a request carries it: normal 0, superscript 1, subscript
+/// 2, as a set's strike carries its script.
+pub fn script_code(script: Script) -> u32 {
+    match script {
+        Script::Baseline => 0,
+        Script::Super => 1,
+        Script::Sub => 2,
+    }
+}
+
+/// The script a request's `code` names, `None` past subscript's 2.
+pub fn script_of(code: u32) -> Option<Script> {
+    match code {
+        0 => Some(Script::Baseline),
+        1 => Some(Script::Super),
+        2 => Some(Script::Sub),
+        _ => None,
+    }
+}
+
+/// The baseline a superscript or subscript glyph stands on in a text band
+/// `height` rows high, where the first source's own box (ADR-1202 D1), its
+/// glyphs' rows from its ascent to its descent, lies `own.1` rows high from
+/// row `own.0`, and its normal glyphs stand on row `base`. vtium-font's
+/// script rule sizes that box to two thirds and places it against the
+/// band's top for a superscript and its bottom for a subscript
+/// ([`vtium_font::script::size`], [`vtium_font::script::place`]); the
+/// baseline lies the same share of the small box down as of the own box,
+/// rounded to the nearest row (D2).
+pub fn script_baseline(script: Script, own: (u32, u32), base: u32, height: u32) -> u32 {
+    let base = base.min(height);
+    let (top, tall) = (own.0.min(height), own.1.min(height - own.0.min(height)));
+    if script == Script::Baseline || tall == 0 {
+        return base;
+    }
+    let (_, small) = vtium_font::script::size((1, tall));
+    let (_, at) = vtium_font::script::place(script, (1, small), (1, height), Band::NONE);
+    let down = u64::from(base.saturating_sub(top).min(tall));
+    let down = (down * u64::from(small) + u64::from(tall) / 2) / u64::from(tall);
+    at.saturating_add(u32::try_from(down).unwrap_or(small))
 }
 
 /// The style a request's `code` names, `None` past bold italic's 3.
@@ -743,6 +836,25 @@ pub struct Engine {
     /// How the outline sources' glyphs are hinted: the frit's `hinting=`
     /// (ADR-1200 D1).
     hinting: Hinting,
+    /// Each bitmap source's smaller sizes by its place in `sources`, in
+    /// the order D3 names them: a CPI source's other heights, then the
+    /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
+    /// strike, which comes first, is not repeated here.
+    smaller: Vec<Vec<SmallerFont>>,
+    /// The frit's `cell=`, which sets its own cell where it states one.
+    cell: Option<Cell>,
+}
+
+/// A vitrified set of glyphs, `None` when no source gives any, and how the
+/// engine made each superscript or subscript glyph in it, by its codepoint
+/// ([`Engine::draw_made`]).
+pub type MadeSet = (Option<Vec<u8>>, BTreeMap<u32, Made>);
+
+/// A smaller size of a bitmap source (ADR-1202 D3): its font, and for one
+/// that `script-source=` names, that line and the font's spelling.
+struct SmallerFont {
+    font: Font,
+    named: Option<(usize, String)>,
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -914,6 +1026,55 @@ fn place_styled(
     (own, ink)
 }
 
+/// What a bitmap glyph drawn in the cells of a text band `span` by
+/// `height` pixels is made from (ADR-1202 D1, D4, D7): a 1-bit source,
+/// whose own box is its font's cell `font`, `cells` cells wide, drawn at
+/// `scale`, centred across with its top row at `top` as [`place_styled`]
+/// places it and cut to the band; sheared about the row under the font's
+/// baseline `baseline`; and with `synth` left to the small glyph.
+fn bitmap_origin(
+    (font, cells, scale): (Cell, Width, u32),
+    (span, height): (u32, u32),
+    (top, baseline): (i64, u32),
+    synth: Style,
+) -> Origin {
+    let w = font.width * cells.cells() * scale;
+    let h = i64::from(font.height * scale);
+    let row = |y: i64| u32::try_from(y.clamp(0, i64::from(height))).unwrap_or(0);
+    let (first, last) = (row(top), row(top + h));
+    Origin {
+        own: Some(Rect {
+            left: span.saturating_sub(w) / 2,
+            top: first,
+            width: w.min(span),
+            height: last.saturating_sub(first),
+        }),
+        ..Origin::bitmap(row(top + i64::from(baseline * scale)), synth)
+    }
+}
+
+/// A bitmap glyph's coverage `own`, drawn upright and unstyled in the
+/// cells of a text band `size` pixels across and down and `width` cells
+/// wide, as `script` draws it from `origin`: made small, styled and placed
+/// by vtium-font's script rule ([`Glyph::scripted`], ADR-1202 D1, D4, D7),
+/// the one the console's own bitmap fonts take. `None` for coverage that
+/// is not the size's.
+fn script_bitmap(
+    own: &[u8],
+    size: (u32, u32),
+    width: Width,
+    (script, origin): (Script, &Origin),
+) -> Option<Vec<u8>> {
+    let glyph = Glyph::from_pixels(size.0, size.1, vtium_font::Format::Mask, own.to_vec())?
+        .with_cells(width);
+    Some(
+        glyph
+            .scripted(script, origin, Band::NONE)?
+            .pixels()
+            .to_vec(),
+    )
+}
+
 /// Coverage of 0 or 255, `width` pixels across, as 1-bit rows.
 fn pack_bits(coverage: &[u8], width: u32) -> Vec<u8> {
     let w = width as usize;
@@ -951,6 +1112,73 @@ fn bitmap_baseline(font: &Font) -> u32 {
     vtium_font::italic::bitmap_baseline(h.as_deref(), font.cell.height)
 }
 
+/// A glyph from a smaller size of a bitmap source (ADR-1202 D3), as
+/// [`Engine::smaller_glyph`] finds it.
+#[derive(Clone, Copy)]
+struct SmallerGlyph<'a> {
+    /// The strike's place: 0 for the source's own, else its smaller
+    /// size's place in [`Engine`]'s list, from 1.
+    strike: usize,
+    /// The glyph's number in the strike's font.
+    glyph: u32,
+    /// The whole multiple the strike is drawn at.
+    multiple: u32,
+    font: &'a Font,
+    rows: &'a [u8],
+}
+
+/// The smaller sizes of the bitmap source `source` (ADR-1202 D3, D12),
+/// read and parsed as [`crate::sources::smaller`] names them. A font this
+/// machine does not have is left out quietly, as a source is. A font that
+/// is here and is refused is left out with a warning naming its line in
+/// the frit `name`. A `script-source=` font keeps its own Unicode table
+/// where it has one, and takes the source's `unimap=` where it has none.
+fn smaller_fonts(
+    source: &Source,
+    host: &Host<'_>,
+    name: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<SmallerFont> {
+    let mut fonts = Vec::new();
+    for (named, input) in crate::sources::smaller(source, host) {
+        let font = input.and_then(|input| {
+            match input {
+                Input::Bitmap(font) => Ok(font),
+                Input::Bdf(bytes) => crate::bdf::font(&bytes),
+                Input::Font(req) => req
+                    .unimap
+                    .as_ref()
+                    .and_then(|_| crate::decode::font(&req.font, None, None).ok())
+                    .map_or_else(
+                        || {
+                            crate::decode::font(
+                                &req.font,
+                                req.unimap.as_deref(),
+                                req.def_uni.as_deref(),
+                            )
+                        },
+                        Ok,
+                    )
+                    .map(Font::from_glyphs),
+                Input::Outline(_) => {
+                    Err("this is an outline font, not a smaller bitmap font".to_owned())
+                }
+            }
+            .map_err(SourceError::Failed)
+        });
+        match (font, &named) {
+            (Ok(font), _) => fonts.push(SmallerFont { font, named }),
+            (Err(SourceError::Failed(e)), Some((line, spelling))) => warnings.push(format!(
+                "{name}:{line}: script-source={spelling}: {e}; the font is left out"
+            )),
+            // a font this machine lacks, and a CPI height that does not
+            // decode, are left out quietly
+            (Err(_), _) => {}
+        }
+    }
+    fonts
+}
+
 impl Engine {
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
@@ -977,6 +1205,7 @@ impl Engine {
             consoles: &handed,
         };
         let mut sources = Vec::new();
+        let mut smaller = Vec::new();
         let mut why = Vec::new();
         let mut left_out = Vec::new();
         for source in &frit.sources {
@@ -1001,7 +1230,24 @@ impl Engine {
                 .map_err(SourceError::Failed)
             });
             match loaded {
-                Ok(l) => sources.push((source.clone(), l)),
+                Ok(l) => {
+                    let small = match l {
+                        Loaded::Bitmap(_) => {
+                            smaller_fonts(source, &host, &frit.name, &mut warnings)
+                        }
+                        Loaded::Outline { .. } => {
+                            if let Some(named) = source.script_sources.first() {
+                                warnings.push(format!(
+                                    "{}:{}: script-source={} is ignored: the source above it is an outline font, which draws its own superscripts and subscripts at a smaller size",
+                                    frit.name, named.line, named.spelling
+                                ));
+                            }
+                            Vec::new()
+                        }
+                    };
+                    sources.push((source.clone(), l));
+                    smaller.push(small);
+                }
                 Err(SourceError::Missing(e)) => {
                     why.push(format!("source={}: {e}", source.spelling));
                     left_out.push(LeftOut {
@@ -1056,6 +1302,8 @@ impl Engine {
             left_out,
             baselines: RefCell::default(),
             hinting: frit.hinting,
+            smaller,
+            cell: frit.cell,
         })
     }
 
@@ -1227,6 +1475,40 @@ impl Engine {
     /// glyphs for italic (vtium-font's set reader) leans them as the helper
     /// does. One whose font cannot be read, or that fits the cell at no
     /// whole factor, reports the cell's bottom row.
+    /// The first regular source's own box in a text band `cell` (ADR-1202
+    /// D1), as its first row and its rows: a bitmap source's cell at the
+    /// whole factor it draws at, on the band's bottom row; an outline
+    /// source's rows from its ascent to its descent about its baseline;
+    /// else the whole band.
+    fn own_box(&self, cell: Cell) -> (u32, u32) {
+        let band = (0, cell.height);
+        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+            return band;
+        };
+        match self.sources.get(first) {
+            Some((_, Loaded::Bitmap(font))) => {
+                let scale = (cell.width / font.cell.width.max(1))
+                    .min(cell.height / font.cell.height.max(1));
+                let tall = font.cell.height * scale;
+                if scale == 0 {
+                    return band;
+                }
+                (cell.height - tall, tall)
+            }
+            Some((_, Loaded::Outline { font, family, .. })) => {
+                let (Some(base), Ok((above, below))) = (
+                    self.baseline(first, cell.height),
+                    crate::outline::own_box(font, family, cell.height, None),
+                ) else {
+                    return band;
+                };
+                let top = base.saturating_sub(above);
+                (top, (base + below).min(cell.height) - top)
+            }
+            _ => band,
+        }
+    }
+
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
         let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
@@ -1247,9 +1529,89 @@ impl Engine {
         let Some(base) = self.baseline(first, cell.height) else {
             return plain;
         };
-        let lines = crate::outline::decorations(font, family, cell.height, base, self.hinting)
-            .unwrap_or(plain.1);
+        let lines =
+            crate::outline::decorations(font, family, (cell.height, base), None, self.hinting)
+                .unwrap_or(plain.1);
         (base, lines)
+    }
+
+    /// The lines of a cell in `script` at `cell`, the text band, whose
+    /// normal glyphs stand on row `base` with the lines `normal`
+    /// ([`Engine::metrics_at`]): the frit's first source's, found by its
+    /// kind (ADR-1202 D8 step 3). An outline source's are measured at the
+    /// script size from the script baseline ([`script_baseline`]), with the
+    /// overline on the top row of the small own box. A bitmap source with a
+    /// smaller size in D3's range takes that size's lines, the lines of its
+    /// height at the multiple it is drawn at, placed whole against the
+    /// band; one with none takes its normal lines through D4's map. Both
+    /// come from vtium-font's script rule ([`vtium_font::script::lines`]),
+    /// which the console's own fonts take too. The baseline's lines are
+    /// `normal`.
+    fn script_lines(
+        &self,
+        cell: Cell,
+        script: Script,
+        (base, normal): (u32, Decorations),
+    ) -> Decorations {
+        use vtium_font::script::lines;
+        if script == Script::Baseline {
+            return normal;
+        }
+        let own = self.own_box(cell);
+        let mapped = lines::mapped(normal, script, own, cell.height, Band::NONE);
+        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+            return mapped;
+        };
+        match self.sources.get(first) {
+            Some((_, Loaded::Bitmap(font))) => {
+                let scale = (cell.width / font.cell.width.max(1))
+                    .min(cell.height / font.cell.height.max(1));
+                let others = self.smaller.get(first).map_or(&[][..], Vec::as_slice);
+                let strikes: Vec<Cell> = std::iter::once(font.cell)
+                    .chain(others.iter().map(|f| f.font.cell))
+                    .collect();
+                let chosen =
+                    font.cell.height.checked_mul(scale).and_then(|normal| {
+                        vtium_font::script::smaller(normal, cell.width, &strikes)
+                    });
+                let Some(chosen) = chosen else {
+                    return mapped;
+                };
+                let Some(&own) = strikes.get(chosen.strike) else {
+                    return mapped;
+                };
+                let j = chosen.multiple;
+                let size = (own.width * j, own.height * j);
+                let at = lines::at_multiple(Decorations::for_height(own.height), own.height, j);
+                lines::placed(at, script, size, (cell.width, cell.height), Band::NONE)
+            }
+            Some((_, Loaded::Outline { font, family, .. })) => {
+                let Ok(size) = crate::outline::size(font, family, cell.height) else {
+                    return mapped;
+                };
+                let (num, den) = vtium_font::SCRIPT_SCALE;
+                let small = size * num as f32 / den as f32;
+                let baseline = script_baseline(script, own, base, cell.height);
+                let measured = crate::outline::decorations(
+                    font,
+                    family,
+                    (cell.height, baseline),
+                    Some(small),
+                    self.hinting,
+                );
+                let Ok(measured) = measured else {
+                    return mapped;
+                };
+                let (_, tall) = vtium_font::script::size((1, own.1));
+                let (_, top) =
+                    vtium_font::script::place(script, (1, tall), (1, cell.height), Band::NONE);
+                Decorations {
+                    overline: top.min(cell.height.saturating_sub(measured.underline_thickness)),
+                    ..measured
+                }
+            }
+            _ => mapped,
+        }
     }
 
     /// Why no source gives a glyph at `cell`: each bitmap source whose own
@@ -1301,7 +1663,15 @@ impl Engine {
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
     /// [`Engine::glyphs`] draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, want, (&[], false))
+        let mut made = BTreeMap::new();
+        self.glyphs(
+            cell,
+            Band::NONE,
+            REGULAR.into(),
+            want,
+            (&[], false),
+            &mut made,
+        )
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
@@ -1311,7 +1681,15 @@ impl Engine {
         cell: Cell,
         clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
-        self.glyphs(cell, Band::NONE, REGULAR, &[], (clusters, false))
+        let mut made = BTreeMap::new();
+        self.glyphs(
+            cell,
+            Band::NONE,
+            REGULAR.into(),
+            &[],
+            (clusters, false),
+            &mut made,
+        )
     }
 
     /// The glyphs of `style` at `at`, a cell and the rows its line spacing
@@ -1325,8 +1703,157 @@ impl Engine {
         want: &[u32],
         (clusters, parts): (&[Vec<u32>], bool),
     ) -> Result<Option<Vec<u8>>, String> {
+        self.draw_variant(at, style.into(), want, (clusters, parts))
+    }
+
+    /// The glyphs of `variant`, a style and a script, at `at`, as
+    /// [`Engine::draw_style`] draws a style's: a superscript or subscript
+    /// ask's answer (ADR-1202 D11).
+    pub fn draw_variant(
+        &self,
+        at: impl Into<SpacedCell>,
+        variant: Variant,
+        want: &[u32],
+        (clusters, parts): (&[Vec<u32>], bool),
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.draw_made(at, variant, want, (clusters, parts))
+            .map(|(set, _)| set)
+    }
+
+    /// The glyphs of `variant` at `at` for `want` and `clusters`, as
+    /// [`Engine::draw_variant`] draws them, and how the engine made each
+    /// superscript or subscript glyph of a codepoint it drew, by the
+    /// codepoint ([`Made`], ADR-1202 D14): none for normal glyphs, and none
+    /// for clusters.
+    pub fn draw_made(
+        &self,
+        at: impl Into<SpacedCell>,
+        variant: Variant,
+        want: &[u32],
+        (clusters, parts): (&[Vec<u32>], bool),
+    ) -> Result<MadeSet, String> {
         let at = at.into();
-        self.glyphs(at.cell, at.band, style, want, (clusters, parts))
+        let mut made = BTreeMap::new();
+        let set = self.glyphs(
+            at.cell,
+            at.band,
+            variant,
+            want,
+            (clusters, parts),
+            &mut made,
+        )?;
+        Ok((set, made))
+    }
+
+    /// One note for each `script-source=` font that gives no superscript
+    /// or subscript in the frit's own cell (ADR-1202 D12): the font whose
+    /// height, at no whole multiple that fits the cell, lies from one half
+    /// to three quarters of the height its source draws at there. The own
+    /// cell is the frit's `cell=`, else its first source's when that is a
+    /// bitmap font; a frit whose own cell needs a height has no notes. Each
+    /// note names the frit and the line, as a warning does.
+    pub fn script_notes(&self) -> Vec<String> {
+        let own = self.cell.or_else(|| match self.own_cell(0) {
+            Ok(OwnCell::Bitmap(cell)) => Some(cell),
+            _ => None,
+        });
+        let Some(cell) = own else {
+            return Vec::new();
+        };
+        let mut notes = Vec::new();
+        for ((_, loaded), smaller) in self.sources.iter().zip(&self.smaller) {
+            let Loaded::Bitmap(font) = loaded else {
+                continue;
+            };
+            let scale =
+                (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
+            let normal = font.cell.height * scale;
+            for small in smaller {
+                let Some((line, spelling)) = &small.named else {
+                    continue;
+                };
+                if scale > 0
+                    && vtium_font::script::smaller(normal, cell.width, &[small.font.cell]).is_some()
+                {
+                    continue;
+                }
+                let lowest = normal.div_ceil(2);
+                let highest = normal * 3 / 4;
+                notes.push(format!(
+                    "{}:{line}: script-source={spelling} gives no superscripts or subscripts in the font set's own {}x{} character cell. Its characters are {} pixels high, and there a smaller size must be from {lowest} to {highest} pixels high, from half to three quarters of the {normal}-pixel characters of the font above it.",
+                    self.name, cell.width, cell.height, small.font.cell.height
+                ));
+            }
+        }
+        notes
+    }
+
+    /// The glyph that a smaller size of bitmap source `i` gives `c` for a
+    /// superscript or subscript (ADR-1202 D3): the strike that
+    /// [`vtium_font::script::smaller`] chooses among the source's own
+    /// strike, `font` drawn at `scale`, and its smaller sizes, for a normal
+    /// glyph `font`'s height times `scale` and cells `cell_width` across.
+    /// The source's own strike at a smaller multiple draws `c` as its glyph
+    /// `g`. `None` when no strike lies in the range, and when the chosen
+    /// strike lacks `c` or draws it at another width than `g`; the glyph
+    /// is then made small by D4. Only the source's own font and the
+    /// smaller sizes it names are asked (D15).
+    fn smaller_glyph<'a>(
+        &'a self,
+        i: usize,
+        (font, scale): (&'a Font, u32),
+        cell_width: u32,
+        c: u32,
+        g: u32,
+    ) -> Option<SmallerGlyph<'a>> {
+        let others = self.smaller.get(i).map_or(&[][..], Vec::as_slice);
+        let strikes: Vec<Cell> = std::iter::once(font.cell)
+            .chain(others.iter().map(|f| f.font.cell))
+            .collect();
+        let normal = font.cell.height.checked_mul(scale)?;
+        let chosen = vtium_font::script::smaller(normal, cell_width, &strikes)?;
+        let f = match chosen.strike {
+            0 => font,
+            n => &others.get(n - 1)?.font,
+        };
+        let glyph = match chosen.strike {
+            0 => g,
+            _ => *f.map.get(&c)?,
+        };
+        let (width, rows) = f.glyphs.get(glyph as usize)?;
+        let (own, _) = font.glyphs.get(g as usize)?;
+        (width == own).then_some(SmallerGlyph {
+            strike: chosen.strike,
+            glyph,
+            multiple: chosen.multiple,
+            font: f,
+            rows,
+        })
+    }
+
+    /// How a script glyph that a smaller size `small` of bitmap source `i`
+    /// gives was made, for a source drawn at `scale` (ADR-1202 D3, D14):
+    /// the source's own font at a smaller multiple, another height of a
+    /// CPI source, or a `script-source=` font, named by its spelling.
+    fn made_smaller(&self, i: usize, scale: u32, small: SmallerGlyph<'_>) -> Made {
+        let (height, multiple) = (small.font.cell.height, small.multiple);
+        let named = small
+            .strike
+            .checked_sub(1)
+            .and_then(|n| self.smaller.get(i)?.get(n))
+            .map(|f| f.named.as_ref());
+        match named {
+            None => Made::Multiple {
+                normal: scale,
+                small: multiple,
+            },
+            Some(None) => Made::Height { height, multiple },
+            Some(Some((_, spelling))) => Made::Named {
+                spelling: spelling.clone(),
+                height,
+                multiple,
+            },
+        }
     }
 
     /// How the glyph that source `source` gives for `c` uses a row made
@@ -1338,9 +1865,54 @@ impl Engine {
             .unwrap_or_else(|| Fit::default_for(c, crate::shaping::mark_side(c).is_some()))
     }
 
-    /// The glyphs of `style` at `cell` for `want`, sorted codepoints, and
+    /// `request`, for source `i`'s normal glyphs at `cell` in the text band,
+    /// asking for its glyphs in `script` instead (ADR-1202 D1, D2, D5,
+    /// D8): drawn at two thirds of the size its normal glyphs are drawn at
+    /// ([`vtium_font::SCRIPT_SCALE`]), rasterised at that size rather than
+    /// scaled from a full-size raster, on the script baseline that the
+    /// first source's own box ([`Engine::own_box`]) and its baseline `base`
+    /// give ([`script_baseline`]), with no
+    /// ink above or below the whole cell. `None` when the size the source
+    /// draws at cannot be read.
+    fn script_request(
+        &self,
+        request: OutlineRequest,
+        i: usize,
+        (cell, band, base): (Cell, Band, u32),
+        script: Script,
+    ) -> Option<OutlineRequest> {
+        let size = match self.size(i, cell.height) {
+            Some(size) => size,
+            None => {
+                let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+                    return None;
+                };
+                crate::outline::size(font, family, cell.height).ok()?
+            }
+        };
+        let (num, den) = vtium_font::SCRIPT_SCALE;
+        let small = size * num as f32 / den as f32;
+        Some(OutlineRequest {
+            sizes: vec![small.to_bits()],
+            baselines: vec![script_baseline(
+                script,
+                self.own_box(cell),
+                base,
+                cell.height,
+            )],
+            reaches: vec![(band.above, band.below)],
+            script,
+            ..request
+        })
+    }
+
+    /// The glyphs of `variant` at `cell` for `want`, sorted codepoints, and
     /// `clusters`, sorted, as a vitrified set of that one cell whose
-    /// strikes are of `style`; `None` when no source gives any. Where line
+    /// strikes are of the variant's style and script; `None` when no source
+    /// gives any. A superscript or subscript glyph comes from the source
+    /// the steps pick for the normal glyph (ADR-1202 D15), made small by
+    /// that source's kind ([`Engine::script_request`],
+    /// [`script_bitmap`]). Where line
     /// spacing adds `band` to the cell, each glyph is drawn in the cell's
     /// text band and placed in the whole cell ([`spaced`]). Each
     /// [`Step`] of the style ([`steps`]) draws in turn what the steps
@@ -1356,15 +1928,19 @@ impl Engine {
     /// fails as it draws is left out, and the next one gives its glyphs.
     /// Where `parts_asked`, as for an [`ASK_PARTS`], the set also holds the
     /// part of a cluster asked for that a source draws only without some of
-    /// its marks, under the part's own key (ADR-1200 D22 step 3).
+    /// its marks, under the part's own key (ADR-1200 D22 step 3). Each
+    /// superscript or subscript glyph of a codepoint goes into `made` with
+    /// the way the engine made it (ADR-1202 D14).
     fn glyphs(
         &self,
         cell: Cell,
         band: Band,
-        style: Style,
+        variant: Variant,
         want: &[u32],
         (clusters, parts_asked): (&[Vec<u32>], bool),
+        made: &mut BTreeMap<u32, Made>,
     ) -> Result<Option<Vec<u8>>, String> {
+        let Variant { style, script } = variant;
         // the glyphs are drawn in the text band, and the strike's baseline
         // and lines move down by the rows added above it
         let whole = cell;
@@ -1379,16 +1955,25 @@ impl Engine {
         let (base, lines) = self.metrics_at(cell);
         // a bitmap source's glyphs stand on this baseline in the text band
         let text_base = base;
+        // a superscript or subscript strike reports the lines of its own
+        // size, where its glyphs lie (ADR-1202 D8); a normal strike's
+        // overline stays on the cell's top row
+        let script_lines = self.script_lines(cell, script, (base, lines));
         let (base, lines) = (
             base.saturating_add(band.above),
             Decorations {
-                underline: lines.underline.saturating_add(band.above),
-                strike: lines.strike.saturating_add(band.above),
-                ..lines
+                underline: script_lines.underline.saturating_add(band.above),
+                strike: script_lines.strike.saturating_add(band.above),
+                overline: match script {
+                    Script::Baseline => 0,
+                    _ => script_lines.overline.saturating_add(band.above),
+                },
+                ..script_lines
             },
         );
         let strike = |format| {
             StrikeBuilder::new(format, whole, style)
+                .script(script)
                 .baseline(base)
                 .decorations(lines)
                 .compress(false)
@@ -1451,29 +2036,111 @@ impl Engine {
                         band.below
                             .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
                     );
-                    let mut placed: BTreeMap<(u32, Fit), u32> = BTreeMap::new();
+                    // each glyph drawn, by the strike it comes from (0 for
+                    // the source's own, else a smaller size's place, 1 on),
+                    // its glyph there and its fit: whether it went to the R8
+                    // strike rather than the 1-bit one, and its number there
+                    let mut placed: BTreeMap<(usize, u32, Fit), (bool, u32)> = BTreeMap::new();
                     for c in left {
                         let (Some(&g), Some(ch)) = (font.map.get(&c), char::from_u32(c)) else {
                             continue;
                         };
                         let fit = Engine::fit(source, c);
-                        let index = match placed.get(&(g, fit)) {
-                            Some(&i) => i,
+                        // a script glyph comes from a smaller size of the
+                        // source where one lies in D3's range
+                        let small = match script {
+                            Script::Baseline => None,
+                            _ => self.smaller_glyph(i, (font, scale), cell.width, c, g),
+                        };
+                        let how = match (script, small) {
+                            (Script::Baseline, _) => None,
+                            (_, Some(s)) => Some(self.made_smaller(i, scale, s)),
+                            (_, None) => Some(Made::Scaled),
+                        };
+                        let key = match small {
+                            Some(s) => (s.strike, s.glyph, fit),
+                            None => (0, g, fit),
+                        };
+                        let (gray, index) = match placed.get(&key) {
+                            Some(&at) => at,
                             None => {
                                 let Some((width, rows)) = font.glyphs.get(g as usize) else {
                                     continue;
                                 };
-                                let top = glyph_top(scale, baseline, text_base);
-                                let (own, ink) = place_styled(
-                                    rows,
-                                    *width,
-                                    font.cell,
-                                    (cell, top),
-                                    scale,
-                                    synth,
-                                    (baseline, reach),
-                                );
                                 let span = cell.width * width.cells();
+                                let drawn = match small {
+                                    // the smaller size's glyph whole, in its
+                                    // style, against the text band, its ink
+                                    // cut to the row (ADR-1202 D3, D7, D8)
+                                    Some(s) => {
+                                        let f = s.font;
+                                        let size = (
+                                            f.cell.width * width.cells() * s.multiple,
+                                            f.cell.height * s.multiple,
+                                        );
+                                        let (_, top) = vtium_font::script::place(
+                                            script,
+                                            size,
+                                            (span, cell.height),
+                                            Band::NONE,
+                                        );
+                                        Some(place_styled(
+                                            s.rows,
+                                            *width,
+                                            f.cell,
+                                            (cell, i64::from(top)),
+                                            s.multiple,
+                                            synth,
+                                            (bitmap_baseline(f), (0, 0)),
+                                        ))
+                                    }
+                                    None => None,
+                                };
+                                let top = glyph_top(scale, baseline, text_base);
+                                // a script glyph is drawn upright and
+                                // unstyled, and takes its style once it is
+                                // small (ADR-1202 D7)
+                                let drawn_synth = match script {
+                                    Script::Baseline => synth,
+                                    _ => Style::default(),
+                                };
+                                let (own, ink) = match drawn {
+                                    Some(drawn) => drawn,
+                                    None => place_styled(
+                                        rows,
+                                        *width,
+                                        font.cell,
+                                        (cell, top),
+                                        scale,
+                                        drawn_synth,
+                                        (baseline, reach),
+                                    ),
+                                };
+                                // a script glyph with no smaller size is the
+                                // normal glyph in the text band made small,
+                                // and keeps no ink past its cells (ADR-1202
+                                // D4, D8)
+                                let (own, ink) = match script {
+                                    Script::Baseline => (own, ink),
+                                    _ if small.is_some() => (own, ink),
+                                    _ => {
+                                        let origin = bitmap_origin(
+                                            (font.cell, *width, scale),
+                                            (span, cell.height),
+                                            (top, baseline),
+                                            synth,
+                                        );
+                                        match script_bitmap(
+                                            &own,
+                                            (span, cell.height),
+                                            *width,
+                                            (script, &origin),
+                                        ) {
+                                            Some(small) => (small, None),
+                                            None => continue,
+                                        }
+                                    }
+                                };
                                 let Some((own, ink)) = spacing::place_rows(
                                     &own,
                                     (span, cell.height),
@@ -1483,6 +2150,16 @@ impl Engine {
                                 ) else {
                                     continue;
                                 };
+                                // a glyph of 0 and 255 alone is one bit; a
+                                // script glyph scaled with gray edges is R8
+                                if !own.iter().all(|&p| p == 0 || p == 255) {
+                                    let i = r8.glyph(*width, own);
+                                    placed.insert(key, (true, i));
+                                    r8.map(ch, i);
+                                    mapped.insert(c);
+                                    made.extend(how.map(|how| (c, how)));
+                                    continue;
+                                }
                                 let i = bits.glyph(*width, pack_bits(&own, span));
                                 // a box past a set's chunk is not sent, and
                                 // the glyph is cut to its cells (ADR-1306 D3)
@@ -1492,12 +2169,17 @@ impl Engine {
                                 if let Some((packed, b)) = ink {
                                     bits.ink(i, (b.left, b.top), (b.width, b.height), packed);
                                 }
-                                placed.insert((g, fit), i);
-                                i
+                                placed.insert(key, (false, i));
+                                (false, i)
                             }
                         };
-                        bits.map(ch, index);
+                        if gray {
+                            r8.map(ch, index);
+                        } else {
+                            bits.map(ch, index);
+                        }
                         mapped.insert(c);
+                        made.extend(how.map(|how| (c, how)));
                     }
                 }
                 Loaded::Outline { .. } if left.is_empty() && unshaped.is_empty() => {}
@@ -1532,6 +2214,7 @@ impl Engine {
                             band.below
                                 .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
                         )],
+                        script: Script::Baseline,
                         hinting: self.hinting,
                         synth,
                         // a fallback source: any source but the first of its
@@ -1542,6 +2225,14 @@ impl Engine {
                             .iter()
                             .position(|(s, _)| s.style == source.style)
                             != Some(i),
+                    };
+                    let request = match script {
+                        Script::Baseline => request,
+                        _ => match self.script_request(request, i, (cell, band, text_base), script)
+                        {
+                            Some(request) => request,
+                            None => continue,
+                        },
                     };
                     let outline = match rasterise(&request) {
                         Ok(outline) => outline,
@@ -1604,6 +2295,14 @@ impl Engine {
                         };
                         target.map(ch, at);
                         mapped.insert(c);
+                        if script != Script::Baseline {
+                            let how = if glyph.color {
+                                Made::Color
+                            } else {
+                                Made::Outline
+                            };
+                            made.insert(c, how);
+                        }
                     }
                     for (key, g) in &s.clusters {
                         let Some(glyph) = s.glyphs.get(*g as usize) else {
@@ -1683,16 +2382,16 @@ impl Bits {
     }
 }
 
-/// Draws `want` and `clusters` at `cell` in `style` and writes them as
+/// Draws `want` and `clusters` at `cell` in `variant` and writes them as
 /// frames of `kind`, a set that passes `max` bytes, [`FRAME_BYTES_MAX`] but in a
 /// test, cut in two. Returns whether any glyph went, or the engine's
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
-    (cell, band, style): (Cell, Band, Style),
+    (cell, band, variant): (Cell, Band, Variant),
     (want, clusters, parts): (&[u32], &[Vec<u32>], bool),
     kind: u32,
-    out: &mut dyn Write,
+    (out, made): (&mut dyn Write, &mut BTreeMap<u32, Made>),
     max: usize,
 ) -> io::Result<Result<bool, String>> {
     // no more glyphs drawn at once than a frame holds at their largest, so
@@ -1712,7 +2411,7 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, band, style, want, (clusters, parts)) {
+        match engine.glyphs(cell, band, variant, want, (clusters, parts), made) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -1952,7 +2651,7 @@ impl Work<'_> {
         let same =
             |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
-            ASK | ASK_PARTS => self.asks.push_back(request),
+            ASK | ASK_PARTS | ASK_MADE => self.asks.push_back(request),
             FILL => {
                 self.fills.retain(|f| !same(f));
                 let fill = match self.engine(&request.frit) {
@@ -1979,6 +2678,11 @@ impl Work<'_> {
             SOURCES => {
                 return match self.engine(&request.frit) {
                     Ok(engine) => {
+                        // the notes on its script-source= lines, which only
+                        // a sources query answers (ADR-1202 D12)
+                        for note in engine.script_notes() {
+                            reason(out, FRAME_WARNING, &note)?;
+                        }
                         let lines: Vec<String> =
                             engine.left_out().iter().map(LeftOut::line_text).collect();
                         write_frame(out, FRAME_SOURCES, lines.join("\n").as_bytes())
@@ -2009,6 +2713,8 @@ impl Work<'_> {
         clusters.dedup();
         let cell = request.cell;
         let mut result = Ok(());
+        // how each script glyph was made, which only an ASK_MADE is sent
+        let mut made = BTreeMap::new();
         match self.engine(&request.frit) {
             Ok(engine) => {
                 let batches = want
@@ -2018,10 +2724,17 @@ impl Work<'_> {
                 for (w, k) in batches {
                     if let Err(why) = send_glyphs(
                         engine,
-                        (cell, request.band, request.style),
+                        (
+                            cell,
+                            request.band,
+                            Variant {
+                                style: request.style,
+                                script: request.script,
+                            },
+                        ),
                         (w, k, request.kind == ASK_PARTS),
                         FRAME_GLYPHS,
-                        out,
+                        (&mut *out, &mut made),
                         FRAME_SET,
                     )? {
                         result = Err(why);
@@ -2032,6 +2745,10 @@ impl Work<'_> {
             Err(why) => result = Err(why.clone()),
         }
         match result {
+            Ok(()) if request.kind == ASK_MADE => {
+                write_frame(out, FRAME_MADE, &Made::encode_all(&made))?;
+                write_frame(out, FRAME_DONE, &[])
+            }
             Ok(()) => write_frame(out, FRAME_DONE, &[]),
             Err(why) => failed(out, &why),
         }
@@ -2050,10 +2767,10 @@ impl Work<'_> {
         let drawn = match self.engine(&fill.frit) {
             Ok(engine) => send_glyphs(
                 engine,
-                (fill.cell, fill.band, REGULAR),
+                (fill.cell, fill.band, REGULAR.into()),
                 (&batch, &[], false),
                 FRAME_FILL,
-                out,
+                (&mut *out, &mut BTreeMap::new()),
                 FRAME_SET,
             )?,
             Err(why) => Err(why.clone()),
@@ -2417,6 +3134,7 @@ mod tests {
             cell: CELL,
             band: Band::NONE,
             style: Style::default(),
+            script: Script::Baseline,
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
             clusters: Vec::new(),
             held: Vec::new(),
@@ -2478,6 +3196,32 @@ mod tests {
         assert_eq!(ServeRequest::read(&mut &b""[..]), Ok(None));
     }
 
+    // ADR-1202 D14: an ask that says how its glyphs were made reads back,
+    // and its answer holds a made frame just before its done frame, naming
+    // each script glyph the helper drew and how; a plain ask's holds none
+    // covers: sgr.script
+    #[test]
+    fn an_ask_made_says_how_each_script_glyph_was_made() {
+        let sup = ServeRequest {
+            script: Script::Super,
+            ..request(ASK_MADE, frit("source=builtin:unifont\n"), &['x', '2'])
+        };
+        assert_eq!(
+            ServeRequest::read(&mut &sup.encode()[..]),
+            Ok(Some(sup.clone()))
+        );
+        let answer = run(std::slice::from_ref(&sup));
+        let kinds: Vec<u32> = answer.iter().map(|f| f.0).collect();
+        assert_eq!(kinds.first(), Some(&FRAME_GLYPHS), "{kinds:?}");
+        assert_eq!(kinds[kinds.len() - 2..], [FRAME_MADE, FRAME_DONE]);
+        assert_eq!(
+            Made::decode_all(&answer[kinds.len() - 2].1),
+            Some(vec![(0x32, Made::Scaled), (0x78, Made::Scaled)])
+        );
+        let plain = ServeRequest { kind: ASK, ..sup };
+        assert!(!run(&[plain]).iter().any(|f| f.0 == FRAME_MADE));
+    }
+
     const ITALIC: Style = Style {
         bold: false,
         italic: true,
@@ -2487,8 +3231,9 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1302 D13's band moved the magic from VTVSREQ4 to VTVSREQ5, as the
-    // style moved it from VTVSREQ3 to VTVSREQ4: a request of an older layout
+    // ADR-1202 D11's script moved the magic from VTVSREQ5 to VTVSREQ6, as
+    // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
+    // from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
     // layout of this format as not a request; an ask alone names a style
     // (ADR-1200 D21)
@@ -2496,11 +3241,12 @@ mod tests {
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
             style: BOLD_ITALIC,
+            script: Script::Baseline,
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        for magic in [b"VTVSREQ3", b"VTVSREQ4"] {
+        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5"] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
             assert_eq!(
@@ -2518,6 +3264,7 @@ mod tests {
             let query = matches!(kind, OWN_CELL | SOURCES);
             let r = ServeRequest {
                 style: ITALIC,
+                script: Script::Baseline,
                 cell: if query {
                     Cell {
                         width: 0,
@@ -2533,6 +3280,7 @@ mod tests {
             assert!(e.contains("style"), "{kind}: {e}");
             let regular = ServeRequest {
                 style: REGULAR,
+                script: Script::Baseline,
                 ..r
             };
             assert!(
@@ -2544,8 +3292,9 @@ mod tests {
 
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
-        // the frit `a` with no text: its cell at 21, its style at 29, its
-        // capabilities at 33, its codepoint at 41
+        // the frit `a` with no text: its cell at 21, its line spacing at 29,
+        // its style at 37, its script at 41, its capabilities at 45, its
+        // codepoint at 53
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -2574,14 +3323,15 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         // the kind, the cell's width and height, line spacing above and
-        // below that leaves no text band, a style past bold italic,
-        // capabilities not yet read, the codepoint, the held count
+        // below that leaves no text band, a style past bold italic, a
+        // script past subscript, capabilities not yet read, the codepoint,
+        // the cluster count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
@@ -2589,9 +3339,10 @@ mod tests {
             (29, 16),
             (33, 16),
             (37, 4),
-            (41, 1),
-            (49, 0xd800),
-            (53, u32::MAX),
+            (41, 3),
+            (45, 1),
+            (53, 0xd800),
+            (57, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -2884,16 +3635,23 @@ mod tests {
         };
         let (want, clusters) = (vec![0xe9], vec![vec![0x65, 0x301]]);
         let whole = engine
-            .glyphs(cell, Band::NONE, REGULAR, &want, (&clusters, false))
+            .glyphs(
+                cell,
+                Band::NONE,
+                REGULAR.into(),
+                &want,
+                (&clusters, false),
+                &mut BTreeMap::new(),
+            )
             .unwrap()
             .unwrap();
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (cell, Band::NONE, REGULAR),
+            (cell, Band::NONE, REGULAR.into()),
             (&want, &clusters, false),
             FRAME_GLYPHS,
-            &mut out,
+            (&mut out, &mut BTreeMap::new()),
             whole.len() - 1,
         )
         .unwrap();
@@ -2987,10 +3745,10 @@ mod tests {
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (huge, Band::NONE, REGULAR),
+            (huge, Band::NONE, REGULAR.into()),
             (&[u32::from('A'), u32::from('B')], &[], false),
             FRAME_GLYPHS,
-            &mut out,
+            (&mut out, &mut BTreeMap::new()),
             66 * 528 + 4096,
         )
         .unwrap();

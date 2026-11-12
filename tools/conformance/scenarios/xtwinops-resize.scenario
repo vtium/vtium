@@ -1,0 +1,26 @@
+# XTWINOPS 8: while the host turns window operations on, a program asks
+# for a text area of so many rows and columns, which the host takes once.
+# A parameter left out keeps that side, 0 takes the display's length on
+# that side, and a later request replaces an earlier one. The request
+# gets no reply, and the terminal keeps its size until the host resizes
+# it. While window operations are off, the request is ignored (ctlseqs,
+# XTWINOPS; INTERFACE-vtium.md, Font and window operations).
+# spec: ADR-1000 window.resize
+# capability: xtwinops-resize
+size 10 4
+send "\e[8;25;80t"
+cmd grid-request
+check
+want test grid-request none
+cmd window-ops;on=1
+send "\e[8;25;80t"
+cmd grid-request
+cmd grid-request
+send "\e[8;;80t\e[8;0t"
+cmd grid-request
+check
+want test grid-request 25 80
+want test grid-request none
+want test grid-request display keep
+want size 10x4
+reply ""

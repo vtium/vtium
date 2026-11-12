@@ -9,7 +9,7 @@
 //! ink box itself, and the renderer stores it as it stores any glyph at its
 //! ink box. The shipped bound does not change.
 
-use vtium_font::{Face, Style, Width as FontWidth};
+use vtium_font::{Face, Variant, Width as FontWidth};
 
 use super::Renderer;
 use crate::cache::pool_of;
@@ -49,7 +49,7 @@ impl<F: Face> Renderer<F> {
         let stored = self.stored_for_test(ink, self.config.orientation);
         let pool = pool_of(false, false);
         self.compose.cache.keep(
-            (&[c], FontWidth::Narrow, Style::default()),
+            (&[c], FontWidth::Narrow, Variant::default()),
             pool,
             stored,
             false,
@@ -75,7 +75,7 @@ impl<F: Face> Renderer<F> {
         let place =
             pipeline
                 .glyphs()?
-                .put(gl, (&text, FontWidth::Narrow, Style::default()), stored)?;
+                .put(gl, (&text, FontWidth::Narrow, Variant::default()), stored)?;
         Ok(place.is_some_and(|p| p.boxed.is_some()))
     }
 

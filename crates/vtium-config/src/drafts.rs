@@ -8,16 +8,31 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::apply::Runner;
+use crate::apply::{Ask, Runner};
 use crate::draft::{FileEdit, Plan, changes};
 use crate::outcome::Fail;
 use crate::store::{Store, hash};
 use crate::tui::Paths;
 
 /// The shipped example vtium.conf: the key table's commented lines and the
-/// compiled-in flow's sections. A draft starts from it when no vtium.conf
-/// is installed.
+/// compiled-in flow's sections. vtium installs it as
+/// `/etc/vtium/vtium.conf.example`, and vtium-config copies none of it into
+/// a draft.
 pub const EXAMPLE: &str = include_str!("../../vtium/install/vtium.conf.example");
+
+/// The comment that opens a vtium.conf vtium-config writes from nothing:
+/// what the file is, and where every setting is described. A draft made
+/// when no vtium.conf is installed is this comment alone, and every change
+/// then adds only the lines it sets. The comment is wrapped at 78 columns,
+/// as the shipped example's comments are.
+pub const HEADER: &str = "\
+# This is vtium's configuration file, /etc/vtium/vtium.conf. It holds only
+# the settings you change, and vtium uses its default for every other setting.
+#
+# /etc/vtium/vtium.conf.example describes every setting and shows its default.
+# vtium --help lists every setting with a one-line description.
+
+";
 
 /// How a draft stands against the installed file.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -237,7 +252,7 @@ impl Session<'_> {
 
     /// The current draft's name and text. When the settings name no draft,
     /// or one that is gone, vtium-config makes one from the installed file,
-    /// or from the shipped example when none is installed, named for the
+    /// or from [`HEADER`] alone when none is installed, named for the
     /// machine's hostname with an increment so nothing is overwritten, and
     /// records its base.
     pub fn current(&self) -> Result<(String, String), Fail> {
@@ -258,8 +273,8 @@ impl Session<'_> {
     pub fn make(&self, name: &str, from: From) -> Result<String, Fail> {
         let installed = self.installed()?;
         let text = match from {
-            From::Installed => installed.clone().unwrap_or_else(|| EXAMPLE.to_owned()),
-            From::Empty => crate::ops::new_text(EXAMPLE),
+            From::Installed => installed.clone().unwrap_or_else(|| HEADER.to_owned()),
+            From::Empty => crate::ops::new_text(HEADER),
             From::Draft(other) => self
                 .store
                 .read_draft(&other)?
@@ -457,15 +472,59 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// The route of the step after an install (ADR-1201 D5), the one that
+    /// ran `apply DIR`: sudo for a user who installs the system's files,
+    /// nothing for root, and `None` for other directories, whose vtium.conf
+    /// no vtium on a VT reads.
+    pub fn via(&self) -> Option<Vec<OsString>> {
+        let targets = self.paths.targets();
+        if targets.configdir != crate::apply::Targets::system().configdir {
+            return None;
+        }
+        if rustix::process::geteuid().is_root() {
+            return Some(Vec::new());
+        }
+        match crate::apply::route(&targets, &self.paths.sudo) {
+            crate::apply::Route::Sudo(sudo) => Some(vec![sudo]),
+            crate::apply::Route::User => None,
+        }
+    }
+
+    /// After an install wrote `text` as vtium.conf: for the system's
+    /// vtium.conf, enables vtium on the VTs its heads name and offers the
+    /// start and restart that apply it, through `run` and `ask`
+    /// ([`crate::vts::reach`]); `None` for other directories.
+    pub fn after(
+        &self,
+        text: &str,
+        run: Runner<'_>,
+        ask: Option<Ask<'_>>,
+        out: &mut dyn Write,
+    ) -> Option<crate::vts::Outcome> {
+        let via = self.via()?;
+        Some(crate::vts::reach(
+            text,
+            &self.paths.vtium,
+            &via,
+            run,
+            ask,
+            out,
+        ))
+    }
+
     /// Installs the draft `name`, `text`, as `vtium config install` does:
     /// [`Session::prepare`], then for a draft that wires no complete route
-    /// what `unrouted` says, then [`Session::put`] with sudo run as a plain
-    /// child, then [`Session::finish`].
+    /// what `unrouted` says, then [`Session::put`] through `run`, then
+    /// [`Session::finish`], then [`Session::after`], which asks through
+    /// `ask` whether to start and restart vtium, and with no `ask` prints
+    /// the commands that would.
     pub fn install(
         &self,
         name: &str,
         text: &str,
         unrouted: Unrouted<'_>,
+        run: Runner<'_>,
+        ask: Option<Ask<'_>>,
         out: &mut dyn Write,
     ) -> Result<(), Fail> {
         let Some(ready) = self.prepare(name, text, out)? else {
@@ -480,7 +539,10 @@ impl Session<'_> {
                 Unrouted::Ask(ask) => {
                     let (added, removed) =
                         counts(ready.replaced.as_deref().unwrap_or_default(), text);
-                    if !ask(&crate::tui::words::no_route_question(added, removed, 0)) {
+                    if !ask(
+                        out,
+                        &crate::tui::words::no_route_question(added, removed, 0),
+                    ) {
                         return Err(Fail::Check(
                             crate::tui::words::NO_ROUTE_NOT_INSTALLED.to_owned(),
                         ));
@@ -488,8 +550,10 @@ impl Session<'_> {
                 }
             }
         }
-        self.put(&ready.plan, &mut run_child, out)?;
-        self.finish(name, text, ready.replaced.as_deref(), out)
+        self.put(&ready.plan, &mut *run, out)?;
+        self.finish(name, text, ready.replaced.as_deref(), out)?;
+        self.after(text, run, ask, out);
+        Ok(())
     }
 }
 
@@ -500,7 +564,7 @@ pub enum Unrouted<'a> {
     Install,
     /// Asks the question, and installs it only when the answer is yes:
     /// `vtium config install` at a terminal.
-    Ask(&'a mut dyn FnMut(&str) -> bool),
+    Ask(Ask<'a>),
     /// Refuses it, exit 1, and says how to install it anyway: `install`
     /// with no terminal, and every command's `--install`, which installs
     /// only a draft the check passes.

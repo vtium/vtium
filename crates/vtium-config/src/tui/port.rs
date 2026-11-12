@@ -33,11 +33,12 @@ use super::desk::Done;
 use super::input::Decoder;
 use super::model::{App, Effect, Event, Inputs, Live};
 use super::view;
-use crate::apply::Runner;
+use crate::apply::{Ask, Runner};
 
 /// What runs while the terminal is given back: the install, through the
-/// runner it is handed.
-pub type Step<'a> = &'a mut dyn FnMut(Runner<'_>) -> Result<Done, String>;
+/// runner it is handed, writing what the person reads to the terminal it
+/// is handed and asking its questions there (ADR-1201 D5).
+pub type Step<'a> = &'a mut dyn FnMut(Runner<'_>, &mut dyn Write, Ask<'_>) -> Result<Done, String>;
 
 /// What woke the loop.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -215,7 +216,9 @@ pub fn drive_with(
                     Effect::Install(plan) => {
                         port.write(&view::draw(&app))?;
                         let result = match desk.as_deref_mut() {
-                            Some(desk) => port.privileged(&mut |run| desk.install(&plan, run)),
+                            Some(desk) => port.privileged(&mut |run, out, ask| {
+                                desk.install(&plan, run, out, ask)
+                            }),
                             None => Err(super::words::NO_DESK.to_owned()),
                         };
                         let (cols, rows) = port.size();
@@ -558,6 +561,24 @@ fn spawn_foreground(argv: &[OsString]) -> io::Result<(bool, String)> {
     Ok((out.status.success(), said))
 }
 
+/// Standard output, the terminal while the TUI has given it back,
+/// counting the bytes written to it.
+struct Counted<'a> {
+    written: &'a std::cell::Cell<usize>,
+}
+
+impl Write for Counted<'_> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let n = std::io::stdout().lock().write(buf)?;
+        self.written.set(self.written.get().saturating_add(n));
+        Ok(n)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        std::io::stdout().lock().flush()
+    }
+}
+
 impl Port for Tty {
     fn size(&mut self) -> (usize, usize) {
         rustix::termios::tcgetwinsize(std::io::stdout().as_fd())
@@ -610,7 +631,22 @@ impl Port for Tty {
             let _ = rustix::termios::tcsetpgrp(stdin.as_fd(), rustix::process::getpgrp());
             result
         };
-        let result = step(&mut run);
+        // what the step writes after its last question waits for Enter,
+        // so the person reads it before the TUI's screen comes back
+        let written = std::cell::Cell::new(0usize);
+        let answered = std::cell::Cell::new(0usize);
+        let mut terminal = Counted { written: &written };
+        let mut ask = |out: &mut dyn Write, question: &str| -> bool {
+            let yes = crate::vts::ask_line(out, question);
+            answered.set(written.get());
+            yes
+        };
+        let result = step(&mut run, &mut terminal, &mut ask);
+        if written.get() > answered.get() {
+            let _ = writeln!(terminal, "{}", crate::vts::PRESS_ENTER);
+            let mut line = String::new();
+            let _ = std::io::BufRead::read_line(&mut std::io::stdin().lock(), &mut line);
+        }
         self.cooked(false).map_err(|e| e.to_string())?;
         result
     }

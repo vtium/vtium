@@ -24,7 +24,7 @@ Every setting is also an option on vtium's command line, such as `--font-name=mo
 
 vtium reads the file only when root owns it and neither its group nor others can write it, nor any directory above it. It refuses a file that fails this check: it reads none of it, runs its built-in configuration, and every head shows `vtium.conf not used: running the built-in configuration.` with the next step, `To see why, run vtium check-config /etc/vtium/vtium.conf.` `vtium check-config` names the file or directory that fails and the `chown` or `chmod` command that mends it.
 
-vtium reads the file once, when it starts, together with the frits it names. A change reaches a VT at that VT's next start, so log out of the VT and restart its vtium, as in [Upgrading and removing](install.md#upgrading-and-removing).
+vtium reads the file once, when it starts, together with the frits it names. A change reaches a VT at that VT's next start, so log out of the VT and restart its vtium, as in [Upgrading and removing](install.md#upgrading-and-removing). `vtium config install` offers that restart for you. See [How an install reaches the VTs](#how-an-install-reaches-the-vts).
 
 vtium reads no other configuration file. A `heads.conf` or `seat0.seat.conf` left in `/etc/vtium` from an earlier version does nothing, and vtium says nothing about it; move what it held into vtium.conf by hand.
 
@@ -58,7 +58,11 @@ The configuration means the installed file and your draft together.
 
 ### The draft
 
-The first command that needs a draft makes one, as a copy of the installed file, or of the shipped example when none is installed. It names the draft after the machine's hostname, adding `-2`, `-3` and so on when that name is taken, so that no draft is overwritten. Your drafts and everything else the tool keeps live under your home directory:
+The first command that needs a draft makes one, as a copy of the installed file. It names the draft after the machine's hostname, adding `-2`, `-3` and so on when that name is taken, so that no draft is overwritten.
+
+When no vtium.conf is installed, the draft starts as a short comment and nothing else. The comment says what the file is, and that `/etc/vtium/vtium.conf.example` and `vtium --help` describe every setting. Each change you make then adds only the lines it needs. A setting you change adds its own line, with no description above it. The first change to the looks, heads or rules adds `version = 1`, the head `console` and the rules that vtium runs when the file has no section, without the comments of the shipped example. A draft copied from an installed file keeps every line of that file, your own comments included.
+
+Your drafts and everything else the tool keeps live under your home directory:
 
 | Path | What it holds |
 |---|---|
@@ -96,7 +100,7 @@ These commands change the draft. `vtium config --help` lists every command, and 
 | `vtium config edit [--install]` | opens the draft in your editor, as `visudo` opens sudoers |
 | `vtium config install` | checks the draft and installs it as `/etc/vtium/vtium.conf` |
 | `vtium config revert` | throws away the draft's changes and copies the installed file back over it |
-| `vtium config new` | empties the draft to the settings at their defaults and one look, `[look default]` |
+| `vtium config new` | empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting |
 | `vtium config history`, `restore [N]` | lists the files earlier installs replaced, newest first, and copies one into the draft |
 | `vtium config draft list`, `draft new [NAME]`, `draft switch NAME`, `draft rm [NAME]` | lists the drafts, makes one, makes another the one you work on, or deletes one |
 | `vtium config library ...` | copies looks, heads and rules between the draft and the library |
@@ -146,6 +150,17 @@ An install takes three steps:
 When sudo refuses, or is not installed, nothing is installed and the command exits with status 4; run `vtium config install` again. The bundle stays on disk, but running `sudo vtium-config apply DIR` on it by hand skips the third step: nothing is saved in the installed history, and the draft's base stays the old installed file, so the next `vtium config install` stops with exit status 3.
 
 Root needs no sudo. Run as root, `vtium config` keeps root's own drafts under root's home directory, `/root/.config/vtium/drafts/` by default, which it finds from the password database and never from `$HOME` or the XDG variables that sudo can carry over from your account. An install as root runs the same checks and writes the files the same way at once. The TUI does not run as root: it says to run `vtium config` as yourself, since it asks for sudo when it installs.
+
+## How an install reaches the VTs
+
+vtium reads vtium.conf only when it starts on a VT, so an install changes nothing on your screens until vtium starts again. A head with a `vt` line also appears only on the VTs that line names, and only where vtium runs. For example, a head with `vt = 12` needs vtium on VT 12, but logind starts vtium by itself only on VTs 1 to 6.
+
+So after `vtium config install` or the TUI's Install writes `/etc/vtium/vtium.conf`, vtium-config takes two more steps:
+
+1. **It enables vtium on the VTs your heads name.** vtium-config runs `vtium console status` to see where vtium is enabled. For each VT that a head's `vt` line names where vtium is not enabled, it runs `sudo vtium console enable --direct N`. It uses seat mode, `--seat N`, when the VTs vtium is enabled on already use seat mode. When they use both modes, or vtium is not enabled on any VT yet, it uses direct mode and says why. `vtium console` decides whether vtium can have the VT, and vtium-config shows what it prints. For example, `vtium console` refuses a VT that a display manager or a graphical session holds. The install stays in place after a refusal, but that head does not appear until the VT is free and you run the `vtium console enable` command that vtium-config shows.
+2. **It offers to start and restart vtium.** vtium-config asks, for example, `Start vtium on VT 12, and restart it on VTs 2 and 3? [y/N]`. When you answer y, it runs `sudo systemctl start vtium@tty12` and `sudo systemctl restart vtium@tty2 vtium@tty3`, and the new file applies at once. A restart keeps each session on those VTs running, because systemd holds the session's terminal open while vtium starts again. The screen is cleared and drawn again, and its scrollback is lost. Starting vtium on a VT where a login prompt runs stops that login prompt, and the question says so. When you answer anything else, vtium-config starts and restarts nothing and prints the commands to run later. The new file then applies on each VT when vtium next starts there, for example at the next boot.
+
+`vtium config install` asks only at a terminal. Without one, and for the `--install` option of the other commands, it asks nothing and prints the commands instead. The TUI asks on the terminal it gives back to sudo, and its message line then says where vtium runs with the new file. An install into another directory, named with `--configdir`, takes neither step, because the vtium on each VT reads only `/etc/vtium`.
 
 ## The TUI
 
@@ -209,12 +224,14 @@ A display or an input can be in one path for each VT. Two paths can share a disp
 
 #### A terminal's card
 
-Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login` and `When its screen is unplugged`. Up and Down move between the lines, Left and Right move between a line's choices, and Enter sets the choice. On `Name`, Enter lets you type a new name.
+Enter on a terminal's box opens its card. The card lists the terminal's settings: `Name`, `Font set`, `Size`, `Consoles`, `Login`, `When its screen is unplugged` and `Switch on Enter`. Up and Down move between the lines, Left and Right move between a line's choices, and Enter sets the choice. On `Name`, Enter lets you type a new name.
 
 The `Login` line sets the program each console of the terminal starts. It has two choices:
 
 - `Default: /bin/login -p` leaves the terminal's own `login` key unset. The choice shows the command that runs then: the `login` key at the top of vtium.conf, or vtium's default, `/bin/login -p`.
 - `Other…` lets you type a command. vtium-config keeps it only when its first word is the full path of a program that exists and can run, or a variable such as `$SHELL`, which vtium replaces with its value when the console starts. Otherwise it says in one sentence what is wrong, such as `The login program login is not a full path. Type a path that starts with /, such as /bin/login.`
+
+The `Switch on Enter` line sets the terminal's `switch-on-enter` key. With `on`, you can press Enter on one of the terminal's own keyboards while another VT shows, and vtium switches to the terminal's VT. With `off`, the default, vtium-config takes the key's line out of the draft. The switch has no effect under `policy = closed`, on an isolated terminal, on a terminal that runs on every VT, and on a terminal whose VTs are all above 12. While the cursor is on the line, the card says when one of these applies, such as `It has no effect now, because this terminal runs on every VT. Press e and choose a VT on the line VTs.` See [The sections of vtium.conf](head-file.md) for details.
 
 Under its settings, the card shows WHAT THIS TERMINAL DRAWS: the terminal's font set, then its look, then its displays, joined left to right.
 
@@ -236,10 +253,10 @@ The tab bar shows the Flow view's actions beside the views' names: `v View file`
 
 - **View file**, on `v`, shows the draft's vtium.conf with the unsaved changes applied, which is what Install would write. It opens at the line of the highlighted box and marks each line the check complains about. Its keys are `s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back`.
 - **Save**, on `s`, writes the unsaved changes into the draft. It asks nothing, because a draft can be unfinished.
-- **Install**, on `i`, saves first and runs the check. When the check fails, Install refuses and lists what fails. Otherwise it asks `Install the draft? 3 lines added, 1 removed.` and installs as [above](#when-vtium-config-asks-for-sudo). When the only problem is that no complete route exists, it asks before it installs anyway. The TUI leaves its screen while sudo asks for your password.
+- **Install**, on `i`, saves first and runs the check. When the check fails, Install refuses and lists what fails. Otherwise it asks `Install the draft? 3 lines added, 1 removed.` and installs as [above](#when-vtium-config-asks-for-sudo). When the only problem is that no complete route exists, it asks before it installs anyway. The TUI leaves its screen while sudo asks for your password, and while it enables vtium on the VTs your heads name and asks whether to restart vtium, as [How an install reaches the VTs](#how-an-install-reaches-the-vts) describes.
 - **Revert**, on `r`, asks `Throw away the draft's changes? 3 lines added and 1 removed will be lost.` and then copies the installed file back over the draft.
 - **Restore**, on `o`, lists the installed history. It copies the file you choose into the draft after asking, for example, `Replace the draft with earlier file 1? 2 lines added and 5 removed will be lost.`
-- **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` and then empties the draft to the settings at their defaults and one look, `[look default]`.
+- **New**, on `n`, asks `Start a new configuration? The draft's heads, rules and looks will be lost.` and then empties the draft to the short comment, `version = 1` and one look, `[look default]`, so that it sets no setting.
 
 When you press `q` with changes that are not saved, the view asks whether to save them first, for example `2 changes are not saved. Save them before you quit? y saves them and quits, n quits without them, and Esc goes back.`
 

@@ -4,7 +4,7 @@
 //! rows past its own, and every frame the stand-in composes through its
 //! model of the cell shader equals the CPU path's whole draw.
 
-use vtium_font::{Style, Width as FontWidth};
+use vtium_font::{Variant, Width as FontWidth};
 use vtium_term::{Age, Rgb};
 
 use super::{CH, CW, Plain, REACHING, Screen, TALLER, WIDER, renderer, stored, whole};
@@ -50,7 +50,7 @@ impl Gpu {
             let place = glyphs
                 .put(
                     &mut gl,
-                    (&text, FontWidth::Narrow, Style::default()),
+                    (&text, FontWidth::Narrow, Variant::default()),
                     stored(c),
                 )
                 .unwrap();

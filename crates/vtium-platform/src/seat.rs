@@ -54,10 +54,11 @@ mod stand_in;
 #[cfg(test)]
 mod tests;
 
-pub use binding::Libseat;
+pub use binding::{Libseat, LibseatSeat};
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
+use std::ffi::{OsStr, OsString};
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
@@ -70,7 +71,7 @@ use calloop::{Interest, Mode, PostAction, RegistrationToken};
 use rustix::io::Errno;
 
 use crate::event_loop::Loop;
-use crate::input::KeyEvent;
+use crate::input::{Evdev, EventDevice, KeyEvent, Open, Opening};
 use crate::vt::switch_target;
 use crate::vt::{Console, DisplayMode, KbMode, Switch, Tty, Vt, VtEvent};
 
@@ -116,9 +117,127 @@ pub(crate) trait Manager {
     /// Opens the seat, with its listener putting what it is told in
     /// `inbox`.
     fn open(&mut self, inbox: Inbox) -> io::Result<Self::Seat>;
+    /// The errors libseat reported while the last [`Manager::open`] ran,
+    /// which it holds back so that vtium decides how to log them
+    /// ([`report`]).
+    fn said(&mut self) -> Vec<String>;
     /// Whether seatd listens on its socket, which decides whether a VT not
     /// shown must be waited for before the seat opens.
     fn seatd_listens(&self) -> bool;
+    /// The backend `LIBSEAT_BACKEND` names, when it names one.
+    fn backend_named(&self) -> Option<OsString>;
+    /// Whether logind runs: its seats' directory exists.
+    fn logind_runs(&self) -> bool;
+    /// Whether vtium is in a logind session of its own, the session
+    /// libseat's logind backend takes the seat from.
+    fn own_session(&self) -> bool;
+}
+
+/// What vtium logs for an error that libseat, the library vtium opens the
+/// seat through, reports in its own words, `text`.
+pub(crate) fn libseat_error(text: &str) -> String {
+    format!("libseat, the seat library, reports an error: {text}")
+}
+
+/// Logs the errors libseat reported while vtium opened the seat, `said`.
+/// When the open ends as vtium expects, they are logged at the debug
+/// level, and vtium's own line says what happened: the seat opened,
+/// perhaps through the second seat manager libseat tried; the seat is busy
+/// and vtium waits for it; or no seat manager runs, so vtium uses the
+/// kernel's VT, as on every machine without seatd, where libseat reports
+/// that seatd's socket is missing. Otherwise each is a warning, so a real
+/// error stays in the log.
+fn report(said: Vec<String>, expected: bool) {
+    for text in said {
+        if expected {
+            log::debug!(target: "seat", "{}", libseat_error(&text));
+        } else {
+            log::warn!(target: "seat", "{}", libseat_error(&text));
+        }
+    }
+}
+
+/// What vtium logs when it leaves libseat's logind backend alone because
+/// vtium is in no logind session of its own and `LIBSEAT_BACKEND` names
+/// logind or no backend (ADR-1400 D3).
+pub const NO_SESSION: &str = "vtium is in no logind session of its own, so it does not take the seat from logind, and it uses the kernel's VT";
+
+/// What vtium logs when [`keep_from_logind`] pins libseat to seatd, as in
+/// direct mode (ADR-1400 D3).
+pub const SEATD_ONLY: &str = "vtium is in no logind session of its own, so it takes the seat from seatd alone, and never from logind";
+
+/// Whether vtium sets `LIBSEAT_BACKEND=seatd` itself: when it is in no
+/// logind session of its own and `named`, the backend `LIBSEAT_BACKEND`
+/// names, is none. Then libseat would try logind whenever seatd refuses an
+/// open (libseat/libseat.c lines 65-75 at seatd 92b1617c), and logind's
+/// backend would take the user's display session.
+pub(crate) fn pin_needed(named: Option<&OsStr>, own_session: bool) -> bool {
+    named.is_none() && !own_session
+}
+
+/// Whether vtium pinned libseat to seatd at its start.
+static PINNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Pins libseat to seatd when vtium is in no logind session of its own and
+/// `LIBSEAT_BACKEND` names no backend ([`pin_needed`]), so that no open of
+/// the seat, the first, a retry or one that waits for the VT to be shown,
+/// reaches logind's backend. Call it once at the start, while vtium has
+/// one thread, and after reading the environment that sessions inherit, so
+/// that no login sees the variable. Returns whether it pinned.
+pub fn keep_from_logind() -> bool {
+    let manager = binding::Libseat::default();
+    if !pin_needed(manager.backend_named().as_deref(), manager.own_session()) {
+        return false;
+    }
+    #[expect(
+        unsafe_code,
+        reason = "setting LIBSEAT_BACKEND, which libseat reads from the environment"
+    )]
+    // SAFETY: the caller calls this while the process has one thread, so no
+    // other thread reads or writes the environment meanwhile.
+    unsafe {
+        std::env::set_var("LIBSEAT_BACKEND", "seatd");
+    }
+    PINNED.store(true, std::sync::atomic::Ordering::Relaxed);
+    log::info!(target: "seat", "{SEATD_ONLY}");
+    true
+}
+
+/// Whether [`keep_from_logind`] pinned libseat to seatd.
+pub fn pinned() -> bool {
+    PINNED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether the control groups `cgroup`, as `/proc/PID/cgroup` lists them,
+/// put the process in a logind session's scope, `session-ID.scope`. sd-login
+/// finds a process's session the same way: from the systemd unit of its
+/// control group on the unified hierarchy (`0::`), or on systemd's own
+/// named hierarchy (`name=systemd`) on a host that mounts both. The unit is
+/// the first part of the path that is not a slice.
+pub(crate) fn in_session_scope(cgroup: &str) -> bool {
+    cgroup.lines().any(|line| {
+        let mut fields = line.splitn(3, ':');
+        let (_, controllers, path) = (fields.next(), fields.next(), fields.next());
+        matches!(controllers, Some("" | "name=systemd"))
+            && path
+                .and_then(|p| {
+                    p.split('/')
+                        .find(|c| !c.is_empty() && !c.ends_with(".slice"))
+                })
+                .is_some_and(|unit| unit.starts_with("session-") && unit.ends_with(".scope"))
+    })
+}
+
+/// Whether libseat opens the seat through its logind backend. libseat tries
+/// only the backend `LIBSEAT_BACKEND` names, when it names one, and
+/// otherwise seatd, then logind, then its built-in seat manager
+/// (libseat/libseat.c at seatd 92b1617c, lines 18-28 and 45). seatd answers
+/// when its socket accepts a connection, and logind when it runs.
+pub(crate) fn logind_backend(named: Option<&OsStr>, seatd: bool, logind_runs: bool) -> bool {
+    match named {
+        Some(name) => name == "logind",
+        None => !seatd && logind_runs,
+    }
 }
 
 /// What [`LibseatVt::start`] chose.
@@ -152,14 +271,43 @@ impl Tries {
 }
 
 /// Where the seat's connection stands.
-enum Conn<S> {
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Conn {
     /// Waiting for the VT to be shown before the seat opens.
     Shown,
     /// The seat manager answered busy this many times.
     Opening(usize),
-    Open(S),
+    /// The seat is open, in [`Shared::seat`].
+    Open,
     /// The seat could not open, or the seat manager went away.
     Gone,
+}
+
+/// What the VT shares with the keyboards and pointers it opens through the
+/// seat ([`SeatInput`]).
+struct Shared<S: Seat> {
+    /// The seat, while it is open.
+    seat: Option<S>,
+    /// The seat is vtium's: enabled, with no release waiting.
+    active: bool,
+    /// The keyboards and pointers opened through the seat, by node.
+    inputs: BTreeMap<PathBuf, S::Device>,
+}
+
+impl<S: Seat> Shared<S> {
+    /// Closes every keyboard and pointer through the seat, then the seat.
+    fn close(&mut self) {
+        let inputs = std::mem::take(&mut self.inputs);
+        for (path, device) in inputs {
+            if let Some(seat) = self.seat.as_mut()
+                && let Err(e) = seat.close_device(device)
+            {
+                log::warn!(target: "seat", "cannot close {} through the seat manager: {e}", path.display());
+            }
+        }
+        self.active = false;
+        self.seat = None;
+    }
 }
 
 /// Whether the seat is vtium's.
@@ -186,10 +334,14 @@ enum Pending<D> {
 
 /// What [`LibseatVt::start_with`] found of the seat.
 struct Found<S> {
-    conn: Conn<S>,
+    conn: Conn,
+    /// The seat, when it opened at once.
+    seat: Option<S>,
     inbox: Inbox,
     /// seatd listens.
     seatd: bool,
+    /// libseat's logind backend opens the seat.
+    logind: bool,
 }
 
 /// What the VT asks of the loop it runs in, made by [`LibseatVt::start`]
@@ -212,14 +364,22 @@ struct Hooks {
 )]
 pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     manager: M,
-    conn: Conn<M::Seat>,
+    conn: Conn,
+    /// The seat, shared with the keyboards and pointers opened through it.
+    shared: Rc<RefCell<Shared<M::Seat>>>,
     inbox: Inbox,
     /// seatd listened at the start.
     seatd: bool,
+    /// libseat's logind backend opens the seat, from vtium's own logind
+    /// session ([`Vt::logind_seat`]).
+    logind: bool,
     /// The VT the seat runs on, when it has VTs, and its number.
     tty: Option<(C, u16)>,
-    /// The VT shown at the start, which [`Vt::leave`] goes back to.
-    saved: Option<u16>,
+    /// The VT shown when [`Vt::activate`] asked the kernel for this one,
+    /// which [`Vt::leave`] goes back to. `None` while vtium has not
+    /// switched to its VT itself, as when it waits for the seat
+    /// (`--no-switchvt`): then the VT shown at exit stays shown.
+    back: Option<u16>,
     /// The keyboard mode found at the start, restored when the seat is
     /// let go.
     kb_mode: KbMode,
@@ -266,7 +426,7 @@ impl LibseatVt<Libseat, Tty> {
         D: 'static,
         A: Fn(&mut D) -> Option<&mut LibseatVt<Libseat, Tty>> + Clone + 'static,
     {
-        LibseatVt::start_with(lp, Libseat, tty, Tries::bounds(), access)
+        LibseatVt::start_with(lp, Libseat::default(), tty, Tries::bounds(), access)
     }
 }
 
@@ -292,25 +452,58 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             None => None,
         };
         let seatd = manager.seatd_listens();
+        let logind = logind_backend(
+            manager.backend_named().as_deref(),
+            seatd,
+            manager.logind_runs(),
+        );
+        // Outside a session of its own, libseat's logind backend would take
+        // the user's display session, such as root's login on another VT
+        // (libseat/backend/logind.c, `get_display_session`). libseat reaches
+        // that backend when LIBSEAT_BACKEND names it, and, when it names no
+        // backend, whenever seatd refuses an open, as a busy seatd does. So
+        // outside a session vtium opens the seat only through a backend
+        // named otherwise, as keep_from_logind names seatd in direct mode.
+        let named = manager.backend_named();
+        let reaches_logind = named.as_deref().is_none_or(|n| n == "logind");
+        if reaches_logind && !manager.own_session() {
+            log::info!(target: "seat", "{NO_SESSION}");
+            return Ok(Chosen::Kernel(tty));
+        }
         let inbox = Inbox::default();
         let mut manager = manager;
-        let conn = if shown == Some(false) && seatd {
+        let (conn, seat) = if shown == Some(false) && seatd {
             log::info!(target: "seat", "seatd listens: the seat opens once the VT is shown");
-            Conn::Shown
+            (Conn::Shown, None)
         } else {
-            match manager.open(Rc::clone(&inbox)) {
-                Ok(seat) => Conn::Open(seat),
+            let opened = manager.open(Rc::clone(&inbox));
+            let said = manager.said();
+            match opened {
+                Ok(seat) => {
+                    report(said, true);
+                    (Conn::Open, Some(seat))
+                }
                 Err(e) if busy(&e, seatd) => {
+                    report(said, true);
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
-                    Conn::Opening(1)
+                    (Conn::Opening(1), None)
                 }
                 Err(e) => {
+                    // No seat manager libseat reaches runs: seatd does not
+                    // listen, and libseat would not try logind.
+                    report(said, !seatd && !logind);
                     log::info!(target: "seat", "no seat manager answered, so vtium uses the kernel's VT: {e}");
                     return Ok(Chosen::Kernel(tty));
                 }
             }
         };
-        let found = Found { conn, inbox, seatd };
+        let found = Found {
+            conn,
+            seat,
+            inbox,
+            seatd,
+            logind,
+        };
         Ok(Chosen::Seat(LibseatVt::new(
             lp, manager, found, tty, tries, access,
         )?))
@@ -358,28 +551,36 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             .map_err(|e| io::Error::from(e.error))
         });
         let unwatch = Box::new(move |token| handle.remove(token));
-        let (saved, kb_mode) = match &tty {
-            Some((console, num)) => {
-                let saved = console.active().ok();
-                let kb_mode = match console.keyboard_mode() {
-                    Ok(KbMode::Off | KbMode::Raw | KbMode::MediumRaw) | Err(_) => {
-                        log::debug!(target: "seat", "VT {num}'s keyboard mode is restored as K_UNICODE");
-                        KbMode::Unicode
-                    }
-                    Ok(mode) => mode,
-                };
-                (saved, kb_mode)
-            }
-            None => (None, KbMode::Unicode),
+        let kb_mode = match &tty {
+            Some((console, num)) => match console.keyboard_mode() {
+                Ok(KbMode::Off | KbMode::Raw | KbMode::MediumRaw) | Err(_) => {
+                    log::debug!(target: "seat", "VT {num}'s keyboard mode is restored as K_UNICODE");
+                    KbMode::Unicode
+                }
+                Ok(mode) => mode,
+            },
+            None => KbMode::Unicode,
         };
-        let Found { conn, inbox, seatd } = found;
+        let Found {
+            conn,
+            seat,
+            inbox,
+            seatd,
+            logind,
+        } = found;
         let mut vt = LibseatVt {
             manager,
             conn,
+            shared: Rc::new(RefCell::new(Shared {
+                seat,
+                active: false,
+                inputs: BTreeMap::new(),
+            })),
             inbox,
             seatd,
+            logind,
             tty,
-            saved,
+            back: None,
             kb_mode,
             state: State::Inactive,
             enable_owed: false,
@@ -397,7 +598,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             armed: false,
             watched: None,
         };
-        if matches!(vt.conn, Conn::Open(_)) {
+        if vt.conn == Conn::Open {
             vt.opened();
         }
         vt.rearm();
@@ -417,7 +618,7 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         match self.conn {
             Conn::Shown if self.shown() => self.connect(),
             Conn::Opening(_) => self.connect(),
-            Conn::Shown | Conn::Open(_) | Conn::Gone => {}
+            Conn::Shown | Conn::Open | Conn::Gone => {}
         }
         self.try_devices();
         self.rearm();
@@ -444,18 +645,24 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
             Conn::Opening(n) => n,
             _ => 0,
         };
-        match self.manager.open(Rc::clone(&self.inbox)) {
+        let opened = self.manager.open(Rc::clone(&self.inbox));
+        let said = self.manager.said();
+        match opened {
             Ok(seat) => {
-                self.conn = Conn::Open(seat);
+                report(said, true);
+                self.shared.borrow_mut().seat = Some(seat);
+                self.conn = Conn::Open;
                 self.opened();
             }
             Err(e) if busy(&e, self.seatd) && tried.saturating_add(1) < self.tries.seat => {
+                report(said, true);
                 if tried == 0 {
                     log::info!(target: "seat", "the seat is busy, waiting for its previous client to let it go: {e}");
                 }
                 self.conn = Conn::Opening(tried.saturating_add(1));
             }
             Err(e) => {
+                report(said, false);
                 log::error!(target: "seat", "cannot open the seat after {} tries: {e}", tried.saturating_add(1));
                 self.gone();
             }
@@ -465,13 +672,17 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
     /// The seat opened: its descriptor in the loop, and anything libseat
     /// queued while opening dispatched now.
     fn opened(&mut self) {
-        let Conn::Open(seat) = &mut self.conn else {
-            return;
+        let fd = {
+            let mut shared = self.shared.borrow_mut();
+            let Some(seat) = shared.seat.as_mut() else {
+                return;
+            };
+            let name = seat.name();
+            log::info!(target: "seat", "the seat {name} is open");
+            self.name = Some(name);
+            seat.fd()
         };
-        let name = seat.name();
-        log::info!(target: "seat", "the seat {name} is open");
-        self.name = Some(name);
-        let watched = seat.fd().and_then(|fd| (self.hooks.watch)(fd));
+        let watched = fd.and_then(|fd| (self.hooks.watch)(fd));
         match watched {
             Ok(token) => self.watched = Some(token),
             Err(e) => {
@@ -486,10 +697,11 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
     /// The seat's descriptor is readable: libseat dispatches, and what it
     /// was told is acted on. Returns whether to keep watching it.
     pub(crate) fn readable(&mut self) -> bool {
-        let Conn::Open(seat) = &mut self.conn else {
-            return false;
+        let dispatched = match self.shared.borrow_mut().seat.as_mut() {
+            Some(seat) => seat.dispatch(),
+            None => return false,
         };
-        if let Err(e) = seat.dispatch() {
+        if let Err(e) = dispatched {
             log::error!(target: "seat", "the seat manager's connection failed: {e}");
             self.gone();
             return false;
@@ -512,7 +724,7 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         match self.state {
             State::Inactive => {
                 self.tty_graphics();
-                self.state = State::Active;
+                self.set_state(State::Active);
                 self.events.push(VtEvent::Acquired);
             }
             State::Releasing => self.enable_owed = true,
@@ -524,7 +736,7 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         log::debug!(target: "seat", "the seat is disabled");
         match self.state {
             State::Active => {
-                self.state = State::Releasing;
+                self.set_state(State::Releasing);
                 self.events.push(VtEvent::Release);
             }
             // A disable of a seat the owner holds nothing of is
@@ -542,13 +754,19 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
 
     /// The disable acknowledged, and the VT in text mode.
     fn let_go(&mut self) {
-        if let Conn::Open(seat) = &mut self.conn
-            && let Err(e) = seat.disable()
-        {
+        let disabled = self.shared.borrow_mut().seat.as_mut().map(Seat::disable);
+        if let Some(Err(e)) = disabled {
             log::warn!(target: "seat", "cannot let the seat go: {e}");
         }
         self.tty_text();
-        self.state = State::Inactive;
+        self.set_state(State::Inactive);
+    }
+
+    /// Whether the seat is vtium's, which the keyboards and pointers opened
+    /// through it read too.
+    fn set_state(&mut self, state: State) {
+        self.state = state;
+        self.shared.borrow_mut().active = state == State::Active;
     }
 
     /// The seat could not open or is lost: reported as a hangup, and every
@@ -558,6 +776,7 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
             (self.hooks.unwatch)(token);
         }
         self.conn = Conn::Gone;
+        self.shared.borrow_mut().close();
         self.events.push(VtEvent::Hangup);
         for (path, p) in &mut self.pending {
             if !matches!(p, Pending::Opened(..) | Pending::Failed(_)) {
@@ -572,7 +791,8 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         if self.state != State::Active {
             return;
         }
-        let Conn::Open(seat) = &mut self.conn else {
+        let mut shared = self.shared.borrow_mut();
+        let Some(seat) = shared.seat.as_mut() else {
             return;
         };
         for (path, p) in &mut self.pending {
@@ -647,10 +867,11 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         }
     }
 
-    fn seat_mut(&mut self) -> io::Result<&mut M::Seat> {
-        match &mut self.conn {
-            Conn::Open(seat) => Ok(seat),
-            _ => Err(io::Error::from(io::ErrorKind::NotConnected)),
+    /// Asks the open seat with `ask`.
+    fn with_seat<T>(&self, ask: impl FnOnce(&mut M::Seat) -> io::Result<T>) -> io::Result<T> {
+        match self.shared.borrow_mut().seat.as_mut() {
+            Some(seat) => ask(seat),
+            None => Err(io::Error::from(io::ErrorKind::NotConnected)),
         }
     }
 }
@@ -688,26 +909,29 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         if self.state == State::Active {
             return Ok(Switch::Done);
         }
-        if let Some((console, num)) = &self.tty
-            && console.active()? != *num
-        {
-            console.activate(*num).inspect_err(|e| {
-                log::warn!(target: "seat", "cannot enter VT {num}: {e}");
-            })?;
+        if let Some((console, num)) = &self.tty {
+            let shown = console.active()?;
+            if shown != *num {
+                console.activate(*num).inspect_err(|e| {
+                    log::warn!(target: "seat", "cannot enter VT {num}: {e}");
+                })?;
+                self.back = Some(shown);
+            }
         }
         Ok(Switch::Pending)
     }
 
-    /// A switch through the seat manager to the VT shown at the start.
+    /// A switch through the seat manager to the VT shown when
+    /// [`Vt::activate`] asked for this one; nothing when it never asked.
     fn leave(&mut self) -> io::Result<Switch> {
         if self.state != State::Active {
             return Ok(Switch::Done);
         }
         let own = self.number();
-        match self.saved {
-            Some(saved) if Some(saved) != own => {
-                self.seat_mut()?.switch_session(saved)?;
-                log::debug!(target: "seat", "leaving for VT {saved}");
+        match self.back {
+            Some(back) if Some(back) != own => {
+                self.with_seat(|seat| seat.switch_session(back))?;
+                log::debug!(target: "seat", "leaving for VT {back}");
                 Ok(Switch::Pending)
             }
             _ => Ok(Switch::Done),
@@ -715,7 +939,7 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
     }
 
     fn wait(&mut self) -> io::Result<Switch> {
-        if matches!(self.conn, Conn::Gone) {
+        if self.conn == Conn::Gone {
             return Err(io::Error::from(io::ErrorKind::NotConnected));
         }
         if self.state == State::Active {
@@ -741,7 +965,7 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         }
         if Some(target) != self.number() {
             log::debug!(target: "seat", "switching to session {target} on a key");
-            if let Err(e) = self.seat_mut().and_then(|seat| seat.switch_session(target)) {
+            if let Err(e) = self.with_seat(|seat| seat.switch_session(target)) {
                 log::warn!(target: "seat", "cannot switch to session {target}: {e}");
             }
         }
@@ -775,6 +999,10 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         self.name.as_deref().unwrap_or("seat0")
     }
 
+    fn logind_seat(&self) -> bool {
+        self.logind
+    }
+
     fn open_device(&mut self, path: &Path) -> io::Result<OwnedFd> {
         if self.open.contains_key(path) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists));
@@ -791,7 +1019,7 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
             }
             None => {}
         }
-        if matches!(self.conn, Conn::Gone) {
+        if self.conn == Conn::Gone {
             return Err(io::Error::from(io::ErrorKind::NotConnected));
         }
         if self.state != State::Active {
@@ -799,7 +1027,7 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
             self.pending.insert(path.to_owned(), Pending::Seat);
             return Err(io::Error::from(io::ErrorKind::WouldBlock));
         }
-        match self.seat_mut()?.open_device(path) {
+        match self.with_seat(|seat| seat.open_device(path)) {
             Ok((device, fd)) => {
                 self.open.insert(path.to_owned(), device);
                 Ok(fd)
@@ -832,7 +1060,7 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         let Some(device) = device else {
             return;
         };
-        if let Err(e) = self.seat_mut().and_then(|seat| seat.close_device(device)) {
+        if let Err(e) = self.with_seat(|seat| seat.close_device(device)) {
             log::warn!(target: "seat", "cannot close {} through the seat manager: {e}", path.display());
         }
     }
@@ -862,6 +1090,149 @@ impl<M: Manager, C: Console> Drop for LibseatVt<M, C> {
         if self.state != State::Inactive {
             self.tty_text();
         }
+        // The keyboards and pointers opened through the seat close with
+        // it, and a later close of one of them closes only its own
+        // descriptor.
+        self.shared.borrow_mut().close();
+    }
+}
+
+/// Makes the input device from the descriptor the seat manager gave for a
+/// node: an [`Evdev`], or a test's stand-in.
+type MakeDevice<E> = Box<dyn Fn(&Path, OwnedFd) -> io::Result<E>>;
+
+/// The keyboards and pointers opened through the seat manager, for
+/// [`crate::input::Input::open_through`] (ADR-1400's L2 layer). It shares
+/// the seat with the [`LibseatVt`] it came from, and opens nothing itself:
+///
+/// - While the seat is vtium's, each device opens through the seat
+///   manager, which gives vtium a descriptor of it; logind revokes that
+///   descriptor when it takes the seat away, and seatd does too.
+/// - A device refused `ENODEV`, `EACCES` or `EBUSY` is tried again from
+///   the input's timer every [`crate::bounds::SEAT_RETRY_MS`], up to
+///   [`crate::bounds::DEVICE_OPENS_MAX`] tries, as a display device is.
+/// - A device asked for while the seat is not vtium's, or refused `EPERM`
+///   while the seat manager takes the seat away, waits for the input's
+///   next wake-up, which follows the next enable.
+/// - Once the seat is gone, a device cannot open.
+#[expect(
+    private_bounds,
+    reason = "the seat is libseat's outside the crate, or the tests' stand-in"
+)]
+pub struct SeatInput<S: Seat = LibseatSeat, E = Evdev> {
+    shared: Rc<RefCell<Shared<S>>>,
+    make: MakeDevice<E>,
+    /// The tries at each device that waits for the timer.
+    tries: BTreeMap<PathBuf, usize>,
+    limit: Tries,
+}
+
+impl<S: Seat, E> std::fmt::Debug for SeatInput<S, E> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SeatInput")
+            .field("tries", &self.tries)
+            .finish_non_exhaustive()
+    }
+}
+
+impl LibseatVt<Libseat, Tty> {
+    /// The keyboards and pointers, opened through this seat from here on.
+    pub fn input(&self) -> SeatInput {
+        self.input_with(Box::new(|_, fd| Ok(Evdev::new(fd))))
+    }
+}
+
+#[expect(
+    private_bounds,
+    reason = "the manager is Libseat and the console a Tty outside the crate"
+)]
+impl<M: Manager, C: Console> LibseatVt<M, C> {
+    /// [`LibseatVt::input`], with each device made by `make`.
+    pub(crate) fn input_with<E>(&self, make: MakeDevice<E>) -> SeatInput<M::Seat, E> {
+        SeatInput {
+            shared: Rc::clone(&self.shared),
+            make,
+            tries: BTreeMap::new(),
+            limit: self.tries,
+        }
+    }
+}
+
+impl<S: Seat, E: EventDevice> Open for SeatInput<S, E> {
+    type Device = E;
+
+    fn open(&mut self, node: &Path) -> io::Result<Opening<E>> {
+        let mut shared = self.shared.borrow_mut();
+        if shared.inputs.contains_key(node) {
+            return Err(io::Error::from(io::ErrorKind::AlreadyExists));
+        }
+        if !shared.active {
+            self.tries.remove(node);
+            return match shared.seat {
+                Some(_) => Ok(Opening::Wake),
+                None => Err(io::Error::from(io::ErrorKind::NotConnected)),
+            };
+        }
+        let Some(seat) = shared.seat.as_mut() else {
+            return Err(io::Error::from(io::ErrorKind::NotConnected));
+        };
+        let tried = self.tries.remove(node).unwrap_or(0).saturating_add(1);
+        let (device, fd) = match seat.open_device(node) {
+            Ok(opened) => opened,
+            // A disable the seat manager has begun and the loop has not
+            // yet read: the device waits for the next enable.
+            Err(e) if refused_while_disabling(&e) => return Ok(Opening::Wake),
+            Err(e) if retryable(&e) && tried < self.limit.device => {
+                self.tries.insert(node.to_owned(), tried);
+                return Ok(Opening::Retry);
+            }
+            Err(e) => {
+                log::warn!(target: "seat", "cannot open {} through the seat manager after {tried} tries: {e}", node.display());
+                return Err(e);
+            }
+        };
+        // vtium reads a device until it has no more events, so the
+        // descriptor must not block. It shares its open file with the seat
+        // manager's.
+        let made = rustix::fs::fcntl_getfl(&fd)
+            .and_then(|flags| rustix::fs::fcntl_setfl(&fd, flags | rustix::fs::OFlags::NONBLOCK))
+            .map_err(io::Error::from)
+            .and_then(|()| (self.make)(node, fd));
+        match made {
+            Ok(dev) => {
+                log::info!(target: "seat", "opened {} through the seat manager", node.display());
+                shared.inputs.insert(node.to_owned(), device);
+                Ok(Opening::Open(dev))
+            }
+            Err(e) => {
+                let _ = seat.close_device(device);
+                Err(e)
+            }
+        }
+    }
+
+    /// The device's own descriptor closes first, then the seat manager
+    /// closes its own. With the seat gone, only the device's closes.
+    fn close(&mut self, node: &Path, dev: E) {
+        drop(dev);
+        let mut shared = self.shared.borrow_mut();
+        let Some(device) = shared.inputs.remove(node) else {
+            return;
+        };
+        if let Some(seat) = shared.seat.as_mut()
+            && let Err(e) = seat.close_device(device)
+        {
+            log::warn!(target: "seat", "cannot close {} through the seat manager: {e}", node.display());
+        }
+    }
+
+    fn retry_every(&self) -> Duration {
+        self.limit.every
+    }
+
+    /// The tries at a device that goes while its retry waits go with it.
+    fn forget(&mut self, node: &Path) {
+        self.tries.remove(node);
     }
 }
 

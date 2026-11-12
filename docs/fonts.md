@@ -46,6 +46,17 @@ A kbd console font from `/usr/share/kbd/consolefonts` needs no frit. A name that
 font-name=eurlatgr
 ```
 
+## Superscripts and subscripts in a bitmap font
+
+A program can ask for superscript and subscript text, as in x² or H₂O written with ordinary digits. vtium draws each superscript and subscript character smaller, against the top or the bottom of its row. In a bitmap font, vtium draws them from a smaller size of the same font where it finds one, so that every pixel stays fully on or off and keeps the font's design. When vtium draws a bitmap font at two or more times its size, as on a high-DPI display, it uses the font itself at a smaller multiple. A CPI font's other heights work too. You can also name a smaller font of the same family with a `script-source=` line under the font's `source=` line. For example, this frit draws Terminus at 16 pixels and its superscripts and subscripts in Terminus at 12:
+
+```
+source=kbd:ter-116n
+script-source=kbd:ter-112n
+```
+
+The smaller font's characters must be from half to three quarters as high as the font's own. `vtium-config check /etc/vtium/fonts/NAME.vtfrit` tells you when a `script-source=` font is outside that range. A bitmap font with no smaller size draws its superscripts and subscripts scaled to two thirds, and an outline font draws them at two thirds of its size. `vtium-config preview FONT` and the font view of `vtium-config` end their preview with a line of superscripts and subscripts, x2 + y2 = z2 and H2O with the digits small, and say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
+
 ## Size
 
 `font-size` in `vtium.conf` sets the size in points, 1/72 of an inch, which vtium converts to pixels at the display's density. An outline frit may set its own starting size with a `size=` line. A `font-size` above 0 wins over the frit's `size=`. At `font-size=0`, the default, the frit's `size=` decides, and with none vtium picks a size from the display, such as 8x16 cells at 640x480. A bitmap font draws at its own cell or a whole multiple of it, since points do not apply to it.

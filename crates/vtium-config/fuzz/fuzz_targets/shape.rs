@@ -6,6 +6,9 @@
 //! font, asked for a family, a flag, a keycap and a letter with its marks.
 //! The first byte's next two bits pick the style synthesised over the
 //! glyphs (ADR-1302 D4): bold emboldens each outline and italic slants it.
+//! The bits above them pick the script (ADR-1202 D2, D5): normal,
+//! superscript or subscript, whose color glyphs fit two thirds of their
+//! cells against the cell's top or bottom.
 #![no_main]
 
 use std::sync::Arc;
@@ -71,6 +74,11 @@ fuzz_target!(|data: &[u8]| {
         synth: vtium_font::Style {
             bold: pick & 2 != 0,
             italic: pick & 4 != 0,
+        },
+        script: match (pick >> 3) % 3 {
+            0 => vtium_font::Script::Baseline,
+            1 => vtium_font::Script::Super,
+            _ => vtium_font::Script::Sub,
         },
     };
     let _ = rasterise(&request);

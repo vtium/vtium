@@ -8,18 +8,18 @@
  > unifont    built in, installed
    unscii-8   built in
 
- This terminal does not support images, so here is a written description
- instead. With this font and size, each character cell is 8x16 pixels, the
- console will be 80x30 characters, and the font can display 40 of the 51
- characters in the preview.
+ The console draws these characters in unifont, the font it uses now. Press t
+ to try the highlighted font on the console, k to keep it, and s to save it in
+ the draft.
 
-
-
-
-
-
+  !"#$%&'()*+,-./0123456789:;<=>?
+ @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_
+ `abcdefghijklmnopqrstuvwxyz{|}~
+ ÀÁÂÄÅÆÇÈÉÊËÍÎÏÑÓÔÖØÚÜÝß àáâäåæçèéêëíîïñ
+ óôöøúüýÿ ŁłŒœŠšŽžĞğİıŞş ¡¿«»“”‘’„–—…•
+ ┌─┬─┐ ╔═╦═╗ ╭─╮ ┏━┳━┓ ░▒▓█ ▀▄▌▐ ▖▗▘▝
 
 
 
 --------------------------------------------------------------------------------
- Enter choose  t try live  s preview  n new  r remove  i install  q quit
+ Enter choose  t try live  s save  n new  r remove  i install  q quit

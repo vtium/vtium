@@ -47,10 +47,13 @@ pub enum Change {
         new: String,
     },
     HeadRm(String),
+    /// Adds a look with its font set, its size and its vtlook, each left
+    /// out with `None`.
     LookAdd {
         name: String,
         frit: Option<String>,
         size: Option<String>,
+        vtlook: Option<String>,
     },
     LookKey {
         name: String,
@@ -135,12 +138,18 @@ impl Change {
             }
             Change::HeadRename { name, new } => ops::rename(text, Of::Head(name), new),
             Change::HeadRm(name) => ops::head_rm(text, name),
-            Change::LookAdd { name, frit, size } => ops::look_add(
+            Change::LookAdd {
+                name,
+                frit,
+                size,
+                vtlook,
+            } => ops::look_add(
                 text,
                 name,
                 &[
                     ("font-name", frit.as_deref()),
                     ("font-size", size.as_deref()),
+                    ("vtlook", vtlook.as_deref()),
                 ],
             ),
             Change::LookKey { name, key, value } => {
@@ -198,12 +207,23 @@ impl Change {
                 format!("{c} head set {} --name {}", shell(name), shell(new))
             }
             Change::HeadRm(name) => format!("{c} head rm {}", shell(name)),
-            Change::LookAdd { name, frit, size } => {
+            Change::LookAdd {
+                name,
+                frit,
+                size,
+                vtlook,
+            } => {
                 let mut out = format!("{c} look add {}", shell(name));
                 for (key, value) in [("font-name", frit), ("font-size", size)] {
                     if let (Some(option), Some(v)) = (ops::look_option(key), value) {
                         out.push_str(&format!(" {option} {}", shell(v)));
                     }
+                }
+                // no command of `vtium config` sets a vtlook yet
+                if let Some(v) = vtlook {
+                    out.push_str(&format!(
+                        "\nvtium-config wrote vtlook = {v} into [look {name}]"
+                    ));
                 }
                 out
             }

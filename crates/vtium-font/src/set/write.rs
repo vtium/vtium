@@ -18,7 +18,7 @@ use crate::bounds::{
 use crate::set::format::{
     CHUNK_DEFLATED, CHUNK_RECORD, CLUS, CLUSTER_RECORD, CMAP, COVERAGE_RECORD, FORMAT_BITS,
     FORMAT_R8, FORMAT_RGBA, GLYF, INK_CLUSTER, INK_GLYPH, INK_RECORD, INKX, InkRect, MAGIC, MAJOR,
-    META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SECTION_BYTES, SOURCE_AUTO,
+    META, MINOR, POLY, PRELUDE_BYTES, RUN_RECORD, RUN_WIDE, SCRIPT_SUB, SECTION_BYTES, SOURCE_AUTO,
     STRIKE_RECORD, STRK, glyph_bytes,
 };
 use crate::set::pack::deflate;
@@ -32,6 +32,8 @@ pub(crate) struct RawStrike {
     pub style: u8,
     /// `FORMAT_BITS`, `FORMAT_R8` or `FORMAT_RGBA`.
     pub format: u8,
+    /// `SCRIPT_BASELINE`, `SCRIPT_SUPER` or `SCRIPT_SUB` (ADR-1202 D11).
+    pub script: u16,
     pub cell_width: u16,
     pub cell_height: u16,
     pub baseline: u16,
@@ -39,6 +41,8 @@ pub(crate) struct RawStrike {
     pub underline_thickness: u16,
     pub strike: u16,
     pub strike_thickness: u16,
+    /// The overline's top row, as thick as the underline (ADR-1202 D8).
+    pub overline: u16,
     /// Whether to store a chunk deflated where that makes it smaller.
     pub compress: bool,
     /// Each glyph: whether it is two cells wide, and its bytes in the
@@ -560,7 +564,7 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
         return Err("an unknown sprite source");
     }
 
-    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.style, s.format);
+    let key = |s: &RawStrike| (s.cell_height, s.cell_width, s.script, s.style, s.format);
     let mut order: Vec<&RawStrike> = set.strikes.iter().collect();
     order.sort_by_key(|s| key(s));
     if order.is_empty() || u32_of(order.len())? > SET_STRIKES_MAX {
@@ -570,7 +574,7 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
         .windows(2)
         .any(|w| matches!(w, [a, b] if key(a) == key(b)))
     {
-        return Err("two strikes of one style, cell size and format");
+        return Err("two strikes of one script, style, cell size and format");
     }
     for s in &order {
         if !matches!(s.format, FORMAT_BITS | FORMAT_R8 | FORMAT_RGBA) {
@@ -578,6 +582,9 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
         }
         if s.style > 3 {
             return Err("an unknown style");
+        }
+        if s.script > SCRIPT_SUB {
+            return Err("an unknown script");
         }
         let (w, h) = (u32::from(s.cell_width), u32::from(s.cell_height));
         if w == 0 || h == 0 || w > CELL_SIDE_MAX || h > CELL_SIDE_MAX {
@@ -587,10 +594,10 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
 
     let laid: Vec<Laid> = order.iter().map(|s| lay_out(s)).collect::<Result<_, _>>()?;
     // one cell's strikes, a pixel format each, map codepoints apart
-    let mut taken: Vec<((u16, u16, u8), u32)> = order
+    let mut taken: Vec<((u16, u16, u16, u8), u32)> = order
         .iter()
         .flat_map(|s| {
-            let k = (s.cell_height, s.cell_width, s.style);
+            let k = (s.cell_height, s.cell_width, s.script, s.style);
             s.map.iter().map(move |&(cp, _)| (k, cp))
         })
         .collect();
@@ -611,7 +618,7 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
     for (s, l) in order.iter().zip(&laid) {
         strk.extend_from_slice(&[s.style, s.format]);
         for v in [
-            0,
+            s.script,
             s.cell_width,
             s.cell_height,
             s.baseline,
@@ -619,7 +626,7 @@ fn encode_within(set: &RawSet, chunks_max: u32) -> Result<Vec<u8>, WriteError> {
             s.underline_thickness,
             s.strike,
             s.strike_thickness,
-            0,
+            s.overline,
         ] {
             put16(&mut strk, v);
         }
@@ -741,6 +748,7 @@ mod tests {
             strikes: vec![RawStrike {
                 style: 0,
                 format: FORMAT_R8,
+                script: 0,
                 cell_width: 90,
                 cell_height: 100,
                 baseline: 80,
@@ -748,6 +756,7 @@ mod tests {
                 underline_thickness: 1,
                 strike: 50,
                 strike_thickness: 1,
+                overline: 0,
                 compress: false,
                 glyphs: vec![glyph(1), glyph(2), glyph(3)],
                 map: vec![(0x61, 0), (0x62, 1), (0x63, 2)],
@@ -792,7 +801,7 @@ mod tests {
         set
     }
 
-    /// `set`, written by format 2.1, as format 2.0 wrote it: the header's
+    /// `set`, written by this format, as format 2.0 wrote it: the header's
     /// and META's minor version 0, and each `INKX` record cut to 24 bytes,
     /// without the box's top and height, with the chunks' offsets from the
     /// section's start moved back by the bytes cut. `INKX` is the last
@@ -836,7 +845,8 @@ mod tests {
         let mut out = set.to_vec();
         out[10..12].copy_from_slice(&0u16.to_le_bytes());
         // a set the builder writes names its version in META too
-        if let Some(meta) = out.windows(10).position(|w| w == b"format=2.1") {
+        let this = format!("format={}.{}", super::MAJOR, super::MINOR);
+        if let Some(meta) = out.windows(10).position(|w| w == this.as_bytes()) {
             out[meta..meta + 10].copy_from_slice(b"format=2.0");
         }
         let sections = word(&out, 12) as usize;
@@ -876,8 +886,10 @@ mod tests {
     // out (ADR-1302 D6), so carrying glyphs that pass a chunk added no
     // version: the SHA-256 of each set below is that of the format 2.0
     // writer's bytes, and each set is taken back to format 2.0 first, so
-    // the test also shows that format 2.1 differs only in the version and
-    // the two fields each INKX record gains
+    // the test also shows that formats 2.1 and 2.2 differ only in the
+    // version and the two fields each INKX record gains: a set whose
+    // strikes are all normal carries 0 in the script field, where 2.0 and
+    // 2.1 reserved it (ADR-1202 D11)
     #[test]
     fn a_set_with_no_glyph_past_a_chunk_is_written_as_before() {
         let sha = |bytes: &[u8]| crate::sha256::hex(&crate::sha256::Sha256::digest(bytes));

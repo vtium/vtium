@@ -9,6 +9,7 @@
    Consoles                       1
    Login                          ● Default: /bin/login -p   ○ Other…
    When its screen is unplugged   keep the sessions running
+   Switch on Enter                off
 
    The program each console of this terminal starts.
 
@@ -19,7 +20,6 @@
    Font set proof  →  look big  →  All displays
    Filters and requirements: vtium-config does not read a look's vtlook file
    yet, so this card names the look and shows no filters.
-
 
 
  ↑↓ move  ←→ choose  Enter set  e revise this path  Esc back  q quit

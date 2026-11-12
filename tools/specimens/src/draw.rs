@@ -234,6 +234,10 @@ impl Face for CardFace {
         self.base.decorations()
     }
 
+    fn script_decorations(&self, script: vtium_font::Script) -> Decorations {
+        self.base.script_decorations(script)
+    }
+
     fn scale(&self) -> u32 {
         self.base.scale()
     }
@@ -272,14 +276,18 @@ pub fn clusters_shown(profiles: &[&Profile]) -> Result<Vec<StyleClusters>, Strin
     vtium::deferred::settle(&mut shown);
     let mut all: Vec<StyleClusters> = shown
         .into_iter()
-        .filter(|one| !one.clusters.is_empty())
+        // A specimen draws the normal glyphs of each style, so it asks for
+        // the baseline variants alone (ADR-1202 D11).
+        .filter(|one| {
+            one.variant.script == vtium_font::Script::Baseline && !one.clusters.is_empty()
+        })
         .map(|one| {
             let keys = one
                 .clusters
                 .iter()
                 .map(|k| k.iter().map(|&c| u32::from(c)).collect())
                 .collect();
-            (one.style, keys)
+            (one.variant.style, keys)
         })
         .collect();
     all.sort_by_key(|(s, _)| (s.bold, s.italic));

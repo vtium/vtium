@@ -1,0 +1,18 @@
+# XTWINOPS 18: the report of the text area's size in characters,
+# CSI 8 ; rows ; columns t. After a program's request for another size
+# and the host's resize, it answers the size the host made (ctlseqs,
+# XTWINOPS; INTERFACE-vtium.md, Font and window operations).
+# spec: ADR-1000 window.size-report
+# capability: xtwinops-size-report
+size 10 4
+send "\e[18t"
+check
+reply "\e[8;4;10t"
+cmd window-ops;on=1
+send "\e[8;6;20t"
+cmd grid-request
+cmd resize;c=20;r=6
+send "\e[18t"
+check
+want test grid-request 6 20
+reply "\e[8;6;20t"

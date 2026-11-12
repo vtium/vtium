@@ -205,6 +205,26 @@ impl Routes {
         }
     }
 
+    /// The head of the file's heads, by its index in
+    /// [`vtium_settings::Config::heads`], that the device at `node` stays
+    /// with on another VT (ADR-1401 D3, step 4): `None` for a device placed
+    /// on this VT, and for one the rescue key or the anti-lockout guard
+    /// moved to the active head.
+    pub(crate) fn elsewhere(&self, node: Option<&Path>) -> Option<usize> {
+        match node.and_then(|n| self.devices.get(n)).map(Route::place) {
+            Some(Place::Elsewhere(i)) => Some(i),
+            _ => None,
+        }
+    }
+
+    /// Whether a keyboard that stays with the head at `head` of the
+    /// file's heads, on another VT, is present.
+    pub(crate) fn keyboard_elsewhere(&self, head: usize) -> bool {
+        self.devices
+            .values()
+            .any(|r| r.keyboard && r.place() == Place::Elsewhere(head))
+    }
+
     /// Whether a device at `node` was placed and has not gone.
     pub(crate) fn knows(&self, node: &Path) -> bool {
         self.devices.contains_key(node)
@@ -253,7 +273,11 @@ fn disposition(rules: &vtium_settings::Config, place: Place, identity: &Identity
         by: vtium_settings::By::NoMatch,
     };
     match rules.disposition(&placed, identity) {
-        vtium_settings::Disposition::Deliver => Disposition::Deliver,
+        // A keyboard watched for Enter sends every key, and
+        // [`Routes::elsewhere`] keeps it from reaching any session.
+        vtium_settings::Disposition::Deliver | vtium_settings::Disposition::EnterAndRescue => {
+            Disposition::Deliver
+        }
         vtium_settings::Disposition::RescueOnly => Disposition::Rescue,
         vtium_settings::Disposition::Closed => Disposition::Closed,
     }
@@ -319,7 +343,7 @@ mod tests {
 
     // ADR-1401 D5: a claimed device delivers to its head whatever the
     // focus; one following the focus moves with it; an ignored one is
-    // opened for the rescue key alone and delivers to no head.
+    // opened for the VT keys alone and delivers to no head.
     #[test]
     fn a_device_delivers_to_its_rules_head_or_the_focus() {
         let rules = vtium_settings::parse(

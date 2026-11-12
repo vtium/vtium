@@ -41,7 +41,6 @@ pub(crate) mod fake;
 mod tests;
 
 pub use fake_vt::FakeVt;
-#[cfg(feature = "libseat")]
 pub(crate) use kernel::switch_target;
 pub use kernel::{KernelVt, Restore};
 pub use tty::Tty;
@@ -94,9 +93,11 @@ pub trait Vt {
     /// Asks for this VT to be shown.
     fn activate(&mut self) -> io::Result<Switch>;
 
-    /// Asks to switch back to the VT that was shown when this one was
-    /// opened, as at exit. While it is pending, the loop keeps serving the
-    /// release signal.
+    /// Asks to switch back to the VT that was shown when [`Vt::activate`]
+    /// asked for this one, as at exit. A vtium that never asked, as one
+    /// started with `--no-switchvt` waits instead, switches nothing, so
+    /// the VT shown stays shown. While it is pending, the loop keeps
+    /// serving the release signal.
     fn leave(&mut self) -> io::Result<Switch>;
 
     /// Whether this VT is shown, without asking for it: `Pending` until a
@@ -132,6 +133,14 @@ pub trait Vt {
     /// The seat's name.
     fn seat(&self) -> &str {
         "seat0"
+    }
+
+    /// Whether the seat came through libseat's logind backend, which takes
+    /// it from vtium's own logind session. The children vtium starts then
+    /// each run in a systemd scope of their own (ADR-1400 D3, its note on
+    /// each login's own session).
+    fn logind_seat(&self) -> bool {
+        false
     }
 
     /// Opens a device of the seat: read-write and non-blocking, directly,

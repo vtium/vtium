@@ -73,6 +73,7 @@ mod deco;
 pub mod gpu;
 #[cfg(feature = "bidi")]
 pub mod joined;
+mod link_row;
 mod mono;
 mod notice;
 #[cfg(feature = "images")]
@@ -83,6 +84,7 @@ mod stored;
 mod target;
 mod timer;
 mod trig;
+mod variant;
 
 pub use arrow::Arrow;
 #[cfg(feature = "gpu")]

@@ -55,6 +55,15 @@ pub const NOTICE_SHOWN: Duration = Duration::from_secs(30);
 /// file's, no keyboard found, the anti-lockout guard's and a rescue.
 pub const NOTICES_MAX: usize = 4;
 
+/// How long the kernel's messages show, from the first frame that draws
+/// the newest, unless a key reaches their head first (ADR-1401 D15). The
+/// box's last line counts it down a second at a time.
+pub const KERNEL_SHOWN: Duration = Duration::from_secs(15);
+
+/// The most kernel messages a head shows at once, the newest
+/// (ADR-1401 D15).
+pub const KERNEL_MAX: usize = 5;
+
 /// The most errors the panic screen lists, the file's first (ADR-1401
 /// D7); it counts the rest. `vtium check-config` lists them all.
 pub const PANIC_ERRORS_MAX: usize = 3;
@@ -136,8 +145,18 @@ pub struct Head {
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
     notices: Vec<String>,
+    /// The kernel's messages the head shows (ADR-1401 D15), oldest first,
+    /// at most [`KERNEL_MAX`]. A key reaching the head ends them with its
+    /// notices.
+    kernel: Vec<String>,
+    /// When the kernel's messages go: [`KERNEL_SHOWN`] after the first
+    /// frame that draws the newest, armed at that frame.
+    kernel_due: Option<Instant>,
+    /// The seconds left that the box's last line shows.
+    kernel_left: u64,
     /// What the head shows of its own as one text, a line each: that the
-    /// shown console's session ended, above the notices.
+    /// shown console's session ended, above the notices, above the
+    /// kernel's messages and the line that says a key hides them.
     shown: String,
     /// When the notices end, armed at their first frame; an ended head's
     /// notice keeps no time.
@@ -198,6 +217,11 @@ pub struct Head {
     /// `font-size=0`: the base height follows the smallest display, until
     /// a zoom.
     pub(crate) auto_size: bool,
+    /// The grid, in columns and rows, that a program asked for with
+    /// XTWINOPS 8 (`app/window_ops.rs`), which the shown console keeps
+    /// until a zoom or its session's end; `None` while the grid fills the
+    /// displays.
+    pub(crate) asked: Option<(usize, usize)>,
     /// A `font-size` other than 0 is configured, and the head's look
     /// states no cell.
     sized: bool,
@@ -269,6 +293,7 @@ pub(crate) fn terminal(
     terminal.set_backspace_sends_delete(config.switch(&keys::BACKSPACE_DELETE));
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
+    terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
     // Every build reads `text-direction`; a build without the bidi
     // feature does nothing with it (ADR-1004 D13).
     let direction = config.text(&keys::TEXT_DIRECTION);
@@ -414,6 +439,7 @@ impl Head {
             cell: CELL,
             points,
             auto_size,
+            asked: None,
         };
         Head {
             name: name.to_owned(),
@@ -427,6 +453,9 @@ impl Head {
             ended_notice: crate::notice::session_ended(&bindings),
             ended_notice_console: crate::notice::session_ended_console(&bindings),
             notices: Vec::new(),
+            kernel: Vec::new(),
+            kernel_due: None,
+            kernel_left: KERNEL_SHOWN.as_secs(),
             shown: String::new(),
             notice_due: None,
             osd_shown: false,
@@ -452,6 +481,7 @@ impl Head {
             font_size: 0,
             points,
             auto_size,
+            asked: None,
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
@@ -616,10 +646,18 @@ impl Head {
                 &self.ended_notice
             }
         });
+        let hint = (!self.kernel.is_empty()).then(|| {
+            crate::notice::esc_dismisses(
+                self.notices.len().saturating_add(self.kernel.len()),
+                self.kernel_left,
+            )
+        });
         let text = ended
             .into_iter()
             .chain(&self.notices)
             .map(String::as_str)
+            .chain(self.kernel.iter().map(String::as_str))
+            .chain(hint.as_deref())
             .collect::<Vec<_>>()
             .join("\n");
         if text != self.shown {
@@ -718,11 +756,83 @@ impl Head {
         !self.notices.is_empty()
     }
 
-    /// The head's notices end: a key reached it, or their time ran out.
-    pub(crate) fn end_notices(&mut self) {
+    /// The head's notices end: their time ran out.
+    pub(crate) fn notices_timed_out(&mut self) {
         self.notice_due = None;
         self.notices.clear();
         self.compose_notices();
+    }
+
+    /// The head's notices and the kernel's messages on it end: a key
+    /// reached it.
+    pub(crate) fn end_notices(&mut self) {
+        self.kernel.clear();
+        self.kernel_due = None;
+        self.notices_timed_out();
+    }
+
+    /// Adds the kernel's message `text` to the head (ADR-1401 D15), which
+    /// shows it from the head's next frame; the oldest goes once the head
+    /// shows [`KERNEL_MAX`]. The count starts again from [`KERNEL_SHOWN`].
+    pub(crate) fn add_kernel(&mut self, text: &str) {
+        if self.kernel.len() >= KERNEL_MAX {
+            self.kernel.remove(0);
+        }
+        self.kernel.push(text.to_owned());
+        self.kernel_due = None;
+        self.kernel_left = KERNEL_SHOWN.as_secs();
+        self.compose_notices();
+    }
+
+    /// Whether the head shows the kernel's messages.
+    pub(crate) fn has_kernel(&self) -> bool {
+        !self.kernel.is_empty()
+    }
+
+    /// The kernel's messages the head shows, oldest first.
+    pub fn kernel_messages(&self) -> impl Iterator<Item = &str> {
+        self.kernel.iter().map(String::as_str)
+    }
+
+    /// The kernel's messages' time starts at `now`, the first frame that
+    /// draws the newest on a display of the head.
+    pub(crate) fn arm_kernel(&mut self, now: Instant) {
+        if self.kernel.is_empty() || self.kernel_due.is_some() || self.views.is_empty() {
+            return;
+        }
+        self.kernel_due = Some(now.checked_add(KERNEL_SHOWN).unwrap_or(now));
+    }
+
+    /// At `now`, the box's last line shows the whole seconds left, and the
+    /// kernel's messages go once none is left.
+    pub(crate) fn kernel_turn(&mut self, now: Instant) {
+        let Some(due) = self.kernel_due else {
+            return;
+        };
+        let left = due.saturating_duration_since(now);
+        if left.is_zero() {
+            self.kernel.clear();
+            self.kernel_due = None;
+            self.compose_notices();
+            return;
+        }
+        // a part of a second counts as a whole one, so the line reads 15
+        // for the first second and 1 for the last
+        let secs = left
+            .as_secs()
+            .saturating_add(u64::from(left.subsec_nanos() > 0));
+        if secs != self.kernel_left {
+            self.kernel_left = secs;
+            self.compose_notices();
+        }
+    }
+
+    /// When the box's count next changes: the next whole second before the
+    /// kernel's messages go, or their going.
+    pub(crate) fn kernel_due(&self) -> Option<Instant> {
+        let due = self.kernel_due?;
+        let ahead = Duration::from_secs(self.kernel_left.saturating_sub(1));
+        Some(due.checked_sub(ahead).unwrap_or(due))
     }
 
     /// What vtium draws over a display of the head: one box at the top
@@ -753,16 +863,18 @@ impl Head {
             cell: self.cell,
             points: self.points,
             auto_size: self.auto_size,
+            asked: self.asked,
         }
     }
 
     /// A new console's fit: the shown one's grid, at the configured
-    /// `font-size`.
+    /// `font-size`, filling the displays.
     pub(crate) fn fresh_fit(&self) -> Fit {
         let (points, auto_size) = self.configured;
         Fit {
             points,
             auto_size,
+            asked: None,
             ..self.fit()
         }
     }
@@ -789,6 +901,7 @@ impl Head {
         self.cell = new.fit.cell;
         self.points = new.fit.points;
         self.auto_size = new.fit.auto_size;
+        self.asked = new.fit.asked;
         let mut old = std::mem::replace(&mut self.console, new);
         old.fit = fit;
         self.console.term.terminal.set_visible(visible);
@@ -1043,14 +1156,15 @@ impl Head {
     }
 
     /// What the displays show, read from the view each buffer draws,
-    /// scrolled back or not (#149), in each style a cell draws its glyph
-    /// in, bold, italic, both or neither (ADR-1200 D21): the characters,
-    /// every character of a cluster among them, and the clusters whole,
-    /// each sorted and once. The regular style comes first, shown or not,
-    /// and each other style only where a cell shows it.
+    /// scrolled back or not (#149), in each variant a cell draws its glyph
+    /// in, bold, italic, both or neither, and normal, superscript or
+    /// subscript (ADR-1200 D21, ADR-1202 D11): the characters, every
+    /// character of a cluster among them, and the clusters whole, each
+    /// sorted and once. The regular normal variant comes first, shown or
+    /// not, and each other variant only where a cell shows it.
     #[cfg(not(feature = "bidi"))]
     pub(crate) fn visible(&self) -> Vec<Shown> {
-        use vtium_term::{Age, Attrs, Glyph};
+        use vtium_term::{Age, Glyph};
         let palette = self.console.term.terminal.palette();
         let frame = self
             .console
@@ -1061,17 +1175,14 @@ impl Head {
         let mut all = vec![Shown::default()];
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
-                let style = vtium_font::Style {
-                    bold: cell.attrs.contains(Attrs::BOLD),
-                    italic: cell.attrs.contains(Attrs::ITALIC),
-                };
-                if !all.iter().any(|s| s.style == style) {
+                let variant = crate::deferred::variant_of(cell.attrs);
+                if !all.iter().any(|s| s.variant == variant) {
                     all.push(Shown {
-                        style,
+                        variant,
                         ..Shown::default()
                     });
                 }
-                let Some(shown) = all.iter_mut().find(|s| s.style == style) else {
+                let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
                     continue;
                 };
                 match cell.glyph {
@@ -1096,10 +1207,10 @@ impl Head {
 
     /// What the displays show, read from the view each buffer draws,
     /// scrolled back or not (#149), as [`crate::deferred::read_shown`]
-    /// reads it: in each style a cell draws its glyph in, the characters
-    /// and the clusters, each sorted and once. The regular style comes
-    /// first, shown or not, and each other style only where a cell shows
-    /// it.
+    /// reads it: in each variant a cell draws its glyph in, the characters
+    /// and the clusters, each sorted and once. The regular normal variant
+    /// comes first, shown or not, and each other variant only where a cell
+    /// shows it.
     #[cfg(feature = "bidi")]
     pub(crate) fn visible(&self) -> Vec<Shown> {
         use vtium_term::Age;
@@ -1137,6 +1248,7 @@ impl Head {
         DrawState {
             cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),
+            rapid_hidden: !self.console.term.blink.rapid_shown(),
             background: palette.bg(),
             pointer: self
                 .pointer
@@ -1716,7 +1828,15 @@ pub(crate) fn place_display(
                 })
                 .map(|h| h.name.as_str());
             let Some(rule) = vtium_settings::rule_for(display, first.unwrap_or("NAME")) else {
-                return Err(format!("{unclaimed}; it reports nothing a rule can match"));
+                return Err(format!(
+                    "{unclaimed}. {}",
+                    vtium_devices::why_unnamed(
+                        display,
+                        vtium_devices::udev_daemon_runs(std::path::Path::new(
+                            vtium_devices::UDEV_CONTROL,
+                        ))
+                    )
+                ));
             };
             Err(match first {
                 Some(_) => format!("{unclaimed}; add the rule `{rule}` to give it a head"),
@@ -2045,6 +2165,7 @@ mod tests {
             cell: (16, 32),
             points: None,
             auto_size: false,
+            asked: None,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
         assert!(head.views.is_empty(), "unlit");
@@ -2081,6 +2202,7 @@ mod tests {
             cell: (16, 32),
             points: None,
             auto_size: false,
+            asked: None,
         };
         head.hidden.push(Console::new(2, term(), zoomed));
         head.font = Some(Chosen::Builtin {
@@ -2157,6 +2279,40 @@ mod tests {
         // reads through a real session
         assert_eq!(head.console.id, 2);
         assert!(head.close_shown(false).is_none(), "the last never closes");
+    }
+
+    // ADR-1401 D15: the kernel's messages come under the notices, the
+    // newest KERNEL_MAX, and the line under them says that Esc dismisses
+    // them and counts the seconds left, for one message or for several.
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn the_kernel_messages_end_with_the_line_esc_dismisses_them() {
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let term = terminal(&config, (0, 0), 0, std::rc::Rc::new(Instant::now));
+        let mut head = Head::new("h", &config, Vec::new(), term);
+        head.add_kernel("k0");
+        assert_eq!(
+            head.notice(),
+            Some("k0\nPress Esc to dismiss this message (15)")
+        );
+        head.add_notice("No keyboard found. Connect one to type.");
+        for n in 1..=KERNEL_MAX {
+            head.add_kernel(&format!("k{n}"));
+        }
+        assert_eq!(
+            head.notice(),
+            Some(
+                "No keyboard found. Connect one to type.\nk1\nk2\nk3\nk4\nk5\nPress Esc to dismiss these messages (15)"
+            )
+        );
+        head.end_notices();
+        assert_eq!(head.notice(), None, "no line is left once they end");
+        head.add_notice("n");
+        assert_eq!(
+            head.notice(),
+            Some("n"),
+            "vtium's notices alone carry no line"
+        );
     }
 
     // A head shows each notice once and the newest NOTICES_MAX; an ended
@@ -2329,9 +2485,12 @@ mod tests {
             connector: Some("fb\u{1b}".to_owned()),
             ..vtium_settings::Identity::display()
         };
-        assert_eq!(
-            place_display(&rules, &vt::VtHeads::new(&rules, None), &bare),
-            Err("display fb\\u{1b} stays off: no rule in vtium.conf matches it; it reports nothing a rule can match".to_owned())
+        // the reason's last part depends on whether this host runs a udev
+        // daemon; vtium-devices tests each reason
+        let line = place_display(&rules, &vt::VtHeads::new(&rules, None), &bare);
+        assert!(
+            line.as_ref().is_err_and(|l| l.starts_with("display fb\\u{1b} stays off: no rule in vtium.conf matches it. vtium cannot write a rule that names this display, because its monitor reports no EDID, and ")),
+            "{line:?}"
         );
     }
 

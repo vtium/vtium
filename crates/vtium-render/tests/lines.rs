@@ -53,6 +53,7 @@ const MEASURED: Decorations = Decorations {
     underline_thickness: 3,
     strike: 7,
     strike_thickness: 2,
+    overline: 0,
 };
 
 /// A screen with an underlined and struck word and a line of box drawing,
@@ -81,6 +82,7 @@ const STRIKE_ONLY: Decorations = Decorations {
     underline_thickness: 1,
     strike: 5,
     strike_thickness: 3,
+    overline: 0,
 };
 
 /// The underline's row alone moved, its thickness and the strike as they
@@ -90,6 +92,7 @@ const UNDERLINE_ROW_ONLY: Decorations = Decorations {
     underline_thickness: 1,
     strike: 8,
     strike_thickness: 1,
+    overline: 0,
 };
 
 #[test]
@@ -101,6 +104,7 @@ fn new_lines_from_the_font_redraw_every_cell_with_them() {
             underline_thickness: 1,
             strike: 8,
             strike_thickness: 1,
+            overline: 0,
         }
     );
     for measured in [MEASURED, STRIKE_ONLY, UNDERLINE_ROW_ONLY] {
@@ -197,7 +201,7 @@ fn new_lines_on_the_gpu_path_make_the_glyphs_and_sprites_anew_and_draw_whole() {
     assert!(gl.calls().contains(&Call::FreeTexture));
     assert!(
         gl.calls()
-            .contains(&Call::CreateTexture(Format::R8, Size::new(32, 32)))
+            .contains(&Call::CreateTexture(Format::R8, Size::new(48, 64)))
     );
 }
 
@@ -242,7 +246,7 @@ fn new_lines_and_a_turn_together_reach_the_gpu_paths_sprites() {
     .unwrap();
     assert!(
         gl.calls()
-            .contains(&Call::CreateTexture(Format::R8, Size::new(32, 32))),
+            .contains(&Call::CreateTexture(Format::R8, Size::new(48, 64))),
         "the sprites' texture is not made anew: {:?}",
         gl.calls()
     );

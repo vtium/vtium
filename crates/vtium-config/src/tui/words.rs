@@ -43,7 +43,7 @@ pub fn trial_countdown(font: impl Display, left: u32) -> String {
 }
 pub fn trial_kept(font: impl Display) -> String {
     format!(
-        "The console keeps {font} until you quit vtium-config. Press Enter to put it in the draft, then install to keep it for good."
+        "The console keeps {font} until you quit vtium-config. Press s to save it in the draft, then i to install it."
     )
 }
 pub fn trial_back(font: impl Display) -> String {
@@ -55,6 +55,46 @@ pub fn trial_same(font: impl Display) -> String {
 pub fn trial_refused(font: impl Display) -> String {
     format!("The console refused {font}. Its log says why.")
 }
+
+/// The line above the preview in a vtium console, where the console draws
+/// the preview's characters itself (ADR-1201 D4): in the Fonts view, the
+/// font it draws them in, which `t` changes; in the Looks view, the size,
+/// which the TUI cannot change on the console.
+pub fn console_font_caption(font: Option<&str>) -> String {
+    let font = match font {
+        Some(f) => format!("{f}, the font it uses now"),
+        None => "the font it uses now".to_owned(),
+    };
+    format!(
+        "The console draws these characters in {font}. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft."
+    )
+}
+pub const CONSOLE_SIZE_CAPTION: &str = "These characters are drawn at the console's current size. A size you choose takes effect when vtium starts on this console again.";
+
+/// What `s` in the Fonts view of a vtium console says: the font the
+/// console shows saved where the console's terminal takes its font from,
+/// or why not.
+pub fn tried_saved_look(font: &str, head: &str, look: &str, draft: &str) -> String {
+    format!(
+        "Saved {font} into draft {draft} as the font of the look {look}. This console belongs to {}, which draws with that look. Press i to install it.",
+        terminal(head)
+    )
+}
+pub fn tried_saved_top(font: &str, draft: &str) -> String {
+    format!(
+        "Saved {font} into draft {draft} as the font of every terminal whose look names no font. Press i to install it."
+    )
+}
+pub fn tried_already(font: &str) -> String {
+    format!("Nothing to save: the draft already gives this console's terminal {font}.")
+}
+pub const TRIED_UNKNOWN: &str = "Nothing to save: the console has not said which font it draws.";
+pub fn tried_no_head(font: &str) -> String {
+    format!(
+        "Nothing saved: vtium-config cannot tell which terminal this console belongs to, because VTIUM_HEAD is not set, and the draft's looks name fonts of their own. Choose {font} on a terminal's card in the Flow view instead."
+    )
+}
+pub const TRIED_REFUSED: &str = "Nothing saved, because vtium check-config found problems:";
 
 /// The line beside the detailed specimen (ADR-1201 D4).
 pub fn detail_caption(
@@ -77,10 +117,69 @@ pub fn detail_caption(
         .grid
         .map(|(c, r)| format!(", and the console will be {c}x{r} characters {display}"))
         .unwrap_or_default();
+    let script = s
+        .script
+        .as_ref()
+        .map(|made| format!(" {}", script_caption(made)))
+        .unwrap_or_default();
     format!(
-        "{font} at {points} pt: each character cell is {}x{} pixels{grid}. The font can display {} of the {} characters in the preview. {marks}",
+        "{font} at {points} pt: each character cell is {}x{} pixels{grid}. The font can display {} of the {} characters in the preview.{script} {marks}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
+}
+
+/// How the font makes the superscripts and subscripts of the detailed
+/// specimen's last line, in a sentence or two (ADR-1202 D14): the way the
+/// glyph helper made them, `made`, in the reader's words.
+pub fn script_caption(made: &crate::made::Made) -> String {
+    use crate::made::Made;
+    match made {
+        Made::Outline => "Superscripts and subscripts are drawn from this font's outlines at two thirds of its size.".to_owned(),
+        Made::Color => "Superscripts and subscripts in color are this font's color images, scaled smoothly to two thirds of their size.".to_owned(),
+        Made::Multiple { normal, small: 1 } => format!(
+            "Superscripts and subscripts come from this font at its own size, a smaller size than its other characters, which are drawn at {normal} times its size."
+        ),
+        Made::Multiple { normal, small } => format!(
+            "Superscripts and subscripts come from this font at {small} times its size, a smaller size than its other characters, which are drawn at {normal} times its size."
+        ),
+        Made::Height {
+            height,
+            multiple: 1,
+        } => format!(
+            "Superscripts and subscripts come from this font's {height}-pixel size, a smaller size in the same font file."
+        ),
+        Made::Height { height, multiple } => format!(
+            "Superscripts and subscripts come from this font's {height}-pixel size, a smaller size in the same font file, drawn at {multiple} times that size."
+        ),
+        Made::Named {
+            spelling,
+            height,
+            multiple: 1,
+        } => format!(
+            "Superscripts and subscripts come from {} at {height} pixels, a smaller size of this font that the font set names.",
+            font_name(spelling)
+        ),
+        Made::Named {
+            spelling,
+            height,
+            multiple,
+        } => format!(
+            "Superscripts and subscripts come from {} at {height} pixels, a smaller size of this font that the font set names, drawn at {multiple} times that size.",
+            font_name(spelling)
+        ),
+        Made::Scaled => "Superscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.".to_owned(),
+    }
+}
+
+/// The name a person knows a font set's `script-source=` font by: a kbd
+/// font's name, or the file name of a font named by its path.
+fn font_name(spelling: &str) -> &str {
+    let named = spelling.split_once(':').map_or(spelling, |(_, rest)| rest);
+    named
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or(named)
 }
 
 /// The line beside a picture of the console (ADR-1201 D4).
@@ -157,8 +256,13 @@ pub fn size_summary(s: &crate::specimen::Summary) -> String {
         .grid
         .map(|(c, r)| format!(" the console will be {c}x{r} characters, and"))
         .unwrap_or_else(|| " and".to_owned());
+    let script = s
+        .script
+        .as_ref()
+        .map(|made| format!(" {}", script_caption(made)))
+        .unwrap_or_default();
     format!(
-        "With this font and size, each character cell is {}x{} pixels,{grid} the font can display {} of the {} characters in the preview.",
+        "With this font and size, each character cell is {}x{} pixels,{grid} the font can display {} of the {} characters in the preview.{script}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }
@@ -228,6 +332,10 @@ pub fn saved(files: usize) -> String {
 pub const KEYS_LOOKS: &str = "Enter choose  Tab next view  i install  q quit without installing";
 pub const KEYS_FONTS: &str =
     "Enter choose  t try live  s preview  n new  r remove  i install  q quit";
+/// The Fonts view's keys in a vtium console, where `s` saves the font the
+/// console shows (ADR-1201 D4).
+pub const KEYS_FONTS_LIVE: &str =
+    "Enter choose  t try live  s save  n new  r remove  i install  q quit";
 pub const KEYS_SETTINGS: &str = "Enter change  Tab next view  i install  q quit without installing";
 pub const KEYS_HELP: &str = "←→ Help, About  ↑↓ scroll  Tab next view  q quit";
 pub const KEYS_NEW: &str =
@@ -343,6 +451,9 @@ pub const HELP_VIEWS: [(&str, &str, &str); 5] = [
         KEYS_HELP,
     ),
 ];
+/// What the Help view says of the Fonts view in a vtium console, which
+/// previews as text (ADR-1201 D4).
+pub const HELP_FONTS_LIVE: &str = "lists the font sets (frits) and the built-in fonts, with any font files each is missing. Below the list, the console draws every character of the preview in the font it uses now. Press t to try the highlighted font on the console, k to keep it, and s to save it in the draft. Press n to make a new font set.";
 pub const HELP_TABS: &str = "Tab moves to the next view, and Shift-Tab moves to the one before, wherever the selection is. The arrow keys move inside a view. While a card, a list, the draft's text, the form for a new font set, or a value you are typing is open, Tab does nothing until you close it with Esc. While a question waits for your answer, Tab answers no.";
 pub const HELP_COMMANDS: &str = "Commands, which work in a terminal of any size:";
 
@@ -810,6 +921,22 @@ pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
 pub const AUTOMATIC_SIZE: &str = "automatic";
 pub const KEEP_SESSIONS: &str = "keep the sessions running";
 pub const END_SESSIONS: &str = "end the sessions";
+/// The Switch on Enter line of a terminal's card, the head key
+/// `switch-on-enter` (ADR-1401, "Enter on a head's own keyboard"): its
+/// label, its two choices, what it does, and why it does nothing.
+pub const SWITCH_LABEL: &str = "Switch on Enter";
+pub const SWITCH_OFF: &str = "off";
+pub const SWITCH_ON: &str = "on";
+pub const SWITCH_ABOUT: &str = "Enter on this terminal's own keyboard switches to its VT, from a VT where this terminal does not run.";
+pub const SWITCH_CLOSED: &str =
+    "It has no effect now, because the policy is closed. It works only with policy = open.";
+pub const SWITCH_ISOLATED: &str =
+    "It has no effect now, because this terminal is isolated, so its keyboards switch no VT.";
+/// On an added path's card, where e revises the path, and in NEW PATH,
+/// whose card has the line VTs.
+pub const SWITCH_EVERY_VT: &str = "It has no effect now, because this terminal runs on every VT. Press e and choose a VT on the line VTs.";
+pub const SWITCH_EVERY_VT_NEW: &str = "It has no effect now, because this terminal runs on every VT. Choose a VT on the line VTs above.";
+pub const SWITCH_PAST_12: &str = "It has no effect now, because Enter switches only to VTs 1 to 12, and this terminal runs on none of them.";
 /// The Login line of a terminal's card: what it sets, its two choices,
 /// and what is wrong with a command the person types.
 pub const LOGIN_ABOUT: &str = "The program each console of this terminal starts.";
@@ -1017,6 +1144,112 @@ pub fn label_set(label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::made::Made;
+
+    // ADR-1202 D14: the caption under the line of superscripts and
+    // subscripts says how the font makes them, each way in words of its
+    // own, and names the font a script-source= line gives
+    // covers: sgr.script
+    #[test]
+    fn the_script_caption_names_each_way() {
+        let cases = [
+            (
+                Made::Outline,
+                "Superscripts and subscripts are drawn from this font's outlines at two thirds of its size.",
+            ),
+            (
+                Made::Color,
+                "Superscripts and subscripts in color are this font's color images, scaled smoothly to two thirds of their size.",
+            ),
+            (
+                Made::Multiple {
+                    normal: 2,
+                    small: 1,
+                },
+                "Superscripts and subscripts come from this font at its own size, a smaller size than its other characters, which are drawn at 2 times its size.",
+            ),
+            (
+                Made::Multiple {
+                    normal: 4,
+                    small: 3,
+                },
+                "Superscripts and subscripts come from this font at 3 times its size, a smaller size than its other characters, which are drawn at 4 times its size.",
+            ),
+            (
+                Made::Height {
+                    height: 8,
+                    multiple: 1,
+                },
+                "Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file.",
+            ),
+            (
+                Made::Height {
+                    height: 8,
+                    multiple: 2,
+                },
+                "Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file, drawn at 2 times that size.",
+            ),
+            (
+                Made::Named {
+                    spelling: "kbd:ter-112n".to_owned(),
+                    height: 12,
+                    multiple: 1,
+                },
+                "Superscripts and subscripts come from ter-112n at 12 pixels, a smaller size of this font that the font set names.",
+            ),
+            (
+                Made::Named {
+                    spelling: "file:/usr/share/fonts/small/ter-u12n.psf.gz".to_owned(),
+                    height: 12,
+                    multiple: 2,
+                },
+                "Superscripts and subscripts come from ter-u12n.psf.gz at 12 pixels, a smaller size of this font that the font set names, drawn at 2 times that size.",
+            ),
+            (
+                Made::Scaled,
+                "Superscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.",
+            ),
+        ];
+        for (made, want) in cases {
+            assert_eq!(super::script_caption(&made), want, "{made:?}");
+        }
+    }
+
+    // ADR-1202 D14: the font view's caption beside the detailed specimen,
+    // and its written description where the terminal shows no images, say
+    // how the font makes its superscripts and subscripts after what it
+    // covers; with no superscript the font draws, they say nothing of them
+    // covers: sgr.script
+    #[test]
+    fn the_font_views_captions_say_how_the_font_makes_superscripts() {
+        let mut summary = crate::specimen::Summary {
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            grid: None,
+            covered: 40,
+            of: 51,
+            script: Some(Made::Height {
+                height: 8,
+                multiple: 1,
+            }),
+        };
+        assert_eq!(
+            super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false),
+            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console."
+        );
+        assert_eq!(
+            super::size_summary(&summary),
+            "With this font and size, each character cell is 8x16 pixels, and the font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file."
+        );
+        summary.script = None;
+        assert!(!super::size_summary(&summary).contains("Superscripts"));
+        assert!(
+            !super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false)
+                .contains("Superscripts")
+        );
+    }
     // ADR-1403 D7's fixed word: Install, Revert and New each call the
     // working copy the draft
     #[test]

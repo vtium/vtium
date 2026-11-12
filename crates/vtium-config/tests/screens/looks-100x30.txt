@@ -3,25 +3,25 @@
 ----------------------------------------------------------------------------------------------------
  Font sizes for the console, in points.
 
- > automatic  installed
-   6 pt
-   7 pt
-   8 pt
-   9 pt
-   10 pt
-   11 pt
-   12 pt
-   13 pt
-   14 pt
-   16 pt
-   18 pt
-   20 pt
-   24 pt
-   28 pt
+ > automatic  installed  user@desk:~/notes$ ls -l
+   6 pt                  drwxr-xr-x  2 user user 4096 Nov 10 09:12 drafts
+   7 pt                  -rw-r--r--  1 user user 1823 Nov 10 09:14 plan.txt
+   8 pt                  -rwxr-xr-x  1 user user  512 Nov  9 17:40 build.sh
+   9 pt                  user@desk:~/notes$ colors
+   10 pt                 red green yellow magenta cyan white
+   11 pt                 grey red green yellow magenta cyan white
+   12 pt                 Bold text and italic text beside plain text.
+   13 pt                 ┌──────────┬──────────┐
+   14 pt                 │ name     │ size     │
+   16 pt                 ├──────────┼──────────┤
+   18 pt                 │ plan.txt │ 1.8 KiB  │
+   20 pt                 └──────────┴──────────┘
+   24 pt                 Accents: café, naïve, Ångström, Straße, žluťoučký
+   28 pt                 user@desk:~/notes$
    32 pt
 
- This terminal does not support images, so here is a written description instead.
-
+ These characters are drawn at the console's current size. A size you choose takes effect when
+ vtium starts on this console again.
 
 
 

@@ -6,13 +6,14 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
+    Age, Extent, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
     TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
 use crate::command::{self, Button, Command, END, Event, How, INTRO};
 #[cfg(feature = "images")]
 mod images;
+mod links;
 use crate::view::{self, FrameState, View};
 use crate::{Failure, internal, usage};
 
@@ -266,6 +267,37 @@ impl<'a> Replay<'a> {
                 }
                 self.out.push('\n');
             }
+            Command::FontOps(on) => t.set_font_ops(on),
+            Command::FontName(name) => {
+                t.set_font_name(&name);
+            }
+            Command::FontRequest => {
+                let name = t.take_font_request();
+                let _ = writeln!(
+                    self.out,
+                    "test font-request {}",
+                    name.as_deref().unwrap_or("none")
+                );
+            }
+            Command::WindowOps(on) => t.set_window_ops(on),
+            Command::GridRequest => {
+                let side = |e: Extent| match e {
+                    Extent::Keep => "keep".to_owned(),
+                    Extent::Display => "display".to_owned(),
+                    Extent::Cells(n) => n.to_string(),
+                };
+                match t.take_grid_request() {
+                    Some(r) => {
+                        let _ = writeln!(
+                            self.out,
+                            "test grid-request {} {}",
+                            side(r.rows),
+                            side(r.cols)
+                        );
+                    }
+                    None => self.out.push_str("test grid-request none\n"),
+                }
+            }
             Command::Version(text) => {
                 if t.set_version(&text).is_err() {
                     let _ = writeln!(self.out, "test version error -22");
@@ -326,11 +358,8 @@ impl<'a> Replay<'a> {
                 }
             }
             Command::Select { how, col, row } => {
+                let cell = view_cell(t.screen(), col, row);
                 let screen = t.screen_mut();
-                let cell = (
-                    usize::try_from(col).ok().filter(|&c| c < screen.cols()),
-                    usize::try_from(row).ok().filter(|&r| r < screen.rows()),
-                );
                 let (x, y) = match (how, cell) {
                     (How::Clear, _) => (0, 0),
                     (_, (Some(x), Some(y))) => (x, y),
@@ -368,6 +397,8 @@ impl<'a> Replay<'a> {
             Command::Prompt { up } => {
                 t.screen_mut().jump_to_prompt(up);
             }
+            Command::Link { col, row } => links::link(t, (col, row), &mut self.out)?,
+            Command::Hover { at, ctrl } => links::hover(t, at, ctrl, &mut self.out)?,
             Command::Backspace { del } => t.set_backspace_sends_delete(del),
             Command::State => state(t, &mut self.out),
             Command::FrameSince(caller) => {
@@ -501,6 +532,18 @@ fn state(t: &Terminal, out: &mut String) {
 }
 
 /// Numbers joined by commas, or `none`.
+/// The view's cell at `col`, `row`, each `None` past the screen.
+pub(crate) fn view_cell(
+    screen: &vtium_term::Screen,
+    col: u64,
+    row: u64,
+) -> (Option<usize>, Option<usize>) {
+    (
+        usize::try_from(col).ok().filter(|&c| c < screen.cols()),
+        usize::try_from(row).ok().filter(|&r| r < screen.rows()),
+    )
+}
+
 fn list(items: &[String]) -> String {
     if items.is_empty() {
         "none".to_owned()

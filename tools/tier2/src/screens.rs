@@ -191,6 +191,60 @@ const LINK_HOVER: &[u8] = concat!(
 )
 .as_bytes();
 
+/// A link under the pointer with Ctrl held: its address on the bottom
+/// row, over the program's text, whose wide character the address's end
+/// cuts in half (ADR-1002, "Drawing").
+const LINK_OVERLAY: &[u8] = concat!(
+    "see \x1b]8;;file://pixie/home/a/README.md\x1b\\README.md\x1b]8;;\x1b\\ for more\r\n",
+    "\x1b[32mgreen text\x1b[0m and plain text\r\n",
+    "\x1b[7mreversed\x1b[0m\r\n",
+    "\r\n",
+    "the line above is empty\r\n",
+    "\x1b[33;44mabcdefghijklmnopqrstuvwxyz01\u{4e2d}tail text\x1b[0m",
+)
+.as_bytes();
+
+const LINK_OVERLAY_DESC: &str = "A link (OSC 8) under the pointer on the top row with Ctrl \
+held: its address, file://pixie/home/a/README.md, 29 bytes, shows on the bottom row, over \
+yellow text on blue whose wide character stands in columns 28 and 29. In unifont. Correct: \
+the address from the bottom row's first column in the default colors inverted, light on dark \
+turned dark on light, in columns 0 to 28; column 29, the second half of the wide character the \
+address covers, blank in blue; `tail text` after it in yellow on blue; the link on the top row \
+under a dashed line, and the other rows as written.";
+
+/// The `link-overlay` screen under reverse video (DECSCNM): the overlay
+/// inverts against what the screen shows (ADR-1002, "Drawing").
+const LINK_OVERLAY_REVERSE: &[u8] = concat!(
+    "\x1b[?5h",
+    "see \x1b]8;;file://pixie/home/a/README.md\x1b\\README.md\x1b]8;;\x1b\\ for more\r\n",
+    "\x1b[32mgreen text\x1b[0m and plain text\r\n",
+    "\r\n\r\n\r\n",
+    "the bottom row: the program's own text",
+)
+.as_bytes();
+
+const LINK_OVERLAY_REVERSE_DESC: &str = "A link (OSC 8) under the pointer on the top row with \
+Ctrl held, under reverse video (DECSCNM), so the screen is dark text on light grey. In unifont. \
+Correct: file://pixie/home/a/README.md on the bottom row in columns 0 to 28, light on dark, \
+inverted against the screen; the rest of the bottom row from column 29, a space and `own text`, dark on light \
+as the program wrote it; the link on the top row under a dashed line.";
+
+/// A link under the pointer on the bottom row with Ctrl held: its long
+/// address on the top row, cut at the row's end (ADR-1002, "Drawing").
+const LINK_OVERLAY_CUT: &[u8] = concat!(
+    "\x1b[1mthe program's own text on the top row\x1b[0m\r\n",
+    "a second row\r\n",
+    "\x1b[6;1Hsee \x1b]8;;https://example.com/a/very/long/path/to/a/page/index.html\x1b\\a long link\x1b]8;;\x1b\\ here",
+)
+.as_bytes();
+
+const LINK_OVERLAY_CUT_DESC: &str = "A link (OSC 8) under the pointer on the bottom row with \
+Ctrl held, whose address, https://example.com/a/very/long/path/to/a/page/index.html, is 57 \
+bytes on a row of 40 columns. In unifont. Correct: the overlay on the top row, since the \
+pointer is on the bottom one: the address's first 39 bytes, `https://example.com/a/very/long/path/to`, \
+then `…` in the last column, all in the default colors inverted, over the bold text the \
+program wrote there; the link on the bottom row under a dashed line.";
+
 const LINK_HOVER_DESC: &str = "Links (OSC 8) with the pointer over the first, whose pieces on \
 every row share its id: plain, underlined, under a green SGR 58 curl, red on white, reversed, \
 and one piece that wraps from the last column onto the next row. In unifont. Correct: every \
@@ -226,6 +280,52 @@ const CONCEAL: &[u8] = concat!(
     "\x1b[8;4;9;53mlined\x1b[0m its underline, strike and overline hidden\r\n",
     "\x1b[8;41mon red\x1b[0m \x1b[8;7mreversed\x1b[0m \x1b[8;1;3mbold italic\x1b[0m\r\n",
     "password: \x1b[8mhunter2\x1b[28m revealed\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `rapid-blink-` screens: SGR 5 beside SGR 6, alone, both on one
+/// word, with colors and lines, reversed, wide and bold, and ended by SGR
+/// 25.
+const RAPID_BLINK: &[u8] = concat!(
+    "\x1b[5mslow\x1b[0m blinks by SGR 5, \x1b[6mfast\x1b[0m by SGR 6\r\n",
+    "\x1b[5;6mboth\x1b[0m blinks at SGR 6's phase\r\n",
+    "\x1b[6;4;31mred underlined fast\x1b[0m \x1b[6;7mreversed fast\x1b[0m\r\n",
+    "\x1b[6m\u{4e2d}\u{6587}\x1b[0m wide \x1b[6;1mbold fast\x1b[25m steady\x1b[0m\r\n",
+)
+.as_bytes();
+
+/// The `script-unifont` screen: superscript and subscript beside normal
+/// text, in formulas, over descenders and accents, wide, in bold, italic,
+/// red and reverse, under lines, and on block and line characters; then a
+/// superscript and a subscript under each underline style, the strike, the
+/// overline and both, and an underline across normal and script cells.
+const SCRIPT: &[u8] = concat!(
+    "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
+    "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
+    "\x1b[73mgjpqy \u{c9}\u{c5}\x1b[75m gjpqy \u{c9}\u{c5} \x1b[74mgjpqy \u{c9}\u{c5}\x1b[0m\r\n",
+    "\x1b[73m\u{4e2d}\u{6587}\x1b[75m\u{4e2d}\u{6587}\x1b[74m\u{4e2d}\u{6587}\x1b[0m wide\r\n",
+    "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
+    "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m \x1b[73m\u{2500}\u{2588}\u{2591}\x1b[74m\u{2500}\u{2588}\u{2591}\x1b[0m blocks\r\n",
+    "\x1b[73;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m superscript lines\r\n",
+    "\x1b[74;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m subscript lines\r\n",
+    "\x1b[4mx\x1b[73m2\x1b[75m+y\x1b[74m2\x1b[75m=z\x1b[73mn\x1b[0m underlined across scripts\r\n",
+)
+.as_bytes();
+
+/// The `script-source` screen: superscript and subscript beside normal
+/// text in a font that the test fonts draw, in formulas, over descenders,
+/// in bold, italic, red and reverse, and under lines; then a superscript
+/// and a subscript under each line, and an underline across normal and
+/// script cells.
+const SCRIPT_ASCII: &[u8] = concat!(
+    "x\x1b[73m2\x1b[75m + y\x1b[73m10\x1b[75m = z  H\x1b[74m2\x1b[75mO  C\x1b[74m6\x1b[75mH\x1b[74m12\x1b[0m\r\n",
+    "normal \x1b[73msuperscript\x1b[75m \x1b[74msubscript\x1b[75m normal\r\n",
+    "gjpqy \x1b[73mgjpqy\x1b[75m \x1b[74mgjpqy\x1b[0m\r\n",
+    "\x1b[1;73mbold\x1b[0m \x1b[3;74mitalic\x1b[0m \x1b[31;73mred\x1b[0m \x1b[7;74mreversed\x1b[0m\r\n",
+    "\x1b[4;73munder\x1b[0m \x1b[9;74mstruck\x1b[0m\r\n",
+    "\x1b[73;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m superscript lines\r\n",
+    "\x1b[74;4mxy\x1b[4:2mxy\x1b[4:3mxy\x1b[4:4mxy\x1b[4:5mxy\x1b[24;9mxy\x1b[29;53mxy\x1b[9mxy\x1b[0m subscript lines\r\n",
+    "\x1b[4mx\x1b[73m2\x1b[75m+y\x1b[74m2\x1b[75m=z\x1b[73mn\x1b[0m underlined across scripts\r\n",
 )
 .as_bytes();
 
@@ -1347,6 +1447,7 @@ const BIDI_CASES: [Case; 14] = bidi_cases([
         phase: crate::draw::Phase {
             cursor_on: true,
             blink_hidden: false,
+            rapid_hidden: false,
         },
         ..outline(
             "bidi-cursor-block",
@@ -1361,6 +1462,7 @@ const BIDI_CASES: [Case; 14] = bidi_cases([
         phase: crate::draw::Phase {
             cursor_on: true,
             blink_hidden: false,
+            rapid_hidden: false,
         },
         ..outline("bidi-cursor-bar", BIDI_CURSOR_BAR_DESC, BIDI_CURSOR, 14, 2)
     },
@@ -1643,6 +1745,45 @@ const BASE: &[Case] = &[
     },
     Case {
         screen: Screen {
+            pointer: Some((5, 0)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-unifont",
+                LINK_OVERLAY_DESC,
+                LINK_OVERLAY,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((5, 0)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-reverse-unifont",
+                LINK_OVERLAY_REVERSE_DESC,
+                LINK_OVERLAY_REVERSE,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            pointer: Some((6, 5)),
+            ctrl: true,
+            ..Screen::new(
+                "link-overlay-cut-unifont",
+                LINK_OVERLAY_CUT_DESC,
+                LINK_OVERLAY_CUT,
+                40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
             ..Screen::new(
                 "strike-unifont",
                 "Strike-through (SGR 9) alone, in color, on a background, with straight and curly underlines, in bold, in reverse, and over spaces. In unifont. Correct: a line through the middle of every struck cell, the spaces included.",
@@ -1660,6 +1801,88 @@ const BASE: &[Case] = &[
                 CONCEAL,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            phase: crate::draw::Phase {
+                cursor_on: false,
+                blink_hidden: true,
+                rapid_hidden: false,
+            },
+            ..Screen::new(
+                "rapid-blink-shown-unifont",
+                "Blinking text by SGR 5 beside rapidly blinking text by SGR 6, alone, on one word with both, red and underlined, reversed, wide, in bold, and ended by SGR 25, drawn with SGR 5's blink in its hidden phase and SGR 6's in its shown phase. In unifont. Correct: `slow` dimmed halfway to its background, as vtium draws blinking text in its hidden phase; every word that SGR 6 marks drawn as usual, `both` included, since a cell with SGR 6 blinks at SGR 6's phase; `steady` drawn as usual.",
+                RAPID_BLINK,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            phase: crate::draw::Phase {
+                cursor_on: false,
+                blink_hidden: false,
+                rapid_hidden: true,
+            },
+            ..Screen::new(
+                "rapid-blink-hidden-unifont",
+                "The rapid-blink-shown-unifont screen drawn with SGR 6's blink in its hidden phase and SGR 5's in its shown phase. In unifont. Correct: `slow` drawn as usual; `fast`, `both`, `red underlined fast`, `reversed fast`, the two wide characters and `bold fast` dimmed halfway to their backgrounds, the red underline kept in full, `reversed fast` dimmed toward its light background; `steady` and the plain words drawn as usual.",
+                RAPID_BLINK,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            ..Screen::new(
+                "script-unifont",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text after SGR 75: in formulas, over descenders and accented capitals, on wide characters, in bold, italic, red and reverse, under an underline and a strike, and on line, block and shade characters. In unifont, a bitmap font. Correct: each superscript and subscript glyph is unifont's own glyph at two thirds of its width and height, centred across its cell, with every pixel fully lit or fully dark; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; each stroke one pixel wide, and in a few letters a gap one pixel high closed, as in the dot of i; bold widened by a pixel and italic slanted after the glyph is made small; a wide character's small glyph centred across its two cells; the line, the block and the shade drawn at the small size with edges on whole pixels; under a superscript, each underline style on the blank rows below the raised glyph, the single line on row 10, the double on rows 10 and 12 and the curl in rows 10 to 12, the strike-through across the raised glyph on row 5 and the overline on the cell's top row; under a subscript, each underline style on the cell's bottom rows as under a normal cell, the strike-through across the lowered glyph on row 10 and the overline on row 5, the lowered glyph's top; each line one row thick, every pixel fully lit; an underline across normal and script cells stepping at each edge between them; the cell's background whole; the normal text as usual (ADR-1202 D8).",
+                SCRIPT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::UnifontAt(2),
+            ..Screen::new(
+                "script-unifont-2x",
+                "The script-unifont screen in unifont drawn at twice its size, in 16x32 cells, as a high-DPI display draws it (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at its own 8x16 size, every pixel of the font one pixel of the screen, never scaled, centred across its cell with 4 columns on each side; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row, half the cell high; bold widened by one of the font's pixels and italic slanted by whole rows of them; a wide character's glyph unifont's own 16x16, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; under a superscript, the underline from row 15, under the raised glyph, the strike-through on row 8 and the overline on the cell's top row; under a subscript, the underline on row 31, the strike-through on row 24 and the overline on row 16, the lowered glyph's top; each line one row thick, as unifont draws its lines at its own size; an underline across normal and script cells stepping at each edge between them; the normal text as usual (ADR-1202 D8).",
+                SCRIPT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::UnifontAt(3),
+            ..Screen::new(
+                "script-unifont-3x",
+                "The script-unifont screen in unifont drawn at three times its size, in 24x48 cells (ADR-1202 D3). Correct: each superscript and subscript glyph is unifont's own glyph at twice its size, each of the font's pixels a 2x2 block, never resampled, 16x32 and centred across its cell with 4 columns on each side, two thirds of the cell high; a superscript's top on the cell's top row and a subscript's bottom on the cell's bottom row; bold widened by one of the font's pixels, two screen pixels, and italic slanted by whole rows of the font's pixels; a wide character's glyph unifont's 16x16 at twice its size, centred across its two cells; the line, the block and the shade drawn at two thirds of the cell with edges on whole pixels; under a superscript, the underline from row 30, under the raised glyph, the strike-through on rows 16 and 17 and the overline on rows 0 and 1; under a subscript, the underline on rows 46 and 47, the strike-through on rows 32 and 33 and the overline on rows 16 and 17, the lowered glyph's top; each line two rows thick, as unifont draws its lines at twice its size; an underline across normal and script cells stepping at each edge between them; the normal text as usual (ADR-1202 D8).",
+                SCRIPT,
+                48,
+                10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::ScriptSource {
+                font: TestFont::Small8x16,
+                small: TestFont::Small8x8,
+            },
+            ..Screen::new(
+                "script-source",
+                "Superscript (SGR 73) and subscript (SGR 74) beside normal text in the 8x16 PSF1 test font, from a frit whose script-source= line names the 8x8 PSF2 test font (ADR-1202 D3, D12): in formulas, over descenders, in bold, italic, red and reverse, and under an underline and a strike. The glyphs come from vtium-config's engine, as the helper answers the console's asks. Correct: each superscript and subscript glyph is the 8x8 test font's own glyph, unscaled, filling the top half of its cell for a superscript and the bottom half for a subscript, every pixel fully lit or fully dark; bold widened by a pixel and italic slanted by whole rows, as the 8x8 font draws them; the 8x8 font's own lines placed with its glyph: under a superscript, the underline from row 7, under the raised glyph, the strike-through on row 4 and the overline on the cell's top row; under a subscript, the underline on row 15, the strike-through on row 12 and the overline on row 8, the lowered glyph's top; each line one row thick; an underline across normal and script cells stepping at each edge between them; the normal text in the 8x16 font as usual (ADR-1202 D8).",
+                SCRIPT_ASCII,
+                48,
+                8,
             )
         },
     },

@@ -45,7 +45,7 @@ pub const PREVIEW_SCREEN: (u32, u32) = (1024, 768);
 /// colors and their bright forms, bold and italic text, box drawing and
 /// accented letters. It holds no wide character: the picture of a screen
 /// gives each character one cell, and a wide one needs two. It stays fixed, so the pictures stay comparable.
-fn sample_rows() -> Vec<Vec<(&'static str, super::color::Style)>> {
+pub fn sample_rows() -> Vec<Vec<(&'static str, super::color::Style)>> {
     use super::color::Color;
     use super::color::Style;
     let c = Style::text;
@@ -236,6 +236,13 @@ impl App {
     /// The line that describes the preview: beside a picture, what the
     /// picture shows; with no pictures, the summary of the change.
     pub fn preview_line(&self) -> Option<String> {
+        if self.text_preview() && !super::view::too_small(self) {
+            return match self.view {
+                View::Fonts => Some(words::console_font_caption(self.shown_font.as_deref())),
+                View::Looks => Some(words::CONSOLE_SIZE_CAPTION.to_owned()),
+                _ => None,
+            };
+        }
         let wanted = self.wanted()?;
         if self.graphics && wanted.detail {
             let height = self.height_of(&wanted);
@@ -312,6 +319,13 @@ impl App {
     pub(crate) fn ask_picture(&mut self) -> Vec<Effect> {
         if self.live == Live::Asking || self.leaving.is_some() || self.installing {
             return Vec::new();
+        }
+        // in a vtium console the console draws the preview as text, so the
+        // helper draws nothing
+        if self.text_preview() {
+            self.asked = None;
+            self.shot = None;
+            return self.drop_picture();
         }
         let asked = self.wanted().map(|wanted| Asked {
             wanted,

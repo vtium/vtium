@@ -110,8 +110,10 @@ path_of() {
 	fi
 }
 
-# The records in the passes directory, oldest first: a pass id sorts by the
-# time it started.
+# The records in the passes directory, oldest first. A pass id sorts as text
+# by the second the pass started, and then by accept.sh's PID, which
+# accept.sh pads to seven digits so that PIDs of different lengths sort as
+# numbers.
 records() {
 	local f
 	for f in "$dir"/*.md; do

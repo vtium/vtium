@@ -22,6 +22,7 @@ use crate::bounds::CELL_SIDE_MAX;
 use crate::face::{Cell, Decorations, Face, Style};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
+use crate::script::Origin;
 use crate::set::Set;
 use crate::sprite::Range;
 
@@ -126,6 +127,23 @@ impl Face for Unifont {
 
     fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.render_at(*cluster.first()?, style, 1)
+    }
+
+    /// The built-in set's one 8x16 strike, at the font's scale.
+    fn strike(&self) -> Option<(Cell, u32)> {
+        Some((CELL, self.scale))
+    }
+
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        self.render_at(*cluster.first()?, style, multiple.max(1))
+    }
+
+    /// A 1-bit bitmap, whose bold and italic the small glyph takes
+    /// (ADR-1202 D4, D7).
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        set()
+            .and_then(|s| s.origin(CELL, cluster.first().copied(), style, self.scale))
+            .unwrap_or_default()
     }
 }
 

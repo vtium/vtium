@@ -3,11 +3,14 @@
 
 use std::fmt;
 
-use super::format::{MAJOR, MINOR, STYLE_BOLD, STYLE_ITALIC, valid_name};
+use super::format::{
+    MAJOR, MINOR, SCRIPT_BASELINE, SCRIPT_SUB, SCRIPT_SUPER, STYLE_BOLD, STYLE_ITALIC, valid_name,
+};
 use super::read::PixelFormat;
 use super::write::{RawInk, RawSet, RawStrike, encode};
 use crate::face::{Cell, Decorations, Style, Width};
 use crate::policy::{Source, SpritePolicy};
+use crate::script::Script;
 use crate::sprite::Range;
 
 /// Why a set could not be written.
@@ -26,11 +29,12 @@ impl std::error::Error for WriteError {}
 /// width and height, and its bytes.
 type InkBox = ((i32, i32), (u32, u32), Vec<u8>);
 
-/// One strike: a style at one cell size in one pixel format, its glyphs
-/// and the codepoints that draw them.
+/// One strike: a style in a script at one cell size in one pixel format,
+/// its glyphs and the codepoints that draw them.
 #[derive(Clone, Debug)]
 pub struct StrikeBuilder {
     style: Style,
+    script: Script,
     format: PixelFormat,
     cell: Cell,
     baseline: u32,
@@ -43,7 +47,8 @@ pub struct StrikeBuilder {
 }
 
 impl StrikeBuilder {
-    /// An empty strike of `style` at `cell` in `format`, its baseline at
+    /// An empty strike of normal glyphs in `style` at `cell` in `format`,
+    /// its baseline at
     /// the cell's bottom and its decorations those of a face with no
     /// metrics of its own ([`Decorations::for_height`]). Its chunks are
     /// deflated for R8 and RGBA and raw for 1-bit, as a frit's default
@@ -51,6 +56,7 @@ impl StrikeBuilder {
     pub fn new(format: PixelFormat, cell: Cell, style: Style) -> StrikeBuilder {
         StrikeBuilder {
             style,
+            script: Script::Baseline,
             format,
             cell,
             baseline: cell.height,
@@ -61,6 +67,15 @@ impl StrikeBuilder {
             clusters: Vec::new(),
             inks: Vec::new(),
         }
+    }
+
+    /// Where the strike's glyphs sit in their cells (ADR-1202 D11): normal
+    /// glyphs, or superscript or subscript glyphs that the source made
+    /// small and placed in the whole cell. A reader draws a superscript
+    /// or subscript strike's glyphs only for a cell in that script.
+    pub fn script(mut self, script: Script) -> StrikeBuilder {
+        self.script = script;
+        self
     }
 
     pub fn baseline(mut self, row: u32) -> StrikeBuilder {
@@ -150,6 +165,11 @@ impl StrikeBuilder {
         Ok(RawStrike {
             style,
             format: self.format.code(),
+            script: match self.script {
+                Script::Baseline => SCRIPT_BASELINE,
+                Script::Super => SCRIPT_SUPER,
+                Script::Sub => SCRIPT_SUB,
+            },
             cell_width: narrow(self.cell.width)?,
             cell_height: narrow(self.cell.height)?,
             baseline: narrow(self.baseline)?,
@@ -157,6 +177,7 @@ impl StrikeBuilder {
             underline_thickness: narrow(d.underline_thickness)?,
             strike: narrow(d.strike)?,
             strike_thickness: narrow(d.strike_thickness)?,
+            overline: narrow(d.overline)?,
             compress: self.compress,
             glyphs: self.glyphs.clone(),
             map: self.map.clone(),

@@ -15,6 +15,7 @@ import t3_images
 import t3_pointer
 import t3_pictures
 import t3_power
+import t3_seat
 import t3_showcase
 import t3img
 from t3_common import BASE, BASE_SYSVINIT, GUEST, GUEST_SYSVINIT, ROOT, RUNDIR, rel
@@ -274,6 +275,58 @@ VARIANTS.update({
 POWER_VARIANTS = ["power-reboot", "power-reboot-hard", "power-off", "power-suspend-off",
                   "power-suspend-logind"]
 
+# The seat variants (t3_seat): a tree built with libseat and logind on the
+# minspec machine, the build the vtium package ships, with seat mode's unit
+# vtium-seat@.service and the PAM file /etc/pam.d/vtium that make
+# install-tree stages with it, on the seat manager "seat" names, which
+# guest/setup holds libseat to. The logind variants turn seat mode on with
+# vtium console enable --seat --all ("mode"); the others run in direct mode,
+# vtium@.service, as the package's install turns it on. direct-logind runs
+# the same tree in direct mode under logind with no LIBSEAT_BACKEND, and
+# checks that vtium leaves libseat's logind backend alone there and runs on
+# the kernel's VT (t3_seat.CHECKS "direct"). Each logs in, draws two screens and switches VTs through the seat as
+# 2d-potato-min does, judged by its goldens (t3_evaluate.GOLDENS_OF), and
+# checks the console's log for the seat and the keyboards opened through it
+# (t3_seat.CHECKS "seat"). The panic variant crashes the kernel while vtium
+# shows its login prompt and keeps the screen the panic leaves
+# (t3_seat.CHECKS "kernel-panic"). The kernel-message variant makes the
+# kernel log an error while vtium shows its login prompt, and judges the
+# screen by its golden (t3_seat.CAPTIONS "kernel-message").
+SEAT = {
+    "device": "virtio-vga,xres=1366,yres=768,edid=on",
+    "display": "none",
+    "conf": "vtium-minimal.conf",
+    "renderer": "cpu",
+    "cpus": 1,
+    "memory_mb": 512,
+    "images": False,
+    "tree_features": ["libseat", "logind"],
+    "screens": ["sgr", "cjk"],
+    "checks": ["seat"],
+}
+VARIANTS.update({
+    "seat-seatd": dict(SEAT, seat="seatd"),
+    "seat-logind": dict(SEAT, seat="logind", mode="seat", agent=True,
+                        checks=["seat", "login-session"]),
+    "direct-logind": dict(SEAT, checks=["direct"]),
+    "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
+    "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
+})
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "panic-sysrq", "kmsg-notice"]
+
+# boot-claim checks that vtium console enable --direct --all starts vtium at
+# boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
+# Its setup makes the claim, then starts the guest's userspace again with
+# systemctl soft-reboot ("soft_reboot"), so systemd starts vtium from the
+# links the claim made, as a boot after the claim does. Nobody switches VTs
+# ("first_switch": False): its check (t3_seat.CHECKS "boot-claim") asks the
+# agent which processes hold VTs 1 to 6 open and which VT the kernel's
+# VT_OPENQRY gives, and logs each vtium's resident memory. It draws no
+# screen and logs no one in.
+VARIANTS["boot-claim"] = dict(SEAT, checks=["boot-claim"], login=False, first_switch=False,
+                              agent=True, soft_reboot=True, screens=[])
+SEAT_VARIANTS.append("boot-claim")
+
 # The guest without systemd (guest-sysvinit/, "guest": "sysvinit"): Debian
 # with sysvinit as PID 1, on the minspec machine, judging docs/systemd.md's
 # column for a host without systemd. Its inittab runs vtium on tty2 from the
@@ -463,6 +516,21 @@ VARIANTS.update({
     "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
                           policy="closed", vt_switch=False, checks=["session-survives"]),
 })
+# heads-survive's check on the libseat tree on logind: the sessions that
+# survive a restart and a crash of vtium (ADR-1401 D13) under
+# seat mode's KillMode=mixed (ADR-1400 D3), with the seat check beside it.
+# Each login there runs in a systemd scope of its own (ADR-1400 D3), which
+# the login-session check judges before the restart. seat-logind-two logs
+# the same user in again on the head's second console, on the same VT
+# (t3_seat CHECKS "two-logins").
+VARIANTS["seat-logind-survive"] = dict(VARIANTS["heads-survive"],
+                                       tree_features=["libseat", "logind"], seat="logind",
+                                       mode="seat",
+                                       checks=["seat", "login-session", "seat-cgroup",
+                                               "session-survives"])
+VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
+                                   checks=["seat", "login-session", "two-logins"])
+SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
                  "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
@@ -473,10 +541,34 @@ HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
 # up and the login prompts reached, then the console the switch spawns
 # logging its VT; under sysvinit, the console the inittab started on tty2
 # logging its VT, then its display set up once the VT is shown.
+# The lines systemd logs once vtium's unit on tty2 is active: with
+# Type=notify, only after vtium has sent READY=1 (ADR-1500 D7, "Ready
+# before the display manager"). A unit that never sends it stays
+# activating, and its variant fails.
+READY_LINES = ("Started vtium on tty2.", "Started vtium in seat mode on tty2.")
+
+
+def wait_ready(vm, lines, timeout=60):
+    """The first of `lines` on the console log, once systemd has logged
+    one, or a RuntimeError when none comes within `timeout` seconds."""
+    deadline = time.time() + timeout
+    while True:
+        for line in lines:
+            try:
+                return vm.wait_serial(line, timeout=0)
+            except RuntimeError:
+                pass
+        if time.time() > deadline:
+            raise RuntimeError("vtium's unit on tty2 never became active: systemd logged no %r "
+                               "within %d s" % (lines[0], timeout))
+        time.sleep(0.2)
+
+
 GUESTS = {
     "arch": {"base": BASE, "image": "tier3-image",
              "boot": ["Started User Login Management", "Reached target Login Prompts"],
-             "shown": "vt: using tty /dev/tty2"},
+             "shown": "vt: using tty /dev/tty2",
+             "ready": READY_LINES},
     "sysvinit": {"base": BASE_SYSVINIT, "image": "tier3-image-nosystemd",
                  "boot": ["vt: using tty /dev/tty2"], "shown": "text renderer ["},
 }
@@ -528,6 +620,10 @@ def variant_cases(variant):
     v = VARIANTS[variant]
     if "power" in v:
         return list(v["power"])
+    if v.get("panic"):
+        return ["kernel-panic"]
+    if v.get("kmsg"):
+        return ["kernel-message"]
     first = ([v["first"]] if "first" in v else []) + (
         [t3_images.CASE] if v.get("prelogin") else [])
     if not v.get("login", True):
@@ -714,7 +810,8 @@ def build_disc(variant, work, impl):
     (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
-    fragment, and the agent and its unit if it runs it."""
+    fragment, a `soft-reboot` file if its guest starts its userspace again
+    once the claim is made, and the agent and its unit if it runs it."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -768,6 +865,14 @@ def build_disc(variant, work, impl):
         open(os.path.join(disc, "pointer"), "w").close()
     if "udev-examples" in VARIANTS[variant].get("checks", []):
         open(os.path.join(disc, "udev-examples"), "w").close()
+    if "seat" in VARIANTS[variant]:
+        with open(os.path.join(disc, "seat"), "w") as f:
+            f.write(VARIANTS[variant]["seat"])
+    if "mode" in VARIANTS[variant]:
+        with open(os.path.join(disc, "mode"), "w") as f:
+            f.write(VARIANTS[variant]["mode"])
+    if VARIANTS[variant].get("soft_reboot"):
+        open(os.path.join(disc, "soft-reboot"), "w").close()
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
@@ -976,12 +1081,17 @@ def run_variant(variant, timing, impl, log):
         phase("boot")
         # tty1 runs getty. Under systemd, switching to tty2 makes logind
         # spawn autovt@tty2, which is vtium@tty2 through the template link
-        # that the setup's vtium console enable --all makes, and nothing
+        # that the setup's vtium console enable --direct --all makes, and nothing
         # starts it earlier: a boot without the keypress has no console on
         # tty2.
         # Under sysvinit, the console the inittab started on tty2 takes it.
-        vm.keys("ctrl", "alt", "f2")
-        vm.wait_serial(guest["shown"], timeout=60)
+        # A variant that judges the VTs before anyone switches them
+        # ("first_switch": False) stays on the VT shown at boot.
+        if v.get("first_switch", True):
+            vm.keys("ctrl", "alt", "f2")
+            vm.wait_serial(guest["shown"], timeout=60)
+            if "ready" in guest:
+                log(wait_ready(vm, guest["ready"]))
         tmp = os.path.join(work, "wait.ppm")
         prompt = None
         if v["device"] is not None and v["renderer"] is not None:
@@ -1006,6 +1116,12 @@ def run_variant(variant, timing, impl, log):
         phase("console")
         if "power" in v:
             press_power_keys(vm, v["power"], work, caps, errors, notes, log, phase)
+        elif v.get("panic"):
+            t3_seat.crash(vm, work, caps, errors, notes, log)
+            phase("panic")
+        elif v.get("kmsg"):
+            t3_seat.kernel_message(vm, work, caps, errors, log)
+            phase("kernel-message")
         elif not v.get("login", True):
             run_checks(variant, vm, work, caps, errors, log, phase)
         else:
@@ -1350,6 +1466,12 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
 # variant's entry in VARIANTS first.
 CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
+              "seat": t3_seat.check_seat,
+              "direct": t3_seat.check_direct,
+              "seat-cgroup": t3_seat.check_cgroup,
+              "boot-claim": t3_seat.check_boot_claim,
+              "login-session": t3_seat.check_login_session,
+              "two-logins": t3_seat.check_two_logins,
               **t3_heads.CHECK_RUNS}
 
 

@@ -97,7 +97,8 @@ pub enum InputEvent {
 pub struct DeviceInput {
     /// `None` for an event of no one device, the pointer's hide.
     pub device: Option<DeviceId>,
-    /// The rescue key, pressed on a device watched for it alone.
+    /// A VT key, the rescue key among them, pressed on a device watched
+    /// for the VT keys alone.
     pub rescue: bool,
     pub event: InputEvent,
 }
@@ -107,9 +108,11 @@ pub struct DeviceInput {
 pub enum Disposition {
     /// Opened, its events delivered, whatever it reports.
     Deliver,
-    /// Opened to watch for the rescue key alone: a press of the VT's own
-    /// key is drained marked [`DeviceInput::rescue`], and nothing else it
-    /// sends is delivered (ADR-1401 D9).
+    /// Opened to watch for the VT keys alone (ADR-1401 D3, "Who switches
+    /// VTs", and D9): a press of `Ctrl-Alt-F<n>` or `XF86Switch_VT_<n>`
+    /// while the VT is ours, the VT's own key, the rescue key, among them,
+    /// is drained marked [`DeviceInput::rescue`], and nothing else it
+    /// sends is delivered.
     Rescue,
     /// Never opened.
     Closed,

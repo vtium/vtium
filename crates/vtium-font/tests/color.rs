@@ -45,6 +45,7 @@ fn mixed_set() -> Vec<u8> {
         underline_thickness: 1,
         strike: 3,
         strike_thickness: 1,
+        overline: 0,
     };
     let mut color = StrikeBuilder::new(PixelFormat::Rgba, CELL, Style::default())
         .baseline(5)
@@ -150,6 +151,7 @@ fn every_strike_at_the_cell_counts_toward_its_coverage() {
             underline_thickness: 1,
             strike: 3,
             strike_thickness: 1,
+            overline: 0,
         }
     );
     // glyph 0 of the first strike that holds a glyph: the 1-bit one's

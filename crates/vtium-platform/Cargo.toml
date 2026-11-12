@@ -41,7 +41,7 @@ libc = "=0.2.191"
 log = "0.4"
 udev = "=0.9.3"
 xkbcommon = { version = "=0.9.0", default-features = false }
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "fs", "mm", "net", "process", "pty", "runtime", "system", "termios", "thread"] }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "mm", "net", "process", "pty", "runtime", "system", "termios", "thread"] }
 # The image helper's wire and reply types, which the helper links too
 # (ADR-1101 D7); only with `images`.
 vtium-image = { workspace = true, optional = true }
@@ -56,8 +56,8 @@ libloading = { version = "=0.8.9", optional = true }
 # libseat, through the libseat-sys binding, which finds the library through
 # pkg-config and fails the build naming it when it is missing. Its default
 # feature compiles a C file to route libseat's log into the log crate,
-# which needs a C compiler for each target; without it libseat writes its
-# errors to stderr itself. Only with `libseat`.
+# which needs a C compiler for each target; vtium gives libseat a log
+# handler of its own instead, in src/seat/binding.rs. Only with `libseat`.
 libseat = { version = "=0.2.4", default-features = false, optional = true }
 
 [build-dependencies]

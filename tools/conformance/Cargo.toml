@@ -23,7 +23,7 @@ regex = { version = "1.12", default-features = false, features = ["std", "unicod
 # conformance-record's pty, its child's session and the loop that reads it,
 # and the SIGHUP that ends a recording; the versions vtium-platform pins
 vtium-platform = { workspace = true, optional = true }
-rustix = { version = "=1.1.5", default-features = false, features = ["std", "process"], optional = true }
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "process"], optional = true }
 
 [features]
 # conformance-record, which records programs through a pty; opt-in, so

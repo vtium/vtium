@@ -4,6 +4,7 @@
 use crate::glyph::Glyph;
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
+use crate::script::{self, Kind, Origin, Script, Variant};
 use crate::spacing::Band;
 use crate::sprite::{self, Range};
 
@@ -15,6 +16,16 @@ use crate::sprite::{self, Range};
 pub struct Style {
     pub bold: bool,
     pub italic: bool,
+}
+
+impl Style {
+    /// This style less `other`'s bold and italic.
+    pub fn without(self, other: Style) -> Style {
+        Style {
+            bold: self.bold && !other.bold,
+            italic: self.italic && !other.italic,
+        }
+    }
 }
 
 /// How many cells a glyph spans.
@@ -42,21 +53,25 @@ pub struct Cell {
     pub height: u32,
 }
 
-/// Where underline and strike-through go in a cell, in pixel rows from its
-/// top, each inside the cell and at least a row thick.
+/// Where underline, strike-through and overline go in a cell, in pixel
+/// rows from its top, each inside the cell and at least a row thick. The
+/// overline is as thick as the underline. A normal cell's overline lies on
+/// the cell's top row; a superscript or subscript cell's lies on the top
+/// row of its small glyph's own box (ADR-1202 D8).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Decorations {
     pub underline: u32,
     pub underline_thickness: u32,
     pub strike: u32,
     pub strike_thickness: u32,
+    pub overline: u32,
 }
 
 impl Decorations {
     /// The lines a cell `height` tall gets from a face with no metrics of
     /// its own: a sixteenth of the cell thick, between 1 and a quarter of
-    /// the cell, the underline on the bottom rows and the strike from the
-    /// middle.
+    /// the cell, the underline on the bottom rows, the strike from the
+    /// middle and the overline on the top row.
     pub fn for_height(height: u32) -> Decorations {
         let h = height.max(1);
         let thick = (h / 16).clamp(1, (h / 4).max(1));
@@ -66,6 +81,7 @@ impl Decorations {
             underline_thickness: thick,
             strike: (h / 2).min(bottom),
             strike_thickness: thick,
+            overline: 0,
         }
     }
 }
@@ -107,9 +123,29 @@ pub trait Face {
         None
     }
 
-    /// Where underline and strike-through go.
+    /// Where underline, strike-through and overline go in a normal cell.
     fn decorations(&self) -> Decorations {
         Decorations::for_height(self.cell().height)
+    }
+
+    /// Where a cell's lines go in `script` (ADR-1202 D8): the normal lines
+    /// for the baseline, and for a superscript or subscript the lines of
+    /// the script glyph's own size, placed where its own box lies
+    /// ([`script::lines::of_face`]). A face whose source reports its own
+    /// script lines gives those.
+    fn script_decorations(&self, script: Script) -> Decorations {
+        script::lines::of_face(self, script)
+    }
+
+    /// The lines of [`Face::strike`] at its own size, which a script cell
+    /// takes at a smaller multiple of it (ADR-1202 D8 step 3): the lines a
+    /// face with no metrics of its own gives the strike's height. A face
+    /// with no strike gives its normal lines.
+    fn strike_decorations(&self) -> Decorations {
+        self.strike().map_or_else(
+            || self.decorations(),
+            |(own, _)| Decorations::for_height(own.height),
+        )
     }
 
     /// The whole factor a bitmap face scales its glyphs by, each pixel a
@@ -130,6 +166,24 @@ pub trait Face {
         None
     }
 
+    /// The 1-bit strike a bitmap face draws its glyphs from, as the
+    /// strike's own cell and the whole multiple the face draws it at, for a
+    /// face that can also draw the strike at a smaller multiple
+    /// ([`Face::draw_multiple`]). A superscript or subscript glyph takes its
+    /// size from these (ADR-1202 D3). `None` for any other face.
+    fn strike(&self) -> Option<(Cell, u32)> {
+        None
+    }
+
+    /// [`Face::draw`] from [`Face::strike`] at the whole multiple
+    /// `multiple` of its own cell, each pixel of the font a square
+    /// `multiple` pixels across, bold widened by one of the font's pixels
+    /// and italic sheared by whole rows of them (ADR-1202 D3, D7). `None`
+    /// from a face that cannot.
+    fn draw_multiple(&self, _cluster: &[char], _style: Style, _multiple: u32) -> Option<Glyph> {
+        None
+    }
+
     /// The rows the cell adds above and below its text band for line
     /// spacing (ADR-1302 D13): none for a face whose cell is the text's
     /// own height.
@@ -145,6 +199,41 @@ pub trait Face {
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
         None
     }
+
+    /// What the face's glyph for `cluster` in `style` is made from, which
+    /// its superscript and subscript are made by (ADR-1202 D1, D4, D7): the
+    /// kind of source, the glyph's own box, its baseline, and the part of
+    /// the style the face leaves for the small glyph to take. An empty
+    /// `cluster` asks for the last resort's. The default is a smooth glyph
+    /// over the text band, drawn in its whole style.
+    fn origin(&self, _cluster: &[char], _style: Style) -> Origin {
+        Origin::default()
+    }
+
+    /// Where the superscript or subscript glyph for `cluster` in
+    /// `variant` comes from (ADR-1202 D11). A face whose source makes its
+    /// own script glyphs gives the one it holds; one whose source's glyph
+    /// is still on its way has the built-in fonts draw the cell meanwhile;
+    /// every other face's script glyph is made from its normal glyph, as
+    /// [`Font::drawn_variant`] makes it.
+    fn script(&self, _cluster: &[char], _variant: Variant) -> ScriptFrom {
+        ScriptFrom::Normal
+    }
+}
+
+/// Where a face's superscript or subscript glyph comes from
+/// ([`Face::script`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ScriptFrom {
+    /// The glyph the face's source made, small and placed in the whole
+    /// cell, as the glyph helper sends it.
+    Made(Glyph),
+    /// The glyph made from the face's normal glyph.
+    Normal,
+    /// The source's glyph is on its way, and the built-in fonts
+    /// ([`Face::builtins`]) draw the cell until it arrives, as they draw
+    /// any glyph on its way (ADR-1200 D7, D22).
+    Builtins,
 }
 
 impl<F: Face + ?Sized> Face for Box<F> {
@@ -172,6 +261,12 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn decorations(&self) -> Decorations {
         (**self).decorations()
     }
+    fn script_decorations(&self, script: Script) -> Decorations {
+        (**self).script_decorations(script)
+    }
+    fn strike_decorations(&self) -> Decorations {
+        (**self).strike_decorations()
+    }
     fn scale(&self) -> u32 {
         (**self).scale()
     }
@@ -181,11 +276,23 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort_unscaled(style)
     }
+    fn strike(&self) -> Option<(Cell, u32)> {
+        (**self).strike()
+    }
+    fn draw_multiple(&self, cluster: &[char], style: Style, multiple: u32) -> Option<Glyph> {
+        (**self).draw_multiple(cluster, style, multiple)
+    }
     fn band(&self) -> Band {
         (**self).band()
     }
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
         (**self).builtins()
+    }
+    fn origin(&self, cluster: &[char], style: Style) -> Origin {
+        (**self).origin(cluster, style)
+    }
+    fn script(&self, cluster: &[char], variant: Variant) -> ScriptFrom {
+        (**self).script(cluster, variant)
     }
 }
 
@@ -277,6 +384,15 @@ impl<F: Face> Font<F> {
         self.face.decorations()
     }
 
+    /// Where a cell's lines go in `script` ([`Face::script_decorations`]):
+    /// the normal lines for the baseline (ADR-1202 D8).
+    pub fn script_decorations(&self, script: Script) -> Decorations {
+        match script {
+            Script::Baseline => self.face.decorations(),
+            _ => self.face.script_decorations(script),
+        }
+    }
+
     /// Whether `c` draws as itself: a sprite always does.
     pub fn has_glyph(&self, c: char) -> bool {
         self.draws_sprite(c) || self.face.has_glyph(c)
@@ -345,6 +461,109 @@ impl<F: Face> Font<F> {
         Some(Drawn::new(glyph.fit(w, width)?, 1, missing))
     }
 
+    /// [`Font::drawn`] in `variant`. A superscript or subscript glyph is
+    /// made small and placed in its cells by [`Glyph::scripted`]
+    /// (ADR-1202). A character the policy draws as a sprite is drawn at the
+    /// small box's size (D6). Any other glyph comes from the face that
+    /// draws the cell's normal glyph, with the [`Origin`] the face gives it
+    /// (D15): the face's own glyph, else the font's missing glyph, the hex
+    /// glyph a 1-bit glyph of its own. The face draws the glyph without
+    /// the part of the style the origin leaves to the small glyph (D7).
+    ///
+    /// A face whose source makes its own script glyphs ([`Face::script`])
+    /// gives the glyph it holds, fitted to the cells, or has the built-in
+    /// fonts draw the cell while that glyph is on its way (ADR-1202 D11).
+    pub fn drawn_variant(&self, cluster: &[char], width: Width, variant: Variant) -> Option<Drawn> {
+        let script = variant.script;
+        if script == Script::Baseline {
+            return self.drawn(cluster, width, variant.style);
+        }
+        if self.sprite_base(cluster).is_none() {
+            match self.face.script(cluster, variant) {
+                ScriptFrom::Made(glyph) => {
+                    let w = self.face.cell().width.saturating_mul(width.cells());
+                    return Some(Drawn::new(glyph.fit(w, width)?, 1, false));
+                }
+                ScriptFrom::Builtins => {
+                    let builtins = Font {
+                        face: self.face.builtins()?,
+                        policy: self.policy,
+                        missing: self.missing,
+                    };
+                    return builtins.drawn_variant(cluster, width, variant);
+                }
+                ScriptFrom::Normal => {}
+            }
+        }
+        let &first = cluster.first()?;
+        let cell = self.face.cell();
+        let band = self.face.band();
+        let w = cell.width.saturating_mul(width.cells());
+        if let Some(c) = self.sprite_base(cluster)
+            && let Some(s) = script::sprite(c, script, (w, cell.height), band)
+        {
+            return Some(Drawn::new(s.with_cells(width), 1, false));
+        }
+        if let Some((small, _)) = self.smaller(cluster, variant.style) {
+            let placed = small.placed(script, (w, cell.height), band)?;
+            return Some(Drawn::new(placed.fit(w, width)?, 1, false));
+        }
+        let style = variant.style;
+        let draw = |chars: &[char]| -> Option<(Glyph, Origin)> {
+            let mut origin = self.face.origin(chars, style);
+            if origin.kind != Kind::Bitmap {
+                origin.synth = Style::default();
+            }
+            let drawn = style.without(origin.synth);
+            let glyph = match chars {
+                [] => self.face.last_resort(drawn),
+                _ => self.face.draw(chars, drawn),
+            };
+            Some((glyph?, origin))
+        };
+        let own = self.face.has_glyph(first).then(|| draw(cluster)).flatten();
+        let (glyph, origin, missing) = match own {
+            Some((g, origin)) => (g, origin, false),
+            None => {
+                let hex = self.missing_glyph(first, width).map(|g| {
+                    let origin = Origin {
+                        kind: Kind::Bitmap,
+                        ..Origin::default()
+                    };
+                    (g, origin)
+                });
+                let (g, origin) = hex
+                    .or_else(|| draw(&[REPLACEMENT]))
+                    .or_else(|| draw(&['?']))
+                    .or_else(|| draw(&[]))?;
+                (g, origin, true)
+            }
+        };
+        let small = glyph.scripted(script, &origin, band)?;
+        Some(Drawn::new(small.fit(w, width)?, 1, missing))
+    }
+
+    /// The glyph for `cluster` in `style` from a smaller size of the face's
+    /// own 1-bit strike (ADR-1202 D3), unplaced, and the whole multiple it
+    /// is drawn at: the largest smaller multiple whose height is from one
+    /// half to three quarters of the normal glyph's
+    /// ([`script::smaller`]). `None` when the face draws the cluster from
+    /// no such strike, when it is drawn at its own size, so no smaller
+    /// multiple lies in the range, or when it lacks the cluster's first
+    /// character; the glyph is then made small by D4.
+    fn smaller(&self, cluster: &[char], style: Style) -> Option<(Glyph, u32)> {
+        let &first = cluster.first()?;
+        let (own, multiple) = self.face.strike()?;
+        if !self.face.has_glyph(first) || self.face.origin(cluster, style).kind != Kind::Bitmap {
+            return None;
+        }
+        let normal = own.height.checked_mul(multiple)?;
+        let cell = self.face.cell().width;
+        let chosen = script::smaller(normal, cell, &[own])?;
+        let glyph = self.face.draw_multiple(cluster, style, chosen.multiple)?;
+        Some((glyph, chosen.multiple))
+    }
+
     /// The face's own glyph for `cluster`, drawn by `draw`, when the face
     /// has its first character.
     fn own(
@@ -367,6 +586,66 @@ impl<F: Face> Font<F> {
             Missing::Replacement => None,
             Missing::Hex => hex::draw(c, self.face.cell(), width),
         }
+    }
+
+    /// [`Font::glyph_unscaled`] in `variant`. A superscript or subscript
+    /// glyph that a bitmap face draws at a smaller whole multiple j
+    /// (ADR-1202 D3) comes at the face's scale 1 with scale j, as a normal
+    /// bitmap glyph comes at its scale (ADR-1300 D2), where its cells, the
+    /// line spacing and its place in them are whole blocks of j. Any other
+    /// script glyph comes at its drawn size, with scale 1, since two thirds
+    /// of a bitmap glyph is no whole number of its pixels.
+    pub fn glyph_unscaled_variant(
+        &self,
+        cluster: &[char],
+        width: Width,
+        variant: Variant,
+    ) -> Option<Drawn> {
+        match variant.script {
+            Script::Baseline => self.glyph_unscaled(cluster, width, variant.style),
+            Script::Super | Script::Sub => self
+                .smaller_unscaled(cluster, width, variant)
+                .or_else(|| self.drawn_variant(cluster, width, variant)),
+        }
+    }
+
+    /// The glyph [`Font::drawn_variant`] takes from a smaller multiple j of
+    /// the face's strike, at scale 1 with scale j: drawn at the strike's
+    /// own size and placed in cells a j-th of the size. `None` unless the
+    /// glyph comes from a smaller multiple j of 2 or more and the cells,
+    /// the rows line spacing adds and the glyph's place are each whole
+    /// blocks of j, so that the result drawn with each pixel a square j
+    /// across is exactly [`Font::drawn_variant`]'s.
+    fn smaller_unscaled(&self, cluster: &[char], width: Width, variant: Variant) -> Option<Drawn> {
+        if self.sprite_base(cluster).is_some()
+            || self.face.script(cluster, variant) != ScriptFrom::Normal
+        {
+            return None;
+        }
+        let (glyph, j) = self.smaller(cluster, variant.style)?;
+        if j < 2 {
+            return None;
+        }
+        let cell = self.face.cell();
+        let band = self.face.band();
+        let w = cell.width.saturating_mul(width.cells());
+        let whole = |n: u32| n.checked_rem(j) == Some(0);
+        let (gw, gh) = (glyph.width(), glyph.height());
+        let at = script::place(variant.script, (gw, gh), (w, cell.height), band);
+        if ![w, cell.height, band.above, band.below, gw, gh, at.0, at.1]
+            .into_iter()
+            .all(whole)
+        {
+            return None;
+        }
+        let one = self.face.draw_multiple(cluster, variant.style, 1)?;
+        let small = Band {
+            above: band.above.checked_div(j)?,
+            below: band.below.checked_div(j)?,
+        };
+        let (sw, sh) = (w.checked_div(j)?, cell.height.checked_div(j)?);
+        let placed = one.placed(variant.script, (sw, sh), small)?;
+        Some(Drawn::new(placed.fit(sw, width)?, j, false))
     }
 
     /// [`Font::drawn`] for a renderer that stores bitmap glyphs small: the

@@ -6174,7 +6174,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ5")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ6")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -6299,9 +6299,10 @@ fn a_cluster_the_screen_shows_is_asked_for_whole() {
     );
 }
 
-// ADR-1200 D21: italic and bold text is asked for in an ask of its own
-// style, beside the regular text's
-// covers: sgr.italic, sgr.bold
+// ADR-1200 D21, ADR-1202 D11: italic and bold text is asked for in an ask
+// of its own style, and superscript and subscript text in an ask of its
+// own script, beside the regular normal text's
+// covers: sgr.italic, sgr.bold, sgr.script
 #[test]
 fn italic_and_bold_text_is_asked_for_in_its_style() {
     let (_dir, fonts) = recording("style-ask");
@@ -6312,15 +6313,15 @@ fn italic_and_bold_text_is_asked_for_in_its_style() {
             "--",
             "/bin/sh",
             "-c",
-            "printf '\\033[3mx\\033[0m \\033[1my\\033[0m z'; read x",
+            "printf '\\033[3mx\\033[0m \\033[1my\\033[0m z \\033[73mw\\033[75m \\033[74mv\\033[75m'; read x",
         ],
         Memory::default(),
         fonts.clone(),
     );
-    // the style, the reserved capabilities, a codepoint count of 1, then
-    // the codepoint
-    let ask = |style: u32, c: char| -> Vec<u8> {
-        [style, 0, 1, u32::from(c)]
+    // the style, the script, the reserved capabilities, a codepoint count
+    // of 1, then the codepoint
+    let ask = |style: u32, script: u32, c: char| -> Vec<u8> {
+        [style, script, 0, 1, u32::from(c)]
             .iter()
             .flat_map(|w| w.to_le_bytes())
             .collect()
@@ -6330,12 +6331,18 @@ fn italic_and_bold_text_is_asked_for_in_its_style() {
             .iter()
             .any(|b| b.windows(want.len()).any(|w| w == want))
     };
-    let (italic, bold) = (ask(2, 'x'), ask(1, 'y'));
+    let (italic, bold) = (ask(2, 0, 'x'), ask(1, 0, 'y'));
     assert!(
         h.eventually(BOUND, |h| asked(h, &italic)),
         "x is asked for in italic"
     );
     assert!(h.eventually(BOUND, |h| asked(h, &bold)), "y in bold");
+    let (sup, sub) = (ask(0, 1, 'w'), ask(0, 2, 'v'));
+    assert!(
+        h.eventually(BOUND, |h| asked(h, &sup)),
+        "w is asked for in superscript"
+    );
+    assert!(h.eventually(BOUND, |h| asked(h, &sub)), "v in subscript");
 }
 
 // ADR-1200 D9: a path under `font-engine=psf` is a one-source frit with a
@@ -6875,16 +6882,16 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .collect()
     };
     // the cell, the rows line spacing adds, the style, regular, the
-    // reserved capabilities, then the codepoints, the clusters and the
-    // held ranges, each counted
+    // script, normal, the reserved capabilities, then the codepoints, the
+    // clusters and the held ranges, each counted
     assert_eq!(words(&rest[8..], 2), [0, 0], "no line spacing");
     assert_eq!(
-        words(&rest[16..], 2),
-        [0, 0],
-        "regular, and no capabilities"
+        words(&rest[16..], 3),
+        [0, 0, 0],
+        "regular, normal, and no capabilities"
     );
-    let codepoints = words(&rest[24..], 1)[0] as usize;
-    let mut rest = &rest[28 + 4 * codepoints..];
+    let codepoints = words(&rest[28..], 1)[0] as usize;
+    let mut rest = &rest[32 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

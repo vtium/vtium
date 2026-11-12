@@ -87,6 +87,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
     }
     let request = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: ASK,
         frit: FritText {
@@ -159,6 +160,7 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
     std::fs::write(&font, flat.build()).unwrap();
     let request = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: ASK,
         frit: FritText {
@@ -223,6 +225,7 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
     }
     let request = |kind| ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind,
         frit: FritText {
@@ -306,6 +309,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
     }
     let fill = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: FILL,
         frit: FritText {
@@ -361,6 +365,7 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
     let query = |text: String, height: u32| ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: OWN_CELL,
         frit: FritText {
@@ -432,6 +437,7 @@ fn parts_sent(kind: u32) -> Vec<Vec<char>> {
     let whole: Vec<u32> = vec![0x644, 0x651, 0x64e, 0x670];
     let request = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind,
         frit: FritText {
@@ -487,6 +493,7 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
     let man_girl = ['\u{1f468}', '\u{200d}', '\u{1f467}'];
     let request = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: ASK,
         frit: FritText {
@@ -571,6 +578,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     drop(leaked);
     let query = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: SOURCES,
         frit: FritText {
@@ -645,6 +653,7 @@ fn every_thread_of_the_helper_runs_under_its_socket_filter() {
         .unwrap();
     let query = ServeRequest {
         style: Default::default(),
+        script: vtium_font::Script::Baseline,
         band: Default::default(),
         kind: SOURCES,
         frit: FritText {

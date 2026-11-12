@@ -1,6 +1,8 @@
 //! vtium: a terminal for the Linux virtual console.
 //!
-//! Start-up reads the configuration, vtium.conf's top level and its
+//! Start-up first reads the kernel command line: with `vtium.enable=0` on
+//! it, vtium exits with status 1 before it reads anything else (ADR-1401
+//! D9). Then it reads the configuration, vtium.conf's top level and its
 //! sections, the flow (ADR-1401 D3, ADR-1403 D3), writes or removes the closed policy's getty marker (`getty.rs`), and
 //! then opens the loop and its signals, the VT, the seat's devices and the
 //! sessions, and runs the loop until something asks it to end; at the end
@@ -92,6 +94,10 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
+    // Before vtium.conf, the VT and any card (ADR-1401 D9).
+    if let Some(status) = vtium::kernel::off_at_start(&args, Path::new(vtium::kernel::CMDLINE)) {
+        return ExitCode::from(status);
+    }
     let loaded = config::load(&args, &mut config::read_file);
     // The same reader, with its ownership check, reads the font keys again
     // at a session's end (ADR-1201 D11).
@@ -147,6 +153,12 @@ fn main() -> ExitCode {
     // Before the loop blocks any signal, since a holder started here
     // inherits the mask (ADR-1401 D13).
     let env: Vec<(OsString, OsString)> = std::env::vars_os().collect();
+    // Outside a logind session of its own, as in direct mode, vtium pins
+    // libseat to seatd, so that no open of the seat reaches logind's
+    // backend (ADR-1400 D3). It runs while vtium has one thread, and after
+    // `env` is read, so no session inherits the variable.
+    #[cfg(feature = "libseat")]
+    vtium_platform::seat::keep_from_logind();
     let (keeper, kept) = vtium::survive::start(
         &env,
         path.as_deref(),
@@ -321,7 +333,9 @@ fn run(
     // A write to a child gone returns an error in place of ending vtium.
     lp.on_signal(Signal::SIGPIPE, |_| {})?;
     vtium::blank::listen(&lp.handle())?;
-    let vt = open(&mut lp)?;
+    // systemd starts the display manager only once vtium holds its VT
+    // (ADR-1500 D7, "Ready before the display manager").
+    let vt = vtium::survive::notify::opened(&env, || open(&mut lp))?;
     let clock = clock();
     let mut app = App::new(config, vt, lp.handle(), clock.clone(), env);
     if let Some(font) = console {
@@ -330,13 +344,20 @@ fn run(
     app.set_config_reader(reread);
     app.set_heads(heads);
     app.set_survival(keeper, kept);
+    kernel_messages(&lp, &mut app);
 
-    match start.input() {
+    let system = vtium_platform::input::system_layout();
+    match start.input(&system) {
         Some(mut input) => {
             input.insert(&lp.handle(), |app: &mut App| app.input.as_mut());
             app.set_input(input);
         }
         None => log::error!("no keymap, so vtium cannot read the keyboard"),
+    }
+    #[cfg(feature = "logind")]
+    if let Some(input) = app.input.as_ref() {
+        let applied = input.keymap().compiled().clone();
+        vtium::app::keyboard_layout::follow(&lp.handle(), start.keymap_settings(), applied);
     }
     match Udev::new(app.vt.seat()) {
         Ok(mut udev) => {
@@ -380,6 +401,37 @@ fn run(
     Ok(exit.status())
 }
 
+/// Reads the kernel's messages from `/dev/kmsg` through the loop, for the
+/// app to show (ADR-1401 D15). Where vtium cannot open the device, it
+/// logs why and shows none.
+fn kernel_messages(lp: &Loop<App>, app: &mut App) {
+    use vtium_platform::calloop::generic::Generic;
+    use vtium_platform::calloop::{Interest, Mode, PostAction};
+    let opened = vtium::kernel::System::open().and_then(|system| {
+        let fd = system.watched()?;
+        lp.handle()
+            .insert_source(
+                Generic::new(fd, Interest::READ, Mode::Level),
+                |_, _, app: &mut App| {
+                    Ok(if app.kernel_ready() {
+                        PostAction::Continue
+                    } else {
+                        PostAction::Remove
+                    })
+                },
+            )
+            .map_err(|e| e.error)?;
+        Ok(system)
+    });
+    match opened {
+        Ok(system) => app.set_kernel(Box::new(system)),
+        Err(e) => log::info!(
+            "vtium cannot read the kernel's messages from {}: {e}. It does not show them on screen.",
+            vtium::kernel::KMSG
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     /// `--help`'s synopsis names every command of `vtium console`, the
@@ -395,6 +447,31 @@ mod tests {
         ] {
             assert!(help.contains(command), "{command}");
         }
+    }
+
+    /// `run` opens the VT through `notify::opened`, which sends systemd
+    /// `READY=1` once the VT is open, and builds the app, which opens the
+    /// cards and devices, only after it (ADR-1500 D7, "Ready before the
+    /// display manager"). `run` is the binary's wiring, which no test
+    /// drives, so this reads its text; `survive`'s tests drive `opened`.
+    #[test]
+    fn run_tells_systemd_it_is_ready_once_the_vt_is_open() {
+        let source = include_str!("main.rs");
+        let body = source
+            .split_once("\nfn run(")
+            .and_then(|(_, rest)| rest.split_once("\nfn "))
+            .map(|(body, _)| body)
+            .unwrap();
+        let opened = body
+            .find("vtium::survive::notify::opened(&env, || open(&mut lp))?")
+            .expect("run opens the VT through notify::opened");
+        assert_eq!(
+            body.matches("open(&mut lp)").count(),
+            1,
+            "the VT opens once"
+        );
+        let app = body.find("App::new(").unwrap();
+        assert!(opened < app, "READY=1 comes before the app opens the cards");
     }
 
     /// `--version` keeps its first line as it was, so a reader of that line

@@ -60,6 +60,10 @@ pub const CHANGED: &str = "changed after the draft was made";
 /// whether it succeeded, with what it printed.
 pub type Runner<'a> = &'a mut dyn FnMut(&[OsString]) -> io::Result<(bool, String)>;
 
+/// Asks the person a yes-or-no question: writes it to the writer it is
+/// given, reads the answer, and says whether it is yes.
+pub type Ask<'a> = &'a mut dyn FnMut(&mut dyn Write, &str) -> bool;
+
 /// The draft's list of files.
 pub const MANIFEST: &str = "MANIFEST";
 

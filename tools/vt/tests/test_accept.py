@@ -276,7 +276,7 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         path, text = self.record()
         lines = text.splitlines()
-        self.assertRegex(lines[0], r"^# vtium acceptance pass \d{8}T\d{6}-\d+$")
+        self.assertRegex(lines[0], r"^# vtium acceptance pass \d{8}T\d{6}-\d{7}$")
         meta = {m.group(1): m.group(2) for m in (re.match(r"^- ([a-z0-9]+): (.*)$", l) for l in lines) if m}
         self.assertEqual(meta["label"], "vtium dev build v1-test")
         self.assertEqual(meta["vt"], "5")

@@ -9,7 +9,7 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT7\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT8\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
@@ -20,7 +20,7 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic)
+//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -63,6 +63,16 @@
 //! HarfRust and drawn at each cell: each glyph the shaper gives at its
 //! position, laid over the others, and the whole placed as one glyph is.
 //!
+//! A request may ask for superscript or subscript glyphs
+//! ([`OutlineRequest::script`], ADR-1202 D2, D5). The helper then names
+//! the size and the baseline that a script glyph takes, and an outline
+//! glyph is rasterised at that size and placed on that baseline as any
+//! glyph is, so its edges fall on the small size's pixel grid. A color
+//! glyph is fitted, as a normal one is, to a box two thirds of its
+//! cells' width and height ([`vtium_font::SCRIPT_SCALE`]), scaled once
+//! from its source, and placed against the cell's top for a superscript
+//! and its bottom for a subscript, centred across.
+//!
 //! A request may ask for a style the font does not draw itself
 //! ([`OutlineRequest::synth`], ADR-1302 D4). For synthetic italic each
 //! point of an outline moves right by 0.2 of its height above the
@@ -81,7 +91,7 @@ use std::sync::Arc;
 use crate::frit::{Cover, Hinting};
 use crate::shaping::{Ask, Kind};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, REACH_CELLS, REACH_ROWS, SET_CHUNK_BYTES, Style,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, REACH_CELLS, REACH_ROWS, SET_CHUNK_BYTES, Script, Style,
 };
 
 /// The most bytes an outline font file holds; Noto Sans CJK's collection
@@ -106,7 +116,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT7\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT8\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
@@ -159,6 +169,12 @@ pub struct OutlineRequest {
     /// outline and italic slants it (ADR-1302 D4). Regular draws the
     /// glyphs as the font draws them.
     pub synth: Style,
+    /// Where the glyphs sit in their cells (ADR-1202 D2, D5): normal
+    /// glyphs, or superscript or subscript ones, whose size and baseline
+    /// the request names in `sizes` and `baselines`. A superscript or
+    /// subscript color glyph is fitted to two thirds of its cells and
+    /// placed against the cell's top or bottom.
+    pub script: Script,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -358,6 +374,11 @@ impl OutlineRequest {
             Hinting::Full => 1,
         });
         out.push(u8::from(self.synth.bold) | u8::from(self.synth.italic) << 1);
+        out.push(match self.script {
+            Script::Baseline => 0,
+            Script::Super => 1,
+            Script::Sub => 2,
+        });
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -450,6 +471,12 @@ impl OutlineRequest {
             },
             _ => return Err("an unknown synthesis"),
         };
+        let script = match r.u8()? {
+            0 => Script::Baseline,
+            1 => Script::Super,
+            2 => Script::Sub,
+            _ => return Err("an unknown script"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -465,6 +492,7 @@ impl OutlineRequest {
             hinting,
             synth,
             fit,
+            script,
         })
     }
 
@@ -717,14 +745,14 @@ pub fn family_key(name: &str) -> String {
         .collect()
 }
 
-pub use raster::{baseline, cell_width, decorations, rasterise, size};
+pub use raster::{baseline, cell_width, decorations, own_box, rasterise, size};
 
 /// The child's side: swash, on bytes no one has checked. A panic here ends
 /// the child, which fails the source and nothing else (ADR-1200 D14).
 pub(crate) mod raster {
     use super::{
         Hinting, InkBox, LICENSE_MAX, Outline, OutlineRequest, Placed, REACH_CELLS,
-        SET_CHUNK_BYTES, Strike, Style,
+        SET_CHUNK_BYTES, Script, Strike, Style,
     };
     use skrifa::instance::{LocationRef, Size};
     use skrifa::outline::{
@@ -1388,6 +1416,26 @@ pub(crate) mod raster {
         Ok(ppem(&metrics(font)?, height))
     }
 
+    /// The rows the face `family` of `font` spans above and below its
+    /// baseline at `size` pixels to the em, or at its own size for a cell
+    /// `height` pixels high ([`size`]) with none: its ascent, rounded up as
+    /// the baseline is, and its descent, rounded to the nearest row. They
+    /// are its own box (ADR-1202 D1).
+    pub fn own_box(
+        font: &[u8],
+        family: &str,
+        height: u32,
+        size: Option<f32>,
+    ) -> Result<(u32, u32), String> {
+        let (font, _, _) = face(font, family)?;
+        let metrics = metrics(font)?;
+        let at = size.unwrap_or_else(|| ppem(&metrics, height));
+        let scale = at / f32::from(metrics.units_per_em);
+        let above = (metrics.ascent * scale).ceil().max(0.0) as u32;
+        let below = (metrics.descent.abs() * scale).round().max(0.0) as u32;
+        Ok((above, below))
+    }
+
     /// The baseline of the face `family` of `font` in a cell `height`
     /// pixels high, drawn at `size` pixels to the em, or at its own
     /// ([`size`]) with none, its glyphs hinted as `hinting` says, as
@@ -1414,30 +1462,42 @@ pub(crate) mod raster {
 
     /// Where the underline and strike-through go in a cell `height` pixels
     /// high whose baseline is row `baseline`, from the face `family` of
-    /// `font` (ADR-1302 D3, ADR-1200 D2). The underline's thickness comes from the `post` table when the font has
-    /// one and it gives a thickness that rounds above 0, else a fourteenth
-    /// of the cell. Its centre is below the baseline by `post`'s position
-    /// less half its thickness, divided as integers, as FreeType's
+    /// `font` drawn at `size` pixels to the em, or at its own size for the
+    /// cell ([`size`]) with none (ADR-1302 D3, ADR-1200 D2). A superscript
+    /// or subscript strike's lines are measured this way at the script
+    /// size, from the script baseline (ADR-1202 D8). The underline's
+    /// thickness comes from the `post` table when the font has one and it
+    /// gives a thickness that rounds above 0, else a fourteenth of the
+    /// cell's height scaled to `size`. Its centre is below the baseline by `post`'s position less
+    /// half its thickness, divided as integers, as FreeType's
     /// `underline_position` gives it, where that is not 0, else a thickness
-    /// and a half above the cell's bottom. The
-    /// strike-through's top and thickness come from the `OS/2` table's
+    /// and a half above the bottom: the cell's at the font's own size, and
+    /// the row under the font's descent below the baseline at another size.
+    /// The strike-through's top and thickness come from the `OS/2` table's
     /// strikeout, above the baseline, when its size is above 0. Else it is
     /// as thick as the underline and centred on half the x-height, which is
     /// `OS/2`'s `sxHeight`, else the `x` glyph's height, else half the
     /// baseline. Each line is at least a row thick, at most a quarter of
-    /// the cell, and inside it. The `x` glyph is hinted as `hinting` says.
+    /// the cell, and inside it. The overline lies on row 0. The `x` glyph
+    /// is hinted as `hinting` says.
     pub fn decorations(
         font: &[u8],
         family: &str,
-        height: u32,
-        baseline: u32,
+        (height, baseline): (u32, u32),
+        size: Option<f32>,
         hinting: Hinting,
     ) -> Result<vtium_font::Decorations, String> {
         let (font, _, index) = face(font, family)?;
         let m = metrics(font)?;
-        let h = f64::from(height.max(1));
-        let scale = f64::from(ppem(&m, height)) / f64::from(m.units_per_em);
+        let at = size.unwrap_or_else(|| ppem(&m, height));
+        let scale = f64::from(at) / f64::from(m.units_per_em);
         let base = f64::from(baseline);
+        let h = f64::from(height.max(1));
+        // the row under the glyphs' descent at a size not the cell's own
+        let bottom = match size {
+            None => h,
+            Some(_) => (base + (f64::from(m.descent.abs()) * scale).round()).min(h),
+        };
         let max_thick = (height / 4).max(1);
         // post: underlinePosition, the stroke's top, at byte 8 and
         // underlineThickness at 10. swash's stroke_size is OS/2's
@@ -1451,7 +1511,9 @@ pub(crate) mod raster {
         let (position, size) = (field(b"post", 8), field(b"post", 10));
         let mut thick = (size.unwrap_or(0.0) * scale).round();
         if thick <= 0.0 {
-            thick = (h / 14.0).floor().max(1.0);
+            // a fourteenth of the height the font's own size spans at `at`
+            let tall = h * f64::from(at) / f64::from(ppem(&m, height));
+            thick = (tall / 14.0).floor().max(1.0);
         }
         // the stroke's centre is FreeType's underline_position whenever it
         // is not 0: post's underlinePosition less half its
@@ -1460,7 +1522,7 @@ pub(crate) mod raster {
         let freetype = position.map(|p| p as i32 - size.unwrap_or(0.0) as i32 / 2);
         let centre = match freetype.filter(|&p| p != 0) {
             Some(p) => base - f64::from(p) * scale,
-            None => h - thick / 2.0 - thick,
+            None => bottom - thick / 2.0 - thick,
         };
         let ul_thick = (thick as u32).clamp(1, max_thick);
         let ul_pos = ((centre - thick / 2.0).round().max(0.0) as u32).min(height - ul_thick);
@@ -1482,7 +1544,7 @@ pub(crate) mod raster {
                     let mut drawer = Drawer::new(font, index, hinting);
                     let g = font.charmap().map('x');
                     xh = (g != 0)
-                        .then(|| drawer.draw(g, ppem(&m, height), (u32::MAX, u32::MAX)))
+                        .then(|| drawer.draw(g, at, (u32::MAX, u32::MAX)))
                         .flatten()
                         .map(|i| f64::from(i.placement.top))
                         .filter(|&t| t > 0.0);
@@ -1497,6 +1559,7 @@ pub(crate) mod raster {
             underline_thickness: ul_thick,
             strike: strike_pos,
             strike_thickness: strike_thick,
+            overline: 0,
         })
     }
 
@@ -1541,6 +1604,7 @@ pub(crate) mod raster {
                 baseline,
                 ppem,
                 reach: request.reach(i),
+                script: request.script,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
             let mut index: Vec<(u16, u32)> = Vec::new();
@@ -1614,6 +1678,8 @@ pub(crate) mod raster {
         pub(crate) baseline: u32,
         pub(crate) ppem: f32,
         pub(crate) reach: (u32, u32),
+        /// Where the glyphs sit in the cell ([`OutlineRequest::script`]).
+        pub(crate) script: Script,
     }
 
     /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
@@ -1679,7 +1745,15 @@ pub(crate) mod raster {
     ) -> Option<Placed> {
         let h = cell.height;
         let bw = cell.width * if wide { 2 } else { 1 };
-        let mut image = draw(cell.ppem, (bw, h))?;
+        // a superscript or subscript color glyph fits two thirds of its
+        // cells (ADR-1202 D1, D5), as a normal one fits all of them
+        let script = cell.script != Script::Baseline;
+        let (fw, fh) = if script {
+            vtium_font::script::size((bw, h))
+        } else {
+            (bw, h)
+        };
+        let mut image = draw(cell.ppem, (fw, fh))?;
         let color = image.content == Content::Color;
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
         // where the font places a mask: the advance rounded to the nearest
@@ -1701,10 +1775,10 @@ pub(crate) mod raster {
         // that the ink needs, the mask fits the height instead.
         let shrink = |image: &Image| {
             let (iw, ih) = (image.placement.width as f32, image.placement.height as f32);
-            let whole = (bw as f32 / iw).min(h as f32 / ih);
             if color {
-                return whole;
+                return (fw as f32 / iw).min(fh as f32 / ih);
             }
+            let whole = (bw as f32 / iw).min(h as f32 / ih);
             let above = image.placement.top as f32;
             let below = ih - above;
             let room = |ink: f32, rows: i32| {
@@ -1735,11 +1809,18 @@ pub(crate) mod raster {
                     break;
                 }
                 ppem *= scale;
-                image = draw(ppem, (bw, h))?;
+                image = draw(ppem, (fw, fh))?;
             }
         }
         let (iw, ih) = (image.placement.width as i32, image.placement.height as i32);
-        let (left, top) = if fitted {
+        let (left, top) = if fitted && color && script {
+            // placed by vtium-font's script rule, against the cell's top or
+            // bottom and centred across (ADR-1202 D1)
+            let size = (image.placement.width, image.placement.height);
+            let band = vtium_font::spacing::Band::NONE;
+            let (x, y) = vtium_font::script::place(cell.script, size, (bw, h), band);
+            (x as i32, y as i32)
+        } else if fitted {
             let top = (base - image.placement.top).clamp(0, (h_i - ih).max(0));
             ((bw_i - iw) / 2, top)
         } else {
@@ -1899,6 +1980,7 @@ mod tests {
             baseline: 10,
             ppem: 10.0,
             reach: (10, 10),
+            script: vtium_font::Script::Baseline,
         };
         let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
             .expect("placed");

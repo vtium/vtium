@@ -45,6 +45,9 @@ osc-10-11-set                 works   -     color.dynamic.set              OSC 1
 osc-12-query                  works   -     color.dynamic.set              OSC 12 queries the cursor color
 osc-104-110-111-reset         works   -     color.palette.set              OSC 104, 110 and 111 reset what OSC 4, 10 and 11 set
 mode-1042-bell                works   -     DEC-1042,ctl.bel               each BEL reaches the host while mode 1042 is set, none once it is reset
+xtwinops-size-report          works   -     window.size-report             XTWINOPS 18 reports the text area in characters, the size the host made after a request
+xtwinops-resize               works   -     window.resize                  XTWINOPS 8 asks the host for a text area while window operations are on, and is ignored while they are off
+osc-50-font                   works   -     text.font-change               OSC 50 asks the host for a font set and its query names the set in use, while font operations are on
 
 # input
 kitty-keyboard                works   -     input.kitty-keyboard           the kitty keyboard protocol: CSI ? u reports the flags in force
@@ -69,7 +72,7 @@ key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags
 key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
 
 # strings vtium does not take yet
-osc-8-hyperlink               missing #40   osc.8                          a placeholder scenario: OSC 8 hyperlinks
+osc-8-hyperlink               works   -     osc.8                          links stay in their cells through a wrap and the scrollback, an invalid URI closes the open link, and the pointer and Ctrl show a link whole with its URI
 osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
 osc-133-marks                 works   -     osc.133                        the view jumps between the prompts OSC 133 marks, and a command's output selects whole
 

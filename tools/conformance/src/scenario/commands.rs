@@ -203,6 +203,8 @@ pub(super) fn line_item(
             c.tests.push(format!("focus;in={on}"));
         }
         "select" => c.tests.push(select(at, &args)?),
+        "link" => c.tests.push(link(at, &args)?),
+        "hover" => c.tests.push(hover(at, &args)?),
         "copy" => {
             only(0, "copy")?;
             c.tests.push("copy".to_owned());
@@ -468,6 +470,43 @@ fn mouse(at: &str, args: &[&str]) -> Result<String, String> {
         }
     };
     Ok(mouse_text(&position(at, "mouse", rest)?, button, event))
+}
+
+/// `link at COL,ROW`.
+fn link(at: &str, args: &[&str]) -> Result<String, String> {
+    let ["at", cell] = args else {
+        return Err(format!(
+            "{at}: This `link` line does not read `link at COL,ROW`."
+        ));
+    };
+    let (col, row) = pair(cell, u64::from(u32::MAX)).ok_or_else(|| {
+        format!("{at}: `{cell}` is not a cell. A cell is COL,ROW, each counted from 0.")
+    })?;
+    Ok(format!("link;col={col};row={row}"))
+}
+
+/// `hover at COL,ROW [ctrl]` and `hover none [ctrl]`.
+fn hover(at: &str, args: &[&str]) -> Result<String, String> {
+    let form = || {
+        format!(
+            "{at}: This `hover` line reads neither `hover at COL,ROW [ctrl]` nor `hover none [ctrl]`."
+        )
+    };
+    let (text, rest) = match args {
+        ["at", cell, rest @ ..] => {
+            let (col, row) = pair(cell, u64::from(u32::MAX)).ok_or_else(|| {
+                format!("{at}: `{cell}` is not a cell. A cell is COL,ROW, each counted from 0.")
+            })?;
+            (format!("hover;col={col};row={row}"), rest)
+        }
+        ["none", rest @ ..] => ("hover".to_owned(), rest),
+        _ => return Err(form()),
+    };
+    match rest {
+        [] => Ok(text),
+        ["ctrl"] => Ok(format!("{text};ctrl=1")),
+        _ => Err(form()),
+    }
 }
 
 /// `select start|to|word|line|output at COL,ROW` and `select clear`.

@@ -14,7 +14,7 @@
 use std::collections::BTreeMap;
 
 use super::held::{Facts, Holder};
-use super::{GETTY, instance, vt_digits};
+use super::{DEV, GETTY, VTIUM, instance, vt_digits};
 
 /// The logical lines of a unit file, as systemd reads them: a line that
 /// ends in a backslash goes on with the next one, a comment line (`#` or
@@ -140,6 +140,7 @@ pub fn session_ids(list: &str) -> Vec<String> {
 
 /// One session in `loginctl show-session`'s output that is on a VT.
 struct Session<'s> {
+    id: &'s str,
     vt: u16,
     user: &'s str,
     service: &'s str,
@@ -148,7 +149,11 @@ struct Session<'s> {
 }
 
 /// The sessions on a VT in `loginctl show-session`'s output, one block of
-/// `Key=value` lines a session, the blocks parted by an empty line.
+/// `Key=value` lines a session, the blocks parted by an empty line. vtium's
+/// own session in seat mode, which its PAM stack `vtium`, or `vtium-dev`
+/// for the development install, opens in the class `greeter` (ADR-1400
+/// D3), is vtium itself on the VT, so it is left out: it holds the VT for
+/// no other program and is nobody's login.
 fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
     show.split("\n\n").filter_map(|block| {
         let fields: BTreeMap<&str, &str> = block
@@ -157,7 +162,11 @@ fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
             .collect();
         let get = |key: &str| fields.get(key).copied().unwrap_or_default();
         let vt = get("VTNr").parse::<u16>().ok().filter(|vt| *vt != 0)?;
+        if get("Service") == VTIUM || get("Service") == DEV {
+            return None;
+        }
         Some(Session {
+            id: get("Id"),
             vt,
             user: get("Name"),
             service: get("Service"),
@@ -205,6 +214,17 @@ pub fn logins(show: &str) -> Vec<(u16, Holder)> {
     sessions(show)
         .filter(|s| s.graphical().is_none())
         .map(|s| s.holder(s.kind))
+        .collect()
+}
+
+/// The VT of each session on one in `loginctl show-session`'s output, by
+/// the name of the scope logind runs the session's processes in,
+/// `session-ID.scope` (sd-login(3)), so that a process in it is known as
+/// that session's.
+pub fn scopes(show: &str) -> BTreeMap<String, u16> {
+    sessions(show)
+        .filter(|s| !s.id.is_empty())
+        .map(|s| (format!("session-{}.scope", s.id), s.vt))
         .collect()
 }
 
@@ -268,6 +288,38 @@ mod tests {
     }
 
     #[test]
+    fn vtiums_own_greeter_session_holds_no_vt_and_is_no_login() {
+        // vtium in seat mode on VT 3, its session opened by the PAM stack
+        // vtium in the class greeter, and the development install's on VT 4.
+        let show = "Id=c1
+Name=root
+VTNr=3
+Service=vtium
+Type=tty
+Class=greeter
+
+Id=c2
+Name=root
+VTNr=4
+Service=vtium-dev
+Type=tty
+Class=greeter
+
+Id=5
+Name=bob
+VTNr=5
+Service=login
+Type=tty
+Class=user
+";
+        assert_eq!(graphical(show), []);
+        assert_eq!(
+            logins(show).iter().map(|(vt, _)| *vt).collect::<Vec<_>>(),
+            [5]
+        );
+    }
+
+    #[test]
     fn graphical_sessions_and_greeters_are_found_by_type_and_class() {
         // As systemd 262's loginctl show-session prints them.
         let show = "Id=1\nName=aaron\nVTNr=0\nService=systemd-user\nType=unspecified\nClass=manager\n\nId=3\nName=aaron\nVTNr=7\nService=sddm\nType=wayland\nClass=user\n\nId=4\nName=sddm\nVTNr=1\nService=sddm-greeter\nType=x11\nClass=greeter\n\nId=5\nName=bob\nVTNr=3\nService=login\nType=tty\nClass=user\n";
@@ -308,6 +360,15 @@ mod tests {
                 "1 1000 aaron -     1490 manager -    no -\n3 1000 aaron seat0 3362 user    tty7 no -\n"
             ),
             ["1", "3"]
+        );
+        // Each session on a VT by its scope, a text login's too.
+        assert_eq!(
+            scopes(show).into_iter().collect::<Vec<_>>(),
+            [
+                ("session-3.scope".to_owned(), 7),
+                ("session-4.scope".to_owned(), 1),
+                ("session-5.scope".to_owned(), 3)
+            ]
         );
     }
 }

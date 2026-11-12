@@ -32,6 +32,7 @@ mod modes;
 mod rect;
 mod reply;
 mod sgr;
+mod window;
 
 use vtium_parse::{Chunk, Consumer, InputMode, Intermediates, Params, Parser, StringEnd};
 
@@ -46,6 +47,7 @@ pub use blank::{BlankRequest, BlankTimeout};
 pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
+pub use window::{Extent, GridRequest};
 
 use charset::{Charset, Charsets};
 use inband::Inband;
@@ -169,6 +171,8 @@ struct HostSettings {
     font_ops: bool,
     /// The font set in use, as OSC 50's query reports it.
     font_name: Option<String>,
+    /// XTWINOPS 8 is taken: the host's `allow-window-ops`.
+    window_ops: bool,
     /// vtium.conf's `text-direction`: the paragraph properties DECSTR and
     /// RIS return to, and mode 2501's initial state.
     #[cfg(feature = "bidi")]
@@ -243,6 +247,8 @@ struct State {
     clipboard: Option<clipboard::Selection>,
     /// The set OSC 50 asked for last, until the host takes it.
     font_request: Option<String>,
+    /// The text area XTWINOPS 8 asked for last, until the host takes it.
+    grid_request: Option<GridRequest>,
     /// The text area and the visibility the in-band reports compare with.
     inband: Inband,
     /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
@@ -276,6 +282,7 @@ impl Terminal {
                 palette: Palette::default(),
                 font_ops: false,
                 font_name: None,
+                window_ops: false,
                 #[cfg(feature = "bidi")]
                 text_direction: TextDirection::Ltr,
             },
@@ -298,6 +305,7 @@ impl Terminal {
             blank: BlankRequest::default(),
             clipboard: None,
             font_request: None,
+            grid_request: None,
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
             color_stack: color::Stack::default(),
@@ -423,6 +431,29 @@ impl Terminal {
     /// [`set_font_name`](Self::set_font_name).
     pub fn take_font_request(&mut self) -> Option<String> {
         self.state.font_request.take()
+    }
+
+    /// Takes XTWINOPS 8 while `on`; off, as until the host first turns it
+    /// on, a program's request for a text area is ignored
+    /// (`terminal/window.rs`).
+    pub fn set_window_ops(&mut self, on: bool) {
+        self.state.host.window_ops = on;
+        if !on {
+            self.state.grid_request = None;
+        }
+    }
+
+    /// A text area asked for with XTWINOPS 8 waits for the host to take it.
+    pub fn grid_requested(&self) -> bool {
+        self.state.grid_request.is_some()
+    }
+
+    /// The text area a program asked for with XTWINOPS 8 since the last
+    /// call; a later request replaced an earlier one. The host makes the
+    /// new grid, resizes the pty and then calls [`resize`](Self::resize),
+    /// so that a size report answers the new size.
+    pub fn take_grid_request(&mut self) -> Option<GridRequest> {
+        self.state.grid_request.take()
     }
 
     /// What a program asked of the screen blank with the Linux console's
@@ -723,8 +754,9 @@ impl State {
     /// program set, the SGR and color stacks emptied, what XTSAVE saved
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph
-    /// properties in a build with the bidi feature, the cursor home, and
-    /// the blank timeout the host's again.
+    /// properties in a build with the bidi feature, the cursor home, the
+    /// blank timeout the host's again, and an OSC 50 or XTWINOPS 8 request
+    /// the host has not taken dropped.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.screen.reset_tabs();
@@ -746,6 +778,10 @@ impl State {
         modes::reset(self, true);
         self.screen.move_to(0, 0);
         self.reset_blank_timeout();
+        // A font set or a text area asked for and not yet taken goes with
+        // the program that asked, so the host acts on neither after a reset.
+        self.font_request = None;
+        self.grid_request = None;
     }
 
     /// DECSCL, `CSI Pl ; Pc " p`: a soft reset, then 7-bit input for a
@@ -888,6 +924,7 @@ impl State {
             b'm' => sgr::apply(&mut self.screen, params),
             b'c' if params.get(0).unwrap_or(0) == 0 => self.reply_da1(),
             b'n' => self.reply_dsr(params),
+            b't' if params.get(0) == Some(8) => self.request_grid(params),
             b't' => self.reply_window(params),
             b']' if params.get(0) == Some(16) => {
                 if let Some(ms) = params.get(1) {

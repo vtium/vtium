@@ -9,9 +9,9 @@
 //!          then each section: tag [u8; 4], offset u64, length u64
 //! META     UTF-8 lines "key=value\n"
 //! STRK     count u32, record size u32, then each strike:
-//!            style u8, format u8, 0 u16, cell width u16, cell height u16,
+//!            style u8, format u8, script u16, cell width u16, cell height u16,
 //!            baseline u16, underline u16, underline thickness u16,
-//!            strike u16, strike thickness u16, 0 u16, glyph count u32
+//!            strike u16, strike thickness u16, overline u16, glyph count u32
 //! CMAP     strike count u32, record size u32, then for each strike:
 //!            run count u32, then each run:
 //!              first codepoint u32, length u32, first glyph u32, flags u32
@@ -83,11 +83,40 @@
 //! with no cluster has no `CLUS`, and a reader that does not know the
 //! section skips it, so it added no version, as `INKX` itself did not.
 //!
-//! `STRK`'s strikes are sorted by cell height, width, style and format,
-//! no two alike, so one cell may hold a 1-bit, an R8 and an RGBA strike
-//! of each style, their codepoints apart. A cell size usually has a
-//! regular strike; a set the glyph helper sends for a bold or italic ask
-//! holds only the strikes of the style asked for (ADR-1200 D21).
+//! `STRK`'s strikes are sorted by cell height, width, script, style and
+//! format, no two alike, so one cell may hold a 1-bit, an R8 and an RGBA
+//! strike of each style in each script, their codepoints apart. A cell
+//! size usually has a regular strike; a set the glyph helper sends for a
+//! bold or italic ask holds only the strikes of the style asked for
+//! (ADR-1200 D21), and a set it sends for a superscript or subscript ask
+//! holds only the strikes of that script (ADR-1202 D11).
+//!
+//! A strike's script says where its glyphs sit in their cells (ADR-1202
+//! D11): 0 for the normal glyphs, 1 for superscript glyphs (SGR 73) and 2
+//! for subscript glyphs (SGR 74), each made small by the source and placed
+//! in the whole cell. Format 2.2 gives the script the strike record's
+//! 16 bits after the format, which formats 2.0 and 2.1 reserved as 0. A
+//! 2.2 reader reads a 2.0 or 2.1 set's strikes as normal ones, since the
+//! field is 0 there. A 2.0 or 2.1 reader refuses a reserved field that is
+//! not 0, so it refuses a 2.2 set that holds a superscript or subscript
+//! strike, whole, and reads a 2.2 set of normal strikes as its own. A
+//! reader never draws a script strike's glyph for a normal cell. As with
+//! `INKX`'s two fields, the console and the helper come from one build,
+//! and a set the console refuses draws in the built-in font.
+//!
+//! A strike's lines are the underline's top row and thickness, the
+//! strike-through's top row and thickness, and the overline's top row, in
+//! rows from the cell's top, each inside the cell; the overline is as
+//! thick as the underline. A normal strike's overline lies on row 0, and a
+//! superscript or subscript strike's on the top row of its small glyph's
+//! own box (ADR-1202 D8). Format 2.3 gives the overline the strike
+//! record's 16 bits after the strike-through's thickness, which formats
+//! 2.0 to 2.2 reserved as 0. A 2.3 reader reads an older set's overlines
+//! on row 0, where every overline lay before 2.3. A 2.2 or older reader
+//! refuses a reserved field that is not 0, so it refuses, whole, a 2.3 set
+//! that holds a strike whose overline is not on row 0, which only a
+//! superscript or subscript strike can hold, and reads a 2.3 set of normal
+//! strikes as its own.
 //!
 //! The sections follow the header in the order the table lists them, with
 //! no byte between them or after the last. A record size is at least the
@@ -104,8 +133,9 @@ pub(crate) const MAGIC: [u8; 8] = *b"VTGLASS\0";
 /// format, written to no file (ADR-1200 D2).
 pub(crate) const MAJOR: u16 = 2;
 /// The format's minor version: a reader takes any. Version 1 added the
-/// ink box's top and height to each `INKX` record.
-pub(crate) const MINOR: u16 = 1;
+/// ink box's top and height to each `INKX` record, version 2 a strike's
+/// script, and version 3 a strike's overline.
+pub(crate) const MINOR: u16 = 3;
 
 pub(crate) const META: [u8; 4] = *b"META";
 pub(crate) const STRK: [u8; 4] = *b"STRK";
@@ -149,6 +179,12 @@ pub(crate) const CHUNK_DEFLATED: u32 = 1;
 pub(crate) const FORMAT_BITS: u8 = 0;
 pub(crate) const FORMAT_R8: u8 = 1;
 pub(crate) const FORMAT_RGBA: u8 = 2;
+
+/// A strike's script (ADR-1202 D11): its glyphs normal, superscript or
+/// subscript.
+pub(crate) const SCRIPT_BASELINE: u16 = 0;
+pub(crate) const SCRIPT_SUPER: u16 = 1;
+pub(crate) const SCRIPT_SUB: u16 = 2;
 
 /// Style bits: 0 is regular, 3 bold italic.
 pub(crate) const STYLE_BOLD: u8 = 1;

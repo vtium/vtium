@@ -145,7 +145,7 @@ impl Glyph {
         })
     }
 
-    fn new(width: u32, height: u32, format: Format) -> Option<Glyph> {
+    pub(crate) fn new(width: u32, height: u32, format: Format) -> Option<Glyph> {
         Some(Glyph {
             width,
             height,
@@ -247,6 +247,13 @@ impl Glyph {
         let i = self.offset(x, y)?;
         let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
         self.pixels.get(i..i.checked_add(bpp)?)
+    }
+
+    /// The bytes of the pixel at `x`, `y`, to write, if it is inside.
+    pub(crate) fn pixel_mut(&mut self, x: u32, y: u32) -> Option<&mut [u8]> {
+        let i = self.offset(x, y)?;
+        let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
+        self.pixels.get_mut(i..i.checked_add(bpp)?)
     }
 
     /// A mask's coverage at `x`, `y`; `None` outside it or for RGBA.

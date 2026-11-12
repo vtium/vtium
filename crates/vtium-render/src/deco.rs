@@ -14,11 +14,19 @@
 //!   of the same size, centred in their slots;
 //! - dashed: one dash a cell, from its left edge for five eighths of it;
 //! - strike: the font's strike-through, full width;
-//! - overline: the cell's top rows, as thick as the underline, full width;
+//! - overline: the font's overline row, the cell's top row in a normal
+//!   cell, as thick as the underline, full width;
 //! - strike and overline: both lines in one sprite, which the GPU path's
 //!   cell shader draws from the one slot it keeps for the lines over the
 //!   glyph. Both lines are whole pixels, so the sprite draws what the two
 //!   drawn one after the other draw.
+//!
+//! A superscript or subscript cell draws its lines from the lines of its
+//! script, which vtium-font places where the small glyph lies (ADR-1202
+//! D8): the renderer keeps one set of the eight sprites for each script,
+//! and a cell picks its set by its script. The shapes above are drawn
+//! from each set's rows alike, so a double or a curl under a subscript
+//! moves up into the cell as it does in a normal cell.
 //!
 //! A line that would leave the cell is moved up into it. An underline takes
 //! at most a quarter of the cell's rows, so that it never covers the lower
@@ -34,7 +42,7 @@
 //! The dash starts at the cell's left edge, so that each character's dash
 //! reads as that letter's own underline (the maintainer, 2026-10-28).
 
-use vtium_font::Decorations;
+use vtium_font::{Decorations, Script};
 use vtium_term::UnderlineStyle;
 
 use crate::stored::Stored;
@@ -271,41 +279,84 @@ fn draw_at(kind: Kind, w: u32, h: u32, m: &Decorations, one_bit: bool) -> Vec<u8
         (Kind::Dotted, _) => dotted(&mut s, m),
         (Kind::Dashed, _) => s.fill_rows(0, dash(w), m.underline, t),
         (Kind::Strike, _) => s.fill_rows(0, w, m.strike, m.strike_thickness),
-        (Kind::Overline, _) => s.fill_rows(0, w, 0, t),
+        (Kind::Overline, _) => s.fill_rows(0, w, fit(m.overline, t, h), t),
         (Kind::StrikeOverline, _) => {
             s.fill_rows(0, w, m.strike, m.strike_thickness);
-            s.fill_rows(0, w, 0, t);
+            s.fill_rows(0, w, fit(m.overline, t, h), t);
         }
     }
     s.px
 }
 
-/// Every decoration for one cell, turned to the display's orientation.
+/// A line a cell draws: its kind, and the script whose set of lines it
+/// takes (ADR-1202 D8). A cell's own lines take its script's set; the
+/// underline cursor takes the normal set, so it keeps one height along a
+/// line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Line {
+    pub(crate) kind: Kind,
+    pub(crate) script: Script,
+}
+
+/// The scripts in the order their sets of sprites lie.
+pub(crate) const SCRIPTS: [Script; 3] = [Script::Baseline, Script::Super, Script::Sub];
+
+/// How many sprites the sets hold together.
+#[cfg(feature = "gpu")]
+pub(crate) const LINES: usize = SCRIPTS.len() * Kind::ALL.len();
+
+impl Line {
+    /// The line's place among [`Sprites`]'s: its script's set, then its
+    /// kind within the set.
+    pub(crate) fn index(self) -> usize {
+        let kind = Kind::ALL.iter().position(|&k| k == self.kind).unwrap_or(0);
+        self.set()
+            .saturating_mul(Kind::ALL.len())
+            .saturating_add(kind)
+    }
+
+    /// The place of the line's script among [`SCRIPTS`].
+    fn set(self) -> usize {
+        SCRIPTS.iter().position(|&s| s == self.script).unwrap_or(0)
+    }
+
+    /// Every line, in the order of [`Line::index`].
+    pub(crate) fn all() -> impl Iterator<Item = Line> {
+        SCRIPTS
+            .into_iter()
+            .flat_map(|script| Kind::ALL.into_iter().map(move |kind| Line { kind, script }))
+    }
+}
+
+/// Every decoration for one cell, in each script's set of lines, turned
+/// to the display's orientation.
 #[derive(Debug)]
 pub(crate) struct Sprites {
     sprites: Vec<Stored>,
 }
 
 impl Sprites {
-    /// The sprites of a `w` by `h` cell, in whole pixels where `one_bit`.
+    /// The sprites of a `w` by `h` cell, from `sets`, the font's lines in
+    /// each of [`SCRIPTS`] in turn, in whole pixels where `one_bit`.
     pub(crate) fn new(
         w: u32,
         h: u32,
-        m: &Decorations,
+        sets: &[Decorations; 3],
         o: Orientation,
         bits: bool,
         one_bit: bool,
     ) -> Sprites {
-        let sprites = Kind::ALL
-            .iter()
-            .map(|&k| Stored::mask(&draw_at(k, w, h, m, one_bit), w, h, o, bits))
+        let sprites = Line::all()
+            .map(|line| {
+                let m = sets.get(line.set()).unwrap_or(&sets[0]);
+                Stored::mask(&draw_at(line.kind, w, h, m, one_bit), w, h, o, bits)
+            })
             .collect();
         Sprites { sprites }
     }
 
-    pub(crate) fn get(&self, kind: Kind) -> Option<&Stored> {
-        let i = Kind::ALL.iter().position(|&k| k == kind)?;
-        self.sprites.get(i)
+    pub(crate) fn get(&self, line: Line) -> Option<&Stored> {
+        self.sprites.get(line.index())
     }
 }
 
@@ -582,6 +633,7 @@ mod tests {
             underline_thickness: 2,
             strike: 8,
             strike_thickness: 2,
+            overline: 0,
         };
         let single = draw(Kind::Single, 16, 16, &own);
         assert_eq!(draw(Kind::Double, 16, 16, &own), single);

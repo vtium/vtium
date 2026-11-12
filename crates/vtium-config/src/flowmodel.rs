@@ -341,6 +341,11 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                     if isolated { "yes" } else { "no" }.to_owned(),
                 ));
             }
+            // `switch-on-enter` is `no` unless the file turns it on
+            // (ADR-1401, "Enter on a head's own keyboard")
+            if h.switch_on_enter {
+                keys.push(("switch-on-enter".to_owned(), "yes".to_owned()));
+            }
             // the VTs the head runs on, none for every VT (ADR-1403 D4)
             if !h.vts.is_empty() {
                 let vts: Vec<String> = h.vts.iter().map(u16::to_string).collect();
@@ -385,6 +390,7 @@ pub fn build(text: &str, present: &Present, draft: Option<Draft>) -> Flow {
                     .filter(|s| !matches!(s.key.name, "font-name" | "font-size"))
                     .map(|s| (s.key.name.to_owned(), s.value.clone()))
                     .collect(),
+                vtlook: l.vtlook.clone(),
                 fonts: Vec::new(),
                 problem,
             }

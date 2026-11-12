@@ -117,6 +117,9 @@ pub struct Style {
     pub bold: bool,
     pub underline: bool,
     pub italic: bool,
+    /// Superscript or subscript, SGR 73 or 74, which only the font
+    /// preview in a vtium console asks for (ADR-1201 D4).
+    pub script: vtium_font::Script,
 }
 
 impl Style {
@@ -130,6 +133,7 @@ impl Style {
         bold: false,
         underline: false,
         italic: false,
+        script: vtium_font::Script::Baseline,
     };
 
     /// Text in `color`.
@@ -173,6 +177,11 @@ impl Style {
         }
         if self.reverse {
             params.push("7".into());
+        }
+        match self.script {
+            vtium_font::Script::Baseline => {}
+            vtium_font::Script::Super => params.push("73".into()),
+            vtium_font::Script::Sub => params.push("74".into()),
         }
         if color {
             match self.rgb {
@@ -281,6 +290,21 @@ mod tests {
         assert_eq!(s.reversed().sgr(true), "\x1b[7;30;106m");
         assert_eq!(s.reversed().sgr(false), "\x1b[7m");
         assert_eq!(s.sgr(false), "");
+    }
+
+    #[test]
+    fn superscript_and_subscript_are_sgr_73_and_74_with_or_without_color() {
+        let sup = Style {
+            script: vtium_font::Script::Super,
+            ..Style::PLAIN
+        };
+        let sub = Style {
+            script: vtium_font::Script::Sub,
+            ..Style::text(Color::Cyan)
+        };
+        assert_eq!(sup.sgr(false), "\x1b[73m");
+        assert_eq!(sub.sgr(true), "\x1b[74;36m");
+        assert_eq!(Style::PLAIN.sgr(true), "");
     }
 
     #[test]

@@ -51,6 +51,11 @@
 //! and the same font, size and character give the same bytes on every
 //! host.
 //!
+//! A [`Variant`] adds a glyph's place in its cell to its style: the
+//! superscript and subscript that SGR 73 and 74 ask for draw the glyph at
+//! two thirds of its size against the top or the bottom of the text band,
+//! a bitmap glyph kept 1-bit ([`Font::drawn_variant`], [`script`]).
+//!
 //! The crate's README says what each face and sprite draws and why, and
 //! which digests and models the tests hold them to.
 //!
@@ -77,6 +82,7 @@ mod policy;
 #[cfg(feature = "psf")]
 mod psf;
 mod reach;
+pub mod script;
 pub mod set;
 mod sha256;
 pub mod spacing;
@@ -90,12 +96,13 @@ pub use bounds::{
     SET_CHUNKS_MAX, SET_CLUSTERS_MAX, SET_GLYPHS_MAX, SET_INKS_MAX, SET_META_BYTES_MAX,
     SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
-pub use face::{Cell, Decorations, Drawn, Face, Font, REPLACEMENT, Style, Width};
+pub use face::{Cell, Decorations, Drawn, Face, Font, REPLACEMENT, ScriptFrom, Style, Width};
 pub use glyph::{Format, Glyph, Ink};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 #[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};
 pub use reach::{REACH_CELLS, REACH_ROWS};
+pub use script::{Kind, Origin, SCRIPT_SCALE, Script, Variant};
 pub use sha256::{Sha256, hex as sha256_hex};
 #[cfg(feature = "unifont")]
 pub use unifont::Unifont;
