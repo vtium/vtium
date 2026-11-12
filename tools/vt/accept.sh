@@ -459,9 +459,13 @@ extra=()
 started=
 da1=
 
-# A new pass id: the time and the PID.
+# A new pass id: the second the pass starts and accept.sh's PID. The PID is
+# padded with zeros to seven digits, the most a Linux PID has (the kernel's
+# PID_MAX_LIMIT is 4194304). Two passes that start in the same second then
+# sort as text in the order the kernel gave out their PIDs, and feedback.sh
+# finds the newest pass by that order.
 new_pass() {
-	pass=$(date +%Y%m%dT%H%M%S)-$$
+	pass=$(printf '%s-%07d' "$(date +%Y%m%dT%H%M%S)" "$$")
 	record=$passes/$pass.md
 	started=$(date -Iseconds)
 	answers=()
