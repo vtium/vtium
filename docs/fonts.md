@@ -103,22 +103,25 @@ Run this command inside a vtium console to open vtium-config's full-screen tool:
 $ vtium config tui
 ```
 
-The tool's Fonts view lists the frits and the built-in fonts. When you move the highlight to a font, the tool shows you that font. If the console can show kitty graphics images, the tool shows the font as an image and leaves the console's own font alone. Without images, the tool describes the character cell and the grid in words. The grid is the number of columns and rows of characters that fit on the display. You can also try the highlighted font on the console itself, with `t`.
+The tool's Fonts view lists the frits and the built-in fonts, with a preview beside the list. Moving the highlight never changes the console's font. What the preview shows depends on where the tool runs:
+
+- In a vtium console with the `allow-font-ops` key on, the preview is text that the console draws in the font it uses now. To see the highlighted font there, try it on the console itself with `t`. The preview text then shows that font.
+- Anywhere else, the preview shows the highlighted font. If the terminal can show kitty graphics images, the preview is an image. Otherwise, the tool describes the character cell and the grid in words. The grid is the number of columns and rows of characters that fit on the display.
 
 The tool opens on its Flow view. To reach Fonts, press Tab twice, or click Fonts in the top row. In the Fonts view, these keys work:
 
 - Up and Down move the highlight.
 - Enter keeps the highlighted font. The tool writes it as `font-name` into your draft. The draft is your working copy of vtium.conf.
 - `t` switches the console to the highlighted font for 10 seconds. Press `k` to keep it. Any other key puts back the font the console used before, and so does the end of the 10 seconds. So a font that makes the screen unreadable undoes itself.
-- `s` switches the image to show the console rendered in the font.
+- `s` in a vtium console with `allow-font-ops` on saves the font the console shows now into your draft. Elsewhere, `s` switches the image between the specimen and the console rendered in the font.
 - `n` makes a new frit.
 - `r` marks a frit to be removed.
 - `i` installs the draft.
 - `q` or Ctrl-C leaves the tool and puts back the font the console had when the tool started.
 
-The image beside the list is a specimen, a sample of every character the font covers, at its real size. A character that the font itself does not have shows in grey where the built-in font supplies it. It shows as an empty box where no font supplies it. The line under the list gives the grid that the font makes on the display. `vtium config preview FONT` prints the same specimen.
+An image preview is a specimen, a sample of every character the font covers, at its real size. A character that the font itself does not have shows in grey where the built-in font supplies it. It shows as an empty box where no font supplies it. The line under the list gives the grid that the font makes on the display. `vtium config preview FONT` prints the same specimen.
 
-The Looks view shows each size the same way, as an image of the display in the font at that size. The console shows images when vtium is built with the `images` feature.
+The Looks view previews each size the same way. In a vtium console with `allow-font-ops` on, its preview is a sample screen that the console draws as text. Elsewhere, its preview is an image of the display in the font at that size. A vtium console shows images when vtium is built with the `images` feature.
 
 A head is one terminal of vtium, on one or more displays, and a look is the set of font settings a head uses. To give one head a font of its own, set the frit as the `font-name` of that head's look. See [The sections of vtium.conf](head-file.md#reading-the-sections) for details.
 
