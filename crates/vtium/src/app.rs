@@ -1553,6 +1553,12 @@ impl App {
     /// cannot be found.
     fn relayout(&mut self, h: usize) -> bool {
         if self.heads.get(h).is_none_or(|head| head.views.is_empty()) {
+            // nothing to lay out, but a switch still changed the font
+            let locale = self.locale.as_str();
+            if let Some(head) = self.heads.get_mut(h) {
+                let name = head.chosen().name(head.font_size, locale).to_owned();
+                name_font(head, &name);
+            }
             return true;
         }
         self.choose_font(h);
@@ -1597,14 +1603,8 @@ impl App {
             }
         };
         head.font_size = base;
-        // OSC 50's query reports the font on screen by a name OSC 50
-        // takes, or no name, as for a font file's path or a family, never
-        // the name of a font no longer shown.
         let name = head.chosen().name(base, locale).to_owned();
-        let terminal = &mut head.console.term.terminal;
-        if !terminal.set_font_name(&name) {
-            terminal.clear_font_name();
-        }
+        name_font(head, &name);
         let cell = |head: &Head, at: u32| {
             head.face(at, locale).ok().map(|f| {
                 let c = f.cell();
@@ -4709,6 +4709,19 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> Vec<crate::deferred::
         s.clusters.dedup();
     }
     all
+}
+
+/// Names the font `name` that `head` draws on every one of its consoles,
+/// the hidden ones too, since the font is the head's: OSC 50's query
+/// reports it by a name OSC 50 takes, or no name, as for a font file's
+/// path or a family, and never the name of a font no longer shown.
+fn name_font(head: &mut Head, name: &str) {
+    for console in head.consoles_mut() {
+        let terminal = &mut console.term.terminal;
+        if !terminal.set_font_name(name) {
+            terminal.clear_font_name();
+        }
+    }
 }
 
 /// The height `head` draws at with its display's density `dpi`: the
