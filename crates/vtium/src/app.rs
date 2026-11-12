@@ -133,6 +133,7 @@ use crate::video::Video;
 use crate::wait::Wait;
 
 mod enter_switch;
+mod held;
 #[cfg(feature = "logind")]
 pub mod keyboard_layout;
 #[cfg(test)]
@@ -310,6 +311,8 @@ pub struct App {
     focus: Option<usize>,
     /// Where each input device's events go.
     routes: Routes,
+    /// The keys each console received that are still held (ADR-1005 D7).
+    held: held::HeldKeys,
     /// The head the focus moved to since [`App::take_focus_move`].
     focus_move: Option<usize>,
     /// The on-screen display, `osd` and `osd-timeout` (ADR-1401 D5).
@@ -567,6 +570,7 @@ impl App {
             stopped: false,
             focus: None,
             routes: Routes::default(),
+            held: held::HeldKeys::default(),
             focus_move: None,
             osd: Osd::configured(&config),
             focus_settled: false,
@@ -3028,8 +3032,9 @@ impl App {
         }
         // The keyboard's route is gone before the end of its modifiers is
         // drained, and that event finds no head, so the Ctrl it held is let
-        // go here.
+        // go here, and so are the keys it held (ADR-1005 D7).
         self.rehover();
+        self.let_go_of_held_keys();
     }
 
     /// Each head hovers what its pointer is over with Ctrl as the
@@ -3075,11 +3080,13 @@ impl App {
     /// focus.
     pub fn input_event(&mut self, event: InputEvent, now: Instant) {
         self.deliver(None, event, now);
+        self.let_go_of_held_keys();
     }
 
     /// A key press or pointer event from the input device at `node`.
     pub fn device_input(&mut self, node: &Path, event: InputEvent, now: Instant) {
         self.deliver(Some(node), event, now);
+        self.let_go_of_held_keys();
     }
 
     /// An event as the input drains it, from the device with the handle
@@ -3096,6 +3103,7 @@ impl App {
             return;
         }
         self.deliver(node.as_deref(), e.event, now);
+        self.let_go_of_held_keys();
     }
 
     /// An event from the device at `node`, or from none, for the head its
@@ -3108,6 +3116,12 @@ impl App {
         // event was queued before it went: no rule placed it (D3, D5).
         let unknown = node.is_some_and(|n| !self.routes.knows(n));
         if self.stopped || unknown && self.rules.policy == Policy::Closed {
+            return;
+        }
+        // A release goes to the console that received its press, and
+        // nowhere else (ADR-1005 D7).
+        if let InputEvent::Release(key) = &event {
+            self.release(node, key);
             return;
         }
         // The shown VT's own key does nothing else (D9).
@@ -3162,7 +3176,7 @@ impl App {
                 });
                 self.activity(now);
                 if !kept {
-                    self.key(h, &key, from, now);
+                    self.key(h, node, &key, from, now);
                 }
             }
             InputEvent::Pointer(p) => {
@@ -3179,6 +3193,62 @@ impl App {
             // not the user's activity.
             InputEvent::Mods(_) => self.rehover(),
             InputEvent::Release(_) => {}
+        }
+    }
+
+    /// The release of a key of the keyboard at `node`: sent to the console
+    /// that received its press, through its encoder, which sends nothing
+    /// for it unless the program asked for releases. A key whose press
+    /// reached no encoder, as a key vtium took, is released nowhere
+    /// (ADR-1005 D7).
+    fn release(&mut self, node: Option<&Path>, key: &KeyEvent) {
+        let Some(to) = self.held.released(node, key.keycode) else {
+            return;
+        };
+        let Some(&keysym) = key.keysyms.first() else {
+            return;
+        };
+        let unicode = key.codepoints.first().copied().flatten();
+        let release = Key {
+            event: TermKeyEvent::Release,
+            ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
+        };
+        self.send_release(to, &release);
+    }
+
+    /// `release` to the console `to`, shown or hidden.
+    fn send_release(&mut self, to: held::Console, release: &Key) {
+        let console = self
+            .heads
+            .get_mut(to.head)
+            .and_then(|head| head.console_mut(to.id));
+        if let Some(console) = console
+            && console.term.terminal.key(release)
+        {
+            console.send_replies();
+        }
+    }
+
+    /// Each console that stopped receiving a keyboard while one of its
+    /// keys was held gets a release for each such key (ADR-1005 D7): a
+    /// console receives a keyboard while vtium's terminals are awake on
+    /// the VT, the keyboard is still routed to the console's head on this
+    /// VT, and the console is the one its head shows. So a VT switch, a
+    /// console chord, a focus move and an unplugged keyboard each let go
+    /// of the keys held, as the next call after them finds.
+    fn let_go_of_held_keys(&mut self) {
+        let awake = self.awake && self.vt.is_active();
+        let (heads, routes, vt_heads, focus) =
+            (&self.heads, &self.routes, &self.vt_heads, self.focus);
+        let owed = self.held.leave(|node, to| {
+            awake
+                && node.is_none_or(|n| routes.knows(n))
+                && routes.elsewhere(node).is_none()
+                && routes.head(vt_heads, node, focus) == Some(to.head)
+                && heads.get(to.head).is_some_and(|h| h.console.id == to.id)
+        });
+        for o in owed {
+            self.send_release(o.to, &o.release);
         }
     }
 
@@ -3311,7 +3381,19 @@ impl App {
     /// goes on down the key order to the session as an ordinary key, as a
     /// serial terminal sends it (D5). The roaming chord is taken only from a roaming
     /// keyboard; from a claimed one it reaches the head's session as a key.
-    fn key(&mut self, h: Option<usize>, key: &KeyEvent, from: KeyFrom, now: Instant) {
+    /// A key that reaches the encoder is recorded as held on the console
+    /// shown, with the keyboard at `node` it came from, so its release
+    /// follows it there; a repeat reaches the encoder only while its
+    /// press's record stands, so a key vtium took keeps its repeats
+    /// (ADR-1005 D7).
+    fn key(
+        &mut self,
+        h: Option<usize>,
+        node: Option<&Path>,
+        key: &KeyEvent,
+        from: KeyFrom,
+        now: Instant,
+    ) {
         if from.vt_keys && self.vt.key(key) || !self.awake {
             return;
         }
@@ -3392,7 +3474,10 @@ impl App {
             }
             return;
         }
-        if key.repeat && !head.console.term.terminal.auto_repeat() {
+        if key.repeat
+            && (!head.console.term.terminal.auto_repeat()
+                || !self.held.delivered(node, key.keycode))
+        {
             return;
         }
         let Some(&keysym) = key.keysyms.first() else {
@@ -3409,6 +3494,13 @@ impl App {
             event,
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
+        if !key.repeat {
+            let to = held::Console {
+                head: h,
+                id: head.console.id,
+            };
+            self.held.pressed(node, key.keycode, to, pressed);
+        }
         if head.console.term.terminal.key(&pressed) {
             // The key opens a window on each display: the program's
             // output draws at once until the display's next flip
@@ -3996,6 +4088,9 @@ impl App {
         self.guard();
         self.attachment(now);
         self.first_start(now);
+        // After the VT's events and the guards, which may have taken the
+        // keyboards from a console.
+        self.let_go_of_held_keys();
         if let Some(r) = &self.releasing
             && r.is_empty()
         {
