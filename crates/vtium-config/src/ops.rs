@@ -165,15 +165,18 @@ pub fn look_option(key: &str) -> Option<&'static str> {
 }
 
 /// Adds `[look NAME]` with each of `keys` that has a value, in the order
-/// of [`LOOK_KEYS`]; a key left out is inherited from the top level.
+/// of [`LOOK_KEYS`], and then its `vtlook` when `keys` gives one; a key
+/// left out is inherited from the top level.
 pub fn look_add(text: &str, name: &str, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let added = add_section(text, Of::Look(name)).map_err(|e| refused(&e))?;
     // the section writer puts each new key first in its section, so the
     // keys go in last to first
     let keys: Vec<(&str, Option<&str>)> = LOOK_KEYS
         .iter()
+        .map(|(k, _)| *k)
+        .chain(["vtlook"])
         .rev()
-        .filter_map(|(k, _)| keys.iter().find(|(given, _)| given == k).copied())
+        .filter_map(|k| keys.iter().find(|(given, _)| *given == k).copied())
         .filter(|(_, v)| v.is_some())
         .collect();
     section_keys(&added, Of::Look(name), &keys)

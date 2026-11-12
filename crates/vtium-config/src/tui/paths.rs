@@ -21,7 +21,7 @@
 //! through [`super::edit::Change`], so through `src/ops.rs`.
 
 use super::edit::Change;
-use super::flow::{Device, Flow, Kind, Rule, Special, Target};
+use super::flow::{Device, Flow, Kind, Look, Rule, Special, Target};
 use super::flowview::{Sort, port_words, sort};
 use super::words;
 
@@ -161,6 +161,9 @@ pub struct Path {
     pub font: Option<String>,
     /// The size in points; `None` for the automatic size.
     pub size: Option<u32>,
+    /// The vtlook the path's look names, `None` when it names none. A new
+    /// look made for a new font set or size names it too (ADR-1403 D8).
+    pub vtlook: Option<String>,
     /// The terminal's settings, each a key of [`SETTINGS`] and its value.
     pub settings: Vec<(String, String)>,
     /// The path's terminal is the active terminal: its inputs roam, and it
@@ -663,6 +666,7 @@ pub fn read(flow: &Flow) -> Doc {
             inputs,
             font: look.map(|l| l.frit.clone()).filter(|f| !f.is_empty()),
             size: look.map(|l| l.points).filter(|p| *p > 0),
+            vtlook: look.and_then(|l| l.vtlook.clone()),
             settings,
             no_input,
             ..Path::default()
@@ -923,44 +927,63 @@ pub fn valid_name(name: &str) -> bool {
         && !Special::ALL.iter().any(|s| s.name() == name)
 }
 
-/// The look a path's font set and size draw with: one of the draft's that
-/// names that frit at that size, else a new look of the frit's name, with
-/// the size after it when it has one; `None` for the default font set at
-/// the automatic size.
-fn look_for(
-    flow: &Flow,
-    font: Option<&str>,
-    size: Option<u32>,
-    added: &mut Vec<Change>,
-) -> Option<String> {
-    if font.is_none() && size.is_none() {
+/// Whether the look `look` draws the path `p`'s font set at its size
+/// with its vtlook.
+fn draws(look: &Look, p: &Path) -> bool {
+    look.frit == p.font.as_deref().unwrap_or_default()
+        && look.points == p.size.unwrap_or(0)
+        && look.vtlook == p.vtlook
+}
+
+/// The look a path's font set, size and vtlook draw with: one of the
+/// draft's that names that frit at that size with that vtlook, else a new
+/// look of the frit's name, with the size after it when it has one, that
+/// names the vtlook too (ADR-1403 D8); `None` for the default font set at
+/// the automatic size with no vtlook. A name another look has takes a
+/// number after it, so a new look never takes the place of another.
+fn look_for(flow: &Flow, p: &Path, added: &mut Vec<Change>) -> Option<String> {
+    let (font, size) = (p.font.as_deref(), p.size);
+    if font.is_none() && size.is_none() && p.vtlook.is_none() {
         return None;
     }
-    let frit = font.unwrap_or_default();
-    let points = size.unwrap_or(0);
-    if let Some(l) = flow
-        .looks
-        .iter()
-        .find(|l| l.frit == frit && l.points == points)
-    {
+    if let Some(l) = flow.looks.iter().find(|l| draws(l, p)) {
         return Some(l.name.clone());
     }
-    let name = match (font, size) {
+    let (frit, size_text) = (font.map(str::to_owned), size.map(|s| s.to_string()));
+    let same = added.iter().find_map(|c| match c {
+        Change::LookAdd {
+            name,
+            frit: f,
+            size: s,
+            vtlook: v,
+        } if *f == frit && *s == size_text && *v == p.vtlook => Some(name.clone()),
+        _ => None,
+    });
+    if same.is_some() {
+        return same;
+    }
+    let stem = match (font, size) {
         (Some(f), None) => f.to_owned(),
         (Some(f), Some(s)) => format!("{f}-{s}"),
         (None, Some(s)) => format!("size-{s}"),
-        (None, None) => String::new(),
+        (None, None) => "look".to_owned(),
     };
-    let fresh = added
-        .iter()
-        .all(|c| !matches!(c, Change::LookAdd { name: n, .. } if *n == name));
-    if fresh && !flow.looks.iter().any(|l| l.name == name) {
-        added.push(Change::LookAdd {
-            name: name.clone(),
-            frit: font.map(str::to_owned),
-            size: size.map(|s| s.to_string()),
-        });
-    }
+    let taken = |n: &str| {
+        flow.looks.iter().any(|l| l.name == n)
+            || added
+                .iter()
+                .any(|c| matches!(c, Change::LookAdd { name, .. } if name == n))
+    };
+    let name = std::iter::once(stem.clone())
+        .chain((2_u32..).map(|i| format!("{stem}-{i}")))
+        .find(|n| !taken(n))
+        .unwrap_or(stem);
+    added.push(Change::LookAdd {
+        name: name.clone(),
+        frit,
+        size: size_text,
+        vtlook: p.vtlook.clone(),
+    });
     Some(name)
 }
 
@@ -1000,17 +1023,27 @@ impl Line {
 
 /// The heads and looks that make the draft's heads the paths of `doc`:
 /// the heads no path has go, and each path's head is added or has its
-/// look and settings set.
+/// look and settings set. A head whose font set, size and vtlook stay
+/// keeps its own look. A look that a head leaves and that no head of
+/// `doc` uses then goes, so trying one size after another leaves only the
+/// last one's look (ADR-1403 D8). The default look, and a look no head
+/// used before, stay.
 fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut looks = Vec::new();
     let mut heads = Vec::new();
+    // each path's head and the look it draws with afterwards, `None` for
+    // the default look
+    let mut uses: Vec<Option<String>> = Vec::new();
+    // the looks the heads leave
+    let mut left: Vec<String> = Vec::new();
     for p in &doc.paths {
         let Some(name) = p.name.clone() else {
             continue;
         };
-        let look = look_for(flow, p.font.as_deref(), p.size, &mut looks);
         match flow.heads.iter().find(|h| h.name == name) {
             None => {
+                let look = look_for(flow, p, &mut looks);
+                uses.push(look.clone());
                 heads.push(Change::HeadAdd {
                     name: name.clone(),
                     look,
@@ -1028,7 +1061,21 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
             }
             Some(h) => {
                 let now = (h.look != "default").then(|| h.look.clone());
+                let own = flow.looks.iter().find(|l| l.name == h.look);
+                let keeps = own.map_or(
+                    p.font.is_none() && p.size.is_none() && p.vtlook.is_none(),
+                    |l| draws(l, p),
+                );
+                let look = if keeps {
+                    now.clone()
+                } else {
+                    look_for(flow, p, &mut looks)
+                };
+                uses.push(look.clone());
                 if now != look {
+                    if let Some(old) = &now {
+                        left.push(old.clone());
+                    }
                     heads.push(Change::HeadKey {
                         name: name.clone(),
                         key: "look",
@@ -1064,7 +1111,18 @@ fn heads_plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
         .iter()
         .filter(|h| doc.path(&h.name).is_none())
         .map(|h| Change::HeadRm(h.name.clone()));
-    gone.chain(looks).chain(heads).collect()
+    // the looks left behind go once the heads no longer name them
+    let mut pruned: Vec<String> = Vec::new();
+    for old in left {
+        let unused = !uses.iter().flatten().any(|u| *u == old);
+        if unused && flow.looks.iter().any(|l| l.name == old) && !pruned.contains(&old) {
+            pruned.push(old);
+        }
+    }
+    gone.chain(looks)
+        .chain(heads)
+        .chain(pruned.into_iter().map(Change::LookRm))
+        .collect()
 }
 
 /// The draft's rules as `doc` says them, in order, each marked when it is
@@ -1148,8 +1206,9 @@ fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
 
 /// The draft's changes that make its heads, looks and rules the
 /// configuration `doc`: the rules `doc` no longer says go, the heads no
-/// path has go, each path's head is added or has its look set, and each
-/// new rule is added where [`rules_plan`] puts it. A draft that already
+/// path has go, each path's head is added or has its look set, the looks
+/// the heads leave and no head uses go, and each new rule is added where
+/// [`rules_plan`] puts it. A draft that already
 /// says all this is left as it is.
 pub fn plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut out = Vec::new();
@@ -1525,6 +1584,7 @@ pub(crate) mod tests {
                 frit: "monoid".into(),
                 points: 14,
                 keys: Vec::new(),
+                vtlook: None,
                 fonts: Vec::new(),
                 problem: None,
             }],
@@ -2428,5 +2488,141 @@ pub(crate) mod tests {
             fewer.set_label(k, s, "");
         }
         assert_eq!(apply(&less, &plan(&build(&less), &fewer)), TEXT);
+    }
+
+    /// `text` with the first terminal's size tried at each of `sizes` in
+    /// turn, each try planned from the draft the one before it left, as the
+    /// Flow view's terminal card does.
+    fn tried(text: &str, sizes: &[u32]) -> String {
+        sizes.iter().fold(text.to_owned(), |text, size| {
+            let f = build(&text);
+            let mut doc = read(&f);
+            doc.paths[0].size = Some(*size);
+            apply(&text, &plan(&f, &doc))
+        })
+    }
+
+    /// The names of the `[look NAME]` sections of `text`, in order.
+    fn look_names(text: &str) -> Vec<String> {
+        build(text).looks.iter().map(|l| l.name.clone()).collect()
+    }
+
+    // ADR-1403 D8: a look the change leaves unused by every head goes
+    #[test]
+    fn three_sizes_tried_in_a_row_leave_one_look() {
+        let text = tried(TEXT, &[16, 18, 20]);
+        assert_eq!(look_names(&text), ["monoid-20"], "{text}");
+        let back = read(&build(&text));
+        assert_eq!(back.paths[0].size, Some(20));
+        assert_eq!(back.paths[0].font.as_deref(), Some("monoid"));
+        assert!(text.contains("[head desk]\nlook = monoid-20\n"), "{text}");
+    }
+
+    #[test]
+    fn a_look_another_head_shares_stays() {
+        let shared = TEXT.replace("[head panel]\n", "[head panel]\nlook = big\n");
+        let text = tried(&shared, &[16, 18]);
+        assert_eq!(look_names(&text), ["big", "monoid-18"], "{text}");
+        assert!(text.contains("[head panel]\nlook = big\n"), "{text}");
+    }
+
+    #[test]
+    fn an_unused_look_the_person_wrote_stays() {
+        let spare = TEXT.replace(
+            "[head desk]\n",
+            "[look spare]\nfont-name = dejavu\nfont-size = 12\n[head desk]\n",
+        );
+        let text = tried(&spare, &[16, 18]);
+        assert_eq!(look_names(&text), ["spare", "monoid-18"], "{text}");
+    }
+
+    #[test]
+    fn a_removed_look_takes_its_comments_and_leaves_the_others() {
+        let commented = TEXT
+            .replace(
+                "[look big]\nfont-name = monoid\n",
+                "# the looks\n[look big]\n# big for the desk\nfont-name = monoid\n",
+            )
+            .replace(
+                "[head desk]\n",
+                "[look spare]\n# kept for later\nfont-name = dejavu\n[head desk]\n",
+            );
+        let text = tried(&commented, &[16]);
+        assert_eq!(look_names(&text), ["spare", "monoid-16"], "{text}");
+        assert!(!text.contains("big for the desk"), "{text}");
+        assert!(text.contains("# the looks\n"), "{text}");
+        assert!(text.contains("# kept for later\n"), "{text}");
+    }
+
+    #[test]
+    fn a_new_look_keeps_the_old_look_s_vtlook() {
+        // panel's look has desk's new frit and size and no vtlook, so desk
+        // cannot take it
+        let crt = TEXT
+            .replace("font-size = 14\n", "font-size = 14\nvtlook = crt\n")
+            .replace("[head panel]\n", "[head panel]\nlook = monoid-16\n")
+            .replace(
+                "[head desk]\n",
+                "[look monoid-16]\nfont-name = monoid\nfont-size = 16\n[head desk]\n",
+            );
+        let text = tried(&crt, &[16]);
+        let f = build(&text);
+        let desk = f.heads.iter().find(|h| h.name == "desk").expect("desk");
+        assert_ne!(desk.look, "monoid-16", "{text}");
+        let look = f
+            .looks
+            .iter()
+            .find(|l| l.name == desk.look)
+            .expect("its look");
+        assert_eq!((look.frit.as_str(), look.points), ("monoid", 16), "{text}");
+        let section = text
+            .split(&format!("[look {}]\n", desk.look))
+            .nth(1)
+            .and_then(|rest| rest.split('[').next())
+            .unwrap_or_default();
+        assert!(section.contains("vtlook = crt\n"), "{text}");
+        assert!(text.contains("[head panel]\nlook = monoid-16\n"), "{text}");
+        assert!(!look_names(&text).contains(&"big".to_owned()), "{text}");
+    }
+
+    #[test]
+    fn a_look_is_matched_by_its_vtlook_too() {
+        let crt = TEXT
+            .replace("font-size = 14\n", "font-size = 14\nvtlook = crt\n")
+            .replace(
+                "[head desk]\n",
+                "[look plain]\nfont-name = monoid\nfont-size = 16\n[look glow]\nfont-name = monoid\nfont-size = 16\nvtlook = crt\n[head desk]\n",
+            );
+        let text = tried(&crt, &[16]);
+        assert!(text.contains("[head desk]\nlook = glow\n"), "{text}");
+        assert_eq!(look_names(&text), ["plain", "glow"], "{text}");
+    }
+
+    #[test]
+    fn a_head_keeps_its_own_look_while_its_font_set_and_size_stay() {
+        // two looks draw monoid at 14, and desk names the second
+        let twin = TEXT.replace(
+            "[head desk]\nlook = big\n",
+            "[look big2]\nfont-name = monoid\nfont-size = 14\n[head desk]\nlook = big2\n",
+        );
+        let f = build(&twin);
+        let mut doc = read(&f);
+        doc.paths[1].set("consoles", "2");
+        let text = apply(&twin, &plan(&f, &doc));
+        assert!(text.contains("[head desk]\nlook = big2\n"), "{text}");
+        assert_eq!(look_names(&text), ["big", "big2"], "{text}");
+    }
+
+    #[test]
+    fn the_draft_is_the_same_whatever_order_the_sizes_were_tried_in() {
+        let first = tried(TEXT, &[16, 18, 20]);
+        for sizes in [
+            &[18, 16, 20][..],
+            &[14, 18, 16, 20],
+            &[20, 16, 18, 20],
+            &[16, 14, 20],
+        ] {
+            assert_eq!(tried(TEXT, sizes), first, "{sizes:?}");
+        }
     }
 }
