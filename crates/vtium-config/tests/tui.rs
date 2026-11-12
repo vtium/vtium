@@ -3053,6 +3053,24 @@ mod draft_flow {
         fn installed(&self) -> String {
             std::fs::read_to_string(self.root.join("etc/vtium.conf")).expect("vtium.conf")
         }
+
+        /// The width at which a message that names one of the bench's
+        /// files keeps the words after the path on screen. The message
+        /// line wraps to three rows, and it breaks a path that is wider
+        /// than a row across rows. The bench lives under the test
+        /// target's temporary directory, so its paths are as long as the
+        /// checkout's and the target directory's names make them. At this
+        /// width a row holds the bench's longest path, its draft's, whole,
+        /// with room for the `:LINE:` that the check adds after it, so
+        /// the words after the path fit on the rows that are left.
+        fn cols(&self) -> usize {
+            let path = self.store().draft_path("bench").expect("the draft's path");
+            path.to_string_lossy()
+                .chars()
+                .count()
+                .saturating_add(8)
+                .max(100)
+        }
     }
 
     /// What a run on the bench left: the console and the app's last screen.
@@ -3111,12 +3129,12 @@ mod draft_flow {
         run_on(b, vec![present(vec![keyboard()], true)], true, keys)
     }
 
-    /// Runs the TUI on `b`'s desk at 100x30 in the Fonts view of a vtium
-    /// console of the head `head`, which draws unifont and takes tiny5 and
-    /// a font set named BADX, which the bench's check refuses, typing
-    /// `keys`.
+    /// Runs the TUI on `b`'s desk, 30 rows high and [`Bench::cols`] wide,
+    /// in the Fonts view of a vtium console of the head `head`, which
+    /// draws unifont and takes tiny5 and a font set named BADX, which the
+    /// bench's check refuses, typing `keys`.
     fn run_fonts(b: &Bench, head: Option<&str>, keys: &[&[u8]]) -> Ran {
-        let grid = (100, 30);
+        let grid = (b.cols(), 30);
         let mut console = Console::vtium(grid.0, grid.1, true, "unifont")
             .takes("tiny5", grid)
             .takes("unifont", grid)
@@ -3385,7 +3403,14 @@ mod draft_flow {
         run(&b, &[&CHANGE[..], &[b"s"]].concat());
         let edited = INSTALLED.replace("font-size=12", "font-size=14");
         std::fs::write(b.root.join("etc/vtium.conf"), &edited).expect("the hand edit");
-        let ran = run(&b, &[b"i"]);
+        // the refusal names the installed file's path before its words
+        let ran = run_at(
+            &b,
+            (b.cols(), 30),
+            vec![present(vec![keyboard()], true)],
+            true,
+            &[b"i"],
+        );
         assert!(ran.said().contains("changed after"), "{}", ran.screen());
         // and no question asked, so a y installs nothing
         let ran = run(&b, &[b"i", b"y"]);
