@@ -2428,6 +2428,17 @@ impl App {
                     self.relayout(h);
                 }
             }
+            // A display the device cannot light beside the others is still
+            // plugged in, so its head keeps it, and its sessions with it,
+            // whatever `when-display-lost` says (ADR-1401 D8). It draws
+            // nothing until the modeset that lights it says to redraw.
+            Event::Unlit(id) => {
+                let name = self.videos.get(node).map(|video| video.name(id));
+                log::warn!(
+                    "display {} cannot be lit beside the others: its head keeps it, dark, until it lights",
+                    name.as_deref().unwrap_or("?")
+                );
+            }
             // A modeset or a wake-up may have given the display a new
             // mode in place, on the same connector. Its view takes the
             // display's refresh rate again, which paces its frames. At a

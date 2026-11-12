@@ -6619,6 +6619,16 @@ type Woken = (
 /// off 100, as B was lit on 100 as vtium woke; with C, it puts C on 100
 /// and B on 102, off 100 too.
 fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
+    let (woke, mut v) = wake_beside_c(atomic, c, refuse);
+    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    let unset = v.unset.iter().map(|id| id.0).collect();
+    let events = events(&mut v);
+    let retries = v.waits().1;
+    (woke, outs, unset, v.move_refused.clone(), events, retries)
+}
+
+/// The wake-up of [`woken_beside_c`], with the card it woke.
+fn wake_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> (io::Result<()>, Drm2d<FakeCard>) {
     const C: u32 = 43;
     let card = reaching(&[0b011, 0b101, 0b001], 2);
     {
@@ -6640,11 +6650,7 @@ fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
         v.card().state().refused_modes.extend([100, 101, 102]);
     }
     let woke = v.wake_up();
-    let outs = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
-    let unset = v.unset.iter().map(|id| id.0).collect();
-    let events = events(&mut v);
-    let retries = v.waits().1;
-    (woke, outs, unset, v.move_refused.clone(), events, retries)
+    (woke, v)
 }
 
 // Two displays moved off one CRTC do not both go back to it, and the
@@ -6658,7 +6664,7 @@ fn woken_beside_c(atomic: bool, c: bool, refuse: &[u32]) -> Woken {
 // woke, and no retry runs, so the refused choice is never tried again.
 // Where the card refuses both 101 and 102, neither choice lights, and the
 // first lights without A, which stays on the CRTC it was moved to: B
-// lights on 100 and A is left off. Where the card refuses a mode on every
+// lights on 100 and A is left off, present but dark. Where the card refuses a mode on every
 // CRTC, it refuses every choice and every set without a moved display, so
 // nothing lights, C is not recorded, and the retries run. With the legacy
 // calls only A's set failed where the card refuses 101, so A goes back to
@@ -6685,7 +6691,7 @@ fn two_displays_moved_off_one_crtc_do_not_both_go_back() {
     assert_eq!(
         events,
         [
-            Event::Removed(DisplayId(A)),
+            Event::Unlit(DisplayId(A)),
             Event::Redraw(DisplayId(B)),
             Event::Awake
         ]
@@ -6826,6 +6832,108 @@ fn a_display_no_placement_lights_is_recorded_and_searched_for_no_more() {
         "the placement, again at the default modes, and the set without B"
     );
     assert_eq!(v.move_refused, [B]);
+}
+
+// A display left off while its monitor is still plugged in stays present
+// but dark (ADR-1401 D8, vtium/vtium#298). In the card of `woken_beside_c`
+// without C, the card refuses 101 and 102, so no placement lights A beside
+// B: the wake-up lights B on 100 and leaves A off. The owner hears A unlit,
+// not removed. A keeps its name, is not listed among the displays online,
+// lends no buffer, and a frame on B commits nothing for it. Once the card
+// takes 101, the next hotplug lights A there, and the owner is told to
+// draw A whole, not that it was added.
+#[test]
+fn a_display_left_off_stays_present_until_a_placement_lights_it() {
+    let (woke, mut v) = wake_beside_c(true, false, &[101, 102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(
+        events(&mut v),
+        [
+            Event::Unlit(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert_eq!(v.displays().collect::<Vec<_>>(), [DisplayId(B)]);
+    assert_eq!(v.name(DisplayId(A)), Some("HDMI-A-1"));
+    assert!(v.size(DisplayId(A)).is_none());
+    assert!(v.lend(DisplayId(A)).is_none());
+    let from = v.card().state().commits.len();
+    drawn(&mut v, B, 0x55);
+    let s = v.card().state();
+    assert!(
+        s.commits[from..]
+            .iter()
+            .all(|c| c.props.iter().all(|(o, _, _)| *o != A)),
+        "no commit sets A"
+    );
+    drop(s);
+    v.card().state().refused.clear();
+    v.poll().unwrap();
+    flip(&mut v);
+    let ev = events(&mut v);
+    assert!(ev.contains(&Event::Redraw(DisplayId(A))), "{ev:?}");
+    assert!(!ev.contains(&Event::Added(DisplayId(A))), "{ev:?}");
+    assert!(!ev.contains(&Event::Removed(DisplayId(A))), "{ev:?}");
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 101), (B, 100)]);
+    assert_eq!(
+        v.displays().collect::<Vec<_>>(),
+        [DisplayId(A), DisplayId(B)]
+    );
+    assert!(v.lend(DisplayId(A)).is_some());
+}
+
+// A display left off is reported removed once its monitor is unplugged,
+// and a later hotplug that finds it searches for it no more. Here, after
+// the wake-up of the test above leaves A off, A's monitor is unplugged: the
+// owner hears A removed, and its name is gone. Plugged back in, A is a new
+// display, which the owner hears added once it lights.
+#[test]
+fn a_display_left_off_is_removed_once_its_monitor_is_unplugged() {
+    let (woke, mut v) = wake_beside_c(true, false, &[101, 102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    v.events().for_each(drop);
+    v.card().state().connectors.get_mut(&A).unwrap().connected = false;
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Removed(DisplayId(A))]);
+    assert_eq!(v.name(DisplayId(A)), None);
+    v.card().state().refused.clear();
+    v.card().state().connectors.get_mut(&A).unwrap().connected = true;
+    v.poll().unwrap();
+    flip(&mut v);
+    let ev = events(&mut v);
+    assert!(ev.contains(&Event::Added(DisplayId(A))), "{ev:?}");
+    assert!(!ev.contains(&Event::Redraw(DisplayId(A))), "{ev:?}");
+}
+
+// With the legacy calls, a display that no placement lights stays bound and
+// unset, present but dark (vtium/vtium#298). In the card of
+// `woken_beside_c` without C, the card refuses 101 and 102: B lights on 100
+// and A is not reported removed. Once the card takes 101, the next hotplug
+// lights A there, B staying on 100, and the owner is told to draw A whole.
+#[test]
+fn a_legacy_display_no_placement_lights_stays_present_until_one_does() {
+    let (woke, mut v) = wake_beside_c(false, false, &[101, 102]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(
+        events(&mut v),
+        [Event::Redraw(DisplayId(B)), Event::Awake],
+        "A is not removed"
+    );
+    assert_eq!(v.unset, [DisplayId(A)]);
+    v.card().state().refused.clear();
+    v.poll().unwrap();
+    let ev = events(&mut v);
+    assert!(ev.contains(&Event::Redraw(DisplayId(A))), "{ev:?}");
+    assert!(!ev.iter().any(|e| matches!(e, Event::Removed(_))), "{ev:?}");
+    assert_eq!(v.unset, Vec::<DisplayId>::new());
+    let s = v.card().state();
+    assert_eq!(
+        [A, B].map(|c| s.bound.get(&c).copied()),
+        [Some(101), Some(100)],
+        "A lights on 101 and B stays on 100"
+    );
 }
 
 // A new display the card refused beside the others, placed after them,

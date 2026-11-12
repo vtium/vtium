@@ -158,6 +158,13 @@ pub enum Event {
     Added(DisplayId),
     /// A display is gone.
     Removed(DisplayId),
+    /// A display is still connected, but the device cannot light it beside
+    /// the others, as where the card refuses every placement of them that
+    /// gives it a CRTC (ADR-1401 D8). It keeps its id and its name, shows
+    /// nothing, and lends no buffer. [`Event::Redraw`] follows once a
+    /// modeset lights it, and [`Event::Removed`] once its monitor is
+    /// unplugged.
+    Unlit(DisplayId),
     /// The display was set up again, as after a modeset or a wake-up, and
     /// shows nothing drawn yet: draw it whole. The set-up may have given
     /// the display a new mode in place, on the same connector, so its size

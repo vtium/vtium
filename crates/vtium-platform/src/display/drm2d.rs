@@ -15,6 +15,7 @@
 mod back;
 mod buffers;
 mod dark;
+mod left_off;
 mod matching;
 mod output;
 
@@ -175,6 +176,10 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// A modeset could not set the dark connectors off beside the lit
     /// displays, and that was logged as a warning.
     dark_refused: bool,
+    /// The displays left off while their monitors are still plugged in,
+    /// which keep their ids with no CRTC until a placement lights them
+    /// ([`left_off::LeftOff`]).
+    left_off: Vec<left_off::LeftOff>,
     /// The connectors whose display the card refused to set beside the
     /// others even with lit displays moved for it. Until such a connector
     /// is unplugged, a hotplug moves no lit display for it, so the lit
@@ -270,6 +275,7 @@ impl<K: Kms> Drm2d<K> {
             identities: Vec::new(),
             dark: Vec::new(),
             dark_refused: false,
+            left_off: Vec::new(),
             move_refused: Vec::new(),
             stale: Vec::new(),
             color_refused: RefCell::new(Vec::new()),
@@ -394,9 +400,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.outputs.iter_mut().find(|o| o.id == id && o.announced)
     }
 
-    /// The connector's name, as `HDMI-A-1`.
+    /// The connector's name, as `HDMI-A-1`, of a display online or left
+    /// off.
     pub fn name(&self, id: DisplayId) -> Option<&str> {
-        self.output(id).map(|o| o.name.as_str())
+        self.output(id)
+            .map(|o| o.name.as_str())
+            .or_else(|| self.left_off(id).map(|l| l.name.as_str()))
     }
 
     /// The size in pixels of the display's mode.
@@ -1197,6 +1206,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.events.push(Event::Removed(o.id));
             }
         }
+        for l in std::mem::take(&mut self.left_off) {
+            self.events.push(Event::Removed(l.id));
+        }
         for (_, timer) in std::mem::take(&mut self.stale) {
             if let (Some(link), Some(t)) = (&self.link, timer) {
                 link.disarm(t);
@@ -1443,6 +1455,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         for d in &mut self.dark {
             d.available = false;
         }
+        for l in &mut self.left_off {
+            l.available = false;
+        }
         let mut needs = scan != Scan::Hotplug;
         // The set of displays changed: one was bound or let go.
         let mut changed = false;
@@ -1507,9 +1522,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     d.id != id
                 });
             }
+            self.see_left_off(id);
             if let Some(o) = self.outputs.iter_mut().find(|o| o.id.0 == id) {
                 o.available = true;
-                needs |= !o.online;
+                // A display the last legacy modeset could not set is set
+                // again at each scan, so a hotplug lights it where the card
+                // now takes it.
+                needs |= !o.online || self.unset.contains(&o.id);
                 // The same monitor listing other modes than those the
                 // display's mode was chosen from, as after a DisplayPort
                 // link is trained again, gets its mode chosen again from
@@ -1562,6 +1581,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 .is_some_and(|dark| dark(&identity))
             {
                 log::info!("display {} is left dark", found.name);
+                self.darken_left_off(id);
                 self.dark.push(Dark {
                     id,
                     identity,
@@ -1580,6 +1600,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             d.available
         });
+        self.drop_left_off_gone();
         self.dark
             .sort_by_key(|d| res.connectors.iter().position(|&c| c == d.id));
         let (kept, gone): (Vec<_>, Vec<_>) = self.outputs.drain(..).partition(|o| o.available);
@@ -2449,13 +2470,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// Lets go of display `o`, which a placement could not put on a CRTC
-    /// for `why`: it stays off until a scan finds a CRTC for it, and the
-    /// owner hears it removed.
+    /// for `why`: it stays off until a scan finds a CRTC for it, present
+    /// but dark ([`Self::keep_left_off`]).
     fn let_go(&mut self, o: Output<S::Memory>, why: &str) {
         log::warn!("{why}; it stays off until a scan finds a CRTC for it");
-        if o.announced {
-            self.events.push(Event::Removed(o.id));
-        }
+        self.keep_left_off(&o);
         self.identities.retain(|(i, _)| *i != o.id);
         self.free(o);
     }
@@ -2565,7 +2584,15 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 }
             } else {
                 o.announced = true;
-                self.events.push(Event::Added(o.id));
+                // The owner has heard of a display left off, which it is
+                // told to draw whole now that it lights.
+                let before = self.left_off.len();
+                self.left_off.retain(|l| l.id != o.id);
+                if self.left_off.len() == before {
+                    self.events.push(Event::Added(o.id));
+                } else {
+                    self.events.push(Event::Redraw(o.id));
+                }
             }
         }
     }
