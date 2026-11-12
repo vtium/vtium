@@ -1,0 +1,14 @@
+# acceptance-large: the font set the reflow page switches to (ADR-1501 D2 and
+# D6). Terminus at 16x32, from Arch Linux's terminus-font package, has
+# character cells twice as wide and twice as tall as the 8x16 fonts, so the
+# switch halves the grid's columns while the page shows. The built-in GNU
+# Unifont draws what Terminus lacks. The acceptance pass records the
+# Terminus file's SHA-256 and package with every pass.
+#
+# checks: a grid with half the columns; lines rewrapped to it
+
+name=acceptance-large
+license=OFL-1.1
+
+source=file:/usr/share/kbd/consolefonts/ter-v32n.psf.gz
+source=builtin:unifont

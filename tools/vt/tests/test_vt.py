@@ -1849,14 +1849,14 @@ class Make(Case):
     def test_the_default_binary_is_the_minspec_build(self):
         # VTIUM_MINSPEC points the default at the stand-in, which the stand-in
         # cargo "builds".
-        # The acceptance pass builds it with pictures unless FEATURES is
-        # named on make's command line (ADR-1501 D5).
+        # The acceptance pass builds it with pictures and bidirectional text
+        # unless FEATURES is named on make's command line (ADR-1501 D5).
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features images -- -C link-arg=-Wl,-z,pack-relative-relocs"])
+        self.assertEqual(self.s.calls_of("cargo"), ["rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features images bidi -- -C link-arg=-Wl,-z,pack-relative-relocs"])
         self.assertIn(f"--bin={self.s.bin} ", p.stdout)
         self.assertIn(f"--helper={self.s.helper} ", p.stdout)
-        self.assertIn(" --features=images ", p.stdout)
+        self.assertIn(" --features=images\\ bidi ", p.stdout)
         open(self.s.calls, "w").close()
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", "FEATURES=")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1966,6 +1966,45 @@ class Make(Case):
                 self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", HWACCEL="on")
         self.assertEqual(p.returncode, 0, "one exported in the shell is not refused: " + p.stderr)
+
+    def test_vt_accept_chooses_the_render_path(self):
+        # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
+        # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).
+        # Unnamed, FEATURES is images and bidi, and gpu with them for the GPU
+        # path.
+        for path, opt, features in (("cpu", "--no-hwaccel", "images bidi"), ("gpu", "--hwaccel", "images bidi gpu")):
+            with self.subTest(path=path):
+                open(self.s.calls, "w").close()
+                named = () if path == "cpu" else ("RENDER_PATH=gpu",)
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", *named)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertEqual(self.s.calls_of("cargo"), [
+                    f"rustc --profile minspec -p vtium --bin vtium --target x86_64-unknown-linux-gnu --features {features} "
+                    "-- -C link-arg=-Wl,-z,pack-relative-relocs"])
+                self.assertIn(f" --render-path={path} ", p.stdout)
+                self.assertIn(f" ACCEPT_RENDER_PATH={path} ", p.stdout)
+                self.assertRegex(p.stdout, rf"/run-vtium-vt/vtium --vt=tty\d+ .* {opt}( |\n)")
+        # a value of neither, and gpu with FEATURES that lack it, are refused
+        # before anything is built
+        for args, why in ((("RENDER_PATH=fast",), "RENDER_PATH is gpu or cpu, not 'fast'"),
+                          (("RENDER_PATH=gpu", "FEATURES=images"),
+                           "RENDER_PATH=gpu needs the GPU path in the console: name gpu in FEATURES")):
+            with self.subTest(args=args):
+                open(self.s.calls, "w").close()
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_MINSPEC={self.s.bin}", *args)
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(why, p.stderr)
+                self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
+        # the render path is the acceptance pass's: DEMO_ARGS does not name
+        # hwaccel beside it
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "DEMO_ARGS=--hwaccel")
+        self.assertNotEqual(p.returncode, 0, p.stdout)
+        self.assertIn("RENDER_PATH chooses hwaccel for the acceptance pass", p.stdout + p.stderr)
+        # the other review targets run vtium as DEMO_ARGS says
+        p = self.make("vt-shell", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "RENDER_PATH=gpu")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("render-path", p.stdout)
+        self.assertNotIn("hwaccel", p.stdout)
 
 
 

@@ -13,9 +13,11 @@
 # recorded as skip. A page whose "# frits:" line names font sets (frits, in
 # sections/frits) is walked once in each: the walk switches the console to
 # the frit with OSC 50 before the page, checks with OSC 50's query that it
-# did, and switches back to the console's own font after. A frit whose font
-# files are missing, or that vtium does not switch to, makes the page a skip
-# that says why. Every answer rewrites the pass's record, a markdown file
+# did, and switches back to the console's own font after. A page whose
+# "# font-switch:" line names a frit switches the console to it itself, part
+# way through the page, and the walk switches back after it. A frit whose
+# font files are missing, or that vtium does not switch to, makes the page a
+# skip that says why. Every answer rewrites the pass's record, a markdown file
 # named after the pass in the passes directory: ACCEPT_DIR, else
 # $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance). The record
 # holds the build, the terminal, and each page's answer and comment; a pass
@@ -32,7 +34,8 @@
 # ACCEPT_LABEL names the terminal on the title page and in the record; run-vt.sh
 # sets it to "vtium dev build <git describe>". ACCEPT_VT, ACCEPT_BINARY and
 # ACCEPT_FEATURES, when set, name the VT, the binary and its features in the
-# record. ACCEPT_NOPROMPT=1 shows the guidance, asks nothing and records
+# record, and ACCEPT_RENDER_PATH, gpu or cpu, the render path vtium was run
+# on, with --hwaccel or --no-hwaccel. ACCEPT_NOPROMPT=1 shows the guidance, asks nothing and records
 # nothing: any key goes to the next page and q quits. ACCEPT_NOPAGE=1 also waits
 # for no key and leaves the last page on the screen, for checking the pages
 # outside a VT. ACCEPT_PAGES names another directory of pages, for the
@@ -47,6 +50,12 @@ nopage=${ACCEPT_NOPAGE:-}
 noprompt=${ACCEPT_NOPROMPT:-$nopage}
 passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 label=${ACCEPT_LABEL:-unlabelled}
+# The render path the pass judges, as the record names it (ADR-1501 D3).
+case ${ACCEPT_RENDER_PATH:-} in
+gpu) render_path='gpu, vtium run with --hwaccel' ;;
+cpu) render_path='cpu, vtium run with --no-hwaccel' ;;
+*) render_path='not given' ;;
+esac
 pass=
 record=
 rows=25
@@ -214,7 +223,7 @@ footer_lines() {
 status=0
 unshown_why=
 draw_page() {
-	local frit=${frits[$1]}
+	local frit=${frits[$1]} switch=${switches[$1]}
 	reset_terminal
 	unshown_why=
 	# ACCEPT_NOPROMPT draws a frit's page in the font the terminal has.
@@ -222,6 +231,9 @@ draw_page() {
 		switch_font "$frit" || unshown_why=$why
 	else
 		restore_font
+	fi
+	if [ -n "$switch" ] && [ -n "${missing[$switch]:-}" ]; then
+		unshown_why="the font set $switch needs files this machine lacks: ${missing[$switch]}"
 	fi
 	read_size
 	clear_screen
@@ -234,6 +246,9 @@ draw_page() {
 		return
 	fi
 	ACCEPT_TOP=3 ACCEPT_FRIT=$frit bash "${pages[$1]}" || status=$?
+	# The page switched the font set itself: the next page, or a redraw,
+	# gets the console's own font back first.
+	[ -z "$switch" ] || current=$switch
 	[ "$status" -eq 0 ] || [ "$status" -eq 77 ] ||
 		printf '\n\033[31m(the page exited with status %d)\033[0m\n' "$status"
 }
@@ -298,7 +313,7 @@ font_lines=()
 declare -A missing=()
 font_sums() {
 	local name path sum pkg
-	for name in $(printf '%s\n' "${frits[@]}" | sed '/^$/d' | sort -u); do
+	for name in $(printf '%s\n' "${frits[@]}" "${switches[@]}" | sed '/^$/d' | sort -u); do
 		if [ ! -f "$frit_dir/$name.vtfrit" ]; then
 			font_lines+=("- frit: $name missing from $frit_dir")
 			missing[$name]="$frit_dir/$name.vtfrit"
@@ -348,7 +363,11 @@ switch_font() {
 # Switches the console back to the font it had when the walk started.
 restore_font() {
 	[ -n "$current" ] || return 0
-	[ -z "$font_start" ] || printf '\033]50;%s\a' "$font_start" >/dev/tty
+	if [ -n "$font_start" ]; then
+		printf '\033]50;%s\a' "$font_start" >/dev/tty
+		# a round trip, so the grid the font gives is read after it
+		cursor_row >/dev/null
+	fi
 	current=
 }
 
@@ -487,6 +506,7 @@ write_record() {
 		printf -- '- vt: %s\n' "$(one_line "${ACCEPT_VT:-not given}")"
 		printf -- '- binary: %s\n' "$(one_line "${ACCEPT_BINARY:-not given}")"
 		printf -- '- features: %s\n' "$(one_line "${ACCEPT_FEATURES:-not given}")"
+		printf -- '- render-path: %s\n' "$render_path"
 		printf -- '- terminal: TERM=%s, %s rows by %s columns at the start\n' "$(one_line "${TERM:-unset}")" "$start_rows" "$start_cols"
 		printf -- '- da1: %s\n' "${da1:-no answer}"
 		printf '%s\n' "${hardware_lines[@]}"
@@ -536,6 +556,7 @@ resumable() {
 		'#started') started=$v ;;
 		'#fonts') [ "$v" = "$fonts" ] || return 1 ;;
 		'#hardware') [ "${v%%;*}" = "$hardware" ] || return 1 ;;
+		'#render-path') [ "$v" = "$render_path" ] || return 1 ;;
 		'#'*) ;;
 		*)
 			found=
@@ -610,6 +631,8 @@ ask() {
 			unshown "$i"
 			return
 		fi
+		# a page that switched the font set changed the grid
+		[ -z "${switches[$i]}" ] || read_size
 		footer_lines "$i"
 		if ! row=$(cursor_row) || [ $((row + ${#foot[@]})) -gt "$rows" ]; then
 			drain
@@ -715,6 +738,7 @@ summary() {
 # The entries: each page, once in each frit its "# frits:" line names.
 pages=()
 frits=()
+switches=()
 frit_dir=${ACCEPT_PAGES:-$here/sections}/frits
 for f in "${ACCEPT_PAGES:-$here/sections}"/*.sh; do
 	take=
@@ -727,11 +751,12 @@ for f in "${ACCEPT_PAGES:-$here/sections}"/*.sh; do
 	fi
 	[ -n "$take" ] || continue
 	set_frits=$(meta frits "$f")
+	set_switch=$(meta font-switch "$f")
 	if [ -z "$set_frits" ]; then
-		pages+=("$f") frits+=("")
+		pages+=("$f") frits+=("") switches+=("$set_switch")
 	else
 		for fr in $set_frits; do
-			pages+=("$f") frits+=("$fr")
+			pages+=("$f") frits+=("$fr") switches+=("$set_switch")
 		done
 	fi
 done
@@ -806,7 +831,7 @@ fi
 
 clear_screen
 printf '\033[1mvtium acceptance pass\033[0m\n\n'
-printf '  running   %s\n' "$label"
+printf '  running   %s, render path %s\n' "$label" "${render_path%%,*}"
 printf '  terminal  TERM=%s, %s rows by %s columns\n' "${TERM:-unset}" "$rows" "$cols"
 if [ -n "$(small_mark)" ]; then
 	printf '  \033[31mThe terminal is smaller than 80x25: a page may be cut, and its\n'
@@ -836,8 +861,12 @@ for ((r = 0; r < per; r++)); do
 	done
 	printf '%s\n' "${line% }"
 done
-[ "$n" -eq ${#names[@]} ] || printf '  %d pages; the language pages are walked once in each font set.\n' "$n"
-echo
+# a blank row before the prompt, or the line that counts the entries
+if [ "$n" -eq ${#names[@]} ]; then
+	echo
+else
+	printf '  %d pages; some are walked once in each of several font sets.\n' "$n"
+fi
 if [ -n "$resume" ]; then
 	k=0
 	for i in "${!pages[@]}"; do [ -z "${answers[$i]:-}" ] || k=$((k + 1)); done

@@ -105,19 +105,41 @@ minspec install-tree vt-dev-console config-release image-release: export PKG_CON
 # (ADR-1200 D19). The assignment here outranks the environment, so a
 # FEATURES exported in the shell builds nothing different.
 FEATURES :=
-# The acceptance pass shows pictures by default (ADR-1501 D5): make vt-accept
-# builds the console with images unless make's command line names FEATURES,
-# so make vt-accept FEATURES= is a pass of the minspec build. A binary named
-# with VTIUM_BIN is run as it is, so its features are the ones it was built
-# with: images when it carries the line only a build with images carries
-# (VT_IMAGES_MARKER), else none, and the run gives it the image helper only
-# when it has pictures.
+# The acceptance pass shows every page by default (ADR-1501 D5): make
+# vt-accept builds the console with images and bidi unless make's command
+# line names FEATURES, so make vt-accept FEATURES= is a pass of the minspec
+# build. A binary named with VTIUM_BIN is run as it is, so its features are
+# the ones it was built with: images when it carries the line only a build
+# with images carries (VT_IMAGES_MARKER), else none, and the run gives it
+# the image helper only when it has pictures.
+#
+# RENDER_PATH chooses the path the pass judges: cpu, the default, runs
+# vtium with --no-hwaccel, and gpu runs it with --hwaccel, so that one batch
+# gets a pass on each path (AGENTS.md, V3). The variable is named on make's
+# command line; one exported in the shell is not read. RENDER_PATH=gpu adds
+# gpu to the default features and refuses FEATURES named without it. A
+# binary named with VTIUM_BIN is run as it is, and vtium shows a notice
+# when it lacks the GPU path that --hwaccel asks for.
+comma := ,
 ifneq ($(filter vt-accept,$(MAKECMDGOALS)),)
+ifneq ($(origin RENDER_PATH),command line)
+RENDER_PATH := cpu
+endif
+ifeq ($(filter cpu gpu,$(RENDER_PATH)),)
+$(error vt-accept: RENDER_PATH is gpu or cpu, not '$(RENDER_PATH)')
+endif
+ifneq ($(word 2,$(RENDER_PATH)),)
+$(error vt-accept: RENDER_PATH is gpu or cpu, not '$(RENDER_PATH)')
+endif
 ifneq ($(origin FEATURES),command line)
 ifeq ($(filter $(VTIUM_MINSPEC),$(VTIUM_BIN)),)
 FEATURES := $(if $(shell grep -qaF -- '$(VT_IMAGES_MARKER)' '$(VTIUM_BIN)' 2>/dev/null && echo images),images)
 else
-FEATURES := images
+FEATURES := images bidi$(if $(filter gpu,$(RENDER_PATH)), gpu)
+endif
+else ifeq ($(RENDER_PATH),gpu)
+ifeq ($(filter gpu,$(subst $(comma), ,$(FEATURES))),)
+$(error vt-accept: RENDER_PATH=gpu needs the GPU path in the console: name gpu in FEATURES, or leave FEATURES out)
 endif
 endif
 endif
@@ -149,8 +171,7 @@ DESTDIR ?= target/install-tree
 VTIUM_INSTALL := crates/vtium/install
 # The image helper ships only with a console built with images: a minspec
 # build installs none (ADR-1101 D1). FEATURES may separate its features
-# with commas or spaces, as cargo's --features does.
-comma := ,
+# with commas or spaces, as cargo's --features does (comma, above).
 IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 # A console built with libseat and logind runs in direct mode through
 # vtium@.service, or in seat mode through vtium-seat@.service, which opens a
@@ -527,10 +548,13 @@ $(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
+# RENDER_PATH is make vt-accept's; the others run vtium as DEMO_ARGS says.
+$(VT_GOALS): export VTIUM_VT_RENDER_PATH =
 
 .PHONY: vt-accept
 vt-accept: export VTIUM_VT_SESSION = accept
-vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures unless FEATURES is named, every page answered and the pass recorded, then print the pass (VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+vt-accept: export VTIUM_VT_RENDER_PATH = $(value RENDER_PATH)
+vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures and bidi unless FEATURES is named, on the CPU path or the GPU path, every page answered and the pass recorded, then print the pass (RENDER_PATH=cpu|gpu, VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login

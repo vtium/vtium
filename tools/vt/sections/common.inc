@@ -95,11 +95,9 @@ kitty_send() {
 # text/udhr-article1.tsv, its meaning in English, then a few of its words in
 # each style SGR gives, two styles to a row, then Unicode's superscript and
 # subscript characters, and the font set the walk switched to for the page
-# (ACCEPT_FRIT) with what that font set checks, from the frit's
-# "# checks:" lines. A style marked * is one vtium does not draw yet: it
-# looks plain, and the page says so.
+# (ACCEPT_FRIT) with what that font set checks (frit_line).
 language_page() {
-	local dir code name sentence words english supsub frit checks
+	local dir code name sentence words english supsub
 	dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 	while IFS=$'\t' read -r code name sentence words english supsub; do
 		[ "$code" = "$1" ] && break
@@ -118,10 +116,17 @@ language_page() {
 	row underline 4 double 4:2
 	row curly 4:3 dotted 4:4
 	row dashed 4:5 'red line' '4;58:5:196'
-	row struck 9 'overline*' 53
-	row 'SGR 73*' 73 'SGR 74*' 74
+	row struck 9 overline 53
+	row raised 73 lowered 74
 	printf '%-10s%s\n' Unicode: "$supsub"
-	printf '* not drawn yet: these styles look plain.\n'
+	frit_line
+}
+
+# The font set the walk switched to for the page (ACCEPT_FRIT) and what that
+# font set checks, from the frit's "# checks:" lines.
+frit_line() {
+	local dir frit checks
+	dir=$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")
 	frit=${ACCEPT_FRIT:-}
 	if [ -n "$frit" ] && [ -f "$dir/frits/$frit.vtfrit" ]; then
 		checks=$(sed -n 's/^# checks: //p' "$dir/frits/$frit.vtfrit" | paste -sd' ' -)

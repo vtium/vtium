@@ -902,7 +902,8 @@ def responder_run(page, answers, timeout=WAIT_BOUND):
     return os.waitstatus_to_exitcode(status), seen
 
 
-PICTURES = ["95-sixel.sh", "96-kitty.sh", "97-kitty-layers.sh", "98-kitty-png.sh", "99-iterm2.sh"]
+PICTURES = ["71-kitty-animation.sh", "72-kitty-placeholders.sh", "73-kitty-relative.sh", "95-sixel.sh",
+            "96-kitty.sh", "97-kitty-layers.sh", "98-kitty-png.sh", "99-iterm2.sh"]
 KITTY_QUERY = b"\x1b_Gi=31,s=1,v=1,a=q,f=24;AAAA\x1b\\\x1b[c"
 HELPER_QUERY = b"\x1b_Gi=32,a=q,f=100;"
 
@@ -972,6 +973,18 @@ class Pages(Case):
         answers = [(KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES), (b"\x1b[c", DA1_PICTURES),
                    (HELPER_QUERY, b"\x1b_Gi=32;OK\x1b\\"), (b"\x1b[16t", b"\x1b[6;20;10t")]
         want = {
+            "71-kitty-animation.sh": [b"\x1b_Ga=T,i=21,q=2,C=1,f=24,s=16,v=16,c=10,r=5,m=0;",
+                                      b"\x1b_Ga=f,i=21,q=2,f=24,s=16,v=16,z=500,m=0;",
+                                      b"\x1b_Ga=a,i=21,q=2,r=1,z=500;\x1b\\", b"\x1b_Ga=a,i=21,q=2,s=3,v=1;\x1b\\",
+                                      b"\x1b_Ga=a,i=22,q=2,s=3,v=3;\x1b\\"],
+            "72-kitty-placeholders.sh": [b"\x1b_Ga=t,i=23,q=2,f=24,s=32,v=16,m=0;",
+                                         b"\x1b_Ga=p,U=1,i=23,q=2,c=4,r=2;\x1b\\",
+                                         # row 0's four cells, in the image's color
+                                         "\x1b[38;5;23m\U0010EEEE\u0305\u0305\U0010EEEE\u0305\u030D"
+                                         "\U0010EEEE\u0305\u030E\U0010EEEE\u0305\u0310".encode()],
+            "73-kitty-relative.sh": [b"\x1b_Ga=T,i=24,p=1,q=2,C=1,f=24,s=8,v=8,c=4,r=2,m=0;",
+                                     b"\x1b_Ga=p,i=25,p=1,q=2,P=24,Q=1,H=6,V=3,c=4,r=2;\x1b\\",
+                                     b"\x1b_Ga=p,i=24,p=1,q=2,C=1,c=4,r=2;\x1b\\"],
             "95-sixel.sh": [b'\x1bP0;1;0q"1;1;60;40#1;2;100;0;0', b'\x1bP0;1;0q"1;1;540;60#1;2;100;60;0'],
             "96-kitty.sh": [b"\x1b_Ga=T,i=1,q=2,C=1,f=32,s=32,v=16,c=20,r=5,z=-1073741825,m=0;",
                             b"\x1b_Ga=T,i=2,q=2,C=1,f=32,s=32,v=32,c=20,r=5,z=-1,m=1;", b"\x1b\\\x1b_Gm=0;",
@@ -1058,7 +1071,7 @@ class Blink(Case):
                 with self.subTest(page=f):
                     self.assertIn("\nBlink: ", p.stdout)
                     self.assertIn('"Blink:" line', read(os.path.join(SECTIONS, f)))
-        self.assertEqual(blinking, ["10-sgr.sh", "35-blink.sh"])
+        self.assertEqual(blinking, ["10-sgr.sh", "35-blink.sh", "36-rapid-blink.sh"])
 
     def test_each_style_and_where_it_comes_from(self):
         right = {
@@ -1073,7 +1086,7 @@ class Blink(Case):
                 # cannot use are ignored, and spaces around = are dropped
                 conf = self.conf(f"# blink-text=nonsense\nblink-text=full\n  blink-text = {value}  # the operator's\n"
                                  "blink-text=sideways\n#blink-text=off\n")
-                for f in ("10-sgr.sh", "35-blink.sh"):
+                for f in ("10-sgr.sh", "35-blink.sh", "36-rapid-blink.sh"):
                     out = self.page(f, ACCEPT_VTIUM_CONF=conf).stdout
                     self.assertIn(right[value], flat(out))
                     self.assertIn(f"The blink style is blink-text={value} in {conf}.", flat(out))
@@ -1143,7 +1156,7 @@ class Blink(Case):
         # every page that blinks fits its 17 rows and 80 columns with the
         # longest source line, a file that cannot be read
         conf = self.conf("blink-text=off\n", 0o000)
-        for f in ("10-sgr.sh", "35-blink.sh"):
+        for f in ("10-sgr.sh", "35-blink.sh", "36-rapid-blink.sh"):
             with self.subTest(page=f):
                 lines = self.page(f, ACCEPT_VTIUM_CONF=conf).stdout.split("\n")[:-1]
                 self.assertLessEqual(len(lines), 17)
@@ -1305,7 +1318,7 @@ class Languages(Case):
         self.assertNotEqual(by["vietnamese-marks"][2], by["vietnamese"][2])
         self.assertEqual(by["english"][2], "All human beings are born free and equal in dignity and rights.")
 
-    def test_a_language_page_shows_every_style_and_says_which_are_not_drawn(self):
+    def test_a_language_page_shows_every_style_and_marks_none_as_not_drawn(self):
         p = subprocess.run(["bash", os.path.join(SECTIONS, "84-greek.sh")], capture_output=True, timeout=WAIT_BOUND,
                            stdin=subprocess.DEVNULL,
                            env={"PATH": os.environ["PATH"], "ACCEPT_FRIT": "acceptance-bitmap", "ACCEPT_TOP": "3"})
@@ -1313,8 +1326,10 @@ class Languages(Case):
         out = p.stdout.decode()
         for sgr in ("0", "1", "3", "1;3", "2", "7", "4", "4:2", "4:3", "4:4", "4:5", "4;58:5:196", "9", "53", "73", "74"):
             self.assertIn(f"\x1b[{sgr}mελεύθεροι και ίσοι\x1b[0m", out)
-        self.assertIn("* not drawn yet: these styles look plain.", out)
-        self.assertNotIn("italic*", out)
+        # vtium draws every style the page shows: overline and SGR 73 and
+        # 74 among them, so no style is marked as one it does not draw.
+        self.assertNotIn("not drawn yet", out)
+        self.assertNotIn("*", out)
         self.assertIn("Font acceptance-bitmap: whole-multiple bitmaps; marks placed by vtium's rules", out)
 
 
@@ -1369,6 +1384,237 @@ class Hardware(Case):
         newest = sorted(n for n in os.listdir(self.passes) if n.endswith(".md"))
         p = self.feedback("--compare", *[os.path.join(self.passes, n) for n in newest[-2:]])
         self.assertNotIn("WARNING", p.stdout)
+
+
+ADR_1501 = [os.path.join(ROOT, "docs", "architecture", "project", n)
+            for n in os.listdir(os.path.join(ROOT, "docs", "architecture", "project")) if n.startswith("ADR-1501-")][0]
+
+
+def decision(n):
+    """The text of ADR-1501's decision Dn, from its heading to the next."""
+    text = read(ADR_1501)
+    return re.search(rf"^### D{n}:.*?(?=^### |^## )", text, re.M | re.S).group(0)
+
+
+class Record(Case):
+    """ADR-1501 names the pages and the font sets the walk has."""
+
+    def test_the_records_page_table_names_every_page(self):
+        # D2's table names each page in its first column: one page, several
+        # separated by commas, or a range "A to B" in file name order.
+        stems = sorted(f[:-3] for f in os.listdir(SECTIONS) if f.endswith(".sh"))
+        named = []
+        for line in decision(2).splitlines():
+            m = re.match(r"^\| ([0-9][^|]*?) \|", line)
+            if not m:
+                continue
+            for part in m.group(1).split(", "):
+                ends = part.split(" to ")
+                self.assertTrue(all(e in stems for e in ends), f"the record names no such page: {part}")
+                named += stems[stems.index(ends[0]):stems.index(ends[-1]) + 1]
+        self.assertEqual(sorted(set(stems) - set(named)), [], "pages the record's table does not name")
+        self.assertEqual(len(named), len(set(named)), "a page named twice")
+
+    def test_the_records_font_sets_are_the_ones_the_walk_loads(self):
+        # Every frit in sections/frits is named in D6, and every frit a page
+        # loads, with "# frits:" or "# font-switch:", is one of them.
+        frits = sorted(f[:-7] for f in os.listdir(os.path.join(SECTIONS, "frits")) if f.endswith(".vtfrit"))
+        d6 = decision(6)
+        for name in frits:
+            self.assertIn(f"`{name}`", d6, f"D6 does not name the font set {name}")
+        for f in os.listdir(SECTIONS):
+            if f.endswith(".sh"):
+                for key in ("frits", "font-switch"):
+                    for line in re.findall(rf"^# {key}: (.*)$", read(os.path.join(SECTIONS, f)), re.M):
+                        for name in line.split():
+                            self.assertIn(name, frits, f"{f} loads a font set the walk does not have")
+
+    def test_no_page_says_vtium_does_not_draw_a_style(self):
+        for f in sorted(os.listdir(SECTIONS)):
+            if not f.endswith(".sh"):
+                continue
+            with self.subTest(page=f):
+                p = subprocess.run(["bash", os.path.join(SECTIONS, f)], capture_output=True, timeout=WAIT_BOUND,
+                                   stdin=subprocess.DEVNULL, env={"PATH": os.environ["PATH"], "ACCEPT_TOP": "3"})
+                self.assertNotIn(b"not drawn yet", p.stdout)
+        self.assertNotIn("not drawn yet", read(os.path.join(SECTIONS, "common.inc")))
+
+
+class RenderPath(Case):
+    """The render path a pass judges, GPU or CPU (ADR-1501 D3, D5)."""
+
+    def one_pass(self, quit=False, **env):
+        d = self.walk(self.env(**env), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(ASK)
+        d.send(b"q" if quit else b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        return d
+
+    def test_a_pass_names_its_render_path(self):
+        self.one_pass(ACCEPT_RENDER_PATH="gpu")
+        path, text = self.record()
+        self.assertIn("- render-path: gpu, vtium run with --hwaccel\n", text)
+        os.unlink(path)
+        self.one_pass(ACCEPT_RENDER_PATH="cpu")
+        path, text = self.record()
+        self.assertIn("- render-path: cpu, vtium run with --no-hwaccel\n", text)
+        os.unlink(path)
+        # a pass run by hand names none
+        d = self.one_pass()
+        _, text = self.record()
+        self.assertIn("- render-path: not given\n", text)
+        self.assertIn(b"render path", d.seen)
+
+    def test_a_pass_never_resumes_on_the_other_render_path(self):
+        self.one_pass(quit=True, ACCEPT_RENDER_PATH="cpu")
+        d = self.walk(self.env(ACCEPT_RENDER_PATH="gpu"), "one", "two")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"r resume it", d.seen)
+        d = self.walk(self.env(ACCEPT_RENDER_PATH="cpu"), "one", "two")
+        d.wait_for(b"r resume it")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+
+    def test_compare_names_a_changed_render_path(self):
+        self.one_pass(ACCEPT_RENDER_PATH="cpu")
+        first, _ = self.record()
+        os.rename(first, os.path.join(self.tmp, "first.md"))
+        self.one_pass(ACCEPT_RENDER_PATH="gpu")
+        p = self.feedback("--compare", os.path.join(self.tmp, "first.md"), self.record()[0])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("\nthe render path differs, so a changed page may come from it:\n"
+                      "  A: cpu, vtium run with --no-hwaccel\n  B: gpu, vtium run with --hwaccel\n", p.stdout)
+
+
+class Save(Case):
+    """feedback.sh --save puts a pass where the batch commits it (ADR-1501 D8)."""
+
+    def one_pass(self, label="vtium dev build v0.1.0-alpha.7-3-gabc1234", **env):
+        d = self.walk(self.env(label=label, **env), "one")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        return self.record()
+
+    def test_save_writes_the_pass_under_its_committed_name(self):
+        path, text = self.one_pass(ACCEPT_RENDER_PATH="gpu")
+        into = os.path.join(self.tmp, "acceptance")
+        p = self.feedback("--save", "--into", into)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        started = re.search(r"^- started: (\d{4}-\d{2}-\d{2})T", text, re.M).group(1)
+        want = os.path.join(into, f"{started}-v0.1.0-alpha.7-3-gabc1234-gpu.md")
+        self.assertEqual(p.stdout, want + "\n")
+        self.assertEqual(read(want), text)
+        # never over a pass already saved
+        p = self.feedback("--save", "--into", into, path)
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("already holds", p.stderr)
+
+    def test_save_by_default_writes_into_the_checkouts_docs_acceptance(self):
+        self.one_pass(ACCEPT_RENDER_PATH="cpu")
+        p = subprocess.run(["bash", FEEDBACK_SH, "--save", "--dry-run"], env=self.env(), capture_output=True,
+                           text=True, timeout=WAIT_BOUND)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertTrue(p.stdout.startswith(os.path.join(ROOT, "docs", "acceptance") + "/"), p.stdout)
+        self.assertTrue(p.stdout.endswith("-v0.1.0-alpha.7-3-gabc1234-cpu.md\n"), p.stdout)
+        self.assertFalse(os.path.exists(p.stdout.strip()))
+
+    def test_save_refuses_a_pass_not_of_a_review_runs_build(self):
+        self.one_pass(label="foot 1.21", ACCEPT_RENDER_PATH="cpu")
+        p = self.feedback("--save", "--into", os.path.join(self.tmp, "acceptance"))
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("is not a pass of a review run's build", p.stderr)
+        os.unlink(self.record()[0])
+        self.one_pass()
+        p = self.feedback("--save", "--into", os.path.join(self.tmp, "acceptance"))
+        self.assertEqual(p.returncode, 2)
+        self.assertIn("names no render path", p.stderr)
+
+
+DECRQM_BIDI = b"\x1b[8$p"
+
+
+class Bidi(Case):
+    """The page of bidirectional text, 68-bidi."""
+
+    PAGE = os.path.join(SECTIONS, "68-bidi.sh")
+
+    def test_a_build_without_bidi_gets_skip(self):
+        status, seen = responder_run(self.PAGE, [(DECRQM_BIDI, b"\x1b[8;0$y")])
+        self.assertEqual(status, 77)
+        self.assertIn(b"vtium was built without bidirectional text", seen)
+        self.assertNotIn("\u05d0".encode(), seen)
+
+    def test_a_build_with_bidi_gets_the_page_and_its_direction_back(self):
+        status, seen = responder_run(self.PAGE, [(DECRQM_BIDI, b"\x1b[8;2$y"),
+                                                 (b"\x1b[?2501$p", b"\x1b[?2501;2$y")])
+        self.assertEqual(status, 0, seen[-500:])
+        self.assertIn("\u05d0".encode(), seen)
+        # detected direction on for the right-to-left lines, then put back
+        self.assertLess(seen.index(b"\x1b[?2501h"), seen.rindex(b"\x1b[?2501l"))
+        self.assertTrue(seen.rstrip(b"\r\n").endswith(b"\x1b[?2501l"), seen[-80:])
+
+
+class FontSwitch(Case):
+    """A page that switches the console's font set itself, as the reflow
+    page does, with its "# font-switch:" line."""
+
+    def setUp(self):
+        super().setUp()
+        for name in os.listdir(self.pages):
+            os.unlink(os.path.join(self.pages, name))
+        os.mkdir(os.path.join(self.pages, "frits"))
+        self.font = os.path.join(self.tmp, "large.psf")
+        write(self.font, "the large font's bytes\n")
+        write(os.path.join(self.pages, "frits", "large.vtfrit"), f"name=large\nsource=file:{self.font}\n")
+        write(os.path.join(self.pages, "10-switch.sh"),
+              "# look-for: the words\n# wrong-looks-like: anything else\n# font-switch: large\n"
+              "printf 'switching\\n\\033]50;large\\a'\n")
+        write(os.path.join(self.pages, "20-plain.sh"),
+              "# look-for: plain\n# wrong-looks-like: anything else\nprintf 'page plain\\n'\n")
+
+    def test_the_walk_puts_its_font_back_and_records_the_font_sets_files(self):
+        d = self.walk(self.env(), frits=("unifont", "large"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"switching")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"page plain")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        seen = d.seen
+        self.assertIn(b"\x1b]50;unifont\x07", seen[seen.index(b"switching"):seen.index(b"page plain")])
+        _, text = self.record()
+        self.assertIn(f"- font: large {self.font} sha256 ", text)
+
+    def test_a_missing_font_file_makes_the_page_a_skip(self):
+        os.unlink(self.font)
+        d = self.walk(self.env(), "switch", frits=("unifont", "large"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"the font set large needs files this machine lacks: " + self.font.encode())
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b" ")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"switching", d.seen)
 
 
 if __name__ == "__main__":

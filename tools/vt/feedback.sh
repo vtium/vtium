@@ -9,9 +9,14 @@
 #   feedback.sh [--dir DIR] --compare A B   the pages whose answer differs from
 #                                           pass A to pass B, warning first when they
 #                                           ran on different hardware and naming a
-#                                           blink style that differs; exits 1 when
-#                                           a page went from yes to no
+#                                           blink style or render path that
+#                                           differs; exits 1 when a page went from
+#                                           yes to no
 #   feedback.sh [--dir DIR] --compare       the same for the two newest passes
+#   feedback.sh [--dir DIR] --save [--into OUT] [--dry-run] [PASS]
+#                                           copies the pass (default: the newest)
+#                                           into OUT under the name it is
+#                                           committed by, and prints that path
 #   feedback.sh [--dir DIR] --newest LABEL  the path of the newest pass of LABEL
 #   feedback.sh --tsv PASS                  the pass as tab-separated lines
 #
@@ -19,10 +24,19 @@
 # under docs/acceptance/. DIR is ACCEPT_DIR, else
 # $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance), where
 # accept.sh keeps the passes. The newest pass is the one started last.
+#
+# --save puts a pass where the steering session commits it, one for each
+# render path on the build of each batch that goes from stage to main
+# (ADR-1501 D8): OUT, by default this checkout's docs/acceptance/, as
+# <YYYY-MM-DD>-<git describe>-<render path>.md, from the day the pass
+# started, the build its label names and the path its record names. It
+# refuses a pass of another label than a review run's, "vtium dev build
+# <git describe>", a pass that names no render path, and a file already
+# there. --dry-run prints the path and writes nothing.
 set -euo pipefail
 
 usage() {
-	sed -n '6,16s/^# \{0,1\}//p' "$0" >&2
+	sed -n '6,21s/^# \{0,1\}//p' "$0" >&2
 	exit 2
 }
 
@@ -31,7 +45,10 @@ die() {
 	exit 2
 }
 
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 dir=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
+into=$here/../../docs/acceptance
+dry=
 mode=show
 args=()
 while [ $# -gt 0 ]; do
@@ -41,6 +58,9 @@ while [ $# -gt 0 ]; do
 	--compare) mode=compare ;;
 	--newest) [ $# -ge 2 ] || usage; mode=newest; args+=("$2"); shift ;;
 	--tsv) mode=tsv ;;
+	--save) mode=save ;;
+	--into) [ $# -ge 2 ] || usage; into=$2; shift ;;
+	--dry-run) dry=1 ;;
 	-*) usage ;;
 	*) args+=("$1") ;;
 	esac
@@ -144,6 +164,33 @@ value() {
 }
 
 case $mode in
+save)
+	[ ${#args[@]} -le 1 ] || usage
+	if [ ${#args[@]} -eq 1 ]; then
+		f=$(path_of "${args[0]}")
+	else
+		f=$(records | tail -n 1)
+		[ -n "$f" ] || die "no passes in $dir"
+	fi
+	t=$(tsv "$f")
+	label=$(value label <<<"$t")
+	[[ $label =~ ^vtium\ dev\ build\ ([A-Za-z0-9._+-]+)$ ]] ||
+		die "$f is not a pass of a review run's build: its label is '$label', not 'vtium dev build <git describe>'"
+	build=${BASH_REMATCH[1]}
+	render=$(value render-path <<<"$t")
+	render=${render%%,*}
+	[[ $render == gpu || $render == cpu ]] ||
+		die "$f names no render path, so its name could not say which path it judged"
+	started=$(value started <<<"$t")
+	[[ $started =~ ^([0-9]{4}-[0-9]{2}-[0-9]{2})T ]] || die "$f names no day it started"
+	out=$(readlink -m -- "$into")/${BASH_REMATCH[1]}-$build-$render.md
+	[ ! -e "$out" ] && [ ! -L "$out" ] || die "$out already holds a pass; each pass is committed once"
+	if [ -z "$dry" ]; then
+		mkdir -p -- "${out%/*}"
+		(set -o noclobber && cat -- "$f" >"$out") || die "cannot write $out"
+	fi
+	printf '%s\n' "$out"
+	;;
 tsv)
 	[ ${#args[@]} -eq 1 ] || usage
 	tsv "$(path_of "${args[0]}")"
@@ -249,6 +296,10 @@ compare)
 			if ((other, k[2]) in fonts) continue
 			if (!fhead++) printf "\nfont files that differ, so a changed page may come from a font update:\n"
 			printf "  %s: %s\n", k[1], k[2]
+		}
+		if (meta["A", "render-path"] != meta["B", "render-path"]) {
+			printf "\nthe render path differs, so a changed page may come from it:\n"
+			printf "  A: %s\n  B: %s\n", meta["A", "render-path"] == "" ? "(not recorded)" : meta["A", "render-path"], meta["B", "render-path"] == "" ? "(not recorded)" : meta["B", "render-path"]
 		}
 		if (meta["A", "blink-text"] != meta["B", "blink-text"]) {
 			printf "\nthe blink style differs, so a changed blink page may come from it:\n"
