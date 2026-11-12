@@ -1,0 +1,59 @@
+# Claims of docs/concepts/security.md, converted from its author's claim list.
+element	file	symbol
+the console runs as root for its whole life, and its unit sets no sandboxing	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+the parser's bounds, with no input-reachable panic	crates/vtium-parse/src/bounds.rs	ROWS
+the parser is fuzzed	crates/vtium-parse/fuzz/Cargo.toml	name = "parse"
+the screen is fuzzed	crates/vtium-term/fuzz/Cargo.toml	name = "screen"
+the font helper runs as nobody	crates/vtium/src/helper.rs	nobody
+the font helper starts with an empty environment in /, in its own process group, holding only its pipes	crates/vtium/src/helper.rs	Launcher::process
+the console reads the helper's ids back before it trusts it	crates/vtium/src/helper.rs	Launcher::dropped
+the console refuses a helper holding another account or group	crates/vtium/src/helper.rs	holds_account
+the font helper refuses to run as root	crates/vtium-config/src/serve.rs	refuse_root
+the font helper's limits: memory, CPU, file size, no children, no core	crates/vtium-config/src/serve.rs	limits
+the font helper's landlock: no writes, no network, no signals	crates/vtium-config/src/serve.rs	lock_out
+the font helper's seccomp filter refuses sockets	crates/vtium-config/src/serve.rs	refuse_sockets
+the helper program checks: absolute, regular, owner, mode	crates/vtium/src/helper.rs	open_program
+the helper program's refusals	crates/vtium/src/helper.rs	refusal
+the image helper runs as the session's user, or vtium-image before login	crates/vtium-platform/src/image_helper/identity.rs	PRELOGIN_ACCOUNTS
+the login classes that count as a logged-in user	crates/vtium-platform/src/image_helper/identity.rs	LOGIN_CLASSES
+the pre-login account the package creates	crates/vtium/install/vtium-image.conf	pictures a program sends inline at the login prompt decode as this
+the image helper starts from the program opened and checked once	crates/vtium-platform/src/image_helper/start.rs	open_program
+the image helper's child setup: session, signals, descriptors, limits, ids	crates/vtium-platform/src/image_helper/start.rs	child
+a root helper has every capability removed	crates/vtium-platform/src/image_helper/start.rs	drop_bounding_set
+the image helper's seccomp allow-list	crates/vtium-image-helper/src/sandbox.rs	filter
+the worker's landlock domain	crates/vtium-image-helper/src/sandbox.rs	lock_in
+the image helper decodes PNG, JPEG and GIF	crates/vtium-image-helper/src/decode.rs	any
+a decode that takes 2 seconds fails	crates/vtium/src/head/images.rs	REPLY_TIMEOUT
+3 crashes a session, then no more image helpers	crates/vtium-platform/src/bounds.rs	IMAGE_CRASHES
+the file rules: no /proc, /sys or /dev but /dev/shm	crates/vtium-image-helper/src/files.rs	location_ok
+the file rules: regular files only	crates/vtium-image-helper/src/files.rs	open_regular
+the file rules: the temporary file rule	crates/vtium-image-helper/src/files.rs	temp_ok
+replies never echo what a program sent; a fixed empty title	crates/vtium-term/src/terminal/reply.rs	reply_window
+OSC 52 sets the selection and is never read back	crates/vtium-term/src/terminal/clipboard.rs	set_clipboard
+allow-font-ops, on by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
+OSC 50 names only installed frits or built-in fonts	crates/vtium/src/font.rs	by_name
+a frit name is a name, never a path	crates/vtium/src/font.rs	frit_name
+allow-window-ops, off by default	crates/vtium-settings/src/keys.rs	key allow-window-ops
+a link is copied, never opened	crates/vtium/src/head.rs	copy_link
+clipboard-write, on by default, with no system clipboard	crates/vtium-settings/src/keys.rs	key clipboard-write
+vtium.conf is trusted only when root owns it and its directories	crates/vtium-settings/src/file.rs	Trust::check
+the trust check follows each directory and link	crates/vtium-settings/src/file.rs	directories
+the console reads vtium.conf through the trust check	crates/vtium/src/config/mod.rs	read_file
+an untrusted vtium.conf: the compiled-in configuration and a notice	crates/vtium/src/head.rs	rules
+the login key runs as root	crates/vtium-settings/src/keys.rs	key login
+vtium-config installs through sudo, with no path or program option	crates/vtium-config/src/apply.rs	route
+check-config opens nothing under /dev and writes nothing	crates/vtium/src/check.rs	main
+open and closed policies	crates/vtium-settings/src/outcome.rs	Policy
+ignored keyboards are watched only for the VT keys	crates/vtium-platform/src/input/event.rs	Disposition
+switch-on-enter only under the open policy	crates/vtium-settings/src/config.rs	switch_on_enter
+the closed policy keeps the getty off: the marker	crates/vtium/src/getty.rs	mark
+the getty fallback skips the VT while the marker exists	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed
+/bin/login -p with reset-env	crates/vtium/src/child.rs	child
+reset-env, on by default	crates/vtium-settings/src/keys.rs	key reset-env
+seat mode opens vtium's own PAM session	crates/vtium/install/vtium-libseat.conf	PAMName=vtium
+sessions kept in systemd's fd store	crates/vtium/src/survive/notify.rs	Store
+only vtium may write to the store	crates/vtium/install/vtium@.service	NotifyAccess=main
+a restart ends no session	crates/vtium/install/vtium@.service	KillMode=process
+the holder's socket, which only root may open	crates/vtium/src/survive/hold.rs	socket_path
+vtium.enable=0 exits before vtium.conf	crates/vtium/src/kernel.rs	off_at_start
+a shared-memory object is removed by any program in the session	crates/vtium-image-helper/src/files.rs	Identity

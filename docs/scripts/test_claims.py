@@ -116,9 +116,14 @@ class Claims(unittest.TestCase):
                          ("a state", "src/app.rs", "Exit::Hangup"),
                          ("a trait method", "src/app.rs", "Vt::wait"))
 
+    def test_a_struct_field_holds_as_a_member(self):
+        self.assertHolds(("the queue", "src/app.rs", "Painter::jobs"))
+        self.assertFails(claims(("the queue", "src/app.rs", "Painter::frames")),
+                         "docs/figures/fig.claims.tsv:2: src/app.rs: no fn, const, variant or field 'frames' for 'Painter'")
+
     def test_a_renamed_fn_fails_with_the_claim_file_and_row(self):
         self.assertFails(claims(("the loop", "src/app.rs", "Painter"), ("the thread", "src/app.rs", "Painter::spawn")),
-                         "docs/figures/fig.claims.tsv:3: src/app.rs: no fn, const or variant 'spawn' for 'Painter'")
+                         "docs/figures/fig.claims.tsv:3: src/app.rs: no fn, const, variant or field 'spawn' for 'Painter'")
 
     def test_a_name_that_appears_only_in_use_or_a_comment_fails(self):
         self.tree({"src/other.rs": "use crate::app::Painter;\n// fn Painter\nlet x = Painter::start(\"a\");\n"})
@@ -152,6 +157,14 @@ class Claims(unittest.TestCase):
                                 ("the store", "install/vtium@.service", "FileDescriptorStoreMax")),
                          "docs/figures/fig.claims.tsv:2: install/vtium@.service: no line 'Restart=always'",
                          "docs/figures/fig.claims.tsv:3: install/vtium@.service: no directive 'FileDescriptorStoreMax='")
+
+    def test_a_conf_drop_in_with_a_section_is_a_unit_and_one_without_is_text(self):
+        self.tree({"install/vtium-libseat.conf": "# a drop-in\n[Service]\nPAMName=vtium\n",
+                   "install/vtium-image.conf": "# the account\nu vtium-image - \"vtium image helper\" / -\n"})
+        self.assertHolds(("seat mode", "install/vtium-libseat.conf", "PAMName=vtium"),
+                         ("the account", "install/vtium-image.conf", "u vtium-image"))
+        self.assertFails(claims(("seat mode", "install/vtium-libseat.conf", "PAMName=other")),
+                         "docs/figures/fig.claims.tsv:2: install/vtium-libseat.conf: no line 'PAMName=other'")
 
     def test_another_file_holds_on_plain_text(self):
         self.assertHolds(("idle", "notes.txt", "idles out"))

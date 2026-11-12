@@ -39,13 +39,15 @@ What a symbol must match, by the file's kind:
       `enum`, `const`, `static`, `mod`, `trait`, `type` or `union`, with any
       visibility and qualifiers. `TYPE::NAME` names a member: TYPE must be
       defined in the file or named by an `impl` there, and NAME must be
-      defined there as a `fn` or `const`, or as an enum variant.
+      defined there as a `fn` or `const`, an enum variant or a struct
+      field.
     - The key table, crates/vtium-settings/src/keys.rs: `key NAME` names
       the key whose row reads `name: "NAME"`. Other symbols are Rust
       symbols.
-    - A systemd unit (.service, .socket, .target, .timer, .conf in an
-      install directory): `Directive` names a line that sets the directive,
-      and `Directive=value` names that exact line.
+    - A systemd unit (.service, .socket, .target or .timer), or a .conf
+      drop-in with a `[Section]` line: `Directive` names a line that sets
+      the directive, and `Directive=value` names that exact line. A .conf
+      file without a section, such as a sysusers file, is plain text.
     - Any other file: the symbol must appear as plain text.
 """
 
@@ -80,10 +82,13 @@ def rust_type_named(text, name):
 
 
 def rust_member(text, name):
-    """Whether TEXT defines NAME as a fn or const, or as an enum variant."""
+    """Whether TEXT defines NAME as a fn or const, an enum variant or a
+    struct field."""
     if rust_definition(text, name):
         return True
-    return re.search(rf"^\s*{re.escape(name)}\s*(?:[,({{=]|$)", text, re.M) is not None
+    variant = rf"^\s*{re.escape(name)}\s*(?:[,({{=]|$)"
+    field = rf"^\s*(?:pub(?:\([^)]*\))?\s+)?{re.escape(name)}\s*:[^:]"
+    return re.search(variant, text, re.M) is not None or re.search(field, text, re.M) is not None
 
 
 def check_rust(text, symbol):
@@ -95,7 +100,7 @@ def check_rust(text, symbol):
         if not rust_type_named(text, owner):
             return f"no definition or impl of '{owner}'"
         if not rust_member(text, member):
-            return f"no fn, const or variant '{member}' for '{owner}'"
+            return f"no fn, const, variant or field '{member}' for '{owner}'"
         return None
     if not NAME.fullmatch(symbol):
         return f"'{symbol}' is not a Rust name or TYPE::NAME"
@@ -114,8 +119,11 @@ def check_unit(text, symbol):
     return None if any(line.startswith(symbol + "=") for line in lines) else f"no directive '{symbol}='"
 
 
-def is_unit(path):
-    return path.endswith(UNIT_SUFFIXES) or ("/install/" in path and path.endswith(".conf"))
+def is_unit(path, text):
+    """Whether the file PATH holding TEXT is a systemd unit or drop-in."""
+    if path.endswith(UNIT_SUFFIXES):
+        return True
+    return path.endswith(".conf") and re.search(r"^\[[A-Za-z]+\]\s*$", text, re.M) is not None
 
 
 def check_symbol(path, text, symbol):
@@ -125,7 +133,7 @@ def check_symbol(path, text, symbol):
         return None if f'name: "{key}"' in text else f"no key '{key}' in the key table"
     if path.endswith(".rs"):
         return check_rust(text, symbol)
-    if is_unit(path):
+    if is_unit(path, text):
         return check_unit(text, symbol)
     return None if symbol in text else f"no text '{symbol}'"
 

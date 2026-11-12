@@ -1,0 +1,46 @@
+# Claims of concepts-works-processes.svg and the section of docs/concepts/how-vtium-works.md around it.
+element	file	symbol
+vtium: one process per VT, its heads built for its own VT	crates/vtium/src/main.rs	main
+vtium runs as root; the font helper drops to nobody	crates/vtium/src/helper.rs	nobody
+the event loop on the main thread, one signalfd	crates/vtium-platform/src/event_loop.rs	Loop
+the loop's dispatch and its turns	crates/vtium/src/main.rs	run
+each turn's order: VT events, frames, devices, input, sessions, draw	crates/vtium/src/app.rs	App::turn
+render thread, one per head	crates/vtium/src/painter.rs	Painter::start
+render thread composes each frame in the display's buffer	crates/vtium/src/painter.rs	draw_frames
+arrow frames between the loop and the render thread	crates/vtium/src/painter.rs	Painter::take
+font helper's threads: a writer, a reader and a reaper	crates/vtium/src/helper.rs	thread
+arrow glyphs from the reader to the loop	crates/vtium/src/helper.rs	frame
+crate list: vtium-image in the images build	crates/vtium/Cargo.toml	images = ["dep:vtium-image"
+crate list: vtium-render on the render thread	crates/vtium-render/src/renderer.rs	Renderer
+the VT, /dev/ttyN: mode ioctls, SIGUSR1 and SIGUSR2	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acquire_signal
+the VT's release signal	crates/vtium-platform/src/vt/kernel.rs	KernelVt::release_signal
+KMS/DRM card: buffers lent, page flips	crates/vtium-platform/src/display.rs	Token
+or fbdev	crates/vtium-platform/src/display/fbdev.rs	Fbdev
+evdev devices: key and pointer events	crates/vtium-platform/src/input/evdev.rs	EVENTS_PER_READ
+/dev/kmsg: kernel messages	crates/vtium/src/main.rs	kernel_messages
+the pty, a kernel device: bytes both ways	crates/vtium-platform/src/pty.rs	Pty::spawn
+the pty's window size	crates/vtium-platform/src/pty.rs	Size
+udev: reports each device that comes or goes	crates/vtium-platform/src/udev.rs	Udev::scan
+seatd or logind through libseat, in the libseat build	crates/vtium-platform/src/seat.rs	LibseatVt
+D-Bus: logind's Suspend, in the logind build	crates/vtium-platform/src/logind.rs	suspend
+D-Bus: systemd's manager gives each login a scope	crates/vtium-platform/src/logind/scope.rs	start
+D-Bus: localed's signal for the keyboard layout	crates/vtium-platform/src/logind/follow.rs	LayoutFollow
+systemd starts vtium@ttyN	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+READY=1 once the VT is open	crates/vtium/src/survive/notify.rs	opened
+the unit waits for READY=1	crates/vtium/install/vtium@.service	Type=notify
+pty masters in and out of the fd store	crates/vtium/src/survive/notify.rs	Store
+the fd store's size	crates/vtium/install/vtium@.service	FileDescriptorStoreMax=50
+the stored masters passed back at a restart	crates/vtium/src/survive/notify.rs	passed
+vtium hold keeps pty masters where systemd's store is missing	crates/vtium/src/survive.rs	start
+arrow socket: keep, take	crates/vtium/src/survive/hold.rs	serve
+the holder's socket in /run/vtium	crates/vtium/src/survive/hold.rs	socket_path
+vtium blank, vtium wake: SIGRTMIN+1 or +2	crates/vtium/src/blank.rs	listen
+vtium-image, the image helper, one per console	crates/vtium-platform/src/image_helper.rs	ImageHost
+the image helper as the session's user, or vtium-image before login	crates/vtium-platform/src/image_helper/identity.rs	PRELOGIN_ACCOUNTS
+arrow socket pair: requests, replies, memory files	crates/vtium-image/src/decode/wire.rs	KIND_REQUEST
+decode workers, one per request	crates/vtium-image-helper/src/serve.rs	serve
+one long-lived worker for a stream of frames	crates/vtium-image-helper/src/bounds.rs	STREAM_AFTER
+the pty paused for at most 2 seconds while a request is out	crates/vtium/src/head/images.rs	REPLY_TIMEOUT
+vtium-config serve, the font helper, one per font set in use	crates/vtium/src/head.rs	Frit
+arrow pipes: requests, glyph sets back	crates/vtium-config/src/serve.rs	HELPER_IDLE_MS
+/bin/login, vtium's child	crates/vtium/src/child.rs	child
