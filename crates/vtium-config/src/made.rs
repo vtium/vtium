@@ -130,6 +130,11 @@ impl Made {
 }
 
 #[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
+    reason = "a test fails by panicking"
+)]
 mod tests {
     use super::*;
 

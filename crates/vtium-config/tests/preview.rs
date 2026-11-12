@@ -58,6 +58,7 @@ fn preview(root: &Path, args: &[&str]) -> (i32, String, String) {
     )
 }
 
+// covers: sgr.script
 #[test]
 fn away_from_a_terminal_each_font_is_a_line_of_text() {
     if let Some(why) = vtium_testscript::qemu_without_seccomp() {
@@ -69,12 +70,15 @@ fn away_from_a_terminal_each_font_is_a_line_of_text() {
     assert_eq!(status, 0, "{err}");
     let lines: Vec<&str> = out.lines().collect();
     // the detailed specimen's 323 characters (ADR-1201 D4): unifont draws
-    // them all, and unscii-8 lacks 27, the CJK line's among them
+    // them all, and unscii-8 lacks 27, the CJK line's among them; then how
+    // the helper made the superscripts and subscripts (ADR-1202 D14):
+    // unifont's at its own size scaled, and unscii-8's, drawn at 2x in the
+    // 16-pixel row, from unscii-8 at 1x
     assert_eq!(
         lines,
         [
-            "unifont\t12 pt\tcharacter cell 8x16\tcan display 323 of the preview's 323 characters",
-            "unscii-8\t12 pt\tcharacter cell 8x8\tcan display 296 of the preview's 323 characters",
+            "unifont\t12 pt\tcharacter cell 8x16\tcan display 323 of the preview's 323 characters\tSuperscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.",
+            "unscii-8\t12 pt\tcharacter cell 8x8\tcan display 296 of the preview's 323 characters\tSuperscripts and subscripts come from this font at its own size, a smaller size than its other characters, which are drawn at 2 times its size.",
         ]
     );
     assert!(!out.contains('\x1b'), "no picture to a pipe");
@@ -144,12 +148,13 @@ fn the_display_s_edid_sets_the_density_and_its_mode_the_grid() {
     let sys = sys.to_str().expect("a path");
     // 1080 pixels over 170 mm is 161 dpi, so 12 pt is 27 pixels: the
     // outline cell the W rule gives is what a bitmap frit cannot follow,
-    // so unifont keeps its 8x16 and the grid is 240x67
+    // so unifont keeps its 8x16 and the grid is 240x67; 27 pixels hold
+    // unifont at 1x alone, so its superscripts and subscripts are scaled
     let (status, out, err) = preview(&root, &["--sys", sys, "unifont"]);
     assert_eq!(status, 0, "{err}");
     assert_eq!(
         out,
-        "unifont\t12 pt\tcharacter cell 8x16, console 240x67 characters\tcan display 323 of the preview's 323 characters\n"
+        "unifont\t12 pt\tcharacter cell 8x16, console 240x67 characters\tcan display 323 of the preview's 323 characters\tSuperscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.\n"
     );
 }
 
@@ -179,7 +184,7 @@ fn the_locale_adds_a_line_in_its_script() {
     // the Russian line's 18 letters the detailed specimen's Cyrillic line
     // lacks, after its 323 characters
     assert!(
-        lines[0].ends_with("can display 341 of the preview's 341 characters"),
+        lines[0].contains("\tcan display 341 of the preview's 341 characters\t"),
         "{out}"
     );
     assert!(

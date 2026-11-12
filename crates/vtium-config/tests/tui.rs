@@ -358,6 +358,7 @@ impl Port for Console {
                             grid,
                             covered: 300,
                             of: 323,
+                            script: None,
                         },
                     )),
                 }
@@ -375,6 +376,7 @@ impl Port for Console {
                         grid: Some((80, 30)),
                         covered: 40,
                         of: 51,
+                        script: None,
                     }),
                 }
             }
@@ -1589,6 +1591,7 @@ fn one_preview_is_drawn_at_a_time() {
         grid: Some((80, 30)),
         covered: 1,
         of: 1,
+        script: None,
     };
     let next = app.event(Event::Summarized {
         font: "unifont".into(),

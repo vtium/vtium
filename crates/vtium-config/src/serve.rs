@@ -845,6 +845,11 @@ pub struct Engine {
     cell: Option<Cell>,
 }
 
+/// A vitrified set of glyphs, `None` when no source gives any, and how the
+/// engine made each superscript or subscript glyph in it, by its codepoint
+/// ([`Engine::draw_made`]).
+pub type MadeSet = (Option<Vec<u8>>, BTreeMap<u32, Made>);
+
 /// A smaller size of a bitmap source (ADR-1202 D3): its font, and for one
 /// that `script-source=` names, that line and the font's spelling.
 struct SmallerFont {
@@ -1726,7 +1731,7 @@ impl Engine {
         variant: Variant,
         want: &[u32],
         (clusters, parts): (&[Vec<u32>], bool),
-    ) -> Result<(Option<Vec<u8>>, BTreeMap<u32, Made>), String> {
+    ) -> Result<MadeSet, String> {
         let at = at.into();
         let mut made = BTreeMap::new();
         let set = self.glyphs(

@@ -8,6 +8,11 @@
 //! answers with. The TUI's process parses no font, only the glyph chunk
 //! format the console reads, through vtium-font's reader. The helper is
 //! given [`HELPER_WAIT`] to answer, and is ended past it.
+//!
+//! The detailed specimen ends with a line of superscripts and subscripts,
+//! [`SCRIPT_LINE`] (ADR-1202 D14). Its small glyphs come from the helper,
+//! which makes them as it makes the console's, and the helper says how it
+//! made them, which the summary carries for the caption.
 
 use std::ffi::OsString;
 use std::io::{Read, Write};
@@ -18,12 +23,13 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use vtium_font::set::{Set, SetFace, builtin, builtin_name};
-use vtium_font::{Cell, Face, Format, Style};
+use vtium_font::{Cell, Face, Format, Script, Style, Variant, Width};
 
+use crate::made::Made;
 use crate::serve::{
-    ASK, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
-    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES, FRAME_WARNING, FritText,
-    LeftOut, OWN_CELL, SOURCES, ServeRequest,
+    ASK, ASK_MADE, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
+    FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES,
+    FRAME_WARNING, FritText, LeftOut, OWN_CELL, SOURCES, ServeRequest,
 };
 
 /// The specimen's lines in every locale: Latin, digits and box drawing.
@@ -96,6 +102,47 @@ pub const DETAIL: [&str; 13] = [
     "日本語 中文 한국어 ひらがな カタカナ",
     "😀 😂 👍 🎉 🚀 🌍 🔥 ✨ ❤",
 ];
+
+/// The detailed specimen's line of superscripts and subscripts, drawn
+/// after its other lines (ADR-1202 D14): each run of its text and the
+/// script the run is drawn in, so the digits of x2 + y2 = z2 are
+/// superscripts and the digits of H2O and CO2 are subscripts. Every
+/// character of it is in printable ASCII, which [`DETAIL`] already holds,
+/// so the line adds no character to the ones the preview counts. Its
+/// superscripts and subscripts are all the digit 2, which one source
+/// draws and makes small in one way, so the caption names one way
+/// ([`Summary::script`]).
+pub const SCRIPT_LINE: [(&str, Script); 10] = [
+    ("x", Script::Baseline),
+    ("2", Script::Super),
+    (" + y", Script::Baseline),
+    ("2", Script::Super),
+    (" = z", Script::Baseline),
+    ("2", Script::Super),
+    ("   H", Script::Baseline),
+    ("2", Script::Sub),
+    ("O   CO", Script::Baseline),
+    ("2", Script::Sub),
+];
+
+/// [`SCRIPT_LINE`]'s characters, each with its script.
+fn script_line() -> Vec<(char, Script)> {
+    SCRIPT_LINE
+        .iter()
+        .flat_map(|&(run, script)| run.chars().map(move |c| (c, script)))
+        .collect()
+}
+
+/// The characters [`SCRIPT_LINE`] draws in `script`, each once, in order.
+fn script_characters(script: Script) -> Vec<char> {
+    let mut seen = Vec::new();
+    for (c, s) in script_line() {
+        if s == script && !seen.contains(&c) {
+            seen.push(c);
+        }
+    }
+    seen
+}
 
 /// Where a character of a specimen is drawn from (ADR-1201 D4).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -215,7 +262,7 @@ fn characters(lines: &[&str]) -> Vec<char> {
     seen
 }
 
-/// A request about `frit`.
+/// A request about `frit`, its glyphs, if it asks for any, normal ones.
 fn request(kind: u32, frit: &FritText, cell: Cell, codepoints: Vec<u32>) -> ServeRequest {
     ServeRequest {
         kind,
@@ -430,15 +477,24 @@ pub struct Sample {
     face_height: u32,
     /// The frit's glyphs, each set the helper sent.
     sets: Vec<Arc<Set>>,
+    /// Whether the detailed picture draws [`SCRIPT_LINE`] after `lines`.
+    script_line: bool,
+    /// The superscript and subscript glyphs of [`SCRIPT_LINE`]'s
+    /// characters, each set the helper sent with its script.
+    scripts: Vec<(Script, Arc<Set>)>,
+    /// How the helper made each of those glyphs (ADR-1202 D14), by its
+    /// script and its codepoint.
+    made: Vec<(Script, u32, Made)>,
     /// The locale, which chooses the built-in font that draws what the
     /// frit lacks, as the console chooses it.
     locale: String,
 }
 
 /// What a size gives, for a terminal that draws no pictures (ADR-1201 D4):
-/// the cell, the grid it gives on a display, and how many of the
-/// specimen's characters the frit draws itself.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// the cell, the grid it gives on a display, how many of the specimen's
+/// characters the frit draws itself, and how it makes its superscripts and
+/// subscripts.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Summary {
     pub cell: Cell,
     /// The columns and rows the cell gives on the display measured, where
@@ -446,6 +502,10 @@ pub struct Summary {
     pub grid: Option<(u32, u32)>,
     pub covered: usize,
     pub of: usize,
+    /// How the helper made the superscripts and subscripts of
+    /// [`SCRIPT_LINE`] (ADR-1202 D14), the way of the first that the frit
+    /// draws itself: none when the frit draws none of them.
+    pub script: Option<Made>,
 }
 
 /// Asks the helper on `stdin` and `stdout` for `frit`'s cell at `height`
@@ -499,6 +559,10 @@ fn ask_cell(
     }
 }
 
+/// What the helper answers an ask with: each set it sends, and the
+/// codepoints and ways its made frame names.
+type Answer = (Vec<Arc<Set>>, Vec<(u32, Made)>);
+
 /// Asks the helper on `stdin` and `stdout` for the glyphs of `codepoints`
 /// in `frit` at `cell`: each set it sends.
 fn ask_glyphs(
@@ -508,8 +572,38 @@ fn ask_glyphs(
     cell: Cell,
     codepoints: Vec<u32>,
 ) -> Result<Vec<Arc<Set>>, String> {
-    send_or_failure(stdin, stdout, &request(ASK, frit, cell, codepoints))?;
-    let mut sets = Vec::new();
+    let ask = request(ASK, frit, cell, codepoints);
+    ask_sets(stdin, stdout, &ask).map(|(sets, _)| sets)
+}
+
+/// Asks the helper on `stdin` and `stdout` for the glyphs of `codepoints`
+/// in `frit` at `cell` in `script`, a superscript or subscript, and how it
+/// made each (ADR-1202 D14): each set it sends, and the codepoints and ways
+/// its made frame names.
+fn ask_made(
+    stdin: &mut dyn Write,
+    stdout: &mut dyn Read,
+    frit: &FritText,
+    (cell, script): (Cell, Script),
+    codepoints: Vec<u32>,
+) -> Result<Answer, String> {
+    let ask = ServeRequest {
+        script,
+        ..request(ASK_MADE, frit, cell, codepoints)
+    };
+    ask_sets(stdin, stdout, &ask)
+}
+
+/// Sends the ask `ask` on `stdin` and reads its answer from `stdout` to its
+/// done frame: each set it sends, and the codepoints and ways its made
+/// frame names, none for an ask that is no [`ASK_MADE`].
+fn ask_sets(
+    stdin: &mut dyn Write,
+    stdout: &mut dyn Read,
+    ask: &ServeRequest,
+) -> Result<Answer, String> {
+    send_or_failure(stdin, stdout, ask)?;
+    let (mut sets, mut made) = (Vec::new(), Vec::new());
     loop {
         let (kind, payload) = frame(stdout)?;
         match kind {
@@ -519,7 +613,11 @@ fn ask_glyphs(
                 let set = Set::from_bytes(set.to_vec()).map_err(|e| format!("{e:?}"))?;
                 sets.push(Arc::new(set));
             }
-            FRAME_DONE => return Ok(sets),
+            FRAME_MADE => {
+                made = Made::decode_all(&payload)
+                    .ok_or("the font helper's account of its glyphs does not read")?;
+            }
+            FRAME_DONE => return Ok((sets, made)),
             FRAME_FAILED => return Err(text(&payload)),
             _ => {}
         }
@@ -569,12 +667,14 @@ pub fn sample(
     height: u32,
     locale: &str,
 ) -> Result<Sample, String> {
-    sample_of(helper, frit, height, locale, lines(locale))
+    sample_of(helper, frit, height, locale, (lines(locale), false))
 }
 
 /// The detailed specimen of `frit` at `height` pixels, [`DETAIL`] and the
-/// locale's line where it has one, as the helper at `helper` draws it: what the TUI's Fonts view and `preview`
-/// show of what a font covers (ADR-1201 D4, D9).
+/// locale's line where it has one, then [`SCRIPT_LINE`], as the helper at
+/// `helper` draws it: what the TUI's Fonts view and `preview` show of what
+/// a font covers (ADR-1201 D4, D9), and of its superscripts and subscripts
+/// (ADR-1202 D14).
 pub fn detail(
     helper: &Helper,
     frit: &FritText,
@@ -587,33 +687,71 @@ pub fn detail(
         frit,
         height,
         locale,
-        DETAIL.into_iter().chain(own).collect(),
+        (DETAIL.into_iter().chain(own).collect(), true),
     )
 }
 
 /// `lines` of `frit` at `height` pixels, as the helper at `helper` draws
-/// them: its cell, then the glyphs of the lines' characters at that cell.
+/// them, [`SCRIPT_LINE`] after them where `script_line` says: its cell,
+/// then the glyphs of the lines' characters at that cell, then the
+/// superscript and subscript glyphs of [`SCRIPT_LINE`]'s characters and how
+/// the helper made each, which the summary names (ADR-1202 D14).
 fn sample_of(
     helper: &Helper,
     frit: &FritText,
     height: u32,
     locale: &str,
-    lines: Vec<&'static str>,
+    (lines, script_line): (Vec<&'static str>, bool),
 ) -> Result<Sample, String> {
     let codepoints: Vec<u32> = characters(&lines).into_iter().map(u32::from).collect();
     let frit = frit.clone();
-    let (sets, cell, face_height) = with_helper(helper, move |stdin, stdout| {
+    let (sets, scripts, made, cell, face_height) = with_helper(helper, move |stdin, stdout| {
         let (cell, face_height) = ask_cell(stdin, stdout, &frit, height)?;
         let sets = ask_glyphs(stdin, stdout, &frit, cell, codepoints)?;
-        Ok((sets, cell, face_height))
+        // the console asks for a script glyph at the cell it draws, a
+        // bitmap frit's own cell at the whole multiple the faces draw it
+        // at, where a smaller multiple can give it (ADR-1202 D3)
+        let drawn = drawn_cell(cell, face_height);
+        let (mut scripts, mut made) = (Vec::new(), Vec::new());
+        for script in [Script::Super, Script::Sub] {
+            let want = script_characters(script)
+                .into_iter()
+                .map(u32::from)
+                .collect();
+            let (sets, how) = ask_made(stdin, stdout, &frit, (drawn, script), want)?;
+            scripts.extend(sets.into_iter().map(|set| (script, set)));
+            made.extend(how.into_iter().map(|(c, how)| (script, c, how)));
+        }
+        Ok((sets, scripts, made, cell, face_height))
     })?;
     Ok(Sample {
         lines,
         cell,
         face_height,
         sets,
+        script_line,
+        scripts,
+        made,
         locale: locale.to_owned(),
     })
+}
+
+/// The cell that `cell` is drawn at by a face of `height` pixels: `cell`
+/// at the whole multiple [`SetFace::new`] scales it by, the largest whose
+/// height is not over `height`, at least 1 and with no side past
+/// [`vtium_font::CELL_SIDE_MAX`].
+fn drawn_cell(cell: Cell, height: u32) -> Cell {
+    let fit = vtium_font::CELL_SIDE_MAX
+        .checked_div(cell.width.max(cell.height))
+        .unwrap_or(1);
+    let k = height
+        .checked_div(cell.height)
+        .unwrap_or(1)
+        .clamp(1, fit.max(1));
+    Cell {
+        width: cell.width.saturating_mul(k),
+        height: cell.height.saturating_mul(k),
+    }
 }
 
 /// A picture of the console with a change applied (ADR-1201 D4): the TUI's
@@ -728,6 +866,9 @@ pub fn screen(
         cell,
         face_height: shot.face_height,
         sets,
+        script_line: false,
+        scripts: Vec::new(),
+        made: Vec::new(),
         locale: locale.to_owned(),
     };
     sample.screen(shot)
@@ -802,10 +943,33 @@ impl Sample {
     /// character the frit draws in the ink, one the built-in font draws in
     /// grey, and one neither draws as an empty grey box, so a gap shows
     /// (ADR-1201 D4).
+    /// The detailed specimen ends with [`SCRIPT_LINE`], its superscripts
+    /// and subscripts the glyphs the helper made for them (ADR-1202 D14).
     pub fn detailed(&self, max: (u32, u32)) -> Result<Picture, String> {
         let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
+        let mut lines = plain(&self.lines);
+        if self.script_line {
+            lines.push(script_line());
+        }
         let own = self.frit_faces().len();
-        lay_out(&self.faces(), Some(own), &self.lines, max)
+        lay_out(
+            &self.faces(),
+            (own, true),
+            &lines,
+            &self.script_faces(),
+            max,
+        )
+    }
+
+    /// The faces of the frit's own superscript and subscript glyphs, each
+    /// with its script.
+    fn script_faces(&self) -> Vec<(Script, SetFace)> {
+        self.scripts
+            .iter()
+            .filter_map(|(script, s)| {
+                Some((*script, SetFace::new(Arc::clone(s), self.face_height)?))
+            })
+            .collect()
     }
 
     /// The faces of the frit's own glyphs.
@@ -820,7 +984,8 @@ impl Sample {
     /// fit in `max` pixels, and at most [`PICTURE_MAX`].
     pub fn picture(&self, max: (u32, u32)) -> Result<Picture, String> {
         let max = (max.0.min(PICTURE_MAX.0), max.1.min(PICTURE_MAX.1));
-        lay_out(&self.faces(), None, &self.lines, max)
+        let own = self.frit_faces().len();
+        lay_out(&self.faces(), (own, false), &plain(&self.lines), &[], max)
     }
 
     /// The picture `shot` asks for: its screen laid out cell by cell in its
@@ -919,8 +1084,9 @@ impl Sample {
     }
 
     /// The specimen as text for a terminal that draws no pictures: its
-    /// cell, the grid it gives on a display of `display` pixels, and how
-    /// many of its characters the frit draws itself.
+    /// cell, the grid it gives on a display of `display` pixels, how many
+    /// of its characters the frit draws itself, and how the helper made the
+    /// superscripts and subscripts of [`SCRIPT_LINE`] that the frit draws.
     pub fn summary(&self, display: Option<(u32, u32)>) -> Summary {
         let chars = characters(&self.lines);
         let own = self.frit_faces();
@@ -934,11 +1100,21 @@ impl Sample {
                 h.checked_div(self.cell.height)?,
             ))
         });
+        let script = script_line()
+            .into_iter()
+            .filter(|&(c, _)| own.iter().any(|f| f.has_glyph(c)))
+            .find_map(|(c, s)| {
+                self.made
+                    .iter()
+                    .find(|(at, code, _)| *at == s && *code == u32::from(c))
+                    .map(|(_, _, how)| how.clone())
+            });
         Summary {
             cell: self.cell,
             grid,
             covered,
             of: chars.len(),
+            script,
         }
     }
 }
@@ -996,17 +1172,60 @@ fn origin(faces: &[SetFace], own: usize, c: char) -> Origin {
     }
 }
 
+/// `lines` as cells of a character and its script: none of them a
+/// superscript or subscript.
+fn plain(lines: &[&str]) -> Vec<Vec<(char, Script)>> {
+    lines
+        .iter()
+        .map(|l| l.chars().map(|c| (c, Script::Baseline)).collect())
+        .collect()
+}
+
+/// `c`'s glyph in `script`, drawn by the first of `faces` that holds it, of
+/// which the first `own` are the frit's. A normal glyph is that face's. A
+/// superscript or subscript glyph of the frit's is the one the helper made
+/// for it, from `scripts` (ADR-1202 D14), and one of the built-in font's,
+/// which draws what the frit lacks, is the one the console makes for it
+/// (ADR-1202 D15).
+fn glyph_in(
+    faces: &[SetFace],
+    own: usize,
+    scripts: &[(Script, SetFace)],
+    (c, script): (char, Script),
+) -> Option<vtium_font::Glyph> {
+    let i = faces.iter().position(|f| f.has_glyph(c))?;
+    let face = faces.get(i)?;
+    if script == Script::Baseline {
+        return face.draw(&[c], Style::default());
+    }
+    let variant = Variant {
+        style: Style::default(),
+        script,
+    };
+    if i < own {
+        return scripts
+            .iter()
+            .filter(|(s, _)| *s == script)
+            .find_map(|(_, f)| f.draw_variant(&[c], variant));
+    }
+    vtium_font::Font::new(face.clone())
+        .drawn_variant(&[c], Width::Narrow, variant)
+        .map(|d| d.glyph)
+}
+
 /// `lines` drawn with `faces`, the first that holds a character drawing
 /// it, in the first face's cell, as many whole lines and columns as fit in
-/// `max` pixels. A glyph wider than the cell, as a CJK character, takes
-/// two cells, as the console draws it. With `marked`, the number of the
-/// frit's faces at the front of `faces`, each character shows where it
-/// comes from: the built-in font's in grey, and a missing one as an empty
-/// grey box as wide as the character.
+/// `max` pixels; the first `own` of `faces` are the frit's, and its
+/// superscripts and subscripts are drawn from `scripts` ([`glyph_in`]). A
+/// glyph wider than the cell, as a CJK character, takes two cells, as the
+/// console draws it. Where `marked`, each character shows where it comes
+/// from: the built-in font's in grey, and a missing one as an empty grey
+/// box as wide as the character.
 fn lay_out(
     faces: &[SetFace],
-    marked: Option<usize>,
-    lines: &[&str],
+    (own, marked): (usize, bool),
+    lines: &[Vec<(char, Script)>],
+    scripts: &[(Script, SetFace)],
     max: (u32, u32),
 ) -> Result<Picture, String> {
     let cell = faces
@@ -1019,19 +1238,16 @@ fn lay_out(
         .iter()
         .map(|line| {
             let mut used = 0u32;
-            line.chars()
-                .map(|c| {
-                    let glyph = faces
-                        .iter()
-                        .find(|f| f.has_glyph(c))
-                        .and_then(|f| f.draw(&[c], Style::default()));
+            line.iter()
+                .map(|&(c, script)| {
+                    let glyph = glyph_in(faces, own, scripts, (c, script));
                     let wide = u32::try_from(crate::tui::canvas::width(&c.to_string()))
                         .unwrap_or(1)
                         .clamp(1, 2);
                     let cells = glyph
                         .as_ref()
                         .map_or(wide, |g| g.width().div_ceil(cell.width.max(1)).clamp(1, 2));
-                    let (ink, boxed) = match marked.map(|own| origin(faces, own, c)) {
+                    let (ink, boxed) = match marked.then(|| origin(faces, own, c)) {
                         Some(Origin::BuiltIn) => (MARK, false),
                         Some(Origin::Missing) => (MARK, c != ' '),
                         _ => (INK, false),
@@ -1246,6 +1462,9 @@ mod tests {
             cell,
             face_height: cell.height,
             sets: Vec::new(),
+            script_line: false,
+            scripts: Vec::new(),
+            made: Vec::new(),
             locale: "C".to_owned(),
         }
     }
@@ -1521,6 +1740,127 @@ mod tests {
         assert!(
             matches!(&sent, Err(why) if why.starts_with("the font helper: ")),
             "{sent:?}"
+        );
+    }
+
+    /// A PSF2 font of 128 glyphs 8 wide and `height` high, glyph `g` mapping
+    /// the codepoint `g`, its row `y` the byte `g * 7 + y * 3 + seed`, so
+    /// each font draws its own glyphs.
+    fn psf2(height: u32, seed: u32) -> Vec<u8> {
+        let mut f = Vec::new();
+        for v in [0x864a_b572u32, 0, 32, 1, 128, height, height, 8] {
+            f.extend_from_slice(&v.to_le_bytes());
+        }
+        for g in 0..128u32 {
+            for y in 0..height {
+                f.push(u8::try_from((g * 7 + y * 3 + seed) % 256).unwrap_or(0));
+            }
+        }
+        for g in 0..128u8 {
+            f.extend_from_slice(&[g, 0xff]);
+        }
+        f
+    }
+
+    // ADR-1202 D14: the detailed specimen's last line draws its
+    // superscripts and subscripts as the glyph helper's engine made them,
+    // here from the smaller font a script-source= line names, never as
+    // another scaler would make them from the normal glyph; and its summary
+    // names that font
+    // covers: sgr.script
+    #[test]
+    fn the_script_line_draws_the_glyphs_the_engine_made() {
+        let dir = std::env::temp_dir().join(format!("vtium-script-line-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("a directory");
+        let (big, small) = (dir.join("big.psf"), dir.join("small.psf"));
+        std::fs::write(&big, psf2(16, 0)).expect("a font");
+        std::fs::write(&small, psf2(8, 101)).expect("a font");
+        let frit = FritText {
+            name: "t".to_owned(),
+            text: format!(
+                "source=file:{}\nscript-source=file:{}\n",
+                big.display(),
+                small.display()
+            ),
+        };
+        let engine = crate::serve::Engine::load(&frit, &crate::serve::Paths::default(), None)
+            .expect("the frit loads");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let mut want: Vec<u32> = script_line().iter().map(|&(c, _)| u32::from(c)).collect();
+        want.sort_unstable();
+        want.dedup();
+        let normal = engine.draw(cell, &want).expect("draws").expect("a set");
+        let (mut scripts, mut made) = (Vec::new(), Vec::new());
+        for script in [Script::Super, Script::Sub] {
+            let variant = Variant {
+                style: Style::default(),
+                script,
+            };
+            let (set, how) = engine
+                .draw_made(cell, variant, &[0x32], (&[], false))
+                .expect("draws");
+            let set = Arc::new(Set::from_bytes(set.expect("a set")).expect("reads"));
+            scripts.push((script, set));
+            made.extend(how.into_iter().map(|(c, how)| (script, c, how)));
+        }
+        let sample = Sample {
+            lines: Vec::new(),
+            cell,
+            face_height: 16,
+            sets: vec![Arc::new(Set::from_bytes(normal).expect("reads"))],
+            script_line: true,
+            scripts: scripts.clone(),
+            made,
+            locale: "C".to_owned(),
+        };
+        let p = sample.detailed(PICTURE_MAX).expect("a picture");
+        assert_eq!(p.height, 16, "the script line alone");
+        // x2 + y2 = z2 and H2O and CO2: the 2s are cells 1, 6, 11, 16, 23
+        for (col, script) in [
+            (1u32, Script::Super),
+            (6, Script::Super),
+            (11, Script::Super),
+            (16, Script::Sub),
+            (23, Script::Sub),
+        ] {
+            let face = scripts
+                .iter()
+                .find(|(s, _)| *s == script)
+                .and_then(|(_, set)| SetFace::new(Arc::clone(set), 16))
+                .expect("a face");
+            let glyph = face
+                .draw_variant(
+                    &['2'],
+                    Variant {
+                        style: Style::default(),
+                        script,
+                    },
+                )
+                .expect("the engine's glyph");
+            for y in 0..16u32 {
+                for x in 0..8u32 {
+                    let at = usize::try_from((y * p.width + col * 8 + x) * 4).unwrap_or(0);
+                    let lit = glyph.pixel(x, y).is_some_and(|px| px[0] >= 128);
+                    let want = if lit { INK } else { PAPER };
+                    assert_eq!(
+                        p.rgba[at..at + 3],
+                        want,
+                        "{script:?} 2 in cell {col} at {x},{y}"
+                    );
+                }
+            }
+        }
+        assert_eq!(
+            sample.summary(None).script,
+            Some(Made::Named {
+                spelling: format!("file:{}", small.display()),
+                height: 8,
+                multiple: 1,
+            })
         );
     }
 }
