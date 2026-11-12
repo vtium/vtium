@@ -798,7 +798,7 @@ pub enum CardLine {
 
 /// The settings a card offers, without `isolated`, which decides where
 /// roaming keyboards go.
-const CARD_SETTINGS: [&str; 3] = ["consoles", "login", "when-display-lost"];
+const CARD_SETTINGS: [&str; 4] = ["consoles", "login", "when-display-lost", "switch-on-enter"];
 
 /// The path a terminal's card shows: an added path's, or the editor's
 /// with the name it will take.
@@ -872,6 +872,10 @@ pub fn card_choices(app: &App, line: &CardLine) -> Vec<(String, String)> {
             (words::KEEP_SESSIONS.to_owned(), String::new()),
             (words::END_SESSIONS.to_owned(), "hangup".to_owned()),
         ],
+        CardLine::Setting("switch-on-enter") => vec![
+            (words::SWITCH_OFF.to_owned(), String::new()),
+            (words::SWITCH_ON.to_owned(), "yes".to_owned()),
+        ],
         CardLine::Setting(_) => Vec::new(),
         CardLine::Part(_) => vec![(words::DISCONNECT.to_owned(), String::new())],
     }
@@ -899,10 +903,36 @@ pub fn card_types(app: &App, line: &CardLine, pick: usize) -> bool {
 }
 
 /// What a line sets, which the card shows under its lines while the
-/// cursor is on it.
-fn card_about(line: &CardLine) -> Option<&'static str> {
+/// cursor is on it. Switch on Enter also says why it does nothing for
+/// `path`, as vtium decides (ADR-1401, "Enter on a head's own keyboard"):
+/// under policy = closed, on an isolated head, on a head that runs on
+/// every VT, and on one whose VTs are all past 12, which the VT keys
+/// cannot reach. On a terminal that runs on every VT, it names the
+/// control that gives it a VT: `e` on an added path's card, and the line
+/// VTs on the `editor`'s card in NEW PATH.
+pub fn card_about(app: &App, path: &Path, line: &CardLine, editor: bool) -> Option<String> {
     match line {
-        CardLine::Setting("login") => Some(words::LOGIN_ABOUT),
+        CardLine::Setting("login") => Some(words::LOGIN_ABOUT.to_owned()),
+        CardLine::Setting("switch-on-enter") => {
+            let vts = path.vts();
+            let why = if app.inputs.flow.policy == "closed" {
+                Some(words::SWITCH_CLOSED)
+            } else if path.no_input || path.setting("isolated") == "yes" {
+                Some(words::SWITCH_ISOLATED)
+            } else if vts.is_empty() && editor {
+                Some(words::SWITCH_EVERY_VT_NEW)
+            } else if vts.is_empty() {
+                Some(words::SWITCH_EVERY_VT)
+            } else if vts.iter().all(|v| *v > 12) {
+                Some(words::SWITCH_PAST_12)
+            } else {
+                None
+            };
+            Some(match why {
+                Some(why) => format!("{} {why}", words::SWITCH_ABOUT),
+                None => words::SWITCH_ABOUT.to_owned(),
+            })
+        }
         _ => None,
     }
 }
@@ -931,6 +961,7 @@ fn card_label(flow: &Flow, line: &CardLine) -> String {
         CardLine::Setting("vt") => words::VTS_LABEL.to_owned(),
         CardLine::Setting("login") => "Login".to_owned(),
         CardLine::Setting("when-display-lost") => "When its screen is unplugged".to_owned(),
+        CardLine::Setting("switch-on-enter") => words::SWITCH_LABEL.to_owned(),
         CardLine::Setting(k) => (*k).to_owned(),
         CardLine::Part(Piece::Display(d)) => {
             format!("Display {}", paths::title(flow, Kind::Display, d).0)
@@ -993,11 +1024,19 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         app.cols.saturating_sub(4),
         2,
     );
-    let about = lines.get(state.line).and_then(card_about);
+    let about = lines
+        .get(state.line)
+        .and_then(|l| card_about(app, &path, l, editor))
+        .map(|a| wrap(&a, app.cols.saturating_sub(4), 3))
+        .unwrap_or_default();
     let room = bottom
         .saturating_sub(5)
         .saturating_sub(note.len().saturating_add(1))
-        .saturating_sub(if about.is_some() { 2 } else { 0 })
+        .saturating_sub(if about.is_empty() {
+            0
+        } else {
+            about.len().saturating_add(1)
+        })
         .max(1);
     let first = state.line.saturating_add(1).saturating_sub(room);
     let mut y = 5usize;
@@ -1064,9 +1103,11 @@ fn card_layer(canvas: &mut Canvas, app: &App, state: &flowview::State, obj: &Obj
         }
         y = y.saturating_add(1);
     }
-    if let Some(about) = about {
+    if !about.is_empty() {
         y = y.saturating_add(1);
-        canvas.put(3, y, about, Style::text(Color::Grey));
+    }
+    for line in about {
+        canvas.put(3, y, &line, Style::text(Color::Grey));
         y = y.saturating_add(1);
     }
     y = y.saturating_add(1).min(bottom.saturating_sub(note.len()));

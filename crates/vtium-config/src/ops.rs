@@ -125,13 +125,63 @@ pub fn rule_rm(text: &str, number: usize) -> Result<String, Fail> {
 }
 
 /// Sets each of `keys`, a key and its value or `None` to unset it, in the
-/// section `of`, in order.
+/// section `of`, in order. Unsetting takes the key's line out, its comment
+/// with it, so a vtium.conf vtium-config writes holds only what is set,
+/// and a key set and unset over and over leaves no line behind (the
+/// maintainer, 2026-11-11).
 pub fn section_keys(text: &str, of: Of<'_>, keys: &[(&str, Option<&str>)]) -> Result<String, Fail> {
     let mut out = text.to_owned();
     for (key, value) in keys {
-        out = set_key(&out, of, key, *value).map_err(|e| refused(&e))?;
+        out = match value {
+            Some(_) => set_key(&out, of, key, *value).map_err(|e| refused(&e))?,
+            None => unset_key(&out, of, key)?,
+        };
     }
     Ok(out)
+}
+
+/// `text` without the line that sets `key` in the section `of`, or `text`
+/// as it is when the section does not set `key`. The section writer
+/// unsets a key by commenting its line out and changes no other line, so
+/// that one line goes. A section the file lacks is refused, as setting a
+/// key of it is.
+fn unset_key(text: &str, of: Of<'_>, key: &str) -> Result<String, Fail> {
+    let commented = set_key(text, of, key, None).map_err(|e| refused(&e))?;
+    if commented == text {
+        return Ok(text.to_owned());
+    }
+    without_commented(text, &commented).ok_or_else(|| {
+        Fail::Usage(format!(
+            "vtium-config cannot unset {key} in this section. Remove its line by hand."
+        ))
+    })
+}
+
+/// `before` without the one line that `after` has commented out, when
+/// `after` has the same lines as `before` but for one, which is that line
+/// with a `#` in front; `None` otherwise.
+fn without_commented(before: &str, after: &str) -> Option<String> {
+    let old: Vec<&str> = before.split_inclusive('\n').collect();
+    let new: Vec<&str> = after.split_inclusive('\n').collect();
+    if old.len() != new.len() {
+        return None;
+    }
+    let mut changed = old
+        .iter()
+        .zip(&new)
+        .enumerate()
+        .filter(|(_, (o, n))| o != n);
+    let (at, (o, n)) = changed.next()?;
+    if changed.next().is_some() || n.strip_prefix('#') != Some(*o) {
+        return None;
+    }
+    Some(
+        old.iter()
+            .enumerate()
+            .filter(|(i, _)| *i != at)
+            .map(|(_, l)| *l)
+            .collect(),
+    )
 }
 
 /// Adds `[head NAME]`, naming the look `look` where one is given; without
@@ -223,7 +273,7 @@ pub fn head_rm(text: &str, name: &str) -> Result<String, Fail> {
 
 /// Deletes `[look NAME]`. While a head names it, it refuses and names the
 /// heads; with `force` it sets those heads to the default look first, by
-/// commenting out their `look` lines.
+/// taking out their `look` lines.
 pub fn look_rm(text: &str, name: &str, force: bool) -> Result<String, Fail> {
     let users = heads_using(text, name);
     if !users.is_empty() && !force {
@@ -419,6 +469,77 @@ mod tests {
 
     const DESK: &str = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> desk\ninput class:keyboard -> roaming  # every keyboard\n";
 
+    // the maintainer, 2026-11-11: a vtium.conf vtium-config writes holds
+    // "only what's set", so unsetting a key takes its line out, and a key
+    // set and unset over and over leaves the file as it was
+    #[test]
+    fn a_section_key_set_and_unset_leaves_no_line_behind() {
+        let start = "version = 1\n[look big]\nfont-size = 16  # big\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n";
+        let keys: [(Of<'_>, &str, &str); 6] = [
+            (Of::Head("panel"), "isolated", "yes"),
+            (Of::Head("panel"), "switch-on-enter", "yes"),
+            (Of::Head("panel"), "login", "/bin/sh -l"),
+            (Of::Head("panel"), "when-display-lost", "hangup"),
+            (Of::Head("panel"), "vt", "3"),
+            (Of::Look("big"), "font-name", "monoid"),
+        ];
+        for (of, key, value) in keys {
+            let mut text = start.to_owned();
+            for _ in 0..3 {
+                text = section_keys(&text, of, &[(key, Some(value))]).unwrap();
+                assert!(text.contains(&format!("{key} = {value}\n")), "{text}");
+                text = section_keys(&text, of, &[(key, None)]).unwrap();
+            }
+            assert_eq!(text, start, "{key}");
+        }
+        // a key the file set takes its line, and its comment, out with it
+        let unset = section_keys(start, Of::Look("big"), &[("font-size", None)]).unwrap();
+        assert_eq!(
+            unset,
+            "version = 1\n[look big]\n[head desk]\nlook = big\n[head panel]\n[rules]\ndisplay * -> desk\n"
+        );
+    }
+
+    // unsetting a key the section does not set changes nothing, and
+    // unsetting a key of a section the file lacks is refused and writes
+    // nothing, as setting one is
+    #[test]
+    fn unsetting_a_key_that_is_not_there_changes_no_line() {
+        let text =
+            "version = 1\n[head desk]\nconsoles = 2\nlogin = /bin/sh\n[rules]\ndisplay * -> desk\n";
+        for key in ["switch-on-enter", "isolated", "vt"] {
+            assert_eq!(
+                section_keys(text, Of::Head("desk"), &[(key, None)]).unwrap(),
+                text,
+                "{key}"
+            );
+        }
+        let missing = section_keys(text, Of::Head("nobody"), &[("vt", None)]).unwrap_err();
+        assert_eq!(missing.code(), 2);
+    }
+
+    // a line goes only when the section writer changed exactly one line
+    // and added none: a writer that inserted a line would otherwise take
+    // an unrelated line of the file out
+    #[test]
+    fn only_the_one_line_the_writer_commented_out_goes() {
+        let text = "a = 1\nb = 2\nc = 3\n";
+        assert_eq!(
+            without_commented(text, "a = 1\n#b = 2\nc = 3\n"),
+            Some("a = 1\nc = 3\n".to_owned())
+        );
+        assert_eq!(without_commented(text, text), None);
+        // an inserted line, two changed lines, and a line changed in
+        // another way than by a leading `#` take nothing out
+        for after in [
+            "a = 1\nnew = 0\nb = 2\nc = 3\n",
+            "#a = 1\n#b = 2\nc = 3\n",
+            "a = 1\nb = 9\nc = 3\n",
+        ] {
+            assert_eq!(without_commented(text, after), None, "{after}");
+        }
+    }
+
     // ADR-1403 D5, D8: `look add`, `look set` and the look card offer
     // every key a look takes, `cell` among them, by one option each
     #[test]
@@ -581,7 +702,7 @@ mod tests {
         assert_eq!(rules_to(text, "desk"), [1]);
         assert_eq!(
             look_rm(text, "big", true).unwrap(),
-            "version = 1\n[head desk]\n#look = big\n[rules]\ndisplay * -> desk\n"
+            "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\n"
         );
     }
 

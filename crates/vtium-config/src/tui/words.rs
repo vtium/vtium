@@ -921,6 +921,22 @@ pub const NEW_TERMINAL: &str = "THE NEW PATH'S TERMINAL";
 pub const AUTOMATIC_SIZE: &str = "automatic";
 pub const KEEP_SESSIONS: &str = "keep the sessions running";
 pub const END_SESSIONS: &str = "end the sessions";
+/// The Switch on Enter line of a terminal's card, the head key
+/// `switch-on-enter` (ADR-1401, "Enter on a head's own keyboard"): its
+/// label, its two choices, what it does, and why it does nothing.
+pub const SWITCH_LABEL: &str = "Switch on Enter";
+pub const SWITCH_OFF: &str = "off";
+pub const SWITCH_ON: &str = "on";
+pub const SWITCH_ABOUT: &str = "Enter on this terminal's own keyboard switches to its VT, from a VT where this terminal does not run.";
+pub const SWITCH_CLOSED: &str =
+    "It has no effect now, because the policy is closed. It works only with policy = open.";
+pub const SWITCH_ISOLATED: &str =
+    "It has no effect now, because this terminal is isolated, so its keyboards switch no VT.";
+/// On an added path's card, where e revises the path, and in NEW PATH,
+/// whose card has the line VTs.
+pub const SWITCH_EVERY_VT: &str = "It has no effect now, because this terminal runs on every VT. Press e and choose a VT on the line VTs.";
+pub const SWITCH_EVERY_VT_NEW: &str = "It has no effect now, because this terminal runs on every VT. Choose a VT on the line VTs above.";
+pub const SWITCH_PAST_12: &str = "It has no effect now, because Enter switches only to VTs 1 to 12, and this terminal runs on none of them.";
 /// The Login line of a terminal's card: what it sets, its two choices,
 /// and what is wrong with a command the person types.
 pub const LOGIN_ABOUT: &str = "The program each console of this terminal starts.";

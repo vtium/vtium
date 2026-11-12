@@ -3746,10 +3746,13 @@ mod draft_flow {
         let clash: Vec<&[u8]> = [&[HOME][..], &[DOWN; 4][..], &[space][..]].concat();
         // the terminal desk's card with the cursor on its Login line
         let login: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 4][..]].concat();
+        // the same card with the cursor on its Switch on Enter line: desk
+        // runs on every VT, so the hint says the key has no effect
+        let switch: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 6][..]].concat();
         // each golden's name, the vtium.conf it starts from when not the
         // fixture's, and the keys that reach it
         type Script<'a> = (&'a str, Option<&'a str>, &'a [&'a [u8]]);
-        let scripts: [Script<'_>; 10] = [
+        let scripts: [Script<'_>; 11] = [
             ("flow-default", Some(shipped), &[]),
             ("flow-paths", None, &[]),
             ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
@@ -3757,6 +3760,7 @@ mod draft_flow {
             ("flow-picker", None, &picker),
             ("flow-terminal-card", None, &[HOME, RIGHT, b"\r"]),
             ("flow-login", None, &login),
+            ("flow-switch-on-enter", None, &switch),
             ("flow-label", None, &label),
             ("flow-shared-vts", Some(vts), &[]),
             ("flow-vt-clash", Some(vts), &clash),
