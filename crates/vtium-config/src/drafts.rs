@@ -8,7 +8,7 @@ use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
-use crate::apply::Runner;
+use crate::apply::{Ask, Runner};
 use crate::draft::{FileEdit, Plan, changes};
 use crate::outcome::Fail;
 use crate::store::{Store, hash};
@@ -472,15 +472,59 @@ impl Session<'_> {
         Ok(())
     }
 
+    /// The route of the step after an install (ADR-1201 D5), the one that
+    /// ran `apply DIR`: sudo for a user who installs the system's files,
+    /// nothing for root, and `None` for other directories, whose vtium.conf
+    /// no vtium on a VT reads.
+    pub fn via(&self) -> Option<Vec<OsString>> {
+        let targets = self.paths.targets();
+        if targets.configdir != crate::apply::Targets::system().configdir {
+            return None;
+        }
+        if rustix::process::geteuid().is_root() {
+            return Some(Vec::new());
+        }
+        match crate::apply::route(&targets, &self.paths.sudo) {
+            crate::apply::Route::Sudo(sudo) => Some(vec![sudo]),
+            crate::apply::Route::User => None,
+        }
+    }
+
+    /// After an install wrote `text` as vtium.conf: for the system's
+    /// vtium.conf, enables vtium on the VTs its heads name and offers the
+    /// start and restart that apply it, through `run` and `ask`
+    /// ([`crate::vts::reach`]); `None` for other directories.
+    pub fn after(
+        &self,
+        text: &str,
+        run: Runner<'_>,
+        ask: Option<Ask<'_>>,
+        out: &mut dyn Write,
+    ) -> Option<crate::vts::Outcome> {
+        let via = self.via()?;
+        Some(crate::vts::reach(
+            text,
+            &self.paths.vtium,
+            &via,
+            run,
+            ask,
+            out,
+        ))
+    }
+
     /// Installs the draft `name`, `text`, as `vtium config install` does:
     /// [`Session::prepare`], then for a draft that wires no complete route
-    /// what `unrouted` says, then [`Session::put`] with sudo run as a plain
-    /// child, then [`Session::finish`].
+    /// what `unrouted` says, then [`Session::put`] through `run`, then
+    /// [`Session::finish`], then [`Session::after`], which asks through
+    /// `ask` whether to start and restart vtium, and with no `ask` prints
+    /// the commands that would.
     pub fn install(
         &self,
         name: &str,
         text: &str,
         unrouted: Unrouted<'_>,
+        run: Runner<'_>,
+        ask: Option<Ask<'_>>,
         out: &mut dyn Write,
     ) -> Result<(), Fail> {
         let Some(ready) = self.prepare(name, text, out)? else {
@@ -495,7 +539,10 @@ impl Session<'_> {
                 Unrouted::Ask(ask) => {
                     let (added, removed) =
                         counts(ready.replaced.as_deref().unwrap_or_default(), text);
-                    if !ask(&crate::tui::words::no_route_question(added, removed, 0)) {
+                    if !ask(
+                        out,
+                        &crate::tui::words::no_route_question(added, removed, 0),
+                    ) {
                         return Err(Fail::Check(
                             crate::tui::words::NO_ROUTE_NOT_INSTALLED.to_owned(),
                         ));
@@ -503,8 +550,10 @@ impl Session<'_> {
                 }
             }
         }
-        self.put(&ready.plan, &mut run_child, out)?;
-        self.finish(name, text, ready.replaced.as_deref(), out)
+        self.put(&ready.plan, &mut *run, out)?;
+        self.finish(name, text, ready.replaced.as_deref(), out)?;
+        self.after(text, run, ask, out);
+        Ok(())
     }
 }
 
@@ -515,7 +564,7 @@ pub enum Unrouted<'a> {
     Install,
     /// Asks the question, and installs it only when the answer is yes:
     /// `vtium config install` at a terminal.
-    Ask(&'a mut dyn FnMut(&str) -> bool),
+    Ask(Ask<'a>),
     /// Refuses it, exit 1, and says how to install it anyway: `install`
     /// with no terminal, and every command's `--install`, which installs
     /// only a draft the check passes.

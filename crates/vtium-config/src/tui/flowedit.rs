@@ -276,25 +276,31 @@ impl App {
             Done::History(kept) if kept.is_empty() => return self.say(words::NO_HISTORY),
             Done::History(kept) => self.restore = Some((kept, 0)),
             Done::Present(present) => self.set_present(present),
+            // only an install answers with this, as [`App::installed`]
+            Done::Installed(..) => {}
         }
         Vec::new()
     }
 
     /// The privileged step's end: the draft installed and recorded in the
-    /// installed history, with the frits beside it, or why nothing is.
+    /// installed history, with the frits beside it, and what the step after
+    /// the install did on the VTs (ADR-1201 D5), or why nothing is.
     pub(crate) fn installed(&mut self, result: Result<Done, String>) -> Vec<Effect> {
         self.installing = false;
-        match result {
-            Ok(Done::Draft(opened, _)) => {
-                let name = opened.name.clone();
-                self.draft = Some(opened);
-                self.frits_installed();
-                self.rebuild(None);
-                self.say(&words::installed(&name))
-            }
-            Ok(_) => Vec::new(),
-            Err(why) => self.say(&words::install_failed(&why)),
-        }
+        let (opened, outcome) = match result {
+            Ok(Done::Draft(opened, _)) => (opened, None),
+            Ok(Done::Installed(opened, outcome)) => (opened, Some(outcome)),
+            Ok(_) => return Vec::new(),
+            Err(why) => return self.say(&words::install_failed(&why)),
+        };
+        let message = match &outcome {
+            Some(outcome) => crate::vts::message(&opened.name, outcome),
+            None => words::installed(&opened.name),
+        };
+        self.draft = Some(opened);
+        self.frits_installed();
+        self.rebuild(None);
+        self.say(&message)
     }
 
     /// Takes the devices present, says what came and went, and redraws

@@ -66,3 +66,4 @@ pub mod specimen;
 pub mod store;
 pub mod switch;
 pub mod tui;
+pub mod vts;
