@@ -157,6 +157,11 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 break;
             }
         }
+        // The card the kernel removed is let go as it is, each display
+        // reported removed once.
+        if self.card.removed() {
+            return unset;
+        }
         self.keep_unset_apart(&mut unset, &placed);
         if refused {
             for id in elsewhere {

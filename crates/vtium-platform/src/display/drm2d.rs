@@ -220,8 +220,11 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// the displays since: the next input tries again.
     wake_failed: bool,
     /// The displays the last legacy modeset could not set, at the mode
-    /// chosen or at the mode they were set to. The wake-up retries try them
-    /// again, and none is asked to redraw until a modeset sets it.
+    /// chosen or at the mode they were set to: each whose set failed for a
+    /// reason that may pass, or every display, where the card refused them
+    /// all. A display the card refused beside others that lit is left off
+    /// instead. The wake-up retries try these again, and none is asked to
+    /// redraw until a modeset sets it.
     unset: Vec<DisplayId>,
     /// The card was let go after the kernel removed it: each display was
     /// reported removed, and drm2d sends the card nothing again.
@@ -1207,6 +1210,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.events.push(Event::Removed(o.id));
             }
         }
+        // Each display gets one event from here, its removal: a display
+        // left off in the same operation, whose Unlit the owner has not read
+        // yet, is reported removed alone.
+        self.events.retain(|e| !matches!(e, Event::Unlit(_)));
         for l in std::mem::take(&mut self.left_off) {
             self.events.push(Event::Removed(l.id));
         }
@@ -2414,6 +2421,29 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 if !going.is_empty() {
                     unset = self.legacy_modeset();
                 }
+            }
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
+            // The legacy calls say which display the card refused. Each one
+            // still refused here is left off, present but dark, so the
+            // retries do not set it again; a display whose set failed for a
+            // reason that may pass stays bound and unset, for the retries.
+            // Where no display is set, every one stays, and the retries try
+            // them again, as they try an atomic modeset the card refuses
+            // whole.
+            let refused: Vec<DisplayId> = unset.iter().filter(|u| u.1).map(|u| u.0).collect();
+            let set_any = self
+                .outputs
+                .iter()
+                .any(|o| !unset.iter().any(|u| u.0 == o.id));
+            if !refused.is_empty() && set_any {
+                let (off, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.outputs)
+                    .into_iter()
+                    .partition(|o| refused.contains(&o.id));
+                self.outputs = kept;
+                self.leave_off(off, "the card refuses it beside the other displays");
+                unset.retain(|u| !u.1);
             }
             (Ok(()), unset.into_iter().map(|(id, _)| id).collect())
         } else {

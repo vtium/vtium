@@ -35,13 +35,17 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// freed. The owner hears it unlit once, as it goes from lit to left
     /// off. A display the owner never heard of needs no record, and one
     /// placed again from its record and left off again keeps the record it
-    /// has, so the owner hears nothing new.
+    /// has, so the owner hears nothing new. On a card the kernel removed
+    /// the owner hears nothing yet: letting the card go reports each
+    /// record's display removed, its one event.
     pub(super) fn keep_left_off(&mut self, o: &Output<S::Memory>) {
         if !o.announced {
             return;
         }
         let edid = self.known_edid(o.id).cloned();
-        self.events.push(Event::Unlit(o.id));
+        if !self.card.removed() {
+            self.events.push(Event::Unlit(o.id));
+        }
         self.left_off.push(LeftOff {
             id: o.id,
             name: o.name.clone(),

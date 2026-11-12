@@ -6109,6 +6109,40 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
     assert!(!head_shows(&s.app, "large", "got:c"));
 }
 
+/// D8 and D9: a display its device cannot light, though still plugged in,
+/// does not count as lit for the guards. Here `small`'s display is lit, and
+/// the keyboards it claims type into it; then the device leaves it unlit.
+/// No keyboard reaches a lit head, so the anti-lockout guard sends each to
+/// the focus on `large`, with a notice, as when the display goes. Once the
+/// device lights the display again, the keyboards type into `small` again.
+#[test]
+fn a_display_left_unlit_does_not_count_as_lit_for_the_guards() {
+    let mut s = stranded(start(STRANDED));
+    s.app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Memory::new(320, 160, "MEM-1", "mem-small")),
+    );
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_A, "a\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:a")));
+    s.unlight("/dev/mem0", now());
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
+    s.type_on(KBD_A, "b\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "got:b")),
+        "the keyboard types into the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "got:b"));
+    s.relight("/dev/mem0", now());
+    s.type_on(KBD_A, "c\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:c")),
+        "lit again, the guard lets go"
+    );
+    assert!(!head_shows(&s.app, "large", "got:c"));
+}
+
 /// D9: when the anti-lockout guard fires it moves the focus to a lit head,
 /// the boot display's when lit, and the on-screen display shows on the
 /// lit head; the head that lost its display shows none.
