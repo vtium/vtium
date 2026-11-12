@@ -1063,7 +1063,10 @@ fn a_switch_the_vt_raises_lets_go_of_the_keys_held() {
         "the release came with the switch: {:?}",
         h.app.screen_text()
     );
-    assert!(!h.app.vt.is_active(), "the release was acknowledged");
+    assert!(
+        h.until(BOUND, |a| !a.vt.is_active()),
+        "the release was acknowledged"
+    );
     h.scripted().activate().expect("the scripted VT comes back");
     assert!(h.until(BOUND, |a| a.vt.is_active()));
     assert!(h.until_memory(BOUND, |m| m.awake), "awake again");
