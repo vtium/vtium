@@ -1,8 +1,34 @@
-# The modes vtium recognises
+# The modes vtium recognizes
 
-Generated from the mode table in `crates/vtium-term/src/terminal/modes.rs` by the test `generated_documents_match_the_table`; `VTIUM_TERM_BLESS=1 cargo test -p vtium-term generated_documents` rewrites it and `docs/modes.tsv`. A row's status is supported, when set and reset do what the specification says, ignored, when vtium accepts the mode and it has no effect, or refused, when vtium deliberately does not implement it. The spec column says why a mode is ignored or refused. A number with no row is not recognised: DECRQM reports 0, and SM and RM change nothing. An ignored or refused row reports its default as permanent, 3 when set and 4 when reset.
+This page is generated from the mode table in `crates/vtium-term/src/terminal/modes.rs`, by the test `generated_documents_match_the_table`. `VTIUM_TERM_BLESS=1 cargo test -p vtium-term generated_documents` rewrites it and `docs/modes.tsv`.
 
-XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists, and XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the state saved, through SM or RM; a mode nothing was saved for stays as it is. With an empty list they save and restore every mode free of side effects, as kitty's misc-protocol has it: every supported DEC private mode but DECOM (6), which moves the cursor home, 47, 1047 and 1049, which switch screens, 1048 and 2026; no ANSI mode is in it. Modes that share one state share one saved state, as xterm keeps them: the tracking modes 1000, 1002 and 1003, while 9 has a saved state of its own holding the same tracking, the encodings 1006, 1015 and 1016, and the alternate screen modes 47, 1047 and 1049, which XTRESTORE of one of them switches as 47 does, neither cleared nor the cursor moved. Mode 1048 holds no state: XTSAVE of it saves the cursor as DECSC does and XTRESTORE restores it as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.
+A row's status is one of three:
+
+- supported, when set and reset do what the specification says,
+- ignored, when vtium accepts the mode and the mode has no effect, or
+- refused, when vtium deliberately does not implement the mode.
+
+The spec column says why a mode is ignored or refused. vtium does not recognize a number that has no row. DECRQM reports 0 for such a number, and SM and RM change nothing. An ignored or refused row reports its default as permanent: 3 when the default is set, and 4 when it is reset.
+
+XTSAVE (`CSI ? Pm s`) saves the state of each DEC private mode it lists. XTRESTORE (`CSI ? Pm r`) sets each mode it lists back to the saved state, through SM or RM. A mode that nothing was saved for stays as it is.
+
+With an empty list, XTSAVE and XTRESTORE save and restore every mode that is free of side effects. vtium follows the misc-protocol specification in kitty's documentation for what the empty list holds. The empty list holds every supported DEC private mode except these:
+
+- DECOM (6), which moves the cursor home,
+- 47, 1047 and 1049, which switch screens, and
+- 1048 and 2026.
+
+The empty list holds no ANSI mode.
+
+Modes that share one state also share one saved state. These modes share a saved state:
+
+- the tracking modes 1000, 1002 and 1003, while mode 9 has a saved state of its own that holds the same tracking,
+- the encodings 1006, 1015 and 1016, and
+- the alternate screen modes 47, 1047 and 1049.
+
+XTRESTORE of any of the alternate screen modes switches screens as 47 does. It neither clears the screen nor moves the cursor.
+
+Mode 1048 holds no state. XTSAVE of 1048 saves the cursor as DECSC does, and XTRESTORE of 1048 restores the cursor as DECRC does. DECSTR keeps what XTSAVE saved, and RIS clears it.
 
 | id | kind | number | name | status | default | reset | host | terminfo | spec | tests |
 |---|---|---|---|---|---|---|---|---|---|---|
