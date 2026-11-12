@@ -17,7 +17,8 @@
 //! [`crate::deferred`], [`crate::helper`]). The built-ins are Unscii-8
 //! for cells under 16 pixels and unifont from 16, but in a zh, ja or ko
 //! locale, which Unscii-8 does not cover (D7). OSC 50 switches among the
-//! frits and the built-ins while vtium runs (D5).
+//! frits, the built-ins and the head's frit made on the fly while vtium
+//! runs, each by the name its query reports ([`by_name`], D5).
 //!
 //! A font is looked up at the size asked for. When none is in use yet, a
 //! failure tries [`FALLBACK_SIZE`] once, and a second failure is the
@@ -603,22 +604,35 @@ pub fn builtin_named(name: &str, look: Option<Cell>) -> Option<Chosen> {
         })
 }
 
-/// The font named `name` for OSC 50 (ADR-1200 D5): a built-in, or a frit
-/// in the frits' directory, each in `look`, the cell the head's look
-/// states, and a frit with its own cell unless `sized`, as
-/// [`Chosen::frit`] has it. The font keeps the name as the built-in or the
-/// frit's file spells it, never the request's bytes.
+/// The font named `name` for OSC 50 (ADR-1200 D5): a built-in; else a
+/// frit in the frits' directory; else `made`, the frit vtium made on the
+/// fly for the font the configuration gives the head (D9), when `name` is
+/// the name it was made under. The order is D9's, so a name means the same
+/// font at a switch as at the start: a frit in the directory wins over a
+/// frit made on the fly under its name. Each draws in `look`, the cell the
+/// head's look states, and a frit with its own cell unless `sized`, as
+/// [`Chosen::frit`] has it, so the name OSC 50's query reports for the
+/// font a head starts in switches back to that font at the size it had.
+/// The font keeps the name as the built-in, the frit's file or the
+/// configuration spells it, never the request's bytes.
 pub fn by_name(
     sources: &Sources,
     name: &str,
     sized: bool,
     look: Option<Cell>,
+    made: Option<&FritText>,
 ) -> Result<Chosen, String> {
     if let Some(builtin) = builtin_named(name, look) {
         return Ok(builtin);
     }
-    let path = frit(&sources.frits, name).ok_or("there is no font set of that name")?;
-    Chosen::frit(FritText::read(&path)?, sized, look)
+    let frit = match frit(&sources.frits, name) {
+        Some(path) => FritText::read(&path)?,
+        None => made
+            .filter(|made| made.name == name)
+            .cloned()
+            .ok_or("there is no font set of that name")?,
+    };
+    Chosen::frit(frit, sized, look)
 }
 
 /// The font vtium draws.
@@ -2007,6 +2021,57 @@ mod tests {
                 "DejaVu Sans Mono".into(),
                 "source=font:DejaVu Sans Mono\n".into()
             ))
+        );
+    }
+
+    // ADR-1200 D5, D9: OSC 50 finds a name as the start does: a built-in,
+    // then a frit in the frits' directory, then the frit made on the fly
+    // for the head's configured font under its own name; a frit in the
+    // directory wins over a frit made on the fly under the same name, and
+    // any other name, a path included, is refused
+    #[test]
+    fn by_name_finds_a_frit_made_on_the_fly_after_the_frits_directory() {
+        let dir = std::env::temp_dir().join(format!("vtium-font-by-name-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("the directory");
+        std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
+        let sources = Sources {
+            frits: dir.clone(),
+            ..Sources::default()
+        };
+        let made = |name: &str| FritText {
+            name: name.to_owned(),
+            text: "source=vconsole\n".to_owned(),
+        };
+        let found = |name: &str, made: Option<&FritText>| {
+            by_name(&sources, name, false, None, made).map(|chosen| match chosen {
+                Chosen::Frit { name, frit, .. } => (name, frit.text),
+                Chosen::Builtin { name, .. } => {
+                    (name.unwrap_or_default().to_owned(), String::new())
+                }
+            })
+        };
+        let vconsole = made("ter-124n");
+        let named = |name: &str, text: &str| Ok((name.to_owned(), text.to_owned()));
+        let refused = Err("there is no font set of that name".to_owned());
+        let results = [
+            found("ter-124n", Some(&vconsole)),
+            found("ter-124n", None),
+            found("ter-v16n", Some(&vconsole)),
+            found("t", Some(&made("t"))),
+            found("unifont", Some(&made("unifont"))),
+            found("/etc/passwd", None),
+        ];
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            results,
+            [
+                named("ter-124n", "source=vconsole\n"),
+                refused.clone(),
+                refused.clone(),
+                named("t", "source=kbd:x\n"),
+                named("unifont", ""),
+                refused,
+            ]
         );
     }
 
