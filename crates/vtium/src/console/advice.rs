@@ -4,7 +4,8 @@
 //! Plain `enable` turns nothing on. It reports what vtium finds on the
 //! machine and recommends a mode. [`recommend`] holds the rule, and
 //! [`seat_block`] says why seat mode cannot run, which `enable --seat`
-//! refuses with too.
+//! refuses with too. [`Refusals`] carries why `enable` would refuse the
+//! VTs named, so that the advice offers no command `enable` refuses.
 
 use super::Mode;
 
@@ -24,6 +25,17 @@ pub struct Facts {
     pub pam: bool,
     /// The display manager's unit, when one is enabled.
     pub display_manager: Option<String>,
+}
+
+/// Why `enable` in each mode would refuse the VT or VTs the advice is
+/// for, in the words of its refusal, or None where it would go ahead. The
+/// advice offers no command that `enable` would refuse.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Refusals {
+    pub direct: Option<String>,
+    /// None too where seat mode cannot run at all, which [`seat_block`]
+    /// says.
+    pub seat: Option<String>,
 }
 
 /// Where systemd finds seat mode's unit.

@@ -3,9 +3,9 @@
 
 use std::fmt::Debug;
 
-use super::Mode;
-use super::advice::{self, Facts, SeatBlock};
+use super::advice::{self, Facts, Refusals, SeatBlock};
 use super::held::{Holder, Reason};
+use super::{Mode, Which};
 
 pub const USAGE: &str = "Usage: vtium console enable --direct|--seat N|--all | enable [N|--all] | disable N|--all | status | fallback N\n\
 enable makes vtium run on VT N, or on every VT, from its next start, and disable undoes that. N is 1 to 63, or ttyN.\n\
@@ -729,11 +729,13 @@ pub fn fallback_starting(n: u16) -> String {
 }
 
 /// What plain `enable` says: what vtium finds on this machine, the mode it
-/// recommends and why, whether seat mode can run, and the command that
-/// turns the recommended mode on for `which`, the VT named or `--all`,
-/// with `sudo` before it when the user is not root.
-pub fn advice(facts: &Facts, which: &str, sudo: bool) -> Vec<String> {
+/// recommends and why, whether seat mode can run, why `enable` would
+/// refuse `which`, the VT named or `--all`, in a mode, and the command that
+/// turns the recommended mode on for `which` where `enable` would not
+/// refuse it, with `sudo` before it when the user is not root.
+pub fn advice(facts: &Facts, which: Which, refusals: &Refusals, sudo: bool) -> Vec<String> {
     let sudo = if sudo { "sudo " } else { "" };
+    let word = super::which_word(which);
     let mut lines = vec![
         "vtium console enable turns nothing on without a mode. This is what it finds on this machine:".to_owned(),
         "- systemd runs as PID 1, so vtium console can turn vtium on.".to_owned(),
@@ -760,20 +762,54 @@ pub fn advice(facts: &Facts, which: &str, sudo: bool) -> Vec<String> {
         Mode::Seat => "vtium recommends seat mode for this machine.".to_owned(),
     });
     lines.push(match advice::seat_block(facts) {
-        None => format!(
-            "Seat mode can also run here. In seat mode, vtium takes the screen, the keyboards and VT switching from logind, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards. To use seat mode, run {sudo}vtium console enable --seat {which}."
-        ),
+        None => {
+            let cost = "Seat mode can also run here. In seat mode, vtium takes the screen, the keyboards and VT switching from logind, and each login gets a logind session with no seat. polkit treats that session as inactive, and udev gives it no devices, such as sound cards.";
+            match refusals.seat {
+                None => format!("{cost} To use seat mode, run {sudo}vtium console enable --seat {word}."),
+                Some(_) => cost.to_owned(),
+            }
+        }
         Some(SeatBlock::Build) => "Seat mode cannot run with this vtium, because it is built without libseat and logind.".to_owned(),
         Some(SeatBlock::Unit) => "Seat mode cannot run here, because no systemd unit directory has vtium-seat@.service.".to_owned(),
         Some(SeatBlock::Masked) => "Seat mode cannot run here, because vtium-seat@.service is masked.".to_owned(),
         Some(SeatBlock::Pam) => "Seat mode cannot run here, because there is no /etc/pam.d/vtium, the PAM file that seat mode opens vtium's own session with.".to_owned(),
         Some(SeatBlock::Logind) => "Seat mode cannot run here, because logind manages no seat0.".to_owned(),
     });
-    lines.push(String::new());
-    lines.push(format!("To turn vtium on in {}, run:", mode_name(mode)));
-    lines.push(format!(
-        "  {sudo}vtium console enable {} {which}",
-        mode.flag()
-    ));
+    let what = match which {
+        Which::Vt(n) => format!("VT {n}"),
+        Which::All => "every VT".to_owned(),
+    };
+    let refused: Vec<(String, &String)> = match (&refusals.direct, &refusals.seat) {
+        (Some(direct), Some(seat)) if direct == seat => vec![("in either mode".to_owned(), direct)],
+        (direct, seat) => [(Mode::Direct, direct), (Mode::Seat, seat)]
+            .into_iter()
+            .filter_map(|(m, why)| {
+                why.as_ref()
+                    .map(|why| (format!("in {}", mode_name(m)), why))
+            })
+            .collect(),
+    };
+    if !refused.is_empty() {
+        lines.push(String::new());
+        for (how, why) in refused {
+            lines.push(format!(
+                "vtium console enable refuses to give vtium {what} {how} now, for this reason:"
+            ));
+            lines.push(format!("  {why}"));
+        }
+        lines.push("To see which VTs are free, run vtium console status.".to_owned());
+    }
+    let offered = match mode {
+        Mode::Direct => &refusals.direct,
+        Mode::Seat => &refusals.seat,
+    };
+    if offered.is_none() {
+        lines.push(String::new());
+        lines.push(format!("To turn vtium on in {}, run:", mode_name(mode)));
+        lines.push(format!(
+            "  {sudo}vtium console enable {} {word}",
+            mode.flag()
+        ));
+    }
     lines
 }

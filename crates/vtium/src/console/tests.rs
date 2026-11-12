@@ -2521,8 +2521,8 @@ fn enable_with_no_mode_advises_direct_mode_and_turns_nothing_on() {
         assert!(out.contains("a logind session with no seat"), "{out}");
         assert_eq!(out.lines().last(), Some(command), "{out}");
     }
-    // It reads the files alone: no systemctl or loginctl call.
-    assert!(m.fake.calls.is_empty(), "{:?}", m.fake.calls);
+    // It reads what enable reads, and changes nothing.
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
     assert_eq!(m.snapshot(), before);
     // A display manager keeps VT 1, and the advice says so.
     m.link(DISPLAY_MANAGER, "getty");
@@ -2572,7 +2572,174 @@ fn the_advice_says_why_seat_mode_cannot_run() {
         "{out}"
     );
     assert!(out.contains("vtium recommends direct mode"), "{out}");
-    assert!(m.fake.calls.is_empty(), "{:?}", m.fake.calls);
+    assert!(m.changes().is_empty(), "{:?}", m.changes());
+}
+
+/// Each `vtium console enable --MODE WHICH` that `out` offers, as the
+/// words after `console`.
+fn offered(out: &str) -> Vec<Vec<String>> {
+    out.split("vtium console ")
+        .skip(1)
+        .filter(|rest| rest.starts_with("enable --"))
+        .map(|rest| {
+            rest.split_whitespace()
+                .take(3)
+                .map(|w| w.trim_end_matches(['.', ',']).to_owned())
+                .collect()
+        })
+        .collect()
+}
+
+#[test]
+fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
+    // padnoir: sddm's Xorg runs on VT 7, with /dev/tty7 as its controlling
+    // terminal, and the advice offered enable --direct 7 and --seat 7,
+    // which both refuse VT 7.
+    let padnoir = |m: &mut Machine| {
+        display_manager(m);
+        process(
+            m,
+            1213,
+            "/usr/lib/Xorg",
+            tty(7),
+            "/system.slice/sddm.service",
+        );
+    };
+    let unit_at_boot = |m: &mut Machine| {
+        let lib = m.root().join("usr/lib/systemd/system");
+        std::fs::write(
+            lib.join("cage@.service"),
+            "[Unit]\nConflicts=getty@%i.service\n[Service]\nTTYPath=/dev/%I\n",
+        )
+        .unwrap();
+        let dir = m.root().join(ETC).join("graphical.target.wants");
+        std::fs::create_dir_all(&dir).unwrap();
+        symlink(
+            "/usr/lib/systemd/system/cage@.service",
+            dir.join("cage@tty3.service"),
+        )
+        .unwrap();
+    };
+    let dev = |m: &mut Machine| {
+        std::fs::remove_file(m.root().join(WANTS).join("getty@tty3.service")).unwrap();
+        m.link("getty.target.wants/vtium-dev@tty3.service", "vtium-dev");
+        m.link("autovt@tty3.service", "vtium-dev");
+    };
+    let masked = |m: &mut Machine| {
+        symlink("/dev/null", m.root().join(ETC).join("vtium@tty2.service")).unwrap();
+    };
+    type Setup<'s> = &'s dyn Fn(&mut Machine);
+    // What holds the VT, the words asked, what the refusal says, and
+    // whether seat mode still takes the VT.
+    let cases: [(&str, Setup<'_>, &[&str], &str, bool); 8] = [
+        (
+            "advise-xorg",
+            &padnoir,
+            &["enable", "7"],
+            "the program /usr/lib/Xorg (process 1213, in sddm.service) uses VT 7 now: /dev/tty7 is its controlling terminal",
+            false,
+        ),
+        (
+            "advise-dm",
+            &|m: &mut Machine| display_manager(m),
+            &["enable", "1"],
+            "the display manager sddm.service uses VT 1 at boot",
+            false,
+        ),
+        (
+            "advise-session",
+            &|m: &mut Machine| m.fake.sessions = vec![["aaron", "3", "sddm", "wayland", "user"]],
+            &["enable", "tty3"],
+            "the graphical session of aaron (sddm, wayland) uses VT 3 now",
+            false,
+        ),
+        (
+            "advise-kmscon",
+            &|m: &mut Machine| m.fake.running.push("kmsconvt@tty4.service".into()),
+            &["enable", "4"],
+            "kmscon (kmsconvt@tty4.service) runs on VT 4",
+            false,
+        ),
+        (
+            "advise-boot-unit",
+            &unit_at_boot,
+            &["enable", "3"],
+            "cage@tty3.service uses VT 3 at boot: it is enabled at boot on that VT",
+            false,
+        ),
+        (
+            "advise-dev",
+            &dev,
+            &["enable", "3"],
+            "a development build of vtium (vtium-dev@tty3.service) runs on VT 3",
+            false,
+        ),
+        (
+            "advise-masked",
+            &masked,
+            &["enable", "2"],
+            "vtium@tty2.service is masked",
+            true,
+        ),
+        (
+            "advise-reserved",
+            &|m: &mut Machine| m.fake.sessions = vec![["aaron", "6", "sddm", "wayland", "user"]],
+            &["enable"],
+            "the graphical session of aaron (sddm, wayland) uses VT 6 now. VT 6 is logind's reserved VT",
+            false,
+        ),
+    ];
+    for (name, setup, words, reason, seat) in cases {
+        let mut m = Machine::gettys(name);
+        setup(&mut m);
+        let before = m.snapshot();
+        let (status, out, err) = m.console_as(false, words);
+        assert_eq!((status, err.as_str()), (0, ""), "{name}: {out}");
+        assert_eq!(m.snapshot(), before, "{name}");
+        // The machine-wide advice stays.
+        assert!(
+            out.contains("vtium recommends direct mode for this machine."),
+            "{name}: {out}"
+        );
+        assert!(
+            out.contains("Seat mode can also run here."),
+            "{name}: {out}"
+        );
+        // It names the holder in the refusal's own words, and says how to
+        // find a free VT.
+        assert!(out.contains(reason), "{name}: {out}");
+        assert!(
+            out.contains("To see which VTs are free, run vtium console status."),
+            "{name}: {out}"
+        );
+        let offers = offered(&out);
+        let mode = |flag: &str| offers.iter().any(|w| w[1] == flag);
+        assert!(!mode("--direct"), "{name}: {out}");
+        assert_eq!(mode("--seat"), seat, "{name}: {out}");
+        // Each command it does offer works on this machine.
+        for words in offers {
+            let words: Vec<&str> = words.iter().map(String::as_str).collect();
+            let (status, out, err) = m.console(&words);
+            assert_eq!(status, 0, "{name}: {words:?} was refused: {err}{out}");
+        }
+    }
+    // A VT nothing holds, on padnoir: the advice offers both modes, and
+    // both work.
+    let mut m = Machine::gettys("advise-free");
+    padnoir(&mut m);
+    let (status, out, _) = m.console_as(false, &["enable", "3"]);
+    assert_eq!(status, 0, "{out}");
+    assert!(!out.contains("vtium console status"), "{out}");
+    assert_eq!(
+        offered(&out),
+        [["enable", "--seat", "3"], ["enable", "--direct", "3"]],
+        "{out}"
+    );
+    assert_eq!(
+        out.lines().last(),
+        Some("  sudo vtium console enable --direct 3")
+    );
+    assert_eq!(m.console(&["enable", "--direct", "3"]).0, 0);
 }
 
 #[test]
