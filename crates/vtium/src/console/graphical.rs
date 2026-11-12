@@ -140,6 +140,7 @@ pub fn session_ids(list: &str) -> Vec<String> {
 
 /// One session in `loginctl show-session`'s output that is on a VT.
 struct Session<'s> {
+    id: &'s str,
     vt: u16,
     user: &'s str,
     service: &'s str,
@@ -165,6 +166,7 @@ fn sessions(show: &str) -> impl Iterator<Item = Session<'_>> {
             return None;
         }
         Some(Session {
+            id: get("Id"),
             vt,
             user: get("Name"),
             service: get("Service"),
@@ -212,6 +214,17 @@ pub fn logins(show: &str) -> Vec<(u16, Holder)> {
     sessions(show)
         .filter(|s| s.graphical().is_none())
         .map(|s| s.holder(s.kind))
+        .collect()
+}
+
+/// The VT of each session on one in `loginctl show-session`'s output, by
+/// the name of the scope logind runs the session's processes in,
+/// `session-ID.scope` (sd-login(3)), so that a process in it is known as
+/// that session's.
+pub fn scopes(show: &str) -> BTreeMap<String, u16> {
+    sessions(show)
+        .filter(|s| !s.id.is_empty())
+        .map(|s| (format!("session-{}.scope", s.id), s.vt))
         .collect()
 }
 
@@ -347,6 +360,15 @@ Class=user
                 "1 1000 aaron -     1490 manager -    no -\n3 1000 aaron seat0 3362 user    tty7 no -\n"
             ),
             ["1", "3"]
+        );
+        // Each session on a VT by its scope, a text login's too.
+        assert_eq!(
+            scopes(show).into_iter().collect::<Vec<_>>(),
+            [
+                ("session-3.scope".to_owned(), 7),
+                ("session-4.scope".to_owned(), 1),
+                ("session-5.scope".to_owned(), 3)
+            ]
         );
     }
 }

@@ -20,7 +20,8 @@
 //! what the records say. It passes by every VT another program holds: a
 //! VT that a unit enabled at boot, such as the display manager's, claims,
 //! judged from what is on the machine ([`held`]), and a VT a graphical
-//! session, a greeter or another console is on now. `fallback N`, which
+//! session, a greeter or another console is on now, or that is the
+//! controlling terminal of a program running now ([`process`]). `fallback N`, which
 //! `vtium-getty@.service` runs when vtium on VT N fails, starts the VT's
 //! getty only when that start stops no other program ([`fallback`]).
 //!
@@ -48,6 +49,7 @@ mod advice;
 mod fallback;
 mod graphical;
 mod held;
+mod process;
 mod text;
 
 use held::Holder;
@@ -623,6 +625,17 @@ fn names(dir: &Path) -> Vec<String> {
 /// Who holds which VT, a VT once for each holder.
 type OnVts = Vec<(u16, Holder)>;
 
+/// What logind says of the sessions on the VTs.
+#[derive(Default)]
+struct Sessions {
+    /// The graphical sessions and greeters.
+    graphics: OnVts,
+    /// The other sessions, such as a user's login at a getty.
+    logins: OnVts,
+    /// The VT of each session, by its scope's name.
+    scopes: BTreeMap<String, u16>,
+}
+
 /// A step that could not be taken: what to print, on stderr.
 struct Stop(String);
 
@@ -873,14 +886,16 @@ impl Run<'_, '_, '_> {
             }
         }
         state.display_manager = self.display_manager();
+        let mut scopes = BTreeMap::new();
         match self.sessions() {
-            Ok((graphics, logins)) => {
-                for (n, holder) in graphics {
+            Ok(sessions) => {
+                for (n, holder) in sessions.graphics {
                     state.held.entry(n).or_default().push(holder);
                 }
-                for (n, holder) in logins {
+                for (n, holder) in sessions.logins {
                     state.logins.entry(n).or_default().push(holder);
                 }
+                scopes = sessions.scopes;
             }
             Err(Stop(why)) => state.sessions_unknown = Some(why),
         }
@@ -892,6 +907,7 @@ impl Run<'_, '_, '_> {
                 });
             }
         }
+        self.judge_processes(&mut state, &scopes);
         self.judge_boot_units(&mut state);
         for name in names(&etc) {
             match instance(&name) {
@@ -1057,23 +1073,49 @@ impl Run<'_, '_, '_> {
     }
 
     /// The sessions on a VT now, from logind: the graphical sessions and
-    /// greeters, and the others.
-    fn sessions(&mut self) -> Step<(OnVts, OnVts)> {
+    /// greeters, the others, and the VT of each session's scope
+    /// ([`graphical::scopes`]).
+    fn sessions(&mut self) -> Step<Sessions> {
         let list = self.loginctl(&["list-sessions", "--no-legend"])?;
         let ids = graphical::session_ids(&list.stdout);
         if ids.is_empty() {
-            return Ok((Vec::new(), Vec::new()));
+            return Ok(Sessions::default());
         }
         let mut args = vec!["show-session"];
         args.extend(ids.iter().map(String::as_str));
         args.extend([
-            "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
+            "-p", "Id", "-p", "Name", "-p", "VTNr", "-p", "Service", "-p", "Type", "-p", "Class",
         ]);
         let show = self.loginctl(&args)?;
-        Ok((
-            graphical::graphical(&show.stdout),
-            graphical::logins(&show.stdout),
-        ))
+        Ok(Sessions {
+            graphics: graphical::graphical(&show.stdout),
+            logins: graphical::logins(&show.stdout),
+            scopes: graphical::scopes(&show.stdout),
+        })
+    }
+
+    /// Adds to `state` each program whose controlling terminal is a VT now
+    /// ([`process`]) and that nothing else on that VT accounts for: a
+    /// process in a unit that is an instance on the same VT, such as
+    /// `getty@ttyN.service`, which the rules for consoles judge, or in the
+    /// scope of a logind session on the same VT, which the sessions judge,
+    /// holds nothing more. Any other such program holds its VT, whether or
+    /// not it has a session: a display manager's X server, a debug shell,
+    /// or an X server started from a text login on another VT.
+    fn judge_processes(&self, state: &mut State, scopes: &BTreeMap<String, u16>) {
+        let processes = process::on_vts(&self.host.root);
+        for p in process::one_each(processes) {
+            let accounted = p.unit.as_deref().is_some_and(|unit| {
+                instance(unit).is_some_and(|(_, n)| n == p.vt) || scopes.get(unit) == Some(&p.vt)
+            });
+            if !accounted {
+                state.held.entry(p.vt).or_default().push(Holder::Process {
+                    pid: p.pid,
+                    program: p.program,
+                    unit: p.unit,
+                });
+            }
+        }
     }
 
     fn loginctl(&mut self, args: &[&str]) -> Step<Reply> {
@@ -1632,7 +1674,7 @@ impl Run<'_, '_, '_> {
                         Holder::Unit { .. } if !at_boot.split(", ").any(|c| c == cell) => {
                             at_boot = join(&at_boot, &cell);
                         }
-                        Holder::Session { .. } => {
+                        Holder::Session { .. } | Holder::Process { .. } => {
                             running_graphics = join(&running_graphics, &cell);
                         }
                         // A console running there shows in the running
@@ -1707,11 +1749,12 @@ impl Run<'_, '_, '_> {
                 self.say(&text::not_held_at_boot(&free, mode));
             }
         }
-        // Why each VT a unit that starts at boot holds is held.
+        // Why each VT a unit that starts at boot, or a program with no
+        // session, holds is held.
         for (n, holders) in &state.held {
             let units: Vec<Holder> = holders
                 .iter()
-                .filter(|h| matches!(h, Holder::Unit { .. }))
+                .filter(|h| matches!(h, Holder::Unit { .. } | Holder::Process { .. }))
                 .cloned()
                 .collect();
             if !units.is_empty() {
