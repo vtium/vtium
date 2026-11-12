@@ -1367,7 +1367,10 @@ mod tests {
             .map(|(w, _)| w)
             .collect();
         assert_eq!(words, [words::SWITCH_OFF, words::SWITCH_ON]);
-        let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+        let path = paths::read(&app.inputs.flow)
+            .path("desk")
+            .cloned()
+            .expect("desk");
         assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(0));
         assert_eq!(
             card_writes(&mut app, &line, 1),
@@ -1375,7 +1378,10 @@ mod tests {
         );
         let on = "version = 1\npolicy = open\n[head desk]\nswitch-on-enter = yes\nvt = 3\n[rules]\ndisplay * -> desk\ninput * -> desk\n";
         let mut app = card_of(on, "desk");
-        let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+        let path = paths::read(&app.inputs.flow)
+            .path("desk")
+            .cloned()
+            .expect("desk");
         assert_eq!(flowdraw::card_chosen(&app, &path, &line), Some(1));
         // unsetting comments the line out, as every key the card unsets
         assert_eq!(
@@ -1392,7 +1398,10 @@ mod tests {
         let line = flowdraw::CardLine::Setting("switch-on-enter");
         let hint = |text: &str| -> String {
             let app = card_of(text, "desk");
-            let path = paths::read(&app.inputs.flow).path("desk").cloned().expect("desk");
+            let path = paths::read(&app.inputs.flow)
+                .path("desk")
+                .cloned()
+                .expect("desk");
             flowdraw::card_about(&app, &path, &line).expect("a hint")
         };
         let rules = "[rules]\ndisplay * -> desk\ninput * -> desk\n";

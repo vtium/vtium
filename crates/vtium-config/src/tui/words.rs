@@ -928,8 +928,10 @@ pub const SWITCH_LABEL: &str = "Switch on Enter";
 pub const SWITCH_OFF: &str = "off";
 pub const SWITCH_ON: &str = "on";
 pub const SWITCH_ABOUT: &str = "Enter on this terminal's own keyboard switches to its VT, from a VT where this terminal does not run.";
-pub const SWITCH_CLOSED: &str = "It has no effect now, because the policy is closed. It works only with policy = open.";
-pub const SWITCH_ISOLATED: &str = "It has no effect now, because this terminal is isolated, so its keyboards switch no VT.";
+pub const SWITCH_CLOSED: &str =
+    "It has no effect now, because the policy is closed. It works only with policy = open.";
+pub const SWITCH_ISOLATED: &str =
+    "It has no effect now, because this terminal is isolated, so its keyboards switch no VT.";
 pub const SWITCH_EVERY_VT: &str = "It has no effect now, because this terminal runs on every VT. Give it VTs of its own in NEW PATH to use it.";
 pub const SWITCH_PAST_12: &str = "It has no effect now, because Enter switches only to VTs 1 to 12, and this terminal runs on none of them.";
 /// The Login line of a terminal's card: what it sets, its two choices,
