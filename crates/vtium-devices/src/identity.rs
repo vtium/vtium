@@ -69,6 +69,22 @@ pub fn unnamed_display(connector: &str, card: &Card, order: u32) -> Identity {
     }
 }
 
+/// Why no rule can name the display `id`, for the log line of a display
+/// that no rule claims and for which `vtium_settings::rule_for` finds no
+/// key to write. A rule names a display by its monitor's EDID, which needs
+/// a serial number, or by its card's path and its connector together.
+pub fn why_unnamed(id: &Identity) -> String {
+    let monitor = match id.edid {
+        None => "its monitor reports no EDID",
+        Some(_) => "its monitor's EDID gives no serial number",
+    };
+    let card = match id.card {
+        None => "udev gave its card no path (ID_PATH), so a `connector:` rule has no card to name",
+        Some(_) => "its card's path or its connector's name cannot be written in a rule",
+    };
+    format!("No rule can name this display: {monitor}, and {card}.")
+}
+
 /// The EDID's maker, product code and serial as `edid:` matches them: the
 /// serial string, else the serial number as vtium-platform writes it,
 /// `0x` and eight hex digits, else none, which no `edid:` token matches.
@@ -171,6 +187,33 @@ mod tests {
         assert_eq!(place(number), Place::Head(1));
         assert_eq!(place(none.clone()), Place::Head(2));
         assert_eq!(none.serial, "");
+    }
+
+    // A display whose card udev never gave an ID_PATH, as padnoir's
+    // NVIDIA card when vtium listed it before udev set it up, says so.
+    #[test]
+    fn a_display_no_rule_can_name_says_what_it_lacks() {
+        let card = Card::at(Path::new("/dev/dri/card0"), None, false);
+        let platform = display::Identity {
+            connector: "DP-4".into(),
+            card: None,
+            edid: None,
+            connector_path: None,
+            lit_at_start: false,
+        };
+        assert_eq!(
+            why_unnamed(&display(&platform, &card, 0)),
+            "No rule can name this display: its monitor reports no EDID, and udev gave its card no path (ID_PATH), so a `connector:` rule has no card to name."
+        );
+        let serial_less = Identity {
+            edid: Some(edid("AAA".into(), 1, &Serial::None)),
+            card: Some("pci 0000".into()),
+            ..Identity::display()
+        };
+        assert_eq!(
+            why_unnamed(&serial_less),
+            "No rule can name this display: its monitor's EDID gives no serial number, and its card's path or its connector's name cannot be written in a rule."
+        );
     }
 
     #[test]
