@@ -601,3 +601,108 @@ fn the_starts_links_and_tags_are_sorted_whatever_order_libudev_joins_them() {
         Some(":power-switch:seat:")
     );
 }
+
+/// padnoir's NVIDIA card as udev announces it once set up: the card at
+/// minor 0, its PCI path in `ID_PATH`.
+fn nvidia_card0() -> Uevent {
+    Uevent {
+        syspath: String::from("/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/drm/card0"),
+        initialized: true,
+        id_path: Some(String::from("pci-0000:01:00.0")),
+        pci_boot_vga: Some(false),
+        ..device("drm", "card0", Some("/dev/dri/card0"))
+    }
+}
+
+fn nvidia_answers() -> Answers {
+    let mut a = Answers::default();
+    a.drivers
+        .insert(PathBuf::from("/dev/dri/card0"), String::from("nvidia-drm"));
+    a
+}
+
+fn nvidia_added() -> DeviceEvent {
+    added(
+        DeviceKind::Drm,
+        "/dev/dri/card0",
+        DeviceFlags::default(),
+        Some("pci-0000:01:00.0"),
+    )
+}
+
+// The scan at vtium's start lists a card whose driver is still loading:
+// the kernel has made its node, and udev has not yet run its rules or
+// written its `ID_PATH`. Reported then, it would carry no PCI path for its
+// whole life, and no `connector:` rule could match its displays. The scan
+// leaves it, and udev's `add` event reports it with its `ID_PATH`.
+#[test]
+fn a_card_the_scan_finds_before_udev_set_it_up_comes_with_its_add_event() {
+    let mut monitor = Monitor::new("seat0").with_udev_daemon(true);
+    let mut probe = nvidia_answers();
+    let loading = Uevent {
+        initialized: false,
+        id_path: None,
+        ..nvidia_card0()
+    };
+    monitor.add(&loading, &mut probe);
+    assert_eq!(monitor.events().count(), 0, "the scan leaves it");
+    assert!(probe.asked.is_empty(), "and opens nothing");
+    monitor.handle(Action::Add, &nvidia_card0(), &mut probe);
+    assert_eq!(monitor.events().collect::<Vec<_>>(), [nvidia_added()]);
+}
+
+// Without a udev daemon nothing sets a device up and no add event comes,
+// so the scan reports every device it finds.
+#[test]
+fn without_a_udev_daemon_the_scan_reports_a_card_udev_never_set_up() {
+    let mut monitor = Monitor::new("seat0").with_udev_daemon(false);
+    let bare = Uevent {
+        initialized: false,
+        id_path: None,
+        ..nvidia_card0()
+    };
+    monitor.add(&bare, &mut nvidia_answers());
+    assert_eq!(
+        monitor.events().collect::<Vec<_>>(),
+        [added(
+            DeviceKind::Drm,
+            "/dev/dri/card0",
+            DeviceFlags::default(),
+            None
+        )]
+    );
+}
+
+// The boot framebuffer's driver, simpledrm, holds card0 at the scan. The
+// GPU's driver then takes the node over. Should udev's remove of the old
+// card never reach vtium, the add of the new one still replaces it: the
+// old card is reported removed, and the new one added with its own PCI
+// path.
+#[test]
+fn a_card_node_a_new_driver_takes_over_reports_the_new_card() {
+    let mut monitor = Monitor::new("seat0").with_udev_daemon(true);
+    let mut probe = nvidia_answers();
+    let simpledrm = Uevent {
+        syspath: String::from("/sys/devices/platform/simple-framebuffer.0/drm/card0"),
+        initialized: true,
+        id_path: Some(String::from("platform-simple-framebuffer.0")),
+        platform_parent: true,
+        ..device("drm", "card0", Some("/dev/dri/card0"))
+    };
+    monitor.add(&simpledrm, &mut probe);
+    monitor.events().for_each(drop);
+    monitor.handle(Action::Add, &nvidia_card0(), &mut probe);
+    assert_eq!(
+        monitor.events().collect::<Vec<_>>(),
+        [
+            DeviceEvent::Removed {
+                kind: DeviceKind::Drm,
+                node: PathBuf::from("/dev/dri/card0"),
+            },
+            nvidia_added(),
+        ]
+    );
+    // The same card's add event, racing the scan, adds nothing.
+    monitor.handle(Action::Add, &nvidia_card0(), &mut probe);
+    assert_eq!(monitor.events().count(), 0);
+}
