@@ -9,7 +9,10 @@
 //! event node to [`crate::input::Input`]. A DRM `change` carrying
 //! `HOTPLUG=1` asks the card to look at its connectors again
 //! ([`crate::display::Drm2d::poll`]). A device whose `ID_SEAT` changes is
-//! removed and added again.
+//! removed and added again. While a udev daemon runs, the scan leaves a
+//! device that udev has not set up yet to its `add` event, which carries
+//! the card's `ID_PATH`. Another device's `add` at a known node replaces
+//! the old device.
 //!
 //! An event node carries its identity for a head file's rules (ADR-1401
 //! D4), read without opening it ([`InputIdentity`]): its udev classes,
@@ -156,6 +159,10 @@ pub(crate) struct Uevent {
     pub(crate) sysname: String,
     pub(crate) syspath: String,
     pub(crate) devnode: Option<PathBuf>,
+    /// udev has set the device up: its rules ran and its database entry,
+    /// where `ID_PATH` and `ID_SEAT` come from, is written. A device the
+    /// scan finds while the kernel is still adding it is not.
+    pub(crate) initialized: bool,
     /// `ID_SEAT`; for an input device, its parent input device's.
     pub(crate) seat: Option<String>,
     pub(crate) id_path: Option<String>,
@@ -277,11 +284,26 @@ pub(crate) trait Probe {
     fn fb_id(&mut self, node: &Path) -> io::Result<String>;
 }
 
+/// The socket a udev daemon listens on. While it is present, udev sets up
+/// each device and then announces it.
+const UDEV_CONTROL: &str = "/run/udev/control";
+
+/// A device the monitor reported, and the sysfs path of the device the
+/// kernel had at its node then.
+#[derive(Debug)]
+struct Known {
+    kind: DeviceKind,
+    syspath: String,
+}
+
 /// The seat's devices, as the events so far leave them.
 #[derive(Debug)]
 pub(crate) struct Monitor {
     seat: String,
-    known: BTreeMap<PathBuf, DeviceKind>,
+    /// A udev daemon runs, so a device it has not set up yet is announced
+    /// later by its `add` event.
+    udev_daemon: bool,
+    known: BTreeMap<PathBuf, Known>,
     events: Vec<DeviceEvent>,
 }
 
@@ -289,8 +311,17 @@ impl Monitor {
     pub(crate) fn new(seat: &str) -> Monitor {
         Monitor {
             seat: seat.to_owned(),
+            udev_daemon: false,
             known: BTreeMap::new(),
             events: Vec::new(),
+        }
+    }
+
+    /// The monitor, on a machine where a udev daemon runs or not.
+    pub(crate) fn with_udev_daemon(self, runs: bool) -> Monitor {
+        Monitor {
+            udev_daemon: runs,
+            ..self
         }
     }
 
@@ -309,13 +340,31 @@ impl Monitor {
     }
 
     /// A device found by the scan or added.
+    ///
+    /// While a udev daemon runs, a device it has not set up yet is left
+    /// for its `add` event, which comes once udev has written the card's
+    /// `ID_PATH` and the device's `ID_SEAT`. A node already reported is
+    /// reported again only when another device now has it, as when a
+    /// GPU's driver takes the node over from the boot framebuffer's
+    /// driver: the old device is removed first.
     pub(crate) fn add(&mut self, dev: &Uevent, probe: &mut dyn Probe) {
         let Some(node) = dev.devnode.as_ref() else {
             return;
         };
-        if self.known.contains_key(node) {
-            log::debug!(target: "monitor", "not adding {} again", dev.syspath);
+        if self.udev_daemon && !dev.initialized {
+            log::debug!(target: "monitor", "{}: udev has not set it up yet, so its add event reports it", dev.syspath);
             return;
+        }
+        match self.known.get(node) {
+            Some(known) if known.syspath == dev.syspath => {
+                log::debug!(target: "monitor", "not adding {} again", dev.syspath);
+                return;
+            }
+            Some(_) => {
+                log::debug!(target: "monitor", "{} now belongs to {}", node.display(), dev.syspath);
+                self.forget(node);
+            }
+            None => {}
         }
         let kind = match dev.subsystem.as_deref() {
             Some("drm") if numbered(&dev.sysname, "card") => DeviceKind::Drm,
@@ -342,7 +391,13 @@ impl Monitor {
             DeviceKind::Input => DeviceFlags::default(),
         };
         let input = (kind == DeviceKind::Input).then(|| Box::new(InputIdentity::of(dev)));
-        self.known.insert(node.clone(), kind);
+        self.known.insert(
+            node.clone(),
+            Known {
+                kind,
+                syspath: dev.syspath.clone(),
+            },
+        );
         self.events.push(DeviceEvent::Added(Device {
             kind,
             node: node.clone(),
@@ -358,12 +413,17 @@ impl Monitor {
         let Some(node) = dev.devnode.as_ref() else {
             return;
         };
+        self.forget(node);
+    }
+
+    /// Reports the device at `node` removed, if it was reported.
+    fn forget(&mut self, node: &Path) {
         match self.known.remove(node) {
-            Some(kind) => {
+            Some(known) => {
                 log::debug!(target: "monitor", "removing {} from seat {}", node.display(), self.seat);
                 self.events.push(DeviceEvent::Removed {
-                    kind,
-                    node: node.clone(),
+                    kind: known.kind,
+                    node: node.to_owned(),
                 });
             }
             None => log::debug!(target: "monitor", "removing an unknown device"),
@@ -377,7 +437,7 @@ impl Monitor {
         let Some(node) = dev.devnode.as_ref() else {
             return;
         };
-        let Some(&kind) = self.known.get(node) else {
+        let Some(kind) = self.known.get(node).map(|k| k.kind) else {
             self.add(dev, probe);
             return;
         };
@@ -515,7 +575,7 @@ impl Udev {
         rustix::fs::fcntl_setfl(&socket, flags | OFlags::NONBLOCK)?;
         Ok(Udev {
             socket,
-            monitor: Monitor::new(seat),
+            monitor: Monitor::new(seat).with_udev_daemon(Path::new(UDEV_CONTROL).exists()),
         })
     }
 
@@ -616,6 +676,7 @@ fn uevent(dev: &udev::Device) -> Uevent {
         sysname: dev.sysname().to_string_lossy().into_owned(),
         syspath: dev.syspath().to_string_lossy().into_owned(),
         devnode: dev.devnode().map(Path::to_owned),
+        initialized: dev.is_initialized(),
         seat,
         id_path: text(dev.property_value("ID_PATH")),
         hotplug: dev.property_value("HOTPLUG") == Some(OsStr::new("1")),

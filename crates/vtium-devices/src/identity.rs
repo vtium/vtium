@@ -69,6 +69,62 @@ pub fn unnamed_display(connector: &str, card: &Card, order: u32) -> Identity {
     }
 }
 
+/// Why vtium cannot write a rule that names the display `id`, for the log
+/// line of a display that no rule claims and for which
+/// `vtium_settings::rule_for` finds no key to write. Each part is judged
+/// by `rule_for` itself, given that part of the display alone, so the
+/// reason and the rule line never disagree. `udev_daemon` says whether a
+/// udev daemon runs to give a card its path.
+pub fn why_unnamed(id: &Identity, udev_daemon: bool) -> String {
+    let writes = |part: Identity| vtium_settings::rule_for(&part, "x").is_some();
+    let mut reasons = Vec::new();
+    match &id.edid {
+        None => reasons.push("its monitor reports no EDID"),
+        Some(e) if e.serial.is_empty() => {
+            reasons.push("its monitor's EDID carries no serial number");
+        }
+        Some(_) => {
+            let edid = Identity {
+                edid: id.edid.clone(),
+                ..Identity::display()
+            };
+            if !writes(edid) {
+                reasons.push(
+                    "its monitor's EDID names a maker or serial number that a rule cannot hold",
+                );
+            }
+        }
+    }
+    let hub = Identity {
+        connector_path: id.connector_path.clone(),
+        ..Identity::display()
+    };
+    if id.connector_path.is_some() && !writes(hub) {
+        reasons.push("its DisplayPort hub's path has a character that a rule cannot hold");
+    }
+    let port = Identity {
+        card: id.card.clone(),
+        connector: id.connector.clone(),
+        ..Identity::display()
+    };
+    match &id.card {
+        None if udev_daemon => reasons.push("udev gave its card no path (ID_PATH)"),
+        None => reasons.push("no udev daemon runs to give its card a path (ID_PATH)"),
+        Some(_) if !writes(port) => {
+            reasons.push(
+                "its card's path or its connector's name has a character that a rule cannot hold",
+            );
+        }
+        Some(_) => {}
+    }
+    let because = match reasons.as_slice() {
+        [] => String::from("it reports nothing a rule can match"),
+        [one] => (*one).to_owned(),
+        [first @ .., last] => format!("{}, and {last}", first.join(", ")),
+    };
+    format!("vtium cannot write a rule that names this display, because {because}.")
+}
+
 /// The EDID's maker, product code and serial as `edid:` matches them: the
 /// serial string, else the serial number as vtium-platform writes it,
 /// `0x` and eight hex digits, else none, which no `edid:` token matches.
@@ -171,6 +227,65 @@ mod tests {
         assert_eq!(place(number), Place::Head(1));
         assert_eq!(place(none.clone()), Place::Head(2));
         assert_eq!(none.serial, "");
+    }
+
+    // A display whose card udev never gave an ID_PATH, as padnoir's
+    // NVIDIA card when vtium listed it before udev set it up, says so, and
+    // each part of a display is judged on its own, as rule_for judges it.
+    #[test]
+    fn a_display_no_rule_can_name_says_what_it_lacks() {
+        let reason = |edid: Option<Edid>, card: Option<&str>, daemon: bool| {
+            let id = Identity {
+                edid,
+                card: card.map(str::to_owned),
+                connector: Some("DP-4".into()),
+                ..Identity::display()
+            };
+            why_unnamed(&id, daemon)
+        };
+        let no_serial = || Some(edid("AAA".into(), 1, &Serial::None));
+        let spaced = || Some(edid("AAA".into(), 1, &Serial::Text("AB 12".into())));
+        let card = Some("pci-0000:01:00.0");
+        // Neither part: the EDID is missing and udev gave the card no path.
+        assert_eq!(
+            reason(None, None, true),
+            "vtium cannot write a rule that names this display, because its monitor reports no EDID, and udev gave its card no path (ID_PATH)."
+        );
+        // No udev daemon runs at all.
+        assert_eq!(
+            reason(None, None, false),
+            "vtium cannot write a rule that names this display, because its monitor reports no EDID, and no udev daemon runs to give its card a path (ID_PATH)."
+        );
+        // An EDID without a serial number, and no card path.
+        assert_eq!(
+            reason(no_serial(), None, true),
+            "vtium cannot write a rule that names this display, because its monitor's EDID carries no serial number, and udev gave its card no path (ID_PATH)."
+        );
+        // The opposite: no EDID, and a card path a rule could hold, so only
+        // the EDID is named.
+        assert_eq!(
+            reason(None, card, true),
+            "vtium cannot write a rule that names this display, because its monitor reports no EDID."
+        );
+        // A serial with a space, which rule_for refuses, and a card path.
+        assert_eq!(
+            reason(spaced(), card, true),
+            "vtium cannot write a rule that names this display, because its monitor's EDID names a maker or serial number that a rule cannot hold."
+        );
+        // A card path a rule cannot hold.
+        assert_eq!(
+            reason(None, Some("pci 0000"), true),
+            "vtium cannot write a rule that names this display, because its monitor reports no EDID, and its card's path or its connector's name has a character that a rule cannot hold."
+        );
+        // Each reason agrees with rule_for: with a writable card the line is
+        // written, so no reason is asked for.
+        let named = Identity {
+            edid: spaced(),
+            card: card.map(str::to_owned),
+            connector: Some("DP-4".into()),
+            ..Identity::display()
+        };
+        assert!(vtium_settings::rule_for(&named, "x").is_some());
     }
 
     #[test]

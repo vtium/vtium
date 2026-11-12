@@ -1828,7 +1828,15 @@ pub(crate) fn place_display(
                 })
                 .map(|h| h.name.as_str());
             let Some(rule) = vtium_settings::rule_for(display, first.unwrap_or("NAME")) else {
-                return Err(format!("{unclaimed}; it reports nothing a rule can match"));
+                return Err(format!(
+                    "{unclaimed}. {}",
+                    vtium_devices::why_unnamed(
+                        display,
+                        vtium_devices::udev_daemon_runs(std::path::Path::new(
+                            vtium_devices::UDEV_CONTROL,
+                        ))
+                    )
+                ));
             };
             Err(match first {
                 Some(_) => format!("{unclaimed}; add the rule `{rule}` to give it a head"),
@@ -2477,9 +2485,12 @@ mod tests {
             connector: Some("fb\u{1b}".to_owned()),
             ..vtium_settings::Identity::display()
         };
-        assert_eq!(
-            place_display(&rules, &vt::VtHeads::new(&rules, None), &bare),
-            Err("display fb\\u{1b} stays off: no rule in vtium.conf matches it; it reports nothing a rule can match".to_owned())
+        // the reason's last part depends on whether this host runs a udev
+        // daemon; vtium-devices tests each reason
+        let line = place_display(&rules, &vt::VtHeads::new(&rules, None), &bare);
+        assert!(
+            line.as_ref().is_err_and(|l| l.starts_with("display fb\\u{1b} stays off: no rule in vtium.conf matches it. vtium cannot write a rule that names this display, because its monitor reports no EDID, and ")),
+            "{line:?}"
         );
     }
 
