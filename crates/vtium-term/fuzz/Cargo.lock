@@ -88,11 +88,11 @@ source = "git+https://github.com/vtium/unicode-bidi?rev=5927633397bc767eb23e0d0c
 
 [[package]]
 name = "vtium-parse"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.7"
 
 [[package]]
 name = "vtium-term"
-version = "0.1.0-alpha.6"
+version = "0.1.0-alpha.7"
 dependencies = [
  "unicode-bidi",
  "vtium-parse",
