@@ -343,7 +343,7 @@ mod tests {
 
     // ADR-1401 D5: a claimed device delivers to its head whatever the
     // focus; one following the focus moves with it; an ignored one is
-    // opened for the rescue key alone and delivers to no head.
+    // opened for the VT keys alone and delivers to no head.
     #[test]
     fn a_device_delivers_to_its_rules_head_or_the_focus() {
         let rules = vtium_settings::parse(

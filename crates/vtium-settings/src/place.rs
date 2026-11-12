@@ -49,7 +49,7 @@ pub enum Place {
     /// An input that roams, typing into the active head.
     Roaming,
     /// An input vtium never opens, but under open a keyboard watched for
-    /// the rescue key alone.
+    /// the VT keys alone, the rescue key among them.
     Ignore,
     /// A display set off.
     Off,
@@ -60,8 +60,9 @@ pub enum Place {
     /// A device that stays with the head at this index of
     /// [`Config::heads`], which runs on other VTs only (ADR-1401 D3, step
     /// 4). On the VT placed for, a display stays dark and a keyboard types
-    /// nowhere, though under open vtium watches a keyboard for the rescue
-    /// key. Only [`Config::walk_on`] and [`Config::place_on`] give it.
+    /// nowhere, though vtium watches a keyboard for the VT keys, under open
+    /// and where its head is not isolated (D3, "Who switches VTs"). Only
+    /// [`Config::walk_on`] and [`Config::place_on`] give it.
     Elsewhere(usize),
     /// Under open, a display that no path catches on the VT placed for, and
     /// that no rule turns off, which shows a notice that says why there is
@@ -127,7 +128,8 @@ pub struct Placement {
 pub enum Disposition {
     /// Opened, and its events delivered.
     Deliver,
-    /// Opened while vtium's VT is shown to watch for the rescue key alone;
+    /// Opened while vtium's VT is shown to watch for the VT keys alone,
+    /// `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>`, the rescue key among them;
     /// nothing else it sends is delivered or logged.
     RescueOnly,
     /// Opened to watch for Enter, which switches to the VT of the head on
@@ -595,25 +597,25 @@ impl Config {
             }
     }
 
-    /// Whether vtium opens an input placed so: under open an ignored
-    /// keyboard-class device, or one that stays with a head on another VT,
-    /// is opened for the rescue key alone, and one that stays with a head
-    /// that switches on Enter for Enter too; every other such device, and
-    /// under closed every one, stays closed (D3, D9).
+    /// Whether vtium opens an input placed so. A keyboard-class device that
+    /// stays with a head on another VT is opened for the VT keys alone, the
+    /// rescue key among them, under open, and under closed where that head
+    /// is not isolated, since a path places it and its VT keys switch the VT
+    /// (D3, "Who switches VTs"); one whose head switches on Enter is opened
+    /// for Enter too. Under open an ignored keyboard-class device is opened
+    /// for the VT keys alone. Every other such device, and under closed an
+    /// ignored one, stays closed (D3, D9).
     pub fn disposition(&self, placed: &Placed, id: &Identity) -> Disposition {
+        let keyboard = id.classes.has(Class::Keyboard);
+        let open = self.policy.unset(SwitchKey::RescueKey);
         match placed.place {
-            Place::Elsewhere(i)
-                if self.switch_on_enter(i)
-                    && self.policy.unset(SwitchKey::RescueKey)
-                    && id.classes.has(Class::Keyboard) =>
-            {
+            Place::Elsewhere(i) if keyboard && open && self.switch_on_enter(i) => {
                 Disposition::EnterAndRescue
             }
-            Place::Ignore | Place::Elsewhere(_)
-                if self.policy.unset(SwitchKey::RescueKey) && id.classes.has(Class::Keyboard) =>
-            {
+            Place::Elsewhere(i) if keyboard && (open || !self.isolated(i)) => {
                 Disposition::RescueOnly
             }
+            Place::Ignore if keyboard && open => Disposition::RescueOnly,
             Place::Ignore | Place::Elsewhere(_) | Place::Off | Place::Notice | Place::Unused(_) => {
                 Disposition::Closed
             }

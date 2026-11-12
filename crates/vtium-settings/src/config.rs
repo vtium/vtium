@@ -130,8 +130,8 @@ pub enum Target {
     Head(usize),
     /// `roaming`: an input that types into the active head.
     Roaming,
-    /// `ignore`: an input vtium never opens, but a keyboard watched for
-    /// the rescue key alone.
+    /// `ignore`: an input vtium never opens, but under open a keyboard
+    /// watched for the VT keys alone, the rescue key among them.
     Ignore,
     /// `off`: a display vtium sets off.
     Off,

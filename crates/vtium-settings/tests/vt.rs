@@ -384,7 +384,7 @@ fn path_test_5_a_keyboard_whose_only_terminal_is_on_another_vt_types_nowhere() {
     assert_eq!(placement.placed[0].place, head(&c, "four"));
     assert_eq!(placement.placed[1].place, elsewhere(&c, "three"));
     assert!(!placement.anti_lockout);
-    // under open, vtium watches it for the rescue key alone, and the key
+    // under open, vtium watches it for the VT keys alone, and the rescue key
     // works
     let stays = placement.placed[1];
     assert_eq!(c.disposition(&stays, &kb), Disposition::RescueOnly);
@@ -701,8 +701,10 @@ input path:usb-0:1 -> three
 /// ADR-1401 D3, "Enter on a head's own keyboard": a head's
 /// `switch-on-enter` is off unless the file sets it, and it switches only
 /// under the open policy, for a head that is not isolated. A keyboard that
-/// stays with such a head on another VT is opened for Enter and the rescue
-/// key; every other such keyboard keeps the disposition it had.
+/// stays with such a head on another VT is opened for Enter and the VT
+/// keys; one of a head that is not isolated is opened for the VT keys alone,
+/// under either policy, and one of an isolated head under closed is never
+/// opened.
 #[test]
 fn switch_on_enter_is_off_unless_set_and_switches_only_under_open_for_a_head_not_isolated() {
     let kb = keyboard("usb-0:1");
@@ -712,7 +714,10 @@ fn switch_on_enter_is_off_unless_set_and_switches_only_under_open_for_a_head_not
         ("open", "no", "yes", true, Disposition::EnterAndRescue),
         ("open", "no", "no", false, Disposition::RescueOnly),
         ("open", "yes", "yes", false, Disposition::RescueOnly),
-        ("closed", "no", "yes", false, Disposition::Closed),
+        // under closed a path places it, so it is opened for the VT keys
+        // alone (D3, "Who switches VTs"), unless its head is isolated
+        ("closed", "no", "yes", false, Disposition::RescueOnly),
+        ("closed", "yes", "yes", false, Disposition::Closed),
     ] {
         let c = config(&switching(policy, isolated, switch));
         let three = c
