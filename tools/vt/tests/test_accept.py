@@ -1387,7 +1387,8 @@ class Hardware(Case):
 
 
 ADR_1501 = [os.path.join(ROOT, "docs", "architecture", "project", n)
-            for n in os.listdir(os.path.join(ROOT, "docs", "architecture", "project")) if n.startswith("ADR-1501-")][0]
+            for n in os.listdir(os.path.join(ROOT, "docs", "architecture", "project"))
+            if n.startswith("ADR-1501-") and n.endswith(".md")][0]
 
 
 def decision(n):
@@ -1416,12 +1417,12 @@ class Record(Case):
         self.assertEqual(len(named), len(set(named)), "a page named twice")
 
     def test_the_records_font_sets_are_the_ones_the_walk_loads(self):
-        # Every frit in sections/frits is named in D6, and every frit a page
-        # loads, with "# frits:" or "# font-switch:", is one of them.
+        # D6's list, one "- `name`: ..." line for each font set, names every
+        # frit in sections/frits, and every frit a page loads, with
+        # "# frits:" or "# font-switch:", is one of them.
         frits = sorted(f[:-7] for f in os.listdir(os.path.join(SECTIONS, "frits")) if f.endswith(".vtfrit"))
-        d6 = decision(6)
-        for name in frits:
-            self.assertIn(f"`{name}`", d6, f"D6 does not name the font set {name}")
+        listed = sorted(re.findall(r"^- `([a-z0-9-]+)`: ", decision(6), re.M))
+        self.assertEqual(listed, frits, "D6's list of font sets")
         for f in os.listdir(SECTIONS):
             if f.endswith(".sh"):
                 for key in ("frits", "font-switch"):
