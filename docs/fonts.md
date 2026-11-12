@@ -55,7 +55,7 @@ source=kbd:ter-116n
 script-source=kbd:ter-112n
 ```
 
-The smaller font's characters must be from half to three quarters as high as the font's own. `vtium-config check /etc/vtium/fonts/NAME.vtfrit` tells you when a `script-source=` font is outside that range. A bitmap font with no smaller size draws its superscripts and subscripts scaled to two thirds, and an outline font draws them at two thirds of its size. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
+The smaller font's characters must be from half to three quarters as high as the font's own. `vtium-config check /etc/vtium/fonts/NAME.vtfrit` tells you when a `script-source=` font is outside that range. A bitmap font with no smaller size draws its superscripts and subscripts scaled to two thirds, and an outline font draws them at two thirds of its size. `vtium-config preview FONT` and the font view of `vtium-config` end their preview with a line of superscripts and subscripts, x2 + y2 = z2 and H2O with the digits small, and say how the font makes them. See [the superscript and subscript issue](https://github.com/vtium/vtium/issues/37).
 
 ## Size
 

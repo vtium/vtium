@@ -77,10 +77,69 @@ pub fn detail_caption(
         .grid
         .map(|(c, r)| format!(", and the console will be {c}x{r} characters {display}"))
         .unwrap_or_default();
+    let script = s
+        .script
+        .as_ref()
+        .map(|made| format!(" {}", script_caption(made)))
+        .unwrap_or_default();
     format!(
-        "{font} at {points} pt: each character cell is {}x{} pixels{grid}. The font can display {} of the {} characters in the preview. {marks}",
+        "{font} at {points} pt: each character cell is {}x{} pixels{grid}. The font can display {} of the {} characters in the preview.{script} {marks}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
+}
+
+/// How the font makes the superscripts and subscripts of the detailed
+/// specimen's last line, in a sentence or two (ADR-1202 D14): the way the
+/// glyph helper made them, `made`, in the reader's words.
+pub fn script_caption(made: &crate::made::Made) -> String {
+    use crate::made::Made;
+    match made {
+        Made::Outline => "Superscripts and subscripts are drawn from this font's outlines at two thirds of its size.".to_owned(),
+        Made::Color => "Superscripts and subscripts in color are this font's color images, scaled smoothly to two thirds of their size.".to_owned(),
+        Made::Multiple { normal, small: 1 } => format!(
+            "Superscripts and subscripts come from this font at its own size, a smaller size than its other characters, which are drawn at {normal} times its size."
+        ),
+        Made::Multiple { normal, small } => format!(
+            "Superscripts and subscripts come from this font at {small} times its size, a smaller size than its other characters, which are drawn at {normal} times its size."
+        ),
+        Made::Height {
+            height,
+            multiple: 1,
+        } => format!(
+            "Superscripts and subscripts come from this font's {height}-pixel size, a smaller size in the same font file."
+        ),
+        Made::Height { height, multiple } => format!(
+            "Superscripts and subscripts come from this font's {height}-pixel size, a smaller size in the same font file, drawn at {multiple} times that size."
+        ),
+        Made::Named {
+            spelling,
+            height,
+            multiple: 1,
+        } => format!(
+            "Superscripts and subscripts come from {} at {height} pixels, a smaller size of this font that the font set names.",
+            font_name(spelling)
+        ),
+        Made::Named {
+            spelling,
+            height,
+            multiple,
+        } => format!(
+            "Superscripts and subscripts come from {} at {height} pixels, a smaller size of this font that the font set names, drawn at {multiple} times that size.",
+            font_name(spelling)
+        ),
+        Made::Scaled => "Superscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.".to_owned(),
+    }
+}
+
+/// The name a person knows a font set's `script-source=` font by: a kbd
+/// font's name, or the file name of a font named by its path.
+fn font_name(spelling: &str) -> &str {
+    let named = spelling.split_once(':').map_or(spelling, |(_, rest)| rest);
+    named
+        .rsplit('/')
+        .next()
+        .filter(|n| !n.is_empty())
+        .unwrap_or(named)
 }
 
 /// The line beside a picture of the console (ADR-1201 D4).
@@ -157,8 +216,13 @@ pub fn size_summary(s: &crate::specimen::Summary) -> String {
         .grid
         .map(|(c, r)| format!(" the console will be {c}x{r} characters, and"))
         .unwrap_or_else(|| " and".to_owned());
+    let script = s
+        .script
+        .as_ref()
+        .map(|made| format!(" {}", script_caption(made)))
+        .unwrap_or_default();
     format!(
-        "With this font and size, each character cell is {}x{} pixels,{grid} the font can display {} of the {} characters in the preview.",
+        "With this font and size, each character cell is {}x{} pixels,{grid} the font can display {} of the {} characters in the preview.{script}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }
@@ -1017,6 +1081,112 @@ pub fn label_set(label: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use crate::made::Made;
+
+    // ADR-1202 D14: the caption under the line of superscripts and
+    // subscripts says how the font makes them, each way in words of its
+    // own, and names the font a script-source= line gives
+    // covers: sgr.script
+    #[test]
+    fn the_script_caption_names_each_way() {
+        let cases = [
+            (
+                Made::Outline,
+                "Superscripts and subscripts are drawn from this font's outlines at two thirds of its size.",
+            ),
+            (
+                Made::Color,
+                "Superscripts and subscripts in color are this font's color images, scaled smoothly to two thirds of their size.",
+            ),
+            (
+                Made::Multiple {
+                    normal: 2,
+                    small: 1,
+                },
+                "Superscripts and subscripts come from this font at its own size, a smaller size than its other characters, which are drawn at 2 times its size.",
+            ),
+            (
+                Made::Multiple {
+                    normal: 4,
+                    small: 3,
+                },
+                "Superscripts and subscripts come from this font at 3 times its size, a smaller size than its other characters, which are drawn at 4 times its size.",
+            ),
+            (
+                Made::Height {
+                    height: 8,
+                    multiple: 1,
+                },
+                "Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file.",
+            ),
+            (
+                Made::Height {
+                    height: 8,
+                    multiple: 2,
+                },
+                "Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file, drawn at 2 times that size.",
+            ),
+            (
+                Made::Named {
+                    spelling: "kbd:ter-112n".to_owned(),
+                    height: 12,
+                    multiple: 1,
+                },
+                "Superscripts and subscripts come from ter-112n at 12 pixels, a smaller size of this font that the font set names.",
+            ),
+            (
+                Made::Named {
+                    spelling: "file:/usr/share/fonts/small/ter-u12n.psf.gz".to_owned(),
+                    height: 12,
+                    multiple: 2,
+                },
+                "Superscripts and subscripts come from ter-u12n.psf.gz at 12 pixels, a smaller size of this font that the font set names, drawn at 2 times that size.",
+            ),
+            (
+                Made::Scaled,
+                "Superscripts and subscripts are this font's own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the edges stay sharp.",
+            ),
+        ];
+        for (made, want) in cases {
+            assert_eq!(super::script_caption(&made), want, "{made:?}");
+        }
+    }
+
+    // ADR-1202 D14: the font view's caption beside the detailed specimen,
+    // and its written description where the terminal shows no images, say
+    // how the font makes its superscripts and subscripts after what it
+    // covers; with no superscript the font draws, they say nothing of them
+    // covers: sgr.script
+    #[test]
+    fn the_font_views_captions_say_how_the_font_makes_superscripts() {
+        let mut summary = crate::specimen::Summary {
+            cell: vtium_font::Cell {
+                width: 8,
+                height: 16,
+            },
+            grid: None,
+            covered: 40,
+            of: 51,
+            script: Some(Made::Height {
+                height: 8,
+                multiple: 1,
+            }),
+        };
+        assert_eq!(
+            super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false),
+            "ega at 12 pt: each character cell is 8x16 pixels. The font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file. Characters in grey come from the built-in font, and a box marks a character no font can display. Press s to see the console."
+        );
+        assert_eq!(
+            super::size_summary(&summary),
+            "With this font and size, each character cell is 8x16 pixels, and the font can display 40 of the 51 characters in the preview. Superscripts and subscripts come from this font's 8-pixel size, a smaller size in the same font file."
+        );
+        summary.script = None;
+        assert!(!super::size_summary(&summary).contains("Superscripts"));
+        assert!(
+            !super::detail_caption("ega", 12, Some(&summary), (1920, 1080), false)
+                .contains("Superscripts")
+        );
+    }
     // ADR-1403 D7's fixed word: Install, Revert and New each call the
     // working copy the draft
     #[test]

@@ -71,14 +71,20 @@ fn draws_pictures() -> bool {
 }
 
 /// A summary's words: the cell, the grid where a display was measured,
-/// and how much of the specimen the font draws itself.
+/// how much of the specimen the font draws itself, and how it makes its
+/// superscripts and subscripts (ADR-1202 D14), each field after a tab.
 pub fn summary_text(s: &Summary) -> String {
     let grid = s
         .grid
         .map(|(c, r)| format!(", console {c}x{r} characters"))
         .unwrap_or_default();
+    let script = s
+        .script
+        .as_ref()
+        .map(|made| format!("\t{}", crate::tui::words::script_caption(made)))
+        .unwrap_or_default();
     format!(
-        "character cell {}x{}{grid}\tcan display {} of the preview's {} characters",
+        "character cell {}x{}{grid}\tcan display {} of the preview's {} characters{script}",
         s.cell.width, s.cell.height, s.covered, s.of
     )
 }

@@ -10,9 +10,9 @@
 
  This terminal does not support images, so here is a written description instead. With this font
  and size, each character cell is 8x16 pixels, the console will be 80x30 characters, and the font
- can display 40 of the 51 characters in the preview.
-
-
+ can display 40 of the 51 characters in the preview. Superscripts and subscripts are this font's
+ own characters, scaled to two thirds of their size. Each pixel stays fully on or fully off, so the
+ edges stay sharp.
 
 
 
