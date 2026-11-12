@@ -1018,6 +1018,65 @@ fn a_retaken_vt_sets_the_displays_up_again_and_draws_them_whole() {
     assert!(h.app.vt.is_active());
 }
 
+/// ADR-1005 D7: a switch away that the VT itself raises, as the kernel
+/// does for Ctrl+Alt+F2, a chvt from outside or a logind session switch,
+/// lets go of the keys held at the turn that handles it. The scripted VT
+/// stays ours until vtium acknowledges the release, as the kernel VT
+/// does, so only the turn finds the console no longer receives the
+/// keyboard. A program that asked for releases gets Up's, `CSI 1 ; 1:3 A`
+/// after the press's `CSI A`, with no input after the switch; and once the
+/// VT is back, Up's real release goes nowhere, so a new press and release
+/// of Up make the same 11 bytes again.
+// covers: input.kitty-keyboard
+#[test]
+fn a_switch_the_vt_raises_lets_go_of_the_keys_held() {
+    let mut h = Harness::with_vt(
+        &[
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "stty -icanon -echo; printf '\\033[>3u'; echo ready; \
+             while :; do echo \"k:$(head -c 11 | tr '\\033' E)\"; done",
+        ],
+        ScriptedVt::default(),
+    );
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let up = KeyEvent {
+        keycode: 111,
+        ascii: 0,
+        mods: Mods::empty(),
+        keysyms: vec![0xff52],
+        codepoints: vec![None],
+        repeat: false,
+    };
+    h.app.input_event(InputEvent::Key(up.clone()), h.at());
+    h.scripted().events.push(VtEvent::Release);
+    let lines = |a: &App| {
+        a.screen_text()
+            .iter()
+            .filter(|l| l.as_str() == "k:E[AE[1;1:3A")
+            .count()
+    };
+    assert!(
+        h.until(BOUND, |a| lines(a) == 1),
+        "the release came with the switch: {:?}",
+        h.app.screen_text()
+    );
+    assert!(!h.app.vt.is_active(), "the release was acknowledged");
+    h.scripted().activate().expect("the scripted VT comes back");
+    assert!(h.until(BOUND, |a| a.vt.is_active()));
+    assert!(h.until_memory(BOUND, |m| m.awake), "awake again");
+    h.app.input_event(InputEvent::Release(up.clone()), h.at());
+    h.app.input_event(InputEvent::Key(up.clone()), h.at());
+    h.app.input_event(InputEvent::Release(up), h.at());
+    assert!(
+        h.until(BOUND, |a| lines(a) == 2),
+        "the stray release went nowhere: {:?}",
+        h.app.screen_text()
+    );
+}
+
 /// Prints a render-timer line as the log writes it, for tier 3's parser:
 /// `VTIUM_PRINT_TIMER=1 cargo test -p vtium --test boot render_timer -- --nocapture`.
 #[test]
