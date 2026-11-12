@@ -1,8 +1,8 @@
 # VTium's concepts
 
-These pages explain vtium, a terminal for the Linux virtual console, the VT, that renders the screen itself, so it needs no display server. It runs on machines from a small board with a 320×240 panel to a desktop with a large monitor.
+These pages explain how vtium works. vtium is a terminal for the Linux virtual console, or VT. It renders the screen itself, so it needs no display server. It runs on machines from a small board with a 320×240 panel to a desktop with a large monitor.
 
-Each page holds one concept, so a reader can open one at a time. Each links to the decision record, issue or document that holds the detail, and the commands and setting names live there too. A piece that is not built yet is marked proposed, with the issue or record that holds it.
+Each page explains one concept, so you can read them one at a time. Each page links to the decision record, issue or document that holds the details. The commands and the names of settings are there too. A part of vtium that is not built yet is marked proposed, and the page links the issue or record that tracks it.
 
 - [What vtium is](what-vtium-is.md): what vtium draws, how it draws it, and the small machines it is built for first.
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.
