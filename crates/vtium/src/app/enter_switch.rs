@@ -19,15 +19,29 @@ use std::path::Path;
 use vtium_platform::input::{KeyEvent, Mods as InputMods};
 
 use super::App;
+use crate::console::Mode;
+
+/// Which VTs vtium runs on now, and the mode the command that enables
+/// another VT names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VtiumVts {
+    pub running: BTreeSet<u16>,
+    /// The mode of the VTs vtium is enabled on
+    /// ([`crate::console::Enabled::mode`]), direct mode where systemd's
+    /// links say nothing.
+    pub mode: Mode,
+}
 
 /// Asks which VTs vtium runs on now, or why it cannot tell; the tests
 /// stand in for it.
-pub type RunningVts = Box<dyn FnMut() -> Result<BTreeSet<u16>, String>>;
+pub type RunningVts = Box<dyn FnMut() -> Result<VtiumVts, String>>;
 
 /// The running system's answer: systemd's running units, as `vtium
-/// console status` reads them.
-pub(super) fn running_vts() -> Result<BTreeSet<u16>, String> {
-    crate::console::running_vts(&mut crate::console::RunningSystemd)
+/// console status` reads them, and the mode of its links under `/`.
+pub(super) fn running_vts() -> Result<VtiumVts, String> {
+    let running = crate::console::running_vts(&mut crate::console::RunningSystemd)?;
+    let mode = crate::console::enabled_vts(Path::new("/")).map_or(Mode::Direct, |e| e.mode);
+    Ok(VtiumVts { running, mode })
 }
 
 /// `Return` and the keypad's `Enter`.
@@ -66,8 +80,8 @@ pub(super) enum Reach {
     /// To this VT, the first of the head's VTs on which vtium runs.
     To(u16),
     /// Nowhere: vtium runs on none of these VTs of the head's `vt`, the
-    /// ones a VT key names.
-    Enable(Vec<u16>),
+    /// ones a VT key names; the command that enables one names this mode.
+    Enable(Vec<u16>, Mode),
     /// Nowhere, and the notice says nothing of it: no VT of the head's
     /// `vt` is one a VT key names, or vtium cannot tell which VTs run
     /// vtium.
@@ -86,7 +100,7 @@ impl App {
     pub(super) fn reach(
         &mut self,
         head: usize,
-        running: &mut Option<Result<BTreeSet<u16>, String>>,
+        running: &mut Option<Result<VtiumVts, String>>,
     ) -> Reach {
         let keyed: Vec<u16> = self
             .rules
@@ -107,8 +121,8 @@ impl App {
         match asked {
             Ok(vts) => keyed
                 .iter()
-                .find(|n| vts.contains(n))
-                .map_or(Reach::Enable(keyed.clone()), |&n| Reach::To(n)),
+                .find(|n| vts.running.contains(n))
+                .map_or(Reach::Enable(keyed.clone(), vts.mode), |&n| Reach::To(n)),
             Err(_) => Reach::Unknown,
         }
     }
@@ -123,7 +137,7 @@ impl App {
         vt: u16,
         connector: &str,
         owner: Option<usize>,
-        running: &mut Option<Result<BTreeSet<u16>, String>>,
+        running: &mut Option<Result<VtiumVts, String>>,
     ) -> String {
         let named = owner
             .and_then(|h| self.rules.heads.get(h))
@@ -139,7 +153,9 @@ impl App {
         };
         match self.reach(h, running) {
             Reach::To(n) => format!("{text}\n{}", crate::notice::enter_switches(n)),
-            Reach::Enable(vts) => format!("{text}\n{}", crate::notice::enable_to_switch(&vts)),
+            Reach::Enable(vts, mode) => {
+                format!("{text}\n{}", crate::notice::enable_to_switch(&vts, mode))
+            }
             Reach::Unknown => text,
         }
     }
@@ -171,10 +187,10 @@ impl App {
                     );
                 }
             }
-            Reach::Enable(vts) => {
+            Reach::Enable(vts, mode) => {
                 log::warn!(
                     "Enter on keyboard {keyboard} switches nowhere: {}",
-                    crate::notice::enable_to_switch(&vts)
+                    crate::notice::enable_to_switch(&vts, mode)
                 );
                 // The notices say which VT to enable at the guards' next
                 // run, which this answer settles.

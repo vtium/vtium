@@ -135,7 +135,7 @@ impl Mode {
     }
 
     /// The flag that names the mode.
-    fn flag(self) -> &'static str {
+    pub fn flag(self) -> &'static str {
         match self {
             Mode::Direct => "--direct",
             Mode::Seat => "--seat",
@@ -520,12 +520,27 @@ fn names_vtium(link: &Link) -> bool {
     VTIUMS.iter().any(|p| link.names(p))
 }
 
-/// Whether a cell of `status`'s table names one of vtium's two units on
-/// VT `n`, `vtium@ttyN` or `vtium-seat@ttyN`, as one of its parts, which
-/// `, ` separates.
-fn names_vtium_on(cell: &str, n: u16) -> bool {
-    cell.split(", ")
-        .any(|part| VTIUMS.iter().any(|p| part == format!("{p}@tty{n}")))
+/// The prefixes of vtium's two units that a cell of `status`'s table
+/// names on VT `n`, `vtium@ttyN` or `vtium-seat@ttyN`, each as one of its
+/// parts, which `, ` separates.
+fn vtium_parts(cell: &str, n: u16) -> impl Iterator<Item = &'static str> + '_ {
+    cell.split(", ").filter_map(move |part| {
+        VTIUMS
+            .iter()
+            .copied()
+            .find(|p| part == format!("{p}@tty{n}"))
+    })
+}
+
+/// The VTs vtium is enabled on, and the mode `vtium console enable` gives
+/// another VT to match them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Enabled {
+    pub vts: BTreeSet<u16>,
+    /// Seat mode when every unit of vtium's that the VTs name is seat
+    /// mode's, and direct mode when they mix or none is enabled, the
+    /// reading vtium-config's install uses.
+    pub mode: Mode,
 }
 
 /// The template link in each unit directory under `root` that has one,
@@ -551,21 +566,32 @@ fn logind_starts(n: u16) -> bool {
 /// switches there, as the "at boot" and "when switched to" cells of
 /// `vtium console status`'s table name them ([`State::vtium_enabled`]).
 /// It reads systemd's links alone, and runs nothing, so the cells hold
-/// every part that names a unit of vtium's. `None` when `root`
-/// was not booted with systemd, so no link says anything.
-pub fn enabled_vts(root: &Path) -> Option<BTreeSet<u16>> {
+/// every part that names a unit of vtium's. The mode is the one those
+/// units share, else direct mode. `None` when `root` was not booted with
+/// systemd, so no link says anything.
+pub fn enabled_vts(root: &Path) -> Option<Enabled> {
     if !root.join(BOOTED).is_dir() {
         return None;
     }
     let state = State::links(root, VTIUM);
-    let mut vts: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
-    vts.insert(RESERVED_VT);
-    vts.extend(state.vts());
-    Some(
-        vts.into_iter()
-            .filter(|&n| state.vtium_enabled(n))
-            .collect(),
-    )
+    let mut all: BTreeSet<u16> = (1..=LOGIND_VTS).collect();
+    all.insert(RESERVED_VT);
+    all.extend(state.vts());
+    let mut vts = BTreeSet::new();
+    let mut prefixes = BTreeSet::new();
+    for n in all {
+        let named = state.vtium_enabled(n);
+        if !named.is_empty() {
+            vts.insert(n);
+            prefixes.extend(named);
+        }
+    }
+    let mode = if prefixes.iter().eq([SEAT].iter()) {
+        Mode::Seat
+    } else {
+        Mode::Direct
+    };
+    Some(Enabled { vts, mode })
 }
 
 /// The VTs vtium runs on now, in either mode, from systemd's running
@@ -710,15 +736,17 @@ impl State {
         }
     }
 
-    /// Whether vtium is enabled on VT `n`, in either mode, read from
+    /// Where vtium is enabled on VT `n`, in either mode, read from
     /// `status`'s table as vtium-config reads it: the row's "at boot" or
     /// "when switched to" cell names `vtium@ttyN` or `vtium-seat@ttyN` as a
     /// part of its own. A mask's part, `vtium@ttyN masked`, and the
-    /// development install's unit name neither.
-    fn vtium_enabled(&self, n: u16) -> bool {
+    /// development install's unit name neither. Gives the prefix of each
+    /// unit of vtium's they name, none where vtium is not enabled.
+    fn vtium_enabled(&self, n: u16) -> BTreeSet<&'static str> {
         [self.boot_cell(n), self.switched_cell(n)]
             .iter()
-            .any(|cell| names_vtium_on(cell, n))
+            .flat_map(|cell| vtium_parts(cell, n).collect::<Vec<_>>())
+            .collect()
     }
 
     fn template(&self) -> &Link {

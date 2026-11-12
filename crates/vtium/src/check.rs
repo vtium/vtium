@@ -15,7 +15,6 @@
 //! the status, so a file can be checked away from its machine, and the
 //! notes end on what a start does with the file and the policy it states.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use vtium_settings::{
@@ -301,8 +300,8 @@ pub struct Machine<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum VtsEnabled<'a> {
     /// The VTs systemd's links enable vtium on, at boot or as logind's
-    /// autovt ([`crate::console::enabled_vts`]).
-    On(&'a BTreeSet<u16>),
+    /// autovt, and the mode they use ([`crate::console::enabled_vts`]).
+    On(&'a crate::console::Enabled),
     /// Not read: `--no-devices` checks the file alone.
     FileAlone,
     /// Not read: the machine was not started with systemd, whose links
@@ -678,10 +677,11 @@ fn vt_findings(path: &Path, config: &Heads, vts: VtsEnabled) -> Vec<String> {
     };
     named
         .into_iter()
-        .filter(|h| !h.vts.iter().any(|n| enabled.contains(n)))
+        .filter(|h| !h.vts.iter().any(|n| enabled.vts.contains(n)))
         .map(|h| {
             let line = (h.line > 0).then_some(h.line);
-            at(path, line, check_config::vtium_not_enabled(&h.name, &h.vts)).to_string()
+            let note = check_config::vtium_not_enabled(&h.name, &h.vts, enabled.mode);
+            at(path, line, note).to_string()
         })
         .collect()
 }
@@ -2250,6 +2250,10 @@ mod tests {
         outcome(&config::load(&args, &mut |_: &Path| Ok(None)), host)
     }
 
+    use std::collections::BTreeSet;
+
+    use crate::console::{Enabled, Mode};
+
     /// The test laptop's file: a head with no `vt` and a head on `vts`.
     fn two_heads_on(vts: &str) -> String {
         format!(
@@ -2277,25 +2281,35 @@ mod tests {
     // covers: platform.heads.rules
     #[test]
     fn a_head_on_vts_where_vtium_is_not_enabled_is_noted_with_the_command() {
-        let boot = BTreeSet::from([2, 3, 4, 5, 6]);
+        let boot = Enabled {
+            vts: BTreeSet::from([2, 3, 4, 5, 6]),
+            mode: Mode::Direct,
+        };
         let (out, f) = vt_notes("vt-off", &two_heads_on("12"), VtsEnabled::On(&boot));
         assert_eq!(out.counted, Vec::<String>::new());
         assert!(
             out.notes.contains(&format!(
-                "{f}:3: Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12, so nothing shows this head. To enable vtium there, run sudo vtium console enable 12."
+                "{f}:3: Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12, so nothing shows this head. To enable vtium there, run sudo vtium console enable --direct 12."
             )),
             "{:#?}",
             out.notes
         );
-        let (out, f) = vt_notes("vt-two", &two_heads_on("7 12"), VtsEnabled::On(&boot));
+        let seat = Enabled {
+            vts: BTreeSet::from([2]),
+            mode: Mode::Seat,
+        };
+        let (out, f) = vt_notes("vt-two", &two_heads_on("7 12"), VtsEnabled::On(&seat));
         assert!(
             out.notes.contains(&format!(
-                "{f}:3: Head terminal-1 runs only on VTs 7 and 12, and vtium is enabled on none of them, so nothing shows this head. To enable vtium on VT 7, run sudo vtium console enable 7."
+                "{f}:3: Head terminal-1 runs only on VTs 7 and 12, and vtium is enabled on none of them, so nothing shows this head. To enable vtium on VT 7, run sudo vtium console enable --seat 7."
             )),
             "{:#?}",
             out.notes
         );
-        let with_12 = BTreeSet::from([2, 12]);
+        let with_12 = Enabled {
+            vts: BTreeSet::from([2, 12]),
+            mode: Mode::Direct,
+        };
         let (out, _) = vt_notes("vt-on", &two_heads_on("7 12"), VtsEnabled::On(&with_12));
         assert!(
             !out.notes

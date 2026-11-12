@@ -142,7 +142,7 @@ mod rapid;
 mod survive;
 mod window_ops;
 
-pub use enter_switch::RunningVts;
+pub use enter_switch::{RunningVts, VtiumVts};
 
 /// How long the loop is served at exit while the switch back is pending,
 /// so the kernel's SIGUSR2 for the switch back is answered before vtium

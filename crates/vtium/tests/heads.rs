@@ -8393,6 +8393,9 @@ mod enter_switch {
 
     use vtium_platform::vt::{Switch, Vt, VtEvent};
 
+    use vtium::app::VtiumVts;
+    use vtium::console::Mode;
+
     use super::*;
 
     /// `XF86Switch_VT_1`, whose next eleven keysyms name VTs 2 to 12.
@@ -8491,7 +8494,7 @@ input * -> roaming
     /// display and the external one, the USB keyboard and the laptop's,
     /// where vtium runs on `running` or cannot tell; and the VTs the VT
     /// keys asked for.
-    fn on_vt2(text: &str, running: Result<BTreeSet<u16>, String>) -> (Seat, Rc<RefCell<Vec<u16>>>) {
+    fn on_vt2(text: &str, running: Result<VtiumVts, String>) -> (Seat, Rc<RefCell<Vec<u16>>>) {
         let rules = start(text);
         assert_eq!(rules.line(), None, "a valid vtium.conf");
         let switched = Rc::new(RefCell::new(Vec::new()));
@@ -8521,8 +8524,12 @@ input * -> roaming
         (s, switched)
     }
 
-    fn vts(list: &[u16]) -> Result<BTreeSet<u16>, String> {
-        Ok(list.iter().copied().collect())
+    /// vtium runs on the VTs of `list`, and is enabled in direct mode.
+    fn vts(list: &[u16]) -> Result<VtiumVts, String> {
+        Ok(VtiumVts {
+            running: list.iter().copied().collect(),
+            mode: Mode::Direct,
+        })
     }
 
     const NOTICE: &str =
@@ -8604,11 +8611,23 @@ input * -> roaming
         assert_eq!(
             notice_of(&mut s),
             format!(
-                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable 12."
+                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable --direct 12."
             )
         );
         s.type_on(USB, "\r");
         assert_eq!(*switched.borrow(), [] as [u16; 0]);
+        // the command names the mode the VTs vtium is enabled on use
+        let seat = VtiumVts {
+            running: BTreeSet::from([2]),
+            mode: Mode::Seat,
+        };
+        let (mut s, _) = on_vt2(&laptop("open", "12", "switch-on-enter = yes"), Ok(seat));
+        assert_eq!(
+            notice_of(&mut s),
+            format!(
+                "{NOTICE}\nvtium is not running on VT 12. To enable it there, run sudo vtium console enable --seat 12."
+            )
+        );
         // where vtium cannot tell, the notice keeps its text and nothing
         // switches
         let (mut s, switched) = on_vt2(

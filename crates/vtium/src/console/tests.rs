@@ -3453,13 +3453,16 @@ fn the_vts_vtium_is_enabled_on_are_those_systemd_or_logind_starts_it_on() {
     m.link("autovt@tty9.service", "vtium");
     assert_eq!(
         enabled_vts(m.root()),
-        Some(BTreeSet::from([3, 5, 12])),
-        "the getty template keeps VTs 2, 4 and 6, and VT 9 is past logind's VTs"
+        Some(Enabled {
+            vts: BTreeSet::from([3, 5, 12]),
+            mode: Mode::Direct,
+        }),
+        "the getty template keeps VTs 2, 4 and 6, VT 9 is past logind's VTs, and the modes mix"
     );
     std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
     m.link(TEMPLATE, "vtium");
     assert_eq!(
-        enabled_vts(m.root()),
+        enabled_vts(m.root()).map(|e| e.vts),
         Some(BTreeSet::from([2, 3, 4, 5, 6, 12]))
     );
     std::fs::remove_dir_all(m.root().join(BOOTED)).unwrap();
@@ -3583,5 +3586,21 @@ fn the_vts_vtium_is_enabled_on_are_those_status_names_it_on() {
         })
         .collect();
     assert_eq!(named, BTreeSet::from([3, 5]), "{out}");
-    assert_eq!(enabled_vts(m.root()), Some(named));
+    assert_eq!(enabled_vts(m.root()).map(|e| e.vts), Some(named));
+}
+
+// The command that enables another VT names the mode the VTs vtium is
+// enabled on share, as vtium-config's install reads it: seat mode where
+// every one is seat mode's, and direct mode where they mix or none is
+// enabled.
+#[test]
+fn the_mode_to_enable_is_the_one_the_enabled_vts_share_else_direct() {
+    let m = Machine::gettys("enable-mode");
+    let mode = |m: &Machine| enabled_vts(m.root()).map(|e| e.mode);
+    assert_eq!(mode(&m), Some(Mode::Direct), "none enabled");
+    m.link("getty.target.wants/vtium-seat@tty3.service", "vtium-seat");
+    m.link("autovt@tty5.service", "vtium-seat");
+    assert_eq!(mode(&m), Some(Mode::Seat), "every one in seat mode");
+    m.link("getty.target.wants/vtium@tty4.service", "vtium");
+    assert_eq!(mode(&m), Some(Mode::Direct), "the modes mix");
 }
