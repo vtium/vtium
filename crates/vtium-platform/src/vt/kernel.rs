@@ -42,8 +42,11 @@ struct Set {
 pub struct KernelVt<C: Console = Tty> {
     console: C,
     num: u16,
-    /// The VT on screen at the open, which [`Vt::leave`] goes back to.
-    saved: u16,
+    /// The VT on screen when [`Vt::activate`] asked the kernel for this
+    /// one, which [`Vt::leave`] goes back to. `None` while vtium has not
+    /// switched to its VT itself, as when it waits for the VT to be shown
+    /// (`--no-switchvt`): then the VT shown at exit stays shown.
+    back: Option<u16>,
     /// The keyboard mode found at the open, restored when dropped.
     kb_mode: KbMode,
     /// The tty's line settings found at the open, when the open made it
@@ -161,7 +164,7 @@ impl<C: Console> KernelVt<C> {
         let mut vt = KernelVt {
             console,
             num,
-            saved: 0,
+            back: None,
             kb_mode: KbMode::Unicode,
             termios: None,
             set: Set::default(),
@@ -171,7 +174,7 @@ impl<C: Console> KernelVt<C> {
             hup: false,
             events: Vec::new(),
         };
-        vt.saved = vt.console.active().inspect_err(|e| {
+        let shown = vt.console.active().inspect_err(|e| {
             log::warn!(target: "vt", "cannot find the VT on screen: {e}");
         })?;
         vt.console
@@ -197,7 +200,7 @@ impl<C: Console> KernelVt<C> {
         };
         vt.keyboard_off()?;
         vt.silence();
-        if vt.saved == num {
+        if shown == num {
             vt.state = State::Active;
             vt.events.push(VtEvent::Acquired);
         }
@@ -280,13 +283,16 @@ impl<C: Console> KernelVt<C> {
 
     /// Whether VT `num` is on screen; `None` when the kernel cannot say.
     fn on_screen(&self) -> Option<bool> {
-        match self.console.active() {
-            Ok(active) => Some(active == self.num),
-            Err(e) => {
-                log::warn!(target: "vt", "cannot find the VT on screen: {e}");
-                None
-            }
-        }
+        self.shown().map(|active| active == self.num)
+    }
+
+    /// The VT on screen, or `None`, with a warning, when the kernel cannot
+    /// say.
+    fn shown(&self) -> Option<u16> {
+        self.console
+            .active()
+            .inspect_err(|e| log::warn!(target: "vt", "cannot find the VT on screen: {e}"))
+            .ok()
     }
 
     /// SIGUSR1: the VT was switched to.
@@ -513,7 +519,8 @@ impl<C: Console> Vt for KernelVt<C> {
 
     fn activate(&mut self) -> io::Result<Switch> {
         self.hung_up()?;
-        if self.on_screen() == Some(true) {
+        let shown = self.shown();
+        if shown == Some(self.num) {
             return Ok(Switch::Done);
         }
         if self.state == State::Active {
@@ -523,22 +530,26 @@ impl<C: Console> Vt for KernelVt<C> {
             log::warn!(target: "vt", "cannot enter VT {}: {e}", self.num);
         })?;
         log::debug!(target: "vt", "entering VT {} on demand", self.num);
+        self.back = shown;
         Ok(Switch::Pending)
     }
 
     fn leave(&mut self) -> io::Result<Switch> {
         self.hung_up()?;
+        let Some(back) = self.back else {
+            return Ok(Switch::Done);
+        };
         let active = self.console.active()?;
-        if active != self.num || active == self.saved {
+        if active != self.num || active == back {
             return Ok(Switch::Done);
         }
         if self.state == State::Inactive {
             log::warn!(target: "vt", "leaving VT {} though it is not ours", self.num);
         }
-        self.console.activate(self.saved).inspect_err(|e| {
-            log::warn!(target: "vt", "cannot leave VT {} for VT {}: {e}", self.num, self.saved);
+        self.console.activate(back).inspect_err(|e| {
+            log::warn!(target: "vt", "cannot leave VT {} for VT {back}: {e}", self.num);
         })?;
-        log::debug!(target: "vt", "leaving VT {} on demand for VT {}", self.num, self.saved);
+        log::debug!(target: "vt", "leaving VT {} on demand for VT {back}", self.num);
         Ok(Switch::Pending)
     }
 

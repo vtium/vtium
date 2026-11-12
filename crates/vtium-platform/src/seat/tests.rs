@@ -370,6 +370,33 @@ fn with_seatd_a_vt_not_shown_is_shown_before_the_seat_opens() {
     assert_eq!(console.modes().2, KbMode::Off);
 }
 
+/// At exit the seat goes back only from a switch vtium asked for. One
+/// that waited for its VT, as under `--no-switchvt`, asks the seat manager
+/// for no session, so the VT shown stays shown; one that asked for its VT
+/// goes back to the VT shown when it asked.
+#[test]
+fn leaving_goes_back_only_from_a_switch_vtium_asked_for() {
+    let server = StandIn::new();
+    server.0.borrow_mut().seatd = true;
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), tries(50, 20));
+    assert_eq!(ok(vt(&mut data).wait(), "wait"), Switch::Pending);
+    console.show(3);
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    assert_eq!(ok(vt(&mut data).leave(), "leave"), Switch::Done);
+    assert!(server.0.borrow().switches.is_empty());
+
+    let server = StandIn::new();
+    server.0.borrow_mut().seatd = true;
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), tries(50, 20));
+    assert_eq!(ok(vt(&mut data).activate(), "activate"), Switch::Pending);
+    console.run_worker();
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    assert_eq!(ok(vt(&mut data).leave(), "leave"), Switch::Pending);
+    assert_eq!(server.0.borrow().switches, [1]);
+}
+
 /// Without seatd, the seat opens at once on a VT not shown, as logind
 /// takes the session from vtium's login session.
 #[test]

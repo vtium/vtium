@@ -375,8 +375,11 @@ pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     logind: bool,
     /// The VT the seat runs on, when it has VTs, and its number.
     tty: Option<(C, u16)>,
-    /// The VT shown at the start, which [`Vt::leave`] goes back to.
-    saved: Option<u16>,
+    /// The VT shown when [`Vt::activate`] asked the kernel for this one,
+    /// which [`Vt::leave`] goes back to. `None` while vtium has not
+    /// switched to its VT itself, as when it waits for the seat
+    /// (`--no-switchvt`): then the VT shown at exit stays shown.
+    back: Option<u16>,
     /// The keyboard mode found at the start, restored when the seat is
     /// let go.
     kb_mode: KbMode,
@@ -548,19 +551,15 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             .map_err(|e| io::Error::from(e.error))
         });
         let unwatch = Box::new(move |token| handle.remove(token));
-        let (saved, kb_mode) = match &tty {
-            Some((console, num)) => {
-                let saved = console.active().ok();
-                let kb_mode = match console.keyboard_mode() {
-                    Ok(KbMode::Off | KbMode::Raw | KbMode::MediumRaw) | Err(_) => {
-                        log::debug!(target: "seat", "VT {num}'s keyboard mode is restored as K_UNICODE");
-                        KbMode::Unicode
-                    }
-                    Ok(mode) => mode,
-                };
-                (saved, kb_mode)
-            }
-            None => (None, KbMode::Unicode),
+        let kb_mode = match &tty {
+            Some((console, num)) => match console.keyboard_mode() {
+                Ok(KbMode::Off | KbMode::Raw | KbMode::MediumRaw) | Err(_) => {
+                    log::debug!(target: "seat", "VT {num}'s keyboard mode is restored as K_UNICODE");
+                    KbMode::Unicode
+                }
+                Ok(mode) => mode,
+            },
+            None => KbMode::Unicode,
         };
         let Found {
             conn,
@@ -581,7 +580,7 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             seatd,
             logind,
             tty,
-            saved,
+            back: None,
             kb_mode,
             state: State::Inactive,
             enable_owed: false,
@@ -910,26 +909,29 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         if self.state == State::Active {
             return Ok(Switch::Done);
         }
-        if let Some((console, num)) = &self.tty
-            && console.active()? != *num
-        {
-            console.activate(*num).inspect_err(|e| {
-                log::warn!(target: "seat", "cannot enter VT {num}: {e}");
-            })?;
+        if let Some((console, num)) = &self.tty {
+            let shown = console.active()?;
+            if shown != *num {
+                console.activate(*num).inspect_err(|e| {
+                    log::warn!(target: "seat", "cannot enter VT {num}: {e}");
+                })?;
+                self.back = Some(shown);
+            }
         }
         Ok(Switch::Pending)
     }
 
-    /// A switch through the seat manager to the VT shown at the start.
+    /// A switch through the seat manager to the VT shown when
+    /// [`Vt::activate`] asked for this one; nothing when it never asked.
     fn leave(&mut self) -> io::Result<Switch> {
         if self.state != State::Active {
             return Ok(Switch::Done);
         }
         let own = self.number();
-        match self.saved {
-            Some(saved) if Some(saved) != own => {
-                self.with_seat(|seat| seat.switch_session(saved))?;
-                log::debug!(target: "seat", "leaving for VT {saved}");
+        match self.back {
+            Some(back) if Some(back) != own => {
+                self.with_seat(|seat| seat.switch_session(back))?;
+                log::debug!(target: "seat", "leaving for VT {back}");
                 Ok(Switch::Pending)
             }
             _ => Ok(Switch::Done),

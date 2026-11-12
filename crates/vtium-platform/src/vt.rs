@@ -93,9 +93,11 @@ pub trait Vt {
     /// Asks for this VT to be shown.
     fn activate(&mut self) -> io::Result<Switch>;
 
-    /// Asks to switch back to the VT that was shown when this one was
-    /// opened, as at exit. While it is pending, the loop keeps serving the
-    /// release signal.
+    /// Asks to switch back to the VT that was shown when [`Vt::activate`]
+    /// asked for this one, as at exit. A vtium that never asked, as one
+    /// started with `--no-switchvt` waits instead, switches nothing, so
+    /// the VT shown stays shown. While it is pending, the loop keeps
+    /// serving the release signal.
     fn leave(&mut self) -> io::Result<Switch>;
 
     /// Whether this VT is shown, without asking for it: `Pending` until a
