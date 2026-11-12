@@ -73,6 +73,7 @@ cargo fmt --all --check \
   && docs/scripts/adr cite --check \
   && docs/scripts/issue-refs \
   && docs/scripts/fork-refs \
+  && docs/scripts/claims \
   && docs/scripts/coverage \
   && make test-tools \
   && make conformance \
@@ -82,7 +83,7 @@ cargo fmt --all --check \
   && make arm
 ```
 
-`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. `make deny` checks the license and the source of every crate that a lock file of vtium's names, against `deny.toml`. It needs cargo-deny at the version that the Makefile's `DENY_VERSION` names, and it tells you the `cargo install` command when that version is missing. The check of the workspace's crates against the RustSec advisory database needs the network, so it is not a gate: CI runs it as the job `advisories`, and `make advisories` runs it here.
+`make conformance` and `make conformance-probes` read the goldens and probes in `tools/conformance/`. `make tier2` reads tier 2's goldens from `tools/tier2/goldens/`. `make conformance-issues` uses `gh` to check with GitHub that every issue named in the conformance lists is still open. Without network access it cannot run, so report it as not run, with that reason. `make deny` checks the license and the source of every crate that a lock file of vtium's names, against `deny.toml`. It needs cargo-deny at the version that the Makefile's `DENY_VERSION` names, and it tells you the `cargo install` command when that version is missing. The check of the workspace's crates against the RustSec advisory database needs the network, so it is not a gate: CI runs it as the job `advisories`, and `make advisories` runs it here. `docs/scripts/claims` checks the claim files beside the docs' figures and pages: each claim's file must exist, and the symbol it names must still be defined there. [docs/AGENTS.md](docs/AGENTS.md) says what to do when it fails.
 
 vtium's code, tests and tools are written in Rust. Where vtium must talk to a C library, such as libseat (#34), C stays at that boundary as a binding or the thinnest possible shim, and everything around it is Rust.
 
