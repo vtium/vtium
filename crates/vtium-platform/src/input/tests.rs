@@ -1781,3 +1781,25 @@ fn a_keymap_that_gives_meta_a_modifier_of_its_own_reports_it() {
         ]
     );
 }
+
+// ADR-1005 D8: a layout change while a key is held keeps that key's
+// press, so its release is still reported. The kernel's key codes do not
+// change with the layout, and the release carries the keysyms its press
+// carried.
+// covers: input.kitty-keyboard
+#[test]
+fn a_key_held_across_a_layout_change_reports_its_release() {
+    const KEY_UP: u16 = 103;
+    let (mut input, node, id) = with_keyboard();
+    feed(&mut input, &node, id, &[press(KEY_UP)]);
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [Did::Press(keysyms::KEY_Up, Mods::empty())]
+    );
+    input.set_keymap(keymap());
+    feed(&mut input, &node, id, &[release(KEY_UP)]);
+    assert_eq!(
+        presses_and_releases(&mut input),
+        [Did::Release(keysyms::KEY_Up, Mods::empty())]
+    );
+}

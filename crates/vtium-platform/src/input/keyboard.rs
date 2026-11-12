@@ -637,10 +637,15 @@ impl Keyboard {
     /// modifiers, such as Caps Lock and Num Lock. The locked layout group
     /// belongs to the old keymap, so the new state starts on the new
     /// keymap's first layout. A key repeating stops, and a compose sequence
-    /// in progress starts again on the new keymap's compose table.
+    /// in progress starts again on the new keymap's compose table. The
+    /// keys held stay held, so each still reports its release: the
+    /// kernel's key codes do not change with the layout, and a release
+    /// carries the keysyms its press carried (ADR-1005 D8).
     pub(crate) fn set_keymap(&mut self, keymap: &Keymap) -> Leds {
         let locked_mods = self.state.serialize_mods(xkb::STATE_MODS_LOCKED);
+        let held = std::mem::take(&mut self.held);
         *self = Keyboard::new(keymap);
+        self.held = held;
         self.state.update_mask(0, 0, locked_mods, 0, 0, 0);
         self.leds()
     }
