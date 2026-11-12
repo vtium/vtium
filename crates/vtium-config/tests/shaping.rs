@@ -251,6 +251,7 @@ fn inked_columns(g: &Placed, width: usize) -> Vec<usize> {
 // alef's joined forms, where another draws one ligature glyph; Noto Sans
 // Arabic does. The helper keeps that drawing, isolated and final, two
 // cells wide, where it refused it for coming from two characters
+// covers: text.bidi
 #[test]
 fn a_lam_alef_the_font_draws_as_two_glyphs_is_kept() {
     let keys = [vec![LAM, ALEF], vec![ZWJ, LAM, ALEF]];
@@ -275,6 +276,7 @@ fn a_lam_alef_the_font_draws_as_two_glyphs_is_kept() {
 // two glyphs, lam's medial form, a bar across its whole advance, and
 // alef's final form, its advance is the two cells, and the lam's bar
 // reaches their right edge
+// covers: text.bidi
 #[test]
 fn a_lam_alef_stands_against_the_right_edge_of_its_two_cells() {
     let k = [ZWJ, LAM, ALEF];
