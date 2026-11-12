@@ -14,6 +14,10 @@ The figures of vtium's documentation pages outside the decision records, which k
 | `concepts-screen-underline.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `underline-unifont` screen as vtium draws it | Drawn by vtium's own renderer, below |
 | `concepts-screen-small-320x240.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `small-320x240` screen, minspec's display floor | Converted from tier 2's golden, below |
 | `concepts-screen-small-640x480.png` | [concepts/what-vtium-is.md](../concepts/what-vtium-is.md): tier 2's `small-640x480` screen | Converted from tier 2's golden, below |
+| `concepts-judged-golden-crop.png` | [concepts/how-vtium-is-judged.md](../concepts/how-vtium-is-judged.md): the row of tier 2's `small-320x240` golden that holds `notes.txt`, cropped and enlarged 8× | Cropped from tier 2's golden, below |
+| `concepts-judged-actual-crop.png` | [concepts/how-vtium-is-judged.md](../concepts/how-vtium-is-judged.md): the same row as vtium draws it with one letter planted, `notas.txt`, cropped and enlarged 8× | Cropped from a tier 2 run with the planted letter, below |
+| `concepts-judged-diff-crop.png` | [concepts/how-vtium-is-judged.md](../concepts/how-vtium-is-judged.md): the same row of the diff image that tier 2 writes for that run, three pixels in red, cropped and enlarged 8× | Cropped from the same run, below |
+| `concepts-judged-diff.png` | [concepts/how-vtium-is-judged.md](../concepts/how-vtium-is-judged.md): that whole diff image at its real size, 320×240 | Converted from the same run, below |
 
 The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
 
@@ -31,4 +35,18 @@ The two small-display screens are tier 2's own goldens for #75, reviewed by the 
 for s in 320x240 640x480; do
   magick tools/tier2/goldens/small-$s.ppm -strip docs/figures/concepts-screen-small-$s.png
 done
+```
+
+The four pictures of how tier 2 flags a difference come from a real run of tier 2 with one letter planted in the `small-320x240` screen's bytes. On a copy of `tools/tier2/src/screens.rs`, change `notes.txt` to `notas.txt` in the `ls` line of `SMALL_40`, run tier 2, then put the file back. The run fails `small-320x240`, `small-320x240-1bit` and `vitrified-320x240`, and it exits 1. The crop is the fourth row of 8×8 character cells, from column 12 to column 22. From the repository's root:
+
+```sh
+cp tools/tier2/src/screens.rs screens.rs.bak
+sed -i 's/  notes.txt  \\x1b\[36mlib/  notas.txt  \\x1b[36mlib/' tools/tier2/src/screens.rs
+make tier2
+mv screens.rs.bak tools/tier2/src/screens.rs && touch tools/tier2/src/screens.rs
+O=tools/tier2/out
+for p in golden:tools/tier2/goldens/small-320x240.ppm actual:$O/actual/small-320x240.ppm diff:$O/diff/small-320x240.ppm; do
+  magick ${p#*:} -crop 88x8+96+24 +repage -filter point -scale 800% -strip docs/figures/concepts-judged-${p%%:*}-crop.png
+done
+magick $O/diff/small-320x240.ppm -strip docs/figures/concepts-judged-diff.png
 ```
