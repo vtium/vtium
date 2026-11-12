@@ -1,0 +1,16 @@
+# script-terminus: the font set of the superscript and subscript guide
+# (tools/vt/checks/script.guide, ADR-1202 D3, D8 and D12). Terminus at 8x16
+# draws the normal text, and its script-source= line names Terminus at
+# 6x12, a smaller size of the same font, which draws the superscripts and
+# subscripts. 12 is three quarters of 16, inside the range of half to three
+# quarters that ADR-1202 D3 takes a smaller size from. Both files are from
+# Arch Linux's terminus-font package. The frit states no cell, so it draws
+# at Terminus's own 8x16 cell, at a whole multiple of it.
+#
+# Licence: Terminus Font under the SIL OFL 1.1.
+
+name=script-terminus
+license=OFL-1.1
+
+source=file:/usr/share/kbd/consolefonts/ter-v16n.psf.gz
+script-source=file:/usr/share/kbd/consolefonts/ter-v12n.psf.gz

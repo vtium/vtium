@@ -1,0 +1,217 @@
+# Superscript (SGR 73) and subscript (SGR 74) on a live VT, with the
+# underline, the strike-through and the overline that ADR-1202 D8 places on
+# them. Each step prints the text of one of tier 2's pictures,
+# script-unifont, script-unifont-2x, script-unifont-3x and script-source,
+# with the same escape sequences (tools/tier2/src/screens.rs, SCRIPT and
+# SCRIPT_ASCII). The glyph steps print the picture's first lines and the
+# line steps its last three.
+#
+# The steps switch the font with OSC 50: the built-in unifont, then the
+# frit tools/vt/sections/frits/script-terminus.vtfrit, which run-vt.sh
+# stages with the acceptance pass's frits. Terminus 16 with a
+# script-source= line naming Terminus 12 stands in for the picture's 8x16
+# and 8x8 test fonts, which vtium-testfont builds in memory and which no
+# file holds for a review run. A setup step checks the character cell
+# with CSI 16 t and asks for Ctrl+- or Ctrl+= until it is the step's size.
+# The first setup step keeps the font the run started with, and the
+# cleanup: line switches back to it.
+#
+#   make vt-check GUIDE=script
+
+title: superscript and subscript, with their lines
+
+intro: The steps print superscripts and subscripts in unifont at its own
+intro: size, at twice it and at three times it, and then in Terminus. Steps
+intro: 1, 4, 7 and 10 set the font and its size for the steps after them,
+intro: so a run of chosen steps (GUIDE_STEPS) includes the setup step first.
+intro: At three times unifont's size the text needs a display at least 1152
+intro: pixels wide and 600 high. Terminus comes from the terminus-font
+intro: package, which the acceptance pass's bitmap font set also needs.
+
+cleanup: s=${PROBE_LOG%/*}/script-guide.font; [ ! -s "$s" ] || printf '\033]50;%s\a' "$(cat "$s")"; rm -f "$s"
+
+step: Set unifont at its own size, in 8x16 character cells
+run: s=${PROBE_LOG%/*}/script-guide.font; [ -s "$s" ] || { printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; printf %s "${f#*50;}" >"$s"; }; printf '\033]50;unifont\a'; until printf '\033[16t'; IFS= read -rsd t -t 2 r; c=${r#*;}; c=${c#*;}x${c%;*}; [ "$c" = 8x16 ]; do echo "The character cells are $c pixels. Press Ctrl+- or Ctrl+=, then Enter."; read -r; done; printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; echo "Font: ${f#*50;}, character cells $c pixels"
+do: when the command asks, press Ctrl+- to make the text smaller or
+do: Ctrl+= to make it larger, then Enter. It asks until the size is right.
+expect: the command ends with "Font: unifont, character cells 8x16
+expect: pixels".
+
+step: unifont at its own size: the small glyphs
+run: clear; printf 'x\033[73m2\033[75m + y\033[73m10\033[75m = z  H\033[74m2\033[75mO  C\033[74m6\033[75mH\033[74m12\033[0m\nnormal \033[73msuperscript\033[75m \033[74msubscript\033[75m normal\n\033[73mgjpqy ÉÅ\033[75m gjpqy ÉÅ \033[74mgjpqy ÉÅ\033[0m\n\033[73m中文\033[75m中文\033[74m中文\033[0m wide\n\033[1;73mbold\033[0m \033[3;74mitalic\033[0m \033[31;73mred\033[0m \033[7;74mreversed\033[0m\n\033[4;73munder\033[0m \033[9;74mstruck\033[0m \033[73m─█░\033[74m─█░\033[0m blocks\n'
+expect: this is tier 2's script-unifont picture, its first six lines.
+expect: Each small glyph is two thirds of the normal size and centred in
+expect: its cell. Every pixel of it is fully lit or fully dark, with no
+expect: grey edge. A superscript's top touches the top of its row, and a
+expect: subscript's bottom touches the bottom of its row.
+expect: The raised gjpqy keep their tails inside their row, and the
+expect: lowered É and Å keep their accents inside theirs. Each small 中 and
+expect: 文 is centred across its two cells.
+expect: "bold" is a pixel wider and "italic" leans. "reversed" has a light
+expect: background that fills each whole cell, top to bottom.
+expect: Under "under" the line lies just below the raised letters, about
+expect: two thirds of the way down the row. Through "struck" the line
+expect: crosses the middle of the lowered letters.
+expect: The small line, block and shade have sharp edges.
+expect: Wrong: the line of "struck" above its letters, or the line of
+expect: "under" on the bottom row, as the earlier pictures drew them.
+
+step: unifont at its own size: the lines on small glyphs
+run: clear; printf '\033[73;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m superscript lines\n\033[74;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m subscript lines\n\033[4mx\033[73m2\033[75m+y\033[74m2\033[75m=z\033[73mn\033[0m underlined across scripts\n'
+expect: this is the last three lines of tier 2's script-unifont picture.
+expect: Each "xy" pair has, in turn, a single, double, curly, dotted and
+expect: dashed underline, a strike-through, an overline, and an overline
+expect: with a strike-through.
+expect: Superscript row: each underline lies below the raised letters, in
+expect: the blank lower part of the row, and the double and curly ones
+expect: draw whole there. The strike-through crosses the middle of the
+expect: letters. The overline lies on the row's top edge.
+expect: Subscript row: each underline lies at the bottom of the row, where
+expect: a normal underline lies. The strike-through crosses the middle of
+expect: the lowered letters. The overline lies just above them.
+expect: Every line is one pixel thick. Its pixels are fully lit, except
+expect: that the curly underline has smoothed edges, as on any cell.
+expect: Last line: the underline steps up under the raised 2 and n and
+expect: back down after each. Under the lowered 2 it stays on the bottom
+expect: row, level with the normal letters' underline. No upright stroke
+expect: joins the steps.
+expect: Wrong: an underline under a superscript on the bottom row, or a
+expect: subscript's strike-through above its letters.
+
+step: Set unifont at twice its size, in 16x32 character cells
+run: s=${PROBE_LOG%/*}/script-guide.font; [ -s "$s" ] || { printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; printf %s "${f#*50;}" >"$s"; }; printf '\033]50;unifont\a'; until printf '\033[16t'; IFS= read -rsd t -t 2 r; c=${r#*;}; c=${c#*;}x${c%;*}; [ "$c" = 16x32 ]; do echo "The character cells are $c pixels. Press Ctrl+- or Ctrl+=, then Enter."; read -r; done; printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; echo "Font: ${f#*50;}, character cells $c pixels"
+do: when the command asks, press Ctrl+= to make the text larger or
+do: Ctrl+- to make it smaller, then Enter. It asks until the size is right.
+expect: the command ends with "Font: unifont, character cells 16x32
+expect: pixels".
+
+step: unifont at twice its size: the small glyphs
+run: clear; printf 'x\033[73m2\033[75m + y\033[73m10\033[75m = z  H\033[74m2\033[75mO  C\033[74m6\033[75mH\033[74m12\033[0m\nnormal \033[73msuperscript\033[75m \033[74msubscript\033[75m normal\n\033[73mgjpqy ÉÅ\033[75m gjpqy ÉÅ \033[74mgjpqy ÉÅ\033[0m\n\033[73m中文\033[75m中文\033[74m中文\033[0m wide\n\033[1;73mbold\033[0m \033[3;74mitalic\033[0m \033[31;73mred\033[0m \033[7;74mreversed\033[0m\n\033[4;73munder\033[0m \033[9;74mstruck\033[0m \033[73m─█░\033[74m─█░\033[0m blocks\n'
+expect: this is tier 2's script-unifont-2x picture, its first six lines.
+expect: Each small glyph is unifont's own letter at its own size, not
+expect: shrunk: it looks exactly like the normal text of step 2, half as
+expect: high as the row, with blank space on both sides. Every pixel is
+expect: fully lit or fully dark. A superscript fills the top half of its
+expect: row, and a subscript the bottom half.
+expect: The raised tails and the lowered accents stay inside their rows.
+expect: Each small 中 and 文 is unifont's own, centred across two cells.
+expect: "bold" is one of the font's pixels wider and "italic" leans in
+expect: whole steps. "reversed" has a light background that fills each
+expect: whole cell, top to bottom.
+expect: The line of "under" lies just below the raised letters, at the
+expect: middle of the row. The line of "struck" crosses the middle of
+expect: the lowered letters.
+expect: The small line, block and shade have sharp edges.
+
+step: unifont at twice its size: the lines on small glyphs
+run: clear; printf '\033[73;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m superscript lines\n\033[74;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m subscript lines\n\033[4mx\033[73m2\033[75m+y\033[74m2\033[75m=z\033[73mn\033[0m underlined across scripts\n'
+expect: this is the last three lines of tier 2's script-unifont-2x
+expect: picture, with the same lines in the same order as step 3.
+expect: The normal text's underline is two pixels thick at this size.
+expect: Each line on a small glyph is one pixel thick, as thin as the
+expect: small glyph's strokes. Its pixels are fully lit, except that the
+expect: curly underline has smoothed edges, as on any cell.
+expect: Superscript row: each underline lies just below the raised
+expect: letters, at the middle of the row, with the lower half blank. The
+expect: strike-through crosses the middle of the letters, and the
+expect: overline lies on the row's top edge.
+expect: Subscript row: each underline lies on the row's bottom edge. The
+expect: strike-through crosses the middle of the lowered letters, and the
+expect: overline lies at the middle of the row, just above them.
+expect: Last line: the underline steps up to the middle of the row under
+expect: the raised 2 and n. Under the lowered 2 it stays on the bottom
+expect: edge, one pixel thick where the normal letters' line is two.
+expect: Wrong: an underline under a superscript on the bottom edge, or a
+expect: subscript's strike-through above its letters.
+
+step: Set unifont at three times its size, in 24x48 character cells
+run: s=${PROBE_LOG%/*}/script-guide.font; [ -s "$s" ] || { printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; printf %s "${f#*50;}" >"$s"; }; printf '\033]50;unifont\a'; until printf '\033[16t'; IFS= read -rsd t -t 2 r; c=${r#*;}; c=${c#*;}x${c%;*}; [ "$c" = 24x48 ]; do echo "The character cells are $c pixels. Press Ctrl+- or Ctrl+=, then Enter."; read -r; done; printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; echo "Font: ${f#*50;}, character cells $c pixels"
+do: when the command asks, press Ctrl+= to make the text larger or
+do: Ctrl+- to make it smaller, then Enter. It asks until the size is right.
+expect: the command ends with "Font: unifont, character cells 24x48
+expect: pixels".
+
+step: unifont at three times its size: the small glyphs
+run: clear; printf 'x\033[73m2\033[75m + y\033[73m10\033[75m = z  H\033[74m2\033[75mO  C\033[74m6\033[75mH\033[74m12\033[0m\nnormal \033[73msuperscript\033[75m \033[74msubscript\033[75m normal\n\033[73mgjpqy ÉÅ\033[75m gjpqy ÉÅ \033[74mgjpqy ÉÅ\033[0m\n\033[73m中文\033[75m中文\033[74m中文\033[0m wide\n\033[1;73mbold\033[0m \033[3;74mitalic\033[0m \033[31;73mred\033[0m \033[7;74mreversed\033[0m\n\033[4;73munder\033[0m \033[9;74mstruck\033[0m \033[73m─█░\033[74m─█░\033[0m blocks\n'
+expect: this is tier 2's script-unifont-3x picture, its first six lines.
+expect: Each small glyph is unifont at twice its size: it looks exactly
+expect: like the normal text of step 5, each of the font's pixels a block
+expect: of 2x2, two thirds as high as the row, with blank space on both
+expect: sides. Every pixel is fully lit or fully dark. A superscript's
+expect: top touches the top of its row, and a subscript's bottom touches
+expect: the bottom of its row.
+expect: The raised tails and the lowered accents stay inside their rows.
+expect: Each small 中 and 文 is centred across its two cells.
+expect: "bold" is one of the font's pixels wider, two of the screen's, and
+expect: "italic" leans in whole steps. "reversed" has a light background
+expect: that fills each whole cell, top to bottom.
+expect: The line of "under" lies just below the raised letters, about
+expect: two thirds of the way down the row. The line of "struck" crosses the
+expect: middle of the lowered letters.
+expect: The small line, block and shade have sharp edges.
+
+step: unifont at three times its size: the lines on small glyphs
+run: clear; printf '\033[73;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m superscript lines\n\033[74;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m subscript lines\n\033[4mx\033[73m2\033[75m+y\033[74m2\033[75m=z\033[73mn\033[0m underlined across scripts\n'
+expect: this is the last three lines of tier 2's script-unifont-3x
+expect: picture, with the same lines in the same order as step 3.
+expect: The normal text's underline is three pixels thick at this size.
+expect: Each line on a small glyph is two pixels thick, as thick as the
+expect: small glyph's strokes. Its pixels are fully lit, except that the
+expect: curly underline has smoothed edges, as on any cell.
+expect: Superscript row: each underline lies just below the raised
+expect: letters, about two thirds of the way down the row, with rows
+expect: under it. The strike-through crosses the middle of the letters,
+expect: and the overline lies on the row's top edge.
+expect: Subscript row: each underline lies on the row's bottom edge. The
+expect: strike-through crosses the middle of the lowered letters, and the
+expect: overline lies just above them, a third of the way down the row.
+expect: Last line: the underline steps up under the raised 2 and n. Under
+expect: the lowered 2 it stays on the bottom edge, two pixels thick where
+expect: the normal letters' line is three.
+expect: Wrong: an underline under a superscript on the bottom edge, or a
+expect: subscript's strike-through above its letters.
+
+step: Set Terminus 16, whose small glyphs come from Terminus 12
+run: s=${PROBE_LOG%/*}/script-guide.font; [ -s "$s" ] || { printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; printf %s "${f#*50;}" >"$s"; }; printf '\033]50;script-terminus\a'; until printf '\033[16t'; IFS= read -rsd t -t 2 r; c=${r#*;}; c=${c#*;}x${c%;*}; [ "$c" = 8x16 ]; do echo "The character cells are $c pixels. Press Ctrl+- or Ctrl+=, then Enter."; read -r; done; printf '\033]50;?\a'; IFS= read -rsd $'\a' -t 2 f; echo "Font: ${f#*50;}, character cells $c pixels"
+do: when the command asks, press Ctrl+- to make the text smaller or
+do: Ctrl+= to make it larger, then Enter. It asks until the size is right.
+expect: the command ends with "Font: script-terminus, character cells
+expect: 8x16 pixels". The letters of the guide are now Terminus's.
+
+step: Terminus 16 and 12: the small glyphs
+run: clear; printf 'x\033[73m2\033[75m + y\033[73m10\033[75m = z  H\033[74m2\033[75mO  C\033[74m6\033[75mH\033[74m12\033[0m\nnormal \033[73msuperscript\033[75m \033[74msubscript\033[75m normal\ngjpqy \033[73mgjpqy\033[75m \033[74mgjpqy\033[0m\n\033[1;73mbold\033[0m \033[3;74mitalic\033[0m \033[31;73mred\033[0m \033[7;74mreversed\033[0m\n\033[4;73munder\033[0m \033[9;74mstruck\033[0m\n'
+expect: this is the text of tier 2's script-source picture, its first five
+expect: lines. That picture's small font is 8 pixels high, half the row.
+expect: Here the small font is Terminus 12, three quarters of the row, so
+expect: the small letters are larger than in the picture.
+expect: Each small glyph is Terminus's own 12-pixel letter, not a shrunk
+expect: copy of the 16-pixel one: every stroke is one pixel wide and every
+expect: pixel is fully lit or fully dark. It is centred in its cell with
+expect: a blank column on each side. A superscript fills the top three
+expect: quarters of its row, and a subscript the bottom three quarters.
+expect: "bold" is a pixel wider and "italic" leans. "reversed" has a light
+expect: background that fills each whole cell, top to bottom.
+expect: The line of "under" lies just below the raised letters, with four
+expect: blank pixel rows under it. The line of "struck" crosses the
+expect: middle of the lowered letters.
+
+step: Terminus 16 and 12: the lines on small glyphs
+run: clear; printf '\033[73;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m superscript lines\n\033[74;4mxy\033[4:2mxy\033[4:3mxy\033[4:4mxy\033[4:5mxy\033[24;9mxy\033[29;53mxy\033[9mxy\033[0m subscript lines\n\033[4mx\033[73m2\033[75m+y\033[74m2\033[75m=z\033[73mn\033[0m underlined across scripts\n'
+expect: this is the last three lines of tier 2's script-source picture,
+expect: with the same lines in the same order as step 3. The lines lie
+expect: where Terminus 12's letters are, not where the picture's 8-pixel
+expect: letters are.
+expect: Every line is one pixel thick. Its pixels are fully lit, except
+expect: that the curly underline has smoothed edges, as on any cell.
+expect: Superscript row: each underline lies just below the raised
+expect: letters, a quarter of the way up from the row's bottom. The
+expect: strike-through crosses the middle of the letters, and the
+expect: overline lies on the row's top edge.
+expect: Subscript row: each underline lies on the row's bottom edge. The
+expect: strike-through crosses the middle of the lowered letters, and the
+expect: overline lies just above them, a quarter of the way down the row.
+expect: Last line: the underline steps up under the raised 2 and n. Under
+expect: the lowered 2 it stays on the bottom edge, level with the normal
+expect: letters' underline.
+expect: Wrong: an underline under a superscript on the bottom edge, or a
+expect: subscript's strike-through above its letters.
