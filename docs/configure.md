@@ -76,9 +76,9 @@ The tool and this guide use six words, each for one thing:
 | draft | your working copy of vtium.conf, saved after every change you make |
 | install | the one action that writes `/etc/vtium/vtium.conf`: `vtium config install`, or Install in the TUI |
 | restore | copying a file that an install replaced back into your draft |
-| tag | the mark Space puts on an item in the TUI's Flow view |
-| path | a complete chain of tagged items, such as a keyboard, a head and a look |
-| connect | what `c` does in the Flow view: it turns a path into changes in the draft |
+| pick | what Space does to a part in the TUI's Flow view: it puts the part into NEW PATH, or takes it out again |
+| path | displays, a terminal, a font set and inputs, joined together. In vtium.conf, a path is one head with its rules. |
+| add | what `a` does in the Flow view: it moves the path in NEW PATH into CONFIGURATION, as an unsaved change to the draft |
 
 In this guide, "the configuration" means the installed file and your draft together.
 
