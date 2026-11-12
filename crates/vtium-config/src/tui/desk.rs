@@ -9,7 +9,7 @@
 //! a test fills with devices of its own instead of the machine's.
 
 use crate::apply::Runner;
-use crate::drafts::{EXAMPLE, Session, State};
+use crate::drafts::{HEADER, Session, State};
 use crate::flowmodel::Present;
 use crate::outcome::Fail;
 use crate::tui::Paths;
@@ -222,13 +222,13 @@ impl Store {
             Op::Revert => {
                 let (name, _) = session.current()?;
                 let installed = session.installed()?;
-                let text = installed.clone().unwrap_or_else(|| EXAMPLE.to_owned());
+                let text = installed.clone().unwrap_or_else(|| HEADER.to_owned());
                 self.store
                     .set_base(&name, installed.as_deref().map(str::as_bytes))?;
                 self.store.write_draft(&name, &text)?;
                 Ok(Done::Draft(self.opened(&name, &text)?, None))
             }
-            Op::New => self.write(&crate::ops::new_text(EXAMPLE)),
+            Op::New => self.write(&crate::ops::new_text(HEADER)),
             Op::Delete => {
                 let (name, _) = session.current()?;
                 self.store.remove_draft(&name)?;

@@ -397,3 +397,26 @@ fn a_value_set_before_a_comment_keeps_the_comment_a_comment() {
     assert_eq!(out, " font-size=   12 # big\n");
     assert_eq!(setting(&out, "font-size"), Some("12".to_owned()));
 }
+
+// The maintainer, 2026-11-11: a key that a file vtium-config wrote from
+// nothing does not have goes in as its own line, with no description and
+// no commented-out default from the key table.
+#[test]
+fn a_missing_key_adds_its_line_and_nothing_else() {
+    let header = "# The file's header.\n# Its second line.\n\n";
+    let out = edit_conf(header, &[Edit::Set("font-size", "14")]).expect("the edit");
+    assert_eq!(
+        out,
+        "# The file's header.\n# Its second line.\n\nfont-size=14\n"
+    );
+    let out = edit_conf(&out, &[Edit::Switch("bell", false)]).expect("the edit");
+    assert_eq!(
+        out,
+        "# The file's header.\n# Its second line.\n\nfont-size=14\nno-bell\n"
+    );
+    let flow = "# The file's header.\n\nversion = 1\n\n[head console]\n";
+    assert_eq!(
+        edit_conf(flow, &[Edit::Set("font-size", "14")]).expect("the edit"),
+        "# The file's header.\n\nversion = 1\nfont-size=14\n\n[head console]\n"
+    );
+}

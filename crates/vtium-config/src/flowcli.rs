@@ -372,8 +372,8 @@ impl Command<'_, '_> {
         let new = match command {
             "revert" => installed
                 .clone()
-                .unwrap_or_else(|| crate::drafts::EXAMPLE.to_owned()),
-            _ => ops::new_text(crate::drafts::EXAMPLE),
+                .unwrap_or_else(|| crate::drafts::HEADER.to_owned()),
+            _ => ops::new_text(crate::drafts::HEADER),
         };
         if args.has("--dry-run") {
             let (added, removed) = crate::drafts::counts(&new, &text);
