@@ -21,6 +21,7 @@ use std::time::Instant;
 
 use super::stand_in::{Client, StandIn, StandInSeat};
 use super::{Chosen, LibseatVt, SeatInput, Told, Tries};
+use crate::display::fake::logs;
 use crate::event_loop::{Loop, Signal};
 use crate::input::fake::{self, FakeDevice, Node, Nodes};
 use crate::input::{DeviceId, Input, InputConfig, InputEvent, Keymap, RawEvent};
@@ -1151,57 +1152,6 @@ fn libseat_is_pinned_to_seatd_only_outside_a_session_with_no_backend_named() {
     assert!(!super::pin_needed(Some(OsStr::new("seatd")), false));
 }
 
-/// What this test thread logged, each line with its level, as vtium's
-/// logger would print it.
-mod logged {
-    use std::cell::RefCell;
-    use std::sync::Once;
-
-    thread_local! {
-        static LINES: RefCell<Vec<(log::Level, String)>> = const { RefCell::new(Vec::new()) };
-    }
-
-    struct Capture;
-
-    impl log::Log for Capture {
-        fn enabled(&self, _: &log::Metadata<'_>) -> bool {
-            true
-        }
-
-        fn log(&self, record: &log::Record<'_>) {
-            LINES.with(|l| {
-                l.borrow_mut()
-                    .push((record.level(), record.args().to_string()));
-            });
-        }
-
-        fn flush(&self) {}
-    }
-
-    /// Starts capturing this thread's lines, the logger set once for the
-    /// test binary.
-    pub(super) fn start() {
-        static ONCE: Once = Once::new();
-        ONCE.call_once(|| {
-            if log::set_logger(&Capture).is_ok() {
-                log::set_max_level(log::LevelFilter::Trace);
-            }
-        });
-        LINES.with(|l| l.borrow_mut().clear());
-    }
-
-    /// The lines logged since [`start`], at `level` or more severe.
-    pub(super) fn at(level: log::Level) -> Vec<String> {
-        LINES.with(|l| {
-            l.borrow()
-                .iter()
-                .filter(|(lv, _)| *lv <= level)
-                .map(|(_, text)| text.clone())
-                .collect()
-        })
-    }
-}
-
 /// What libseat reports on a machine without seatd: its socket is missing.
 const NO_SEATD: &str = "Backend 'seatd' failed to open seat: No such file or directory";
 
@@ -1231,14 +1181,14 @@ fn opened_with(set: impl FnOnce(&mut super::stand_in::Server)) -> bool {
 /// debug level and its own line says what happened.
 #[test]
 fn libseats_expected_fallback_logs_only_vtiums_line() {
-    logged::start();
+    logs::capture();
     let opened = opened_with(|s| {
         s.backend_named = true;
         s.open_answers = [Errno::NOENT].into();
         s.says = vec![NO_SEATD.to_owned()];
     });
     assert!(!opened);
-    let shown = logged::at(log::Level::Info);
+    let shown = logs::at_least(log::Level::Info);
     assert!(
         shown
             .iter()
@@ -1250,18 +1200,18 @@ fn libseats_expected_fallback_logs_only_vtiums_line() {
         "{shown:?}"
     );
     assert!(
-        logged::at(log::Level::Debug).contains(&format!(
+        logs::at_least(log::Level::Debug).contains(&format!(
             "libseat, the seat library, reports an error: {NO_SEATD}"
         )),
         "the line is still there at the debug level"
     );
     // The same error before logind opens the seat is expected too.
-    logged::start();
+    logs::capture();
     assert!(opened_with(|s| {
         s.logind = true;
         s.says = vec![NO_SEATD.to_owned()];
     }));
-    assert!(logged::at(log::Level::Warn).is_empty());
+    assert!(logs::at_least(log::Level::Warn).is_empty());
 }
 
 /// An error libseat reports when a seat manager runs and still refuses
@@ -1271,7 +1221,7 @@ fn a_real_libseat_error_stays_in_the_log() {
     let refused = "Could not take control of session: Permission denied";
     // seatd listens, or logind runs, and refuses.
     for logind in [false, true] {
-        logged::start();
+        logs::capture();
         let opened = opened_with(|s| {
             s.seatd = !logind;
             s.logind = logind;
@@ -1280,7 +1230,7 @@ fn a_real_libseat_error_stays_in_the_log() {
         });
         assert!(!opened);
         assert_eq!(
-            logged::at(log::Level::Warn),
+            logs::at_least(log::Level::Warn),
             [format!(
                 "libseat, the seat library, reports an error: {refused}"
             )],
@@ -1288,7 +1238,7 @@ fn a_real_libseat_error_stays_in_the_log() {
         );
     }
     // A busy seat that never comes free: its last try's error stays.
-    logged::start();
+    logs::capture();
     let server = StandIn::new();
     {
         let mut s = server.0.borrow_mut();
@@ -1299,7 +1249,7 @@ fn a_real_libseat_error_stays_in_the_log() {
     let (mut lp, mut data) = start(&server, None, tries(3, 20));
     let events = run_until(&mut lp, &mut data, |_, events| !events.is_empty());
     assert_eq!(events, [VtEvent::Hangup]);
-    let shown = logged::at(log::Level::Warn);
+    let shown = logs::at_least(log::Level::Warn);
     assert_eq!(
         shown.first().map(String::as_str),
         Some("libseat, the seat library, reports an error: Could not open seat: Broken pipe"),
