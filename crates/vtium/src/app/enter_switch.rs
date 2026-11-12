@@ -4,7 +4,8 @@
 //! When the head sets `switch-on-enter = yes`, under the open policy and
 //! for a head that is not isolated, Enter on such a keyboard switches to
 //! the first VT of the head's `vt` on which vtium runs, a valid VT, and
-//! the notice says so. Any other key on it only wakes the notice.
+//! the notice says so. Any other key on it only wakes the notice, but its
+//! VT keys switch the VT as every keyboard's do (D3, "Who switches VTs").
 //!
 //! vtium asks which VTs vtium runs on the way `vtium console status` does
 //! ([`crate::console::running_vts`]): when it draws a notice, and again at

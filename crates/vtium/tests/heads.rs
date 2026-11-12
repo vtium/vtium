@@ -8553,9 +8553,15 @@ input * -> roaming
             notice_of(&mut s),
             format!("{NOTICE}\nPress Enter on this keyboard to switch to VT 12.")
         );
-        // any other key wakes the notice and switches nothing
+        // any other key wakes the notice and switches nothing, Ctrl+Enter
+        // among them
         s.type_on(USB, "x");
-        s.app.device_input(Path::new(USB), ctrl_alt_f(5), now());
+        let ctrl_enter = KeyEvent {
+            mods: Mods::CTRL,
+            ..char_key('\r')
+        };
+        s.app
+            .device_input(Path::new(USB), InputEvent::Key(ctrl_enter), now());
         s.until(Duration::from_millis(50), |_| false);
         assert_eq!(*switched.borrow(), [] as [u16; 0], "a key other than Enter");
         // Enter on the laptop's keyboard types into the console

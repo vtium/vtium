@@ -3120,13 +3120,18 @@ impl App {
             return;
         }
         // A key of a keyboard that stays with a head on another VT reaches
-        // no session: it wakes the notices, and Enter may switch to that
-        // head's VT (D3, "Enter on a head's own keyboard").
+        // no session: its VT keys switch the VT as every keyboard's do
+        // (D3, "Who switches VTs"), Enter may switch to that head's VT
+        // (D3, "Enter on a head's own keyboard"), and every key wakes the
+        // notices.
         if let InputEvent::Key(key) = &event
             && let Some(head) = self.routes.elsewhere(node)
         {
             self.activity(now);
-            self.key_elsewhere(head, node, key);
+            let vt_keys = self.routes.vt_keys(&self.rules, node);
+            if !(vt_keys && self.vt.key(key)) {
+                self.key_elsewhere(head, node, key);
+            }
             return;
         }
         // The head the device types into: its rule's, or the active head's
