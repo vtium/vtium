@@ -1,6 +1,6 @@
 # Security
 
-This page explains how vtium protects your machine and your sessions, and why it is built the way it is. It is written for you if you are deciding whether to run vtium. It stays with the large blocks of the design, because the details are still settling. Each section ends with the pages that hold the details, and with outside reading on the ideas behind it.
+This page explains how vtium protects your machine and your sessions, and why it is built the way it is. It is written for you if you are deciding whether to run vtium. It stays with the large blocks of the design, because the details are still settling. Each section ends with the vtium pages that hold the details, and [Further reading](#further-reading) lists outside work on the ideas behind them.
 
 ## Two programs you already know
 
@@ -15,7 +15,6 @@ vtium does the work of both. Like getty, it runs as root on a VT and starts `/bi
 Read more:
 
 - [Seats and sessions](seats-and-sessions.md) and [Deployment and start-up](start-up.md) describe how vtium takes the place of getty.
-- H D Moore, [Terminal Emulator Security Issues](https://seclists.org/bugtraq/2003/Feb/315) (Bugtraq, 2003), shows how a terminal's features can be abused when it displays data nobody trusts.
 
 ## Root for the console, fewer rights for the helpers
 
@@ -26,7 +25,7 @@ vtium's systemd unit sets none of systemd's sandboxing options. Your login sessi
 The cost is that the code that reads your programs' output runs as root. vtium meets that cost by keeping the riskiest work out of its root process. Font files and compressed pictures, such as PNG and JPEG, are complex formats, and the code that parses such formats is where defects are most often found. vtium never parses them itself. Two helper programs do it:
 
 - The font helper, `vtium-config serve`, draws the glyphs of a font set. It runs as the user `nobody`, and it refuses to run as root.
-- The image helper, `vtium-image`, reads the image files a program names and decodes pictures, in a build with the `images` feature. It runs as the user of the session it serves, so it can read only what that user can read. Before anyone logs in, it reads no file, and it decodes pictures as the account `vtium-image`, or as `nobody` where that account is missing.
+- The image helper, `vtium-image`, reads the image files a program names and decodes pictures, in a build with the `images` feature. It runs as the user of the session it serves, so it can read only what that user can read. Before anyone logs in, it reads no file, and it decodes pictures as the account `vtium-image`, or as `nobody` where that account is missing. When vtium cannot find the session's user, the helper never falls back to root.
 
 Each helper locks itself into a sandbox, a set of limits the kernel enforces on a process, before it reads anything. The limits include [no-new-privileges](https://docs.kernel.org/userspace-api/no_new_privs.html), [seccomp](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html) filters on the system calls it may make, and [landlock](https://docs.kernel.org/userspace-api/landlock.html) limits on the files it may touch. vtium checks the program file before it starts a helper, and it checks every glyph and picture a helper sends back before it uses it.
 
@@ -35,12 +34,6 @@ The rest of vtium's root process is written to survive hostile output. It bounds
 Read more:
 
 - [Fonts, generated at run time](fonts.md) explains the font helper's place in drawing. The READMEs of [vtium-config](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md) and [vtium-image-helper](https://github.com/vtium/vtium/blob/main/crates/vtium-image-helper/README.md) describe each helper's sandbox in detail.
-- Jerome H. Saltzer and Michael D. Schroeder, [The Protection of Information in Computer Systems](https://www.cs.virginia.edu/~evans/cs551/saltzer/) (1975), states the principle of least privilege: every program should run with the least set of privileges it needs.
-- Niels Provos, Markus Friedl and Peter Honeyman, [Preventing Privilege Escalation](https://www.usenix.org/legacy/events/sec03/tech/full_papers/provos_et_al/provos_et_al.pdf) (USENIX Security 2003), describes privilege separation: splitting a service so that its parts run with different levels of privilege.
-- Chromium's [sandbox design](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md) describes a privileged broker process that hands work to sandboxed target processes.
-- Linux's [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html) explains how the kernel divides root's powers into separate capabilities.
-- systemd's [systemd.exec(5)](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) describes the sandboxing options a unit can set, and how a service's children inherit them.
-- The [Rust Fuzz Book](https://rust-fuzz.github.io/book/) introduces fuzz testing in Rust.
 
 ## What a program in your session can make vtium do
 
@@ -55,9 +48,6 @@ A program talks to vtium through its pty, a pseudoterminal: the kernel's pair of
 Read more:
 
 - [config.md](../config.md) lists the settings that govern these requests, `allow-font-ops`, `allow-window-ops` and `clipboard-write`, with their defaults. [Determinism](../architecture.md#determinism) states the rule for replies in full.
-- xterm's [control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html) define the font sequence (OSC 50), the clipboard sequence (OSC 52) and the window operations. xterm's [manual](https://invisible-island.net/xterm/manpage/xterm.html) describes its `allowFontOps` and `allowWindowOps` resources, which govern the same requests.
-- The [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) sets the rules a terminal follows when a program names a file or a shared-memory object for a picture.
-- Egmont Koblinger's [Hyperlinks in Terminal Emulators](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda) specifies the link sequence (OSC 8) and its security advice.
 
 ## A configuration only root can change
 
@@ -68,7 +58,6 @@ For that reason, vtium reads the file only when root owns it and neither its gro
 Read more:
 
 - [Configure vtium](../configure.md) describes the check, the draft and the step that asks for sudo.
-- OpenSSH's [`StrictModes`](https://man.openbsd.org/sshd_config#StrictModes) makes the same kind of check on a user's files before sshd accepts a login.
 
 ## Heads and stations
 
@@ -79,7 +68,6 @@ vtium.conf's rules decide which keyboard types into which head, the way a firewa
 Read more:
 
 - [Heads](heads.md) explains heads, the two policies and the operator's way back in. [The sections of vtium.conf](../head-file.md#which-input-can-reach-whose-session) lists each route by which one keyboard can reach another person's session, and the switch that governs it. [heads.md](../heads.md) shows complete files for a kiosk and for stations.
-- Martin Flöser, [Looking at the security of Plasma/Wayland](https://blog.martin-graesslin.com/blog/2015/11/looking-at-the-security-of-plasmawayland/), describes a display server in which one program cannot read the key events meant for another's window.
 
 ## Logins and sessions
 
@@ -92,9 +80,6 @@ A restart of vtium does not end your sessions. vtium keeps a copy of each sessio
 Read more:
 
 - [Seats and sessions](seats-and-sessions.md) explains both modes and what each gives your login. [systemd.md](../systemd.md) lists every place vtium touches systemd, logind and PID 1, and what it does without them.
-- Linux-PAM's [pam(8)](https://man7.org/linux/man-pages/man8/pam.8.html) introduces PAM. systemd's [systemd-logind.service(8)](https://www.freedesktop.org/software/systemd/man/latest/systemd-logind.service.html) and [pam_systemd(8)](https://www.freedesktop.org/software/systemd/man/latest/pam_systemd.html) describe how logind tracks sessions and how a login registers with it. [polkit(8)](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html) describes how polkit treats active and inactive sessions.
-- systemd's [file descriptor store](https://systemd.io/FILE_DESCRIPTOR_STORE/) explains how a service keeps open files with systemd across a restart.
-- The kernel's [DRM userland interfaces](https://docs.kernel.org/gpu/drm-uapi.html), in their section on the DRM master, [ioctl_vt(2)](https://man7.org/linux/man-pages/man2/ioctl_vt.2.html) and [seatd(1)](https://man.archlinux.org/man/seatd.1) describe how one program at a time controls the displays and the VTs, and how a seat manager hands them out.
 
 ## Where the protection ends
 
@@ -107,6 +92,28 @@ vtium protects you from what the programs in your sessions print, and from peopl
 - **A session left alone.** vtium has no screen lock yet, so anyone at a keyboard that reaches your session can type into it. See [the screen lock issue](https://github.com/vtium/vtium/issues/87).
 - **A closed configuration that stops being trusted.** A closed vtium.conf that someone deletes, or makes writable by other users, is not read at the next start, and vtium runs its built-in configuration, which is open.
 - **Root's pictures.** When root logs in on a vtium console, the image helper runs with root's user id, though without root's capabilities.
+
+## Further reading
+
+These are papers, specifications and other projects' documentation on the ideas this page uses. Each one explains its idea in its own terms.
+
+- H D Moore, [Terminal Emulator Security Issues](https://seclists.org/bugtraq/2003/Feb/315) (Bugtraq, 2003), shows how a terminal's features can be abused when it displays data nobody trusts, such as a window title report that places text on the command line. It bears on [Two programs you already know](#two-programs-you-already-know) and on what a program can make vtium do.
+- Jerome H. Saltzer and Michael D. Schroeder, [The Protection of Information in Computer Systems](https://www.cs.virginia.edu/~evans/cs551/saltzer/) (1975), states the principle of least privilege: every program should run with the least set of privileges it needs. It bears on [Root for the console, fewer rights for the helpers](#root-for-the-console-fewer-rights-for-the-helpers).
+- Niels Provos, Markus Friedl and Peter Honeyman, [Preventing Privilege Escalation](https://www.usenix.org/legacy/events/sec03/tech/full_papers/provos_et_al/provos_et_al.pdf) (USENIX Security 2003), describes privilege separation, which splits a service so that its parts run with different levels of privilege, as OpenSSH does. It bears on the helpers, and on [Where the protection ends](#where-the-protection-ends).
+- Chromium's [sandbox design](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/design/sandbox.md) describes a privileged broker process that hands work to sandboxed target processes. It bears on the helpers.
+- The Linux kernel's [Landlock](https://docs.kernel.org/userspace-api/landlock.html), [seccomp filter](https://www.kernel.org/doc/html/latest/userspace-api/seccomp_filter.html) and [no_new_privs](https://docs.kernel.org/userspace-api/no_new_privs.html) documents explain how a process limits the files it may touch, the system calls it may make and the privileges a program it starts may gain. They bear on the helpers' sandboxes.
+- Linux's [capabilities(7)](https://man7.org/linux/man-pages/man7/capabilities.7.html) explains how the kernel divides root's powers into separate capabilities. It bears on the image helper when root logs in.
+- systemd's [systemd.exec(5)](https://www.freedesktop.org/software/systemd/man/latest/systemd.exec.html) describes the sandboxing options a unit can set, such as `NoNewPrivileges=`, and how a service's children inherit them. It bears on why vtium's unit sets none.
+- The [Rust Fuzz Book](https://rust-fuzz.github.io/book/) introduces fuzz testing in Rust. It bears on how vtium's output parser is tested.
+- xterm's [control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html) define the font sequence (OSC 50), the clipboard sequence (OSC 52) and the window operations, and xterm's [manual](https://invisible-island.net/xterm/manpage/xterm.html) describes its `allowFontOps` and `allowWindowOps` resources, which govern the same requests. They bear on [What a program in your session can make vtium do](#what-a-program-in-your-session-can-make-vtium-do).
+- The [kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) sets the rules a terminal follows when a program names a file or a shared-memory object for a picture. It bears on pictures from files.
+- Egmont Koblinger's [Hyperlinks in Terminal Emulators](https://gist.github.com/egmontkob/eb114294efbcd5adb1944c9f3cb5feda) specifies the link sequence (OSC 8) and advises that a plain click should not open a link. It bears on links.
+- OpenSSH's [`StrictModes`](https://man.openbsd.org/sshd_config#StrictModes) checks the ownership and modes of a user's files before sshd accepts a login. It bears on [A configuration only root can change](#a-configuration-only-root-can-change).
+- Martin Flöser, [Looking at the security of Plasma/Wayland](https://blog.martin-graesslin.com/blog/2015/11/looking-at-the-security-of-plasmawayland/), describes a Wayland display server in which one program cannot read the key events meant for another program's window. It bears on [Heads and stations](#heads-and-stations).
+- The kernel's [DRM userland interfaces](https://docs.kernel.org/gpu/drm-uapi.html), in their section on the DRM master, and [ioctl_vt(2)](https://man7.org/linux/man-pages/man2/ioctl_vt.2.html) describe how one program at a time controls a display card and how the VTs switch. They bear on why vtium runs as root.
+- [seatd(1)](https://man.archlinux.org/man/seatd.1) describes a seat manager that mediates access to displays and input devices. [systemd-logind.service(8)](https://www.freedesktop.org/software/systemd/man/latest/systemd-logind.service.html) and [pam_systemd(8)](https://www.freedesktop.org/software/systemd/man/latest/pam_systemd.html) describe how logind tracks sessions and seats and how a login registers with it. They bear on [Logins and sessions](#logins-and-sessions).
+- Linux-PAM's [pam(8)](https://man7.org/linux/man-pages/man8/pam.8.html) introduces the pluggable authentication modules that check your password, and [polkit(8)](https://www.freedesktop.org/software/polkit/docs/latest/polkit.8.html) describes how polkit treats active and inactive sessions. They bear on logins.
+- systemd's [file descriptor store](https://systemd.io/FILE_DESCRIPTOR_STORE/) explains how a service keeps open files with systemd across a restart. It bears on sessions that survive a restart of vtium.
 
 ## Reporting a vulnerability
 
