@@ -1158,11 +1158,17 @@ impl App {
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
         let on_the_fly = font::frit(&s.frits, &wanted.name).is_none();
-        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| {
-            let made = on_the_fly.then(|| frit.clone());
-            Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made))
-        });
-        match chosen {
+        let frit = match font::frit_named(s, &wanted) {
+            Ok(frit) => frit,
+            // the one line a frit vtium does not read gets at the start: the
+            // start's warnings leave it to this read
+            Err(refusal) => {
+                log::warn!("{refusal} vtium draws its built-in font instead.");
+                return (Chosen::builtins(look), None);
+            }
+        };
+        let made = on_the_fly.then(|| frit.clone());
+        match Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made)) {
             Ok((chosen, made)) => {
                 log::info!(
                     "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
@@ -1375,7 +1381,8 @@ impl App {
             Err(why) => {
                 if head.font_refused == 0 {
                     log::warn!(
-                        "OSC 50 asked for the font {name}: {why}; the font stays {current}, and OSC 50's further refusals are counted until a switch"
+                        "OSC 50 asked for the font {name}: {}; the font stays {current}, and OSC 50's further refusals are counted until a switch",
+                        why.trim_end_matches('.')
                     );
                 }
                 head.font_refused = head.font_refused.saturating_add(1);
@@ -1546,6 +1553,12 @@ impl App {
     /// cannot be found.
     fn relayout(&mut self, h: usize) -> bool {
         if self.heads.get(h).is_none_or(|head| head.views.is_empty()) {
+            // nothing to lay out, but a switch still changed the font
+            let locale = self.locale.as_str();
+            if let Some(head) = self.heads.get_mut(h) {
+                let name = head.chosen().name(head.font_size, locale).to_owned();
+                name_font(head, &name);
+            }
             return true;
         }
         self.choose_font(h);
@@ -1591,7 +1604,7 @@ impl App {
         };
         head.font_size = base;
         let name = head.chosen().name(base, locale).to_owned();
-        head.console.term.terminal.set_font_name(&name);
+        name_font(head, &name);
         let cell = |head: &Head, at: u32| {
             head.face(at, locale).ok().map(|f| {
                 let c = f.cell();
@@ -4698,6 +4711,19 @@ fn shown<'a>(heads: impl Iterator<Item = &'a &'a Head>) -> Vec<crate::deferred::
     all
 }
 
+/// Names the font `name` that `head` draws on every one of its consoles,
+/// the hidden ones too, since the font is the head's: OSC 50's query
+/// reports it by a name OSC 50 takes, or no name, as for a font file's
+/// path or a family, and never the name of a font no longer shown.
+fn name_font(head: &mut Head, name: &str) {
+    for console in head.consoles_mut() {
+        let terminal = &mut console.term.terminal;
+        if !terminal.set_font_name(name) {
+            terminal.clear_font_name();
+        }
+    }
+}
+
 /// The height `head` draws at with its display's density `dpi`: the
 /// configured `font-size` in points, else the automatic rule, else the
 /// height it has, as a bitmap frit's whole multiples snap it.
@@ -5354,6 +5380,7 @@ mod tests {
     pub(super) fn no_fonts() -> font::Sources {
         font::Sources {
             frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            trust: font::trust(),
             helper: None,
             vconsole_conf: PathBuf::from("/dev/null"),
             kernel_cmdline: PathBuf::from("/dev/null"),
@@ -5422,6 +5449,7 @@ mod tests {
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -5472,6 +5500,7 @@ mod tests {
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\ncell=8x20\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6214,6 +6243,7 @@ mod tests {
         std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6249,6 +6279,7 @@ mod tests {
             std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
             let fonts = font::Sources {
                 frits: dir.clone(),
+                trust: font::trust().below(&dir),
                 helper: Some(helper::Command {
                     program: helper::stand_in_shell().to_path_buf(),
                     args: vec!["-c".into(), "exec sleep 30".into()],

@@ -895,8 +895,8 @@ pub fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
 /// most [`FILE_MAX`] and one bytes. It is opened with `O_NOCTTY`, so that
 /// a tty never becomes the controlling one, and without blocking, so that
 /// a FIFO is refused at once with anything else that is not a regular
-/// file. It reads a frit, and the vtium.conf `vtium check-config` checks
-/// before it is installed, whose ownership it judges apart.
+/// file. It reads the vtium.conf `vtium check-config` checks before it is
+/// installed, whose ownership it judges apart.
 pub fn read_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
     use rustix::fs::{Mode, OFlags};
     use std::io::Read;

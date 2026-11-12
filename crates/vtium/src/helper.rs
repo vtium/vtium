@@ -474,16 +474,18 @@ pub struct FritText {
 }
 
 impl FritText {
-    /// The frit at `path`, named for its file less `.vtfrit`.
-    pub fn read(path: &Path) -> Result<FritText, String> {
+    /// The frit at `path`, named for its file less `.vtfrit`, read once
+    /// the ownership check `trust` makes passes
+    /// ([`crate::font::frit_text`]).
+    pub fn read(path: &Path, trust: &vtium_settings::Trust) -> Result<FritText, String> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
             .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
             .filter(|n| !n.is_empty())
             .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
-        let text = crate::font::frit_text(path)
-            .map_err(|why| format!("cannot read {}: {why}", path.display()))?;
+        let text = crate::font::frit_text(path, trust)
+            .map_err(|why| crate::font::refusal(name, path, &why))?;
         Ok(FritText {
             name: name.to_owned(),
             text,
@@ -2563,8 +2565,9 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("ter-v16n.vtfrit");
         std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
-        let read = FritText::read(&path);
-        let gone = FritText::read(&dir.join("gone.vtfrit"));
+        let trust = crate::font::trust().below(&dir);
+        let read = FritText::read(&path, &trust);
+        let gone = FritText::read(&dir.join("gone.vtfrit"), &trust);
         let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             read,

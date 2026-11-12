@@ -147,11 +147,13 @@
 
 # -- Font switching by programs ----------------------------------------------
 
-## Let programs switch the console's font, and ask which font is in use
-## (xterm's OSC 50).
+## Let programs switch the console's font, and ask which font is in use, with
+## OSC 50.
 ##
-## A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`. A
-## switch lasts until that program's session ends; then vtium returns to the
+## A program switches with `OSC 50 ; NAME ST` and asks with `OSC 50 ; ? ST`.
+## vtium reads both as xterm's control sequences define OSC 50.
+##
+## A switch lasts until that program's session ends. vtium then returns to the
 ## font and size that `font-name` and `font-size` set.
 ##
 ## When off, vtium ignores OSC 50, queries included.

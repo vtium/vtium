@@ -58,6 +58,8 @@ There are three ways to write a frit, and all three give the same file:
 
 Installing a frit asks for sudo once. The tool shows you the command before it runs it.
 
+vtium reads a frit only when it passes the same ownership check as vtium.conf. Root must own the frit, and no other user may be able to change it or any folder above it. When a frit fails that check, vtium does not read it. vtium logs the file and the reason, and draws with its built-in fonts. `vtium check-config` reports the same refusal.
+
 `vtium-config --help about` draws the tool's name in glass. See [the glass banner issue](https://github.com/vtium/vtium/issues/112).
 
 Later, vtium-config may find installed fonts that match the looks people choose, without a frit written for each. A look is a named set of font settings in vtium.conf, such as a font and its size. That direction is not decided yet. See [the issue about matching installed fonts](https://github.com/vtium/vtium/issues/117).
