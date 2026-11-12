@@ -4,7 +4,3 @@
 small-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 small-640x480-1bit	#273: the italic word `ital` in the 8x16 PSF1 test font redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn by vtium-config's engine, redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
-script-unifont	ADR-1202 D8: accepted before, and redrawn with each superscript's and subscript's underline, strike-through and overline on the small glyph's own rows, with new rows of every line under each script and an underline across normal and script cells; not reviewed yet
-script-unifont-2x	ADR-1202 D3, D8: superscript and subscript in unifont drawn at 2x, from unifont at its own size, placed whole, with their lines on unifont's own rows at 1x; not reviewed yet
-script-unifont-3x	ADR-1202 D3, D8: superscript and subscript in unifont drawn at 3x, from unifont at 2x in whole 2x2 blocks, with their lines on unifont's own rows at 2x; not reviewed yet
-script-source	ADR-1202 D8, D12: superscript and subscript in the 8x16 test font from the 8x8 test font that script-source= names, as the helper draws them, with the 8x8 font's own lines placed with its glyphs; not reviewed yet
