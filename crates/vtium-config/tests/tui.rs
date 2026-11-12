@@ -2175,7 +2175,7 @@ fn a_vtium_console_prints_the_specimen_as_its_own_text_and_t_redraws_it() {
     let shown: Vec<String> = preview_rows(&screen, "!\"#$%")
         .into_iter()
         .take(want.len())
-        .map(|l| l.replace(|c: char| c == ' ', ""))
+        .map(|l| l.replace(' ', ""))
         .collect();
     let want: Vec<String> = want.iter().map(|l| l.replace(' ', "")).collect();
     assert_eq!(shown, want, "{screen}");
