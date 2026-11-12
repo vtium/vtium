@@ -56,7 +56,10 @@ considered:
   - operator: aaronsb
     said: "Walk first, then accept"
     via: steering session, 2026-11-12, at the question tool, after the gaps card
-status: proposed
+  - operator: aaronsb
+    said: "Accept it (Recommended)"
+    via: steering session, 2026-11-12, at the question tool, after the maintainer walked the acceptance pass on both render paths (CPU 67 yes, GPU 68 yes; both committed under docs/acceptance/)
+status: accepted
 date: 2026-11-03
 deciders:
   - aaronsb
