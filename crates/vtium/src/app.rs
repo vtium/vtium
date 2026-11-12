@@ -1158,7 +1158,7 @@ impl App {
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
         let on_the_fly = font::frit(&s.frits, &wanted.name).is_none();
-        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| {
+        let chosen = font::frit_named(s, &wanted).and_then(|frit| {
             let made = on_the_fly.then(|| frit.clone());
             Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made))
         });
@@ -5354,6 +5354,7 @@ mod tests {
     pub(super) fn no_fonts() -> font::Sources {
         font::Sources {
             frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            trust: font::trust(),
             helper: None,
             vconsole_conf: PathBuf::from("/dev/null"),
             kernel_cmdline: PathBuf::from("/dev/null"),
@@ -5422,6 +5423,7 @@ mod tests {
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -5472,6 +5474,7 @@ mod tests {
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\ncell=8x20\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6214,6 +6217,7 @@ mod tests {
         std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
         let fonts = font::Sources {
             frits: dir.clone(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6249,6 +6253,7 @@ mod tests {
             std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
             let fonts = font::Sources {
                 frits: dir.clone(),
+                trust: font::trust().below(&dir),
                 helper: Some(helper::Command {
                     program: helper::stand_in_shell().to_path_buf(),
                     args: vec!["-c".into(), "exec sleep 30".into()],

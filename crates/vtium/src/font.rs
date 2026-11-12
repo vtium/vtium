@@ -32,6 +32,7 @@ use vtium_font::set::{SetFace, builtin, builtin_name};
 use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
+use vtium_settings::Trust;
 
 use crate::config::keys::{
     FONT_ENGINE, FONT_FRITS, FONT_NAME, GLYPH_SOURCE, GLYPH_SOURCE_BLOCK, GLYPH_SOURCE_BOX,
@@ -185,12 +186,29 @@ pub use crate::config::keys::{FRIT_CELL_MAX, FRIT_CELL_MIN};
 /// the key table, which vtium-config reads it within too.
 use crate::config::keys::{FRIT_SIZE_MAX, FRIT_SIZE_MIN};
 
-/// The frit at `path`'s text: a regular file of at most `FILE_MAX`
-/// bytes, as vtium-config's `FRIT_BYTES_MAX`, in UTF-8.
-pub fn frit_text(path: &Path) -> Result<String, String> {
-    let bytes = crate::config::read_bytes(path)
-        .map_err(|e| e.to_string())?
-        .ok_or("the file is missing")?;
+/// The ownership check a frit passes before vtium reads it, the check
+/// vtium.conf passes (ADR-1401 D10, ADR-1403 D3): the file is root's, or
+/// for a vtium that runs as another user, as the tests and a run by hand
+/// do, that user's own, and every directory above it is root's or that
+/// user's; neither the group nor other users can write the file or any
+/// of those directories.
+pub fn trust() -> Trust {
+    Trust::running_as(rustix::process::geteuid().as_raw())
+}
+
+/// The frit at `path`'s text, once the ownership check `trust` makes
+/// passes ([`trust`]): a regular file of at most `FILE_MAX` bytes, as
+/// vtium-config's `FRIT_BYTES_MAX`, in UTF-8. A frit the check refuses is
+/// not read, and the error names the path that failed and the command
+/// that mends it.
+pub fn frit_text(path: &Path, trust: &Trust) -> Result<String, String> {
+    let inspected = match vtium_settings::inspect(path, trust) {
+        Ok(Some(inspected)) => inspected,
+        Ok(None) => return Err("the file is missing".to_owned()),
+        Err(rejected) => return Err(unread(&rejected)),
+    };
+    inspected.trusted.map_err(|why| distrusted(&why))?;
+    let bytes = inspected.bytes;
     if bytes.len() > crate::config::FILE_MAX {
         return Err(format!(
             "the file is longer than {} bytes",
@@ -198,6 +216,30 @@ pub fn frit_text(path: &Path) -> Result<String, String> {
         ));
     }
     String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text".to_owned())
+}
+
+/// Why a frit that cannot be opened is not read.
+fn unread(rejected: &vtium_settings::Rejected) -> String {
+    match rejected.errors.first().map(|e| &e.problem) {
+        Some(vtium_settings::Problem::NotAFile) => "the file is not a regular file".to_owned(),
+        Some(vtium_settings::Problem::Unreadable(kind)) => std::io::Error::from(*kind).to_string(),
+        _ => "the file cannot be read".to_owned(),
+    }
+}
+
+/// Why vtium does not read a frit the ownership check refuses: the path
+/// that fails, which is the file or a directory above it, and the command
+/// that mends it.
+fn distrusted(why: &vtium_settings::Untrusted) -> String {
+    let mend = why.mend();
+    match why {
+        vtium_settings::Untrusted::Owner { path, uid } => format!(
+            "vtium does not trust the file, because {path} belongs to user {uid}, not to root; run `{mend}` to make root the owner"
+        ),
+        vtium_settings::Untrusted::Writable { path, mode } => format!(
+            "vtium does not trust the file, because other users can change {path}, whose mode is {mode:o}; run `{mend}` so that only its owner can change it"
+        ),
+    }
 }
 
 /// The value of the one `key=` line in a frit's `text`, with its line
@@ -450,6 +492,10 @@ fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<Di
 #[derive(Clone, Debug)]
 pub struct Sources {
     pub frits: PathBuf,
+    /// The ownership check each frit passes before vtium reads it,
+    /// [`trust`] but in a test whose frits sit under a directory others
+    /// can write, such as `/tmp`.
+    pub trust: Trust,
     /// The helper; `None` for the one `font-helper` names
     /// ([`helper::Launcher::configured`]).
     pub helper: Option<helper::Command>,
@@ -471,11 +517,12 @@ impl Sources {
 
 impl Default for Sources {
     /// The system's with every key at its default: the frits' directory
-    /// vtium is built with, the helper `font-helper` names,
+    /// vtium is built with, read under [`trust`], the helper `font-helper` names,
     /// `/etc/vconsole.conf` and `/proc/cmdline`.
     fn default() -> Sources {
         Sources {
             frits: PathBuf::from(FRITS),
+            trust: trust(),
             helper: None,
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
@@ -578,13 +625,13 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
     }
 }
 
-/// The frit `wanted` names (ADR-1200 D9): the frit of that name in
-/// `frits`; else a kbd name, a path, an outline family or vconsole's font
+/// The frit `wanted` names (ADR-1200 D9): the frit of that name in the
+/// frits' directory, read under the sources' ownership check; else a kbd name, a path, an outline family or vconsole's font
 /// as a one-source frit made on the fly, named as it was named. The error
 /// is why the frit of that name cannot be read.
-pub fn frit_named(frits: &Path, wanted: &Wanted) -> Result<FritText, String> {
-    if let Some(path) = frit(frits, &wanted.name) {
-        return FritText::read(&path);
+pub fn frit_named(sources: &Sources, wanted: &Wanted) -> Result<FritText, String> {
+    if let Some(path) = frit(&sources.frits, &wanted.name) {
+        return FritText::read(&path, &sources.trust);
     }
     Ok(FritText {
         name: wanted.name.clone(),
@@ -626,7 +673,7 @@ pub fn by_name(
         return Ok(builtin);
     }
     let frit = match frit(&sources.frits, name) {
-        Some(path) => FritText::read(&path)?,
+        Some(path) => FritText::read(&path, &sources.trust)?,
         None => made
             .filter(|made| made.name == name)
             .cloned()
@@ -1986,10 +2033,13 @@ mod tests {
     // fly, named as it was named: kbd:, file:, font: or vconsole
     #[test]
     fn a_name_no_frit_bears_is_a_one_source_frit() {
-        let none = Path::new("/nonexistent/vtium-test-frits");
+        let none = Sources {
+            frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            ..Sources::default()
+        };
         let made = |name: &str, came| {
             frit_named(
-                none,
+                &none,
                 &Wanted {
                     name: name.into(),
                     came,
@@ -2024,6 +2074,83 @@ mod tests {
         );
     }
 
+    // ADR-1401 D10, ADR-1403 D3: vtium reads a frit, at the start and for
+    // OSC 50, only once the ownership check vtium.conf passes trusts it. A
+    // frit its group can write, and a frit in a directory its group can
+    // write, are refused, each with the path that fails, its mode and the
+    // command that mends it.
+    #[test]
+    fn a_frit_is_read_only_when_the_ownership_check_trusts_it() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vtium-font-trust-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = dir.join("open");
+        std::fs::create_dir_all(&open).expect("the directories");
+        let mode = |path: &Path, mode: u32| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+                .expect("the mode");
+        };
+        for path in [
+            dir.join("t.vtfrit"),
+            dir.join("g.vtfrit"),
+            open.join("t.vtfrit"),
+        ] {
+            std::fs::write(&path, "source=kbd:x\n").expect("the frit");
+            mode(&path, 0o644);
+        }
+        mode(&dir, 0o755);
+        mode(&dir.join("g.vtfrit"), 0o664);
+        mode(&open, 0o775);
+        let sources = |frits: &Path| Sources {
+            frits: frits.to_path_buf(),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        let at_start = |frits: &Path, name: &str| {
+            let wanted = Wanted {
+                name: name.into(),
+                came: Came::Config,
+            };
+            frit_named(&sources(frits), &wanted).map(|frit| frit.text)
+        };
+        let by_osc_50 = |frits: &Path, name: &str| {
+            by_name(&sources(frits), name, false, None, None).map(|chosen| match chosen {
+                Chosen::Frit { frit, .. } => frit.text,
+                Chosen::Builtin { .. } => String::new(),
+            })
+        };
+        let results = [
+            at_start(&dir, "t"),
+            at_start(&dir, "g"),
+            at_start(&open, "t"),
+            by_osc_50(&dir, "t"),
+            by_osc_50(&dir, "g"),
+            by_osc_50(&open, "t"),
+        ];
+        let _ = std::fs::remove_dir_all(&dir);
+        let read = Ok("source=kbd:x\n".to_owned());
+        let refused = |file: &Path, failed: &Path, mode: &str| {
+            Err(format!(
+                "cannot read {file}: vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it",
+                file = file.display(),
+                failed = failed.display(),
+            ))
+        };
+        let writable = refused(&dir.join("g.vtfrit"), &dir.join("g.vtfrit"), "664");
+        let in_open = refused(&open.join("t.vtfrit"), &open, "775");
+        assert_eq!(
+            results,
+            [
+                read.clone(),
+                writable.clone(),
+                in_open.clone(),
+                read,
+                writable,
+                in_open
+            ]
+        );
+    }
+
     // ADR-1200 D5, D9: OSC 50 finds a name as the start does: a built-in,
     // then a frit in the frits' directory, then the frit made on the fly
     // for the head's configured font under its own name; a frit in the
@@ -2036,6 +2163,7 @@ mod tests {
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
         let sources = Sources {
             frits: dir.clone(),
+            trust: trust().below(&dir),
             ..Sources::default()
         };
         let made = |name: &str| FritText {

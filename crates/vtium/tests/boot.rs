@@ -385,6 +385,7 @@ impl Drop for Reap {
 fn no_fonts() -> Sources {
     Sources {
         frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        trust: vtium::font::trust(),
         helper: None,
         vconsole_conf: PathBuf::from("/dev/null"),
         kernel_cmdline: PathBuf::from("/dev/null"),
@@ -6850,6 +6851,72 @@ fn replied(h: &mut Harness, name: &str) -> bool {
     h.until(BOUND, |a| {
         a.screen_text().iter().any(|l| l.contains(&reply))
     })
+}
+
+// ADR-1401 D10, ADR-1403 D3: a frit its group can write, and a frit in a
+// directory its group can write, are not read. The start logs one line
+// naming the file and why, and draws the built-in font, as when the font
+// helper cannot start; OSC 50 asking for such a frit is refused the same
+// way, and the font stays.
+#[test]
+fn a_frit_others_can_change_is_not_read() {
+    use std::os::unix::fs::PermissionsExt;
+    let mode = |path: &Path, mode: u32| {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).expect("the mode");
+    };
+    let (_dir, fonts) = recording("untrusted");
+    let open = fonts.frits.join("open");
+    std::fs::create_dir(&open).expect("the open directory");
+    for path in [
+        fonts.frits.join("t.vtfrit"),
+        fonts.frits.join("g.vtfrit"),
+        open.join("o.vtfrit"),
+    ] {
+        std::fs::write(&path, "source=kbd:x\n").expect("a frit");
+        mode(&path, 0o644);
+    }
+    mode(&fonts.frits.join("g.vtfrit"), 0o664);
+    mode(&open, 0o775);
+    let refusal = |file: &Path, failed: &Path, mode: &str| {
+        format!(
+            "cannot read {file}: vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it",
+            file = file.display(),
+            failed = failed.display(),
+        )
+    };
+    let g = refusal(
+        &fonts.frits.join("g.vtfrit"),
+        &fonts.frits.join("g.vtfrit"),
+        "664",
+    );
+    let o = refusal(&open.join("o.vtfrit"), &open, "775");
+    let in_open = Sources {
+        frits: open.clone(),
+        ..fonts.clone()
+    };
+    logged();
+    let started =
+        [("t", fonts.clone()), ("g", fonts.clone()), ("o", in_open)].map(|(name, fonts)| {
+            let h = with_fonts(&[&format!("--font-name={name}")], fonts);
+            h.app.font_name().to_owned()
+        });
+    assert_eq!(started, ["t", "unifont", "unifont"]);
+    let lines = logged();
+    for (name, why) in [("g", &g), ("o", &o)] {
+        let line = format!("the font {name} is not drawn ({why}): vtium draws its built-in font");
+        assert_eq!(
+            lines.iter().filter(|l| **l == line).count(),
+            1,
+            "{line}: {lines:?}"
+        );
+    }
+    let h = osc50(&["--font-name=t"], "\\033]50;g\\007", fonts.clone());
+    assert_eq!(h.app.font_name(), "t");
+    let line = format!(
+        "OSC 50 asked for the font g: {g}; the font stays t, and OSC 50's further refusals are counted until a switch"
+    );
+    let lines = logged();
+    assert!(lines.contains(&line), "{line}: {lines:?}");
 }
 
 // ADR-1200 D5: `OSC 50 ; ?` names the current frit, a frit made on the fly

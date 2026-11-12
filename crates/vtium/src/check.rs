@@ -58,20 +58,23 @@ pub fn semantics(config: &Config) -> Vec<String> {
     // Any user may read PID 1's status; `SigCgt` says what it catches.
     let status = std::fs::read_to_string("/proc/1/status").map_err(|e| e.to_string());
     let mut out = semantics_under(config, &status, vtium_platform::power::power_off_signal());
-    out.extend(frit(config, &font::frits(config)));
+    // the start, which runs as root, reads only root's frits
+    out.extend(frit(config, &font::frits(config), &Trust::ROOT));
     out
 }
 
 /// What the frit `font-name` names in `frits` says of its cell, as
-/// [`font::frit_warnings`] reads it; nothing when the name is no frit's.
-fn frit(config: &Config, frits: &Path) -> Vec<String> {
+/// [`font::frit_warnings`] reads it, once the ownership check `trust`
+/// makes passes; nothing when the name is no frit's. A frit the check
+/// refuses is reported as the start reports it.
+fn frit(config: &Config, frits: &Path, trust: &Trust) -> Vec<String> {
     let Some(wanted) = font::wanted(config, "", "").filter(|w| w.came == font::Came::Config) else {
         return Vec::new();
     };
     let Some(path) = font::frit(frits, &wanted.name) else {
         return Vec::new();
     };
-    match font::frit_text(&path) {
+    match font::frit_text(&path, trust) {
         Ok(text) => font::frit_warnings(&wanted.name, &text),
         Err(why) => vec![check_config::frit_unreadable(&wanted.name, &why)],
     }
@@ -1038,15 +1041,86 @@ mod tests {
                 .collect();
             config::load(&args, &mut |_: &Path| Ok(None)).config
         };
+        let trust = font::trust().below(&dir);
         assert_eq!(
-            frit(&config("small"), &dir),
+            frit(&config("small"), &dir, &trust),
             [
                 "font set small: line 1: the characters of source=builtin:unifont (8x16) do not fit the 8x12 character cell, so vtium does not use that source"
             ]
         );
-        assert!(frit(&config("fine"), &dir).is_empty());
-        assert!(frit(&config("ter-v16n"), &dir).is_empty(), "no frit");
+        assert!(frit(&config("fine"), &dir, &trust).is_empty());
+        assert!(
+            frit(&config("ter-v16n"), &dir, &trust).is_empty(),
+            "no frit"
+        );
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    // ADR-1401 D10, ADR-1403 D3: check-config reads the frit font-name
+    // names under the ownership check the start makes, root's for the
+    // installed configuration, and reports a frit the check refuses as the
+    // start does, with the path that fails and the command that mends it
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_frit_the_ownership_check_refuses_is_reported() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let dir = std::env::temp_dir().join(format!("vtium-check-trust-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let open = dir.join("open");
+        std::fs::create_dir_all(&open).unwrap();
+        let mode = |path: &Path, mode: u32| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        for path in [
+            dir.join("t.vtfrit"),
+            dir.join("g.vtfrit"),
+            open.join("t.vtfrit"),
+        ] {
+            std::fs::write(&path, "source=builtin:unifont\n").unwrap();
+            mode(&path, 0o644);
+        }
+        mode(&dir, 0o755);
+        mode(&dir.join("g.vtfrit"), 0o664);
+        mode(&open, 0o775);
+        let config = |name: &str| {
+            let args: Vec<OsString> = [SUBCOMMAND, "--font-name", name]
+                .iter()
+                .map(OsString::from)
+                .collect();
+            config::load(&args, &mut |_: &Path| Ok(None)).config
+        };
+        let uid = std::fs::metadata(&dir).unwrap().uid();
+        let mine = font::trust().below(&dir);
+        let results = [
+            frit(&config("t"), &dir, &mine),
+            frit(&config("g"), &dir, &mine),
+            frit(&config("t"), &open, &mine),
+            frit(&config("t"), &dir, &Trust::ROOT),
+        ];
+        std::fs::remove_dir_all(&dir).unwrap();
+        let writable = |failed: &Path, mode: &str| {
+            let failed = failed.display();
+            format!(
+                "vtium does not trust the file, because other users can change \"{failed}\", whose mode is {mode}; run `chmod go-w {failed}` so that only its owner can change it"
+            )
+        };
+        let mine = dir.join("t.vtfrit");
+        let owner = format!(
+            "vtium does not trust the file, because \"{file}\" belongs to user {uid}, not to root; run `chown root:root {file}` to make root the owner",
+            file = mine.display()
+        );
+        assert_eq!(
+            results,
+            [
+                vec![],
+                vec![check_config::frit_unreadable(
+                    "g",
+                    &writable(&dir.join("g.vtfrit"), "664")
+                )],
+                vec![check_config::frit_unreadable("t", &writable(&open, "775"))],
+                vec![check_config::frit_unreadable("t", &owner)],
+            ]
+        );
     }
 
     // the operator on #145, 2026-10-28: the density points convert at,
