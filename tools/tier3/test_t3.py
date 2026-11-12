@@ -5120,13 +5120,13 @@ class ShowcaseTest(unittest.TestCase):
         self.addCleanup(self.dir.cleanup)
 
     def test_variant(self):
-        # The default machine at 1920x1080 with an images build on the CPU
-        # renderer, run only when named, its cases the scenes alone: no VT
+        # The default machine at 1920x1080 with a build with images and bidi
+        # on the CPU renderer, run only when named, its cases the scenes alone: no VT
         # switch, no golden.
         v = t3_scenario.VARIANTS[self.VARIANT]
         self.assertIn("xres=1920,yres=1080", v["device"])
         self.assertEqual((v["cpus"], v["memory_mb"], v["renderer"], v["tree_features"]),
-                         (4, 4096, "cpu", ["images"]))
+                         (4, 4096, "cpu", ["bidi", "images"]))
         self.assertEqual((v["verdict"], v["conf"]), ("capture", "vtium-showcase.conf"))
         self.assertEqual(t3_scenario.variant_cases(self.VARIANT), self.SCREENS)
         self.assertEqual(t3_showcase.SCREENS, self.SCREENS)
@@ -5212,17 +5212,42 @@ class ShowcaseTest(unittest.TestCase):
 
     def test_scenes_show_only_what_vtium_draws_right(self):
         # No scene draws bold, italic or blinking text, which vtium draws
-        # as the regular face widened, upright and blinking, or a script it
-        # does not draw right yet: Devanagari, Hebrew or Arabic.
+        # as the regular face widened, upright and blinking.
         self.assertEqual(self.styles(b"\x1b[1;38;2;1;3;5m\x1b[3m\x1b[4:3;58:2::1:3:5m"),
                          {"1", "3", "4:3", "58:2::1:3:5"})
-        wrong = re.compile("[\u0590-\u06ff\u0900-\u097f]")
         for screen in self.SCREENS:
             with self.subTest(screen):
                 data = self.scene_bytes(screen)
                 self.assertGreater(len(data), 100)
                 self.assertFalse(self.styles(data) & {"1", "3", "5", "6"})
-                self.assertIsNone(wrong.search(data.decode()))
+
+    def test_scripts_scene_runs_right_to_left_lines_from_the_right(self):
+        # The scripts scene writes Arabic, Hebrew, Devanagari, Bengali,
+        # Georgian and Ethiopic, each line holding one script; the danda,
+        # in the Devanagari block, ends Bengali sentences too. Each line that
+        # holds Arabic or Hebrew, and only such a line, starts with SCP 2,
+        # which makes its paragraph run right to left, and ends with SCP 0
+        # before its line feed, so the lines after it run left to right and
+        # the prompt after the scene starts at the left edge.
+        rtl = re.compile("[\u0590-\u06ff]")
+        scripts = {"Arabic": "[\u0600-\u06ff]", "Hebrew": "[\u0590-\u05ff]",
+                   "Hindi": "[\u0900-\u0963\u0966-\u097f]", "Bengali": "[\u0980-\u09ff]",
+                   "Georgian": "[\u10a0-\u10ff]", "Amharic": "[\u1200-\u137f]"}
+        lines = self.scene_bytes("showcase-scripts").decode().split("\n")
+        for name, script in scripts.items():
+            with self.subTest(name):
+                held = [line for line in lines if re.search(script, line)]
+                self.assertEqual(len(held), 1)
+                self.assertIn(name, held[0])
+        for line in lines:
+            with self.subTest(line):
+                if rtl.search(line):
+                    self.assertTrue(line.startswith("\x1b[2 k"))
+                    self.assertTrue(line.endswith("\x1b[0 k"))
+                    self.assertEqual(line.count(" k"), 2)
+                else:
+                    self.assertNotRegex(line, "\x1b\\[[0-9]* k")
+        self.assertIn("bidi", t3_scenario.VARIANTS[self.VARIANT]["tree_features"])
 
     def test_faults(self):
         # A font switch vtium did not take, pictures missing from the disc,
@@ -5249,8 +5274,8 @@ class ShowcaseTest(unittest.TestCase):
 
     def test_fonts_pinned(self):
         # Every font is pinned by a URL and the SHA-256 of what it fetches
-        # and of the font file, and a font the specimens pin is pinned there
-        # alone.
+        # and of the font file, and a font the specimens or tier 2 pin is
+        # pinned there alone.
         for font in t3_showcase.FONTS:
             with self.subTest(font.name):
                 self.assertTrue(font.url.startswith("https://"))
@@ -5266,8 +5291,21 @@ class ShowcaseTest(unittest.TestCase):
         for url, sha in shared.values():
             self.assertIn('url: "%s"' % url, rs)
             self.assertIn('sha256: "%s"' % sha, rs)
+        tier2 = {f.file: (f.url, f.sha256) for f in t3_showcase.FONTS
+                 if "tier2" in f.source}
+        self.assertEqual(sorted(tier2), ["NotoSansArabic-Regular.ttf",
+                                         "NotoSansHebrew-Regular.ttf"])
+        with open(t3_showcase.TIER2_FONTS) as f:
+            rs = f.read()
+        for url, sha in tier2.values():
+            self.assertIn('Origin::Url(\n            "%s",' % url, rs)
+            self.assertIn('sha256: "%s"' % sha, rs)
+        for rs in (t3_showcase.SPECIMEN_FONTS, t3_showcase.TIER2_FONTS):
+            with self.assertRaises(ValueError):
+                t3_showcase.rust_pin(rs, "Missing.ttf")
+        # a tier 2 font fetched from an archive names no URL of its own
         with self.assertRaises(ValueError):
-            t3_showcase.specimen_pin("Missing.ttf")
+            t3_showcase.rust_pin(t3_showcase.TIER2_FONTS, "DejaVuSansMono.ttf")
 
     def test_frits_name_the_pinned_fonts(self):
         # Each frit names only fonts the showcase pins, or the built-in
