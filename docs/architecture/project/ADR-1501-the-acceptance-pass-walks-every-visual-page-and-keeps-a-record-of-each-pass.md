@@ -53,6 +53,9 @@ considered:
   - operator: aaronsb
     said: "Fix gaps, then accept (Recommended)"
     via: steering session, 2026-11-12, at the question tool, after a records check found four gaps
+  - operator: aaronsb
+    said: "Walk first, then accept"
+    via: steering session, 2026-11-12, at the question tool, after the gaps card
 status: proposed
 date: 2026-11-03
 deciders:
