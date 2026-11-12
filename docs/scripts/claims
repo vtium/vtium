@@ -44,10 +44,11 @@ What a symbol must match, by the file's kind:
     - The key table, crates/vtium-settings/src/keys.rs: `key NAME` names
       the key whose row reads `name: "NAME"`. Other symbols are Rust
       symbols.
-    - A systemd unit (.service, .socket, .target or .timer), or a .conf
-      drop-in with a `[Section]` line: `Directive` names a line that sets
-      the directive, and `Directive=value` names that exact line. A .conf
-      file without a section, such as a sysusers file, is plain text.
+    - A systemd unit, by its name (.service, .socket, .target, .timer,
+      .path or .mount), or a .conf drop-in in the `NAME.d/` folder of one:
+      `Directive` names a line that sets the directive, and
+      `Directive=value` names that exact line. Every other .conf file, a
+      vtium.conf or a sysusers file among them, is plain text.
     - Any other file: the symbol must appear as plain text.
 """
 
@@ -61,7 +62,7 @@ HEADER = ["element", "file", "symbol"]
 
 KEY_TABLE = "crates/vtium-settings/src/keys.rs"
 
-UNIT_SUFFIXES = (".service", ".socket", ".target", ".timer")
+UNIT_SUFFIXES = (".service", ".socket", ".target", ".timer", ".path", ".mount")
 
 # A Rust item's visibility and qualifiers, before its keyword.
 QUALIFIERS = r"(?:pub(?:\([^)]*\))?\s+)?(?:(?:const|async|unsafe|default|extern\s+\"[^\"]*\")\s+)*"
@@ -119,11 +120,14 @@ def check_unit(text, symbol):
     return None if any(line.startswith(symbol + "=") for line in lines) else f"no directive '{symbol}='"
 
 
-def is_unit(path, text):
-    """Whether the file PATH holding TEXT is a systemd unit or drop-in."""
+def is_unit(path):
+    """Whether PATH is a systemd unit, by its name, or a drop-in .conf in
+    the `NAME.d/` folder of one. Any other file is plain text, a vtium.conf
+    with its `[rules]` line among them."""
     if path.endswith(UNIT_SUFFIXES):
         return True
-    return path.endswith(".conf") and re.search(r"^\[[A-Za-z]+\]\s*$", text, re.M) is not None
+    folder, _, name = path.rpartition("/")
+    return name.endswith(".conf") and folder.endswith(tuple(s + ".d" for s in UNIT_SUFFIXES))
 
 
 def check_symbol(path, text, symbol):
@@ -133,7 +137,7 @@ def check_symbol(path, text, symbol):
         return None if f'name: "{key}"' in text else f"no key '{key}' in the key table"
     if path.endswith(".rs"):
         return check_rust(text, symbol)
-    if is_unit(path, text):
+    if is_unit(path):
         return check_unit(text, symbol)
     return None if symbol in text else f"no text '{symbol}'"
 
