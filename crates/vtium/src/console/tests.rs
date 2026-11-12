@@ -2596,7 +2596,7 @@ fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
     // enable command for that VT, since enable refuses it. The first case
     // is a machine whose display manager, sddm, runs Xorg on VT 7 with
     // /dev/tty7 as its controlling terminal.
-    let padnoir = |m: &mut Machine| {
+    let sddm_xorg_on_vt7 = |m: &mut Machine| {
         display_manager(m);
         process(
             m,
@@ -2635,7 +2635,7 @@ fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
     let cases: [(&str, Setup<'_>, &[&str], &str, bool); 8] = [
         (
             "advise-xorg",
-            &padnoir,
+            &sddm_xorg_on_vt7,
             &["enable", "7"],
             "the program /usr/lib/Xorg (process 1213, in sddm.service) uses VT 7 now: /dev/tty7 is its controlling terminal",
             false,
@@ -2727,7 +2727,7 @@ fn the_advice_for_a_held_vt_offers_no_command_the_machine_refuses() {
     // On the same machine, the advice for a VT nothing holds offers both
     // modes, and both commands work.
     let mut m = Machine::gettys("advise-free");
-    padnoir(&mut m);
+    sddm_xorg_on_vt7(&mut m);
     let (status, out, _) = m.console_as(false, &["enable", "3"]);
     assert_eq!(status, 0, "{out}");
     assert!(!out.contains("vtium console status"), "{out}");
