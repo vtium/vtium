@@ -6,9 +6,10 @@
 # consonants and place each vowel sign before, after, above or below its
 # letter. Arabic and Hebrew run right to left: each of those two lines starts
 # at the right edge, and the Arabic letters join into words. Two lines mix
-# the directions in one paragraph: an Arabic sentence that carries a Latin
-# abbreviation and numbers, which read left to right inside it, and an
-# English sentence that quotes Hebrew, which reads right to left inside it.
+# the directions in one paragraph: a Hebrew line that carries the Latin name
+# vtium and a version number, which read left to right inside it, and an
+# English sentence that quotes Hebrew with a number, which read right to
+# left inside it.
 # Amharic is
 # written in the Ethiopic script, and Armenian, Georgian, Latin, Greek and
 # Cyrillic carry their own letters and accents.
@@ -16,9 +17,9 @@
 # alt: Declaration of Human Rights under the English sentence, each beside the
 # alt: name of its language: Chinese, Japanese and Korean; Thai and
 # alt: Vietnamese; Hindi and Bengali; Arabic and Hebrew, whose lines run from
-# alt: the right edge, the language's name at the right; an Arabic sentence
-# alt: from the right edge holding the Latin letters UDHR in brackets and the
-# alt: year 1948, and an English sentence quoting three Hebrew words; Amharic,
+# alt: the right edge, the language's name at the right; a Hebrew line from
+# alt: the right edge holding the Latin name vtium 0.1, and an English
+# alt: sentence quoting Hebrew words and the number 1; Amharic,
 # alt: Armenian and Georgian; then French, German, Polish, Greek and Russian.
 
 # The sentences are copied from the UDHR in Unicode project,
@@ -37,10 +38,11 @@
 # danda. Tamil is left out: its first sentence runs to more than 200
 # characters, longer than a line of this screen.
 #
-# The two mixed lines are vtium's own. The Arabic one says "Article 1 of the
-# Universal Declaration of Human Rights (UDHR) of 1948", with the
-# Declaration's Arabic name as the UN gives it. The English one quotes the
-# first three words of the Hebrew sentence above. The sentences of the
+# The two mixed lines are vtium's own, built from the Hebrew file's words.
+# The Hebrew one is the Declaration's Hebrew title, the file's own title,
+# then "in vtium 0.1", with the preposition ב (in) joined to the Latin name by
+# a hyphen. The English one names the Hebrew file's word for an article, סעיף,
+# with the digit 1, and quotes the first six words of the Hebrew sentence. The sentences of the
 # languages that the acceptance walk's language pages also show are the same
 # text as tools/vt/sections/text/udhr-article1.tsv, which ShowcaseTest checks.
 
@@ -71,8 +73,8 @@ line Bengali 'সমস্ত মানুষ স্বাধীনভাবে 
 echo
 rtl Arabic 'يولد جميع الناس أحرارًا متساوين في الكرامة والحقوق.'
 rtl Hebrew 'כל בני אדם נולדו בני חורין ושווים בערכם ובזכויותיהם.'
-rtl Mixed 'المادة 1 من الإعلان العالمي لحقوق الإنسان (UDHR) لعام 1948.'
-line Mixed 'Article 1 in Hebrew opens with כל בני אדם, "all human beings".'
+rtl Mixed 'הכרזה לכל באי עולם בדבר זכויות האדם, ב-vtium 0.1.'
+line Mixed 'In Hebrew, Article 1 is סעיף 1 and begins כל בני אדם נולדו בני חורין.'
 echo
 line Amharic 'የሰው፡ልጅ፡ሁሉ፡ሲወለድ፡ነጻና፡በክብርና፡በመብትም፡እኩልነት፡ያለው፡ነው።'
 line Armenian 'Բոլոր մարդիկ ծնվում են ազատ ու հավասար իրենց արժանապատվությամբ ու իրավունքներով։'

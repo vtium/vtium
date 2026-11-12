@@ -5241,8 +5241,8 @@ class ShowcaseTest(unittest.TestCase):
         # mixed line, and no other, start with SCP 2, which makes the line's
         # paragraph run right to left, and end with SCP 0 before the line
         # feed, so the lines after them and the prompt run left to right. The
-        # mixed lines put Latin letters and digits beside Arabic, and
-        # Hebrew inside English.
+        # mixed lines put Latin letters and digits inside Hebrew, and Hebrew
+        # with a digit inside English.
         scripts = {"Hindi": "[\u0900-\u0963\u0966-\u097f]", "Bengali": "[\u0980-\u09ff]",
                    "Georgian": "[\u10a0-\u10ff]", "Amharic": "[\u1200-\u137f]"}
         lines = self.scene_bytes("showcase-scripts").decode().split("\n")
@@ -5257,8 +5257,8 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(rtl, ["Arabic", "Hebrew", "Mixed"])
         mixed = [p[1] for p in plain if p and p[0] == "Mixed"]
         self.assertEqual(len(mixed), 2)
-        self.assertRegex(mixed[0], "^[\u0600-\u06ff].*\\(UDHR\\).*1948")
-        self.assertRegex(mixed[1], "^Article .*[\u0590-\u05ff]")
+        self.assertRegex(mixed[0], "^[\u0590-\u05ff].*vtium 0\\.1")
+        self.assertRegex(mixed[1], "^In Hebrew, .*[\u0590-\u05ff]+ 1 .*[\u0590-\u05ff]")
         for line in lines:
             with self.subTest(line):
                 if line.startswith("\x1b[2 k"):
