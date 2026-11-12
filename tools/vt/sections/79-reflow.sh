@@ -42,7 +42,24 @@ printf '%s]50;%s\a' "$esc" "$frit"
 now=$(ask "$esc]50;?"$'\a' $'\a')
 [ "${now##*]50;}" = "$frit" ] ||
 	cannot_show "vtium did not switch to the font set $frit: OSC 50 named '${now##*]50;}'."
-read -r rows1 cols1 <<<"$(size)"
+# vtium switches at once, but it sets the font set's own cell only when the
+# font helper tells it that cell, which can come a moment after the switch.
+# It then changes the grid's size, and the kernel sends this page SIGWINCH.
+# So the page waits for the size to change. Each round asks for the cursor's
+# position first, so that the size read after it is the one vtium has set
+# by then. A SIGWINCH ends a round's wait early. The page waits 5 seconds
+# at most, so that a font set that leaves the grid as it was still ends the
+# page.
+trap : WINCH
+deadline=$((SECONDS + 5))
+while :; do
+	ask "${esc}[6n" R >/dev/null
+	read -r rows1 cols1 <<<"$(size)"
+	[ "$cols1" = "$cols0" ] && [ "$SECONDS" -lt "$deadline" ] || break
+	sleep 0.2 &
+	wait $! 2>/dev/null
+done
+trap - WINCH
 [ "$cols1" != "$cols0" ] ||
 	cannot_show "The font set $frit left the grid at $cols0 columns, so nothing rewrapped."
 printf '  The grid went from %s by %s to %s by %s characters.\n' "$cols0" "$rows0" "$cols1" "$rows1"

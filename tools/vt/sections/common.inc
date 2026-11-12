@@ -136,9 +136,11 @@ frit_line() {
 	fi
 }
 
-# Ends a page this build cannot show: says why, on the page, and exits 77,
-# which accept.sh records as skip, never as no.
+# Ends a page this build cannot show: says why, on the page and in the file
+# ACCEPT_WHY names, which accept.sh puts in the record, and exits 77, which
+# accept.sh records as skip, never as no.
 cannot_show() {
+	[ -z "${ACCEPT_WHY:-}" ] || printf '%s' "$1" >"$ACCEPT_WHY"
 	printf '\n  This build cannot show this page.\n  %s\n' "$1"
 	printf '  The page is recorded as skip, not as no.\n'
 	exit 77

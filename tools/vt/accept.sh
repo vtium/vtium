@@ -17,8 +17,12 @@
 # "# font-switch:" line names a frit switches the console to it itself, part
 # way through the page, and the walk switches back after it. A frit whose
 # font files are missing, or that vtium does not switch to, makes the page a
-# skip that says why. Every answer rewrites the pass's record, a markdown file
-# named after the pass in the passes directory: ACCEPT_DIR, else
+# skip that says why. The walk checks the switch back with OSC 50's query
+# too: when vtium does not return to the font it started in, the next page
+# that needs that font is a skip that says why, so no page is judged in the
+# wrong font. A page that exits 77 through common.inc's cannot_show gives its
+# reason to the record as well. Every answer rewrites the pass's record, a
+# markdown file named after the pass in the passes directory: ACCEPT_DIR, else
 # $XDG_STATE_HOME/vtium/acceptance (~/.local/state/vtium/acceptance). The record
 # holds the build, the terminal, and each page's answer and comment; a pass
 # quit part way keeps its answers, and the next run with the same label
@@ -222,6 +226,7 @@ footer_lines() {
 # show it.
 status=0
 unshown_why=
+why_file=
 draw_page() {
 	local frit=${frits[$1]} switch=${switches[$1]}
 	reset_terminal
@@ -230,7 +235,7 @@ draw_page() {
 	if [ -n "$frit" ] && [ -z "$noprompt" ]; then
 		switch_font "$frit" || unshown_why=$why
 	else
-		restore_font
+		restore_font || unshown_why=$why
 	fi
 	if [ -n "$switch" ] && [ -n "${missing[$switch]:-}" ]; then
 		unshown_why="the font set $switch needs files this machine lacks: ${missing[$switch]}"
@@ -245,7 +250,13 @@ draw_page() {
 		status=77
 		return
 	fi
-	ACCEPT_TOP=3 ACCEPT_FRIT=$frit bash "${pages[$1]}" || status=$?
+	[ -z "$why_file" ] || : >"$why_file"
+	ACCEPT_TOP=3 ACCEPT_FRIT=$frit ACCEPT_WHY=$why_file bash "${pages[$1]}" || status=$?
+	# A page that cannot show itself says why in the file ACCEPT_WHY names
+	# (common.inc's cannot_show), and the record keeps that reason.
+	if [ "$status" -eq 77 ] && [ -s "$why_file" ]; then
+		unshown_why=$(<"$why_file")
+	fi
 	# The page switched the font set itself: the next page, or a redraw,
 	# gets the console's own font back first.
 	[ -z "$switch" ] || current=$switch
@@ -360,13 +371,24 @@ switch_font() {
 	current=$1
 }
 
-# Switches the console back to the font it had when the walk started.
+# Switches the console back to the font it had when the walk started, and
+# checks with OSC 50's query that it did. When vtium refuses the switch, it
+# fails with why set, and current names the font the console stays in, so
+# the next page is a skip that says why and is never judged in the wrong
+# font.
 restore_font() {
 	[ -n "$current" ] || return 0
 	if [ -n "$font_start" ]; then
 		printf '\033]50;%s\a' "$font_start" >/dev/tty
 		# a round trip, so the grid the font gives is read after it
 		cursor_row >/dev/null
+		local now
+		now=$(query_font)
+		if [ "$now" != "$font_start" ]; then
+			why="vtium did not switch back to the font it started in, $font_start: OSC 50 named '${now:-nothing}'"
+			current=${now:-$current}
+			return 1
+		fi
 	fi
 	current=
 }
@@ -783,11 +805,17 @@ start_rows=$rows start_cols=$cols
 # drops, and that read then waits for another key. Off for the whole run,
 # Ctrl-D is a key whenever it arrives.
 if [ -z "$nopage" ] && tty_mode=$(stty -g </dev/tty 2>/dev/null); then
-	trap 'restore_font; reset_terminal; printf "\033[?2004l" >/dev/tty; stty "$tty_mode" </dev/tty' EXIT
+	trap 'restore_font; reset_terminal; printf "\033[?2004l" >/dev/tty; stty "$tty_mode" </dev/tty; [ -z "$why_file" ] || rm -f -- "$why_file"' EXIT
 	stty -echo -icanon min 1 time 0 </dev/tty
 	# Pasted text comes bracketed, so the walk can tell it from keys (read_key).
 	printf '\033[?2004h' >/dev/tty
 	bracketed=1
+fi
+
+# The file a page writes its reason into when it cannot show itself, for the
+# record. ACCEPT_NOPROMPT records nothing, so it needs none.
+if [ -z "$noprompt" ]; then
+	why_file=$(mktemp "${TMPDIR:-/tmp}/vtium-accept-why.XXXXXX") || why_file=
 fi
 
 if [ -n "$noprompt" ]; then

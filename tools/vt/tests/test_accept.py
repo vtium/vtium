@@ -68,9 +68,11 @@ class Pty:
     """A program on a pseudo-terminal of 80x25, or SIZE as (rows, columns),
     read up to each prompt before
     it is answered. It answers DA1 with da1 and the cursor position query
-    with row 10, as a terminal would."""
+    with row 10, as a terminal would. FONT is the font it starts in, which
+    need not be one of FRITS: vtium names the font vconsole.conf gives by
+    that font's name, and OSC 50 switches only to a frit or a built-in."""
 
-    def __init__(self, argv, env, da1=DA1_TEXT, frits=("unifont",), size=(25, 80)):
+    def __init__(self, argv, env, da1=DA1_TEXT, frits=("unifont",), size=(25, 80), font="unifont"):
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             os.execve(argv[0], argv, env)
@@ -79,7 +81,7 @@ class Pty:
         # As vtium does: OSC 50 switches to a frit in its frits directory,
         # here FRITS, and to nothing else; its query names the font in use.
         self.frits = frits
-        self.font = "unifont"
+        self.font = font
         # bytes the stand-in sends right after its next answer to the cursor
         # position query, in the same write: input that arrives while the
         # walk draws a page, before its prompt
@@ -219,8 +221,8 @@ class Case(unittest.TestCase):
         env.update(extra)
         return env
 
-    def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",), size=(25, 80)):
-        return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits, size)
+    def walk(self, env, *argv, da1=DA1_TEXT, frits=("unifont",), size=(25, 80), font="unifont"):
+        return Pty(["/bin/bash", ACCEPT_SH, *argv], env, da1, frits, size, font)
 
     def record(self):
         """The one record in the passes directory, and its path."""
@@ -1616,6 +1618,117 @@ class FontSwitch(Case):
         d.send(b"q")
         self.assertEqual(d.finish(), 0)
         self.assertNotIn(b"switching", d.seen)
+
+    def test_a_font_vtium_refuses_to_switch_back_to_makes_the_next_page_a_skip(self):
+        # vtium starts in the font vconsole.conf names, ter-124n, and names
+        # it so; OSC 50 takes only a frit or a built-in, so the switch back
+        # is refused and the console stays in large
+        d = self.walk(self.env(), frits=("unifont", "large"), font="ter-124n")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"switching")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"vtium did not switch back to the font it started in, ter-124n: OSC 50 named 'large'")
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b" ")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"page plain", d.seen)
+        _, text = self.record()
+        self.assertIn("- font-start: ter-124n\n", text)
+        self.assertEqual(self.rows(text), [
+            ("10-switch", "yes", ""),
+            ("20-plain", "skip", "vtium did not switch back to the font it started in, ter-124n: OSC 50 named 'large'"),
+        ])
+
+
+class Skips(Case):
+    """A page that ends with common.inc's cannot_show: its reason reaches the
+    record."""
+
+    def setUp(self):
+        super().setUp()
+        for name in os.listdir(self.pages):
+            os.unlink(os.path.join(self.pages, name))
+        write(os.path.join(self.pages, "10-why.sh"),
+              "# look-for: the words\n# wrong-looks-like: anything else\n"
+              f". {os.path.join(SECTIONS, 'common.inc')}\n"
+              "cannot_show \"The terminal does not say 'why' here.\"\n")
+
+    def test_a_pages_own_reason_for_a_skip_is_recorded(self):
+        d = self.walk(self.env())
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"recorded as skip  any key: next page")
+        d.send(b" ")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        _, text = self.record()
+        self.assertEqual(self.rows(text), [("10-why", "skip", "The terminal does not say 'why' here.")])
+
+
+def reflow_run(resize_on_dsr):
+    """Runs the reflow page, 79-reflow, on a pseudo-terminal of 80x25 that
+    takes OSC 50 as vtium does: it switches to acceptance-large, the one font
+    set it knows, and names the font in use when asked. vtium sets the new
+    font set's cell when the font helper tells it the cell, which can come
+    after the switch and after the query that names the new font set. So the
+    stand-in leaves the grid at 80 columns after the switch, and halves it
+    only when the page next asks for the cursor's position, when
+    RESIZE_ON_DSR is true, or never. Returns the exit status and what the
+    page sent."""
+    page = os.path.join(SECTIONS, "79-reflow.sh")
+    pid, fd = pty.fork()
+    if pid == 0:
+        os.execve("/bin/bash", ["/bin/bash", page], {"PATH": os.environ["PATH"], "TERM": "linux", "ACCEPT_TOP": "3"})
+    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 80, 0, 0))
+    font, switched, seen, answered = "unifont", False, b"", 0
+    end = time.monotonic() + WAIT_BOUND
+    while time.monotonic() < end:
+        if not select.select([fd], [], [], 0.1)[0]:
+            continue
+        try:
+            data = os.read(fd, 65536)
+        except OSError:
+            data = b""
+        if not data:
+            break
+        seen += data
+        while True:
+            rest = seen[answered:]
+            m = re.search(rb"\x1b\]50;([^\x07]*)\x07|\x1b\[6n", rest)
+            if not m:
+                break
+            answered += m.end()
+            if m.group(0) == b"\x1b[6n":
+                if switched and resize_on_dsr:
+                    fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 25, 40, 0, 0))
+                    resize_on_dsr = False
+                os.write(fd, b"\x1b[10;1R")
+            elif m.group(1) == b"?":
+                os.write(fd, b"\x1b]50;" + font.encode() + b"\x07")
+            elif m.group(1) == b"acceptance-large":
+                font, switched = "acceptance-large", True
+    _, status = os.waitpid(pid, 0)
+    os.close(fd)
+    return os.waitstatus_to_exitcode(status), seen
+
+
+class Reflow(Case):
+    """The reflow page, 79-reflow, which switches the font set itself."""
+
+    def test_the_page_waits_for_the_grid_the_new_font_set_gives(self):
+        status, seen = reflow_run(resize_on_dsr=True)
+        self.assertEqual(status, 0, seen[-600:])
+        self.assertIn(b"The grid went from 80 by 25 to 40 by 25 characters.", seen)
+
+    def test_a_font_set_that_never_changes_the_grid_still_ends_the_page(self):
+        status, seen = reflow_run(resize_on_dsr=False)
+        self.assertEqual(status, 77, seen[-600:])
+        self.assertIn(b"The font set acceptance-large left the grid at 80 columns, so nothing rewrapped.", seen)
 
 
 if __name__ == "__main__":
