@@ -218,6 +218,9 @@ considered:
   - operator: aaronsb
     said: "start at boot, and to addres the smallest machines: it's not as likely that a true minspec machine is using systemd to manage logins"
     via: the question tool in the steering session, 2026-11-11, card 1b question Q15, on how vtium keeps its claimed VTs out of a display manager's way
+  - operator: aaronsb
+    said: "Migrate once (Recommended)"
+    via: "question tool, 2026-11-11, after the padnoir check: what an upgrade from alpha.6, whose only link is the template autovt@.service, does about the VT claim"
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
