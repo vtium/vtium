@@ -2404,12 +2404,13 @@ fn the_focus_chord_lets_go_of_the_keys_held_on_the_head_it_leaves() {
         .device_input(kbd, InputEvent::Key(escape.clone()), now());
     s.app.device_input(kbd, ctrl_super(UP), now());
     assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
-    s.app.device_input(kbd, InputEvent::Release(escape), now());
     assert!(
         s.until(BOUND, |a| head_shows(a, "large", "k:E[27uE[27;1:3u")),
-        "the head left gets the release: {:?}",
+        "the head left gets the release before the key is let go: {:?}",
         s.app.head("large").map(Head::screen_text)
     );
+    // The key's real release goes nowhere: small never got its press.
+    s.app.device_input(kbd, InputEvent::Release(escape), now());
     s.until(Duration::from_millis(100), |_| false);
     assert!(!head_shows(&s.app, "small", "k:"), "small got no release");
 }
