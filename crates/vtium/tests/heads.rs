@@ -96,6 +96,10 @@ struct Memory {
     /// How many times vtium parked the display: set it off and freed its
     /// buffer, which [`Memory::pixels`] then no longer holds.
     parks: u32,
+    /// Connected, but the device cannot light it, as a DRM card leaves a
+    /// display that no placement of the card's displays lights: it shows
+    /// nothing and lends no buffer.
+    unlit: bool,
 }
 
 impl Memory {
@@ -127,6 +131,7 @@ impl Memory {
             unblanks: 0,
             dpms_sets: Vec::new(),
             parks: 0,
+            unlit: false,
         }
     }
 
@@ -180,6 +185,23 @@ impl Memory {
     /// owner is told to redraw.
     fn set_refresh(&mut self, mhz: u32) {
         self.refresh_mhz = mhz;
+        self.age = 0;
+        self.events.push(Event::Redraw(ID));
+    }
+
+    /// The device can no longer light the display, which stays connected:
+    /// the owner hears it unlit.
+    fn unlight(&mut self) {
+        self.unlit = true;
+        self.lease += 1;
+        self.events.push(Event::Unlit(ID));
+    }
+
+    /// A modeset lights the display again, with what its buffer held
+    /// unknown: the owner is told to draw it whole.
+    fn relight(&mut self) {
+        self.unlit = false;
+        self.lease += 1;
         self.age = 0;
         self.events.push(Event::Redraw(ID));
     }
@@ -276,7 +298,10 @@ impl Video for Memory {
         false
     }
     fn ready_for_frame(&self, _: DisplayId) -> bool {
-        self.awake && self.dpms == Some(Dpms::On) && Arc::strong_count(&self.drawn) == 1
+        self.awake
+            && !self.unlit
+            && self.dpms == Some(Dpms::On)
+            && Arc::strong_count(&self.drawn) == 1
     }
     fn set_dpms(&mut self, _: DisplayId, dpms: Dpms) -> io::Result<()> {
         if dpms != Dpms::On && self.dpms == Some(Dpms::On) {
@@ -4223,6 +4248,20 @@ impl Seat {
         self.app.turn(at);
     }
 
+    /// The memory device at `node` can no longer light its display, which
+    /// stays connected, in a turn at `at`.
+    fn unlight(&mut self, node: &str, at: Instant) {
+        self.memory(node).unlight();
+        self.app.turn(at);
+    }
+
+    /// The memory device at `node` lights its display again, in a turn at
+    /// `at`.
+    fn relight(&mut self, node: &str, at: Instant) {
+        self.memory(node).relight();
+        self.app.turn(at);
+    }
+
     /// The display of the memory device at `node` comes back, in a turn at
     /// `at`.
     fn plug(&mut self, node: &str, at: Instant) {
@@ -4289,6 +4328,41 @@ fn under_keep_a_head_losing_its_last_display_runs_on_and_shows_again_on_its_retu
     assert!(
         s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
         "drawn again on its return"
+    );
+    assert_eq!(s.session("small"), before);
+}
+
+/// D8: a display the device cannot light beside the others, its monitor
+/// still plugged in, stays present but dark. Under `when-display-lost =
+/// hangup` its head keeps the display and its session while the display
+/// stays dark, nothing is drawn on it, and the keys of the devices reaching
+/// the head still type into it. Once a modeset lights the display, the
+/// head draws on it again.
+#[test]
+fn under_hangup_a_display_left_unlit_hangs_nothing_up_and_draws_once_lit() {
+    let (mut s, f) = losing("unlit", &[], "when-display-lost = hangup", false);
+    let before = s.session("small");
+    let t = now();
+    s.unlight("/dev/mem0", t);
+    let frames = s.memory("/dev/mem0").frames;
+    s.app.turn(t + Duration::from_secs(1));
+    assert!(!s.hung_up(&f.mark, Duration::from_millis(300)), "no SIGHUP");
+    assert_eq!(s.session("small"), before, "the session runs on");
+    assert_eq!(
+        s.app.head("small").map(|h| h.cells().len()),
+        Some(1),
+        "the head keeps its display"
+    );
+    s.type_on(KBD_SMALL, "x\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:x")),
+        "the keys still reach it"
+    );
+    assert_eq!(s.memory("/dev/mem0").frames, frames, "nothing drawn");
+    s.relight("/dev/mem0", t + Duration::from_secs(2));
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "drawn again once lit"
     );
     assert_eq!(s.session("small"), before);
 }
@@ -6031,6 +6105,40 @@ fn every_keyboard_claimed_by_a_head_with_no_display_types_into_the_focus() {
     assert!(
         s.until(BOUND, |a| head_shows(a, "small", "got:c")),
         "the guard let go"
+    );
+    assert!(!head_shows(&s.app, "large", "got:c"));
+}
+
+/// D8 and D9: a display its device cannot light, though still plugged in,
+/// does not count as lit for the guards. Here `small`'s display is lit, and
+/// the keyboards it claims type into it; then the device leaves it unlit.
+/// No keyboard reaches a lit head, so the anti-lockout guard sends each to
+/// the focus on `large`, with a notice, as when the display goes. Once the
+/// device lights the display again, the keyboards type into `small` again.
+#[test]
+fn a_display_left_unlit_does_not_count_as_lit_for_the_guards() {
+    let mut s = stranded(start(STRANDED));
+    s.app.add_video(
+        PathBuf::from("/dev/mem0"),
+        Box::new(Memory::new(320, 160, "MEM-1", "mem-small")),
+    );
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")));
+    s.type_on(KBD_A, "a\r");
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "got:a")));
+    s.unlight("/dev/mem0", now());
+    let shown = notice(&s.app, "large").unwrap_or_default();
+    assert!(shown.contains(LOCKED_OUT), "a notice: {shown:?}");
+    s.type_on(KBD_A, "b\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "got:b")),
+        "the keyboard types into the focus"
+    );
+    assert!(!head_shows(&s.app, "small", "got:b"));
+    s.relight("/dev/mem0", now());
+    s.type_on(KBD_A, "c\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "small", "got:c")),
+        "lit again, the guard lets go"
     );
     assert!(!head_shows(&s.app, "large", "got:c"));
 }

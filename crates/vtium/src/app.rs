@@ -322,6 +322,10 @@ pub struct App {
     waiting_videos: BTreeMap<PathBuf, (DeviceKind, Card)>,
     /// Each display lit in a head, as the rules saw it.
     lit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
+    /// Each display in a head that its device cannot light, still plugged
+    /// in, as the rules saw it. Its head keeps it, but the guards do not
+    /// count it as lit until it lights again (ADR-1401 D8, D9).
+    unlit: BTreeMap<(PathBuf, DisplayId), vtium_settings::Identity>,
     /// Each display lit since the start until the focus settled, gone or
     /// not: the focus starts over them, so a display leaving never moves
     /// it (ADR-1401 D8).
@@ -562,6 +566,7 @@ impl App {
             cards: BTreeMap::new(),
             waiting_videos: BTreeMap::new(),
             lit: BTreeMap::new(),
+            unlit: BTreeMap::new(),
             start_lit: BTreeMap::new(),
             dark: BTreeMap::new(),
             guard_lit: None,
@@ -649,6 +654,7 @@ impl App {
         self.report = report;
         self.focus = None;
         self.lit.clear();
+        self.unlit.clear();
         self.start_lit.clear();
         self.dark.clear();
         self.frits.clear();
@@ -974,6 +980,7 @@ impl App {
         self.vt.close_device(node);
         self.cards.remove(node);
         self.lit.retain(|(n, _), _| n != node);
+        self.unlit.retain(|(n, _), _| n != node);
         self.dark.retain(|(n, _), _| n != node);
         self.guard_lit.take_if(|((n, _), _)| n == node);
         self.guard_due = true;
@@ -2418,6 +2425,7 @@ impl App {
             Event::Removed(id) => {
                 let key = (node.to_owned(), id);
                 self.lit.remove(&key);
+                self.unlit.remove(&key);
                 self.dark.remove(&key);
                 self.guard_lit.take_if(|(k, _)| *k == key);
                 self.guard_due = true;
@@ -2428,6 +2436,32 @@ impl App {
                     self.relayout(h);
                 }
             }
+            // A display the device cannot light beside the others is still
+            // plugged in, so its head keeps it, and its sessions with it,
+            // whatever `when-display-lost` says (ADR-1401 D8). It draws
+            // nothing until the modeset that lights it says to redraw, and
+            // until then the guards do not count it as lit (D9).
+            Event::Unlit(id) => {
+                let key = (node.to_owned(), id);
+                if let Some(display) = self.lit.remove(&key) {
+                    self.unlit.insert(key.clone(), display);
+                }
+                self.guard_lit.take_if(|(k, _)| *k == key);
+                self.guard_due = true;
+                // A device names a display it cannot name "?".
+                let name = self
+                    .videos
+                    .get(node)
+                    .map(|video| video.name(id))
+                    .filter(|name| !name.is_empty() && name != "?")
+                    .map_or_else(
+                        || "an unnamed display".to_owned(),
+                        |name| format!("display {name}"),
+                    );
+                log::info!(
+                    "{name} is dark but still connected, so its head keeps its sessions until the display lights"
+                );
+            }
             // A modeset or a wake-up may have given the display a new
             // mode in place, on the same connector. Its view takes the
             // display's refresh rate again, which paces its frames. At a
@@ -2437,6 +2471,11 @@ impl App {
             // size.
             Event::Redraw(id) => {
                 let key = (node.to_owned(), id);
+                // A display left unlit is lit again.
+                if let Some(display) = self.unlit.remove(&key) {
+                    self.lit.insert(key.clone(), display);
+                    self.guard_due = true;
+                }
                 let mode = self
                     .videos
                     .get(node)
@@ -3867,6 +3906,7 @@ impl App {
         self.guard_lit = None;
         let lit = std::mem::take(&mut self.lit);
         self.dark.extend(lit);
+        self.unlit.clear();
         self.darken();
         // No rule, so no display joins a head again and the display guard
         // lights the boot display for the notice alone. The heads stay, each
