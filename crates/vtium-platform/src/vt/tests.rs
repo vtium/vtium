@@ -1064,19 +1064,58 @@ fn a_switch_key_leaves_a_release_not_yet_read_to_its_answer() {
 }
 
 #[test]
-fn leaving_goes_back_to_the_vt_shown_at_the_open() {
+fn leaving_goes_back_to_the_vt_shown_when_vtium_asked_for_its_own() {
     let console = FakeConsole::new(3, 7, KbMode::Unicode);
     let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
     // Not shown: nothing to leave.
     assert_eq!(vt.leave().ok(), Some(Switch::Done));
-    console.show(3);
+    assert_eq!(vt.activate().ok(), Some(Switch::Pending));
+    console.run_worker();
     vt.acquire_signal();
     console.clear();
     assert_eq!(vt.leave().ok(), Some(Switch::Pending));
     assert_eq!(console.calls(), [Call::Active, Call::Activate(7)]);
-    // Started on the VT it came from, there is nowhere to go back to.
-    let (_, mut own) = shown();
+    // Already shown when it asked, there is nowhere to go back to.
+    let (console, mut own) = shown();
+    assert_eq!(own.activate().ok(), Some(Switch::Done));
+    console.clear();
     assert_eq!(own.leave().ok(), Some(Switch::Done));
+    assert!(
+        !console
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Call::Activate(_)))
+    );
+}
+
+/// A vtium that waits for its VT, as one started with `--no-switchvt`
+/// does, switched to nothing, so at exit it switches to nothing either:
+/// stopping or restarting vtium on the VT shown leaves that VT shown.
+#[test]
+fn leaving_after_a_wait_leaves_the_vt_shown_where_it_is() {
+    // VT 1 is shown when vtium opens VT 3, as at boot.
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    let mut vt = KernelVt::open(console.clone(), 3).unwrap_or_else(|e| panic!("open: {e}"));
+    assert_eq!(vt.wait().ok(), Some(Switch::Pending));
+    // Someone else shows VT 3.
+    console.show(3);
+    vt.acquire_signal();
+    assert!(vt.is_active());
+    console.clear();
+    assert_eq!(vt.leave().ok(), Some(Switch::Done));
+    assert!(
+        !console
+            .calls()
+            .iter()
+            .any(|c| matches!(c, Call::Activate(_)))
+    );
+    assert_eq!(console.0.borrow().on_screen, 3);
+    // So does one started on its VT while that VT was shown.
+    let (console, mut own) = shown();
+    assert_eq!(own.wait().ok(), Some(Switch::Done));
+    console.clear();
+    assert_eq!(own.leave().ok(), Some(Switch::Done));
+    assert_eq!(console.0.borrow().on_screen, 3);
 }
 
 #[test]
