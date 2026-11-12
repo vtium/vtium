@@ -6893,6 +6893,48 @@ fn after_a_return_to_a_font_file_the_query_names_no_font() {
     assert!(replies[0].ends_with("]50;^G"), "no font named: {replies:?}");
 }
 
+/// ADR-1401 D10, ADR-1403 D5: a look naming a frit its group can write
+/// draws the built-in font, not the frit's 20x40 cell, and the start logs
+/// one line that names the file and the command that mends it. The return
+/// at the end of a session that switched to frit a reads the look's frit
+/// again, and refuses it again in one line.
+#[test]
+fn a_looks_frit_others_can_change_draws_the_built_in_font_with_one_line() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, fonts) = reset_fixture("reset-untrusted-look", "font-size=0\n");
+    let g = dir.join("g.vtfrit");
+    std::fs::write(&g, "source=kbd:x\ncell=20x40\n").expect("the frit");
+    std::fs::set_permissions(&g, std::fs::Permissions::from_mode(0o664)).expect("its mode");
+    std::fs::write(dir.join("switch.1"), "a").expect("the switch");
+    let heads = "version = 1\n[look g]\nfont-name = g\n[head small]\nconsoles = 1\nlook = g\n[rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n";
+    logged();
+    let (mut s, _) = reset_seat(&dir, heads, fonts);
+    let shown = g.display();
+    let line = format!(
+        "vtium does not read the font set g from \"{shown}\", because other users can change \"{shown}\" (mode 664). Run `chmod go-w {shown}` so that only its owner can change it. vtium draws its built-in font instead."
+    );
+    let about = |lines: &[String]| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l.contains("g.vtfrit"))
+            .cloned()
+            .collect()
+    };
+    let started = logged();
+    assert_eq!(about(&started), [line.clone()], "{started:?}");
+    assert!(s.until(BOUND, |a| a.font_name() == "a"), "switched to a");
+    assert_eq!(s.app.cells(), [(10, 20)]);
+    end_shown_session(&mut s);
+    assert!(
+        ["unifont", "unscii-8"].contains(&s.app.font_name()),
+        "the built-in font: {}",
+        s.app.font_name()
+    );
+    assert_ne!(s.app.cells(), [(20, 40)], "not the frit's cell");
+    let returned = logged();
+    assert_eq!(about(&returned), [line], "{returned:?}");
+}
+
 /// ADR-1201 D11: an OSC 50 switch lasts for the session. When the session
 /// in the console it came from ends, vtium returns the head to the font
 /// vtium.conf configures, at its size, before the console's next session
