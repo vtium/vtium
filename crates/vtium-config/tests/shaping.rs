@@ -227,6 +227,74 @@ fn an_arabic_letters_four_forms_are_shaped() {
     assert_ne!(iso.pixels, fina.pixels);
 }
 
+/// `Test Shaping` without its lam-alef ligature: lam and alef shape to
+/// their own joined forms, two glyphs, as Noto Sans Arabic draws
+/// lam-alef, asked for `asks`.
+fn two_glyph_lam_alef(asks: Vec<Ask>) -> OutlineRequest {
+    let mut f = ttf::test_shaping();
+    f.gsub.retain(|(tag, _)| tag != b"rlig");
+    OutlineRequest {
+        font: f.build().into(),
+        ..request(asks)
+    }
+}
+
+/// The columns of the glyph `g`, `width` pixels wide, that hold ink.
+fn inked_columns(g: &Placed, width: usize) -> Vec<usize> {
+    (0..width)
+        .filter(|&x| g.pixels.chunks(width).any(|row| row[x] > 0))
+        .collect()
+}
+
+// ADR-1004 D6: the console asks for lam and alef as the two-cell ligature
+// the helper shapes. A font may draw lam-alef as two glyphs, lam's and
+// alef's joined forms, where another draws one ligature glyph; Noto Sans
+// Arabic does. The helper keeps that drawing, isolated and final, two
+// cells wide, where it refused it for coming from two characters
+#[test]
+fn a_lam_alef_the_font_draws_as_two_glyphs_is_kept() {
+    let keys = [vec![LAM, ALEF], vec![ZWJ, LAM, ALEF]];
+    let asks = keys.iter().map(|k| ask(k, Kind::Joining)).collect();
+    let o = rasterise(&two_glyph_lam_alef(asks)).expect("rasterised");
+    for k in &keys {
+        let g = cluster(&o, k).unwrap_or_else(|| panic!("{k:?} kept"));
+        assert!(g.wide, "{k:?} two cells wide");
+    }
+    // lam and a letter that is no alef stay two letters, which the console
+    // never asks for together
+    let o =
+        rasterise(&two_glyph_lam_alef(vec![ask(&[LAM, BEH], Kind::Joining)])).expect("rasterised");
+    assert!(o.strikes[0].clusters.is_empty());
+}
+
+// ADR-1302 D2 and D11: lam-alef is right to left, and its lam joins the
+// letter read before it, which stands to its right. The pen rule, the pen
+// on the cells' left edge, is mirrored for it, so its advance ends at the
+// right edge of its two cells and the join meets. The ligature glyph is a
+// cell wide, 600 units, so all its ink lies in the right cell. Drawn as
+// two glyphs, lam's medial form, a bar across its whole advance, and
+// alef's final form, its advance is the two cells, and the lam's bar
+// reaches their right edge
+#[test]
+fn a_lam_alef_stands_against_the_right_edge_of_its_two_cells() {
+    let k = [ZWJ, LAM, ALEF];
+    let o = rasterise(&request(vec![ask(&k, Kind::Joining)])).expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let inked = inked_columns(cluster(&o, &k).expect("final lam-alef"), 2 * w);
+    let (first, last) = (inked[0], inked[inked.len() - 1]);
+    assert!(
+        first >= w - 1 && last < 2 * w,
+        "the ligature in the right cell of {w}: columns {first} to {last}"
+    );
+    let o = rasterise(&two_glyph_lam_alef(vec![ask(&k, Kind::Joining)])).expect("rasterised");
+    let inked = inked_columns(cluster(&o, &k).expect("final lam-alef"), 2 * w);
+    assert_eq!(
+        inked.last(),
+        Some(&(2 * w - 1)),
+        "the lam's bar meets the right edge"
+    );
+}
+
 // A form the font draws as the letter's own glyph, a letter it does not
 // join, is left out: the codepoint draws it
 #[test]

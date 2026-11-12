@@ -28,9 +28,11 @@ pub enum Kind {
     /// or lam and alef as their ligature, with any marks on it. Kept only
     /// when the font shapes its letters to glyphs that all come from one
     /// character or one ligature, as a letter drawn as a body and its dots
-    /// does, and that differ from what its letters draw with nothing
-    /// joined, and holds the glyph of each mark, placed a cell wide for
-    /// each letter.
+    /// does, or, for lam and alef, from those two letters, as a font that
+    /// draws lam-alef as the two letters' joined forms does; when those
+    /// glyphs differ from what its letters draw with nothing joined; and
+    /// when the font holds the glyph of each mark. It is placed a cell
+    /// wide for each letter.
     Joining = 3,
 }
 
@@ -110,6 +112,25 @@ pub fn joins(c: u32) -> bool {
         .checked_sub(1)
         .and_then(|i| data::JOINS.get(i))
         .is_some_and(|&(_, b)| c <= b)
+}
+
+/// ARABIC LETTER LAM.
+const LAM: u32 = 0x644;
+
+/// The alefs that join a lam before them into the lam-alef ligature: alef
+/// with madda above, with hamza above, with hamza below, and alef, the
+/// four whose ligatures Unicode's Arabic Presentation Forms-B hold.
+const ALEFS: [u32; 4] = [0x622, 0x623, 0x625, 0x627];
+
+/// Whether the letters of `key`, U+200D and the marks left out, are a lam
+/// and an alef after it: the lam-alef ligature, which the console asks for
+/// across the two cells its letters take (ADR-1004 D6).
+pub fn lam_alef(key: &[u32]) -> bool {
+    let mut letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
+    matches!(
+        (letters.next(), letters.next(), letters.next()),
+        (Some(&LAM), Some(alef), None) if ALEFS.contains(alef)
+    )
 }
 
 /// Where `c` goes on its base when it is a mark (ADR-1302 D3): a character
@@ -216,6 +237,32 @@ mod tests {
         assert_eq!(kind(&[ZWJ, 0x628, 0x64e]), Kind::Joining);
         assert_eq!(kind(&[ZWJ, 0x628, 0x651, 0x64e, ZWJ]), Kind::Joining);
         assert_ne!(kind(&[ZWJ, 0x64e]), Kind::Joining);
+    }
+
+    // ADR-1004 D6: lam then one of the four alefs whose ligatures Unicode
+    // holds, with marks and U+200D in the key, is the lam-alef ligature;
+    // alef then lam, lam then beh, and lam alone are not
+    #[test]
+    fn lam_and_an_alef_after_it_are_the_ligature() {
+        for key in [
+            &[0x644, 0x627][..],
+            &[ZWJ, 0x644, 0x627],
+            &[0x644, 0x622],
+            &[0x644, 0x623],
+            &[0x644, 0x625],
+            &[0x644, 0x64e, 0x627],
+        ] {
+            assert!(lam_alef(key), "{key:x?}");
+        }
+        for key in [
+            &[0x627, 0x644][..],
+            &[0x644, 0x628],
+            &[0x644, ZWJ],
+            &[0x644, 0x627, 0x627],
+            &[0x671, 0x627],
+        ] {
+            assert!(!lam_alef(key), "{key:x?}");
+        }
     }
 
     #[test]

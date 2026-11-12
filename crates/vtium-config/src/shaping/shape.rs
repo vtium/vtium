@@ -48,6 +48,8 @@ pub(crate) struct Shaped {
     kind: Kind,
     glyphs: Vec<At>,
     advance: i32,
+    /// Whether the cluster runs right to left, as HarfRust shapes it.
+    backward: bool,
     /// An emoji presentation sequence drawn with its character's own
     /// glyph, kept only when that glyph is a color one.
     own: bool,
@@ -87,7 +89,7 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
                     let mut alone = |part: &[u32]| {
                         alone
                             .entry(part.to_vec())
-                            .or_insert_with(|| letters(&shape(&shaper, part).0))
+                            .or_insert_with(|| letters(&shape(&shaper, part).glyphs))
                             .clone()
                     };
                     joined(glyphs, key, &mut alone)
@@ -96,37 +98,25 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
             }
     };
     for ask in asks {
-        let (glyphs, advance) = shape(&shaper, &ask.key);
+        let mut shaped = shape(&shaper, &ask.key);
+        shaped.kind = ask.kind;
         // a character and U+FE0F, which a color font draws with the
         // character's own glyph (ADR-1200 D21): kept when that glyph is a
         // color one, which only drawing it tells
-        let own = ask.kind == Kind::Emoji && presented(&glyphs, &ask.key, &charmap);
-        if own || keeps(ask.kind, &ask.key, &glyphs) {
-            out.push(Shaped {
-                key: ask.key.clone(),
-                kind: ask.kind,
-                glyphs,
-                advance,
-                own,
-            });
+        shaped.own = ask.kind == Kind::Emoji && presented(&shaped.glyphs, &ask.key, &charmap);
+        if shaped.own || keeps(ask.kind, &ask.key, &shaped.glyphs) {
+            out.push(shaped);
             continue;
         }
-        let Some(part) = drawn_part(ask, &glyphs) else {
+        let Some(part) = drawn_part(ask, &shaped.glyphs) else {
             continue;
         };
         if asks.iter().any(|a| a.key == part) || out.iter().any(|s| s.key == part) {
             continue;
         }
-        let kind = super::kind(&part);
-        let (glyphs, advance) = shape(&shaper, &part);
-        if keeps(kind, &part, &glyphs) {
-            out.push(Shaped {
-                key: part,
-                kind,
-                glyphs,
-                advance,
-                own: false,
-            });
+        let shaped = shape(&shaper, &part);
+        if keeps(shaped.kind, &part, &shaped.glyphs) {
+            out.push(shaped);
         }
     }
     out
@@ -155,9 +145,10 @@ fn drawn_part(ask: &Ask, glyphs: &[At]) -> Option<Vec<u32>> {
     (part.len() > 1).then_some(part)
 }
 
-/// `key` as `shaper` shapes it: each glyph, in visual order, and the
-/// cluster's advance, in font units.
-fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> (Vec<At>, i32) {
+/// `key` as `shaper` shapes it, judged as [`super::kind`] judges it: each
+/// glyph, in visual order, the cluster's advance, in font units, and its
+/// direction.
+fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> Shaped {
     let mut buffer = UnicodeBuffer::new();
     // each glyph's cluster is the index of its character in the key
     buffer.set_cluster_level(BufferClusterLevel::Characters);
@@ -201,7 +192,14 @@ fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> (Vec<At>, i32) {
         });
         pen = pen.saturating_add(pos.x_advance);
     }
-    (glyphs, pen)
+    Shaped {
+        key: key.to_vec(),
+        kind: super::kind(key),
+        glyphs,
+        advance: pen,
+        backward,
+        own: false,
+    }
 }
 
 /// The glyphs of `glyphs` that come from no mark.
@@ -236,7 +234,10 @@ fn only_own(glyphs: &[At], key: &[u32], charmap: &swash::Charmap<'_>) -> bool {
 /// must all come from one character, or from one ligature, which HarfRust
 /// numbers by its first character: a font may draw a letter as several
 /// glyphs, as Noto Naskh Arabic draws beh's joined forms as a dotless body
-/// and a separate dot. The letter's glyphs must also differ from what the
+/// and a separate dot. Lam and alef ([`super::lam_alef`]) may also come
+/// from their two characters, since a font may draw the lam-alef ligature
+/// as lam's and alef's joined forms, as Noto Sans Arabic does, where
+/// another draws one glyph. The letter's glyphs must also differ from what the
 /// cluster draws with nothing joined: each of its letters with the marks
 /// after it, shaped on its own without U+200D, as `alone` shapes it. So a
 /// letter keyed with U+200D on a side it does not join is left out, though
@@ -249,7 +250,7 @@ fn joined(glyphs: &[At], key: &[u32], alone: &mut impl FnMut(&[u32]) -> Vec<u16>
     let Some(first) = from.next() else {
         return false;
     };
-    if !from.all(|f| f == first) {
+    if !super::lam_alef(key) && !from.all(|f| f == first) {
         return false;
     }
     // each letter and the marks after it, U+200D left out
@@ -305,7 +306,10 @@ pub(crate) fn draw_all(
         // ADR-1302 D2: a cluster is placed by its advance; a joining letter,
         // with the marks on it, is stretched as one to its cells, its pen on
         // the cell's left edge; and a ligature of joining letters, such as
-        // lam-alef, which shaping places, keeps its pen there unstretched
+        // lam-alef, which shaping places, keeps its pen there unstretched.
+        // Right to left the pen rule is mirrored (ADR-1302 D11): the
+        // ligature's advance ends at its cells' right edge, the side where
+        // its first letter joins the letter read before it
         let letters = s
             .key
             .iter()
@@ -318,11 +322,24 @@ pub(crate) fn draw_all(
             (_, 1) if advance_px > 0.0 => (None, span / advance_px),
             _ => (None, 1.0),
         };
+        let ligature = advance.is_none() && sx == 1.0;
+        let laid: Vec<At> = if ligature && s.backward && scale > 0.0 {
+            let pen = ((span - advance_px).round() / scale).round() as i32;
+            s.glyphs
+                .iter()
+                .map(|a| At {
+                    x: a.x.saturating_add(pen),
+                    ..*a
+                })
+                .collect()
+        } else {
+            s.glyphs.clone()
+        };
         let Some(placed) = place_drawn(
             &mut |ppem, fit| {
                 compose(
                     drawer,
-                    &s.glyphs,
+                    &laid,
                     ppem / upem.max(1.0),
                     ppem,
                     fit,
