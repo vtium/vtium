@@ -13,7 +13,9 @@
 //!   input call returns after it, as after a synchronized update, so the
 //!   host takes the request before the next byte is parsed.
 //! - `OSC 50 ; ? ST`: the reply is `OSC 50 ; NAME ST`, the font in use as
-//!   the host named it, ended as the query was.
+//!   the host named it, ended as the query was. NAME is empty until the
+//!   host names a set, and once the host says the font in use has no set's
+//!   name ([`Terminal::clear_font_name`](crate::Terminal::clear_font_name)).
 //! - xterm's font menu, a Pt starting with `#`, is ignored: vtium has no
 //!   menu.
 //!

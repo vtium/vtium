@@ -3,9 +3,12 @@
 //!
 //! vtium reads the file only when it is a regular file once symlinks are
 //! followed, root owns it and neither its group nor others can write it,
-//! and each directory above it, on the path given and above every link
-//! of its symlink chain, is owned by root and writable by neither, as `sshd`'s
-//! `StrictModes` refuses a writable file. A file that fails the ownership
+//! and each folder the path crosses to reach it, through every symlink on
+//! the way, is owned by root and writable by neither, as `sshd`'s
+//! `StrictModes` refuses a writable file. The path is walked one component
+//! at a time on descriptors, each folder checked as it is crossed, and the
+//! file is opened in the last folder checked, so a link swapped during the
+//! walk cannot lead the read elsewhere ([`walk`]). A file that fails the ownership
 //! check is never read (D7). [`text`] checks a trusted file's bytes whole:
 //! bounded, UTF-8, and free of control characters but tab, newline and a
 //! carriage return ending a line, so nothing the parser quotes can carry
@@ -14,7 +17,6 @@
 
 pub use crate::error::Untrusted;
 
-use std::collections::BTreeSet;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
@@ -116,32 +118,148 @@ fn unreadable(e: &std::io::Error) -> Rejected {
 }
 
 /// The links one resolution of a path follows at most, the kernel's
-/// bound (`MAXSYMLINKS`); `open` has followed the chain within it already.
+/// bound (`MAXSYMLINKS`).
 const LINKS_MAX: usize = 40;
 
-/// The directories above `path` as given, and above each link of its
-/// symlink chain and the file it ends at, each resolved: the directory
-/// holding every link is checked, since whoever can write it can swap
-/// the link.
-fn directories(path: &Path) -> Result<BTreeSet<PathBuf>, Rejected> {
-    let mut current = std::path::absolute(path).map_err(|e| unreadable(&e))?;
-    let mut dirs: BTreeSet<PathBuf> = current
-        .parent()
-        .map(|p| p.ancestors().map(Path::to_path_buf).collect())
-        .unwrap_or_default();
-    for _ in 0..=LINKS_MAX {
-        let parent = current.parent().unwrap_or(Path::new("/"));
-        let holder = std::fs::canonicalize(parent).map_err(|e| unreadable(&e))?;
-        dirs.extend(holder.ancestors().map(Path::to_path_buf));
-        let meta = std::fs::symlink_metadata(&current).map_err(|e| unreadable(&e))?;
-        if !meta.file_type().is_symlink() {
-            return Ok(dirs);
+/// A folder the walk has crossed: a descriptor on it, opened with
+/// `O_PATH`, and its path from `/` as crossed.
+struct Crossed {
+    fd: rustix::fd::OwnedFd,
+    path: PathBuf,
+}
+
+/// The file a path names, as [`walk`] found it: the folder holding it,
+/// its name there, its owner and mode as found, and the verdict on the
+/// folders crossed to reach it.
+struct Found {
+    holder: Crossed,
+    name: std::ffi::OsString,
+    stat: rustix::fs::Stat,
+    folders: Result<(), Untrusted>,
+}
+
+/// Walks `path` one component at a time from `/`, on descriptors, and
+/// checks each folder it crosses under `trust` as it crosses it. A folder
+/// is opened with `O_PATH | O_NOFOLLOW` relative to the folder before it,
+/// and the descriptor's own owner and mode are checked, so the folders
+/// checked are the folders crossed, whatever links lead there. A symlink
+/// is read from the folder holding it, which the walk has checked, since
+/// whoever can write that folder can swap the link; its target is then
+/// walked, from `/` for an absolute target and from that folder for a
+/// relative one, at most [`LINKS_MAX`] links in all. `..` goes back to
+/// the folder crossed before. The walk reads on past a folder the check
+/// refuses, and keeps the first refusal, since `vtium check-config` reads
+/// a file it does not trust. `None` when a component does not exist.
+fn walk(path: &Path, trust: &Trust) -> Result<Option<Found>, Rejected> {
+    use rustix::fs::{AtFlags, FileType, Mode, OFlags};
+    use std::os::unix::ffi::OsStrExt;
+    let io = |e: rustix::io::Errno| unreadable(&e.into());
+    let names = |p: &Path| -> std::collections::VecDeque<std::ffi::OsString> {
+        p.components()
+            .filter_map(|c| match c {
+                std::path::Component::Normal(n) => Some(n.to_owned()),
+                std::path::Component::ParentDir => Some("..".into()),
+                _ => None,
+            })
+            .collect()
+    };
+    let folder = OFlags::PATH | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let root = || -> Result<Crossed, Rejected> {
+        let fd = rustix::fs::open("/", folder, Mode::empty()).map_err(io)?;
+        Ok(Crossed {
+            fd,
+            path: PathBuf::from("/"),
+        })
+    };
+    let check = |crossed: &Crossed, folders: &mut Result<(), Untrusted>| -> Result<(), Rejected> {
+        if folders.is_ok() && trust.covers(&crossed.path) {
+            let st = rustix::fs::fstat(&crossed.fd).map_err(io)?;
+            *folders = trust.check(&crossed.path, st.st_uid, st.st_mode, true);
         }
-        let target = std::fs::read_link(&current).map_err(|e| unreadable(&e))?;
-        // a relative target is read from the link's own directory
-        current = holder.join(target);
+        Ok(())
+    };
+    let absolute = std::path::absolute(path).map_err(|e| unreadable(&e))?;
+    let mut todo = names(&absolute);
+    let top = root()?;
+    let mut folders = Ok(());
+    check(&top, &mut folders)?;
+    let mut crossed = vec![top];
+    let mut links = 0_usize;
+    while let Some(name) = todo.pop_front() {
+        if name.as_bytes() == b".." {
+            if crossed.len() > 1 {
+                crossed.pop();
+            }
+            continue;
+        }
+        let Some(here) = crossed.last() else {
+            return Err(unreadable(&rustix::io::Errno::NOENT.into()));
+        };
+        let stat = match rustix::fs::statat(&here.fd, &name, AtFlags::SYMLINK_NOFOLLOW) {
+            Ok(stat) => stat,
+            Err(rustix::io::Errno::NOENT) => return Ok(None),
+            Err(e) => return Err(io(e)),
+        };
+        match FileType::from_raw_mode(stat.st_mode) {
+            FileType::Symlink => {
+                links = links.saturating_add(1);
+                if links > LINKS_MAX {
+                    return Err(io(rustix::io::Errno::LOOP));
+                }
+                let target = rustix::fs::readlinkat(&here.fd, &name, Vec::new()).map_err(io)?;
+                let target = PathBuf::from(std::ffi::OsStr::from_bytes(target.as_bytes()));
+                if target.is_absolute() {
+                    crossed.truncate(1);
+                }
+                for n in names(&target).into_iter().rev() {
+                    todo.push_front(n);
+                }
+            }
+            FileType::Directory => {
+                let fd = rustix::fs::openat(&here.fd, &name, folder, Mode::empty()).map_err(io)?;
+                let next = Crossed {
+                    fd,
+                    path: here.path.join(&name),
+                };
+                check(&next, &mut folders)?;
+                crossed.push(next);
+            }
+            _ if !todo.is_empty() => return Err(io(rustix::io::Errno::NOTDIR)),
+            FileType::RegularFile => {
+                let Some(holder) = crossed.pop() else {
+                    return Err(unreadable(&rustix::io::Errno::NOENT.into()));
+                };
+                return Ok(Some(Found {
+                    holder,
+                    name,
+                    stat,
+                    folders,
+                }));
+            }
+            _ => return Err(Rejected::one(None, Problem::NotAFile)),
+        }
     }
-    Err(unreadable(&rustix::io::Errno::LOOP.into()))
+    // the path ends at a folder
+    Err(Rejected::one(None, Problem::NotAFile))
+}
+
+/// Opens the file [`walk`] found, in the folder the walk checked and never
+/// by its path again, so a link swapped after the walk cannot lead the
+/// read elsewhere: without following a symlink, without blocking and
+/// without making a tty the controlling one, and only when what opens is
+/// the regular file the walk found there.
+fn open_found(found: &Found) -> Result<(std::fs::File, std::fs::Metadata), Rejected> {
+    use rustix::fs::{Mode, OFlags};
+    let flags =
+        OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::NOFOLLOW | OFlags::CLOEXEC;
+    let fd = rustix::fs::openat(&found.holder.fd, &found.name, flags, Mode::empty())
+        .map_err(|e| unreadable(&e.into()))?;
+    let file = std::fs::File::from(fd);
+    let meta = file.metadata().map_err(|e| unreadable(&e))?;
+    if !meta.is_file() || (meta.dev(), meta.ino()) != (found.stat.st_dev, found.stat.st_ino) {
+        return Err(Rejected::one(None, Problem::NotAFile));
+    }
+    Ok((file, meta))
 }
 
 /// A head file's bytes as read, and whether the ownership check trusts
@@ -168,28 +286,14 @@ pub struct Inspected {
 /// controlling one, as the console opens vtium.conf, and at most
 /// [`FILE_MAX`] bytes and one are read.
 pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected> {
-    use rustix::fs::{Mode, OFlags};
-    match std::fs::metadata(path) {
-        Ok(meta) if meta.is_file() => {}
-        Ok(_) => return Err(Rejected::one(None, Problem::NotAFile)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(e) => return Err(unreadable(&e)),
-    }
-    let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
-    let fd = rustix::fs::open(path, flags, Mode::empty()).map_err(|e| unreadable(&e.into()))?;
-    let file = std::fs::File::from(fd);
-    let meta = file.metadata().map_err(|e| unreadable(&e))?;
-    if !meta.is_file() {
-        return Err(Rejected::one(None, Problem::NotAFile));
-    }
-    let mut trusted = trust.check(path, meta.uid(), meta.mode(), false);
-    for dir in directories(path)?.into_iter().filter(|d| trust.covers(d)) {
-        if trusted.is_err() {
-            break;
-        }
-        let meta = std::fs::metadata(&dir).map_err(|e| unreadable(&e))?;
-        trusted = trust.check(&dir, meta.uid(), meta.mode(), true);
-    }
+    let Some(found) = walk(path, trust)? else {
+        return Ok(None);
+    };
+    let (file, meta) = open_found(&found)?;
+    // the file's own verdict first, then the first folder's refusal
+    let trusted = trust
+        .check(path, meta.uid(), meta.mode(), false)
+        .and(found.folders);
     let mut bytes = Vec::new();
     let limit = u64::try_from(FILE_MAX)
         .unwrap_or(u64::MAX)
@@ -253,5 +357,47 @@ pub fn text(bytes: &[u8]) -> Result<&str, Rejected> {
         Ok(s)
     } else {
         Err(rejected)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // A link or a folder swapped between the walk and the read cannot
+    // lead the read elsewhere: the read opens the file in the folder the
+    // walk crossed and checked, by its descriptor, so it reads the file
+    // the walk checked, not the one a path names now
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_link_swapped_after_the_walk_cannot_redirect_the_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("vtium-settings-swap-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let (checked, other) = (dir.join("checked"), dir.join("other"));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for (folder, text) in [(&checked, "version = 1\n"), (&other, "secret\n")] {
+            std::fs::create_dir_all(folder).unwrap();
+            std::fs::set_permissions(folder, std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(folder.join("vtium.conf"), text).unwrap();
+        }
+        std::os::unix::fs::symlink(&checked, dir.join("link")).unwrap();
+        let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&dir).unwrap());
+        let trust = Trust::owner(uid).below(&dir);
+        let found = walk(&dir.join("link/vtium.conf"), &trust).unwrap().unwrap();
+        // the swaps, as whoever could write these folders would make them:
+        // the link now names `other`, and `other` now sits where the
+        // folder the walk crossed was, so neither the path given nor the
+        // path crossed leads to the file the walk checked
+        std::fs::remove_file(dir.join("link")).unwrap();
+        std::os::unix::fs::symlink(&other, dir.join("link")).unwrap();
+        std::fs::rename(&checked, dir.join("kept")).unwrap();
+        std::fs::rename(&other, &checked).unwrap();
+        let (mut file, _) = open_found(&found).unwrap();
+        let mut read = String::new();
+        file.read_to_string(&mut read).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read, "version = 1\n");
     }
 }

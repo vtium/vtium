@@ -483,6 +483,7 @@ fn hold_frames(s: &mut Seat, name: &str) -> (Arc<Gate>, Opens) {
 fn no_fonts() -> Sources {
     Sources {
         frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        trust: vtium::font::trust(),
         helper: None,
         vconsole_conf: PathBuf::from("/dev/null"),
         kernel_cmdline: PathBuf::from("/dev/null"),
@@ -6852,6 +6853,149 @@ fn end_shown_session(s: &mut Seat) -> String {
     text.into_iter()
         .find(|l| l.starts_with("size:"))
         .unwrap_or_default()
+}
+
+/// vtium/vtium#384, ADR-1200 D5: OSC 50's query reports a name OSC 50
+/// takes for the font on screen, or none, never a font that is not shown.
+/// The first session switches to frit b; when it ends, vtium returns the
+/// head to the font file vtium.conf's `font-name` gives, which has no
+/// font set's name, so the next session's query names no font, not b.
+#[test]
+fn after_a_return_to_a_font_file_the_query_names_no_font() {
+    let path = "/usr/share/kbd/consolefonts/ter-v12n.psf.gz";
+    let conf = format!("font-engine=psf\nfont-name={path}\nfont-size=16\n");
+    let (dir, fonts) = reset_fixture("reset-path", &conf);
+    // The first session switches to b, and the next asks which font is in
+    // use; the tty echoes the reply.
+    let script = format!(
+        "d={d}; echo x >> $d/runs; k=$(wc -l < $d/runs); echo \"size:$(stty size)\"; \
+         if [ $k = 1 ]; then printf '\\033]50;b\\007'; else printf '\\033]50;?\\007'; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let (mut s, _) = seat_running(&dir, &small_consoles(1), fonts, &script);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    end_shown_session(&mut s);
+    assert_eq!(s.app.font_name(), path, "returned to the font file");
+    let replied = |a: &App| head_shows(a, "small", "]50;");
+    assert!(
+        s.until(BOUND, replied),
+        "{:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    let text = s
+        .app
+        .head("small")
+        .map(Head::screen_text)
+        .unwrap_or_default();
+    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
+    assert_eq!(replies.len(), 1, "{text:?}");
+    assert!(replies[0].ends_with("]50;^G"), "no font named: {replies:?}");
+}
+
+/// ADR-1401 D10, ADR-1403 D5: a look naming a frit its group can write
+/// draws the built-in font, not the frit's 20x40 cell, and the start logs
+/// one line that names the file and the command that mends it. The return
+/// at the end of a session that switched to frit a reads the look's frit
+/// again, and refuses it again in one line.
+#[test]
+fn a_looks_frit_others_can_change_draws_the_built_in_font_with_one_line() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, fonts) = reset_fixture("reset-untrusted-look", "font-size=0\n");
+    let g = dir.join("g.vtfrit");
+    std::fs::write(&g, "source=kbd:x\ncell=20x40\n").expect("the frit");
+    std::fs::set_permissions(&g, std::fs::Permissions::from_mode(0o664)).expect("its mode");
+    std::fs::write(dir.join("switch.1"), "a").expect("the switch");
+    let heads = "version = 1\n[look g]\nfont-name = g\n[head small]\nconsoles = 1\nlook = g\n[rules]\ndisplay card:mem-small -> small\ninput path:kbd-small -> small\n";
+    logged();
+    let (mut s, _) = reset_seat(&dir, heads, fonts);
+    let shown = g.display();
+    let line = format!(
+        "vtium does not read the font set g from \"{shown}\", because other users can change \"{shown}\" (mode 664). Run `chmod go-w {shown}` so that only its owner can change it. vtium draws its built-in font instead."
+    );
+    let about = |lines: &[String]| -> Vec<String> {
+        lines
+            .iter()
+            .filter(|l| l.contains("g.vtfrit"))
+            .cloned()
+            .collect()
+    };
+    let started = logged();
+    assert_eq!(about(&started), std::slice::from_ref(&line), "{started:?}");
+    assert!(s.until(BOUND, |a| a.font_name() == "a"), "switched to a");
+    assert_eq!(s.app.cells(), [(10, 20)]);
+    end_shown_session(&mut s);
+    assert!(
+        ["unifont", "unscii-8"].contains(&s.app.font_name()),
+        "the built-in font: {}",
+        s.app.font_name()
+    );
+    assert_ne!(s.app.cells(), [(20, 40)], "not the frit's cell");
+    let returned = logged();
+    assert_eq!(about(&returned), [line], "{returned:?}");
+}
+
+/// vtium/vtium#384, ADR-1200 D5: the font is the head's, so every console
+/// of the head reports the font on screen. Console 1 switches the head to
+/// frit b while console 2, hidden, has asked which font is in use; shown,
+/// console 2 is answered b, not the font the head started in.
+#[test]
+fn a_hidden_consoles_query_names_the_font_another_console_switched_to() {
+    let (dir, fonts) = reset_fixture("reset-hidden-query", "font-name=a\nfont-size=0\n");
+    let script = "n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
+         if [ $n = 1 ]; then printf '\\033]50;b\\007'; else printf '\\033]50;?\\007'; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, script);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    press_chord(&mut s, KBD_SMALL, RIGHT);
+    let replied = |a: &App| head_shows(a, "small", "]50;");
+    assert!(
+        s.until(BOUND, replied),
+        "{:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    let text = s
+        .app
+        .head("small")
+        .map(Head::screen_text)
+        .unwrap_or_default();
+    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
+    assert_eq!(replies.len(), 1, "{text:?}");
+    assert!(replies[0].ends_with("]50;b^G"), "{replies:?}");
+}
+
+/// vtium/vtium#384, ADR-1200 D5: a head whose display has gone keeps its
+/// session, and a switch there changes the font all the same, though
+/// there is nothing to lay out. The query that follows names the font
+/// switched to, b, not the font the head started in.
+#[test]
+fn a_query_on_a_head_with_no_display_names_the_font_switched_to() {
+    let (dir, fonts) = reset_fixture("reset-no-display", "font-name=a\nfont-size=0\n");
+    let script = format!(
+        "d={d}; echo \"size:$(stty size)\"; while [ ! -e $d/go ]; do sleep 0.02; done; \
+         printf '\\033]50;b\\007\\033]50;?\\007'; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let (mut s, _) = seat_running(&dir, &small_consoles(1), fonts, &script);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "size:")));
+    assert_eq!(s.app.font_name(), "a");
+    s.unplug("/dev/mem0", now());
+    std::fs::write(dir.join("go"), "").expect("the go mark");
+    let replied = |a: &App| head_shows(a, "small", "]50;");
+    assert!(
+        s.until(BOUND, replied),
+        "{:?}",
+        s.app.head("small").map(Head::screen_text)
+    );
+    let text = s
+        .app
+        .head("small")
+        .map(Head::screen_text)
+        .unwrap_or_default();
+    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
+    assert_eq!(replies.len(), 1, "{text:?}");
+    assert!(replies[0].ends_with("]50;b^G"), "{replies:?}");
 }
 
 /// ADR-1201 D11: an OSC 50 switch lasts for the session. When the session

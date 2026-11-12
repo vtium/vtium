@@ -283,9 +283,13 @@ helper's owner and mode, the devices from /sys and /run/udev/data, and\n\
 systemd's unit links under /etc/systemd. It opens nothing under /dev\n\
 and changes nothing.\n";
 
-    /// The frit `font-name` names could not be read.
-    pub fn frit_unreadable(name: &str, why: &str) -> String {
-        format!("font set {name} cannot be read ({why}), so vtium uses its built-in font")
+    /// The frit `font-name` names, at `path`, that vtium does not read,
+    /// and why, `reason` ([`crate::font::frit_text`]).
+    pub fn frit_unreadable(name: &str, path: &std::path::Path, reason: &str) -> String {
+        format!(
+            "{} vtium uses its built-in font instead.",
+            crate::font::refusal(name, path, reason)
+        )
     }
 
     /// `hwaccel` on in a build without the `gpu` feature (ADR-1303 D9).
@@ -353,6 +357,44 @@ and changes nothing.\n";
     pub fn helper_refused_as_root(why: &str) -> String {
         format!(
             "font-helper: when vtium runs as root, it refuses this helper: {why}. vtium would then use its built-in font."
+        )
+    }
+
+    /// The frit `font-name` names, at `path`, is one a start as root does
+    /// not read, `reason`, though the account the check runs as reads it.
+    pub fn frit_refused_as_root(name: &str, path: &std::path::Path, reason: &str) -> String {
+        let path = crate::font::quoted(path);
+        format!(
+            "When vtium runs as root, it does not read the font set {name} from {path}, because {reason} vtium would then use its built-in font."
+        )
+    }
+
+    /// A look whose `font-name` names a frit, at `path`, that vtium does
+    /// not read for the account the check runs as, `reason`.
+    pub fn look_frit_unreadable(
+        look: &str,
+        name: &str,
+        path: &std::path::Path,
+        reason: &str,
+    ) -> String {
+        let path = crate::font::quoted(path);
+        format!(
+            "Look {look:?}: vtium does not read its font set {name} from {path}, because {reason} vtium draws that look in its built-in font."
+        )
+    }
+
+    /// A look whose `font-name` names a frit, at `path`, that a start as
+    /// root does not read, `reason`, though the account the check runs as
+    /// reads it.
+    pub fn look_frit_refused_as_root(
+        look: &str,
+        name: &str,
+        path: &std::path::Path,
+        reason: &str,
+    ) -> String {
+        let path = crate::font::quoted(path);
+        format!(
+            "Look {look:?}: when vtium runs as root, it does not read its font set {name} from {path}, because {reason} vtium would then draw that look in its built-in font."
         )
     }
 
