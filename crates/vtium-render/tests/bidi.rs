@@ -136,6 +136,32 @@ fn lam_and_alef_draw_as_one_ligature_across_their_cells() {
     assert!(asked(&t).contains(&vec![ZWJ, LAM, ALEF]));
 }
 
+// ADR-1004 D6, the joining defect reported on vtium/vtium#389: in al-i'lan
+// (alef, lam, alef with hamza below, ain, lam, alef, noon) the ain follows
+// an alef, which joins nothing after it, and comes before the lam of the
+// final lam-alef, which joins it. So the ain takes its initial form, keyed
+// with U+200D on the side it joins, and the final lam-alef is keyed with
+// U+200D before its lam; neither is drawn unjoined. The two lam-alefs are
+// each one ligature across their cells, the first isolated
+// covers: text.bidi
+#[test]
+fn ain_before_a_lam_alef_takes_its_initial_form() {
+    const AIN: char = '\u{639}';
+    const ALEF_HAMZA_BELOW: char = '\u{625}';
+    let t = term(12, "الإعلان".as_bytes());
+    let got = asked(&t);
+    for key in [
+        vec![AIN, ZWJ],
+        vec![ZWJ, LAM, ALEF],
+        vec![LAM, ALEF_HAMZA_BELOW],
+    ] {
+        assert!(got.contains(&key), "{key:?} among {got:?}");
+    }
+    for key in [vec![AIN], vec![ZWJ, AIN], vec![ZWJ, AIN, ZWJ]] {
+        assert!(!got.contains(&key), "{key:?} among {got:?}");
+    }
+}
+
 // with the visible cursor on either letter, each draws its own joined form,
 // so the cursor marks one letter
 // covers: text.bidi
