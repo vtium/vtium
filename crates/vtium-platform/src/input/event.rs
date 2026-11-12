@@ -1,7 +1,8 @@
 //! What the input devices tell their owner: keys, pointer events, and
 //! the device each came from.
 
-/// The modifiers held with a key, one bit each.
+/// The modifiers held with a key, one bit each. The bits are those of
+/// vtium-term's own modifiers, so the binary hands them on unchanged.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Mods(u8);
 
@@ -11,6 +12,14 @@ impl Mods {
     pub const CTRL: Mods = Mods(4);
     pub const ALT: Mods = Mods(8);
     pub const LOGO: Mods = Mods(16);
+    /// NumLock is on: a state, as Lock is.
+    pub const NUM: Mods = Mods(32);
+    /// Hyper, where the keymap gives it a modifier of its own, one that
+    /// neither Alt nor Super uses (ADR-1005, D8).
+    pub const HYPER: Mods = Mods(64);
+    /// Meta, where the keymap gives it a modifier of its own, one that
+    /// neither Alt nor Super uses (ADR-1005, D8).
+    pub const META: Mods = Mods(128);
 
     pub const fn empty() -> Mods {
         Mods(0)
@@ -30,7 +39,7 @@ impl Mods {
     }
 }
 
-/// A key press, or its repeat.
+/// A key press, its repeat, or its release.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct KeyEvent {
     /// xkb's key code: evdev's plus 8.
@@ -39,7 +48,7 @@ pub struct KeyEvent {
     pub ascii: u32,
     pub mods: Mods,
     /// The keysyms the key makes; a compose sequence's result replaces
-    /// them.
+    /// them. A release carries its press's.
     pub keysyms: Vec<u32>,
     /// Each keysym's character, where it has one.
     pub codepoints: Vec<Option<char>>,
@@ -80,7 +89,12 @@ pub enum PointerEvent {
 /// What the input devices tell their owner.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum InputEvent {
+    /// A key pressed, or repeated by the repeat timer.
     Key(KeyEvent),
+    /// A key let go whose press came as a `Key` (ADR-1005, D8). It carries
+    /// the keysyms its press carried, and the modifiers after the release,
+    /// so the release of Shift holds no Shift.
+    Release(KeyEvent),
     Pointer(PointerEvent),
     /// A keyboard's effective modifiers changed: a modifier key was
     /// pressed or let go, Caps Lock toggled, or the keyboard closed or

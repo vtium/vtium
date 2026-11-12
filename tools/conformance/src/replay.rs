@@ -6,11 +6,11 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Extent, Key, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX, TERMCAP_ENTRIES_MAX,
-    TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
+    Age, Extent, Key, KeyEvent, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX,
+    TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
-use crate::command::{self, Button, Command, END, Event, How, INTRO};
+use crate::command::{self, Button, Command, END, Event, How, INTRO, KeyAction};
 #[cfg(feature = "images")]
 mod images;
 mod links;
@@ -317,9 +317,18 @@ impl<'a> Replay<'a> {
                 ascii,
                 unicode,
                 mods,
+                event,
             } => {
                 let unicode = unicode.and_then(char::from_u32);
-                t.key(&Key::press(sym, ascii, Mods::from_bits(mods), unicode));
+                let event = match event {
+                    KeyAction::Press => KeyEvent::Press,
+                    KeyAction::Repeat => KeyEvent::Repeat,
+                    KeyAction::Release => KeyEvent::Release,
+                };
+                t.key(&Key {
+                    event,
+                    ..Key::press(sym, ascii, Mods::from_bits(mods), unicode)
+                });
             }
             Command::Mouse {
                 col,

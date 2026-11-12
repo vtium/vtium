@@ -1,0 +1,38 @@
+# The kitty keyboard protocol's flag 2, report event types. Under flags 3
+# a key sent as an escape code carries its event type after its modifiers
+# and a colon: a repeat 2, a release 3, a press none, and the modifiers
+# field 1 with no modifier held. The cursor, editing, function and keypad
+# keys keep the forms of the functional key table, with CSI 1 before a
+# letter that carries a modifiers field. Under flag 2 alone a key keeps
+# the legacy encoding, DECCKM included, and only the cursor, editing and
+# function keys carry a repeat's and a release's event type; Escape, a
+# Ctrl key and a text key send their legacy bytes on a press and a repeat
+# and nothing on a release, and modifyOtherKeys is not consulted.
+# spec: kitty's Comprehensive keyboard handling in terminals: Progressive enhancement, Report event types, Event types, Legacy key event encoding, Functional key definitions
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>3u"
+cmd key;sym=ff52
+cmd key;sym=ff52;event=repeat
+cmd key;sym=ff52;event=release
+cmd key;sym=ff52;mods=1;event=release
+cmd key;sym=ffff;event=repeat
+cmd key;sym=ffff;mods=4;event=release
+cmd key;sym=ffbe;event=release
+cmd key;sym=ffc0;event=release
+cmd key;sym=ff9c;event=release
+cmd key;sym=ffb1;mods=36;event=release
+cmd key;sym=ff0d;mods=4;event=repeat
+cmd key;sym=ff0d;mods=4;event=release
+send "\e[<u\e[>4;2m\e[>2u\e[?u"
+cmd key;sym=ff52
+cmd key;sym=ff52;event=release
+cmd key;sym=ffc0;mods=1
+cmd key;sym=ffc0;mods=1;event=release
+cmd key;sym=ff1b;event=repeat
+cmd key;sym=ff1b;event=release
+cmd key;sym=61;ascii=61;unicode=61;mods=4
+cmd key;sym=61;ascii=61;unicode=61;mods=4;event=release
+send "\e[?1h"
+cmd key;sym=ff52
+cmd key;sym=ff52;event=release

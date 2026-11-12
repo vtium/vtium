@@ -3,6 +3,7 @@
 //! a key while the kitty keyboard protocol's flags are not 0, that
 //! protocol's (`kitty_keyboard.rs`).
 
+use super::kitty_keyboard::{disambiguates, legacy_event};
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
 use vtium_parse::InputMode;
@@ -81,10 +82,11 @@ impl Mods {
 pub enum KeyEvent {
     #[default]
     Press,
-    /// The host's repeat of a key held down, sent as a press is.
+    /// The host's repeat of a key held down, sent as a press is, apart
+    /// from under the kitty keyboard protocol's flag 2.
     Repeat,
-    /// The key was let go. Nothing is sent for it while the kitty keyboard
-    /// protocol's flags are 0, nor under the flags vtium implements.
+    /// The key was let go. Something is sent for it only under the kitty
+    /// keyboard protocol's flag 2, report event types.
     Release,
 }
 
@@ -355,15 +357,18 @@ impl State {
     }
 
     /// A key's bytes, and whether Alt may act on them; `None` for
-    /// a key that sends nothing.
+    /// a key that sends nothing. modifyOtherKeys is consulted only when
+    /// `modify_other` says so.
     fn key_bytes(
         &self,
         keysym: u32,
         sym: u32,
         mods: Mods,
         unicode: Option<char>,
+        modify_other: bool,
     ) -> Option<(Vec<u8>, bool)> {
-        if self.modify_other_keys > 0
+        if modify_other
+            && self.modify_other_keys > 0
             && let Some(bytes) = self.modified_key(keysym, sym, mods, unicode)
         {
             return Some((bytes, false));
@@ -641,21 +646,30 @@ impl State {
 impl Terminal {
     /// Sends what a key makes, as the host reports it in `key`. While the
     /// kitty keyboard protocol's flags in force on the screen shown are
-    /// not 0, that protocol decides the bytes (ADR-1005, D6). While they
-    /// are 0, a press or a repeat sends xterm's encoding, with
-    /// modifyOtherKeys at the level the program set, Alt acting where
-    /// xterm lets it, as modes 1034 and 1036 say, and a release sends
-    /// nothing. Left and Right swap as
-    /// [`arrow_keysym`](Self::arrow_keysym) says. Returns whether anything
-    /// was sent.
+    /// not 0, that protocol decides the bytes (ADR-1005, D6). Under its
+    /// flag 1 they are the protocol's escape codes. Without flag 1 a key
+    /// keeps the legacy encoding, xterm's without modifyOtherKeys, and
+    /// flag 2 adds a repeat's and a release's escape code to the keys whose
+    /// legacy encoding is one. While the flags are 0, a press or a repeat
+    /// sends xterm's encoding, with modifyOtherKeys at the level the
+    /// program set, and a release sends nothing. In the legacy encoding Alt
+    /// acts where xterm lets it, as modes 1034 and 1036 say. Left and Right
+    /// swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns whether
+    /// anything was sent.
     pub fn key(&mut self, key: &Key) -> bool {
         let keysym = self.arrow_keysym(key.keysym);
         let unshifted = self.arrow_keysym(key.unshifted);
         let flags = self.state.keyboard.flags(self.state.screen.alternate());
-        if flags != 0 {
-            let Some(bytes) = self.state.kitty_key_bytes(key, keysym, unshifted) else {
+        if disambiguates(flags) {
+            let Some(bytes) = self.state.kitty_key_bytes(key, keysym, unshifted, flags) else {
                 return false;
             };
+            self.send(&bytes);
+            return true;
+        }
+        if flags != 0
+            && let Some(bytes) = legacy_event(key, keysym, flags)
+        {
             self.send(&bytes);
             return true;
         }
@@ -667,7 +681,11 @@ impl Terminal {
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
-        let Some((bytes, alt_acts)) = self.state.key_bytes(keysym, sym, mods, key.text) else {
+        let modify_other = flags == 0;
+        let Some((bytes, alt_acts)) =
+            self.state
+                .key_bytes(keysym, sym, mods, key.text, modify_other)
+        else {
             return false;
         };
         let out = if alt_acts && mods.contains(Mods::ALT) {

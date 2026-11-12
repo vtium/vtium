@@ -790,6 +790,9 @@ impl<O: Open + 'static> Input<O> {
                     if let Some(key) = processed.key {
                         self.queue.push(from, rescue, InputEvent::Key(key));
                     }
+                    if let Some(key) = processed.release {
+                        self.queue.push(from, rescue, InputEvent::Release(key));
+                    }
                 }
                 if let (Some(p), true) = (probed.pointer.button(ev.code, ev.value, now), pointer) {
                     self.queue.push(from, false, InputEvent::Pointer(p));

@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.7 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.8 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -94,15 +94,22 @@ row 0 |abc (1) םולש def|
 
 The `key` command's `mods` takes 0 to 255, where 1.0 stops at 31. The bits 1.0 names keep their meaning: 1 Shift, 2 Lock, 4 Ctrl, 8 Alt and 16 Logo. The new bits are 32, NumLock is on, 64 Hyper and 128 Meta, which a host reports where the keymap gives Hyper or Meta a modifier of its own. The kitty keyboard protocol reports each of them in a key's modifiers (ADR-1005, D2), and xterm's encoding reads NumLock under mode 1035. A `key` line with a `mods` of 31 or less presses the key it pressed before, so every golden stays as it is. The `mouse` command's `mods` still stops at 31.
 
-## Owed: a key's event, its unshifted key and its base layout key
+## A key's event
 
-The kitty keyboard protocol reports when a key repeats and when it is let go, and it reports a key's unshifted form and its key on the US PC-101 layout (ADR-1005, D2, D9 and D12). vtium-term's description of a key holds all three, and the `key` command does not take them yet. The two features below describe the keys the `key` command gains. vtium owes them to the kitty keyboard protocol's issue, #42: its second slice adds `key-events` to vtium-replay, and its third slice adds `key-forms`.
+The kitty keyboard protocol reports when a key repeats and when it is let go (ADR-1005, D2 and D12). With the feature `key-events`, the `key` command takes `event`, which says what happened to the key. A `key` line with no `event` is a press, as in 1.0, so every golden stays as it is.
 
-Until a slice adds its feature, vtium-replay does not declare that feature, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's MINOR version.
+| Key of `key` | Form | What it means |
+|---|---|---|
+| `event` | name, `press`, `repeat` or `release`, default `press` | Whether the key was pressed, repeated by the host's repeat timer, or let go. A release's `mods` are the modifiers after the key's own effect, as a press's are, so the release of Shift holds no Shift. |
+
+## Owed: a key's unshifted key and its base layout key
+
+The kitty keyboard protocol also reports a key's unshifted form and its key on the US PC-101 layout (ADR-1005, D2, D9 and D12). vtium-term's description of a key holds both, and the `key` command does not take them yet. The feature below describes the keys the `key` command gains. vtium owes it to the kitty keyboard protocol's issue, #42, whose third slice adds `key-forms` to vtium-replay.
+
+Until that slice adds the feature, vtium-replay does not declare it, and the runner does not count it among the features `--describe` must declare. A capability scenario that needs the feature fails as absent, which is what its `missing` line in `capabilities.list` expects. The runner keeps its own list of the owed features, and it refuses a `--describe` that declares one of them. So the change that makes vtium-replay declare a feature also takes it off that list, and it raises the interface's MINOR version.
 
 | Key of `key` | Form | Feature | What it means |
 |---|---|---|---|
-| `event` | name, `press`, `repeat` or `release`, default `press` | `key-events` | Whether the key was pressed, repeated by the host's repeat timer, or let go. A release's `mods` are the modifiers after the key's own effect, as a press's are, so the release of Shift holds no Shift. |
 | `unshifted` | hex, 0 to 1fffffff, default 0 | `key-forms` | The keysym the key makes at the first shift level of the active layout, which is the unshifted key, or 0 when the host reports none. A host reports none when a modifier the kitty keyboard protocol cannot encode, such as AltGr, chose the key's symbol. |
 | `base` | hex, 0 to 10ffff, default none | `key-forms` | The character the key types on the US PC-101 layout, which is the base layout key, or none when that layout has no such key. |
 
@@ -432,7 +439,7 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state and the font and text area requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.7
+interface 1.8
 view display
 feature clipboard
 feature attrs-renditions

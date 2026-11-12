@@ -55,7 +55,7 @@ const OPTIONAL: [&str; 8] = [
 /// not declare them, and a scenario that needs one fails as absent. A
 /// `--describe` that declares one is refused, so the change that adds the
 /// feature also takes it off this list.
-const OWED: [&str; 2] = ["key-events", "key-forms"];
+const OWED: [&str; 1] = ["key-forms"];
 
 const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR

@@ -12,10 +12,15 @@ use super::input::{Key, KeyEvent, key_char, sym};
 use super::reply::Query;
 use crate::bounds::KEYBOARD_FLAGS_MAX;
 
-/// The flags vtium implements: 1, disambiguate escape codes. A push or a
-/// set drops every other bit as it arrives, so the query reports only
-/// these (ADR-1005, D3 and D5).
-const IMPLEMENTED: u32 = 1;
+/// Flag 1, disambiguate escape codes.
+const DISAMBIGUATE: u8 = 1;
+/// Flag 2, report event types.
+const EVENT_TYPES: u8 = 2;
+
+/// The flags vtium implements: 1, disambiguate escape codes, and 2, report
+/// event types. A push or a set drops every other bit as it arrives, so the
+/// query reports only these (ADR-1005, D3 and D5).
+const IMPLEMENTED: u32 = (DISAMBIGUATE | EVENT_TYPES) as u32;
 
 /// The flags saved under the set in force: one level fewer than the
 /// bound, which counts the set in force.
@@ -260,14 +265,62 @@ fn kind(keysym: u32) -> Option<Kind> {
 const LOCKS: u8 = 64 | 128;
 const SHIFT: u8 = 1;
 
+/// The event type a key's escape code carries, as "Event types" numbers
+/// them: a press 1, a repeat 2 and a release 3. A press is the default,
+/// which the code leaves out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Event {
+    Press,
+    Repeat,
+    Release,
+}
+
+impl Event {
+    /// What a key's event is sent as under `flags`: under flag 2 each event
+    /// is its own; without it a repeat is a press, and a release `None`,
+    /// since nothing is sent for it.
+    fn of(key: &Key, flags: u8) -> Option<Event> {
+        let types = flags & EVENT_TYPES != 0;
+        match key.event {
+            KeyEvent::Press => Some(Event::Press),
+            KeyEvent::Repeat if types => Some(Event::Repeat),
+            KeyEvent::Repeat => Some(Event::Press),
+            KeyEvent::Release if types => Some(Event::Release),
+            KeyEvent::Release => None,
+        }
+    }
+
+    fn number(self) -> u8 {
+        match self {
+            Event::Press => 1,
+            Event::Repeat => 2,
+            Event::Release => 3,
+        }
+    }
+}
+
 /// `CSI number ; modifiers final`, the modifiers left out when there are
-/// none.
-fn csi(number: u32, mods: u8, final_byte: u8) -> Vec<u8> {
+/// none and the event is a press, and `CSI number ; modifiers : event
+/// final` for a repeat or a release, the modifiers 1 when there are none
+/// ("Event types").
+fn csi(number: u32, mods: u8, event: Event, final_byte: u8) -> Vec<u8> {
     let f = char::from(final_byte);
-    if mods == 0 {
-        format!("\x1b[{number}{f}").into_bytes()
-    } else {
-        format!("\x1b[{number};{}{f}", u16::from(mods) + 1).into_bytes()
+    let m = u16::from(mods) + 1;
+    match event {
+        Event::Press if mods == 0 => format!("\x1b[{number}{f}").into_bytes(),
+        Event::Press => format!("\x1b[{number};{m}{f}").into_bytes(),
+        _ => format!("\x1b[{number};{m}:{}{f}", event.number()).into_bytes(),
+    }
+}
+
+/// A functional key's code: `CSI number ; modifiers u` or `~`, or a
+/// letter, written `CSI letter` only for a press with no modifier.
+fn functional(code: Code, mods: u8, event: Event) -> Vec<u8> {
+    match code {
+        Code::U(n) => csi(n, mods, event, b'u'),
+        Code::Tilde(n) => csi(n, mods, event, b'~'),
+        Code::Letter(l) if mods == 0 && event == Event::Press => vec![0x1b, b'[', l],
+        Code::Letter(l) => csi(1, mods, event, l),
     }
 }
 
@@ -297,23 +350,27 @@ fn text_code(unshifted: u32, ch: char) -> u32 {
 }
 
 impl State {
-    /// A key's bytes while the flags in force are not 0, for the flags
-    /// vtium implements, which are 1, disambiguate escape codes; `None` for
-    /// a key that sends nothing. `keysym` and `unshifted` are the key's,
-    /// with Left and Right swapped as the host's direction asks.
+    /// A key's bytes while the flags in force, `flags`, include flag 1,
+    /// disambiguate escape codes; `None` for a key that sends nothing.
+    /// `keysym` and `unshifted` are the key's, with Left and Right swapped
+    /// as the host's direction asks.
     ///
-    /// - A release sends nothing, since flag 2 is not implemented, and a
-    ///   repeat is sent as a press.
+    /// - Under flag 2, report event types, a repeat and a release are sent
+    ///   with their event types wherever the key is sent as an escape code
+    ///   ("Event types"). Without it, a repeat is sent as a press and a
+    ///   release sends nothing.
     /// - Enter, Tab and Backspace send their legacy bytes with no modifier
     ///   but the locks held, so a user can still type `reset`, and are
-    ///   `CSI 13 u`, `CSI 9 u` and `CSI 127 u` with one.
+    ///   `CSI 13 u`, `CSI 9 u` and `CSI 127 u` with one. They send no
+    ///   release, since flag 8 is not implemented.
     /// - Every other key that sends no text is written as the
     ///   specification's table gives it, with every modifier held, the
     ///   locks included; the keypad's keys have numbers of their own, and
     ///   modifier keys send nothing, since flag 8 is not implemented.
-    /// - A key that sends text sends it, in the input's encoding, while
-    ///   only Shift and the locks are held; with any other modifier it is
-    ///   `CSI code ; modifiers u`.
+    /// - A key that sends text sends it, in the input's encoding, on a
+    ///   press and a repeat while only Shift and the locks are held, and
+    ///   nothing on its release; with any other modifier it is `CSI code ;
+    ///   modifiers u`.
     ///
     /// DECCKM, the keypad modes, modifyOtherKeys and modes 1034, 1035
     /// and 1036 are not consulted (ADR-1005, D6).
@@ -322,19 +379,22 @@ impl State {
         key: &Key,
         keysym: u32,
         unshifted: u32,
+        flags: u8,
     ) -> Option<Vec<u8>> {
-        if key.event == KeyEvent::Release {
-            return None;
-        }
+        let event = Event::of(key, flags)?;
         let mods = key.mods.kitty();
         let pressed = mods & !LOCKS;
         let text = |ch: char| {
+            if event == Event::Release {
+                return None;
+            }
             let mut out = Vec::with_capacity(4);
             self.push_char(ch, &mut out);
-            out
+            Some(out)
         };
         match kind(keysym) {
             Some(Kind::Modifier) => None,
+            Some(Kind::Legacy(_)) if event == Event::Release => None,
             Some(Kind::Legacy(code)) if pressed == 0 => Some(match code {
                 13 if self.modes.newline() => b"\r\n".to_vec(),
                 13 => vec![0x0d],
@@ -342,17 +402,13 @@ impl State {
                 _ if self.host.backspace_delete => vec![0x7f],
                 _ => vec![0x08],
             }),
-            Some(Kind::Legacy(code)) => Some(csi(code, mods, b'u')),
-            Some(Kind::Functional(Code::U(n))) => Some(csi(n, mods, b'u')),
-            Some(Kind::Functional(Code::Tilde(n))) => Some(csi(n, mods, b'~')),
-            Some(Kind::Functional(Code::Letter(l))) if mods == 0 => Some(vec![0x1b, b'[', l]),
-            Some(Kind::Functional(Code::Letter(l))) => Some(csi(1, mods, l)),
+            Some(Kind::Legacy(code)) => Some(csi(code, mods, event, b'u')),
+            Some(Kind::Functional(code)) => Some(functional(code, mods, event)),
             Some(Kind::KeypadText(ch, n)) => {
                 if pressed & !SHIFT == 0 {
-                    let ch = key.text.filter(|c| !c.is_control()).unwrap_or(ch);
-                    Some(text(ch))
+                    text(key.text.filter(|c| !c.is_control()).unwrap_or(ch))
                 } else {
-                    Some(csi(n, mods, b'u'))
+                    Some(csi(n, mods, event, b'u'))
                 }
             }
             None => {
@@ -360,13 +416,38 @@ impl State {
                     .and_then(char::from_u32)
                     .or_else(|| keysym_char(keysym))?;
                 if pressed & !SHIFT == 0 {
-                    let ch = key.text.filter(|c| !c.is_control()).unwrap_or(ch);
-                    Some(text(ch))
+                    text(key.text.filter(|c| !c.is_control()).unwrap_or(ch))
                 } else {
-                    Some(csi(text_code(unshifted, ch), mods, b'u'))
+                    Some(csi(text_code(unshifted, ch), mods, event, b'u'))
                 }
             }
         }
+    }
+}
+
+/// Whether the flags in force, not 0, include flag 1. Without it a key
+/// keeps the specification's legacy encoding.
+pub(super) fn disambiguates(flags: u8) -> bool {
+    flags & DISAMBIGUATE != 0
+}
+
+/// A repeat's or a release's escape code under flag 2 without flag 1, when
+/// the key's legacy encoding is an escape code with a modifiers field: the
+/// cursor, editing and function keys of "Legacy key event encoding", in the
+/// forms of "Functional key definitions", with the legacy encoding's
+/// modifiers, which leave out the locks. `None` for a press, and for every
+/// other key, whose release sends nothing and whose repeat sends its legacy
+/// bytes, as a press does.
+pub(super) fn legacy_event(key: &Key, keysym: u32, flags: u8) -> Option<Vec<u8>> {
+    let event = Event::of(key, flags)?;
+    if event == Event::Press {
+        return None;
+    }
+    match kind(keysym) {
+        Some(Kind::Functional(code @ (Code::Tilde(_) | Code::Letter(_)))) => {
+            Some(functional(code, key.mods.kitty() & !LOCKS, event))
+        }
+        _ => None,
     }
 }
 

@@ -2375,6 +2375,85 @@ fn mode_1004_follows_the_keyboards_delivering_to_each_head() {
     );
 }
 
+/// ADR-1005 D7: a program that asked the kitty keyboard protocol for
+/// releases gets one for every press it got. The focus chord moves the
+/// keyboard to the other head while Escape is held, so the head it leaves
+/// gets Escape's release at once, `CSI 27 ; 1:3 u` after the press's
+/// `CSI 27 u`, and the key's real release later goes nowhere.
+// covers: input.kitty-keyboard
+#[test]
+fn the_focus_chord_lets_go_of_the_keys_held_on_the_head_it_leaves() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033[>3u'; echo ready; \
+                  while :; do echo \"k:$(head -c 14 | tr '\\033' E)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    let escape = KeyEvent {
+        keycode: 9,
+        ascii: 0,
+        mods: Mods::empty(),
+        keysyms: vec![0xff1b],
+        codepoints: vec![None],
+        repeat: false,
+    };
+    let kbd = Path::new(KBD_FOCUS);
+    s.app
+        .device_input(kbd, InputEvent::Key(escape.clone()), now());
+    s.app.device_input(kbd, ctrl_super(UP), now());
+    assert_eq!(s.app.take_focus_move().as_deref(), Some("small"));
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "k:E[27uE[27;1:3u")),
+        "the head left gets the release before the key is let go: {:?}",
+        s.app.head("large").map(Head::screen_text)
+    );
+    // The key's real release goes nowhere: small never got its press.
+    s.app.device_input(kbd, InputEvent::Release(escape), now());
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "small", "k:"), "small got no release");
+}
+
+/// Mode 1035 reads NumLock from the modifiers the input reports, which
+/// the binary hands the terminal unchanged: under DECKPAM, KP_1 with
+/// NumLock on sends its digit, as xterm's numLock does, where the
+/// application keypad would send SS3 q; with NumLock off the key is KP_End,
+/// which sends what End sends (ctlseqs, mode 1035; vtium/vtium#356).
+// covers: DEC-1035
+#[test]
+fn mode_1035_reads_the_num_lock_the_input_reports() {
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let script = "stty -icanon -echo; printf '\\033='; echo ready; \
+                  while :; do echo \"k:$(head -c 4 | tr '\\033' E)\"; done";
+    let mut s = Seat::with_heads(&[], Some(TWO_HEADS), displays, script);
+    assert!(s.until(BOUND, |a| head_shows(a, "large", "ready")));
+    s.app.add_input(Path::new(KBD_FOCUS), keyboard("elsewhere"));
+    let kp_1 = |mods: Mods| {
+        InputEvent::Key(KeyEvent {
+            keycode: 87,
+            ascii: 0,
+            mods,
+            keysyms: vec![if mods.contains(Mods::NUM) {
+                0xffb1
+            } else {
+                0xff9c
+            }],
+            codepoints: vec![mods.contains(Mods::NUM).then_some('1')],
+            repeat: false,
+        })
+    };
+    let kbd = Path::new(KBD_FOCUS);
+    s.app.device_input(kbd, kp_1(Mods::NUM), now());
+    s.app.device_input(kbd, kp_1(Mods::empty()), now());
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "k:1E[F")),
+        "{:?}",
+        s.app.head("large").map(Head::screen_text)
+    );
+}
+
 /// Two heads of two consoles each, a keyboard claimed by each.
 const TWO_CONSOLES: &str = "version = 1
 [head small]

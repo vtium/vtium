@@ -1,6 +1,7 @@
 //! The kitty keyboard protocol (ADR-1005): the flag stacks a program
 //! pushes, pops, sets and queries, one for each screen, what resets them,
-//! and the bytes a key sends under flag 1, disambiguate escape codes.
+//! and the bytes a key sends under flag 1, disambiguate escape codes, and
+//! flag 2, report event types.
 //!
 //! Each expected sequence follows the specification, "Comprehensive
 //! keyboard handling in terminals"
@@ -227,21 +228,21 @@ fn a_push_of_1_sends_the_functional_keys_in_the_specifications_forms() {
 
 // "Progressive enhancement" and "Detection of support for this protocol":
 // `CSI ? u` reports the flags in force, and vtium keeps only the flags it
-// implements, so after a push of 31 it reports 1 (ADR-1005, D3 and D5).
-// `CSI = flags ; mode u` sets exactly, sets bits or clears bits.
+// implements, 1 and 2, so after a push of 31 it reports 3 (ADR-1005, D3
+// and D5). `CSI = flags ; mode u` sets exactly, sets bits or clears bits.
 // covers: input.kitty-keyboard
 #[test]
 fn the_query_reports_only_the_flags_vtium_implements() {
     let mut t = term(80, 4, b"");
     assert_eq!(flags(&mut t), "\x1b[?0u");
     t.input(b"\x1b[>31u");
-    assert_eq!(flags(&mut t), "\x1b[?1u");
+    assert_eq!(flags(&mut t), "\x1b[?3u");
     t.input(b"\x1b[=0u");
     assert_eq!(flags(&mut t), "\x1b[?0u");
     t.input(b"\x1b[=31;2u");
-    assert_eq!(flags(&mut t), "\x1b[?1u");
+    assert_eq!(flags(&mut t), "\x1b[?3u");
     t.input(b"\x1b[=1;3u");
-    assert_eq!(flags(&mut t), "\x1b[?0u");
+    assert_eq!(flags(&mut t), "\x1b[?2u");
     t.input(b"\x1b[=1;1u");
     assert_eq!(flags(&mut t), "\x1b[?1u");
     t.input(b"\x1b[=0;4u");
@@ -425,4 +426,136 @@ fn modify_other_keys_waits_while_the_flags_are_not_0() {
     t.input(b"\x1b[>4;1m");
     t.input(b"\x1b[<u");
     assert_eq!(char_key(&mut t, 'a', Mods::ALT), "\x1b[27;3;97~");
+}
+
+/// `key` with the event `event`.
+fn event(key: Key, event: KeyEvent) -> Key {
+    Key { event, ..key }
+}
+
+/// A key's press, repeat and release, each as it is sent.
+fn three(t: &mut Terminal, key: Key) -> [String; 3] {
+    [KeyEvent::Press, KeyEvent::Repeat, KeyEvent::Release].map(|e| press(t, event(key, e)))
+}
+
+// "Report event types" and "Event types": under flags 3 a key that is
+// sent as an escape code carries its event type after its modifiers and
+// a colon, 2 for a repeat and 3 for a release, and a press none; with no
+// modifier held the modifiers field is 1. The functional keys keep the
+// forms of "Functional key definitions", with `CSI 1` before a letter
+// that carries a modifiers field. Once the flags are 0, a release sends
+// nothing and a repeat is a press again.
+// covers: input.kitty-keyboard
+#[test]
+fn a_push_of_3_reports_repeats_and_releases() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>3u");
+    assert_eq!(flags(&mut t), "\x1b[?3u");
+    let none = Mods::empty();
+    let esc = Key::press(ESCAPE, 0, none, None);
+    assert_eq!(
+        three(&mut t, esc),
+        ["\x1b[27u", "\x1b[27;1:2u", "\x1b[27;1:3u"]
+    );
+    let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('a'));
+    assert_eq!(
+        three(&mut t, ctrl_a),
+        ["\x1b[97;5u", "\x1b[97;5:2u", "\x1b[97;5:3u"]
+    );
+    let up = Key::press(UP, 0, none, None);
+    assert_eq!(three(&mut t, up), ["\x1b[A", "\x1b[1;1:2A", "\x1b[1;1:3A"]);
+    let shift_up = Key::press(UP, 0, Mods::SHIFT, None);
+    assert_eq!(
+        three(&mut t, shift_up),
+        ["\x1b[1;2A", "\x1b[1;2:2A", "\x1b[1;2:3A"]
+    );
+    let delete = Key::press(DELETE, 0, none, None);
+    assert_eq!(
+        three(&mut t, delete),
+        ["\x1b[3~", "\x1b[3;1:2~", "\x1b[3;1:3~"]
+    );
+    let kp_end = Key::press(KP_END, 0, none, None);
+    assert_eq!(
+        three(&mut t, kp_end),
+        ["\x1b[57424u", "\x1b[57424;1:2u", "\x1b[57424;1:3u"]
+    );
+    let ctrl_kp_1 = Key::press(KP_1, 0, mods(&[Mods::CTRL, Mods::NUM]), Some('1'));
+    assert_eq!(
+        three(&mut t, ctrl_kp_1),
+        ["\x1b[57400;133u", "\x1b[57400;133:2u", "\x1b[57400;133:3u"]
+    );
+    t.input(b"\x1b[<u");
+    assert_eq!(three(&mut t, esc), ["\x1b", "\x1b", ""]);
+    assert_eq!(three(&mut t, up), ["\x1b[A", "\x1b[A", ""]);
+}
+
+// "Report event types": Enter, Tab and Backspace keep their legacy bytes
+// and have no release events unless flag 8 is set, so a user can still
+// type reset; with a modifier held, a repeat carries its event type. A key
+// that makes text sends its text on a press and a repeat, and nothing on
+// its release ("Key events that result in text are reported as plain
+// UTF-8 text, so events are not supported for them").
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_sends_no_release_for_enter_tab_backspace_or_text() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>3u");
+    let none = Mods::empty();
+    let key = |s: u32, m: Mods| Key::press(s, 0, m, None);
+    assert_eq!(three(&mut t, key(RETURN, none)), ["\r", "\r", ""]);
+    assert_eq!(three(&mut t, key(TAB, none)), ["\t", "\t", ""]);
+    assert_eq!(three(&mut t, key(BACKSPACE, none)), ["\x08", "\x08", ""]);
+    assert_eq!(
+        three(&mut t, key(RETURN, Mods::CTRL)),
+        ["\x1b[13;5u", "\x1b[13;5:2u", ""]
+    );
+    let a = Key::press(0x61, 0x61, none, Some('a'));
+    assert_eq!(three(&mut t, a), ["a", "a", ""]);
+    let shift_a = Key::press(0x41, 0x61, Mods::SHIFT, Some('A'));
+    assert_eq!(three(&mut t, shift_a), ["A", "A", ""]);
+    let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(three(&mut t, kp_1), ["1", "1", ""]);
+    // a modifier key sends nothing until flag 8
+    assert_eq!(three(&mut t, key(SHIFT_L, Mods::SHIFT)), ["", "", ""]);
+}
+
+// "Progressive enhancement": each flag acts alone. Under flag 2 without
+// flag 1, keys keep the specification's legacy encoding ("Legacy key event
+// encoding"), and only a key whose legacy form is an escape code with a
+// modifiers field, the cursor, editing and function keys, carries a
+// repeat's or a release's event type; Escape, a Ctrl key and a text key
+// send their legacy bytes on a press and a repeat, and nothing on a
+// release. modifyOtherKeys is not consulted while the flags are not 0
+// (ADR-1005, D6).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_reports_events_for_the_legacy_escape_codes() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>4;2m\x1b[>2u");
+    assert_eq!(flags(&mut t), "\x1b[?2u");
+    let none = Mods::empty();
+    let key = |s: u32, m: Mods| Key::press(s, 0, m, None);
+    assert_eq!(
+        three(&mut t, key(UP, none)),
+        ["\x1b[A", "\x1b[1;1:2A", "\x1b[1;1:3A"]
+    );
+    assert_eq!(
+        three(&mut t, key(F3, Mods::SHIFT)),
+        ["\x1b[1;2R", "\x1b[13;2:2~", "\x1b[13;2:3~"]
+    );
+    assert_eq!(
+        three(&mut t, key(DELETE, none)),
+        ["\x1b[3~", "\x1b[3;1:2~", "\x1b[3;1:3~"]
+    );
+    assert_eq!(three(&mut t, key(ESCAPE, none)), ["\x1b", "\x1b", ""]);
+    let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('a'));
+    assert_eq!(three(&mut t, ctrl_a), ["\x01", "\x01", ""]);
+    let a = Key::press(0x61, 0x61, none, Some('a'));
+    assert_eq!(three(&mut t, a), ["a", "a", ""]);
+    // the cursor key mode still chooses SS3 for a press
+    t.input(b"\x1b[?1h");
+    assert_eq!(
+        three(&mut t, key(UP, none)),
+        ["\x1bOA", "\x1b[1;1:2A", "\x1b[1;1:3A"]
+    );
 }

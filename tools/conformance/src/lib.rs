@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 //! vtium's side of tier 1.
 //!
-//! `vtium-replay` meets the replay interface, interface 1.7:
+//! `vtium-replay` meets the replay interface, interface 1.8:
 //! `corpus/INTERFACE.md` with vtium's additions in `INTERFACE-vtium.md`,
 //! over `vtium-term`: a byte stream and the test commands
 //! in it go in, and the screen or frame view comes out as text.
@@ -90,10 +90,11 @@ pub fn describe() -> String {
             "backspace",
             "state",
             "bell",
+            "key-events",
             "font-ops",
             "window-ops",
         ]);
-    let mut out = String::from("interface 1.7\nview screen\nview frame\n");
+    let mut out = String::from("interface 1.8\nview screen\nview frame\n");
     if BIDI {
         out.push_str("view display\n");
     }
