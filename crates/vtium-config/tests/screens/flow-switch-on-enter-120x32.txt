@@ -12,7 +12,7 @@
    Switch on Enter                ● off   ○ on
 
    Enter on this terminal's own keyboard switches to its VT, from a VT where this terminal does not run. It has no
-   effect now, because this terminal runs on every VT. Give it VTs of its own in NEW PATH to use it.
+   effect now, because this terminal runs on every VT. Press e and choose a VT on the line VTs.
 
    Which displays and inputs this path joins change only when you revise it: press e.
 
