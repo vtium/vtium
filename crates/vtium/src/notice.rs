@@ -270,11 +270,13 @@ alone and says so.\n\n\
 It exits 1 when it finds an error or warning, and 0 when it finds none.\n\
 Notes, printed on standard output, do not count: for example a weak\n\
 match, a rule that needs udev, a head no rule uses, a device no rule\n\
-places, or a font helper vtium would refuse. The notes end with what\n\
-vtium would do with the file at start, and the file's policy.\n\n\
+places, a head whose VTs have no vtium enabled, or a font helper vtium\n\
+would refuse. The notes end with what vtium would do with the file at\n\
+start, and the file's policy.\n\n\
 It only reads: vtium.conf, the font set font-name names, the font\n\
-helper's owner and mode, and the devices from /sys and /run/udev/data.\n\
-It opens nothing under /dev and changes nothing.\n";
+helper's owner and mode, the devices from /sys and /run/udev/data, and\n\
+systemd's unit links under /etc/systemd. It opens nothing under /dev\n\
+and changes nothing.\n";
 
     /// The frit `font-name` names could not be read.
     pub fn frit_unreadable(name: &str, why: &str) -> String {
@@ -417,6 +419,33 @@ It opens nothing under /dev and changes nothing.\n";
     pub fn no_udev(key: impl Display) -> String {
         format!("`{key}:` matches nothing, because udev is not running")
     }
+
+    /// A head whose `vt` names only `vts`, none of which vtium is
+    /// enabled on, so no vtium runs it (ADR-1401 D3): the VT to enable,
+    /// the first the head names, and the command that enables vtium there.
+    pub fn vtium_not_enabled(head: &str, vts: &[u16]) -> String {
+        let first = vts.first().copied().unwrap_or_default();
+        match vts {
+            [_] => format!(
+                "Head {head} runs only on VT {first}, and vtium is not enabled on VT {first}, so nothing shows this head. To enable vtium there, run sudo vtium console enable {first}."
+            ),
+            _ => {
+                let each: Vec<String> = vts.iter().map(u16::to_string).collect();
+                format!(
+                    "Head {head} runs only on VTs {}, and vtium is enabled on none of them, so nothing shows this head. To enable vtium on VT {first}, run sudo vtium console enable {first}.",
+                    super::listed(&each)
+                )
+            }
+        }
+    }
+
+    /// The VTs a head names were not checked against the VTs vtium is
+    /// enabled on, because `--no-devices` checks the file alone.
+    pub const VTS_UNCHECKED_FILE_ALONE: &str = "vtium check-config did not check whether vtium is enabled on the VTs that the heads name, because --no-devices checks the file alone.";
+
+    /// The VTs a head names were not checked, because no systemd links
+    /// say where vtium is enabled.
+    pub const VTS_UNCHECKED_NO_SYSTEMD: &str = "vtium check-config did not check whether vtium is enabled on the VTs that the heads name, because this machine was not started with systemd, whose links say where vtium is enabled.";
 
     /// A rule using `connector-path:`, which vtium matches when it finds
     /// the display and check-config cannot check against the displays

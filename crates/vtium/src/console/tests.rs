@@ -3439,3 +3439,45 @@ fn a_display_server_on_a_vt_with_no_session_keeps_it() {
     assert_eq!(m.console(&["disable", "--all"]).0, 0);
     assert_eq!(m.snapshot(), before);
 }
+
+// ADR-1401 D3, "Enter on a head's own keyboard": vtium is enabled on a VT
+// where systemd starts it at boot, in either mode, or where logind starts
+// it at a switch through the VT's own link or the template; past logind's
+// VTs a link alone enables nothing. A host without systemd has no answer.
+#[test]
+fn the_vts_vtium_is_enabled_on_are_those_systemd_or_logind_starts_it_on() {
+    let m = Machine::gettys("enabled-vts");
+    m.link("getty.target.wants/vtium@tty3.service", "vtium");
+    m.link("getty.target.wants/vtium-seat@tty12.service", "vtium-seat");
+    m.link("autovt@tty5.service", "vtium");
+    m.link("autovt@tty9.service", "vtium");
+    assert_eq!(
+        enabled_vts(m.root()),
+        Some(BTreeSet::from([3, 5, 12])),
+        "the getty template keeps VTs 2, 4 and 6, and VT 9 is past logind's VTs"
+    );
+    std::fs::remove_file(m.root().join(ETC).join(TEMPLATE)).unwrap();
+    m.link(TEMPLATE, "vtium");
+    assert_eq!(
+        enabled_vts(m.root()),
+        Some(BTreeSet::from([2, 3, 4, 5, 6, 12]))
+    );
+    std::fs::remove_dir_all(m.root().join(BOOTED)).unwrap();
+    assert_eq!(enabled_vts(m.root()), None);
+}
+
+// The VTs vtium runs on are those of its running units, in either mode, as
+// `status` reads them; a systemctl that fails gives the reason.
+#[test]
+fn the_vts_vtium_runs_on_are_those_of_its_running_units() {
+    let mut m = Machine::new("running-vts");
+    m.fake.running = vec![
+        "vtium@tty3.service".to_owned(),
+        "vtium-seat@tty12.service".to_owned(),
+        "getty@tty4.service".to_owned(),
+        "vtium-dev@tty7.service".to_owned(),
+    ];
+    assert_eq!(running_vts(&mut m.fake), Ok(BTreeSet::from([3, 12])));
+    m.fake.fail = Some("list-units --plain --no-legend --state=active *@tty*.service".to_owned());
+    assert!(running_vts(&mut m.fake).is_err());
+}

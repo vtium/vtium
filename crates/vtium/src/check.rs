@@ -15,6 +15,7 @@
 //! the status, so a file can be checked away from its machine, and the
 //! notes end on what a start does with the file and the policy it states.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use vtium_settings::{
@@ -264,6 +265,9 @@ pub struct Host {
     pub udev_control: PathBuf,
     pub roots: Roots,
     pub frits: PathBuf,
+    /// The root under which systemd's unit links say which VTs vtium is
+    /// enabled on: `/`, or a scratch directory in a test.
+    pub systemd_root: PathBuf,
 }
 
 impl Host {
@@ -275,6 +279,7 @@ impl Host {
             udev_control: PathBuf::from(UDEV_CONTROL),
             roots: Roots::system(),
             frits: font::frits(config),
+            systemd_root: PathBuf::from("/"),
         }
     }
 }
@@ -287,6 +292,22 @@ pub struct Machine<'a> {
     /// The devices present, as [`devices`] gives them; `None` checks the
     /// file alone, as away from its machine and as `--no-devices` asks.
     pub devices: Option<&'a [Identity]>,
+    /// The VTs vtium is enabled on, which a head's `vt` is checked against
+    /// (ADR-1401 D3, "Enter on a head's own keyboard").
+    pub vts: VtsEnabled<'a>,
+}
+
+/// What the check knows of the VTs vtium is enabled on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VtsEnabled<'a> {
+    /// The VTs systemd's links enable vtium on, at boot or as logind's
+    /// autovt ([`crate::console::enabled_vts`]).
+    On(&'a BTreeSet<u16>),
+    /// Not read: `--no-devices` checks the file alone.
+    FileAlone,
+    /// Not read: the machine was not started with systemd, whose links
+    /// say where vtium is enabled.
+    NoSystemd,
 }
 
 /// What the subcommand prints, and its exit status.
@@ -311,9 +332,18 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         };
     }
     let devices = devices(&listing::list(&host.roots, SEAT));
+    let enabled = (!loaded.no_devices)
+        .then(|| crate::console::enabled_vts(&host.systemd_root))
+        .flatten();
+    let vts = match &enabled {
+        _ if loaded.no_devices => VtsEnabled::FileAlone,
+        Some(enabled) => VtsEnabled::On(enabled),
+        None => VtsEnabled::NoSystemd,
+    };
     let machine = Machine {
         udev_daemon: udev_daemon_runs(&host.udev_control),
         devices: (!loaded.no_devices).then_some(devices.as_slice()),
+        vts,
     };
     let settings = Settings::of(&loaded.config, &host.frits);
     // a candidate that is the installed file is checked as the start
@@ -617,11 +647,43 @@ fn findings(
         out.notes
             .extend(device_findings(path, &parsed.config, devices, &noted));
     }
+    if runs_file {
+        out.notes
+            .extend(vt_findings(path, &parsed.config, machine.vts));
+    }
     out.notes.extend(
         remarks
             .iter()
             .map(|(line, r)| at(path, *line, r).to_string()),
     );
+}
+
+/// Each head whose `vt` names only VTs on which vtium is not enabled, as
+/// `vts` says, noted at its line with the command that enables one: no
+/// vtium runs that head (ADR-1401 D3, "Enter on a head's own keyboard").
+/// Where `vts` was not read, one note says the check did not run, when a
+/// head names a VT.
+fn vt_findings(path: &Path, config: &Heads, vts: VtsEnabled) -> Vec<String> {
+    let named: Vec<&vtium_settings::Head> =
+        config.heads.iter().filter(|h| !h.vts.is_empty()).collect();
+    let enabled = match vts {
+        VtsEnabled::On(enabled) => enabled,
+        VtsEnabled::FileAlone if !named.is_empty() => {
+            return vec![at(path, None, check_config::VTS_UNCHECKED_FILE_ALONE).to_string()];
+        }
+        VtsEnabled::NoSystemd if !named.is_empty() => {
+            return vec![at(path, None, check_config::VTS_UNCHECKED_NO_SYSTEMD).to_string()];
+        }
+        VtsEnabled::FileAlone | VtsEnabled::NoSystemd => return Vec::new(),
+    };
+    named
+        .into_iter()
+        .filter(|h| !h.vts.iter().any(|n| enabled.contains(n)))
+        .map(|h| {
+            let line = (h.line > 0).then_some(h.line);
+            at(path, line, check_config::vtium_not_enabled(&h.name, &h.vts)).to_string()
+        })
+        .collect()
 }
 
 /// The lines of the rules using `connector-path:`. vtium reads each
@@ -1213,6 +1275,7 @@ mod tests {
         Machine {
             udev_daemon,
             devices: None,
+            vts: VtsEnabled::FileAlone,
         }
     }
 
@@ -1618,6 +1681,7 @@ mod tests {
         let m = Machine {
             udev_daemon: true,
             devices: Some(devices),
+            vts: VtsEnabled::FileAlone,
         };
         let out = conf_file(&file, false, &trust, &m, &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
@@ -2186,6 +2250,141 @@ mod tests {
         outcome(&config::load(&args, &mut |_: &Path| Ok(None)), host)
     }
 
+    /// The test laptop's file: a head with no `vt` and a head on `vts`.
+    fn two_heads_on(vts: &str) -> String {
+        format!(
+            "version = 1\n[head console]\n[head terminal-1]\nvt = {vts}\n[rules]\ndisplay card:card1 -> terminal-1\ndisplay * -> console\n"
+        )
+    }
+
+    /// `text`'s notes against a machine whose VTs are `vts`.
+    fn vt_notes(name: &str, text: &str, vts: VtsEnabled) -> (HeadCheck, String) {
+        let (file, trust) = heads_fixture(name, text, 0o644);
+        let machine = Machine {
+            udev_daemon: true,
+            devices: None,
+            vts,
+        };
+        let out = conf_file(&file, false, &trust, &machine, &caps(4));
+        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
+        (out, file.display().to_string())
+    }
+
+    // ADR-1401 D3, "Enter on a head's own keyboard": a head whose VTs have
+    // no vtium enabled is noted at its line, with the command that enables
+    // one, outside the exit status; a head with one such VT, or with no
+    // `vt`, is not
+    // covers: platform.heads.rules
+    #[test]
+    fn a_head_on_vts_where_vtium_is_not_enabled_is_noted_with_the_command() {
+        let boot = BTreeSet::from([2, 3, 4, 5, 6]);
+        let (out, f) = vt_notes("vt-off", &two_heads_on("12"), VtsEnabled::On(&boot));
+        assert_eq!(out.counted, Vec::<String>::new());
+        assert!(
+            out.notes.contains(&format!(
+                "{f}:3: Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12, so nothing shows this head. To enable vtium there, run sudo vtium console enable 12."
+            )),
+            "{:#?}",
+            out.notes
+        );
+        let (out, f) = vt_notes("vt-two", &two_heads_on("7 12"), VtsEnabled::On(&boot));
+        assert!(
+            out.notes.contains(&format!(
+                "{f}:3: Head terminal-1 runs only on VTs 7 and 12, and vtium is enabled on none of them, so nothing shows this head. To enable vtium on VT 7, run sudo vtium console enable 7."
+            )),
+            "{:#?}",
+            out.notes
+        );
+        let with_12 = BTreeSet::from([2, 12]);
+        let (out, _) = vt_notes("vt-on", &two_heads_on("7 12"), VtsEnabled::On(&with_12));
+        assert!(
+            !out.notes
+                .iter()
+                .any(|n| n.contains("sudo vtium console enable")),
+            "{:#?}",
+            out.notes
+        );
+    }
+
+    // where the VTs vtium is enabled on were not read, a file whose heads
+    // name VTs says so once, and a file whose heads name none says nothing
+    // covers: platform.heads.rules
+    #[test]
+    fn where_the_enabled_vts_were_not_read_the_check_says_so() {
+        for (vts, line) in [
+            (
+                VtsEnabled::FileAlone,
+                check_config::VTS_UNCHECKED_FILE_ALONE,
+            ),
+            (
+                VtsEnabled::NoSystemd,
+                check_config::VTS_UNCHECKED_NO_SYSTEMD,
+            ),
+        ] {
+            let (out, f) = vt_notes("vt-unread", &two_heads_on("12"), vts);
+            assert!(
+                out.notes.contains(&format!("{f}: {line}")),
+                "{:#?}",
+                out.notes
+            );
+            let text = "version = 1\n[head console]\n[rules]\ndisplay * -> console\n";
+            let (out, _) = vt_notes("vt-none", text, vts);
+            assert!(
+                !out.notes.iter().any(|n| n.contains(line)),
+                "{:#?}",
+                out.notes
+            );
+        }
+    }
+
+    // the subcommand reads the machine's systemd links unless --no-devices
+    // asks it to check the file alone, and the note leaves the status 0
+    // covers: platform.heads.rules
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn check_config_reads_the_systemd_links_of_its_host() {
+        let (file, _) = heads_fixture("vt-host", &two_heads_on("12"), 0o644);
+        let f = file.display().to_string();
+        let root = file.with_file_name("root");
+        std::fs::create_dir_all(root.join("run/systemd/system")).unwrap();
+        let wants = root.join("etc/systemd/system/getty.target.wants");
+        std::fs::create_dir_all(&wants).unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("installed.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: PathBuf::from("/nonexistent/vtium/frits"),
+            systemd_root: root.clone(),
+        };
+        let off = "Head terminal-1 runs only on VT 12, and vtium is not enabled on VT 12";
+        let out = outcome_on(&[f.as_str()], &host);
+        assert_eq!(out.status, 0, "{:#?}", out.stderr);
+        assert!(
+            out.stdout.iter().any(|n| n.contains(off)),
+            "{:#?}",
+            out.stdout
+        );
+        let out = outcome_on(&["--no-devices", f.as_str()], &host);
+        assert!(
+            out.stdout
+                .contains(&format!("{f}: {}", check_config::VTS_UNCHECKED_FILE_ALONE)),
+            "{:#?}",
+            out.stdout
+        );
+        std::os::unix::fs::symlink(
+            "/usr/lib/systemd/system/vtium@.service",
+            wants.join("vtium@tty12.service"),
+        )
+        .unwrap();
+        let out = outcome_on(&[f.as_str()], &host);
+        assert!(
+            !out.stdout.iter().any(|n| n.contains(off)),
+            "{:#?}",
+            out.stdout
+        );
+        std::fs::remove_dir_all(file.parent().unwrap()).ok();
+    }
+
     // ADR-1005 D10: a vtium.conf written for an earlier release binds its
     // keys by their old names. check-config notes each line on standard
     // output, where it does not count, so the file passes, and so does
@@ -2204,6 +2403,7 @@ mod tests {
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", f.as_str()]
             .iter()
@@ -2239,6 +2439,7 @@ mod tests {
             udev_control: file.with_file_name("no-udev"),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let out = outcome_on(&[], &host);
         assert_eq!(out.status, 1);
@@ -2314,6 +2515,7 @@ mod tests {
             udev_control: file.clone(),
             roots: nowhere(),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         for named in [&file, &link] {
             let out = outcome_on(&[named.to_str().unwrap()], &host);
@@ -2346,6 +2548,7 @@ mod tests {
             udev_control: anchor.clone(),
             roots: nowhere(),
             frits: frits.clone(),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let mut files: Vec<PathBuf> = std::fs::read_dir(docs)
             .unwrap()
@@ -2548,6 +2751,7 @@ mod tests {
             udev_control: file.clone(),
             roots: stand_in_machine(file.parent().unwrap()),
             frits: PathBuf::from("/nonexistent/vtium/frits"),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
         };
         let out = outcome_on(&[file.to_str().unwrap()], &host);
         assert_eq!((out.status, out.stderr), (0, Vec::new()));
@@ -2585,6 +2789,7 @@ mod tests {
         let machine = Machine {
             udev_daemon: false,
             devices: Some(&[]),
+            vts: VtsEnabled::FileAlone,
         };
         let out = conf_file(&file, false, &trust, &machine, &caps(4));
         std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
