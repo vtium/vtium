@@ -602,8 +602,8 @@ fn the_starts_links_and_tags_are_sorted_whatever_order_libudev_joins_them() {
     );
 }
 
-/// padnoir's NVIDIA card as udev announces it once set up: the card at
-/// minor 0, its PCI path in `ID_PATH`.
+/// An NVIDIA card as udev announces it once set up: the card at minor 0,
+/// its PCI path in `ID_PATH`.
 fn nvidia_card0() -> Uevent {
     Uevent {
         syspath: String::from("/sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0/drm/card0"),

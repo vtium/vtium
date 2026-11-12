@@ -2254,7 +2254,7 @@ mod tests {
 
     use crate::console::{Enabled, Mode};
 
-    /// The test laptop's file: a head with no `vt` and a head on `vts`.
+    /// A laptop's file: a head with no `vt` and a head on `vts`.
     fn two_heads_on(vts: &str) -> String {
         format!(
             "version = 1\n[head console]\n[head terminal-1]\nvt = {vts}\n[rules]\ndisplay card:card1 -> terminal-1\ndisplay * -> console\n"

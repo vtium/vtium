@@ -30,10 +30,9 @@ const fn dev(role: &'static str, [ev, key, rel, abs, props, tags]: [&'static str
     }
 }
 
-/// Every event node of the operator's machine, read on 2026-10-29 from
-/// sysfs by a 64-bit process and `udevadm info` without privilege, under
-/// systemd 262's udev:
-/// ADR-1401's Evidence devices and the rest of the machine.
+/// Every event node of one desktop machine, as sysfs shows them to a 64-bit
+/// process and `udevadm info` shows them without privilege, under systemd
+/// 262's udev: ADR-1401's Evidence devices and the rest of the machine.
 const MACHINE: &[Recorded] = &[
     dev(
         "keyboard A",
