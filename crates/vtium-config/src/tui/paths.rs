@@ -1992,7 +1992,7 @@ pub(crate) mod tests {
     #[test]
     fn composing_the_default_from_parts_writes_the_shipped_default() {
         // n starts a configuration with no terminal and no rule
-        let empty = crate::ops::new_text(crate::drafts::EXAMPLE);
+        let empty = crate::ops::new_text(crate::drafts::HEADER);
         let f = build(&empty);
         let doc = read(&f);
         assert!(doc.paths.is_empty());
@@ -2148,7 +2148,7 @@ pub(crate) mod tests {
 
     #[test]
     fn no_input_writes_isolated_and_no_terminal_writes_off_and_ignore() {
-        let empty = crate::ops::new_text(crate::drafts::EXAMPLE);
+        let empty = crate::ops::new_text(crate::drafts::HEADER);
         let f = build(&empty);
         let doc = read(&f);
         // a kiosk: a display, a terminal, and no input
