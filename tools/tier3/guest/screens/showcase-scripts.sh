@@ -5,15 +5,21 @@
 # tone marks above and below its letters. Hindi and Bengali join their
 # consonants and place each vowel sign before, after, above or below its
 # letter. Arabic and Hebrew run right to left: each of those two lines starts
-# at the right edge, and the Arabic letters join into words. Amharic is
+# at the right edge, and the Arabic letters join into words. Two lines mix
+# the directions in one paragraph: an Arabic sentence that carries a Latin
+# abbreviation and numbers, which read left to right inside it, and an
+# English sentence that quotes Hebrew, which reads right to left inside it.
+# Amharic is
 # written in the Ethiopic script, and Armenian, Georgian, Latin, Greek and
 # Cyrillic carry their own letters and accents.
 # alt: A console screen listing the first sentence of the Universal
 # alt: Declaration of Human Rights under the English sentence, each beside the
 # alt: name of its language: Chinese, Japanese and Korean; Thai and
 # alt: Vietnamese; Hindi and Bengali; Arabic and Hebrew, whose lines run from
-# alt: the right edge, the language's name at the right; Amharic, Armenian and
-# alt: Georgian; then French, German, Polish, Greek and Russian.
+# alt: the right edge, the language's name at the right; an Arabic sentence
+# alt: from the right edge holding the Latin letters UDHR in brackets and the
+# alt: year 1948, and an English sentence quoting three Hebrew words; Amharic,
+# alt: Armenian and Georgian; then French, German, Polish, Greek and Russian.
 
 # The sentences are copied from the UDHR in Unicode project,
 # github.com/eric-muller/udhr at commit
@@ -30,6 +36,13 @@
 # its sentence with the Ethiopic full stop, and Hindi and Bengali with the
 # danda. Tamil is left out: its first sentence runs to more than 200
 # characters, longer than a line of this screen.
+#
+# The two mixed lines are vtium's own. The Arabic one says "Article 1 of the
+# Universal Declaration of Human Rights (UDHR) of 1948", with the
+# Declaration's Arabic name as the UN gives it. The English one quotes the
+# first three words of the Hebrew sentence above. The sentences of the
+# languages that the acceptance walk's language pages also show are the same
+# text as tools/vt/sections/text/udhr-article1.tsv, which ShowcaseTest checks.
 
 # shellcheck source=tools/tier3/guest/screens/showcase.inc
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/showcase.inc"
@@ -44,7 +57,7 @@ line() { entry "$1" "$2"; echo; }
 # text, puts the default back for the paragraphs that follow, and changes
 # nothing on this line.
 rtl() { printf '%s[2 k' "$esc"; entry "$1" "$2"; printf '%s[0 k\n' "$esc"; }
-printf '\n  %sEnglish%s     %sAll human beings are born free and equal in dignity and rights.%s\n\n' \
+printf '  %sEnglish%s     %sAll human beings are born free and equal in dignity and rights.%s\n\n' \
 	"$d" "$o" "$h" "$o"
 line Chinese '人人生而自由，在尊严和权利上一律平等。'
 line Japanese 'すべての人間は、生まれながらにして自由であり、かつ、尊厳と権利とについて平等である。'
@@ -58,6 +71,8 @@ line Bengali 'সমস্ত মানুষ স্বাধীনভাবে 
 echo
 rtl Arabic 'يولد جميع الناس أحرارًا متساوين في الكرامة والحقوق.'
 rtl Hebrew 'כל בני אדם נולדו בני חורין ושווים בערכם ובזכויותיהם.'
+rtl Mixed 'المادة 1 من الإعلان العالمي لحقوق الإنسان (UDHR) لعام 1948.'
+line Mixed 'Article 1 in Hebrew opens with כל בני אדם, "all human beings".'
 echo
 line Amharic 'የሰው፡ልጅ፡ሁሉ፡ሲወለድ፡ነጻና፡በክብርና፡በመብትም፡እኩልነት፡ያለው፡ነው።'
 line Armenian 'Բոլոր մարդիկ ծնվում են ազատ ու հավասար իրենց արժանապատվությամբ ու իրավունքներով։'
@@ -68,4 +83,3 @@ line German 'Alle Menschen sind frei und gleich an Würde und Rechten geboren.'
 line Polish 'Wszyscy ludzie rodzą się wolni i równi pod względem swej godności i swych praw.'
 line Greek 'Όλοι οι άνθρωποι γεννιούνται ελεύθεροι και ίσοι στην αξιοπρέπεια και τα δικαιώματα.'
 line Russian 'Все люди рождаются свободными и равными в своем достоинстве и правах.'
-echo

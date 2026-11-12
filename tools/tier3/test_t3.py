@@ -5211,27 +5211,39 @@ class ShowcaseTest(unittest.TestCase):
         return out
 
     def test_scenes_show_only_what_vtium_draws_right(self):
-        # No scene draws bold, italic or blinking text, which vtium draws
-        # as the regular face widened, upright and blinking.
+        # No scene draws bold or blinking text, which vtium draws as the
+        # regular face widened and blinking. Italic is allowed: vtium slants
+        # the regular face where a font has no italic one.
         self.assertEqual(self.styles(b"\x1b[1;38;2;1;3;5m\x1b[3m\x1b[4:3;58:2::1:3:5m"),
                          {"1", "3", "4:3", "58:2::1:3:5"})
         for screen in self.SCREENS:
             with self.subTest(screen):
                 data = self.scene_bytes(screen)
                 self.assertGreater(len(data), 100)
-                self.assertFalse(self.styles(data) & {"1", "3", "5", "6"})
+                self.assertFalse(self.styles(data) & {"1", "5", "6"})
+
+    def test_text_and_fonts_scenes_show_the_styles(self):
+        # The outline text scene and each band of the fonts scene show
+        # italic, strike, dim, a curly underline, and raised and lowered text
+        # (SGR 73 and 74); the text scene also overline, and an underline and
+        # a strike on small text.
+        for screen in ["showcase-text"] + [s for s in self.SCREENS if "fonts-" in s]:
+            with self.subTest(screen):
+                styles = self.styles(self.scene_bytes(screen))
+                self.assertLessEqual({"3", "9", "2", "4:3", "73", "74"}, styles)
+        self.assertLessEqual({"53", "73;4", "74;9"}, set(re.findall(
+            r"\x1b\[([0-9;:]*)m", self.scene_bytes("showcase-text").decode())))
 
     def test_scripts_scene_runs_right_to_left_lines_from_the_right(self):
-        # The scripts scene writes Arabic, Hebrew, Devanagari, Bengali,
-        # Georgian and Ethiopic, each line holding one script; the danda,
-        # in the Devanagari block, ends Bengali sentences too. Each line that
-        # holds Arabic or Hebrew, and only such a line, starts with SCP 2,
-        # which makes its paragraph run right to left, and ends with SCP 0
-        # before its line feed, so the lines after it run left to right and
-        # the prompt after the scene starts at the left edge.
-        rtl = re.compile("[\u0590-\u06ff]")
-        scripts = {"Arabic": "[\u0600-\u06ff]", "Hebrew": "[\u0590-\u05ff]",
-                   "Hindi": "[\u0900-\u0963\u0966-\u097f]", "Bengali": "[\u0980-\u09ff]",
+        # The scripts scene writes Devanagari, Bengali, Georgian and
+        # Ethiopic each on one line; the danda, in the Devanagari block, ends
+        # Bengali sentences too. The Arabic and Hebrew lines and the Arabic
+        # mixed line, and no other, start with SCP 2, which makes the line's
+        # paragraph run right to left, and end with SCP 0 before the line
+        # feed, so the lines after them and the prompt run left to right. The
+        # mixed lines put Latin letters and digits beside Arabic, and
+        # Hebrew inside English.
+        scripts = {"Hindi": "[\u0900-\u0963\u0966-\u097f]", "Bengali": "[\u0980-\u09ff]",
                    "Georgian": "[\u10a0-\u10ff]", "Amharic": "[\u1200-\u137f]"}
         lines = self.scene_bytes("showcase-scripts").decode().split("\n")
         for name, script in scripts.items():
@@ -5239,15 +5251,43 @@ class ShowcaseTest(unittest.TestCase):
                 held = [line for line in lines if re.search(script, line)]
                 self.assertEqual(len(held), 1)
                 self.assertIn(name, held[0])
+        plain = [re.sub("\x1b\\[[0-9;]*[a-zA-Z ]*?[mk]", "", line).split(None, 1)
+                 for line in lines]
+        rtl = [p[0] for line, p in zip(lines, plain) if line.startswith("\x1b[2 k")]
+        self.assertEqual(rtl, ["Arabic", "Hebrew", "Mixed"])
+        mixed = [p[1] for p in plain if p and p[0] == "Mixed"]
+        self.assertEqual(len(mixed), 2)
+        self.assertRegex(mixed[0], "^[\u0600-\u06ff].*\\(UDHR\\).*1948")
+        self.assertRegex(mixed[1], "^Article .*[\u0590-\u05ff]")
         for line in lines:
             with self.subTest(line):
-                if rtl.search(line):
-                    self.assertTrue(line.startswith("\x1b[2 k"))
+                if line.startswith("\x1b[2 k"):
                     self.assertTrue(line.endswith("\x1b[0 k"))
                     self.assertEqual(line.count(" k"), 2)
                 else:
                     self.assertNotRegex(line, "\x1b\\[[0-9]* k")
         self.assertIn("bidi", t3_scenario.VARIANTS[self.VARIANT]["tree_features"])
+
+    def test_scripts_scene_shares_the_walks_sentences(self):
+        # Each language the acceptance walk's language pages show and the
+        # scripts scene shows has the same sentence in both, from
+        # tools/vt/sections/text/udhr-article1.tsv.
+        tsv = os.path.join(t3_common.ROOT, "tools", "vt", "sections", "text",
+                           "udhr-article1.tsv")
+        with open(tsv, encoding="utf-8") as f:
+            rows = [line.rstrip("\n").split("\t") for line in f if not line.startswith("#")]
+        # vietnamese-marks, the same sentence in NFD, shares its name's first
+        # word with vietnamese and is left out
+        walk = {row[1].split(",")[0]: row[2] for row in rows if row[0] != "vietnamese-marks"}
+        with open(os.path.join(t3_common.GUEST, "screens", "showcase-scripts.sh"),
+                  encoding="utf-8") as f:
+            scene = dict(re.findall(r"^(?:line|rtl) (\w+) '(.*)'$", f.read(), re.M))
+        shared = sorted(set(walk) & set(scene))
+        self.assertEqual(shared, ["Arabic", "Chinese", "Greek", "Hebrew", "Hindi", "Japanese",
+                                  "Korean", "Russian", "Thai", "Vietnamese"])
+        for name in shared:
+            with self.subTest(name):
+                self.assertEqual(scene[name], walk[name])
 
     def test_faults(self):
         # A font switch vtium did not take, pictures missing from the disc,
