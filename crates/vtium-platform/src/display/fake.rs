@@ -245,6 +245,10 @@ pub(crate) struct State {
     /// sets a mode on one is refused with EINVAL, and one that turns it
     /// off is taken.
     pub(crate) refused_modes: Vec<u32>,
+    /// Connectors the card refuses on one CRTC, each as (connector, CRTC):
+    /// a legacy CRTC set of that connector on that CRTC is refused with
+    /// EINVAL, as where the two together pass a bandwidth limit.
+    pub(crate) refused_on: Vec<(u32, u32)>,
     pub(crate) page_flips: Vec<(u32, u32)>,
     pub(crate) set_crtcs: Vec<(u32, u32, u32, Mode)>,
     /// The CRTCs the legacy calls turned off, in order.
@@ -1641,7 +1645,7 @@ impl Kms for FakeCard {
         if smaller_than(&s, fb, mode) {
             return Err(err(Errno::NOSPC));
         }
-        if s.refused.contains(&crtc) {
+        if s.refused.contains(&crtc) || s.refused_on.contains(&(connector, crtc)) {
             return Err(err(Errno::INVAL));
         }
         s.set_crtcs.push((crtc, fb, connector, *mode));

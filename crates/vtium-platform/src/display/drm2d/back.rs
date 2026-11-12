@@ -150,8 +150,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             o.cursor_set = None;
         }
-        self.move_refused
-            .retain(|id| !self.outputs.iter().any(|o| o.id.0 == *id));
     }
 
     /// The placements of the displays [`Self::relight`] tries, by index
@@ -166,7 +164,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// card's order of CRTCs. A display wants the CRTC the placement moved
     /// it off, and else the one it is on; it is lit there where the
     /// placement says so, and else where it is online.
-    fn placements(&self) -> Vec<Vec<usize>> {
+    pub(super) fn placements(&self) -> Vec<Vec<usize>> {
         let wants: Vec<(usize, bool)> = self
             .outputs
             .iter()

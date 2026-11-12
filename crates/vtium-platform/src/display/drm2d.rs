@@ -16,6 +16,7 @@ mod back;
 mod buffers;
 mod dark;
 mod left_off;
+mod legacy_search;
 mod matching;
 mod output;
 
@@ -182,9 +183,9 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     left_off: Vec<left_off::LeftOff>,
     /// The connectors whose display the card refused to set beside the
     /// others even with lit displays moved for it. Until such a connector
-    /// is unplugged, a hotplug moves no lit display for it, so the lit
-    /// displays do not blank at each hotplug for a display that cannot
-    /// light.
+    /// is unplugged or a modeset lights its display, a hotplug moves no lit
+    /// display for it and no search tries it again, so the lit displays do
+    /// not blank at each hotplug for a display that cannot light.
     move_refused: Vec<u32>,
     /// The CRTCs that owe the event of a flip whose display was let go while
     /// the flip was in flight, one entry for each such flip, oldest first,
@@ -2350,6 +2351,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             if self.card.removed() {
                 return Err(Errno::NODEV.into());
             }
+            // The card refused displays where they are placed: another
+            // placement of them all, one that moves a lit display included,
+            // may light them ([`Self::legacy_relight`]).
+            unset = self.legacy_relight(unset);
+            if self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
             // The moved displays whose set failed. One new to the modeset
             // among them never goes back, as `going_back` leaves it out.
             let failed: Vec<(DisplayId, bool)> = unset
@@ -2448,12 +2456,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         };
         self.unset = unset;
         if set.is_ok() {
-            // Each display set is on its new CRTC for good.
+            // Each display set is on its new CRTC for good, and lit, so no
+            // record of the card refusing it is needed any more.
             for o in self.outputs.iter_mut() {
                 if !self.unset.contains(&o.id) {
                     o.moved_from = None;
                 }
             }
+            let lit: Vec<u32> = self
+                .outputs
+                .iter()
+                .filter(|o| !self.unset.contains(&o.id))
+                .map(|o| o.id.0)
+                .collect();
+            self.move_refused.retain(|id| !lit.contains(id));
             // A modeset brings every display on.
             self.blanked = false;
             self.owed = false;

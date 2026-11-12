@@ -6834,6 +6834,125 @@ fn a_display_no_placement_lights_is_recorded_and_searched_for_no_more() {
     assert_eq!(v.move_refused, [B]);
 }
 
+// With the legacy calls, a wake-up that moved a display to a CRTC the card
+// refuses moves a lit display where that lights every display, as the
+// atomic search does (vtium/vtium#298). In the card of `woken_beside_c`
+// without C, the wake-up puts A on 101, as B holds 100, and the card
+// refuses 101. B moves to 102 alone first, then A takes 100, and both
+// light: no display is left unset, and no retry runs.
+#[test]
+fn a_legacy_wake_up_moves_a_lit_display_where_that_lights_every_display() {
+    let (woke, outs, unset, refused, events, retries) = woken_beside_c(false, false, &[101]);
+    assert!(woke.is_ok(), "{woke:?}");
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(unset, Vec::<u32>::new());
+    assert_eq!(refused, Vec::<u32>::new());
+    assert_eq!(
+        events,
+        [
+            Event::Redraw(DisplayId(A)),
+            Event::Redraw(DisplayId(B)),
+            Event::Awake
+        ]
+    );
+    assert!(!retries);
+}
+
+// With the legacy calls, a display plugged in that can light only where a
+// lit display moves off a CRTC the card does not refuse lights at the
+// hotplug, as in the atomic test above (vtium/vtium#298). B is lit on 100
+// and drives 100 and 102; A, plugged in, drives 100 and 101, and the card
+// refuses 101. B moves to 102 and shows the frame it showed before, and A
+// lights on 100.
+#[test]
+fn a_legacy_hotplug_moves_a_lit_display_where_the_card_refuses_the_free_crtc() {
+    let card = reaching(&[0b011, 0b101, 0b100], 2);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, B, 0x55);
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.refused.push(101);
+    }
+    v.poll().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 100), (B, 102)]);
+    assert_eq!(v.unset, Vec::<DisplayId>::new());
+    let s = v.card().state();
+    assert_eq!(
+        [A, B].map(|c| s.bound.get(&c).copied()),
+        [Some(100), Some(102)]
+    );
+    let b = s.set_crtcs.iter().rev().find(|set| set.2 == B).unwrap();
+    assert_eq!((b.0, b.1), (102, shown), "B shows its frame on 102");
+}
+
+// With the legacy calls there is no test-only commit, so the search moves
+// a lit display only by setting it alone on its new CRTC, and a lit display
+// it moves stays lit. B is lit on 100 and drives 100, 102 and 103; A,
+// plugged in, drives 100 and 101; the card refuses 101, and A on 100. The
+// placements that keep A on 101 are skipped, as the card refused A there.
+// B moves to 102 and lights there, and the card refuses A on 100. The next
+// placement would move B again, to 103, and is skipped. So B blanks once,
+// never ends dark, and stays lit on 102 with its frame; A stays unset and
+// is recorded, so the next hotplug searches no more for it and does not
+// move B.
+#[test]
+fn the_legacy_search_moves_a_lit_display_once_and_never_leaves_it_dark() {
+    let card = reaching(&[0b0011, 0b1101, 0b0100, 0b1000], 2);
+    {
+        let mut s = card.state();
+        s.atomic = false;
+        s.listed.retain(|&c| c == B);
+        s.bind(B, 100);
+    }
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let shown = drawn(&mut v, B, 0x55);
+    let before = v.card().state().set_crtcs.len();
+    {
+        let mut s = v.card().state();
+        s.listed.insert(0, A);
+        s.refused.push(101);
+        s.refused_on.push((A, 100));
+    }
+    v.poll().unwrap();
+    let sets = |v: &Drm2d<FakeCard>, conn: u32, from: usize| -> Vec<u32> {
+        v.card().state().set_crtcs[from..]
+            .iter()
+            .filter(|set| set.2 == conn)
+            .map(|set| set.0)
+            .collect()
+    };
+    assert_eq!(sets(&v, B, before), [100, 102], "B moves once");
+    let ev = events(&mut v);
+    assert!(!ev.contains(&Event::Removed(DisplayId(B))), "{ev:?}");
+    let s = v.card().state();
+    assert_eq!(s.bound.get(&B), Some(&102), "B stays lit on 102");
+    assert!(s.active.get(&102).copied().unwrap_or(false));
+    let b = s.set_crtcs.iter().rev().find(|set| set.2 == B).unwrap();
+    assert_eq!(b.1, shown, "B shows its frame");
+    drop(s);
+    let outs: Vec<(u32, u32)> = v.outputs.iter().map(|o| (o.id.0, o.crtc)).collect();
+    assert_eq!(outs, [(A, 101), (B, 102)]);
+    assert_eq!(v.unset, [DisplayId(A)]);
+    assert_eq!(v.move_refused, [A]);
+    let again = v.card().state().set_crtcs.len();
+    v.poll().unwrap();
+    assert!(
+        sets(&v, B, again).iter().all(|&c| c == 102),
+        "{:?}",
+        sets(&v, B, again)
+    );
+    assert!(!sets(&v, A, again).contains(&100), "no search");
+}
+
 // A display left off while its monitor is still plugged in stays present
 // but dark (ADR-1401 D8, vtium/vtium#298). In the card of `woken_beside_c`
 // without C, the card refuses 101 and 102, so no placement lights A beside
