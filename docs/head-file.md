@@ -129,7 +129,7 @@ A keyboard can disturb another person's session by several routes. Each route ha
 | Route | Disturbs | Governed by |
 |---|---|---|
 | The VT keys, `Ctrl-Alt-F<n>` and `XF86Switch_VT_<n>` | every display, which leaves for another VT | the `isolated` of the head the keyboard asks. A roaming keyboard asks no head when there is no active head |
-| The console chords | the console the head shows | the head's `consoles`, a fixed count that the chords switch among. With 1, there is nothing to switch |
+| The console chords | the console the head shows | the head's `consoles`, the number of consoles the head starts with, which the chords switch among. Under the closed policy that number never changes, so with 1 there is nothing to switch. Under the open policy, `Ctrl-Super-Return` and `Ctrl-Super-Backspace` open and close consoles within the caps |
 | The roaming chord | where the roaming keyboards type | taken only from roaming keyboards |
 | Enter on a keyboard of a head on another VT | every display, which leaves for that head's VT | the head's `switch-on-enter`, off unless set, and its `isolated`. It works only under the open policy |
 | The rescue key | takes a keyboard off its head, or makes an ignored one roam | the policy: on under open and off under closed. Under open, also the head's `isolated` |
@@ -182,4 +182,4 @@ The panic screen means that vtium has started correctly but can serve nothing. T
 
 The screen stays for as long as vtium runs. `check-config` rebuilds the full report from the file itself. You can run it over ssh, or from a live USB with the disk mounted.
 
-That failure is final by design. vtium keeps no copy of the file and no last-known-good version of it. So check a closed file before you rely on it, with `vtium check-config FILE` or `vtium config check FILE`. A trial that applies a candidate and reverts it unless you confirm it is not built yet. See [the issue that tracks it](https://github.com/vtium/vtium/issues/367).
+That failure is final by design. vtium keeps no copy of the file and no last-known-good version of it. So check a closed file before you rely on it, with `vtium check-config FILE` or `vtium config check FILE`. A trial that applies a candidate and reverts it unless you confirm it is not built yet. See [the issue that tracks it](https://github.com/vtium/vtium/issues/331).

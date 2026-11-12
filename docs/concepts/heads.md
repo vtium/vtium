@@ -2,7 +2,7 @@
 
 This page describes how vtium drives several displays from one VT. Two parts of it are still to come. The first is a reload of vtium.conf that keeps the sessions running. [The reload issue](https://github.com/vtium/vtium/issues/86) tracks it. The second is a trial that applies an installed configuration and goes back to the previous one unless you confirm it. [The trial issue](https://github.com/vtium/vtium/issues/331) tracks it.
 
-The kernel shows the same VT on every display. So vtium stays on its one VT, and it drives every display from one process, as a set of heads. A head is a terminal for one or more displays. Each head has its own inputs, its own look and a fixed number of consoles. A look is the font and the font settings a head draws with, and a console is a session of its own. For example, a small panel and a large monitor can each have a head with a grid sized for that display. Each display can also have a keyboard that types into its head.
+The kernel shows the same VT on every display. So vtium stays on its one VT, and it drives every display from one process, as a set of heads. A head is a terminal for one or more displays. Each head has its own inputs, its own look and its own consoles. A look is the font and the font settings a head draws with, and a console is a session of its own. For example, a small panel and a large monitor can each have a head with a grid sized for that display. Each display can also have a keyboard that types into its head.
 
 You declare the heads in sections of vtium's configuration file, `/etc/vtium/vtium.conf`. The sections come below the file's settings. They declare three things: the heads, the look each head draws with, and an ordered list of rules. vtium reads the rules the way a firewall reads its rules. It checks each display and each keyboard or pointer against the rules from the top. The first rule that matches decides where the device goes. A rule can place the device in a head, take it out of use, or make it roam. A roaming keyboard types into the active head, and a key chord moves the active head from one head to another.
 
@@ -22,7 +22,7 @@ A file that declares `policy = closed` is the exception. When no part of a close
 
 Under the open policy, two guards keep you from locking yourself out, whatever the rules say:
 
-- The anti-lockout guard makes a keyboard roam when that keyboard reaches no lit head. A head is lit when at least one of its displays is on.
+- The anti-lockout guard makes every keyboard roam while no keyboard at all reaches a lit head. A head is lit when at least one of its displays is on.
 - The rescue key is `Ctrl-Alt-F<n>` for the VT that is already on screen. It makes the keyboard that pressed it roam until the next boot.
 
 Each head is a terminal of its own. Ctrl-Super-Up makes the next lit head the active head, and Ctrl-Super-Down makes the previous lit head the active head. Each head then shows a mark in its top-right corner for a few seconds. The mark is filled on the active head. A keyboard that a rule gives to a head keeps typing into that head when the active head moves.
