@@ -1,0 +1,6 @@
+# The sentences over 30 words that docs/scripts/prose lets stay.
+# Each entry is one line of three fields separated by tabs:
+# PAGE<TAB>SENTENCE<TAB>REASON
+# PAGE is the page's path from the top of the checkout. SENTENCE is the
+# sentence exactly as docs/scripts/prose prints it. REASON says why the
+# sentence stays over 30 words, for example because it quotes a long string.
