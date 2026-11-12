@@ -95,7 +95,7 @@ input path:pci-0000:15:00.0-usb-0:3.2 -> admin
 input path:pci-0000:15:00.0-usb-0:3.3 -> roaming
 ```
 
-![vtium-config's Flow view of the kiosk file, under policy closed. The first row joins the monitor DP-1, KIOSK00001 by EDID, to the head kiosk, default font set, every VT, and the keyboards on USB 3.1 to kiosk. The second row joins the monitor HDMI-A-1, ADMIN00001 by EDID, to the head admin, and the keyboards on USB 3.2 to admin, with a dotted line from the words roaming inputs. The row ROAMING joins the inputs on USB 3.3 to the dotted box Active terminal.](../figures/concepts-flow-kiosk-admin.png)
+![vtium-config's Flow view of the kiosk file, under policy closed. The first row joins the monitor DP-1, KIOSK00001 by EDID, to the head kiosk, default font set, every VT, and the keyboards on USB 3.1 to kiosk, with no roaming inputs line. The second row joins the monitor HDMI-A-1, ADMIN00001 by EDID, to the head admin, and the keyboards on USB 3.2 to admin, with a dotted line from the words roaming inputs. The row ROAMING joins the inputs on USB 3.3 to the dotted box Active terminal.](../figures/concepts-flow-kiosk-admin.png)
 
 The picture shows the file on a machine with both monitors and two keyboards connected. Port 3.3 is empty.
 
@@ -103,7 +103,7 @@ The picture shows the file on a machine with both monitors and two keyboards con
 - The second row is the head `admin`, with the monitor ADMIN00001 on HDMI-A-1 and the keyboard on port 3.2.
 - The row ROAMING holds USB port 3.3, the spare port.
 
-The head `kiosk` does not set `isolated`, so under the closed policy it is isolated. The head `admin` sets `isolated = no`, so it is the only head that can be the active head. The words roaming inputs beside `admin` show that. So a keyboard plugged into port 3.3 types into `admin`.
+The head `kiosk` does not set `isolated`, so under the closed policy it is isolated. That is why the picture draws no roaming inputs line beside it. The head `admin` sets `isolated = no`, so it is the only head that can be the active head. The words roaming inputs appear beside `admin` alone. So a keyboard plugged into port 3.3 types into `admin`.
 
 Under the closed policy, vtium ignores a keyboard on any other port, and its keys reach no session. So a keyboard plugged into a port other than 3.1, 3.2 or 3.3 types into nothing. [heads.md](../heads.md#a-kiosk-with-an-operators-head) lists what to expect from this file.
 

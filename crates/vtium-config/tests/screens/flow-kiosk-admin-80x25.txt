@@ -3,16 +3,15 @@
  policy closed: vtium ignores a keyboard that no rule names
  CONFIGURATION
  DISPLAYS               TERMINALS                                INPUTS
- ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐
- ┃ DP-1         ┃━━━━━━▶│ kiosk                        │◄─┬──────│ keyboards… │
- ┃ KIOSK00001 … ┃       │ default font set · every VT  │  ┆      │ every inp… │
- ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘  ┆      └────────────┘
-                                                          └┄┄┄┄┄┄roaming inputs
-
  ┌──────────────┐       ┌──────────────────────────────┐         ┌────────────┐
- │ HDMI-A-1     │──────►│ admin                        │◄─┬──────│ keyboards… │
- │ ADMIN00001 … │       │ default font set · every VT  │  ┆      │ every inp… │
- └──────────────┘       └──────────────────────────────┘  ┆      └────────────┘
+ │ DP-1         │──────►│ kiosk                        │◄────────│ keyboards… │
+ │ KIOSK00001 … │       │ default font set · every VT  │         │ every inp… │
+ └──────────────┘       └──────────────────────────────┘         └────────────┘
+
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐
+ ┃ HDMI-A-1     ┃━━━━━━▶│ admin                        │◄─┬──────│ keyboards… │
+ ┃ ADMIN00001 … ┃       │ default font set · every VT  │  ┆      │ every inp… │
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘  ┆      └────────────┘
                                                           └┄┄┄┄┄┄roaming inputs
 
                         ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐         ┌────────────┐
@@ -22,4 +21,5 @@
  terminal.
 
  ──────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
  ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

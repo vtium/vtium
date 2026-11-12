@@ -3,16 +3,15 @@
  policy closed: vtium ignores a keyboard that no rule names
  CONFIGURATION
  DISPLAYS                            TERMINALS                                     INPUTS
- ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
- ┃ DP-1                  ┃━━━━━━━━━━▶│ kiosk                        │◄─┬───────────│ keyboards on USB 3.1             │
- ┃ KIOSK00001 · by EDID  ┃           │ default font set · every VT  │  ┆           │ every input on that port         │
- ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘  ┆           └──────────────────────────────────┘
-                                                                       └┄┄┄┄┄┄┄┄┄┄┄roaming inputs
-
  ┌───────────────────────┐           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
- │ HDMI-A-1              │──────────►│ admin                        │◄─┬───────────│ keyboards on USB 3.2             │
- │ ADMIN00001 · by EDID  │           │ default font set · every VT  │  ┆           │ every input on that port         │
- └───────────────────────┘           └──────────────────────────────┘  ┆           └──────────────────────────────────┘
+ │ DP-1                  │──────────►│ kiosk                        │◄─────────────│ keyboards on USB 3.1             │
+ │ KIOSK00001 · by EDID  │           │ default font set · every VT  │              │ every input on that port         │
+ └───────────────────────┘           └──────────────────────────────┘              └──────────────────────────────────┘
+
+ ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ ┃ HDMI-A-1              ┃━━━━━━━━━━▶│ admin                        │◄─┬───────────│ keyboards on USB 3.2             │
+ ┃ ADMIN00001 · by EDID  ┃           │ default font set · every VT  │  ┆           │ every input on that port         │
+ ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘  ┆           └──────────────────────────────────┘
                                                                        └┄┄┄┄┄┄┄┄┄┄┄roaming inputs
 
                                      ┌┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┐              ┌──────────────────────────────────┐
@@ -29,4 +28,5 @@
 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  PARTS
+ DISPLAYS
  ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit
