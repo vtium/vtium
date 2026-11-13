@@ -3265,6 +3265,7 @@ impl App {
         let release = Key {
             event: TermKeyEvent::Release,
             unshifted: key.unshifted,
+            shifted: key.shifted,
             base: key.base,
             ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
         };
@@ -3548,6 +3549,7 @@ impl App {
         let pressed = Key {
             event,
             unshifted: key.unshifted,
+            shifted: key.shifted,
             base: key.base,
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
@@ -6061,6 +6063,7 @@ mod tests {
             keycode: 0,
             ascii: 0,
             unshifted: 0,
+            shifted: 0,
             base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
@@ -6102,6 +6105,7 @@ mod tests {
                 keycode: 0,
                 ascii: 0,
                 unshifted: 0,
+                shifted: 0,
                 base: None,
                 mods,
                 keysyms: vec![keysym],
@@ -6153,6 +6157,7 @@ mod tests {
                 keycode: 0,
                 ascii: 0,
                 unshifted: 0,
+                shifted: 0,
                 base: None,
                 mods,
                 keysyms: vec![keysym],
@@ -6208,6 +6213,7 @@ mod tests {
             keycode: 0,
             ascii: 0,
             unshifted: 0,
+            shifted: 0,
             base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
@@ -6644,6 +6650,7 @@ mod tests {
             keycode: 0,
             ascii: 0,
             unshifted: 0,
+            shifted: 0,
             base: None,
             mods: InputMods::empty(),
             keysyms: vec![keysym],
@@ -6715,6 +6722,7 @@ mod tests {
             keycode: 0,
             ascii: 0,
             unshifted: 0,
+            shifted: 0,
             base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],

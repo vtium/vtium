@@ -53,6 +53,13 @@ pub struct KeyEvent {
     /// stands for a character is given as that character's Unicode keysym,
     /// 0x1000000 plus the code point, which names the same symbol.
     pub unshifted: u32,
+    /// The keysym the key makes at its Shift level in the active layout,
+    /// the shifted key, given as `unshifted` is, or 0 (`NoSymbol`) where
+    /// the layout has no such level for the key or a modifier the kitty
+    /// keyboard protocol cannot encode chose the key's level. With Caps
+    /// Lock on, Shift+A makes a, and the shifted key is still A
+    /// (ADR-1005, D9).
+    pub shifted: u32,
     /// The character the key types on the US PC-101 layout, which is the
     /// base layout key, from the kernel's key code; `None` for a key that
     /// layout does not type a character with (ADR-1005, D9).

@@ -81,6 +81,7 @@ fn key(mods: Mods, keysym: u32, repeat: bool) -> InputEvent {
         keycode: 0,
         ascii: 0,
         unshifted: 0,
+        shifted: 0,
         base: None,
         mods,
         keysyms: vec![keysym],

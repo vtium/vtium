@@ -268,6 +268,7 @@ mod tests {
                 keycode,
                 ascii: 0,
                 unshifted: 0,
+                shifted: 0,
                 base: None,
                 mods,
                 keysyms: vec![keysym],

@@ -559,6 +559,7 @@ impl Keyboard {
             keycode: keycode.raw(),
             ascii: self.ascii(keycode, syms),
             unshifted: self.unshifted(keycode),
+            shifted: self.shifted(keycode),
             base: base_layout_key(keycode.raw().wrapping_sub(EVDEV_KEYCODE_OFFSET)),
             mods: self.mods(),
             keysyms: syms.iter().map(|s| s.raw()).collect(),
@@ -680,6 +681,35 @@ impl Keyboard {
             [sym] => unicode_keysym(sym.raw()),
             _ => keysyms::KEY_NoSymbol,
         }
+    }
+
+    /// The shifted key: the one keysym the key makes at the level of its
+    /// layout that Shift alone chooses, or 0 where no level is Shift's
+    /// alone, or where a modifier the kitty keyboard protocol cannot
+    /// encode chose the key's level, as [`Self::unshifted`] says.
+    fn shifted(&self, keycode: Keycode) -> u32 {
+        if self.unshifted(keycode) == keysyms::KEY_NoSymbol {
+            return keysyms::KEY_NoSymbol;
+        }
+        let keymap = self.state.get_keymap();
+        let shift = match keymap.mod_get_index(xkb::MOD_NAME_SHIFT) {
+            xkb::MOD_INVALID => return keysyms::KEY_NoSymbol,
+            i => 1u32.checked_shl(i).unwrap_or(0),
+        };
+        let layout = self.state.key_get_layout(keycode);
+        (0..keymap.num_levels_for_key(keycode, layout))
+            .find(|&level| {
+                let mut masks = [0; 8];
+                let n = keymap.key_get_mods_for_level(keycode, layout, level, &mut masks);
+                masks.get(..n).is_some_and(|m| m.contains(&shift))
+            })
+            .and_then(
+                |level| match keymap.key_get_syms_by_level(keycode, layout, level) {
+                    [sym] => Some(unicode_keysym(sym.raw())),
+                    _ => None,
+                },
+            )
+            .unwrap_or(keysyms::KEY_NoSymbol)
     }
 
     /// The LEDs the xkb state lights.

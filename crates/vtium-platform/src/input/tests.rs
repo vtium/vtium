@@ -1940,3 +1940,122 @@ fn a_symbol_altgr_chose_reports_no_unshifted_key() {
     );
     assert_eq!(k.get(3), Some(&(keysyms::KEY_Q, keysyms::KEY_q, Some('q'))));
 }
+
+// ADR-1005 D9: a key reports the keysym it makes at the level Shift alone
+// chooses, the shifted key. With Caps Lock on, Shift+A makes a, and its
+// shifted key is still A, as the kitty keyboard protocol's "Key codes"
+// asks for the shifted key while Shift is held. A symbol AltGr chose
+// reports no shifted key, as it reports no unshifted key.
+// covers: input.kitty-keyboard
+#[test]
+fn a_key_reports_its_shifted_key() {
+    let (mut input, node, id) = with_edited_keymap(&[(
+        "key <AD01> { [ q, Q ] };",
+        "key <AD01> { type= \"FOUR_LEVEL\", [ q, Q, at, Greek_OMEGA ] };",
+    )]);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_1),
+            release(KEY_1),
+            press(KEY_CAPSLOCK),
+            release(KEY_CAPSLOCK),
+            press(KEY_LEFTSHIFT),
+            press(KEY_A),
+            release(KEY_A),
+            release(KEY_LEFTSHIFT),
+            press(KEY_CAPSLOCK),
+            release(KEY_CAPSLOCK),
+            press(KEY_LEVEL3),
+            press(KEY_Q),
+            release(KEY_Q),
+            release(KEY_LEVEL3),
+        ],
+    );
+    let shifted: Vec<_> = keys(&mut input)
+        .iter()
+        .map(|k| (k.keysyms.first().copied().unwrap_or(0), k.shifted))
+        .collect();
+    assert_eq!(
+        shifted.first(),
+        Some(&(keysyms::KEY_1, keysyms::KEY_exclam))
+    );
+    assert!(
+        shifted.contains(&(keysyms::KEY_a, keysyms::KEY_A)),
+        "Caps Lock and Shift make a, whose shifted key is A: {shifted:x?}"
+    );
+    assert_eq!(
+        shifted.last(),
+        Some(&(keysyms::KEY_at, keysyms::KEY_NoSymbol))
+    );
+}
+
+// ADR-1005 D9: the base layout key of every evdev key code the table
+// names, against the names of linux/input-event-codes.h, and none for the
+// codes around them.
+// covers: input.kitty-keyboard
+#[test]
+fn the_base_layout_table_follows_the_kernels_key_names() {
+    use super::keyboard::base_layout_key;
+    const NAMED: [(&str, u32, char); 48] = [
+        ("KEY_1", 2, '1'),
+        ("KEY_2", 3, '2'),
+        ("KEY_3", 4, '3'),
+        ("KEY_4", 5, '4'),
+        ("KEY_5", 6, '5'),
+        ("KEY_6", 7, '6'),
+        ("KEY_7", 8, '7'),
+        ("KEY_8", 9, '8'),
+        ("KEY_9", 10, '9'),
+        ("KEY_0", 11, '0'),
+        ("KEY_MINUS", 12, '-'),
+        ("KEY_EQUAL", 13, '='),
+        ("KEY_Q", 16, 'q'),
+        ("KEY_W", 17, 'w'),
+        ("KEY_E", 18, 'e'),
+        ("KEY_R", 19, 'r'),
+        ("KEY_T", 20, 't'),
+        ("KEY_Y", 21, 'y'),
+        ("KEY_U", 22, 'u'),
+        ("KEY_I", 23, 'i'),
+        ("KEY_O", 24, 'o'),
+        ("KEY_P", 25, 'p'),
+        ("KEY_LEFTBRACE", 26, '['),
+        ("KEY_RIGHTBRACE", 27, ']'),
+        ("KEY_A", 30, 'a'),
+        ("KEY_S", 31, 's'),
+        ("KEY_D", 32, 'd'),
+        ("KEY_F", 33, 'f'),
+        ("KEY_G", 34, 'g'),
+        ("KEY_H", 35, 'h'),
+        ("KEY_J", 36, 'j'),
+        ("KEY_K", 37, 'k'),
+        ("KEY_L", 38, 'l'),
+        ("KEY_SEMICOLON", 39, ';'),
+        ("KEY_APOSTROPHE", 40, '\''),
+        ("KEY_GRAVE", 41, '`'),
+        ("KEY_BACKSLASH", 43, '\\'),
+        ("KEY_Z", 44, 'z'),
+        ("KEY_X", 45, 'x'),
+        ("KEY_C", 46, 'c'),
+        ("KEY_V", 47, 'v'),
+        ("KEY_B", 48, 'b'),
+        ("KEY_N", 49, 'n'),
+        ("KEY_M", 50, 'm'),
+        ("KEY_COMMA", 51, ','),
+        ("KEY_DOT", 52, '.'),
+        ("KEY_SLASH", 53, '/'),
+        ("KEY_SPACE", 57, ' '),
+    ];
+    for (name, code, c) in NAMED {
+        assert_eq!(base_layout_key(code), Some(c), "{name}, {code}");
+    }
+    let named: Vec<u32> = NAMED.iter().map(|&(_, code, _)| code).collect();
+    for code in 0..=255 {
+        if !named.contains(&code) {
+            assert_eq!(base_layout_key(code), None, "the key code {code}");
+        }
+    }
+}
