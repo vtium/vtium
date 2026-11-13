@@ -14,8 +14,8 @@ use std::time::Duration;
 
 use vtium_config::serve::{
     ASK, ASK_PARTS, FILL, FRAME_DONE, FRAME_FAILED, FRAME_FILL, FRAME_FILLED, FRAME_GLYPHS,
-    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_STOPPED, FritText, OWN_CELL,
-    Paths, STOP, ServeRequest, serve,
+    FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX, FRAME_STOPPED, FritText,
+    OWN_CELL, Paths, SANDBOX_DOMAIN, SANDBOX_FALLBACK, SANDBOX_SOCKETS, STOP, ServeRequest, serve,
 };
 use vtium_font::set::{Set, SetFace};
 use vtium_font::{Cell, Face};
@@ -126,17 +126,111 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
         .read_to_string(&mut err)
         .unwrap();
     assert!(status.success(), "{status}: {err}");
-    let mut kinds = Vec::new();
-    let mut rest = &out[..];
-    while rest.len() >= 8 {
-        let kind = u32::from_le_bytes(rest[..4].try_into().unwrap());
-        let len = u32::from_le_bytes(rest[4..8].try_into().unwrap()) as usize;
-        kinds.push(kind);
-        rest = &rest[8 + len..];
-    }
-    assert!(rest.is_empty());
-    assert_eq!(kinds.first(), Some(&FRAME_GLYPHS));
+    let frames = frames(&out);
+    let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+    // the sandbox's report leads the first answer: the socket filter, and
+    // the landlock domain or, on a kernel without landlock, the fallback
+    // filter in its place
+    assert_eq!(kinds[..2], [FRAME_SANDBOX, FRAME_GLYPHS], "{kinds:?}");
     assert_eq!(kinds.last(), Some(&FRAME_DONE));
+    let parts = u32::from_le_bytes(frames[0].1[..].try_into().unwrap());
+    assert_ne!(parts & SANDBOX_SOCKETS, 0, "{parts:#b}");
+    assert_eq!(
+        (parts & SANDBOX_DOMAIN).count_ones() + (parts & SANDBOX_FALLBACK).count_ones(),
+        1,
+        "{parts:#b}"
+    );
+}
+
+// on a kernel without landlock the helper installs its fallback filter in
+// place of the domain, says so in its report, and still reads a font file
+// and answers (ADR-1200 D15, the maintainer, 2026-11-13). A thread of the
+// test makes landlock_create_ruleset answer ENOSYS, as such a kernel does,
+// and the helper it starts inherits that filter; the helper then runs
+// under three filters: that one, its socket filter and its fallback filter
+#[test]
+#[expect(
+    clippy::unwrap_used,
+    clippy::indexing_slicing,
+    reason = "a test fails by panicking"
+)]
+fn the_helper_without_landlock_answers_under_its_fallback_filter() {
+    if let Some(why) = vtium_testscript::qemu_without_seccomp() {
+        eprintln!("skipped: {why}");
+        return;
+    }
+    if !vtium_config::seccomp::BUILT {
+        eprintln!("skipped: vtium has no seccomp filter for this architecture");
+        return;
+    }
+    let dir = Scratch::new("no-landlock");
+    let font = dir.join("mono.ttf");
+    std::fs::write(&font, ttf::test_mono().build()).unwrap();
+    let request = ServeRequest {
+        style: Default::default(),
+        script: vtium_font::Script::Baseline,
+        band: Default::default(),
+        kind: ASK,
+        frit: FritText {
+            name: "t".to_owned(),
+            text: format!("source=outline:{}\n", font.display()),
+        },
+        cell: Cell {
+            width: 8,
+            height: 16,
+        },
+        codepoints: vec![0x41],
+        clusters: Vec::new(),
+        held: Vec::new(),
+        console: None,
+    };
+    let (answer, filters) = std::thread::spawn(move || {
+        let hide = vtium_config::seccomp::compile(&[vtium_config::seccomp::Rule::Absent(
+            libc::SYS_landlock_create_ruleset,
+        )])
+        .unwrap();
+        vtium_config::seccomp::install(&hide).unwrap();
+        let mut child = home::command(env!("CARGO_BIN_EXE_vtium-config"))
+            .arg("serve")
+            .env_clear()
+            .current_dir("/")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap();
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(&request.encode()).unwrap();
+        stdin.flush().unwrap();
+        let answer = frames_until(
+            &mut child.stdout.take().unwrap(),
+            &[FRAME_DONE, FRAME_FAILED],
+        );
+        let status = std::fs::read_to_string(format!("/proc/{}/status", child.id())).unwrap();
+        let filters = status
+            .lines()
+            .find_map(|l| l.strip_prefix("Seccomp_filters:"))
+            .map(|n| n.trim().to_owned());
+        drop(stdin);
+        assert!(child.wait().unwrap().success());
+        (answer, filters)
+    })
+    .join()
+    .unwrap();
+    let kinds: Vec<u32> = answer.iter().map(|f| f.0).collect();
+    assert_eq!(
+        kinds,
+        [FRAME_SANDBOX, FRAME_GLYPHS, FRAME_DONE],
+        "{answer:?}"
+    );
+    let parts = u32::from_le_bytes(answer[0].1[..].try_into().unwrap());
+    assert_eq!(parts, SANDBOX_FALLBACK | SANDBOX_SOCKETS, "{parts:#b}");
+    let set = Arc::new(Set::from_bytes(answer[1].1.clone()).unwrap());
+    assert!(SetFace::new(set, 16).unwrap().has_glyph('A'));
+    // a kernel before 5.9 does not count a process's filters
+    if let Some(filters) = filters {
+        assert_eq!(filters, "3");
+    }
 }
 
 // D14: a source that fails as it draws fails alone; the next source in the
@@ -256,6 +350,9 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
     stdin.write_all(&request(FILL).encode()).unwrap();
     let first = frames_until(&mut stdout, &ends);
     assert_eq!(first.last().map(|f| f.0), Some(FRAME_FILLED));
+    // the sandbox's report leads the first answer alone
+    let (report, first) = first.split_first().unwrap();
+    assert_eq!(report.0, FRAME_SANDBOX);
     // the zoom away, then back with nothing held
     stdin.write_all(&request(STOP).encode()).unwrap();
     stdin.write_all(&request(FILL).encode()).unwrap();
@@ -270,12 +367,12 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
     let (stopped, again) = again.split_first().unwrap();
     assert_eq!(*stopped, (FRAME_STOPPED, cell));
     let kinds = |f: &[(u32, Vec<u8>)]| f.iter().map(|f| f.0).collect::<Vec<_>>();
-    assert_eq!(kinds(again), kinds(&first), "{:?}", again.last());
+    assert_eq!(kinds(again), kinds(first), "{:?}", again.last());
     let a = |f: &[(u32, Vec<u8>)]| {
         let set = Arc::new(Set::from_bytes(f[0].1.clone()).unwrap());
         SetFace::new(set, 16).unwrap().has_glyph('A')
     };
-    assert!(a(&first) && a(again));
+    assert!(a(first) && a(again));
 }
 
 /// Each codepoint the fill frames among `frames` hold, with how many
@@ -597,13 +694,12 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(&query.encode()).unwrap();
     stdin.flush().unwrap();
-    // once it answers, it is past its start
+    // once it answers, after the sandbox's report, it is past its start
     let mut stdout = child.stdout.take().unwrap();
-    let mut head = [0u8; 8];
-    stdout.read_exact(&mut head).unwrap();
+    let answer = frames_until(&mut stdout, &[FRAME_SOURCES]);
     assert_eq!(
-        u32::from_le_bytes(head[..4].try_into().unwrap()),
-        FRAME_SOURCES
+        answer.iter().map(|f| f.0).collect::<Vec<_>>(),
+        [FRAME_SANDBOX, FRAME_SOURCES]
     );
     let mut fds: Vec<(u32, String)> = std::fs::read_dir(format!("/proc/{}/fd", child.id()))
         .unwrap()
@@ -632,7 +728,8 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
 #[cfg(any(
     target_arch = "x86_64",
     target_arch = "aarch64",
-    target_arch = "riscv64"
+    target_arch = "riscv64",
+    target_arch = "arm"
 ))]
 #[test]
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]

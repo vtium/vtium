@@ -6237,7 +6237,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ6")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ7")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;

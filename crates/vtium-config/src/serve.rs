@@ -52,7 +52,7 @@
 //! (ADR-1202 D14).
 //!
 //! ```text
-//! request  magic "VTVSREQ6", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ7", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
 //!          says how its glyphs were made), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
@@ -99,8 +99,10 @@
 //!          kind 12 a sources query's answer for a frit the helper draws
 //!          nothing from (UTF-8 reason); kind 13 how an ask of kind 7
 //!          made its superscript and subscript glyphs, once before its
-//!          done frame ([`Made::encode_all`]); kind 3 a failure (UTF-8 reason),
-//!          the helper's own, as when it fails as it starts
+//!          done frame ([`Made::encode_all`]); kind 14 the parts of the
+//!          helper's sandbox in force, once before its first answer
+//!          ([`FRAME_SANDBOX`], a u32 of bits); kind 3 a failure (UTF-8
+//!          reason), the helper's own, as when it fails as it starts
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -204,7 +206,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ7";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -245,6 +247,12 @@ pub const FRAME_DRAWS_NOTHING: u32 = 12;
 /// How an [`ASK_MADE`] made the superscript and subscript glyphs it drew
 /// ([`Made::encode_all`]), sent once before its [`FRAME_DONE`].
 pub const FRAME_MADE: u32 = 13;
+/// The parts of the helper's sandbox in force, sent once before its first
+/// answer, which the console logs when the landlock domain is not among
+/// them (ADR-1200 D15): a u32 of [`SANDBOX_DOMAIN`], [`SANDBOX_FALLBACK`]
+/// and [`SANDBOX_SOCKETS`]. A console of another build never meets it,
+/// since its request's magic is refused first.
+pub const FRAME_SANDBOX: u32 = 14;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -2604,7 +2612,7 @@ pub fn serve(
     paths: &Paths,
     idle: Duration,
 ) -> u8 {
-    answer_requests(&read_requests(input), out, paths, idle)
+    answer_requests(&read_requests(input), out, paths, idle, None)
 }
 
 /// The helper's work: the asks waiting, in order, and the fills.
@@ -2796,7 +2804,13 @@ impl Work<'_> {
     }
 }
 
-fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Duration) -> u8 {
+fn answer_requests(
+    rx: &Requests,
+    out: &mut dyn Write,
+    paths: &Paths,
+    idle: Duration,
+    mut report: Option<u32>,
+) -> u8 {
     let mut work = Work {
         paths,
         engines: BTreeMap::new(),
@@ -2822,6 +2836,15 @@ fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Dura
             };
             match next {
                 Ok(Ok(Some(r))) => {
+                    // the sandbox's report goes before the first answer,
+                    // once the request has shown the console to be of this
+                    // build, so a console of another build is told so
+                    // instead of meeting a frame it does not know
+                    if let Some(parts) = report.take()
+                        && write_frame(out, FRAME_SANDBOX, &parts.to_le_bytes()).is_err()
+                    {
+                        return 1;
+                    }
                     if work.take(r, out).is_err() {
                         return 1;
                     }
@@ -2932,74 +2955,88 @@ fn lock_out() -> Result<bool, String> {
 /// Installs the helper's socket filter on the calling thread and the
 /// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
 /// seccomp filter under which `socket`, `socketpair` and the three
-/// io_uring calls answer EPERM and every other call goes on as before, so
-/// the helper makes no socket of any kind on any kernel, the UDP and Unix
-/// sockets landlock leaves open included. io_uring is refused whole
-/// because its `IORING_OP_SOCKET`, from Linux 5.19, makes a socket without
-/// calling `socket`. It is built as the image helper builds its worker's filter
-/// (`vtium-image-helper`'s `sandbox::filter::refuse`). Returns whether the
-/// filter is in force; on 32-bit ARM, which seccompiler builds no filter
-/// for, there is none.
+/// io_uring calls answer EPERM and every other call goes on, so the helper
+/// makes no socket of any kind on any kernel, the UDP and Unix sockets
+/// landlock leaves open included ([`crate::seccomp::socket_filter`]).
+/// Returns whether the filter is in force; on an architecture that
+/// [`crate::seccomp`] has no table of call numbers for, there is none.
 fn refuse_sockets() -> Result<bool, String> {
-    #[cfg(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
+    #[cfg(all(
+        target_endian = "little",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "arm"
+        )
     ))]
     {
-        seccompiler::apply_filter(&socket_filter()?)
+        let filter = crate::seccomp::socket_filter()
+            .map_err(|e| format!("the helper cannot build its socket filter: {e}"))?;
+        crate::seccomp::install(&filter)
             .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
-        Ok(true)
     }
-    #[cfg(not(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
-    )))]
-    Ok(false)
+    Ok(crate::seccomp::BUILT)
 }
 
-/// The helper's socket filter, compiled ([`refuse_sockets`]).
-#[cfg(any(
-    target_arch = "x86_64",
-    target_arch = "aarch64",
-    target_arch = "riscv64"
-))]
-fn socket_filter() -> Result<seccompiler::BpfProgram, String> {
-    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
-    #[cfg(target_arch = "x86_64")]
-    const ARCH: TargetArch = TargetArch::x86_64;
-    #[cfg(target_arch = "aarch64")]
-    const ARCH: TargetArch = TargetArch::aarch64;
-    #[cfg(target_arch = "riscv64")]
-    const ARCH: TargetArch = TargetArch::riscv64;
-    // io_uring's IORING_OP_SOCKET (Linux 5.19) makes a socket without
-    // calling socket, so the helper gets no io_uring at all
-    let rules = [
-        libc::SYS_socket,
-        libc::SYS_socketpair,
-        libc::SYS_io_uring_setup,
-        libc::SYS_io_uring_enter,
-        libc::SYS_io_uring_register,
-    ]
-    .into_iter()
-    .map(|n| (n, Vec::new()))
-    .collect();
-    let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
-    SeccompFilter::new(
-        rules,
-        SeccompAction::Allow,
-        SeccompAction::Errno(eperm),
-        ARCH,
-    )
-    .and_then(BpfProgram::try_from)
-    .map_err(|e| format!("the helper cannot build its socket filter: {e}"))
+/// Installs the helper's fallback filter on the calling thread and the
+/// threads it starts later, in place of the landlock domain on a kernel
+/// without landlock (ADR-1200 D15, the maintainer, 2026-11-13): a seccomp
+/// filter that refuses the file, signal and tracing calls the domain
+/// refuses ([`crate::seccomp::fallback_filter`]). Returns whether the
+/// filter is in force; on an architecture that [`crate::seccomp`] has no
+/// table of call numbers for, there is none.
+fn fall_back() -> Result<bool, String> {
+    #[cfg(all(
+        target_endian = "little",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "arm"
+        )
+    ))]
+    {
+        let pid = rustix::process::getpid().as_raw_nonzero().get();
+        let pid = u32::try_from(pid).map_err(|_| "the helper's process id is negative")?;
+        let filter = crate::seccomp::fallback_filter(pid)
+            .map_err(|e| format!("the helper cannot build its fallback filter: {e}"))?;
+        crate::seccomp::install(&filter)
+            .map_err(|e| format!("the helper cannot install its fallback filter: {e}"))?;
+    }
+    Ok(crate::seccomp::BUILT)
 }
 
-/// `vtium-config serve`: no-new-privileges, the socket filter, the
-/// landlock domain, the requests' reader, the limits, then the requests on
-/// stdin answered on stdout until [`HELPER_IDLE_MS`] passes with none. A
-/// failure to sandbox is written as a failed frame, so the console logs it.
+/// The parts of the helper's sandbox in force, as the bits of its
+/// [`FRAME_SANDBOX`]: its landlock domain, its fallback filter, which
+/// stands in for the domain on a kernel without landlock, and its socket
+/// filter.
+pub const SANDBOX_DOMAIN: u32 = 1;
+pub const SANDBOX_FALLBACK: u32 = 2;
+pub const SANDBOX_SOCKETS: u32 = 4;
+
+/// Sandboxes the calling thread and the threads it starts later: the
+/// socket filter, then the landlock domain, or the fallback filter where
+/// the kernel offers no landlock. Returns the parts in force, as
+/// [`FRAME_SANDBOX`] reports them, or why a part failed to install.
+fn sandbox() -> Result<u32, String> {
+    let mut parts = 0;
+    if refuse_sockets()? {
+        parts |= SANDBOX_SOCKETS;
+    }
+    if lock_out()? {
+        parts |= SANDBOX_DOMAIN;
+    } else if fall_back()? {
+        parts |= SANDBOX_FALLBACK;
+    }
+    Ok(parts)
+}
+
+/// `vtium-config serve`: no-new-privileges, the sandbox, the requests'
+/// reader, the limits, then the requests on stdin answered on stdout until
+/// [`HELPER_IDLE_MS`] passes with none, the first answer led by the
+/// sandbox's report. A failure to sandbox is written as a failed frame, so
+/// the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
     if let Some(why) = shed_inherited() {
@@ -3013,16 +3050,15 @@ pub fn command(paths: &Paths) -> u8 {
         );
         return 1;
     }
-    // before the reader's thread starts, which inherits the filter and the
-    // domain, and before any font is read
-    if let Err(why) = refuse_sockets() {
-        let _ = failed(&mut out, &why);
-        return 1;
-    }
-    if let Err(why) = lock_out() {
-        let _ = failed(&mut out, &why);
-        return 1;
-    }
+    // before the reader's thread starts, which inherits the filters and
+    // the domain, and before any font is read
+    let parts = match sandbox() {
+        Ok(parts) => parts,
+        Err(why) => {
+            let _ = failed(&mut out, &why);
+            return 1;
+        }
+    };
     let requests = read_requests(io::stdin());
     if let Err(why) = limits() {
         let _ = failed(&mut out, &why);
@@ -3033,6 +3069,7 @@ pub fn command(paths: &Paths) -> u8 {
         &mut out,
         paths,
         Duration::from_millis(HELPER_IDLE_MS),
+        Some(parts),
     )
 }
 
@@ -3212,7 +3249,8 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1202 D11's script moved the magic from VTVSREQ5 to VTVSREQ6, as
+    // ADR-1200 D15's report of the sandbox moved the magic from VTVSREQ6
+    // to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
     // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
     // from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
@@ -3227,7 +3265,7 @@ mod tests {
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5"] {
+        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5", b"VTVSREQ6"] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
             assert_eq!(
@@ -4966,7 +5004,7 @@ mod tests {
             eprintln!("skipped: this kernel refuses io_uring already: {outside:?}");
             return;
         }
-        let inside = errnos(&socket_filter().unwrap());
+        let inside = errnos(&crate::seccomp::socket_filter().unwrap());
         assert_eq!(
             inside,
             Some(vec![libc::EPERM; 3]),
