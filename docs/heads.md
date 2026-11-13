@@ -97,6 +97,8 @@ input * -> ignore
 
 Before you install a closed file, decide how the operator gets back in. See [the operator's way back in](concepts/heads.md#the-operators-way-back-in).
 
+Set a password on your boot loader too, so that nobody else can change the kernel command line. Under the closed policy, `vtium.enable=0` on that line turns vtium off but starts no login prompt on vtium's VTs. Other words on the line, such as `init=`, change what the machine runs at boot. See [Turning vtium off for one boot](systemd.md#turning-vtium-off-for-one-boot) for details.
+
 ### A kiosk
 
 **Purpose.** One display that runs one program. Only the kiosk's own keyboard reaches the program, and no keyboard can take the display away from it.
