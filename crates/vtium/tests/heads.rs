@@ -4836,6 +4836,34 @@ fn a_roaming_keyboard_with_no_active_head_delivers_nothing_but_switches_vts() {
     assert!(!head_shows(&s.app, "large", "k:") && !head_shows(&s.app, "small", "k:"));
 }
 
+/// D5 and D3, "Who switches VTs": under `policy = open` too, a roaming
+/// keyboard with no active head delivers nothing, and its VT keys still
+/// switch the VT. Here the one head that runs is isolated, so it can
+/// never be the active head.
+// covers: platform.heads.isolated
+#[test]
+fn under_open_a_roaming_keyboard_with_no_active_head_still_switches_vts() {
+    let text = "version = 1
+[head kiosk]
+isolated = yes
+[rules]
+display * -> kiosk
+input path:kbd-roam -> roaming
+";
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = on_vt(4, text, displays, &[(KBD_A, "kbd-roam")]);
+    assert!(s.until(BOUND, |a| head_shows(a, "kiosk", "ready")));
+    assert_eq!(s.app.focus_head(), None, "no head can be the active head");
+    s.type_on(KBD_A, "r\r");
+    s.until(Duration::from_millis(100), |_| false);
+    assert!(!head_shows(&s.app, "kiosk", "got:r"), "it delivers nothing");
+    s.app.device_input(Path::new(KBD_A), vt_key(), now());
+    assert!(!s.app.vt.is_active(), "the VT switches");
+}
+
 /// D8 and the respawn policy: a hang-up is vtium's, not the session's
 /// exit, so a display flapping under `hangup` brings the login back each
 /// time and never gives the head up as exiting too quickly.
@@ -8435,6 +8463,44 @@ fn showing_a_notice(args: &[&str]) -> Seat {
     assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
     assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
     s
+}
+
+/// What the rescue key's notice says on VT 4, where no head runs, for the
+/// keyboard at [`KBD_A`].
+const RESCUE_NO_TERMINAL: &str = "Keyboard /dev/input/event4 now types into the active screen until the next boot (the rescue key moved it), but no terminal runs on this VT. Press Ctrl-Alt and a function key to switch to a VT that runs one.";
+
+/// D9: on a VT where no head runs, the rescue key's notice shows on the
+/// display under the display's own notice, so the person at the keyboard
+/// reads that no terminal runs here and how to leave. Here the keyboard
+/// belongs to a head of VT 3. The notice goes when vtium parks the
+/// display.
+// covers: platform.heads.rescue-key
+#[test]
+fn the_rescue_notice_shows_on_a_vt_where_no_head_runs() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let text = every_head_on_vt3("open");
+    let mut s = on_vt(4, &text, displays, &[(KBD_A, "kbd-desk")]);
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0));
+    let own = "MEM-1 is not configured for VT 4. It is configured for terminal panel, on VT 3.";
+    let frames = s.memory("/dev/mem0").frames;
+    s.app.device_input(Path::new(KBD_A), ctrl_alt_f(4), now());
+    s.app.turn(now());
+    assert_eq!(
+        s.app.display_notice("MEM-1"),
+        Some((format!("{own}\n{RESCUE_NO_TERMINAL}").as_str(), true))
+    );
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.frames > frames),
+        "the display draws the rescue notice"
+    );
+    // osd-timeout is 3 s when unset
+    s.app.turn(now() + Duration::from_secs(4));
+    s.until(Duration::from_millis(50), |_| false);
+    assert_eq!(s.memory("/dev/mem0").parks, 1, "parked once its time is up");
+    assert_eq!(s.app.display_notice("MEM-1"), Some((own, false)));
 }
 
 impl Seat {
