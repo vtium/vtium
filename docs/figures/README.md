@@ -44,6 +44,8 @@ The figures of vtium's documentation pages outside the decision records, which k
 | `concepts-notice-anti-lockout.png` | [concepts/flows.md](../concepts/flows.md): the anti-lockout guard's notice, over a shell session | Converted from tier 2's golden `notice-anti-lockout-800x480`, below |
 | `concepts-notice-rescue.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while the head `desk` is active, over a shell session | Converted from tier 2's golden `notice-rescue-800x480`, below |
 | `concepts-notice-rescue-no-head.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while no head is active, over a shell session | Converted from tier 2's golden `notice-rescue-no-head-800x480`, below |
+| `concepts-osd-full.png` | [concepts/osd-and-notices.md](../concepts/osd-and-notices.md): vtium's on-screen display under `osd = full` on the active head, over a shell session | Converted from tier 2's golden `osd-full-800x480`, below |
+| `concepts-osd-minimal.png` | [concepts/osd-and-notices.md](../concepts/osd-and-notices.md): vtium's on-screen display under `osd = minimal` on the active head, over a shell session | Converted from tier 2's golden `osd-minimal-800x480`, below |
 | `concepts-panic.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's panic screen for a closed vtium.conf whose errors leave no head, alone on the boot display, with the ASCII drawing of a panicked Tux beside the report | Converted from tier 2's golden `panic-800x480`, below |
 
 The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
@@ -95,4 +97,12 @@ for n in notice-head-file-two notice-head-file notice-alone-partly notice-no-key
   magick tools/tier2/goldens/$n-800x480.ppm -strip docs/figures/concepts-$n.png
 done
 magick tools/tier2/goldens/panic-800x480.ppm -strip docs/figures/concepts-panic.png
+```
+
+The two pictures of the on-screen display are tier 2's own goldens too, settled and drawn the same way, converted from the repository's root:
+
+```sh
+for n in osd-full osd-minimal; do
+  magick tools/tier2/goldens/$n-800x480.ppm -strip docs/figures/concepts-$n.png
+done
 ```

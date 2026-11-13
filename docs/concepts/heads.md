@@ -33,7 +33,7 @@ Under the open policy, two guards keep you from locking yourself out, whatever t
 - The anti-lockout guard makes every keyboard roam while no keyboard at all reaches a lit head. A head is lit when at least one of its displays is on.
 - The rescue key is `Ctrl-Alt-F<n>` for the VT that is already on screen. It makes the keyboard that pressed it roam until the next boot.
 
-Each head is a terminal of its own. Ctrl-Super-Up makes the next lit head the active head, and Ctrl-Super-Down makes the previous lit head the active head. Each head then shows a mark in its top-right corner for a few seconds. The mark is filled on the active head. A keyboard that a rule gives to a head keeps typing into that head when the active head moves.
+Each head is a terminal of its own. Ctrl-Super-Up makes the next lit head the active head, and Ctrl-Super-Down makes the previous lit head the active head. Each head then shows a mark in its top-right corner for a few seconds. The mark is filled on the active head. See [The on-screen display and notices](osd-and-notices.md) for what vtium draws and how the `osd` setting changes it. A keyboard that a rule gives to a head keeps typing into that head when the active head moves.
 
 The figure below shows three heads and the keyboards that type into each of them.
 

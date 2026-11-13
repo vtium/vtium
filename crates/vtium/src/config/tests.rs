@@ -1879,3 +1879,55 @@ fn each_console_starts_in_the_direction_text_direction_gives() {
         assert_eq!(term.terminal.screen().paragraph(), want, "{value}");
     }
 }
+
+/// vtium goes silent only on an `osd` line that says so in a form vtium
+/// can read. While the top level also holds an `osd` line whose value
+/// vtium cannot read, vtium runs as `off` in place of `silent`, so the
+/// notices still show, and a report on the `silent` line says why. Any
+/// other reading applies as read: the last value vtium can read wins, and
+/// a misspelled key leaves `osd` at the value the other lines give.
+///
+/// References:
+/// - ADR-1401 D7, "`osd = silent` in a file with errors": each case here.
+#[test]
+fn an_osd_line_vtium_cannot_read_keeps_osd_silent_from_applying() {
+    let osd = |args: &[&str], text: &str| {
+        let l = load_with(args, &[("/etc/vtium/vtium.conf", text.as_bytes())]);
+        let said: Vec<String> = l.reports.iter().map(ToString::to_string).collect();
+        (l.config.text(&OSD).map(str::to_owned), said)
+    };
+    let not_silent = "/etc/vtium/vtium.conf:1: osd=silent does not apply, because another osd line has a value vtium cannot read. vtium runs as osd=off instead, so its notices still show. Correct the other osd line to hide them.";
+    for text in [
+        "osd = silent\nosd = slient\n",
+        "osd = slient\nosd = silent\n",
+        "osd = silent\nosd =\n",
+    ] {
+        let (value, said) = osd(&[], text);
+        assert_eq!(value.as_deref(), Some("off"), "{text:?}");
+        let line = if text.starts_with("osd = silent") {
+            not_silent.to_owned()
+        } else {
+            not_silent.replace(".conf:1:", ".conf:2:")
+        };
+        assert_eq!(said.last(), Some(&line), "{text:?}: {said:#?}");
+        assert_eq!(said.len(), 2, "{text:?}: the bad line and why: {said:#?}");
+    }
+    // the command line's mistake counts too, beside the file's silent
+    let (value, said) = osd(&["--osd=slient"], "osd = silent\n");
+    assert_eq!(value.as_deref(), Some("off"), "{said:#?}");
+    for (text, want) in [
+        ("osd = silent\n", "silent"),
+        ("osd = full\nosd = silent\n", "silent"),
+        ("osd = silent\nosd = full\n", "full"),
+        ("osd = slient\nosd = full\n", "full"),
+        ("osb = silent\n", "minimal"),
+        ("osb = silent\nosd = silent\n", "silent"),
+    ] {
+        let (value, said) = osd(&[], text);
+        assert_eq!(value.as_deref(), Some(want), "{text:?}: {said:#?}");
+        assert!(
+            said.iter().all(|s| !s.contains("does not apply")),
+            "{text:?}: {said:#?}"
+        );
+    }
+}

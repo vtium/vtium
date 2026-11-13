@@ -234,7 +234,10 @@ pub fn more_errors(n: usize) -> String {
 
 /// vtium's notice when the session of a console the open chord opened
 /// cannot start, and the console leaves: a notice of a problem, which
-/// shows whatever `osd` says (ADR-1401 D5).
+/// shows at every level of `osd` but `silent`.
+///
+/// References:
+/// - ADR-1401 D5: the notices that only `osd = silent` hides.
 pub const NO_CONSOLE_OPENED: &str = "Console not opened: login could not start.";
 
 /// The on-screen display's brief line on head `head` when the open chord

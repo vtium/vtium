@@ -33,7 +33,7 @@ When vtium fails, systemd starts it again. From systemd 254 on, each failure als
 
 ## Notices on the screen
 
-vtium tells you about a problem on the screen itself, in a notice. A notice is a pale red box across the top of the screen. Most notices appear over the session, and the session keeps running under them. Such a notice goes after 30 seconds, or sooner when you press a key that reaches that screen. A screen shows at most 4 notices at a time, and a fifth one replaces the oldest.
+vtium tells you about a problem on the screen itself, in a notice. A notice is a pale red box across the top of the screen. Most notices appear over the session, and the session keeps running under them. Such a notice goes after 30 seconds, or sooner when you press a key that reaches that screen. A screen shows at most 4 notices at a time, and a fifth one replaces the oldest. Under `osd = silent`, vtium shows only two of them, the panic screen and `All screens stopped`, and writes every notice to its log. See [The on-screen display and notices](concepts/osd-and-notices.md#what-silent-changes) for details.
 
 Some notices stay instead:
 

@@ -551,11 +551,17 @@
 ## osd: What the on-screen display shows at the top of each screen after a
 ## change, such as a console switch.
 ##
+## `full` shows a line across the top, such as `● desk · console 2 of 3`.
 ## `minimal` shows a dot in the top-right character cell: filled on the active
-## head, hollow on the others. `full` shows a line across the top, such as
-## `● desk · console 2 of 3`. `off` shows nothing.
+## head, hollow on the others. `off` shows nothing. Under these three, a
+## notice about a problem still appears, such as one about errors in
+## vtium.conf.
 ##
-## A notice about a problem appears whatever `osd` says.
+## `silent` shows nothing, and it hides vtium's notices too. vtium still
+## writes each notice to its log. Two screens appear even under `silent`,
+## because no console runs while they show. One is the panic screen of a
+## closed vtium.conf that cannot run. The other is the notice that vtium
+## stopped every screen because a session kept ending.
 #
 ## osd-timeout: How long the on-screen display stays visible after a change.
 ## `never` keeps it visible all the time.
@@ -590,8 +596,8 @@
 # -- Notice colors -----------------------------------------------------------
 
 ## notice-foreground: The text color of a notice. A notice is a box that
-## reports a problem, such as errors in vtium.conf. It appears whatever `osd`
-## says.
+## reports a problem, such as errors in vtium.conf. It appears at every level
+## of `osd` except `silent`.
 #
 ## notice-background: The background color of a notice. While a notice is
 ## showing, the on-screen display's line appears in the same box, in the
@@ -751,6 +757,11 @@
 
 ## Measure each display's frame times once a second, and write the figures to
 ## the log, show them on screen, or both.
+##
+## With `render-timer = osd`, vtium shows the figures at the top of each
+## display, in the on-screen display's box. When `osd = silent`, vtium shows
+## no figures on screen: `render-timer = osd` then shows nothing, and
+## `render-timer = both` writes only the log.
 
 #render-timer=none
 

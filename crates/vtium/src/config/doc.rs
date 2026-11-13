@@ -902,7 +902,7 @@ mod tests {
         assert_eq!(osd[next - 1], "#", "a key break before osd-timeout");
         assert_eq!(
             osd[next - 2],
-            "## A notice about a problem appears whatever `osd` says.",
+            "## stopped every screen because a session kept ending.",
             "osd's last paragraph ends above the break"
         );
         for name in ["osd-timeout: ", "focus-mark: "] {

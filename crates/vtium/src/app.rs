@@ -301,6 +301,10 @@ pub struct App {
     /// needs a notice, so a display unplugged and plugged in again adds no
     /// head.
     spare_notices: Vec<usize>,
+    /// Under `osd = silent`, each display that no path catches on this VT,
+    /// by its device and its connector, whose notice vtium logged in place
+    /// of showing it. Each is logged once while it stays unused.
+    silenced: BTreeSet<(PathBuf, String)>,
     /// The displays a DRM card announces for their notices though the rules
     /// leave them dark, by device and connector, which each card's dark
     /// policy reads.
@@ -566,6 +570,7 @@ impl App {
             screen: None,
             notices: BTreeMap::new(),
             spare_notices: Vec::new(),
+            silenced: BTreeSet::new(),
             kernel: None,
             kernel_deferral: crate::kernel::Deferral::configured(&config),
             wanted: Rc::default(),
@@ -654,6 +659,7 @@ impl App {
         self.built = self.heads.len();
         self.notices.clear();
         self.spare_notices.clear();
+        self.silenced.clear();
         self.wanted.borrow_mut().clear();
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -1407,13 +1413,20 @@ impl App {
 
     /// What `render-timer` asks for: whether the console writes each
     /// display's figures to the log, and whether it draws them on screen.
+    /// The figures describe the state of the system, which `osd = silent`
+    /// hides from whoever is at the screen, so under `silent` they go to
+    /// the log alone, or nowhere under `render-timer = osd`.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The key `osd` and the render timer".
     fn render_timer(&self) -> (bool, bool) {
-        match self.config.text(&keys::RENDER_TIMER) {
+        let (log, screen) = match self.config.text(&keys::RENDER_TIMER) {
             Some("log") => (true, false),
             Some("osd") => (false, true),
             Some("both") => (true, true),
             _ => (false, false),
-        }
+        };
+        (log, screen && !self.osd.silent())
     }
 
     /// Whether the console measures each display's frames, for the log,
@@ -2122,6 +2135,10 @@ impl App {
         if !self.vt.is_active() {
             return;
         }
+        if self.osd.silent() {
+            self.silence_notices(unused);
+            return;
+        }
         let gone: Vec<(PathBuf, String)> = self
             .notices
             .keys()
@@ -2234,6 +2251,40 @@ impl App {
             {
                 log::warn!("{}: hotplug: {e}", key.0.display());
             }
+        }
+    }
+
+    /// Under `osd = silent`, a display of `unused`, which no path catches
+    /// on this VT, shows no notice. vtium leaves it off, since the rules
+    /// place it nowhere, and a key press or a switch back to this VT leaves
+    /// it off too. The log names each display and what its notice would
+    /// say, once while the display stays unused. Such a display ends the
+    /// start's wait for a display: a display came, and vtium leaves it off
+    /// on purpose, so vtium must not exit and hand the VT to a getty.
+    ///
+    /// References:
+    /// - ADR-1401 D3, "What a display with no path shows".
+    fn silence_notices(&mut self, unused: &[((PathBuf, String), Option<usize>)]) {
+        let vt = self.vt_heads.vt();
+        self.silenced
+            .retain(|key| unused.iter().any(|(u, _)| u == key));
+        for (key, owner) in unused {
+            if !self.silenced.insert(key.clone()) {
+                continue;
+            }
+            let named =
+                owner
+                    .and_then(|h| self.rules.heads.get(h))
+                    .map(|head| crate::notice::Owner {
+                        head: &head.name,
+                        vts: &head.vts,
+                    });
+            let text = crate::notice::unused_display(vt, &key.1, named.as_ref());
+            log::info!(
+                "display {}: {text} Because osd = silent, vtium shows no notice and leaves the display off.",
+                key.1
+            );
+            self.presented = true;
         }
     }
 
@@ -2757,7 +2808,8 @@ impl App {
                     place => self.vt_heads.head(place),
                 };
                 Some((key.clone(), h?))
-            });
+            })
+            .filter(|&(_, h)| Some(h) != screen || self.screen_shows());
         if lighting != self.guard_lit {
             if let Some((key, _)) = self.guard_lit.take() {
                 self.unlight(key);
@@ -2852,6 +2904,20 @@ impl App {
         self.bound_pointers();
         // The guard may have sent a keyboard to another head.
         self.rehover();
+    }
+
+    /// Whether the screen the display guard lights for a notice alone has
+    /// anything to show. Under `osd = silent` the file's console line does
+    /// not show, so the screen shows only the two states in which vtium can
+    /// serve nothing: the panic screen and the notice of a crash loop that
+    /// stopped every head. They show at every level, since the person at
+    /// the console has no other way to learn why nothing works.
+    ///
+    /// References:
+    /// - ADR-1401 D9: what the display guard lights under `osd = silent`.
+    /// - ADR-1401 D5, "What every level shows".
+    fn screen_shows(&self) -> bool {
+        !self.osd.silent() || self.stopped || self.report.is_some()
     }
 
     /// What the screen the display guard lights for a notice alone shows
@@ -3705,9 +3771,12 @@ impl App {
         // leaves the run alive: the console leaves, and the head says so,
         // since vtium never keeps a console with no session (the README's
         // "The session").
-        // That the console did not open is a notice of a problem, which
-        // shows whatever `osd` says, and goes as the guards' notices go
-        // (ADR-1401 D5, D7).
+        // That the console did not open is a notice of a problem. It shows
+        // at every level of `osd` but `silent`, where the log line alone
+        // holds it, and it goes as the guards' notices go.
+        //
+        // References:
+        // - ADR-1401 D5: the notice of a console that did not open.
         if let Err(why) = self.start_session(h, id) {
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
@@ -4361,6 +4430,7 @@ impl App {
     /// first frame that draws it, or always under `never`.
     fn osd(&mut self, now: Instant) {
         let Osd { mode, timeout } = self.osd;
+        let draws = self.osd.draws_status();
         let changes = mode == osd::Mode::Full && self.osd.shows_on_change();
         // the notice screen is no head, and shows no status
         for (h, head) in self
@@ -4378,7 +4448,7 @@ impl App {
             if changes && was.is_some_and(|was| Some(was) != seen) {
                 head.show_osd();
             }
-            let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);
+            let shown = draws && (timeout.is_none() || head.osd_shown);
             if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none())
                 && !head.views.is_empty()
             {
@@ -4396,7 +4466,8 @@ impl App {
             });
             // The brief line answers one press at a cap: for `osd-timeout`,
             // or 3 s under `never`, from its first frame, in place of the
-            // full line. [`Head::show_brief`] sets none under `off`.
+            // full line. [`Head::show_brief`] sets none under `off` or
+            // `silent`.
             head.arm_brief(after(now, timeout.unwrap_or(BRIEF_NEVER)));
             let status = head.brief().map(str::to_owned).or(full);
             if head.mark != mark || head.status != status {
@@ -6556,8 +6627,17 @@ mod tests {
     /// A seat on one display under `render-timer=value`, shown at the
     /// returned time, its first frames handed back.
     fn timer_seat(value: &str) -> (Loop<App>, App, Instant) {
+        timer_seat_with(value, &[])
+    }
+
+    /// [`timer_seat`], with the options `more` too.
+    fn timer_seat_with(value: &str, more: &[&str]) -> (Loop<App>, App, Instant) {
         let option = format!("--render-timer={value}");
-        let (mut lp, mut app) = seat_with(&["--font-size=16", &option], None, no_fonts());
+        let options: Vec<&str> = ["--font-size=16", option.as_str()]
+            .into_iter()
+            .chain(more.iter().copied())
+            .collect();
+        let (mut lp, mut app) = seat_with(&options, None, no_fonts());
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
@@ -6626,17 +6706,22 @@ mod tests {
     /// giving up on it while the count runs, and `no-blink` arms no blink
     /// timer, so the box's count is the loop's only timer.
     fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
+        kernel_seat_with(&[])
+    }
+
+    /// [`kernel_seat`], with the options `more` too.
+    fn kernel_seat_with(more: &[&str]) -> (Loop<App>, App, Queued, Instant) {
         let queued: Queued = Rc::default();
-        let (mut lp, mut app) = seat_with(
-            &[
-                "--font-size=16",
-                "--kernel-messages=always",
-                "--display-wait=forever",
-                "--no-blink",
-            ],
-            None,
-            no_fonts(),
-        );
+        let options: Vec<&str> = [
+            "--font-size=16",
+            "--kernel-messages=always",
+            "--display-wait=forever",
+            "--no-blink",
+        ]
+        .into_iter()
+        .chain(more.iter().copied())
+        .collect();
+        let (mut lp, mut app) = seat_with(&options, None, no_fonts());
         app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -6911,6 +6996,51 @@ mod tests {
                 "{value}: in the on-screen display's colors"
             );
         }
+    }
+
+    /// Under `osd = silent`, vtium draws no render timer figures on screen.
+    /// `render-timer = osd` then shows nothing, so vtium measures nothing,
+    /// and `render-timer = both` measures for the log line alone.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The key `osd` and the render timer".
+    #[test]
+    fn under_osd_silent_the_render_timer_draws_no_figures() {
+        for (value, measures) in [("osd", false), ("both", true)] {
+            let (mut lp, mut app, t) = timer_seat_with(value, &["--osd=silent"]);
+            let measured = app
+                .heads
+                .first()
+                .and_then(|h| h.views.values().next())
+                .is_some_and(|v| v.timer.is_some());
+            assert_eq!(measured, measures, "{value}: the console measures");
+            let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = still.as_any().downcast_mut::<Still>().unwrap();
+            still.events.extend([Event::Flipped(DisplayId(1)); 3]);
+            let second = t + Duration::from_secs(1);
+            app.turn(second);
+            settle_frames(&mut lp, &mut app, second);
+            assert_eq!(box_text(&app), None, "{value}: no line on screen");
+        }
+    }
+
+    /// Under `osd = silent`, the kernel's messages still show. They are the
+    /// kernel's text, not vtium's own notices, and `kernel-messages`
+    /// governs them.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The kernel's messages".
+    #[test]
+    fn under_osd_silent_the_kernels_messages_still_show() {
+        let (mut lp, mut app, queued, t) = kernel_seat_with(&["--osd=silent"]);
+        kernel_log(&queued, "usb 1-2: device descriptor read/64, error -71");
+        kernel_turn(&mut lp, &mut app, t);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some(
+                "usb 1-2: device descriptor read/64, error -71\nPress Esc to dismiss this message (15)"
+            )
+        );
     }
 
     // ADR-1401 D5: a render timer line measured before the VT switched
