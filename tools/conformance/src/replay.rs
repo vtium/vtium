@@ -6,8 +6,8 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, DisplayRequest, Extent, Key, KeyEvent, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX,
-    TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
+    Age, DisplayRequest, Extent, Key, KeyEvent, Mods, MouseButton, MouseEvent, Palette,
+    SB_SIZE_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
 use crate::command::{self, Button, Command, END, Event, How, INTRO, KeyAction};
