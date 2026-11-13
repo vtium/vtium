@@ -882,6 +882,57 @@ fn a_character_of_text_presentation_alone_keeps_the_frits_order() {
     assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
 }
 
+// covers: text.emoji
+// ADR-1302 D14, step 2 of the fallback order: U+2764 alone presents as
+// text and takes one cell, so a later source's text glyph comes before an
+// earlier source's color glyph, which would have to draw in one cell
+#[test]
+fn a_text_glyph_from_a_later_source_comes_before_a_color_glyph_in_one_cell() {
+    let w = World::new("heart-color-first");
+    text_and_color(&w);
+    let color_then_text = "source=font:Test Color\nsource=font:Test Text\n";
+    let face = drawn_for(&w, color_then_text, &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
+}
+
+// covers: text.overhang
+// ADR-1302 D5: with no text glyph for it, U+2764 alone draws the color
+// glyph in one cell: a square as wide as the 12-pixel cell and 2 pixels
+// more, 14x14, centred, cut from the drawing at the largest cell and
+// reaching 1 pixel into each neighbour through an RGBA ink box. Each of
+// its pixels is one of the picture's colors, never an average
+#[test]
+fn a_color_glyph_in_one_cell_is_a_square_two_pixels_wider() {
+    let w = World::new("heart-color-alone");
+    text_and_color(&w);
+    let face = drawn_for(&w, "source=font:Test Color\n", &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!(
+        (g.format(), g.cells(), g.width(), g.height()),
+        (Format::Rgba, Width::Narrow, 12, 20)
+    );
+    let ink = g.ink().expect("an ink box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (-1, 0, 14, 20)
+    );
+    let alpha = |x: usize, y: usize| ink.pixels()[(y * 14 + x) * 4 + 3];
+    let rows: Vec<usize> = (0..20)
+        .filter(|&y| (0..14).any(|x| alpha(x, y) > 0))
+        .collect();
+    // the square, rows 3 to 16, holds the picture's ink, wider than tall,
+    // across its whole width
+    assert!(rows.iter().all(|y| (3..17).contains(y)), "{rows:?}");
+    assert!(rows.iter().all(|&y| alpha(0, y) > 0 && alpha(13, y) > 0));
+    let colors: std::collections::BTreeSet<&[u8]> = ink.pixels().chunks(4).collect();
+    assert!(colors.len() <= 3, "{colors:?}");
+}
+
 // ADR-1200 D21, UTS #51 ED-8: U+FE0E asks for the text presentation, so the
 // heart with U+FE0E keeps the frit's order, and the text source draws it
 #[test]

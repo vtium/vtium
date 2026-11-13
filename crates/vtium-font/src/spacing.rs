@@ -336,6 +336,22 @@ pub fn place_rows(
         return Some((pixels, None));
     };
     let whole = height.checked_add(band.added())?;
+    if format == Format::Rgba {
+        // a color emoji's edge in one cell spans the text band's rows, and
+        // is padded with them (ADR-1302 D5)
+        let boxed = InkRows {
+            left: ink.left,
+            top: ink.top,
+            width: ink.width,
+            height: ink.height.checked_add(band.added())?,
+            pixels: pad_rows(
+                &ink.pixels,
+                usize::try_from(ink.width).ok()?.checked_mul(4)?,
+                band,
+            )?,
+        };
+        return Some((pixels, Some(boxed)));
+    }
     if fill {
         // the text band's rows of the box, stretched with the glyph
         let stride = usize::try_from(ink.width).ok()?;

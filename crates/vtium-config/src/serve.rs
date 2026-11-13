@@ -1994,6 +1994,9 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
+        // color glyphs in one cell held back for a text glyph from a later
+        // source, the first source's for each character
+        let mut in_one_cell: Vec<(char, Placed, Fit)> = Vec::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
@@ -2255,39 +2258,12 @@ impl Engine {
                         continue;
                     };
                     let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
-                    let mut index = |(g, fit): (u32, Fit),
-                                     target: &mut StrikeBuilder,
-                                     glyph: &Placed| {
-                        *placed.entry((g, fit)).or_insert_with(|| {
-                            let width = if glyph.wide {
-                                Width::Wide
-                            } else {
-                                Width::Narrow
-                            };
-                            let format = if glyph.color {
-                                vtium_font::Format::Rgba
-                            } else {
-                                vtium_font::Format::Mask
-                            };
-                            let size = (cell.width * width.cells(), cell.height);
-                            let (pixels, ink) = spacing::place_rows(
-                                &glyph.pixels,
-                                size,
-                                format,
-                                glyph.ink.as_ref(),
-                                (band, fit, false),
-                            )?;
-                            let at = target.glyph(width, pixels);
-                            // a box past a set's chunk is not sent, and
-                            // the glyph is cut to its cells (ADR-1306 D3)
-                            let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
-                            if let Some(ink) = ink {
-                                let at_box = ((ink.left, ink.top), (ink.width, ink.height));
-                                target.ink(at, at_box.0, at_box.1, ink.pixels);
-                            }
-                            Some(at)
-                        })
-                    };
+                    let mut index =
+                        |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
+                            *placed
+                                .entry((g, fit))
+                                .or_insert_with(|| put_placed(target, glyph, (cell, band, fit)))
+                        };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
                         else {
@@ -2297,6 +2273,20 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
+                            continue;
+                        }
+                        // a character that presents as text by default
+                        // takes a later source's text glyph before a color
+                        // glyph in one cell (ADR-1302 D14, step 2)
+                        if glyph.color
+                            && !glyph.wide
+                            && !color_only
+                            && script == Script::Baseline
+                            && !crate::shaping::emoji_by_default(c)
+                        {
+                            if !in_one_cell.iter().any(|(d, ..)| *d == ch) {
+                                in_one_cell.push((ch, glyph.clone(), Engine::fit(source, c)));
+                            }
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
@@ -2358,6 +2348,16 @@ impl Engine {
                 }
             }
         }
+        for (ch, glyph, fit) in in_one_cell {
+            let c = u32::from(ch);
+            if mapped.contains(&c) {
+                continue;
+            }
+            if let Some(at) = put_placed(&mut rgba, &glyph, (cell, band, fit)) {
+                rgba.map(ch, at);
+                mapped.insert(c);
+            }
+        }
         if mapped.is_empty() && shaped.is_empty() && parts.is_empty() {
             return Ok(None);
         }
@@ -2369,6 +2369,42 @@ impl Engine {
         }
         set.write().map(Some).map_err(|e| e.to_string())
     }
+}
+
+/// `glyph`, placed by the helper's outline engine in cells of `cell`,
+/// added to `target` placed in a cell taller by `band` as `fit` says
+/// (ADR-1302 D13), with its ink box where it has one that fits a set's
+/// chunk; a box past a chunk is not sent, and the glyph is cut to its cells
+/// (ADR-1306 D3). Gives the glyph's number in `target`.
+fn put_placed(
+    target: &mut StrikeBuilder,
+    glyph: &Placed,
+    (cell, band, fit): (Cell, Band, Fit),
+) -> Option<u32> {
+    let width = if glyph.wide {
+        Width::Wide
+    } else {
+        Width::Narrow
+    };
+    let format = if glyph.color {
+        vtium_font::Format::Rgba
+    } else {
+        vtium_font::Format::Mask
+    };
+    let size = (cell.width * width.cells(), cell.height);
+    let (pixels, ink) = spacing::place_rows(
+        &glyph.pixels,
+        size,
+        format,
+        glyph.ink.as_ref(),
+        (band, fit, false),
+    )?;
+    let at = target.glyph(width, pixels);
+    let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
+    if let Some(ink) = ink {
+        target.ink(at, (ink.left, ink.top), (ink.width, ink.height), ink.pixels);
+    }
+    Some(at)
 }
 
 /// One bit for each Unicode codepoint.

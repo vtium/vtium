@@ -179,7 +179,7 @@ pub struct OutlineRequest {
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
 /// by row, cut to its cells, and the ink box of an R8 glyph whose ink
-/// passes them.
+/// passes them, or of a color emoji drawn in one cell, RGBA (ADR-1302 D5).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Placed {
     pub wide: bool,
@@ -640,9 +640,6 @@ impl Outline {
                 let ink = if flags & GLYPH_INK == 0 {
                     None
                 } else {
-                    if color {
-                        return Err("an ink box on a color glyph");
-                    }
                     let i32_at = |r: &mut Reader<'_>| -> Result<i32, &'static str> {
                         Ok(i32::from_le_bytes(
                             r.take(4)?.try_into().map_err(|_| "cut short")?,
@@ -661,7 +658,18 @@ impl Outline {
                     if !in_reach(&ink, (width, span, height), reach) {
                         return Err("an ink box past its glyph's reach, or not past its cells");
                     }
-                    let n = Placed::bytes(false, false, box_width, box_height)
+                    // a color glyph's box is a color emoji's edge in one
+                    // cell, 1 pixel past each side (ADR-1302 D5)
+                    let right = i64::from(left).saturating_add(i64::from(box_width));
+                    let edge = !wide
+                        && left >= -1
+                        && right <= i64::from(width).saturating_add(1)
+                        && top == 0
+                        && box_height == height;
+                    if color && !edge {
+                        return Err("an ink box on a color glyph past 1 pixel beside its cell");
+                    }
+                    let n = Placed::bytes(false, color, box_width, box_height)
                         .ok_or("an ink box past usize")?;
                     if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
                         return Err("an ink box larger than a set's chunk");
@@ -1801,6 +1809,9 @@ pub(crate) mod raster {
         };
         let mut image = draw(cell.ppem, (fw, fh))?;
         let color = image.content == Content::Color;
+        if color && !wide && !script {
+            return emoji_in_one_cell(draw, cell);
+        }
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
         // where the font places a mask: the advance rounded to the nearest
         // pixel (ADR-1302 D2), and a negative advance counts as none
@@ -1881,6 +1892,49 @@ pub(crate) mod raster {
             wide,
             color,
             pixels: copy(&image, color, bw, h, left, top),
+            ink,
+        })
+    }
+
+    /// The tallest cell a frit may state, whose drawing of a color emoji
+    /// is the one a color emoji in one cell is cut from (ADR-1302 D5).
+    pub(crate) const LARGEST_CELL: (u32, u32) = (48, 96);
+
+    /// A color glyph that must draw in one cell of `cell` (ADR-1302 D5):
+    /// drawn as large as the tallest cell a frit may state draws it, two
+    /// cells of [`LARGEST_CELL`], and then cut to the square around its
+    /// ink and shrunk by nearest neighbour to a square the cell's width
+    /// and 2 pixels across, centred, by [`vtium_font::Glyph::in_one_cell`].
+    /// Its 1-pixel edge on each side goes to its ink box.
+    fn emoji_in_one_cell(
+        draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let (lw, lh) = LARGEST_CELL;
+        let ppem = cell.ppem * lh as f32 / cell.height.max(1) as f32;
+        let image = draw(ppem, (lw * 2, lh))?;
+        let (iw, ih) = (image.placement.width, image.placement.height);
+        let picture = match (iw, ih) {
+            (0, _) | (_, 0) => vtium_font::Glyph::rgba(1, 1)?,
+            _ => vtium_font::Glyph::from_pixels(
+                iw,
+                ih,
+                vtium_font::Format::Rgba,
+                copy(&image, true, iw, ih, 0, 0),
+            )?,
+        };
+        let glyph = picture.in_one_cell((cell.width, cell.height))?;
+        let ink = glyph.ink().map(|ink| InkBox {
+            left: ink.left(),
+            top: ink.top(),
+            width: ink.width(),
+            height: ink.height(),
+            pixels: ink.pixels().to_vec(),
+        });
+        Some(Placed {
+            wide: false,
+            color: true,
+            pixels: glyph.pixels().to_vec(),
             ink,
         })
     }
