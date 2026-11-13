@@ -1,5 +1,5 @@
 //! drm2d in the event loop: the card's page flip events, the bound on
-//! each flip in flight, and the wake-up retries.
+//! each flip in flight, and the wake-up retries, fast and slow.
 
 use std::io;
 use std::marker::PhantomData;
@@ -20,6 +20,8 @@ use super::buffers::Source;
 #[derive(Default)]
 pub(super) struct Timers {
     pub(super) wake_retry: Option<RegistrationToken>,
+    /// The next slow try, once the fast tries ran out.
+    pub(super) slow_retry: Option<RegistrationToken>,
 }
 
 #[derive(Clone, Copy)]
@@ -31,6 +33,11 @@ pub(super) enum Clock {
     Stale(u32),
     /// The next wake-up try, after [`crate::WAKE_RETRY_MS`].
     WakeRetry,
+    /// The next slow try after [`Event::WakeFailed`], after
+    /// [`crate::WAKE_RETRY_SLOW_MS`].
+    ///
+    /// [`Event::WakeFailed`]: crate::display::Event::WakeFailed
+    SlowRetry,
 }
 
 impl Clock {
@@ -38,6 +45,7 @@ impl Clock {
         let ms = match self {
             Clock::Flip(_) | Clock::Stale(_) => crate::FLIP_WAIT_MS,
             Clock::WakeRetry => crate::WAKE_RETRY_MS,
+            Clock::SlowRetry => crate::WAKE_RETRY_SLOW_MS,
         };
         Duration::from_millis(u64::try_from(ms).unwrap_or(u64::MAX))
     }
@@ -62,7 +70,8 @@ impl Drm2d<Card> {
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 impl<K: Kms + 'static, S: Source<K> + 'static> Drm2d<K, S> {
     /// Puts the card in the loop behind `handle`: its page flip events,
-    /// the bound on each flip in flight and the wake-up retries. `access`
+    /// the bound on each flip in flight and the wake-up retries, fast and
+    /// slow. `access`
     /// finds the device in the loop's data, or `None` once it is gone.
     pub fn insert<D, A>(&mut self, handle: &LoopHandle<'static, D>, access: A) -> io::Result<()>
     where
@@ -126,6 +135,10 @@ where
                         Clock::WakeRetry => {
                             video.timers.wake_retry = None;
                             video.retry_wake();
+                        }
+                        Clock::SlowRetry => {
+                            video.timers.slow_retry = None;
+                            video.retry_slowly();
                         }
                     }
                 }
