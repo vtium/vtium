@@ -38,5 +38,5 @@ key 0x1008ff12
 key KP_Home
 key KP_Left
 key KP_Page_Down mods=shift
-key KP_Separator
+key KP_Separator char=","
 key KP_Begin mods=ctrl

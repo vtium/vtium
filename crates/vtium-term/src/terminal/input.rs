@@ -3,7 +3,7 @@
 //! a key while the kitty keyboard protocol's flags are not 0, that
 //! protocol's (`kitty_keyboard.rs`).
 
-use super::kitty_keyboard::{disambiguates, legacy_event, legacy_release, owes_release};
+use super::kitty_keyboard::{disambiguates, legacy_release, main_key, owes_release};
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
 use vtium_parse::InputMode;
@@ -190,6 +190,8 @@ pub(super) mod sym {
     pub const KP_TAB: u32 = 0xff89;
     pub const KP_ENTER: u32 = 0xff8d;
     pub const KP_F1: u32 = 0xff91;
+    pub const KP_F2: u32 = 0xff92;
+    pub const KP_F3: u32 = 0xff93;
     pub const KP_F4: u32 = 0xff94;
     pub const KP_HOME: u32 = 0xff95;
     pub const KP_LEFT: u32 = 0xff96;
@@ -212,6 +214,9 @@ pub(super) mod sym {
     pub const KP_9: u32 = 0xffb9;
     pub const KP_EQUAL: u32 = 0xffbd;
     pub const F1: u32 = 0xffbe;
+    pub const F2: u32 = 0xffbf;
+    pub const F3: u32 = 0xffc0;
+    pub const F4: u32 = 0xffc1;
     pub const F20: u32 = 0xffd1;
     pub const F35: u32 = 0xffe0;
     /// Shift_L to Hyper_R, the modifier keys, Caps_Lock and Shift_Lock
@@ -224,20 +229,39 @@ pub(super) mod sym {
     pub const ISO_LEFT_TAB: u32 = 0xfe20;
 }
 
+/// Which table of the C0 bytes Ctrl makes a key reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum CtrlTable {
+    /// xterm's us-pc105 table, mode 0, which the encoding at flags 0 uses.
+    Xterm,
+    /// The kitty keyboard protocol's "Legacy ctrl mapping of ASCII keys",
+    /// which its legacy section uses. It is xterm's table without `, {, |
+    /// and }, since "Any ASCII keys not in the table must be left untouched
+    /// by ctrl".
+    Kitty,
+}
+
 /// The C0 byte Ctrl turns `sym` into, or `None` for a key Ctrl leaves as it
-/// is: xterm's bytes (its us-pc105 table, mode 0). `sym` is the ASCII
-/// layout's keysym, so Ctrl+C works whatever layout is active.
-fn ctrl_byte(sym: u32) -> Option<u8> {
+/// is, by `table`. `sym` is the ASCII layout's keysym, so Ctrl+C works
+/// whatever layout is active. A capital letter is its key's letter. The
+/// kitty table's 0, 1 and 9 make themselves, so they need no entry.
+pub(super) fn ctrl_byte(sym: u32, table: CtrlTable) -> Option<u8> {
     let c = u8::try_from(sym).ok()?;
+    let xterm = table == CtrlTable::Xterm;
     Some(match c {
         b'a'..=b'z' | b'A'..=b'Z' => c & 0x1f,
-        b'2' | b' ' | b'@' | b'`' => 0x00,
-        b'3' | b'[' | b'{' => 0x1b,
-        b'4' | b'\\' | b'|' => 0x1c,
-        b'5' | b']' | b'}' => 0x1d,
+        b'2' | b' ' | b'@' => 0x00,
+        b'3' | b'[' => 0x1b,
+        b'4' | b'\\' => 0x1c,
+        b'5' | b']' => 0x1d,
         b'6' | b'^' | b'~' => 0x1e,
         b'7' | b'/' | b'_' => 0x1f,
         b'8' | b'?' => 0x7f,
+        // The four keys xterm's table alone maps.
+        b'`' if xterm => 0x00,
+        b'{' if xterm => 0x1b,
+        b'|' if xterm => 0x1c,
+        b'}' if xterm => 0x1d,
         _ => return None,
     })
 }
@@ -352,7 +376,7 @@ impl State {
                     }
                 } else if !alt
                     && (!m.contains(Mods::CTRL)
-                        || (ctrl_byte(sym).is_some() && sym != u32::from(b'?')))
+                        || (ctrl_byte(sym, CtrlTable::Xterm).is_some() && sym != u32::from(b'?')))
                 {
                     return None;
                 }
@@ -380,7 +404,7 @@ impl State {
             return Some((bytes, false));
         }
         if mods.contains(Mods::CTRL)
-            && let Some(byte) = ctrl_byte(sym)
+            && let Some(byte) = ctrl_byte(sym, CtrlTable::Xterm)
         {
             return Some((vec![byte], true));
         }
@@ -654,14 +678,16 @@ impl Terminal {
     /// kitty keyboard protocol's flags in force on the screen shown are
     /// not 0, that protocol decides the bytes (ADR-1005, D6). Under its
     /// flag 1 they are the protocol's escape codes. Without flag 1 a key
-    /// keeps the legacy encoding, xterm's without modifyOtherKeys, and
-    /// flag 2 adds a repeat's and a release's escape code to the keys whose
-    /// legacy encoding is one. While the flags are 0, a press or a repeat
-    /// sends xterm's encoding, with modifyOtherKeys at the level the
-    /// program set, and a release sends nothing. In the legacy encoding Alt
-    /// acts where xterm lets it, as modes 1034 and 1036 say. Left and Right
-    /// swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns whether
-    /// anything was sent.
+    /// follows the protocol's legacy section, which leaves the cursor,
+    /// editing and function keys' presses and the keypad to xterm's
+    /// encoding without modifyOtherKeys, and flag 2 adds a repeat's and a
+    /// release's escape code to the keys whose legacy form is one. While
+    /// the flags are 0, a press or a repeat sends xterm's encoding, with
+    /// modifyOtherKeys at the level the program set, and a release sends
+    /// nothing. In xterm's encoding Alt acts where xterm lets it, as modes
+    /// 1034 and 1036 say. Left and Right swap as
+    /// [`arrow_keysym`](Self::arrow_keysym) says. Returns whether anything
+    /// was sent.
     pub fn key(&mut self, key: &Key) -> bool {
         let keysym = self.arrow_keysym(key.keysym);
         let unshifted = self.arrow_keysym(key.unshifted);
@@ -670,7 +696,7 @@ impl Terminal {
         }
         let flags = self.state.keyboard.flags(self.state.screen.alternate());
         if key.event == KeyEvent::Press {
-            let owed = owes_release(key, keysym, flags).then_some(flags);
+            let owed = owes_release(key, keysym, unshifted, flags).then_some(flags);
             self.state.keyboard.pressed(key.keysym, owed);
         }
         if disambiguates(flags) {
@@ -680,17 +706,29 @@ impl Terminal {
             self.send(&bytes);
             return true;
         }
-        if flags != 0
-            && let Some(bytes) = legacy_event(key, keysym, flags)
-        {
-            self.send(&bytes);
-            return true;
-        }
         let ascii = self.arrow_keysym(key.ascii);
         let mods = key.mods;
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
-        let sym = if ascii == 0 { keysym } else { ascii };
+        let mut sym = if ascii == 0 { keysym } else { ascii };
+        let mut keysym = keysym;
+        if flags != 0 {
+            // The legacy section reports a keypad key as its equivalent
+            // non-keypad key, whose keysym Ctrl then reads too, and xterm's
+            // encoding sends that key's press where the section leaves it.
+            let main = main_key(keysym);
+            if main != keysym {
+                keysym = main;
+                sym = main;
+            }
+            if let Some(bytes) = self
+                .state
+                .legacy_key_bytes(key, keysym, unshifted, sym, flags)
+            {
+                self.send(&bytes);
+                return true;
+            }
+        }
         let modify_other = flags == 0;
         let Some((bytes, alt_acts)) =
             self.state
