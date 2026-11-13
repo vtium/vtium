@@ -1,0 +1,27 @@
+> size 20 2
+> send "\e[>2u"
+> cmd key;sym=ffca
+< reply "\e[57376u"
+> cmd key;sym=ffca;event=repeat
+< reply "\e[57376;1:2u"
+> cmd key;sym=ffca;event=release
+< reply "\e[57376;1:3u"
+> cmd key;sym=ffe0;mods=1;event=release
+< reply "\e[57398;2:3u"
+> cmd key;sym=ff67
+< reply "\e[29~"
+> cmd key;sym=ff67;event=release
+< reply "\e[29;1:3~"
+> cmd key;sym=ff9c
+< reply "\e[F"
+> cmd key;sym=ff9c;event=release
+< reply "\e[1;1:3F"
+> cmd key;sym=ff9f;mods=4;event=release
+< reply "\e[3;5:3~"
+> cmd key;sym=ff8d
+< reply "\r"
+> cmd key;sym=ff8d;event=release
+> send "\e[=0u"
+> cmd key;sym=ffca
+< reply "\e[25~"
+> cmd key;sym=ffca;event=release

@@ -1,0 +1,27 @@
+# Under the kitty keyboard protocol's flag 2 without flag 1, the legacy
+# section of the specification decides each key's form. F13 to F35 and
+# the other keys that the table of functional keys numbers from 57344 are
+# keys the legacy section does not describe, so they are sent in the
+# standard CSI u encoding, with their repeats and releases. Menu is the
+# legacy section's CSI 29 ~. The keypad's cursor and editing keys are
+# reported as their equivalent non-keypad keys, so the keypad's End sends
+# End's repeat and release. The keypad's Enter is Enter, which sends no
+# release. Once the flags are 0, F13 sends its xterm bytes again.
+# spec: kitty's Comprehensive keyboard handling in terminals: Legacy key event encoding, Report event types, Functional key definitions; ADR-1005 D6 and D13 slice 3
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>2u"
+cmd key;sym=ffca
+cmd key;sym=ffca;event=repeat
+cmd key;sym=ffca;event=release
+cmd key;sym=ffe0;mods=1;event=release
+cmd key;sym=ff67
+cmd key;sym=ff67;event=release
+cmd key;sym=ff9c
+cmd key;sym=ff9c;event=release
+cmd key;sym=ff9f;mods=4;event=release
+cmd key;sym=ff8d
+cmd key;sym=ff8d;event=release
+send "\e[=0u"
+cmd key;sym=ffca
+cmd key;sym=ffca;event=release
