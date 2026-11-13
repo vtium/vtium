@@ -73,6 +73,10 @@
 #                    client, and answers the refusals, vtium's PID, whether
 #                    it opened the seat meanwhile and its restarts
 #                    (t3_seat.py's seat-busy check)
+#   chvt 1, chvt 2   logs that it switches to VT 1 or VT 2, with the
+#                    guest's monotonic clock, then switches there with chvt, which returns once the VT is shown,
+#                    and answers the VT shown and the PID and age of vtium
+#                    on tty2 (t3_heads.py's display-away check)
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -443,11 +447,32 @@ while True:
                 fi
             fi
             ;;
+        # chvt asks the kernel for the switch and waits until the VT is
+        # shown. A switch away from vtium's VT waits for vtium to let the VT
+        # go, so a vtium that never lets go stops the switch; timeout ends
+        # chvt then. Before the switch the agent reads the guest's
+        # monotonic clock, the clock the journal stamps vtium's lines with
+        # on the serial console, and logs the reading there. The journal
+        # may stamp the agent's line itself only after the switch, so the
+        # check reads the time from the line's text.
+        "chvt 1" | "chvt 2")
+            to=${request#chvt }
+            at=$(python3 -I -c 'import time; print("%.6f" % time.clock_gettime(time.CLOCK_MONOTONIC))')
+            echo "switching to VT $to at $at s" >&4
+            if ! timeout 10 chvt "$to"; then
+                echo "refused: chvt $to failed or did not return within 10 s, so VT $to may not be shown"
+            fi
+            echo "shown $(fgconsole)"
+            vtium_age
+            ;;
         *) echo "refused $request" ;;
     esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done
     echo "T3-AGENT-END $n"
 }
 
+# fd 4 is the agent's own log, which t3-agent.service sends to the journal
+# and the serial console: the answers go to the port on fd 3.
+exec 4>&1
 exec 3<> "$port"
 stty raw -echo clocal 115200 <&3
 while IFS= read -r line <&3; do

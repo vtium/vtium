@@ -106,6 +106,14 @@ TWO_HEADS = {"Virtual-1": "8x16", "Virtual-2": "8x8"}
 KIOSK_SECOND = t3_devices.HOT_NAME
 KIOSK_LINE = "t3 cjk\n"
 
+# The line the agent logs on the serial console just before it switches VTs
+# (guest/t3-agent, chvt 1 and chvt 2): the VT, and the guest's monotonic
+# clock read before the switch, the clock of the journal's stamps.
+SWITCH_LINE = re.compile(r"t3-agent\[\d+\]: switching to VT (\d+) at (\d+\.\d+) s$")
+# vtium's line that no display came, with its stamp and vtium's PID.
+GONE_LINE = re.compile(r"\[\s*(\d+\.\d+)\] vtium\[(\d+)\]: .*no display appeared within "
+                       r"(\d+) s")
+
 # How far past display-wait, in seconds, the held check reads vtium's state:
 # the wait's FLIP_WAIT (crates/vtium/src/wait.rs) and as long again for the
 # exit vtium would make under open.
@@ -190,6 +198,14 @@ CHECKS = {
                     "Correct: vtium runs when the check starts, then logs that no display "
                     "appeared within display-wait and fails, and the fallback starts a getty "
                     "on tty2.",
+    "display-away": "No display device under an open policy, and vtium's VT taken away "
+                    "before vtium's first frame: the agent switches to VT 1 while "
+                    "display-wait runs, reads vtium once it is older than display-wait and 2 s "
+                    "more, then switches back to VT 2. Correct: while VT 1 is shown, the same "
+                    "vtium still runs and logs no line that no display appeared; back on VT 2, "
+                    "vtium logs that no display appeared within display-wait at least "
+                    "display-wait after the switch back, since the wait starts again in full, "
+                    "and the fallback starts a getty on tty2.",
 }
 
 # The console line of the outcome each first screen shows (ADR-1401 D7,
@@ -595,6 +611,96 @@ def judge_exit(first, state, wait_s, logged):
         return "no getty runs on tty2: %s, %s" % (getty.get("active"),
                                                   " ".join(state["tty2"] or ()) or "nothing")
     return None
+
+
+def parse_switch(lines):
+    """The agent's answer to `chvt 1` or `chvt 2` (guest/t3-agent) as
+    {"refused": why} when chvt failed, else {"shown": the VT shown,
+    "vtium": (PID, age) of vtium on tty2, or None}."""
+    out = {"shown": None, "vtium": None}
+    for line in lines:
+        f = line.split()
+        if f[:1] == ["refused:"]:
+            return {"refused": line.split(" ", 1)[1]}
+        if f[:1] == ["shown"] and len(f) == 2 and f[1].isdigit():
+            out["shown"] = int(f[1])
+        elif f[:1] == ["vtium"] and len(f) == 3:
+            out["vtium"] = (int(f[1]), float(f[2]))
+    return out
+
+
+def judge_switch(first, switch, vt, wait_s=None):
+    """Why the agent's switch to VT `vt` (its parsed answer `switch`) did
+    not leave the vtium of the state `first` running on tty2 with VT `vt`
+    shown; None when it did. With `wait_s`, the switch must also come while
+    display-wait runs, before vtium is `wait_s` old."""
+    if "refused" in switch:
+        return "the agent could not switch to VT %d: %s" % (vt, switch["refused"])
+    if switch["shown"] != vt:
+        return "after the switch to VT %d the VT shown is %s" % (vt, switch["shown"])
+    if switch["vtium"] is None or switch["vtium"][0] != first["vtium"][0]:
+        return "after the switch to VT %d vtium on tty2 is %s, not vtium %d" % (
+            vt, switch["vtium"], first["vtium"][0])
+    if wait_s is not None and switch["vtium"][1] >= wait_s:
+        return ("VT %d was shown %.1f s after vtium started, once display-wait of %d s had "
+                "run out, so the switch came too late to test the wait" % (
+                    vt, switch["vtium"][1], wait_s))
+    return None
+
+
+def judge_kept(first, state, serial, wait_s):
+    """Why vtium did not keep running while VT 1 was shown past
+    display-wait (`wait_s`) (CHECKS "display-away"), from the agent's state
+    before the switch, its state once vtium was older than the wait and
+    HOLD_PAST_S more, and the console log; None when vtium kept running."""
+    if state["vtium"] is None:
+        return "vtium does not run on tty2 while VT 1 is shown: %s" % (
+            unit(state, VTIUM_UNIT).get("active"))
+    if state["vtium"][0] != first["vtium"][0]:
+        return "vtium's PID changed from %d to %d while VT 1 was shown: it ended" % (
+            first["vtium"][0], state["vtium"][0])
+    if state["vtium"][1] < wait_s + HOLD_PAST_S:
+        return "vtium was read %.1f s after its start, before display-wait ran out" % (
+            state["vtium"][1])
+    if state["fgconsole"] != 1:
+        return "the VT shown is %s, not 1, while vtium should wait for its VT" % (
+            state["fgconsole"])
+    m = NO_DISPLAY_LINE.search(serial)
+    if m:
+        return "vtium logged %r while VT 1 was shown" % m.group(0)
+    return None
+
+
+def judge_return(serial, pid, wait_s):
+    """Why vtium of PID `pid` did not wait display-wait (`wait_s`) in full
+    after its VT came back (CHECKS "display-away"), from the console log
+    `serial` since just before the agent's switch to VT 2, as (why, the wait
+    vtium logged it gave up after). why is None when vtium waited in full.
+    The agent reads the guest's monotonic clock before chvt 2 runs, and
+    vtium cannot start the wait before the switch starts. The journal
+    stamps vtium's line by the same clock once vtium has written it. So a
+    vtium that starts the wait in full logs its line at least display-wait
+    after the agent's reading. The journal's stamp of the agent's own line
+    can fall after the switch, so it is not the time read."""
+    back = gone = None
+    for line in serial.splitlines():
+        m = SWITCH_LINE.search(line.strip())
+        if m and int(m.group(1)) == 2 and back is None:
+            back = float(m.group(2))
+        m = GONE_LINE.search(line.strip())
+        if m and int(m.group(2)) == pid and gone is None:
+            gone = (float(m.group(1)), int(m.group(3)))
+    if back is None:
+        return "the serial log has no line of the agent's switch to VT 2", None
+    if gone is None:
+        return "vtium %d logged no line that no display appeared" % pid, None
+    if gone[1] != wait_s:
+        return "vtium gave up after %d s, not the display-wait of %d s" % (gone[1], wait_s), gone[1]
+    if gone[0] - back < wait_s:
+        return ("vtium gave up %.3f s after the switch back to VT 2, less than the "
+                "display-wait of %d s: the wait did not start again in full" % (
+                    gone[0] - back, wait_s)), gone[1]
+    return None, gone[1]
 
 
 def judge_policy_line(serial, lines, policy_line):
@@ -1131,6 +1237,64 @@ def check_display_exit(variant, vm, work, caps, errors, log):
         errors[case] = str(e)
 
 
+def check_display_away(variant, vm, work, caps, errors, log):
+    """The display-away check (CHECKS): the agent switches to VT 1 while
+    display-wait runs, vtium's state is read once vtium is older than the
+    wait and HOLD_PAST_S more, and the agent switches back to VT 2. Then
+    vtium's line that no display came, and the agent's state once the
+    fallback has run. The times are the stamps of the guest's serial log."""
+    case = "display-away"
+    try:
+        wait_s = display_wait(variant)
+        # The boot's own jobs, read while the console waits, which
+        # judge_exit checks vtium still did; a job queued since then is the
+        # scenario's.
+        first = wait_state(vm, lambda s: s["vtium"] is not None and s["fgconsole"] == 2,
+                           "vtium running on tty2, the VT shown")
+        away = parse_switch(vm.ask("chvt 1"))
+        log("%s: chvt 1: %s" % (case, away))
+        why = judge_switch(first, away, 1, wait_s)
+        if why:
+            raise RuntimeError(why)
+        pid = first["vtium"][0]
+        state = wait_state(vm, lambda s: s["vtium"] is None or s["vtium"][0] != pid
+                           or s["vtium"][1] >= wait_s + HOLD_PAST_S,
+                           "vtium older than display-wait", timeout=wait_s + STATE_TIMEOUT)
+        why = judge_kept(first, state, serial_after(vm, 0), wait_s)
+        log("%s: on VT 1: %s" % (case, why or "vtium waits"))
+        if why:
+            raise RuntimeError(why)
+        since = serial_size(vm)
+        back = parse_switch(vm.ask("chvt 2"))
+        log("%s: chvt 2: %s" % (case, back))
+        why = judge_switch(first, back, 2)
+        if why:
+            raise RuntimeError(why)
+        deadline = time.time() + wait_s + STATE_TIMEOUT
+        gone = "vtium[%d]: " % pid
+        while not any(gone in l and "no display appeared within" in l
+                      for l in serial_after(vm, since).splitlines(True) if l.endswith("\n")):
+            if time.time() > deadline:
+                raise RuntimeError("vtium %d logged no line that no display appeared within "
+                                   "%d s of the switch back to VT 2; see %s" % (
+                                       pid, wait_s + STATE_TIMEOUT, rel(vm.serial)))
+            time.sleep(0.2)
+        why, logged = judge_return(serial_after(vm, since), pid, wait_s)
+        log("%s: back on VT 2: %s" % (case, why or "vtium waited display-wait in full"))
+        if why:
+            raise RuntimeError(why)
+        state = wait_state(vm, lambda s: restart_settled(s, first) and (
+            getty_on_tty2(s) or "skipped" in (journal_since(s, first) or ())),
+            "the fallback's getty on tty2")
+        why = judge_exit(first, state, wait_s, logged)
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        caps[case] = None
+    except RuntimeError as e:
+        errors[case] = str(e)
+
+
 def judge_two_heads(displays, start, end, desk):
     """Why the two heads are not two (CHECKS "two-heads"), from the
     console's Display lines, the second output's capture before the login
@@ -1181,5 +1345,6 @@ def second_output(variant):
 CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback,
               "start-limit": check_start_limit,
               "display-held": check_display_held, "display-exit": check_display_exit,
+              "display-away": check_display_away,
               "two-heads": check_two_heads, "kiosk": check_kiosk,
               "policy-line": check_policy_line, "session-survives": check_session_survives}
