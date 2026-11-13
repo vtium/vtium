@@ -13,7 +13,7 @@ use crate::rules::{RegionScroll, rules};
 /// Where a piece is anchored: a line, or the screen row whose line holds
 /// it once a scroll's lines have moved.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Anchor {
+pub(super) enum Anchor {
     Line(LineKey),
     Row(i64),
 }
@@ -21,12 +21,12 @@ enum Anchor {
 /// A piece of a placement: box rows `r0` to `r1` and columns `c0` to `c1`,
 /// counted from the placement's box.
 #[derive(Clone, Copy, Debug)]
-struct Piece {
-    r0: u32,
-    r1: u32,
-    c0: u32,
-    c1: u32,
-    anchor: Anchor,
+pub(super) struct Piece {
+    pub(super) r0: u32,
+    pub(super) r1: u32,
+    pub(super) c0: u32,
+    pub(super) c1: u32,
+    pub(super) anchor: Anchor,
 }
 
 impl Piece {
@@ -222,7 +222,7 @@ impl Store {
     /// stays where it was against the picture. Past the buffer's placement
     /// count the largest pieces stay, largest first. A placement no piece
     /// of which shows anything is removed.
-    fn split(&mut self, b: usize, key: PlacementKey, pieces: &[Piece]) {
+    pub(super) fn split(&mut self, b: usize, key: PlacementKey, pieces: &[Piece]) {
         let Some(o) = self.placement(b, key).cloned() else {
             return;
         };

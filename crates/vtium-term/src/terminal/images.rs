@@ -307,7 +307,13 @@ impl Context for Ctx<'_> {
 
     fn margins(&self) -> Margins {
         let (top, bottom) = self.state.screen.margins();
-        Margins { top, bottom }
+        let (left, right) = self.state.screen.lr_margins();
+        Margins {
+            top,
+            bottom,
+            left,
+            right,
+        }
     }
 
     fn index(&mut self, n: usize) {
@@ -943,13 +949,24 @@ mod tests {
 
     #[test]
     fn the_context_reports_the_scroll_regions_margins() {
+        let margins = |top, bottom, left, right| {
+            Some(Margins {
+                top,
+                bottom,
+                left,
+                right,
+            })
+        };
         let mut t = probed(1 << 20);
         let _ = t.input(b"\x1bPq\x1b\\");
-        assert_eq!(probe(&t).margins, Some(Margins { top: 0, bottom: 3 }));
+        assert_eq!(probe(&t).margins, margins(0, 3, 0, 7));
         let _ = t.input(b"\x1b[2;3r\x1bPq\x1b\\");
-        assert_eq!(probe(&t).margins, Some(Margins { top: 1, bottom: 2 }));
-        let _ = t.input(b"\x1b[r\x1bPq\x1b\\");
-        assert_eq!(probe(&t).margins, Some(Margins { top: 0, bottom: 3 }));
+        assert_eq!(probe(&t).margins, margins(1, 2, 0, 7));
+        // DECSLRM's margins, while DECLRMM is set
+        let _ = t.input(b"\x1b[?69h\x1b[3;6s\x1bPq\x1b\\");
+        assert_eq!(probe(&t).margins, margins(1, 2, 2, 5));
+        let _ = t.input(b"\x1b[?69l\x1b[r\x1bPq\x1b\\");
+        assert_eq!(probe(&t).margins, margins(0, 3, 0, 7));
     }
 
     #[test]
