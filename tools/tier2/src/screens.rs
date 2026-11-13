@@ -2762,6 +2762,17 @@ const BASE: &[Case] = &[
             10,
         )
     }),
+    Case {
+        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (64, 2)),
+    },
+    Case {
+        screen: scripts(
+            "scripts-arabic",
+            SCRIPTS_ARABIC_DESC,
+            SCRIPTS_ARABIC,
+            (64, 2),
+        ),
+    },
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's
@@ -2779,19 +2790,7 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[
-    Case {
-        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (64, 2)),
-    },
-    Case {
-        screen: scripts(
-            "scripts-arabic",
-            SCRIPTS_ARABIC_DESC,
-            SCRIPTS_ARABIC,
-            (64, 2),
-        ),
-    },
-];
+pub const WAITING: &[Case] = &[];
 
 /// The scripts screens' one drawing, at 40 pixels, in Iosevka Term's
 /// 16x40 cell.

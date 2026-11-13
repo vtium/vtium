@@ -2,5 +2,3 @@
 # owes the screen, and why. The run reports each row as a pending case. A
 # row that a screen draws, or whose golden goldens/ holds, is refused. A
 # screen that takes one up adds its golden, and the row goes.
-scripts-arabic	vtium/vtium#389	Arabic in Iosevka Term's 16x40 cell, waiting for a decision on how a joining letter fits a cell much wider or narrower than it: each letter is stretched or squeezed sideways to its cell (ADR-1302 D2), so alef and lam draw nearly twice as heavy as the letters beside them and final seen is squeezed to half its width
-scripts-indic	vtium/vtium#261	Hindi and Bengali in Iosevka Term's 16x40 cell, waiting for a decision on how a syllabic cluster maps onto cells (vtium/vtium#144): a cluster of several characters draws at its full width over its neighbours, and a single letter is drawn smaller to fit its one cell, so words collide and letters change size
