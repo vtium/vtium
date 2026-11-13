@@ -959,8 +959,11 @@ class PreflightTest(unittest.TestCase):
         # goldens.
         cases_of = t3_scenario.golden_cases()
         self.assertEqual(t3_evaluate.check_goldens(cases_of, t3_common.GOLDEN), [])
-        wanted = {t3_evaluate.golden_for(v, c)[0] for v, cases in cases_of.items()
-                  for c in cases} - {None}
+        # a screen whose golden depends on the tree's build has a golden
+        # for each build (BY_FEATURE)
+        builds = [()] + [[f] for f in sorted(set(t3_evaluate.BY_FEATURE.values()))]
+        wanted = {t3_evaluate.golden_for(v, c, features=b)[0] for v, cases in cases_of.items()
+                  for c in cases for b in builds} - {None}
         self.assertTrue(wanted)
         self.assertEqual(sorted(t3_common.rel(p) for p in wanted if not os.path.exists(p)), [])
         self.assertEqual(os.path.basename(t3_common.GOLDEN), "goldens")
@@ -1156,10 +1159,17 @@ class VtiumGoldenTest(unittest.TestCase):
         # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
         # minimal variants recaptured with ADR-1302 D4's italic bands of
         # 2026-11-07 (vtium/vtium#273) on 2026-11-08, and card 1b's
-        # kernel-message golden on 2026-11-11, so the list in the tree holds
-        # none; a golden it names must be one a case draws.
+        # kernel-message golden on 2026-11-11. The list in the tree holds the
+        # four panic goldens the maintainer's drawing of Tux moved or added
+        # (ADR-1401 D7), one for each build, and the img-delete golden that
+        # kitty 0.50.0's replies moved (ADR-1100 D15), until the maintainer
+        # reviews them; a golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        self.assertEqual(sorted(prov), ["heads-closed-broken/panic",
+                                        "heads-closed-broken/panic+images",
+                                        "heads-policy-typo/policy-panic",
+                                        "heads-policy-typo/policy-panic+images",
+                                        "images-640x480/img-delete"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -3603,7 +3613,7 @@ class HeadsTest(unittest.TestCase):
                               "getty-fallback", "start-limit"],
         "heads-closed-broken": ["panic", "no-login", "getty-fallback", "start-limit"],
         "heads-policy-typo": ["policy-panic", "policy-line", "no-login", "getty-fallback"],
-        "heads-closed-unmatched": ["no-display-notice", "no-login", "getty-fallback"],
+        "heads-closed-unmatched": ["no-login", "getty-fallback"],
         "heads-off": ["no-login", "getty-fallback"],
         "heads-kiosk": ["cjk", "kiosk"],
         "heads-closed-nodisplay": ["display-held", "getty-fallback"],
@@ -3710,6 +3720,93 @@ class HeadsTest(unittest.TestCase):
             m = re.search(r'const BROKEN_CLOSED: &str = "(.*)";', f.read())
         with open(os.path.join(t3_heads.HEADS, "broken-closed.conf")) as f:
             self.assertEqual(f.read(), m.group(1).replace("\\n", "\n"))
+
+    def test_unmatched_leaves_its_display_off(self):
+        # A valid closed file whose one head names a connector the card
+        # lacks leaves the guest's display blank (ADR-1401 D3, D9): vtium
+        # sets up no display and shows no first screen, and each vtium
+        # started again must log that the display stays off.
+        v = t3_scenario.VARIANTS["heads-closed-unmatched"]
+        self.assertEqual((v["policy"], v["renderer"], v["off"]), ("closed", None, "Virtual-1"))
+        self.assertNotIn("first", v)
+        self.assertNotIn("No head has a connected display.", t3_heads.LINES.values())
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        vm = mock.Mock(serial=os.path.join(d.name, "serial.log"))
+        old = ("[    7.7] vtium[774]: display Virtual-1 stays off: no rule in vtium.conf "
+               "matches it; add the rule `display connector:pci-0000:00:01.0/Virtual-1 -> "
+               "desk` to give it a head\n")
+        new = old.replace("[    7.7] vtium[774]", "[   23.1] vtium[1043]")
+        with open(vm.serial, "w") as f:
+            f.write(old + new)
+        t3_heads.wait_off(v, vm, 774, 0, "kill")
+        # the line of the vtium that was killed, or of another display, is
+        # not the new vtium's
+        for serial in (old, new.replace("Virtual-1", "Virtual-2"),
+                       new.replace("no rule in vtium.conf matches it",
+                                   "the rule on line 4 of vtium.conf sends it to off")):
+            with self.subTest(serial=serial):
+                with open(vm.serial, "w") as f:
+                    f.write(serial)
+                with mock.patch.object(t3_heads, "STATE_TIMEOUT", 0), \
+                        mock.patch.object(t3_heads.time, "sleep"):
+                    with self.assertRaisesRegex(RuntimeError, "the vtium started again after the "
+                                                "kill did not log 'display Virtual-1 stays off"):
+                        t3_heads.wait_off(v, vm, 774, 0, "kill")
+
+    def test_the_panic_screens_have_a_golden_for_each_build(self):
+        # The panic screen shows the maintainer's drawing of Tux as ASCII
+        # art in a console built without images and as a sprite in one
+        # built with images (ADR-1401 D7). The head variants run on the
+        # run's tree, so each panic case has one golden for each build, and
+        # the run's tree picks the one that judges it.
+        self.assertEqual(t3_evaluate.BY_FEATURE, {"panic": "images", "policy-panic": "images"})
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        root = d.name
+        for variant, case in (("heads-closed-broken", "panic"),
+                              ("heads-policy-typo", "policy-panic")):
+            with self.subTest(case):
+                for features, name in (((), case), (["libseat", "logind"], case),
+                                       (["images"], case + "+images"),
+                                       (["gpu", "images"], case + "+images")):
+                    self.assertEqual(t3_evaluate.golden_for(variant, case, root, features),
+                                     (os.path.join(root, variant, name + ".png"),
+                                      os.path.join(root, variant, name + ".tol")))
+        # a screen BY_FEATURE does not name keeps its one golden
+        self.assertEqual(t3_evaluate.golden_for("heads-partly-open", "partly-notice", root,
+                                                ["images"])[0],
+                         os.path.join(root, "heads-partly-open", "partly-notice.png"))
+        # both goldens are ones a case compares with, and no other feature's
+        cases = {"heads-closed-broken": t3_scenario.variant_cases("heads-closed-broken")}
+        os.makedirs(os.path.join(root, "heads-closed-broken"))
+        for name in ("panic", "panic+images", "panic+gpu"):
+            t3img.write_png(os.path.join(root, "heads-closed-broken", name + ".png"),
+                            t3img.Image(8, 8, bytes(8 * 8 * 3)))
+        self.assertEqual(t3_evaluate.check_goldens(cases, root), [
+            "%s is a golden no case draws"
+            % t3_common.rel(os.path.join(root, "heads-closed-broken", "panic+gpu.png"))])
+        # a capture is judged by the golden of its tree's build
+        t3img.write_png(os.path.join(root, "heads-closed-broken", "panic+images.png"),
+                        t3img.Image(8, 8, bytes([200]) + bytes(8 * 8 * 3 - 1)))
+        cap = os.path.join(root, "cap.png")
+        t3img.write_png(cap, t3img.Image(8, 8, bytes([200]) + bytes(8 * 8 * 3 - 1)))
+        with mock.patch.object(t3_evaluate, "RUNDIR", os.path.join(root, "run")), \
+                mock.patch.object(t3_evaluate, "PROVISIONAL", {}):
+            sprite = t3_evaluate.evaluate("heads-closed-broken", "panic", cap, {}, LOG, root,
+                                          features=["images"])
+            ascii_art = t3_evaluate.evaluate("heads-closed-broken", "panic", cap, {}, LOG, root)
+        self.assertEqual((sprite["status"], sprite["golden"]),
+                         ("pass", t3_common.rel(os.path.join(root, "heads-closed-broken",
+                                                             "panic+images.png"))))
+        self.assertEqual((ascii_art["status"], ascii_art["golden"]),
+                         ("fail", t3_common.rel(os.path.join(root, "heads-closed-broken",
+                                                             "panic.png"))))
+        # the run's tree reaches the evaluation, a failed variant's included
+        entries = t3_scenario.failed_variant("heads-closed-broken", "x", LOG, ["images"])[0]
+        self.assertEqual(entries[0]["golden"],
+                         t3_common.rel(os.path.join(t3_evaluate.GOLDEN, "heads-closed-broken",
+                                                    "panic+images.png")))
 
     def test_first_screens_and_checks_are_described(self):
         for name in t3_scenario.HEAD_VARIANTS:
@@ -3835,22 +3932,40 @@ class HeadsTest(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             vm._ask("state", 1)
 
-    def test_the_agent_refuses_every_other_request(self):
-        # The agent on a pty in place of ttyS2: each request it does not
-        # know, spelled even one character differently, is refused and runs
-        # nothing.
+    def start_agent(self, cwd, env=None):
+        """The agent on a pty in place of ttyS2, run in `cwd` with `env` added
+        to the environment, and a function that sends it request N and
+        returns its answer's lines."""
         import pty
-        d = tempfile.TemporaryDirectory()
-        self.addCleanup(d.cleanup)
         master, slave = pty.openpty()
         self.addCleanup(os.close, master)
         # held open here too, so the pty stays up until the agent opens it
         self.addCleanup(os.close, slave)
         agent = subprocess.Popen(["bash", os.path.join(t3_common.GUEST, "t3-agent")],
-                                 cwd=d.name, stdin=subprocess.DEVNULL,
-                                 env=dict(os.environ, T3_AGENT_PORT=os.ttyname(slave)))
+                                 cwd=cwd, stdin=subprocess.DEVNULL,
+                                 env=dict(os.environ, T3_AGENT_PORT=os.ttyname(slave),
+                                          **(env or {})))
         self.addCleanup(agent.wait)
         self.addCleanup(agent.kill)
+
+        def ask(n, request, timeout=10):
+            os.write(master, b"%d %s\n" % (n, request.encode()))
+            buf = b""
+            deadline = time.time() + timeout
+            while ("T3-AGENT-END %d" % n).encode() not in buf:
+                self.assertLess(time.time(), deadline, buf)
+                buf += os.read(master, 4096)
+            return [l.strip()[len("T3-AGENT %d " % n):] for l in buf.decode().splitlines()
+                    if l.startswith("T3-AGENT %d " % n)]
+        return ask
+
+    def test_the_agent_refuses_every_other_request(self):
+        # The agent on a pty in place of ttyS2: each request it does not
+        # know, spelled even one character differently, is refused and runs
+        # nothing.
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        ask = self.start_agent(d.name)
         requests = ["kill TERM", "kill KILL; touch pwned", "$(touch %s/pwned-sub)" % d.name,
                     "`touch %s/pwned-tick`" % d.name, "state ", "start now", "Start",
                     "hangup && touch pwned-and", "watch /dev/input/event0", "Watch",
@@ -3863,16 +3978,68 @@ class HeadsTest(unittest.TestCase):
                     "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
-                os.write(master, b"%d %s\n" % (n, request.encode()))
-                answer, buf = [], b""
-                deadline = time.time() + 10
-                while ("T3-AGENT-END %d" % n).encode() not in buf:
-                    self.assertLess(time.time(), deadline, buf)
-                    buf += os.read(master, 4096)
-                answer = [l.strip() for l in buf.decode().splitlines()
-                          if l.startswith("T3-AGENT %d " % n)]
-                self.assertEqual(answer, ["T3-AGENT %d refused %s" % (n, request.strip())])
+                self.assertEqual(ask(n, request), ["refused %s" % request.strip()])
         self.assertEqual(os.listdir(d.name), [])
+
+    # A vtium unit of Type=notify for the agent's limit request, as a fake
+    # systemctl on PATH: each vtium the unit starts has its PID from its
+    # fork, and the unit turns active, as systemd counts the start, only
+    # from the fourth time the agent reads MainPID. The agent's kill reaches
+    # the fake as `systemctl t3-kill`, which records each PID killed and the
+    # unit's state then; after the sixth kill the unit is failed on its
+    # start limit, and refuses a start.
+    FAKE_SYSTEMCTL = """#!/bin/bash
+d=$T3_FAKE_UNIT
+read -r pid state polls kills < "$d/unit"
+case "$1 $2 $3" in
+"show -P MainPID")
+    polls=$((polls + 1))
+    if [ "$state" = activating ] && [ "$polls" -gt 3 ]; then state=active; fi
+    echo "$pid $state $polls $kills" > "$d/unit"
+    if [ "$state" = failed ]; then echo 0; else echo "$pid"; fi ;;
+"show -P ActiveState") echo "$state" ;;
+"show -P SubState")
+    case $state in activating) echo start ;; active) echo running ;; *) echo failed ;; esac ;;
+"show -P Result")
+    if [ "$state" = failed ]; then echo start-limit-hit; else echo success; fi ;;
+"start "*) [ "$state" != failed ] ;;
+"t3-kill -s KILL")
+    echo "$4 $state" >> "$d/kills"
+    kills=$((kills + 1))
+    if [ "$kills" -ge 6 ]; then state=failed; else pid=$((pid + 1)); state=activating; polls=0; fi
+    echo "$pid $state $polls $kills" > "$d/unit" ;;
+*) echo "fake systemctl: $*" >&2; exit 1 ;;
+esac
+"""
+
+    def test_the_agent_kills_each_vtium_once_its_unit_is_active(self):
+        # vtium's unit is Type=notify, so systemd counts a start, and logs
+        # "Started vtium on tty2.", only once vtium has sent READY=1, while
+        # MainPID names vtium from its fork. A kill before the unit is
+        # active fails a start systemd never logged, so the agent waits for
+        # the unit to be active before each kill.
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        bin_dir, unit = os.path.join(d.name, "bin"), os.path.join(d.name, "unit")
+        os.makedirs(bin_dir)
+        os.makedirs(unit)
+        with open(os.path.join(bin_dir, "systemctl"), "w") as f:
+            f.write(self.FAKE_SYSTEMCTL)
+        os.chmod(os.path.join(bin_dir, "systemctl"), 0o755)
+        with open(os.path.join(unit, "unit"), "w") as f:
+            f.write("1001 activating 0 0\n")
+        ask = self.start_agent(d.name, {
+            "PATH": bin_dir + os.pathsep + os.environ["PATH"], "T3_FAKE_UNIT": unit,
+            "T3_AGENT_TEMPLATE": os.path.join(d.name, "none"),
+            # bash takes an exported function before its builtin kill
+            "BASH_FUNC_kill%%": '() { systemctl t3-kill "$@"; }'})
+        self.assertEqual(ask(1, "limit", timeout=60),
+                         ["sent KILL to %d" % pid for pid in range(1001, 1007)]
+                         + ["stopped failed failed start-limit-hit after 6 kills",
+                            "start refused"])
+        with open(os.path.join(unit, "kills")) as f:
+            self.assertEqual(f.read().splitlines(),
+                             ["%d active" % pid for pid in range(1001, 1007)])
 
     def test_the_boot_claim_is_judged_both_ways(self):
         # The agent's answer to vts on a guest where vtium holds VTs 1 to 6
@@ -5009,7 +5176,22 @@ class ImagesVariantTest(unittest.TestCase):
                                  "^the screen reported .*; it must report i=41;OK, ")
         self.assertEqual(t3_scenario.judge_replies("img-delete", []),
                          "the screen reported no reply; it must report i=32;OK, "
-                         "i=33;ENOENT:image not found")
+                         "i=33;ENOENT:Put command refers to non-existent image with id: 33 "
+                         "and number: 0")
+        # the replies kitty 0.50.0 gives (ADR-1100 D15): a put of a freed
+        # image in kitty's own text, a frame's reply naming the frame it
+        # made, and no reply to an animation control that succeeds
+        self.assertIsNone(t3_scenario.judge_replies("img-delete", [
+            "i=32;OK", "i=33;ENOENT:Put command refers to non-existent image with id: 33 and "
+                       "number: 0"]))
+        self.assertIsNotNone(t3_scenario.judge_replies("img-delete", [
+            "i=32;OK", "i=33;ENOENT:image not found"]))
+        self.assertIsNone(t3_scenario.judge_replies("img-animation", [
+            "i=50,r=2;OK", "i=50,r=3;OK", "i=50,r=4;OK", "i=51,r=2;OK", "i=51,r=3;OK"]))
+        self.assertIsNotNone(t3_scenario.judge_replies("img-animation", [
+            "i=50;OK"] * 6 + ["i=51;OK"] * 4))
+        with open(os.path.join(t3_common.GUEST, "screens", "img-animation.sh")) as f:
+            self.assertNotRegex(f.read(), r'(?m)^ask_event "a=a,')
         # each screen reports as many times as REPLIES lists for it, each
         # report a line of its own that calls reply_event, ask_event or
         # cursor_event (img-common.inc)

@@ -141,7 +141,8 @@ CHECKS = {
                       "crash, a hangup), and the unit's getty fallback read once systemd "
                       "has checked its condition. Correct under closed: systemd logged the "
                       "failure's result and started vtium again, which draws its first "
-                      "screen again, the fallback skipped once on its condition, the marker "
+                      "screen again, or logs again that a display no rule matches stays "
+                      "off, the fallback skipped once on its condition, the marker "
                       "still there, and no getty started on tty2 since boot and no login "
                       "session on it, read after each failure and once more at the end. "
                       "Correct under open: the fallback ran, the getty's start stopped "
@@ -208,13 +209,17 @@ CHECKS = {
                     "and the fallback starts a getty on tty2.",
 }
 
-# The console line of the outcome each first screen shows (ADR-1401 D7,
-# D9), which vtium also logs: a first screen is captured only once the
-# console has logged it.
+# The console line of the outcome each first screen shows (ADR-1401 D7),
+# which vtium also logs: a first screen is captured only once the console
+# has logged it.
 LINES = {"panic": "vtium.conf has errors and counts as closed: all input is off.",
          "policy-panic": "vtium.conf has errors and counts as closed: all input is off.",
-         "partly-notice": "vtium.conf has errors: running the parts without errors.",
-         "no-display-notice": "No head has a connected display."}
+         "partly-notice": "vtium.conf has errors: running the parts without errors."}
+
+# What vtium logs of a display, by its connector's name, that it leaves off
+# because no rule matches it. Under the closed policy a valid file leaves
+# such a display blank (ADR-1401 D3, D9), and vtium sets up no display.
+OFF_LINE = "display %s stays off: no rule in vtium.conf matches it"
 
 # The cases judged by a golden that no screen script draws: the console's
 # first screen, before any key.
@@ -238,10 +243,6 @@ FIRST = {
                      "do next (ADR-1401 D7). It covers the rows of the login prompt, "
                      "which takes keys as before. Correct: the notice over a screen "
                      "otherwise blank.",
-    "no-display-notice": "A closed vtium.conf whose one head matches no display: the "
-                         "display guard lights the guest's display for the notice "
-                         "`No head has a connected display.` alone, with what to do next "
-                         "(ADR-1401 D9). Correct: the notice, with no login prompt.",
 }
 
 
@@ -1065,10 +1066,27 @@ def wait_restarted(variant, vm, work, path, pid, since, what):
                            % (what, e))
 
 
+def wait_off(variant, vm, pid, since, what):
+    """vtium on tty2 started again in place of the vtium of PID `pid`, where
+    the variant leaves its display off ("off"): its log since `since` in the
+    serial file shows the new vtium left that display off, as no rule
+    matches it (ADR-1401 D3)."""
+    line = OFF_LINE % variant["off"]
+    deadline = time.time() + STATE_TIMEOUT
+    while not any(int(p) != pid for p in re.findall(r"vtium\[(\d+)\]: " + re.escape(line),
+                                                     serial_after(vm, since))):
+        if time.time() > deadline:
+            raise RuntimeError("the vtium started again after the %s did not log %r; see %s"
+                               % (what, line, rel(vm.serial)))
+        time.sleep(0.2)
+
+
 def check_getty_fallback(variant, vm, work, caps, errors, log):
     """The getty-fallback check (CHECKS): each of the variant's failures in
     turn, judged once it has run its course. Under closed systemd starts
-    vtium again, judged by judge_restart; the agent's readings of the
+    vtium again, judged by judge_restart, and the new vtium must draw the
+    variant's first screen again, or log again that the display the variant
+    leaves off stays off (wait_off); the agent's readings of the
     gettys count from boot, so a getty that started and ended between two
     reads still shows, and they are judged once more when vtium runs on
     tty2 after the last failure. Under open, judged by judge_fallback, the
@@ -1100,6 +1118,8 @@ def check_getty_fallback(variant, vm, work, caps, errors, log):
             if why:
                 raise RuntimeError(why)
             path = os.path.join(work, case + ".ppm")
+            if closed and "off" in variant:
+                wait_off(variant, vm, before["vtium"][0], since, failure)
             if closed and "first" in variant:
                 wait_restarted(variant, vm, work, path, before["vtium"][0], since, failure)
                 caps[case] = path
