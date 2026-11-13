@@ -99,7 +99,7 @@ While an upload is open, the kitty handler treats each command by its kind:
 - A delete ends the upload with no answer and then deletes, as the specification asks. A transmission from a file, a temporary file or shared memory also ends the upload, and then runs on its own.
 - A put, a composition, an animation control, a query and a feature query run on their own. The upload stays open.
 - Text, controls, other escape sequences, a sixel and an iTerm2 picture do what they always do. The upload stays open. So do ED 2 and the clear that comes with entering the alternate screen, since an open upload shows nothing on the screen yet.
-- RIS, and the end of the console's session, drop the upload with no answer. While kitty graphics is not offered, the start of any APC string drops it too.
+- RIS, and the end of the console's session, drop the upload with no answer. While kitty graphics is not offered, the start of any APC string drops it too. A chunk cut off by CAN or SUB ends the upload as well, and the handler then answers `EINVAL:invalid argument` under the upload's `q`.
 
 The first chunk decides the upload's cost, and the handler reserves that whole cost from the console's image budget at once. An image with the same id stays in the store, counted beside the upload, until the upload ends and the new picture is stored. A put during the upload therefore finds the old image. When the budget cannot hold both, the first chunk is refused with `ENOSPC`. A first chunk whose keys the handler refuses, such as an unknown format or a raw picture with no size, is answered at once and opens no upload. The chunks after a refused first chunk are commands of their own.
 
@@ -107,7 +107,7 @@ Each chunk decodes its own base64. A chunk that does not end on a group of four 
 
 An upload is answered once, when it ends, from its first chunk's keys. The upload's `q` is the first chunk's `q`, and a later chunk's `q` replaces it when that `q` is not 0. With `q=2` the upload gets no answer at all. Every answer, an upload's or any other command's, fits in `KITTY_REPLY_MAX` bytes (see [Bounds](#bounds)). A query sent in chunks is answered when it ends and stores nothing. A frame sent in chunks is answered with its frame number `r`. An `a=T` upload places its picture at the cursor as the cursor is when the last chunk arrives.
 
-A feature query is a query with the key `e`, which names the action the program asks about. The handler answers it at once with the keys and values that a real command of that action takes (ADR-1100, D14). A feature query stores nothing and leaves an open upload as it was. `e` on any other action is refused with `EINVAL:invalid argument`.
+A feature query is a query with the key `e`, which names the action the program asks about. The handler answers it at once with the keys and values that a real command of that action takes (ADR-1100, D14). A feature query stores nothing and leaves an open upload as it was. `e` on any other action is refused with `EINVAL:invalid argument`. That refusal comes first, so a chunk that carries `e` is refused, and the open upload neither continues nor ends.
 
 Tests: `src/protocol/kitty/tests/uploads.rs` and `src/protocol/kitty/tests/features.rs`, and the terminal's tests in vtium-term's `tests/kitty.rs`.
 

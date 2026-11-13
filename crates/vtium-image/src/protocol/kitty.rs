@@ -447,6 +447,26 @@ impl Kitty {
         self.clear_string();
     }
 
+    /// The string being read was cut off. When it is a chunk of an open
+    /// upload, the upload can no longer be completed: it ends, gives back
+    /// what it holds, and fails with EINVAL under the upload's `q`. A
+    /// string cut off before its keys end is not known to be a chunk, and
+    /// leaves the upload open. A cut that comes because kitty graphics is
+    /// no longer offered answers nothing.
+    fn cut_chunk(&mut self, ctx: &mut dyn Context) {
+        if self.chunk_of.is_none() {
+            return;
+        }
+        let Some(transfer) = self.transfer.take() else {
+            return;
+        };
+        let cmd = transfer.cmd;
+        transfer.drop_quietly(ctx);
+        if ctx.switches().kitty && ctx.store().limit() > 0 {
+            reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
+        }
+    }
+
     /// Forgets the string just read.
     fn clear_string(&mut self) {
         self.phase = Phase::Idle;
@@ -1196,8 +1216,7 @@ impl Handler for Kitty {
     }
 
     fn cancel(&mut self, ctx: &mut dyn Context) {
-        // a chunk cut short ends its upload, whose data it can no longer
-        // complete, with no answer
+        self.cut_chunk(ctx);
         self.drop_string(ctx);
         // a request the host abandons is answered by nobody
         self.drop_request(ctx);

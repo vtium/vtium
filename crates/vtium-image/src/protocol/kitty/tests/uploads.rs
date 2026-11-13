@@ -424,16 +424,8 @@ fn an_uploads_data_is_capped_at_its_reservation() {
 
 // covers: image.kitty
 #[test]
-fn reset_withdraw_and_a_cancelled_chunk_end_the_upload_with_no_answer() {
-    let ends: [fn(&mut Kitty, &mut Host); 3] = [
-        |k, h| k.reset(h),
-        |k, h| k.withdraw(h),
-        |k, h| {
-            k.start(h, Intro::String);
-            k.feed(h, Chunk::Bytes(b"m=1;AP8"));
-            k.cancel(h);
-        },
-    ];
+fn reset_and_withdraw_end_the_upload_with_no_answer() {
+    let ends: [fn(&mut Kitty, &mut Host); 2] = [|k, h| k.reset(h), |k, h| k.withdraw(h)];
     for (n, end) in ends.iter().enumerate() {
         let (mut k, mut h) = (Kitty::default(), Host::new());
         send(&mut k, &mut h, OPEN1);
@@ -461,4 +453,45 @@ fn a_palette_change_between_chunks_leaves_the_picture_as_its_first_chunk_found_i
         h.top_pixels(),
         vec![opaque(first.table[7]), opaque(first.table[8])]
     );
+}
+
+/// Feeds `data` as one kitty string that CAN or SUB cuts off.
+fn cut(k: &mut Kitty, h: &mut Host, data: &str) {
+    k.start(h, Intro::String);
+    k.feed(h, Chunk::Bytes(data.as_bytes()));
+    k.cancel(h);
+}
+
+// covers: image.kitty
+#[test]
+fn a_chunk_cut_off_ends_the_upload_and_fails_it_with_einval() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, OPEN1);
+    cut(&mut k, &mut h, "m=1;AP8");
+    assert_eq!(h.take(), "\x1b_Gi=1;EINVAL:invalid argument\x1b\\");
+    assert_eq!(h.store.bytes(), 0, "the reservation went back");
+    // the chunks after the cut are commands of their own
+    send(&mut k, &mut h, LAST1);
+    send(&mut k, &mut h, &put(1));
+    assert_eq!(h.take(), noent(1));
+    // q=2 hides the failure, as for any failure
+    send(&mut k, &mut h, "a=t,f=24,s=2,v=1,i=2,q=2,m=1;/wAA");
+    cut(&mut k, &mut h, "m=1;AP8");
+    assert_eq!(h.take(), "");
+    // a cut replacement leaves the old picture
+    send(&mut k, &mut h, "a=t,f=24,s=1,v=1,i=3;AAD/");
+    send(&mut k, &mut h, "a=t,f=24,s=2,v=1,i=3,m=1;/wAA");
+    cut(&mut k, &mut h, "m=1;AP8");
+    send(&mut k, &mut h, &put(3));
+    assert_eq!(
+        h.take(),
+        format!("{}\x1b_Gi=3;EINVAL:invalid argument\x1b\\{}", ok(3), ok(3))
+    );
+    assert_eq!(size(&mut h, 3), Some((1, 1)));
+    // a string cut off before its keys end is no known chunk, and the
+    // upload stays open
+    send(&mut k, &mut h, OPEN1);
+    cut(&mut k, &mut h, "m=1");
+    send(&mut k, &mut h, LAST1);
+    assert_eq!(h.take(), ok(1));
 }

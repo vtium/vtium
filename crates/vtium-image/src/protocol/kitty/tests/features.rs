@@ -138,6 +138,15 @@ fn e_on_an_action_other_than_a_query_is_refused_and_does_nothing() {
     send(&mut k, &mut h, "a=d,e=d");
     send(&mut k, &mut h, "m=0;AP8A");
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    // a chunk that carries e is refused too, and neither continues nor
+    // ends the open upload: the next chunk completes it with its own data
+    send(&mut k, &mut h, "a=t,f=24,s=2,v=1,i=2,m=1;/wAA");
+    send(&mut k, &mut h, "m=0,e=T,i=2;AAD/");
+    send(&mut k, &mut h, "m=0;AP8A");
+    assert_eq!(
+        h.take(),
+        "\x1b_Gi=2;EINVAL:invalid argument\x1b\\\x1b_Gi=2;OK\x1b\\"
+    );
 }
 
 // The widest answer a feature query can get fits KITTY_REPLY_MAX: e=T
