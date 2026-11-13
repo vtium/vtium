@@ -1,7 +1,7 @@
 //! [`Face`], what a glyph source provides, and [`Font`], which draws a
 //! cluster into its cells from a face and the sprites.
 
-use crate::glyph::Glyph;
+use crate::glyph::{Format, Glyph};
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::script::{self, Kind, Origin, Script, Variant};
@@ -229,6 +229,24 @@ pub trait Face {
     fn script(&self, _cluster: &[char], _variant: Variant) -> ScriptFrom {
         ScriptFrom::Normal
     }
+
+    /// A glyph from another font that draws `cluster` in `style` in
+    /// place of the face's own, which would draw as the last step of the
+    /// fallback (ADR-1302 D14): a mask wider than `width` pixels, which
+    /// would be squeezed, or, when `color`, a color glyph that would draw
+    /// in one cell. The other font's text glyph comes first for a
+    /// character that presents as text by default, and otherwise only a
+    /// glyph no wider than `width`. The default, for a face with no other
+    /// font behind it, is none.
+    fn fallback(
+        &self,
+        _cluster: &[char],
+        _style: Style,
+        _width: u32,
+        _color: bool,
+    ) -> Option<Glyph> {
+        None
+    }
 }
 
 /// Where a face's superscript or subscript glyph comes from
@@ -306,6 +324,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn script(&self, cluster: &[char], variant: Variant) -> ScriptFrom {
         (**self).script(cluster, variant)
+    }
+    fn fallback(&self, cluster: &[char], style: Style, width: u32, color: bool) -> Option<Glyph> {
+        (**self).fallback(cluster, style, width, color)
     }
 }
 
@@ -448,9 +469,10 @@ impl<F: Face> Font<F> {
     /// glyph for the cluster, otherwise draws as the font's missing glyph:
     /// the [`Missing`] glyph, whose last fallback is U+25A1, else `?`, else
     /// the face's last resort. A glyph narrower than its cells is centred
-    /// in them. A wider mask is squeezed sideways into them, in the face's
-    /// own pixels, so no ink is cut, and a wider color glyph is cut evenly
-    /// (ADR-1302 D14, D5).
+    /// in them. No column of a wider mask is cut: it is squeezed into its
+    /// cells, or drawn a pixel past them on each side, as [`Glyph::fit`]
+    /// says (ADR-1302 D14). A wider color glyph is drawn as a color emoji
+    /// in one cell (ADR-1302 D5).
     /// `None` only for an empty cluster or a face that can draw nothing.
     pub fn drawn(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let &first = cluster.first()?;
@@ -473,11 +495,18 @@ impl<F: Face> Font<F> {
                 (g, true)
             }
         };
-        Some(Drawn::new(
-            glyph.fit(w, width, self.face.scale())?,
-            1,
-            missing,
-        ))
+        // ADR-1302 D14: a squeeze, or a color emoji in one cell, is the
+        // last step of the fallback, after another font's glyph
+        let color = glyph.format() == Format::Rgba && width == Width::Narrow;
+        let squeezed = glyph.format() == Format::Mask && glyph.width() > w;
+        let glyph = match (color || squeezed) && !missing {
+            true => self
+                .face
+                .fallback(cluster, style, w, color)
+                .unwrap_or(glyph),
+            false => glyph,
+        };
+        Some(Drawn::new(glyph.fit(w, width)?, 1, missing))
     }
 
     /// [`Font::drawn`] in `variant`. A superscript or subscript glyph is
@@ -501,7 +530,7 @@ impl<F: Face> Font<F> {
             match self.face.script(cluster, variant) {
                 ScriptFrom::Made(glyph) => {
                     let w = self.face.cell().width.saturating_mul(width.cells());
-                    return Some(Drawn::new(glyph.fit(w, width, 1)?, 1, false));
+                    return Some(Drawn::new(glyph.fit(w, width)?, 1, false));
                 }
                 ScriptFrom::Builtins => {
                     let builtins = Font {
@@ -525,7 +554,7 @@ impl<F: Face> Font<F> {
         }
         if let Some((small, _)) = self.smaller(cluster, variant.style) {
             let placed = small.placed(script, (w, cell.height), band)?;
-            return Some(Drawn::new(placed.fit(w, width, 1)?, 1, false));
+            return Some(Drawn::new(placed.fit(w, width)?, 1, false));
         }
         let style = variant.style;
         let draw = |chars: &[char]| -> Option<(Glyph, Origin)> {
@@ -559,7 +588,7 @@ impl<F: Face> Font<F> {
             }
         };
         let small = glyph.scripted(script, &origin, band)?;
-        Some(Drawn::new(small.fit(w, width, 1)?, 1, missing))
+        Some(Drawn::new(small.fit(w, width)?, 1, missing))
     }
 
     /// The glyph for `cluster` in `style` from a smaller size of the face's
@@ -664,15 +693,16 @@ impl<F: Face> Font<F> {
         };
         let (sw, sh) = (w.checked_div(j)?, cell.height.checked_div(j)?);
         let placed = one.placed(variant.script, (sw, sh), small)?;
-        Some(Drawn::new(placed.fit(sw, width, 1)?, j, false))
+        Some(Drawn::new(placed.fit(sw, width)?, j, false))
     }
 
     /// [`Font::drawn`] for a renderer that stores bitmap glyphs small: the
     /// glyph at the face's scale 1 with that scale, which drawn with each
     /// pixel a square `scale` across is exactly [`Font::glyph`]'s. A
-    /// sprite, a face that draws at its own size, and a glyph whose box
-    /// to its cells does not scale (centred in an odd number of spare
-    /// pixels) come at their drawn size, with scale 1.
+    /// sprite, a face that draws at its own size, a glyph wider than its
+    /// cells, which is squeezed in the screen's pixels (ADR-1302 D14), and
+    /// a glyph whose box to its cells does not scale (centred in an odd
+    /// number of spare pixels) come at their drawn size, with scale 1.
     pub fn glyph_unscaled(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let drawn = || self.drawn(cluster, width, style);
         let scale = self.face.scale();
@@ -695,8 +725,10 @@ impl<F: Face> Font<F> {
             .or_else(|| self.face.draw_unscaled(&['?'], style))
             .or_else(|| self.face.last_resort_unscaled(style));
         match glyph {
-            Some(g) if w.abs_diff(g.width()) % 2 == 0 => {
-                Some(Drawn::new(g.fit(w, width, 1)?, scale, missing))
+            // a glyph wider than its cells is squeezed in the screen's
+            // pixels (ADR-1302 D14), so it comes at its drawn size
+            Some(g) if g.width() <= w && w.abs_diff(g.width()) % 2 == 0 => {
+                Some(Drawn::new(g.fit(w, width)?, scale, missing))
             }
             _ => drawn(),
         }

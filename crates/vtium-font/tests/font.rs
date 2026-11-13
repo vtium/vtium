@@ -410,32 +410,72 @@ fn inked_columns(g: &Glyph, y: usize) -> Vec<usize> {
     (0..row.len()).filter(|&x| row[x] > 0).collect()
 }
 
+// covers: text.overhang
 // ADR-1302 D14: GNU Unifont draws the Devanagari vowel sign aa 16 pixels
 // wide, its stem in column 14, and the terminal gives it one 8-pixel
-// cell. The glyph is squeezed into the cell, two columns into one, so
-// the stem stands in the cell's last column on rows 4 to 12, and the
-// sign's top stroke, columns 12 to 15, in its last two; at twice the
-// size each of the font's pixels is a square 2 across, so the stem is
-// columns 14 and 15 of the 16
+// cell. The glyph is exactly twice the cell's width, so it is squeezed
+// 2:1 into the cell, two columns into one: the stem stands in the cell's
+// last column on rows 4 to 12, and the sign's top stroke, columns 12 to
+// 15, in its last two. At twice the size the glyph is drawn 32 pixels
+// wide into a 16-pixel cell, and the squeeze counts screen pixels: two
+// screen columns into one, so each of the font's columns becomes one
+// screen column, the stem column 14 alone and the top stroke columns 12
+// to 15, over rows twice as tall
 #[cfg(feature = "unifont")]
 #[test]
 fn unifont_vowel_sign_aa_keeps_its_stem_in_one_cell() {
-    for scale in [1, 2] {
-        let font = Font::new(vtium_font::Unifont::new(16 * scale));
+    for scale in [1usize, 2] {
+        let font = Font::new(vtium_font::Unifont::new(16 * scale as u32));
         let aa = font
             .glyph(&['\u{93e}'], Width::Narrow, plain())
             .expect("drawn");
-        assert_eq!(aa.width(), 8 * scale);
-        let s = scale as usize;
-        let stem: Vec<usize> = (7 * s..8 * s).collect();
-        let top: Vec<usize> = (6 * s..8 * s).collect();
-        for y in 3 * s..4 * s {
+        assert_eq!(aa.width(), 8 * scale as u32);
+        assert!(aa.ink().is_none(), "a 2:1 squeeze stays in its cell");
+        let (stem, top): (Vec<usize>, Vec<usize>) = match scale {
+            1 => (vec![7], vec![6, 7]),
+            _ => (vec![14], vec![12, 13, 14, 15]),
+        };
+        for y in 3 * scale..4 * scale {
             assert_eq!(inked_columns(&aa, y), top, "row {y} at scale {scale}");
         }
-        for y in 4 * s..13 * s {
+        for y in 4 * scale..13 * scale {
             assert_eq!(inked_columns(&aa, y), stem, "row {y} at scale {scale}");
         }
     }
+}
+
+// covers: text.overhang
+// ADR-1302 D14: a glyph drawn at a whole scale is squeezed in screen
+// pixels. Unifont's 16-column vowel sign aa drawn at twice its size is 32
+// pixels wide. In a 17-pixel cell it is squeezed to 19 pixels, the cell
+// and 1 screen pixel more on each side, by OR pooling: one bit, and its
+// stem and top stroke kept. In a 16-pixel cell it squeezes 2:1, as above
+#[cfg(feature = "unifont")]
+#[test]
+fn a_glyph_at_a_whole_scale_is_squeezed_in_screen_pixels() {
+    let font = Font::new(vtium_font::Unifont::new(32));
+    let wide = font
+        .glyph(&['\u{93e}'], Width::Wide, plain())
+        .expect("drawn");
+    assert_eq!(wide.width(), 32);
+    let in17 = wide.clone().fit(17, Width::Narrow).expect("fitted");
+    assert_eq!(in17.width(), 17);
+    let ink = in17.ink().expect("an ink box");
+    // squeezed to 19, from the cell's column -1; the sign has no ink in
+    // that first column, so the box starts at the cell and holds the
+    // column past its right edge
+    assert_eq!((ink.left(), ink.width()), (0, 18));
+    assert!(ink.pixels().iter().all(|&p| p == 0 || p == 255));
+    // the stem, font column 14, screen columns 28 and 29, covers columns
+    // 16 and 17 of the 19, which are columns 15 and 16 of the cell
+    let row = |y: usize| -> Vec<usize> {
+        let r = &ink.pixels()[y * 18..(y + 1) * 18];
+        (0..18).filter(|&x| r[x] > 0).collect()
+    };
+    assert_eq!(row(16), [15, 16]);
+    let in16 = wide.fit(16, Width::Narrow).expect("fitted");
+    assert!(in16.ink().is_none());
+    assert_eq!(inked_columns(&in16, 16), [14]);
 }
 
 #[cfg(feature = "unifont")]

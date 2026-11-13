@@ -39,7 +39,11 @@ fn set_with(left: i32, width: u32, format: PixelFormat) -> Result<Vec<u8>, Strin
     s.map('A', a);
     s.map('B', b);
     s.cluster(&['e', '\u{301}'], a);
-    s.ink(a, (left, 0), (width, CELL.height), columns(width));
+    let boxed: Vec<u8> = columns(width)
+        .into_iter()
+        .flat_map(|v| vec![v; bpp as usize])
+        .collect();
+    s.ink(a, (left, 0), (width, CELL.height), boxed);
     SetBuilder::new("ink")
         .strike(s)
         .write()
@@ -126,8 +130,9 @@ fn a_set_with_no_box_has_no_inkx() {
 }
 
 // ADR-1302 D1, D6: the reach is one cell past the glyph's cells on each
-// side, and a box holds only ink that passes its cells; a color glyph fits
-// its cells
+// side, and a box holds only ink that passes its cells; a color glyph's
+// box is a color emoji's in one cell, at most 1 pixel past each side
+// (ADR-1302 D5)
 #[test]
 fn the_writer_refuses_a_box_past_the_reach_or_not_past_the_cells() {
     for (left, width, why) in [
@@ -141,8 +146,27 @@ fn the_writer_refuses_a_box_past_the_reach_or_not_past_the_cells() {
         assert!(e.contains("reach"), "{why}: {e}");
     }
     assert!(set_with(-4, 12, PixelFormat::R8).is_ok(), "the whole reach");
-    let e = set_with(-1, 5, PixelFormat::Rgba).expect_err("a color box");
-    assert!(e.contains("color"), "{e}");
+    assert!(set_with(-1, 6, PixelFormat::Rgba).is_ok(), "an emoji's box");
+    for (left, width) in [(-2, 6), (-1, 7), (0, 6)] {
+        let e = set_with(left, width, PixelFormat::Rgba).expect_err("a color box");
+        assert!(e.contains("color"), "{left} {width}: {e}");
+    }
+}
+
+// covers: text.overhang
+// ADR-1302 D5, D6: a color emoji drawn in one cell carries its ink box,
+// 1 pixel past each side, through the set and back as RGBA
+#[test]
+fn a_color_emojis_box_round_trips() {
+    let bytes = set_with(-1, 6, PixelFormat::Rgba).expect("written");
+    let g = face(bytes).draw(&['A'], Style::default()).expect("drawn");
+    let ink = g.ink().expect("an ink box");
+    assert_eq!(
+        (ink.left(), ink.width(), ink.height()),
+        (-1, 6, CELL.height)
+    );
+    assert_eq!(ink.pixels().len(), 6 * 2 * 4);
+    assert_eq!(&ink.pixels()[..8], [1, 1, 1, 1, 2, 2, 2, 2]);
 }
 
 /// `INKX`'s first record's `left` and `width`, set to `left` and `width`.
@@ -173,16 +197,17 @@ fn the_reader_refuses_a_box_past_the_reach() {
     }
 }
 
-// a box whose record names a color strike is refused, as a color glyph fits
-// its cells: a set of an R8 strike holding A and its box and an RGBA strike
-// holding B at one cell, the box's record then pointed at the RGBA strike,
-// number 1 of the two
+// a box whose record names a color strike is refused unless it is a color
+// emoji's in one cell (ADR-1302 D5): a set of an R8 strike holding A and
+// a box 2 pixels past its left edge, and an RGBA strike holding B at one
+// cell, the box's record then pointed at the RGBA strike, number 1 of the
+// two
 #[test]
 fn the_reader_refuses_a_box_in_a_color_strike() {
     let mut r8 = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(false);
     let a = r8.glyph(Width::Narrow, vec![9; 8]);
     r8.map('A', a);
-    r8.ink(a, (-1, 0), (5, CELL.height), columns(5));
+    r8.ink(a, (-2, 0), (6, CELL.height), columns(6));
     let mut rgba = StrikeBuilder::new(PixelFormat::Rgba, CELL, Style::default()).compress(false);
     let b = rgba.glyph(Width::Narrow, vec![0; 32]);
     rgba.map('B', b);

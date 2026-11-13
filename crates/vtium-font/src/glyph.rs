@@ -29,6 +29,19 @@ impl Format {
     }
 }
 
+/// How [`Glyph::narrowed`] narrows a mask sideways (ADR-1302 D14).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Narrowing {
+    /// OR pooling: a column of the result is inked where any column of
+    /// the glyph that it covers is inked, at the strongest of them. A
+    /// 1-bit glyph stays 1-bit, sharp and with no gray. Bitmap glyphs take
+    /// it.
+    Pool,
+    /// Each pixel takes the coverage of the part of the row it covers,
+    /// rounded down. Outline glyphs take it.
+    Coverage,
+}
+
 /// A drawn glyph: its size in pixels, the cells it spans and its pixels,
 /// row by row from the top left. Both formats are bounded alike: a side of
 /// at least 1, a height of at most [`CELL_SIDE_MAX`], and a width of at
@@ -186,16 +199,14 @@ impl Glyph {
     /// `height` rows from `top` ([`Ink`]), holding `pixels` in the glyph's
     /// format; `None` when the box is not past the glyph's cells on any
     /// side, passes its reach, or `pixels` is not the box's length. A
-    /// color glyph carries no box: it fits its cells (ADR-1302 D5).
+    /// color glyph carries a box only where it is a color emoji drawn in
+    /// one cell, which reaches 1 pixel into each neighbour (ADR-1302 D5).
     pub fn with_ink(
         mut self,
         (left, top): (i32, i32),
         (width, height): (u32, u32),
         pixels: Vec<u8>,
     ) -> Option<Glyph> {
-        if self.format != Format::Mask {
-            return None;
-        }
         let cell = self.width.checked_div(self.cells.cells())?;
         let boxed = crate::set::format::InkRect {
             left: i64::from(left),
@@ -203,12 +214,19 @@ impl Glyph {
             width: i64::from(width),
             height: i64::from(height),
         };
+        let wide = self.cells != Width::Narrow;
+        let at = (i64::from(cell), i64::from(self.height));
+        if self.format == Format::Rgba && !boxed.is_emoji_edge(at, wide) {
+            return None;
+        }
         let span = (i64::from(self.width), i64::from(self.height));
         if !boxed.in_reach((i64::from(cell), i64::from(self.height)), span) {
             return None;
         }
-        let n = usize::try_from(width.checked_mul(height)?).ok()?;
-        if pixels.len() != n {
+        let n = width
+            .checked_mul(height)?
+            .checked_mul(self.format.bytes_per_pixel())?;
+        if pixels.len() != usize::try_from(n).ok()? {
             return None;
         }
         self.ink = Some(Box::new(Ink {
@@ -292,100 +310,224 @@ impl Glyph {
         }
     }
 
-    /// This glyph boxed to `width` pixels and marked as spanning `cells`:
-    /// its pixels unchanged when it is that wide already, and otherwise
-    /// centred, the odd spare pixel after it. A mask wider than `width` is
-    /// squeezed sideways into it instead, so no ink is cut (ADR-1302 D14).
-    /// A color glyph wider than `width` is cut evenly from both sides, the
-    /// odd column from the right: it is a picture, which a squeeze would
-    /// spread (ADR-1302 D5). A glyph boxed to another width loses its ink
-    /// box, which was placed for its own cells.
+    /// This glyph fitted to `width` pixels, the width of `cells` cells,
+    /// and marked as spanning them (ADR-1302 D14, D5, ADR-1200 D7). A glyph
+    /// that wide keeps its pixels, and a narrower one is centred, the odd
+    /// spare pixel after it. No column of a wider mask is ever cut:
     ///
-    /// `unit` is the side of one of the font's pixels in the glyph's
-    /// pixels: a bitmap face's whole scale, else 1. A squeeze works in the
-    /// font's own pixels whenever both widths are whole numbers of them,
-    /// so a glyph drawn at a scale squeezes to that scale's drawing of the
-    /// glyph squeezed at its own size.
-    pub(crate) fn fit(self, width: u32, cells: Width, unit: u32) -> Option<Glyph> {
+    /// - a mask exactly twice `width` is squeezed 2:1 into its cells by OR
+    ///   pooling ([`Narrowing::Pool`]), with no ink past them;
+    /// - a mask at most `width` and 2 pixels more keeps its size, centred
+    ///   on its cells, the odd pixel past their right edge;
+    /// - any other wider mask is squeezed by OR pooling to `width` and 2
+    ///   pixels more, centred, so it reaches 1 pixel past each side.
+    ///
+    /// A mask that passes its cells carries the columns past them in its
+    /// ink box (ADR-1302 D6), kept only where they hold ink. Its rows are
+    /// left as they are. A color glyph wider than `width` is a picture made
+    /// for more cells, drawn in them as [`Glyph::in_one_cell`] draws it. A
+    /// glyph fitted to another width loses its ink box, which was placed
+    /// for its own cells. Every width counts the glyph's pixels as they are
+    /// drawn, the screen's pixels, whatever scale drew the glyph.
+    pub fn fit(self, width: u32, cells: Width) -> Option<Glyph> {
         if width == self.width {
             return Some(self.with_cells(cells));
         }
-        if width < self.width && self.format == Format::Mask {
-            return self.squeezed(width, unit).map(|g| g.with_cells(cells));
+        if width < self.width {
+            return match self.format {
+                Format::Mask => self.squeezed(width, cells),
+                Format::Rgba => self.in_one_cell((width, self.height)),
+            }
+            .map(|g| g.with_cells(cells));
         }
         let mut out = Glyph::new(width, self.height, self.format)?.with_cells(cells);
         let bpp = self.format.bytes_per_pixel();
         let bytes = |px: u32| usize::try_from(px.saturating_mul(bpp)).ok();
-        let n = bytes(self.width.min(width))?;
+        let n = bytes(self.width)?;
         let dst = bytes(width.saturating_sub(self.width) / 2)?;
-        let src = bytes(self.width.saturating_sub(width) / 2)?;
         for (to, from) in out.rows_mut().zip(self.rows()) {
-            if let (Some(to), Some(from)) = (
-                to.get_mut(dst..dst.saturating_add(n)),
-                from.get(src..src.saturating_add(n)),
-            ) {
+            if let Some(to) = to.get_mut(dst..dst.saturating_add(n)) {
                 to.copy_from_slice(from);
             }
         }
         Some(out)
     }
 
-    /// This mask scaled sideways to `width` pixels, narrower than it, in
-    /// the font's pixels `unit` across where both widths are whole
-    /// numbers of them. Where the mask's width is a whole multiple of
-    /// `width`, each column takes the strongest pixel of the columns it
-    /// covers, so a 1-bit glyph stays 1-bit and on its font's grid.
-    /// Otherwise each pixel takes the coverage of the part of the row it
-    /// covers, rounded down, as the console scales a letter and its
-    /// spacing marks (ADR-1302 D14).
-    fn squeezed(&self, width: u32, unit: u32) -> Option<Glyph> {
-        let whole_units = |n: u32| n.checked_rem(unit) == Some(0);
-        let unit = if whole_units(self.width) && whole_units(width) {
-            unit
+    /// This mask, wider than `width`, fitted to it by [`Glyph::fit`]'s
+    /// rule for a mask.
+    fn squeezed(&self, width: u32, cells: Width) -> Option<Glyph> {
+        if self.width == width.checked_mul(2)? {
+            return self.narrowed(width, Narrowing::Pool);
+        }
+        let room = width.checked_add(2)?;
+        let pressed;
+        let glyph = if self.width > room {
+            pressed = self.narrowed(room, Narrowing::Pool)?;
+            &pressed
         } else {
-            1
+            self
         };
-        let (from, to) = (self.width.checked_div(unit)?, width.checked_div(unit)?);
-        let strongest = from.checked_rem(to) == Some(0);
-        let unit = usize::try_from(unit).ok()?;
-        let (f, t) = (u64::from(from), u64::from(to));
+        glyph.overhanging(width, cells)
+    }
+
+    /// This glyph, wider than `width` by at most 2 pixels, centred on
+    /// cells `width` pixels wide, the odd pixel past their right edge: its
+    /// own pixels the columns inside the cells, and its ink box its cells
+    /// and the columns past them that hold ink.
+    fn overhanging(&self, width: u32, cells: Width) -> Option<Glyph> {
+        let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
+        let over = self.width.checked_sub(width)?;
+        let left = over / 2;
+        let at = |px: u32| usize::try_from(px).ok()?.checked_mul(bpp);
+        let (from, n) = (at(left)?, at(width)?);
+        let mut own = Vec::with_capacity(n.checked_mul(usize::try_from(self.height).ok()?)?);
+        for row in self.rows() {
+            own.extend_from_slice(row.get(from..from.checked_add(n)?)?);
+        }
+        let glyph = Glyph::from_pixels(width, self.height, self.format, own)?.with_cells(cells);
+        // the box: the cells, and the columns past them that hold ink
+        let inked = |x: u32| {
+            self.rows().any(|row| {
+                at(x)
+                    .and_then(|i| row.get(i..i.checked_add(bpp)?))
+                    .is_some_and(|px| px.iter().any(|&b| b > 0))
+            })
+        };
+        let first = if left > 0 && inked(0) { 0 } else { left };
+        let end = left.checked_add(width)?;
+        let last = if self.width > end && inked(self.width.saturating_sub(1)) {
+            self.width
+        } else {
+            end
+        };
+        if (first, last) == (left, end) {
+            return Some(glyph);
+        }
+        let (bx, bn) = (at(first)?, at(last.checked_sub(first)?)?);
+        let mut boxed = Vec::with_capacity(bn.checked_mul(usize::try_from(self.height).ok()?)?);
+        for row in self.rows() {
+            boxed.extend_from_slice(row.get(bx..bx.checked_add(bn)?)?);
+        }
+        let offset = i32::try_from(first)
+            .ok()?
+            .checked_sub(i32::try_from(left).ok()?)?;
+        glyph.with_ink((offset, 0), (last.checked_sub(first)?, self.height), boxed)
+    }
+
+    /// This mask narrowed sideways to `width` pixels, no wider than it,
+    /// its rows unchanged: by OR pooling, which keeps a 1-bit glyph 1-bit,
+    /// or by coverage, which an outline glyph takes ([`Narrowing`]). Output
+    /// column j spans source columns `j * from / width` to `(j + 1) * from
+    /// / width`. The glyph path ([`Glyph::fit`]) and the console's drawing
+    /// of a letter with its spacing marks both narrow a glyph here, so the
+    /// same squeeze never draws two different ways (ADR-1302 D14). `None`
+    /// for a color glyph, or a `width` of 0 or wider than the mask.
+    pub fn narrowed(&self, width: u32, how: Narrowing) -> Option<Glyph> {
+        if self.format != Format::Mask || width == 0 || width > self.width {
+            return None;
+        }
+        let (f, t) = (u64::from(self.width), u64::from(width));
         let mut out = Glyph::new(width, self.height, Format::Mask)?;
         for (dst, src) in out.rows_mut().zip(self.rows()) {
-            // the row in the font's pixels: each the strongest of the
-            // `unit` pixels it is drawn as, which are alike in a glyph
-            // drawn at a whole scale
-            let font: Vec<u64> = src
-                .chunks_exact(unit)
-                .map(|px| px.iter().copied().max().map_or(0, u64::from))
-                .collect();
-            let font_px = |i: u64| {
+            let px = |i: u64| {
                 usize::try_from(i)
                     .ok()
-                    .and_then(|i| font.get(i))
-                    .copied()
-                    .unwrap_or(0)
+                    .and_then(|i| src.get(i))
+                    .map_or(0, |&p| u64::from(p))
             };
-            for (j, out_px) in (0u64..).zip(dst.chunks_exact_mut(unit)) {
+            for (j, out_px) in (0u64..).zip(dst.iter_mut()) {
                 // output pixel j spans [j * from, (j + 1) * from) of the
-                // row's from * to parts, and font pixel i spans
+                // row's from * to parts, and source pixel i spans
                 // [i * to, (i + 1) * to)
                 let (start, end) = (j.checked_mul(f)?, j.checked_add(1)?.checked_mul(f)?);
                 let (first, last) = (start.checked_div(t)?, end.div_ceil(t));
-                let value = if strongest {
-                    (first..last).map(font_px).max().unwrap_or(0)
-                } else {
-                    let mut sum = 0u64;
-                    for i in first..last {
-                        let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
-                        let overlap = end.min(b).saturating_sub(start.max(a));
-                        sum = sum.checked_add(font_px(i).checked_mul(overlap)?)?;
+                let value = match how {
+                    Narrowing::Pool => (first..last).map(px).max().unwrap_or(0),
+                    Narrowing::Coverage => {
+                        let mut sum = 0u64;
+                        for i in first..last {
+                            let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
+                            let overlap = end.min(b).saturating_sub(start.max(a));
+                            sum = sum.checked_add(px(i).checked_mul(overlap)?)?;
+                        }
+                        sum.checked_div(f)?
                     }
-                    sum.checked_div(f)?
                 };
-                out_px.fill(u8::try_from(value).ok()?);
+                *out_px = u8::try_from(value).ok()?;
             }
         }
         Some(out)
+    }
+
+    /// This color picture drawn in one cell `width` by `height` pixels
+    /// (ADR-1302 D5): the square around its ink, shrunk by nearest
+    /// neighbour to a square `width` and 2 pixels across, or the cell's
+    /// `height` where that is less, and centred on the cell. Each pixel of
+    /// the square takes the picture's pixel under its centre, so no colors
+    /// are averaged. The columns past the cell go to the glyph's ink box,
+    /// which reaches 1 pixel into the cell on each side. A picture with no
+    /// ink gives a blank cell. `None` for a mask.
+    pub fn in_one_cell(&self, (width, height): (u32, u32)) -> Option<Glyph> {
+        if self.format != Format::Rgba {
+            return None;
+        }
+        let blank = Glyph::new(width, height, Format::Rgba)?;
+        let alpha = |x: u32, y: u32| self.pixel(x, y).and_then(|p| p.get(3).copied());
+        let inked = |x: u32, y: u32| alpha(x, y).is_some_and(|a| a > 0);
+        let rows: Vec<u32> = (0..self.height)
+            .filter(|&y| (0..self.width).any(|x| inked(x, y)))
+            .collect();
+        let cols: Vec<u32> = (0..self.width)
+            .filter(|&x| (0..self.height).any(|y| inked(x, y)))
+            .collect();
+        let (Some(&top), Some(&bottom), Some(&left), Some(&right)) =
+            (rows.first(), rows.last(), cols.first(), cols.last())
+        else {
+            return Some(blank);
+        };
+        let (iw, ih) = (
+            i64::from(right.checked_sub(left)?.checked_add(1)?),
+            i64::from(bottom.checked_sub(top)?.checked_add(1)?),
+        );
+        // the square around the ink, centred on it
+        let side = iw.max(ih);
+        let sx = i64::from(left).checked_sub(side.checked_sub(iw)? / 2)?;
+        let sy = i64::from(top).checked_sub(side.checked_sub(ih)? / 2)?;
+        let s = width.checked_add(2)?.min(height);
+        let (s64, w64, h64) = (i64::from(s), i64::from(width), i64::from(height));
+        // the square on a canvas a pixel wider than the cell on each side,
+        // the cell from its second column
+        let x0 = w64.checked_sub(s64)?.div_euclid(2).checked_add(1)?;
+        let y0 = h64.checked_sub(s64)? / 2;
+        let mut canvas = Glyph::new(width.checked_add(2)?, height, Format::Rgba)?;
+        // the picture's pixel under the centre of each pixel of the square
+        let under = |k: i64, from: i64| -> Option<u32> {
+            let at = from.checked_add(
+                k.checked_mul(2)?
+                    .checked_add(1)?
+                    .checked_mul(side)?
+                    .checked_div(s64.checked_mul(2)?)?,
+            )?;
+            u32::try_from(at).ok()
+        };
+        for j in 0..s64 {
+            for i in 0..s64 {
+                let (Some(x), Some(y)) = (under(i, sx), under(j, sy)) else {
+                    continue;
+                };
+                let Some(px) = self.pixel(x, y).map(<[u8]>::to_vec) else {
+                    continue;
+                };
+                let (cx, cy) = (x0.checked_add(i)?, y0.checked_add(j)?);
+                let (Ok(cx), Ok(cy)) = (u32::try_from(cx), u32::try_from(cy)) else {
+                    continue;
+                };
+                if let Some(to) = canvas.pixel_mut(cx, cy) {
+                    to.copy_from_slice(&px);
+                }
+            }
+        }
+        canvas.overhanging(width, Width::Narrow)
     }
 
     /// Bytes a row; a glyph of width 0 is never built, and chunks need 1.
@@ -410,6 +552,9 @@ impl Glyph {
 #[expect(
     clippy::expect_used,
     clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::indexing_slicing,
+    clippy::arithmetic_side_effects,
     reason = "a test fails by panicking"
 )]
 mod tests {
@@ -426,46 +571,171 @@ mod tests {
         g.rows().next().expect("a row").to_vec()
     }
 
-    // ADR-1302 D14: a glyph twice as wide as its cells is squeezed into
-    // them, each column the strongest of the two it takes, so every inked
-    // column keeps its ink: none is cut, as GNU Unifont's 16-pixel ा in
-    // one 8-pixel cell keeps its stem in column 14
-    #[test]
-    fn a_glyph_twice_its_cells_merges_each_pair_of_columns() {
-        let ink = [(0, 255), (5, 80), (6, 255), (11, 30), (14, 255)];
-        let g = columns(16, |x| {
-            ink.iter().find(|&&(at, _)| at == x).map_or(0, |&(_, a)| a)
-        });
-        let out = g.fit(8, Width::Narrow, 1).expect("fitted");
-        assert_eq!((out.width(), out.cells()), (8, Width::Narrow));
-        assert_eq!(first_row(&out), [255, 0, 80, 255, 0, 30, 0, 255]);
-        assert_eq!(out.rows().nth(1), out.rows().next());
+    /// Whether every byte of `g`'s pixels and of its ink box is 0 or 255.
+    fn one_bit(g: &Glyph) -> bool {
+        let box_px = g.ink().map_or(&[][..], Ink::pixels);
+        g.pixels().iter().chain(box_px).all(|&p| p == 0 || p == 255)
     }
 
-    // ADR-1302 D14: a glyph wider than its cells by a ratio that is not a
-    // whole number is scaled to them by coverage, as the console scales a
-    // letter and its spacing marks, so the ink at both edges stays: 10
+    /// The columns of the first row of `g`'s ink box, else of its pixels,
+    /// as `#` and `.`, and where the box starts.
+    fn drawn(g: &Glyph) -> (i32, String) {
+        let (left, w, px) = match g.ink() {
+            Some(ink) => (ink.left(), ink.width(), ink.pixels()),
+            None => (0, g.width(), g.pixels()),
+        };
+        let row = px.get(..w as usize).expect("a row");
+        (
+            left,
+            row.iter().map(|&p| if p > 0 { '#' } else { '.' }).collect(),
+        )
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14: a glyph exactly twice as wide as its cells is squeezed
+    // into them by OR pooling, each column inked where either of the two
+    // it takes is, so every inked column keeps its ink: none is cut, as
+    // GNU Unifont's 16-pixel ा in one 8-pixel cell keeps its stem in
+    // column 14. It carries no ink box
+    #[test]
+    fn a_glyph_twice_its_cells_merges_each_pair_of_columns() {
+        let ink = [0, 5, 6, 11, 14];
+        let g = columns(16, |x| if ink.contains(&x) { 255 } else { 0 });
+        let out = g.fit(8, Width::Narrow).expect("fitted");
+        assert_eq!((out.width(), out.cells()), (8, Width::Narrow));
+        assert_eq!(first_row(&out), [255, 0, 255, 255, 0, 255, 0, 255]);
+        assert_eq!(out.rows().nth(1), out.rows().next());
+        assert!(out.ink().is_none());
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14: a glyph wider than its cells by at most 2 pixels is
+    // not squeezed: it is centred on its cells and reaches past them, its
+    // columns past them in its ink box. Unscii-8's 8 columns in tiny5's
+    // 6-pixel cell keep all 8, the first in the cell before and the 8th in
+    // the cell after
+    #[test]
+    fn a_glyph_at_most_two_pixels_wider_keeps_every_column() {
+        let g = columns(8, |x| if x == 0 || x == 7 { 255 } else { 0 });
+        let out = g.fit(6, Width::Narrow).expect("fitted");
+        assert_eq!(out.width(), 6);
+        assert_eq!(first_row(&out), [0; 6]);
+        assert_eq!(drawn(&out), (-1, "#......#".into()));
+        assert!(one_bit(&out));
+    }
+
+    // ADR-1302 D14: where the glyph passes its cells by an odd number of
+    // pixels, the odd pixel goes past the right edge, and a column past
+    // the cells with no ink is left out of the box
+    #[test]
+    fn the_odd_pixel_goes_past_the_right_edge() {
+        let g = columns(9, |x| if x == 8 { 255 } else { 0 });
+        let out = g.fit(8, Width::Narrow).expect("fitted");
+        assert_eq!(drawn(&out), (0, ".........#".get(1..).expect("9").into()));
+        let blank_end = columns(8, |x| if x < 7 { 255 } else { 0 });
+        let out = blank_end.fit(6, Width::Narrow).expect("fitted");
+        assert_eq!(drawn(&out), (-1, "#######".into()));
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14: any other glyph wider than its cells and 2 pixels more
+    // is squeezed by OR pooling to that width, centred, reaching 1 pixel
+    // into each neighbour: one bit, no gray, and no inked column lost. 13
+    // columns into 10, around an 8-pixel cell
+    #[test]
+    fn a_wider_glyph_is_pooled_to_its_cells_and_two_pixels() {
+        let g = columns(13, |x| if x % 3 == 0 { 255 } else { 0 });
+        let out = g.fit(8, Width::Narrow).expect("fitted");
+        assert!(one_bit(&out), "{:?}", out.ink());
+        let (left, row) = drawn(&out);
+        assert_eq!((left, row.len()), (-1, 10));
+        // output column j covers source columns j * 1.3 to (j + 1) * 1.3,
+        // and takes ink from any column it covers: 0, 3, 6, 9 and 12
+        assert_eq!(row, "#.######.#");
+    }
+
+    // ADR-1302 D14: coverage narrowing, which an outline letter and its
+    // spacing marks take in the console, keeps the ink at both edges: 10
     // columns into 8, each edge column takes eight tenths of the inked
     // column it covers most of, 255 * 8 / 10
     #[test]
-    fn a_glyph_wider_by_a_ratio_that_is_not_whole_is_scaled_by_coverage() {
+    fn coverage_narrowing_spreads_a_column_by_its_share() {
         let g = columns(10, |x| if x == 0 || x == 9 { 255 } else { 0 });
-        let out = g.fit(8, Width::Narrow, 1).expect("fitted");
+        let out = g.narrowed(8, Narrowing::Coverage).expect("narrowed");
         assert_eq!(first_row(&out), [204, 0, 0, 0, 0, 0, 0, 204]);
-        let full = columns(10, |_| 255);
-        let out = full.fit(8, Width::Narrow, 1).expect("fitted");
-        assert_eq!(first_row(&out), [255; 8]);
+        let pooled = g.narrowed(8, Narrowing::Pool).expect("narrowed");
+        assert_eq!(first_row(&pooled), [255, 0, 0, 0, 0, 0, 0, 255]);
     }
 
-    // ADR-1302 D5: a color glyph wider than its cells is a picture, which
-    // a squeeze would spread, so it is cut evenly from both sides instead,
-    // the odd column from the right
+    /// A 16x16 RGBA picture whose ink is the box `x0..x1` by `y0..y1`, each
+    /// pixel's red its column and green its row, opaque.
+    fn picture(x0: u32, x1: u32, y0: u32, y1: u32) -> Glyph {
+        let mut px = Vec::new();
+        for y in 0..16u32 {
+            for x in 0..16u32 {
+                let on = (x0..x1).contains(&x) && (y0..y1).contains(&y);
+                px.extend(if on {
+                    [x as u8 * 10, y as u8 * 10, 0, 255]
+                } else {
+                    [0; 4]
+                });
+            }
+        }
+        Glyph::from_pixels(16, 16, Format::Rgba, px).expect("a picture")
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D5: a color picture drawn in one 8x16 cell is the square
+    // around its ink shrunk by nearest neighbour to 10x10, centred on the
+    // cell, reaching 1 pixel into each neighbour through its ink box; each
+    // pixel is one of the picture's, never an average
     #[test]
-    fn a_color_glyph_wider_than_its_cells_keeps_its_middle() {
-        let px: Vec<[u8; 4]> = (1..=5).map(|i| [i, i, i, 255]).collect();
-        let g = Glyph::from_pixels(5, 1, Format::Rgba, px.concat()).expect("a glyph");
-        let out = g.fit(2, Width::Narrow, 1).expect("fitted");
-        assert_eq!(out.pixels(), [2, 2, 2, 255, 3, 3, 3, 255]);
+    fn a_color_picture_in_one_cell_is_a_square_two_pixels_wider() {
+        let g = picture(2, 14, 2, 14).with_cells(Width::Wide);
+        let out = g.fit(8, Width::Narrow).expect("fitted");
+        assert_eq!(
+            (out.width(), out.height(), out.cells()),
+            (8, 16, Width::Narrow)
+        );
+        let ink = out.ink().expect("an ink box");
+        assert_eq!(
+            (ink.left(), ink.top(), ink.width(), ink.height()),
+            (-1, 0, 10, 16)
+        );
+        let alpha = |x: usize, y: usize| ink.pixels()[(y * 10 + x) * 4 + 3];
+        let inked: Vec<usize> = (0..16)
+            .filter(|&y| (0..10).any(|x| alpha(x, y) > 0))
+            .collect();
+        assert_eq!(inked, (3..13).collect::<Vec<_>>(), "10 rows, centred in 16");
+        assert!((3..13).all(|y| (0..10).all(|x| alpha(x, y) == 255)));
+        // the square is the ink's 12x12 from column 2: pixel i takes
+        // column 2 + (2i + 1) * 12 / 20
+        let red = |x: usize| ink.pixels()[(5 * 10 + x) * 4];
+        let want: Vec<u8> = (0..10)
+            .map(|i| ((2 + (2 * i + 1) * 12 / 20) * 10) as u8)
+            .collect();
+        assert_eq!((0..10).map(red).collect::<Vec<_>>(), want);
+        // the cell's own pixels are the box's middle 8 columns
+        assert_eq!(
+            out.pixel(0, 5),
+            Some(&ink.pixels()[(5 * 10 + 1) * 4..(5 * 10 + 2) * 4])
+        );
+    }
+
+    // ADR-1302 D5, D13: the square is never taller than the cell's text
+    // band: in an 8x6 cell it is 6x6, inside the cell
+    #[test]
+    fn a_color_picture_in_a_short_cell_is_as_tall_as_the_cell() {
+        let g = picture(0, 16, 0, 16).with_cells(Width::Wide);
+        let short = Glyph::from_pixels(16, 6, Format::Rgba, g.pixels()[..16 * 6 * 4].to_vec())
+            .expect("a picture");
+        let out = short.fit(8, Width::Narrow).expect("fitted");
+        assert!(out.ink().is_none());
+        let alpha = |x: u32| out.pixel(x, 3).expect("a pixel")[3];
+        assert_eq!(
+            (0..8).map(alpha).collect::<Vec<_>>(),
+            [0, 255, 255, 255, 255, 255, 255, 0]
+        );
     }
 
     // a glyph as wide as its cells keeps its pixels and its ink box, and
@@ -475,7 +745,7 @@ mod tests {
         let g = columns(16, |x| (x * 16) as u8)
             .with_ink((-2, 0), (20, 2), vec![9; 40])
             .expect("an ink box");
-        let out = g.clone().fit(16, Width::Wide, 1).expect("fitted");
+        let out = g.clone().fit(16, Width::Wide).expect("fitted");
         assert_eq!(out.pixels(), g.pixels());
         assert_eq!(out.ink(), g.ink());
         assert_eq!(out.cells(), Width::Wide);
@@ -486,7 +756,7 @@ mod tests {
     #[test]
     fn a_glyph_narrower_than_its_cells_is_centred() {
         let g = columns(5, |_| 255);
-        let out = g.fit(8, Width::Narrow, 1).expect("fitted");
+        let out = g.fit(8, Width::Narrow).expect("fitted");
         assert_eq!(first_row(&out), [0, 255, 255, 255, 255, 255, 0, 0]);
     }
 }

@@ -97,7 +97,7 @@ pub use bounds::{
     SET_RECORD_BYTES_MAX, SET_RUNS_MAX, SET_SECTIONS_MAX, SET_STRIKES_MAX,
 };
 pub use face::{Cell, Decorations, Drawn, Face, Font, REPLACEMENT, ScriptFrom, Style, Width};
-pub use glyph::{Format, Glyph, Ink};
+pub use glyph::{Format, Glyph, Ink, Narrowing};
 pub use policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 #[cfg(feature = "psf")]
 pub use psf::{Psf, PsfError};
