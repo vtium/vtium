@@ -3254,7 +3254,7 @@ mod tests {
 
     // ADR-1302 D14: an outline letter and its spacing marks wider than the
     // cells scale sideways together to fill them, each pixel taking the
-    // coverage of what it covers: the vowel sign's stem in the cell's last
+    // coverage of what lies under it. The vowel sign's stem stands in the last
     // column, which takes eight tenths of the stem's column, 255 * 8 / 10
     // rounded down, and no ink past the cell
     #[test]

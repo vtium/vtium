@@ -650,7 +650,7 @@ mod tests {
         let (left, row) = drawn(&out);
         assert_eq!((left, row.len()), (-1, 10));
         // output column j covers source columns j * 1.3 to (j + 1) * 1.3,
-        // and takes ink from any column it covers: 0, 3, 6, 9 and 12
+        // and takes ink from any of those columns, inked at 0, 3, 6, 9, 12
         assert_eq!(row, "#.######.#");
     }
 
