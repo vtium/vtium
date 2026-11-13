@@ -2453,7 +2453,6 @@ mod tests {
     }
 
     #[test]
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_udev_daemon_runs_where_its_control_socket_is_present() {
         let (_dir, file, _) = heads_fixture("udev-control", "", 0o644);
         assert!(udev_daemon_runs(&file));
@@ -2623,7 +2622,6 @@ mod tests {
     // output, where it does not count, so the file passes, and so does
     // vtium-config's install of it.
     #[test]
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
         let (_dir, file, _) = heads_fixture(
             "renamed",
