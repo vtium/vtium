@@ -697,7 +697,13 @@ impl Kitty {
     /// `a=d`: a delete, answered only when its keys are refused.
     fn delete(&mut self, ctx: &mut dyn Context) {
         let cmd = self.cmd;
-        if cmd.bad || (cmd.id != 0 && cmd.number != 0) {
+        // the spec: "Specifying both i and I keys in any command is an
+        // error", answered with the text a put gets
+        if cmd.id != 0 && cmd.number != 0 {
+            reply(ctx, &cmd, cmd.id, Err(Error::BothIds));
+            return;
+        }
+        if cmd.bad {
             reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
             return;
         }

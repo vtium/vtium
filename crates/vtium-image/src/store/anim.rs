@@ -210,6 +210,12 @@ pub(super) struct Anim {
     current: u32,
     frame_stamp: u64,
     run_stamp: u64,
+    /// Whether the commands alone tell that the clock shows `current`: true
+    /// while the animation is stopped on a frame a command named, and false
+    /// once a command sets it running, until a command names the frame on
+    /// show again. It decides which frame edits are damage, and never what
+    /// the replay prints.
+    shows_current: bool,
     /// What the frame allowance holds for it: each frame's cost, and the
     /// cache's full bound while it holds a change frame.
     charge: u64,
@@ -226,6 +232,7 @@ impl Default for Anim {
             current: 1,
             frame_stamp: 0,
             run_stamp: 0,
+            shows_current: true,
             charge: 0,
             cache: Cache::default(),
         }
@@ -324,12 +331,17 @@ impl Anim {
     }
 
     /// Whether frame `n` may be the frame the image's placements show. The
-    /// store records the frame a command made current, and the animation
-    /// clock shows that frame until a command sets the animation running.
-    /// From then on the clock picks the frame, and the store cannot tell
-    /// which one shows, so every frame may.
+    /// clock shows the current frame until a command sets the animation
+    /// running. From then on the clock picks the frame, and the store cannot
+    /// tell which one shows, so every frame may. A stop alone keeps the
+    /// frame the clock was showing, which the store still cannot tell. The
+    /// store knows the frame on show again after `c` while stopped, `c` with
+    /// `s=1` in one command, which makes the frame current and then stops on
+    /// it, and frames deleted or freed, which show the root, stopped.
+    ///
+    /// References: ADR-1102 D3, D4 and D5.
     fn may_show(&self, n: u32) -> bool {
-        n == self.current || self.run != Run::Stopped || self.run_stamp != 0
+        !self.shows_current || n == self.current
     }
 
     /// Whether every frame past the root is opaque.
@@ -807,6 +819,7 @@ impl Store {
         anim.cache.clear();
         anim.current = 1;
         anim.run = Run::Stopped;
+        anim.shows_current = true;
         anim.frame_stamp = anim.frame_stamp.saturating_add(1);
         anim.run_stamp = anim.run_stamp.saturating_add(1);
         self.frame_used = self.frame_used.saturating_sub(charge);
@@ -1081,9 +1094,12 @@ impl Store {
                 None => anim.root_gap = c.gap,
             }
         }
+        // the clock takes `c` before `s`: it shows the frame, then runs or
+        // stops from it
         if c.current != 0 {
             anim.current = c.current;
             anim.frame_stamp = anim.frame_stamp.saturating_add(1);
+            anim.shows_current = true;
         }
         anim.run = match c.run {
             1 => Run::Stopped,
@@ -1091,6 +1107,9 @@ impl Store {
             3 => Run::Looping,
             _ => anim.run,
         };
+        if anim.run != Run::Stopped {
+            anim.shows_current = false;
+        }
         if c.loops != 0 {
             anim.loops = c.loops;
         }

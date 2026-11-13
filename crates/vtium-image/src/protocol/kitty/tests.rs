@@ -944,10 +944,29 @@ fn a_delete_answers_only_an_error() {
     send(&mut k, &mut h, "a=d,d=w,i=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=1,I=1;EINVAL:invalid argument\x1b\\\x1b_Gi=1;EINVAL:invalid argument\x1b\\"
+        "\x1b_Gi=1,I=1;EINVAL:Must not specify both image id and image number\x1b\\\x1b_Gi=1;EINVAL:invalid argument\x1b\\"
     );
     send(&mut k, &mut h, "a=d,d=I,i=1");
     assert!(h.store.is_empty());
+}
+
+// A delete that names both an image id and an image number is refused as a
+// put that does is, with the same answer, and deletes nothing. The spec:
+// "Specifying both i and I keys in any command is an error."
+// covers: image.kitty
+#[test]
+fn a_delete_naming_an_image_id_and_number_answers_as_a_put_does() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(&mut k, &mut h, &format!("a=T,s=1,v=1,i=5,C=1;{}", red(1)));
+    let _ = h.take();
+    let both = "\x1b_Gi=5,I=5;EINVAL:Must not specify both image id and image number\x1b\\";
+    send(&mut k, &mut h, "a=p,i=5,I=5,C=1");
+    assert_eq!(h.take(), both, "a put");
+    for delete in ["a=d,d=i,i=5,I=5", "a=d,d=I,i=5,I=5", "a=d,d=a,i=5,I=5"] {
+        send(&mut k, &mut h, delete);
+        assert_eq!(h.take(), both, "{delete}");
+        assert_eq!(h.store.image_count(), 1, "{delete} deletes nothing");
+    }
 }
 
 /// `n` RGBA pixels of `rgba`, as base64.
