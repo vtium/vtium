@@ -1989,6 +1989,14 @@ class PowerTest(unittest.TestCase):
                 self.assertEqual(why, "QEMU's SHUTDOWN reason is %r, not None" % shutdown)
         why = self.judge(case, self.log(case, extra=self.PANIC))
         self.assertIn("'Kernel panic' on the console", why or "")
+        # The tier 3 run with a vtium that sent SIGUSR2: busybox init shut
+        # the guest down before t3-console forwarded vtium's line, and the
+        # shutdown is the reason given.
+        serial = self.log(case, drop="key-power-off: asking init",
+                          extra=["The system is going down NOW!", "Requesting system poweroff",
+                                 "[ 7.785749] reboot: Power down"])
+        self.assertEqual(t3_power.judge(case, serial, len(self.before(case)), "guest-shutdown"),
+                         "'The system is going down' on the console after the key")
 
     def test_busybox_case_stays_up(self):
         # The driver waits for the guest's own lines after the key, then

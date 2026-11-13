@@ -206,11 +206,13 @@ def judge(case, serial, since=0, shutdown=None):
     `since`, where the key was pressed, and the reason of QEMU's SHUTDOWN
     event, `shutdown`; None when it passed. Each line required before the
     key must appear before `since`, and none it forbids there; after it,
-    each required line must appear after the one before it, each "anywhere"
-    line somewhere, no forbidden line and no kernel panic may appear, and
-    a "dropped" case needs the kernel's trace, after the key, of the signal
-    vtium's warning before the key names, sent to PID 1 and dropped, and
-    QEMU's event must be the one the case requires."""
+    no forbidden line and no kernel panic may appear, each required line
+    must appear after the one before it, and each "anywhere" line
+    somewhere; a "dropped" case needs the kernel's trace, after the key, of
+    the signal vtium's warning before the key names, sent to PID 1 and
+    dropped; and QEMU's event must be the one the case requires. A
+    forbidden line is the first reason given after the key: a guest that
+    goes down the wrong way can end before the console has vtium's line."""
     lines = _lines(serial, since)
     want = EXPECT[case]
     before = _ESCAPES.sub("", serial[:since].decode(errors="replace")).splitlines()
@@ -220,6 +222,9 @@ def judge(case, serial, since=0, shutdown=None):
     for marker in want.get("before", {}).get("forbid", []):
         if any(marker in line for line in before):
             return "%r on the console before the key" % marker
+    for marker in want["forbid"] + [PANIC]:
+        if any(marker in line for line in lines):
+            return "%r on the console after the key" % marker
     at = 0
     for marker in want["require"]:
         found = next((i for i in range(at, len(lines)) if marker in lines[i]), None)
@@ -230,9 +235,6 @@ def judge(case, serial, since=0, shutdown=None):
     for marker in want.get("anywhere", []):
         if not any(marker in line for line in lines):
             return "no %r on the console after the key" % marker
-    for marker in want["forbid"] + [PANIC]:
-        if any(marker in line for line in lines):
-            return "%r on the console after the key" % marker
     if want.get("dropped"):
         why = _dropped(before, lines)
         if why:
