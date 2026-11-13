@@ -221,8 +221,10 @@ pub struct NoticeReport {
 pub struct Drawing {
     full: &'static str,
     small: &'static str,
+    /// The sprite drawn in place of `full`, then the one drawn in place
+    /// of `small`.
     #[cfg(feature = "images")]
-    sprite: Option<Sprite>,
+    sprite: Option<(Sprite, Sprite)>,
 }
 
 /// The fewest columns the text keeps beside a drawing: 40, the width of
@@ -246,13 +248,16 @@ impl Drawing {
         }
     }
 
-    /// The drawing with `sprite` drawn in place of its text, at the
-    /// largest whole-number scale that fits the cells its text would
-    /// take, full or small, so each of its pixels stays sharp.
+    /// The drawing with `full` drawn in place of its full text and
+    /// `small` in place of its small text, each at the largest
+    /// whole-number scale that fits the cells its text would take, so
+    /// each of its pixels stays sharp. The panic screen's `small` is its
+    /// sprite cropped with [`Sprite::crop`], as its small text is cropped
+    /// from its full one.
     #[cfg(feature = "images")]
-    pub const fn with_sprite(self, sprite: Sprite) -> Drawing {
+    pub const fn with_sprite(self, full: Sprite, small: Sprite) -> Drawing {
         Drawing {
-            sprite: Some(sprite),
+            sprite: Some((full, small)),
             ..self
         }
     }
@@ -260,12 +265,18 @@ impl Drawing {
 
 /// A picture of a few colors that vtium carries in its own code, such as
 /// the panic screen's Tux: its RGB samples, uncompressed, each pixel drawn
-/// as the entry of its palette that it matches.
+/// as the entry of its palette that it matches. A sprite is the whole
+/// picture its samples hold, or a rectangle cut from it by
+/// [`Sprite::crop`].
 #[cfg(feature = "images")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sprite {
     width: u32,
     height: u32,
+    /// The pixel of the samples' picture at the sprite's top left.
+    at: (u32, u32),
+    /// The width and height of the picture the samples hold.
+    picture: (u32, u32),
     palette: &'static [Rgb],
     samples: &'static [u8],
 }
@@ -284,9 +295,31 @@ impl Sprite {
         Sprite {
             width,
             height,
+            at: (0, 0),
+            picture: (width, height),
             palette,
             samples,
         }
+    }
+
+    /// The rectangle `width` by `height` pixels of this sprite whose top
+    /// left pixel is its pixel at `x`, `y`, as a sprite of its own over
+    /// the same samples. A rectangle that runs past this sprite's edge is
+    /// cut at that edge.
+    pub const fn crop(self, x: u32, y: u32, width: u32, height: u32) -> Sprite {
+        // the pixels of this sprite from `x` and from `y` to its edges
+        let (right, below) = (self.width.saturating_sub(x), self.height.saturating_sub(y));
+        Sprite {
+            width: if width < right { width } else { right },
+            height: if height < below { height } else { below },
+            at: (self.at.0.saturating_add(x), self.at.1.saturating_add(y)),
+            ..self
+        }
+    }
+
+    /// The sprite's width and height in pixels.
+    pub const fn size(&self) -> (u32, u32) {
+        (self.width, self.height)
     }
 
     /// The entry of the palette that the pixel at `x`, `y` matches: `None`
@@ -296,8 +329,12 @@ impl Sprite {
         if x >= self.width || y >= self.height {
             return None;
         }
+        let (x, y) = (self.at.0.checked_add(x)?, self.at.1.checked_add(y)?);
+        if x >= self.picture.0 || y >= self.picture.1 {
+            return None;
+        }
         let at = u64::from(y)
-            .checked_mul(u64::from(self.width))?
+            .checked_mul(u64::from(self.picture.0))?
             .checked_add(u64::from(x))?
             .checked_mul(3)?;
         let at = usize::try_from(at).ok()?;
@@ -311,10 +348,11 @@ impl Sprite {
         self.palette.get(self.entry(x, y)?).copied()
     }
 
-    /// Whether the samples hold exactly the sprite's pixels and every
-    /// pixel matches an entry of the palette.
+    /// Whether the samples hold exactly the pixels of the picture the
+    /// sprite is cut from, and every pixel of the sprite matches an entry
+    /// of the palette.
     pub fn is_whole(&self) -> bool {
-        let pixels = u64::from(self.width).saturating_mul(u64::from(self.height));
+        let pixels = u64::from(self.picture.0).saturating_mul(u64::from(self.picture.1));
         u64::try_from(self.samples.len()).ok() == Some(pixels.saturating_mul(3))
             && (0..self.height).all(|y| (0..self.width).all(|x| self.entry(x, y).is_some()))
     }
@@ -780,8 +818,9 @@ enum Art {
 
 impl Drawing {
     /// The full drawing, or the small one, with the cells it takes in a
-    /// font of `cell`: its text's longest line and its lines, or its
-    /// sprite's scale and pixels in whole cells. `None` for a sprite that
+    /// font of `cell`: its text's longest line and its lines, or the
+    /// scale and the pixels, in whole cells, of the sprite drawn in its
+    /// place. `None` for a sprite that
     /// does not fit those cells at its own size.
     fn art(&self, full: bool, cell: (u32, u32)) -> Option<(Art, (u32, u32))> {
         let text = if full { self.full } else { self.small };
@@ -791,7 +830,8 @@ impl Drawing {
             u32::try_from(text.lines().count()).unwrap_or(u32::MAX),
         );
         #[cfg(feature = "images")]
-        if let Some(sprite) = self.sprite {
+        if let Some((whole_sprite, small_sprite)) = self.sprite {
+            let sprite = if full { whole_sprite } else { small_sprite };
             let fit = |cells: u32, cell: u32, px: u32| {
                 cells.saturating_mul(cell).checked_div(px).unwrap_or(0)
             };
@@ -1503,17 +1543,27 @@ mod tests {
         Sprite::new(80, 80, &PALETTE, samples.leak())
     }
 
+    /// The stand-in sprite cropped as the panic screen's is for the small
+    /// drawing's place: 50 by 44 pixels from its pixel at 15, 6.
+    #[cfg(feature = "images")]
+    fn monitor() -> Sprite {
+        sprite().crop(15, 6, 50, 44)
+    }
+
     // ADR-1401 D7: a build with image support draws the sprite in the
     // place of the drawing in text, at the largest whole-number scale that
-    // fits the cells the text would take: in 8x16 cells, three times its
-    // size in the full drawing's 32 by 20 cells, 30 by 15 cells, and twice
-    // in the small one's 21 by 10, 20 by 10 cells
+    // fits the cells the text would take: in 8×16 cells, the whole sprite
+    // at three times its size in the full drawing's 32 by 20 cells, 30 by
+    // 15 cells, and the 50×44 crop at three times its size in the small
+    // one's 21 by 10, 19 by 9 cells
     #[cfg(feature = "images")]
     #[test]
     fn the_sprite_takes_the_drawings_place_at_a_whole_scale() {
-        let sprite = sprite();
+        let (sprite, monitor) = (sprite(), monitor());
         assert!(sprite.is_whole());
-        let with = Some(drawing().with_sprite(sprite));
+        assert!(monitor.is_whole());
+        assert_eq!(monitor.size(), (50, 44));
+        let with = Some(drawing().with_sprite(sprite, monitor));
         let report = panic_report(3, with);
         let got = laid(&report, 78, 24);
         assert_eq!(
@@ -1531,12 +1581,12 @@ mod tests {
         assert_eq!(
             got.drawing,
             Some(Shown {
-                art: Art::Sprite(sprite, 2),
-                cells: (20, 10),
+                art: Art::Sprite(monitor, 3),
+                cells: (19, 9),
                 at: (9, 0),
             })
         );
-        assert_eq!(got.text, (0, 11));
+        assert_eq!(got.text, (0, 10));
         // too small for even the small one, the text shows alone
         assert_eq!(laid(&one, 38, 14).drawing, None);
         // in 4x6 cells the small drawing's 84x60 pixels cannot hold the
@@ -1555,8 +1605,68 @@ mod tests {
             tiny.drawing.map(|d| (d.art, d.cells)),
             Some((Art::Sprite(sprite, 1), (20, 14)))
         );
-        let none = Drawing::text("", "").with_sprite(sprite);
+        let none = Drawing::text("", "").with_sprite(sprite, monitor);
         assert_eq!(none.art(false, (8, 16)), None);
+    }
+
+    // a crop is the rectangle of its sprite's pixels it names, and a
+    // crop that runs past the sprite's edge is cut there
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_crop_draws_its_rectangle_of_the_sprite() {
+        let (sprite, monitor) = (sprite(), monitor());
+        for (x, y) in [(0, 0), (49, 0), (0, 43), (49, 43), (0, 9), (34, 43)] {
+            assert_eq!(monitor.get(x, y), sprite.get(x + 15, y + 6), "{x},{y}");
+        }
+        assert_eq!(monitor.get(50, 0), None);
+        assert_eq!(monitor.get(0, 44), None);
+        let past = sprite.crop(70, 75, 20, 20);
+        assert_eq!(past.size(), (10, 5));
+        assert!(past.is_whole());
+        assert_eq!(past.get(9, 4), sprite.get(79, 79));
+        assert_eq!(sprite.crop(80, 0, 4, 4).size(), (0, 4));
+        assert_eq!(monitor.crop(1, 2, 3, 4).get(0, 0), sprite.get(16, 8));
+    }
+
+    // ADR-1401 D7: on 40×25 with one error, the small drawing's place
+    // draws the sprite cropped to its monitor, each pixel a 3×3 square,
+    // centered in its 19 by 9 cells; on 80×25 the full one's place draws
+    // the whole sprite (the test after this one)
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_small_place_draws_the_cropped_sprite() {
+        let (w, h) = (320, 400);
+        let font = font("unifont", 16);
+        let mut canvas = Canvas::new(w, h, 0);
+        let (sprite, monitor) = (sprite(), monitor());
+        Notice::report(panic_report(
+            1,
+            Some(drawing().with_sprite(sprite, monitor)),
+        ))
+        .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+        .expect("it fits");
+        // the box's inset of 6 pixels, then column 9 of 8 pixels; 19 by 9
+        // cells hold 152×144 pixels, so 1 pixel across and 6 down
+        let (x0, y0) = (6 + 9 * 8 + 1, 6 + 6);
+        // the stand-in's diagonal crosses the crop at 0,9, which the whole
+        // sprite has blue
+        assert_ne!(monitor.get(0, 9), sprite.get(0, 9));
+        for (sx, sy) in [(0, 0), (0, 9), (1, 10), (34, 43), (49, 0), (49, 43)] {
+            let want = pixel(monitor.get(sx, sy).expect("a pixel"));
+            assert_eq!(
+                block(&canvas, x0 + sx * 3, y0 + sy * 3, 3, 3),
+                vec![want; 9],
+                "{sx},{sy}"
+            );
+        }
+        // the paper around it is the box's
+        for (x, y) in [(x0 - 1, y0), (x0 + 150, y0), (x0, y0 - 1), (x0, y0 + 132)] {
+            assert_eq!(
+                canvas.pixel(x, y),
+                Some(pixel(Colors::NOTICE.paper)),
+                "{x},{y}"
+            );
+        }
     }
 
     // ADR-1401 D7: each pixel of the sprite is a square of the scale's
@@ -1568,9 +1678,12 @@ mod tests {
         let font = font("unifont", 16);
         let mut canvas = Canvas::new(w, h, 0);
         let sprite = sprite();
-        Notice::report(panic_report(3, Some(drawing().with_sprite(sprite))))
-            .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
-            .expect("it fits");
+        Notice::report(panic_report(
+            3,
+            Some(drawing().with_sprite(sprite, monitor())),
+        ))
+        .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+        .expect("it fits");
         // 30 by 15 cells of 8x16 hold 240x240 pixels: no space across,
         // and 0 down
         let (x0, y0) = (2 + 4, 2 + 4);
