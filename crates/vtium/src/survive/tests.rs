@@ -21,6 +21,7 @@ use rustix::net::{
 use vtium_platform::pty::{Erase, Pty, Size};
 
 use super::*;
+use crate::scratch::Scratch;
 
 const SIZE: Size = Size {
     cols: 80,
@@ -40,32 +41,6 @@ fn session() -> Pty {
 /// open pty shares.
 fn pts(fd: impl std::os::fd::AsFd) -> std::ffi::CString {
     rustix::pty::ptsname(fd, Vec::new()).unwrap()
-}
-
-/// A directory of its own for each test, removed when the test ends.
-struct Scratch(PathBuf);
-
-impl Scratch {
-    fn new(name: &str) -> Scratch {
-        let dir = std::env::temp_dir().join(format!("vtium-survive-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        Scratch(dir)
-    }
-}
-
-impl std::ops::Deref for Scratch {
-    type Target = Path;
-
-    fn deref(&self) -> &Path {
-        &self.0
-    }
-}
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
 }
 
 /// One descriptor in the stand-in's store.
@@ -281,7 +256,7 @@ fn no_session_inherits_systemds_word_to_vtium() {
 
 #[test]
 fn a_stored_master_comes_back_under_its_name_after_a_restart() {
-    let dir = Scratch::new("store");
+    let dir = Scratch::new("survive-store");
     let mut systemd = Systemd::new(&dir, 50);
     let store = notify::Store::from_env(&systemd.env()).unwrap();
     let first = session();
@@ -306,7 +281,7 @@ fn a_stored_master_comes_back_under_its_name_after_a_restart() {
 
 #[test]
 fn a_forgotten_master_is_not_passed_back() {
-    let dir = Scratch::new("forget");
+    let dir = Scratch::new("survive-forget");
     let mut systemd = Systemd::new(&dir, 50);
     let store = notify::Store::from_env(&systemd.env()).unwrap();
     let pty = session();
@@ -322,7 +297,7 @@ fn a_forgotten_master_is_not_passed_back() {
 // pty reports one is kept until vtium drops it.
 #[test]
 fn the_store_keeps_a_master_that_reports_a_hangup() {
-    let dir = Scratch::new("fdpoll");
+    let dir = Scratch::new("survive-fdpoll");
     let mut systemd = Systemd::new(&dir, 50);
     let store = notify::Store::from_env(&systemd.env()).unwrap();
     let mut done = Command::new("true");
@@ -349,7 +324,7 @@ fn the_store_keeps_a_master_that_reports_a_hangup() {
 
 #[test]
 fn the_store_is_off_without_systemds_variables() {
-    let dir = Scratch::new("off");
+    let dir = Scratch::new("survive-off");
     let systemd = Systemd::new(&dir, 50);
     let mut env = systemd.env();
     assert!(notify::Store::from_env(&env).is_some());
@@ -414,7 +389,7 @@ fn a_master_without_a_place_is_set_apart() {
 
 #[test]
 fn the_ledger_tells_the_store_only_what_changed() {
-    let dir = Scratch::new("ledger");
+    let dir = Scratch::new("survive-ledger");
     let mut systemd = Systemd::new(&dir, 50);
     let mut keeper = Keeper::Store(notify::Store::from_env(&systemd.env()).unwrap());
     let mut ledger = Ledger::default();
@@ -447,7 +422,7 @@ fn the_ledger_tells_the_store_only_what_changed() {
 // vtium leaves it nothing.
 #[test]
 fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
-    let dir = Scratch::new("hold");
+    let dir = Scratch::new("survive-hold");
     let path = hold::socket_path(&dir);
     let listener = socket_with(
         AddressFamily::UNIX,
@@ -493,7 +468,7 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
 // after one failure: the ledger holds nothing and tells it nothing more.
 #[test]
 fn a_failing_keeper_is_given_up() {
-    let dir = Scratch::new("gone");
+    let dir = Scratch::new("survive-gone");
     let gone = dir.join("no-socket");
     let mut keeper =
         Keeper::Store(notify::Store::open(gone.as_os_str().as_encoded_bytes(), 50).unwrap());
@@ -512,7 +487,7 @@ fn a_failing_keeper_is_given_up() {
 // store's room is not recorded as held.
 #[test]
 fn the_ledger_makes_room_before_it_keeps_and_records_no_refused_keep() {
-    let dir = Scratch::new("room");
+    let dir = Scratch::new("survive-room");
     let mut systemd = Systemd::new(&dir, 1);
     let mut keeper = Keeper::Store(notify::Store::from_env(&systemd.env()).unwrap());
     let mut ledger = Ledger::default();
@@ -564,13 +539,13 @@ fn other_user() -> rustix::process::Uid {
 // own user set up.
 #[test]
 fn the_holder_and_vtium_each_refuse_another_user() {
-    let dir = Scratch::new("peer-holder");
+    let dir = Scratch::new("survive-peer-holder");
     let (path, listener) = holder_socket(&dir);
     std::thread::spawn(move || hold::serve_for(listener, other_user()));
     let vtium = hold::Client::connect(&path).unwrap();
     assert!(vtium.take().is_err(), "the holder turns another user away");
 
-    let dir = Scratch::new("peer-client");
+    let dir = Scratch::new("survive-peer-client");
     let (path, listener) = holder_socket(&dir);
     let holder = std::thread::spawn(move || hold::serve(listener));
     let refused = hold::Client::connect_for(&path, other_user()).map(|_| ());
@@ -586,7 +561,7 @@ fn vtium_is_ready_once_its_vt_is_open_and_not_before() {
     // ADR-1500 D7, "Ready before the display manager": systemd starts the
     // display manager once vtium's unit is ready, so READY=1 comes only
     // after the VT is open.
-    let dir = Scratch::new("ready");
+    let dir = Scratch::new("survive-ready");
     let mut systemd = Systemd::new(&dir, 4);
     let env = systemd.env();
     let vt = notify::opened(&env, || {
@@ -602,7 +577,7 @@ fn vtium_is_ready_once_its_vt_is_open_and_not_before() {
 
 #[test]
 fn a_vt_that_does_not_open_sends_no_ready() {
-    let dir = Scratch::new("ready-no-vt");
+    let dir = Scratch::new("survive-ready-no-vt");
     let mut systemd = Systemd::new(&dir, 4);
     let env = systemd.env();
     let opened: std::io::Result<()> = notify::opened(&env, || Err(std::io::Error::other("no VT")));
@@ -619,7 +594,7 @@ fn without_systemds_socket_vtium_sends_no_ready() {
     assert!(!notify::ready(&env).unwrap());
     // With the socket and no store, as a unit with no
     // FileDescriptorStoreMax= gives it, vtium still says it is ready.
-    let dir = Scratch::new("ready-no-socket");
+    let dir = Scratch::new("survive-ready-no-socket");
     let mut systemd = Systemd::new(&dir, 0);
     let env: Vec<(OsString, OsString)> = systemd
         .env()

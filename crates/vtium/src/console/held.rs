@@ -188,12 +188,12 @@ pub fn config(root: &Path, unit: &str, facts: &Facts) -> Option<Setting> {
 #[cfg(test)]
 pub(super) mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     /// A scratch root with `files` written under it, each path relative to
-    /// it.
-    pub fn root(name: &str, files: &[(&str, &str)]) -> std::path::PathBuf {
-        let root = std::env::temp_dir().join(format!("vtium-held-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+    /// it. The test removes it when it ends.
+    pub fn root(name: &str, files: &[(&str, &str)]) -> Scratch {
+        let root = Scratch::new(&format!("held-{name}"));
         for (path, text) in files {
             let path = root.join(path);
             if let Some(dir) = path.parent() {

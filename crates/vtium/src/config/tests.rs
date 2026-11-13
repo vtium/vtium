@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use super::keys::*;
 use super::*;
+use crate::scratch::Scratch;
 
 /// [`load`] over files held in memory, by path.
 fn load_with(args: &[&str], files: &[(&str, &[u8])]) -> Loaded {
@@ -837,14 +838,12 @@ fn custom_takes_the_palette_keys() {
 
 #[test]
 fn read_bytes_is_bounded() {
-    let dir = std::env::temp_dir().join(format!("vtium-settings-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).ok();
+    let dir = Scratch::new("settings");
     let path = dir.join("big.conf");
     std::fs::write(&path, vec![b'#'; FILE_MAX * 2]).ok();
     let got = read_bytes(&path).ok().flatten().map(|b| b.len());
     assert_eq!(got, Some(FILE_MAX + 1));
     assert_eq!(read_bytes(&dir.join("absent.conf")).ok(), Some(None));
-    std::fs::remove_dir_all(&dir).ok();
 }
 
 #[test]
@@ -1065,15 +1064,14 @@ fn a_chord_that_does_not_read_is_reported_and_leaves_the_value_below() {
     reason = "a test's set-up, and a read that blocked"
 )]
 fn only_a_regular_file_is_read() {
-    let dir = std::env::temp_dir().join(format!("vtium-notafile-{}", std::process::id()));
-    std::fs::create_dir_all(&dir).expect("a directory");
+    let dir = Scratch::new("notafile");
     let fifo = dir.join("vtium.conf");
     let made = std::process::Command::new("mkfifo")
         .arg(&fifo)
         .status()
         .expect("mkfifo runs");
     assert!(made.success());
-    for path in [fifo.clone(), dir.clone(), PathBuf::from("/dev/null")] {
+    for path in [fifo.clone(), dir.to_path_buf(), PathBuf::from("/dev/null")] {
         let (tx, rx) = std::sync::mpsc::channel();
         let p = path.clone();
         std::thread::spawn(move || {
@@ -1084,7 +1082,7 @@ fn only_a_regular_file_is_read() {
             .unwrap_or_else(|_| panic!("{} blocked", path.display()));
         assert_eq!(got, Err(io::ErrorKind::InvalidInput), "{}", path.display());
     }
-    let args: Vec<OsString> = ["-c".into(), dir.clone().into_os_string()].into();
+    let args: Vec<OsString> = ["-c".into(), dir.as_os_str().to_owned()].into();
     let l = load(&args, &mut read_file);
     assert_eq!(
         l.reports,
@@ -1096,7 +1094,6 @@ fn only_a_regular_file_is_read() {
             problem: Problem::NotAFile,
         }]
     );
-    std::fs::remove_dir_all(dir).ok();
 }
 
 #[test]
