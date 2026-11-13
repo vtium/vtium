@@ -46,6 +46,12 @@
 //! A warning the frit's text gave as the helper read it, such as a key that
 //! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them.
 //!
+//! Before its first answer, the helper reports which parts of its sandbox
+//! are in force (ADR-1200 D15). A helper that runs without its landlock
+//! domain, on a kernel without landlock, is logged once a boot, with
+//! whether its fallback filter stands in for the domain, and so is a
+//! helper that runs without its socket filter ([`sandbox_notice`]).
+//!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
 //! goes on drawing what it has not sent, its clusters unshaped, a glyph a
@@ -164,7 +170,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ7";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -180,6 +186,28 @@ fn failure(why: &str) -> String {
         why => format!("the helper failed: {why}"),
     }
 }
+/// The line the console logs when the helper's report of its sandbox,
+/// `parts`, lacks a part (ADR-1200 D15); `None` when every part is in
+/// force.
+fn sandbox_notice(parts: u32) -> Option<String> {
+    let domain = if parts & SANDBOX_DOMAIN != 0 {
+        None
+    } else if parts & SANDBOX_FALLBACK != 0 {
+        Some(
+            "The font helper runs without its landlock domain, because this kernel does not offer landlock. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses.",
+        )
+    } else {
+        Some(
+            "The font helper runs without its landlock domain, because this kernel does not offer landlock. No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change.",
+        )
+    };
+    let sockets = (parts & SANDBOX_SOCKETS == 0).then_some(
+        "The font helper runs without its socket filter, because vtium has no seccomp filter for this machine's architecture.",
+    );
+    let lines: Vec<&str> = domain.into_iter().chain(sockets).collect();
+    (!lines.is_empty()).then(|| lines.join(" "))
+}
+
 /// An ask. A console built with right-to-left text asks with the kind that
 /// also takes the part of a cluster the font draws only without some of
 /// its marks (ADR-1200 D22 step 3), which its lookup lays the missing marks
@@ -201,6 +229,12 @@ const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
 const FRAME_WARNING: u32 = 9;
 const FRAME_OUTLINE_CELL: u32 = 10;
+const FRAME_SANDBOX: u32 = 14;
+/// The bits of a [`FRAME_SANDBOX`]: the helper's landlock domain, its
+/// fallback filter and its socket filter are in force.
+const SANDBOX_DOMAIN: u32 = 1;
+const SANDBOX_FALLBACK: u32 = 2;
+const SANDBOX_SOCKETS: u32 = 4;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -640,6 +674,9 @@ enum Event {
     NoOwnCell(String),
     /// A warning the frit's text gave as the helper read it.
     Warning(String),
+    /// The parts of the helper's sandbox in force, as [`FRAME_SANDBOX`]'s
+    /// bits.
+    Sandbox(u32),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -743,6 +780,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_DONE => 0,
         FRAME_FILLED | FRAME_STOPPED => 16,
         FRAME_OWN_CELL | FRAME_OUTLINE_CELL => 8,
+        FRAME_SANDBOX => 4,
         FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
@@ -827,6 +865,10 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         },
         FRAME_NO_OWN_CELL => Event::NoOwnCell(String::from_utf8_lossy(&payload).into_owned()),
         FRAME_WARNING => Event::Warning(String::from_utf8_lossy(&payload).into_owned()),
+        FRAME_SANDBOX => match word(&payload, 0) {
+            Some(parts) => Event::Sandbox(parts),
+            _ => Event::Malformed("a sandbox report without its parts".to_owned()),
+        },
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
@@ -1058,6 +1100,9 @@ pub struct Helper {
     full: bool,
     /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
     warned: BTreeSet<String>,
+    /// The line logged this boot about a sandbox the helper runs without,
+    /// once one has been ([`sandbox_notice`]).
+    sandbox_noted: Option<String>,
     failed: Option<String>,
     answer: Duration,
     request: Duration,
@@ -1098,6 +1143,7 @@ impl Helper {
             restarts: 0,
             full: false,
             warned: BTreeSet::new(),
+            sandbox_noted: None,
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
@@ -1294,6 +1340,10 @@ impl Helper {
                 }
                 Ok(Event::Warning(why)) => {
                     self.warn(why.trim());
+                    continue;
+                }
+                Ok(Event::Sandbox(parts)) => {
+                    self.sandboxed(parts);
                     continue;
                 }
                 Ok(
@@ -1596,6 +1646,11 @@ impl Helper {
                     self.warn(why.trim());
                     continue;
                 }
+                // nor does the sandbox's report
+                Event::Sandbox(parts) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
                 Event::Failed(why) => Err(failure(&why)),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
                 Event::Closed(status) => {
@@ -1835,6 +1890,18 @@ impl Helper {
             .collect();
         if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
             log::warn!("the frit {why}");
+        }
+    }
+
+    /// Logs the helper's report of its sandbox, `parts`, once a boot,
+    /// when a part is missing: a helper started again reports again.
+    fn sandboxed(&mut self, parts: u32) {
+        if self.sandbox_noted.is_some() {
+            return;
+        }
+        if let Some(line) = sandbox_notice(parts) {
+            log::warn!("{line}");
+            self.sandbox_noted = Some(line);
         }
     }
 
@@ -2260,7 +2327,7 @@ mod tests {
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ6".to_vec();
+        let mut want = b"VTVSREQ7".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
@@ -2788,6 +2855,64 @@ mod tests {
                 .warned
                 .contains(&format!("t:{WARNINGS_MAX}: a key that does nothing"))
         );
+    }
+
+    // a helper that runs without its landlock domain is logged once a
+    // boot, with whether its fallback filter stands in for the domain, and
+    // its report answers nothing, so the answer it leads still lands; a
+    // helper whose sandbox is whole is not logged (ADR-1200 D15, the
+    // maintainer, 2026-11-13)
+    #[test]
+    fn a_helper_without_its_landlock_domain_is_logged_once() {
+        let report = |parts: u32| frame_bytes(FRAME_SANDBOX, &parts.to_le_bytes());
+        let run = |name: &str, reports: &[u32]| {
+            let mut fixture = Vec::new();
+            for &parts in reports {
+                fixture.extend(report(parts));
+            }
+            fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['A'])));
+            fixture.extend(frame_bytes(FRAME_DONE, &[]));
+            let mut s = StandIn::new(name, ANSWERS, &fixture);
+            let now = t0();
+            s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+            let answers = s.run(now);
+            assert_eq!(s.helper.failed(), None);
+            assert!(!answers.is_empty(), "the answer after the report lands");
+            s.helper.sandbox_noted.clone()
+        };
+        let whole = SANDBOX_DOMAIN | SANDBOX_SOCKETS;
+        assert_eq!(run("sandbox-whole", &[whole]), None);
+        let fallback = SANDBOX_FALLBACK | SANDBOX_SOCKETS;
+        let noted = run("sandbox-fallback", &[fallback, whole]).unwrap();
+        assert!(
+            noted.starts_with("The font helper runs without its landlock domain"),
+            "{noted}"
+        );
+        assert!(
+            noted.contains("A seccomp filter refuses in its place"),
+            "{noted}"
+        );
+        let noted = run("sandbox-none", &[0]).unwrap();
+        assert!(
+            noted.contains("No filter takes the domain's place"),
+            "{noted}"
+        );
+        assert!(noted.contains("without its socket filter"), "{noted}");
+        assert_eq!(sandbox_notice(whole), None);
+    }
+
+    // a sandbox report of any length but four bytes is refused, and the
+    // helper is given up
+    #[test]
+    fn a_sandbox_report_of_another_length_gives_the_helper_up() {
+        let mut fixture = frame_bytes(FRAME_SANDBOX, &[1, 0]);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let (why, _) = given_up("sandbox-short", ANSWERS, &fixture, false);
+        assert!(why.contains("a sandbox report without its parts"), "{why}");
+        let mut fixture = frame_bytes(FRAME_SANDBOX, &[1, 0, 0, 0, 0]);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let (why, _) = given_up("sandbox-long", ANSWERS, &fixture, false);
+        assert!(why.contains("past its kind's 4"), "{why}");
     }
 
     // a warning's control characters are escaped before the log, and a

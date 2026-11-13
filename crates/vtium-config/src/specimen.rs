@@ -28,8 +28,8 @@ use vtium_font::{Cell, Face, Format, Script, Style, Variant, Width};
 use crate::made::Made;
 use crate::serve::{
     ASK, ASK_MADE, FRAME_BYTES_MAX, FRAME_DONE, FRAME_DRAWS_NOTHING, FRAME_FAILED, FRAME_GLYPHS,
-    FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SOURCES,
-    FRAME_WARNING, FritText, LeftOut, OWN_CELL, SOURCES, ServeRequest,
+    FRAME_MADE, FRAME_NO_OWN_CELL, FRAME_OUTLINE_CELL, FRAME_OWN_CELL, FRAME_SANDBOX,
+    FRAME_SOURCES, FRAME_WARNING, FritText, LeftOut, OWN_CELL, SOURCES, ServeRequest,
 };
 
 /// The specimen's lines in every locale: Latin, digits and box drawing.
@@ -419,10 +419,11 @@ pub fn sources_of(helper: &Helper, frits: Vec<FritText>) -> Vec<Sources> {
                             break Err(format!("the font helper failed: {}", text(&payload)));
                         }
                         // a warning a frit's text gave comes before its
-                        // answer; any other kind answers no sources query,
+                        // answer, and the sandbox's report before the
+                        // first; any other kind answers no sources query,
                         // and taking the next frame as this frit's answer
                         // would give each later frit the one before's
-                        Ok((FRAME_WARNING, _)) => {}
+                        Ok((FRAME_WARNING | FRAME_SANDBOX, _)) => {}
                         Ok(_) => {
                             break Err("the font helper sent an unexpected answer".to_owned());
                         }
@@ -640,6 +641,8 @@ pub fn warnings_of(helper: &Helper, frit: &FritText) -> Result<Vec<String>, Stri
         loop {
             match frame(stdout)? {
                 (FRAME_WARNING, payload) => warnings.push(text(&payload)),
+                // the sandbox's report, before the helper's first answer
+                (FRAME_SANDBOX, _) => {}
                 (FRAME_SOURCES | FRAME_DRAWS_NOTHING, _) => return Ok(warnings),
                 (FRAME_FAILED, payload) => {
                     return Err(format!("the font helper failed: {}", text(&payload)));
