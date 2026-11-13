@@ -47,6 +47,7 @@ from t3_common import REPORT, ROOT, RUNDIR, rel  # noqa: E402
 
 VARIANT = "showcase-1920x1080"
 SPECIMEN_FONTS = os.path.join(ROOT, "tools", "specimens", "src", "fonts.rs")
+TIER2_FONTS = os.path.join(ROOT, "tools", "tier2", "src", "fonts.rs")
 PALETTE_RS = os.path.join(ROOT, "crates", "vtium-term", "src", "palette.rs")
 # Where the guest finds the fonts: under /usr/local/share/fonts, where the
 # glyph helper reads outline fonts (docs/managing-vtium.md, Fonts).
@@ -61,16 +62,23 @@ def cache_dir():
     return os.path.join(base, "vtium", "showcase", "fonts")
 
 
-def specimen_pin(file):
-    """(url, sha256) of the font `file` that tools/specimens/src/fonts.rs
-    pins, so a font the two sets share is pinned in one place."""
-    with open(SPECIMEN_FONTS) as f:
+def rust_pin(rs, file):
+    """(url, sha256) of the font `file` that the Rust source `rs` pins:
+    tools/specimens/src/fonts.rs (SPECIMEN_FONTS), whose pin names its URL
+    in a field `url`, or tools/tier2/src/fonts.rs (TIER2_FONTS), whose pin
+    names it in `Origin::Url`. A font the showcase shares with another set
+    is pinned in one place."""
+    with open(rs) as f:
         text = f.read()
     for block in re.findall(r"Pinned \{(.*?)\}", text, re.S):
         fields = dict(re.findall(r'(\w+): "([^"]*)"', block))
-        if fields.get("file") == file:
-            return fields["url"], fields["sha256"]
-    raise ValueError("%s pins no font %s" % (rel(SPECIMEN_FONTS), file))
+        if fields.get("file") != file:
+            continue
+        origin = re.search(r'Origin::Url\(\s*"([^"]*)"', block)
+        url = fields.get("url") or (origin and origin.group(1))
+        if url:
+            return url, fields["sha256"]
+    raise ValueError("%s pins no font %s by its URL" % (rel(rs), file))
 
 
 class Font:
@@ -92,9 +100,30 @@ class Font:
 
 
 def _specimen(name, version, license, used, file):
-    url, sha256 = specimen_pin(file)
+    url, sha256 = rust_pin(SPECIMEN_FONTS, file)
     return Font(name, version, license, used,
                 "the release's file, pinned by tools/specimens/src/fonts.rs", url, sha256, file)
+
+
+def _tier2(name, version, license, used, file):
+    url, sha256 = rust_pin(TIER2_FONTS, file)
+    return Font(name, version, license, used,
+                "the Noto project's monthly release 24.9.1 on GitHub, pinned by "
+                "tools/tier2/src/fonts.rs", url, sha256, file)
+
+
+# The Noto project's monthly release of September 2024, from which the
+# scripts scene's fonts come, as tier 2's Noto Sans Hebrew and Noto Sans
+# Arabic do.
+NOTO_2409 = ("https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/"
+             "fonts/%s/hinted/ttf/%s-Regular.ttf")
+
+
+def _noto(script, version, used, sha256):
+    family = "NotoSans" + script
+    return Font("Noto Sans " + script, version, "SIL Open Font License 1.1", used,
+                "the Noto project's monthly release 24.9.1 on GitHub",
+                NOTO_2409 % (family, family), sha256, family + "-Regular.ttf")
 
 
 # Every font the showcase draws with that vtium does not carry in its own
@@ -139,6 +168,18 @@ FONTS = [
          member="NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf"),
     _specimen("Noto Color Emoji", "2.051", "SIL Open Font License 1.1", "color emoji",
               "NotoColorEmoji.ttf"),
+    _noto("Devanagari", "2.006", "Hindi in the scripts scene",
+          "306b53ecfb182a504dd8a7446093c316387d2fd8dc350d0792ed1753fe0996cd"),
+    _noto("Bengali", "2.003", "Bengali in the scripts scene",
+          "9f8b4dd091f19b111d24ea18daae81bea8684cc67de17ea1acd797e144bf20ba"),
+    _tier2("Noto Sans Arabic", "2.012", "SIL Open Font License 1.1",
+           "Arabic in the scripts scene", "NotoSansArabic-Regular.ttf"),
+    _tier2("Noto Sans Hebrew", "3.001", "SIL Open Font License 1.1",
+           "Hebrew in the scripts scene", "NotoSansHebrew-Regular.ttf"),
+    _noto("Georgian", "2.005", "Georgian in the scripts scene",
+          "d3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346"),
+    _noto("Ethiopic", "2.102", "Amharic in the scripts scene, in the Ethiopic script",
+          "f6f7fc379db9438959a2b0527e7a2cf36ea9c84626d56ec444fff37fc24c3c10"),
     _specimen("Symbols Nerd Font Mono", "3.4.0", "MIT", "the prompt's symbols",
               "SymbolsNerdFontMono-Regular.ttf"),
 ]

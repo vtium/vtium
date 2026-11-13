@@ -10,17 +10,18 @@
 # lines of arithmetic, and two photographs NASA's astronauts took, Earthrise
 # and the Blue Marble. The scene writes the rest of the session byte for
 # byte, and the last prompt is the shell's own, with its cursor.
-# alt: A console screen showing a shell session in a smooth monospaced
-# alt: font: prompts in blue, gray and green segments, a colored listing of
-# alt: the vtium source tree, a git log with a branch graph and yellow
-# alt: commit hashes, the crates of vtium, then a row of six pictures, each
-# alt: with its file name under it: the Earth rising over the Moon, hexagonal
-# alt: tiles in teal, gold and coral, a Julia set glowing violet and orange,
-# alt: a rainbow plasma, a sun setting behind purple hills, and the whole
-# alt: Earth. Below them are three lines of greetings and thanks in English,
-# alt: Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and
-# alt: German with emoji, and a line of words each drawn in the style it
-# alt: names: underline, double, curly, dotted, dashed, a red curly
+# alt: A console screen showing a shell session in a smooth monospaced font:
+# alt: prompts in blue, gray and green segments, a colored listing of the
+# alt: vtium source tree, a git log with a branch graph and yellow commit
+# alt: hashes, the crates of vtium, then a row of six pictures, each with its
+# alt: file name under it: the Earth rising over the Moon, hexagonal tiles in
+# alt: teal, gold and coral, a Julia set glowing violet and orange, a rainbow
+# alt: plasma, a sun setting behind purple hills, and the whole Earth. Below
+# alt: them are three lines of greetings and thanks in English, Chinese,
+# alt: Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German
+# alt: with emoji, the first also in Hindi, Arabic and Hebrew, the Arabic and
+# alt: Hebrew reading right to left, and a line of words each drawn in the
+# alt: style it names: underline, double, curly, dotted, dashed, a red curly
 # alt: underline, strike, inverse and dim.
 
 # shellcheck source=tools/tier3/guest/screens/showcase.inc
@@ -77,7 +78,7 @@ if ! bash "$showcase/bin/gallery" -s 4 -n 6 "$showcase/pictures" 2>&1; then
 	[ -n "${T3_EVENTS:-}" ] && echo T3-NO-GALLERY >"$T3_EVENTS"
 fi
 prompt 'cat greetings.txt styles.txt'
-printf 'Hello 👋   你好   こんにちは   안녕하세요   สวัสดี   Γεια σου   Привет   Xin chào   Bonjour   Hallo\n'
+printf 'Hello 👋   你好   こんにちは   안녕하세요   สวัสดี   Γεια σου   Привет   Xin chào   Bonjour   Hallo   नमस्ते   مرحبا   שלום\n'
 printf 'Thank you 🙏   谢谢   ありがとう   감사합니다   ขอบคุณ   Ευχαριστώ   Спасибо   Cảm ơn   Merci   Danke\n'
 printf 'Good night 🌙   晚安   おやすみ   잘 자요   ราตรีสวัสดิ์   Καληνύχτα   Спокойной ночи   Bonne nuit   Gute Nacht\n'
 # styles.txt: each word in the style it names, each style one that vtium
