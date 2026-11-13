@@ -575,6 +575,41 @@ HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-closed-nodisplay", "heads-open-nodisplay", "heads-open-away",
                  "heads-survive"]
 
+# The head variants on a machine without kernel VTs (ADR-1401 D3, D9): the
+# stock guest, with /dev/tty0 hidden from vtium alone ("novt"). guest/setup
+# gives vtium@.service a drop-in that starts vtium through guest/t3-novt,
+# which runs vtium in a mount namespace whose /dev holds every entry of the
+# guest's /dev but tty0. The drop-in starts vtium with none of the unit's
+# options, as a machine without VTs runs it: without --vt=%I, which names
+# the VT, vtium looks for /dev/tty0 itself, finds none, and runs on a fake
+# VT (t3_heads CHECKS "no-vt"), which it shows at once without
+# --no-switchvt. Each runs the machine, configuration and head
+# file of a variant on a VT, and the screens it shares with that variant are
+# judged by that variant's goldens (t3_evaluate.GOLDENS_OF).
+# novt-closed-unmatched is heads-closed-unmatched without VTs: vtium turns
+# the display's output off, sets up no display and draws no notice (t3_heads
+# CHECKS "display-off"). novt-closed-broken is
+# heads-closed-broken without VTs: the panic screen on the boot display.
+# novt-open runs the shipped open file, whose rule places the display in its
+# one head: the head draws its login prompt, the driver logs in and draws
+# cjk, as 2d-640x480-psf16 does on a VT. None switches VTs, since vtium holds
+# no kernel VT to switch from. The driver waits after its switch to tty2 for
+# vtium's display ("shown"), as vtium logs no kernel VT, and for nothing more
+# where vtium sets up no display.
+NOVT = dict(HEAD_VARIANT, novt=True, vt_switch=False)
+VARIANTS.update({
+    "novt-closed-unmatched": dict(NOVT, heads=VARIANTS["heads-closed-unmatched"]["heads"],
+                                  policy="closed", renderer=None, login=False,
+                                  off=VARIANTS["heads-closed-unmatched"]["off"], shown=None,
+                                  checks=["no-vt", "display-off"]),
+    "novt-closed-broken": dict(NOVT, heads=VARIANTS["heads-closed-broken"]["heads"],
+                               policy="closed", first="panic", login=False,
+                               shown="text renderer [", checks=["no-vt"]),
+    "novt-open": dict(NOVT, heads="docs/heads/default.conf", policy="open", screens=["cjk"],
+                      shown="text renderer [", checks=["no-vt"]),
+})
+NOVT_VARIANTS = ["novt-closed-unmatched", "novt-closed-broken", "novt-open"]
+
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
 # line that shows the switch took, which no boot logs: under systemd, logind
@@ -629,6 +664,13 @@ BENCH_TIMEOUT = 300
 def guest_of(variant):
     """The guest `variant` boots (GUESTS)."""
     return GUESTS[VARIANTS[variant].get("guest", "arch")]
+
+
+def shown_of(variant):
+    """The console line the driver waits for after its switch to tty2: the
+    variant's own ("shown"), or its guest's (GUESTS). None waits for no
+    line."""
+    return VARIANTS[variant].get("shown", guest_of(variant)["shown"])
 
 
 def base_of(variant):
@@ -859,7 +901,9 @@ def build_disc(variant, work, impl):
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
     fragment, a `soft-reboot` file if its guest starts its userspace again
-    once the claim is made, and the agent and its unit if it runs it."""
+    once the claim is made, the agent and its unit if it runs it, and
+    t3-novt, the script that hides /dev/tty0 from vtium, if vtium runs as on
+    a machine without kernel VTs."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -929,6 +973,8 @@ def build_disc(variant, work, impl):
     if VARIANTS[variant].get("agent"):
         for name in ("t3-agent", "t3-agent.service"):
             shutil.copy(os.path.join(GUEST, name), disc)
+    if VARIANTS[variant].get("novt"):
+        shutil.copy(os.path.join(GUEST, "t3-novt"), disc)
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -1142,7 +1188,8 @@ def run_variant(variant, timing, impl, log):
         # ("first_switch": False) stays on the VT shown at boot.
         if v.get("first_switch", True):
             vm.keys("ctrl", "alt", "f2")
-            vm.wait_serial(guest["shown"], timeout=60)
+            if shown_of(variant):
+                vm.wait_serial(shown_of(variant), timeout=60)
             if "ready" in guest:
                 log(wait_ready(vm, guest["ready"]))
         tmp = os.path.join(work, "wait.ppm")

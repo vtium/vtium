@@ -1,0 +1,47 @@
+#!/bin/sh
+# The start of vtium in the variants on a machine without kernel VTs
+# (t3_heads.py). It runs its arguments, vtium, in a mount namespace of its
+# own, whose /dev holds every entry of the guest's /dev but tty0. vtium
+# decides that the machine has no kernel VTs when /dev/tty0 is missing, and
+# then runs on a fake VT. The rest of the guest keeps /dev/tty0, its VTs and
+# their gettys, because no mount of this namespace reaches the guest.
+#
+# A mount cannot take a name out of a directory, so the script builds the
+# new /dev on a tmpfs. It binds each directory of the guest's /dev, such as
+# /dev/dri, /dev/input and /dev/pts, with the mounts below it. It binds each
+# device node and each other file, and it copies each link. Then it moves
+# the tmpfs onto /dev. Last, the script runs vtium in its own place with
+# exec, so vtium keeps the process ID that systemd started. vtium's unit
+# needs that, because it is Type=notify with NotifyAccess=main.
+#
+# /dev/ptmx is the one node the script copies. A program opens /dev/ptmx to
+# make a new pty, and the kernel then looks for the pty filesystem at pts
+# in the same directory. A node bound on its own is cut off from its
+# directory, so the kernel finds no pts there, and the open fails with
+# ENOENT. cp -a makes a node of the same device, with the same mode and
+# owner, in the new /dev, beside the bound /dev/pts.
+set -eu
+exec unshare --mount --propagation private /bin/sh -eu -c '
+dev=$(mktemp -d)
+mount -t tmpfs -o mode=0755,nosuid t3-novt "$dev"
+for path in /dev/* /dev/.[!.]*; do
+    [ -e "$path" ] || [ -L "$path" ] || continue
+    name=${path#/dev/}
+    if [ "$name" = tty0 ]; then
+        continue
+    elif [ "$name" = ptmx ]; then
+        cp -a "$path" "$dev/$name"
+    elif [ -L "$path" ]; then
+        ln -s "$(readlink "$path")" "$dev/$name"
+    elif [ -d "$path" ]; then
+        mkdir "$dev/$name"
+        mount --rbind "$path" "$dev/$name"
+    else
+        : > "$dev/$name"
+        mount --bind "$path" "$dev/$name"
+    fi
+done
+mount --move "$dev" /dev
+rmdir "$dev"
+exec "$@"
+' t3-novt "$@"

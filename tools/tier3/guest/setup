@@ -147,6 +147,20 @@ if [ -f "$disc"/seat ]; then
         systemctl start --no-block seatd.service
     fi
 fi
+# A variant on a machine without kernel VTs (t3_heads.py) starts vtium
+# through t3-novt, which hides /dev/tty0 from vtium alone. The drop-in
+# starts vtium with none of the unit's options. vtium@.service names the VT
+# with --vt=%I, and vtium uses a VT it is given whether or not /dev/tty0
+# exists. Without --vt, vtium looks for /dev/tty0 itself, finds none, and
+# runs on a fake VT. The unit's --no-switchvt makes vtium wait until
+# something shows its VT, and nothing shows a fake VT, so the drop-in leaves
+# that option out too. The drop-in keeps vtium's name on its log lines,
+# which the driver reads them by.
+if [ -f "$disc"/t3-novt ]; then
+    install -m755 "$disc"/t3-novt /usr/local/sbin/t3-novt
+    printf '[Service]\nExecStart=\nExecStart=/usr/local/sbin/t3-novt /usr/bin/vtium\nSyslogIdentifier=vtium\n' \
+        > /etc/systemd/system/$unit.d/t3-novt.conf
+fi
 # vtium takes the guest's VTs the way a user gives them to it. The base
 # image leaves autovt@.service, the unit logind starts on a VT the driver
 # switches to, linked as Arch's systemd package has it, to getty@.service.
