@@ -1,0 +1,28 @@
+# The probes behind ADR-1400 D4's checks, "The checks the build makes
+# first". Each probe measures one fact that the design for running vtium
+# without root rests on, in the tier 3 guest, where it may take a VT, a card
+# and root. `make tier3-rootchecks` builds the probe, boots the guest and
+# collects the answers (tools/tier3/README.md, "The checks of the privilege
+# split"). A workspace member, so the gates build and lint it.
+[package]
+name = "vtium-tier3-probes"
+description = "Tier 3: the probes for the checks of ADR-1400 D4"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "t3-probe"
+path = "src/main.rs"
+
+[dependencies]
+# the system calls and ioctls the probes measure, and dlopen for libpam,
+# libsystemd and libseat, which the guest has and a build machine may lack
+libc = "=0.2.191"

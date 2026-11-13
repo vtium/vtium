@@ -807,6 +807,14 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
 
+# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks of the
+# privilege split"): the probe in tools/tier3/probes, run in the guest as root
+# and as a system account. SEATD_SRC=DIR, an unpacked seatd source tree, adds
+# check 3's run with a libseat built with its builtin backend.
+.PHONY: tier3-rootchecks
+tier3-rootchecks: tier3-image ## Measure ADR-1400 D4's checks in the tier 3 guest, answers in target/tier3/rootchecks/answers.txt (SEATD_SRC=DIR for the builtin backend)
+	$(T3_PY) $(T3_DIR)/t3_rootchecks.py $(if $(SEATD_SRC),--seatd-source $(SEATD_SRC))
+
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)
 	$(T3_RUN) $(if $(TREE),--tree $(TREE)) $(VARIANTS)
