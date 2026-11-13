@@ -65,3 +65,4 @@ kitty-upload-short	derived from upload-rules.md (ADR-1100 D16/D14), sealed befor
 kitty-upload-sixel-between	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-stray	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-capital-t-cursor	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
+kitty-upload-cut-chunk	derived from the maintainer's answer of 2026-11-13 (ADR-1100 D16, "What ends an upload early"), sealed before vtium ran; not reviewed yet
