@@ -14,8 +14,8 @@ average is over 20 words. It ends with a line of totals.
 
 By default it only reports and exits 0. With --check it exits 1 when any
 sentence is over 30 words, any page's average is over 20 words, or an entry
-in the allow list is wrong, so that it can become a gate. It exits 2 when it
-finds no page to read, so a wrong root never passes.
+in the allow list is wrong. AGENTS.md's gate line runs it with --check. It
+exits 2 when it finds no page to read, so a wrong root never passes.
 
 --table also prints one row for each page: its average, its longest
 sentence, its number of sentences, and how many are over 30 words. Run it on

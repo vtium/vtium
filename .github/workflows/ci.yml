@@ -154,6 +154,7 @@ jobs:
       - run: docs/scripts/issue-refs
       - run: docs/scripts/fork-refs
       - run: docs/scripts/claims
+      - run: docs/scripts/prose --check
       - name: ADR-1000 coverage ledger
         run: docs/scripts/coverage
 

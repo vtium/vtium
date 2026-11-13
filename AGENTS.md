@@ -39,7 +39,7 @@ Work on vtium happens only in vtium's own repositories, under the vtium organiza
 - Write a size with a multiplication sign (320×240, an 8×8 font), and put a comma before the last item of a list ("color emoji, 24-bit color, mouse reporting, and images").
 - Unpack a compressed phrase into what it means. For example, "A frit of bitmap sources that states no cell takes its fonts' own cell" becomes "A frit made only of bitmap fonts, with no `cell=` line, draws at the fonts' own glyph size."
 - A second example of unpacking: "Under the closed policy, a keyboard no rule mentions types nowhere, the guards are off, and no failure of vtium hands its VT to a getty's login prompt." becomes "Under the closed policy, vtium ignores any keyboard that no rule names, so its keys reach no session. The two guards that otherwise keep you from locking yourself out are off. If vtium fails, its VT is left with no login prompt." The first version packs three facts into one sentence, and "types nowhere" hides who acts. The second gives each fact its own sentence and names vtium as the one that acts.
-- A sentence in a page people read stays under about 25 words. `docs/scripts/prose` lists each sentence over 30 words in those pages, and each page whose sentences average over 20 words. Run `docs/scripts/prose --table` with the pages you changed, before and after you edit them. A sentence that must stay longer, for example one that quotes a long string, goes in `docs/scripts/prose-allow.tsv` with the reason the sentence stays.
+- A sentence in a page people read stays under about 25 words. `docs/scripts/prose` lists each sentence over 30 words in those pages, and each page whose sentences average over 20 words. Run `docs/scripts/prose --table` with the pages you changed, before and after you edit them. A sentence that must stay longer, for example one that quotes a long string, goes in `docs/scripts/prose-allow.tsv` with the reason the sentence stays. `docs/scripts/prose --check` is a gate. It fails on each long sentence that the allow file does not list, and on each page whose average is over 20 words.
 - Define a project term the first time a section uses it, in the words a newcomer would use, as in "a frit (a font set file)". Prefer the everyday word where one exists.
 - Name who does what. Write "vtium ignores the keyboard", not "the keyboard falls to the policy's input default".
 - If you had to read a sentence twice, rewrite the sentence before you commit.
@@ -75,6 +75,7 @@ cargo fmt --all --check \
   && docs/scripts/issue-refs \
   && docs/scripts/fork-refs \
   && docs/scripts/claims \
+  && docs/scripts/prose --check \
   && docs/scripts/coverage \
   && make test-tools \
   && make conformance \
