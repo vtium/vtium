@@ -46,7 +46,7 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, Origin, RangeCoverage, Script, ScriptFrom,
+    Cell, Decorations, Face, Format, Glyph, Narrowing, Origin, RangeCoverage, Script, ScriptFrom,
     SpritePolicy, Style, Variant, Width,
 };
 
@@ -536,9 +536,13 @@ fn ink_columns(g: &Glyph) -> Option<(i64, i64)> {
 /// mark after the letter has its first column of ink in the column after
 /// the last ink so far, and a mark before it, which the flag says, its
 /// last in the column before the first. The run of ink is centred in the
-/// letter's cells, each part keeping the ink it carries past its cells;
-/// or, where the run is wider than the cells, scaled sideways as one to
-/// fill them, so no ink is cut, and then cut at the cells.
+/// letter's cells, each part keeping the ink it carries past its cells.
+/// Where the run is wider than the cells, no ink is cut. A run of 1-bit
+/// parts, such as bitmap glyphs, comes whole, as wide as its ink, for
+/// [`Glyph::fit`] to squeeze into the cells it is drawn in by OR pooling,
+/// as it squeezes any bitmap glyph wider than its cells. A run with an
+/// outline part is narrowed to the cells by coverage
+/// ([`Glyph::narrowed`]).
 fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
     if marks.is_empty() {
         return Some(letter);
@@ -575,6 +579,9 @@ fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
         }
         return layers.glyph();
     }
+    let one_bit = placed
+        .iter()
+        .all(|(part, _)| part.pixels().iter().all(|&p| p == 0 || p == 255));
     let stride = usize::try_from(canvas).ok()?;
     let mut pixels = vec![0u8; stride.checked_mul(usize::try_from(h).ok()?)?];
     for (part, x) in placed {
@@ -587,31 +594,13 @@ fn beside(letter: Glyph, marks: &[(Glyph, bool)]) -> Option<Glyph> {
             }
         }
     }
-    pixels = scaled(&pixels, stride, usize::try_from(w).ok()?)?;
-    Glyph::from_pixels(letter.width(), h, Format::Mask, pixels)
-        .map(|g| g.with_cells(letter.cells()))
-}
-
-/// Mask `rows`, `from` pixels wide, scaled sideways to `to` pixels wide,
-/// `to` no wider: each pixel the coverage of the span of the row it takes.
-fn scaled(rows: &[u8], from: usize, to: usize) -> Option<Vec<u8>> {
-    let (f, t) = (u64::try_from(from).ok()?, u64::try_from(to).ok()?);
-    let mut out = Vec::with_capacity(rows.len().checked_div(from)?.checked_mul(to)?);
-    for row in rows.chunks_exact(from) {
-        for j in 0..t {
-            // pixel j spans [j * from, (j + 1) * from) of the row's
-            // from * to units, and source pixel i spans [i * to, (i + 1) * to)
-            let (start, end) = (j.checked_mul(f)?, j.checked_add(1)?.checked_mul(f)?);
-            let mut sum = 0u64;
-            for (i, &p) in (0u64..).zip(row) {
-                let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
-                let overlap = end.min(b).saturating_sub(start.max(a));
-                sum = sum.checked_add(u64::from(p).checked_mul(overlap)?)?;
-            }
-            out.push(u8::try_from(sum.checked_div(f)?).ok()?);
-        }
+    let run = Glyph::from_pixels(u32::try_from(canvas).ok()?, h, Format::Mask, pixels)?
+        .with_cells(letter.cells());
+    if one_bit {
+        return Some(run);
     }
-    Some(out)
+    run.narrowed(letter.width(), Narrowing::Coverage)
+        .map(|g| g.with_cells(letter.cells()))
 }
 
 /// One set the helper sent, or its rebuild: its cell and the rows line
@@ -1386,8 +1375,12 @@ impl DeferredFace {
         vtium_font::spacing::place(&boxed, self.band, fit, true)
     }
 
-    /// The built-in's `glyph` at the text band's size: centred, padded or
-    /// cropped, the spare row or column after it.
+    /// The built-in's `glyph` at the text band's height, centred, its rows
+    /// padded or cut, the spare row after it, and padded to the text
+    /// band's width of its cells, centred, the spare column after it. No
+    /// column of a glyph wider than its cells is cut here: it keeps its
+    /// width, and [`Glyph::fit`] squeezes it, or lets it reach a pixel past
+    /// the cells it is drawn in (ADR-1200 D7, ADR-1302 D14).
     fn boxed(&self, glyph: Glyph) -> Option<Glyph> {
         let cells = glyph.cells();
         let text = self.text();
@@ -1397,31 +1390,24 @@ impl DeferredFace {
             return Some(glyph);
         }
         let bpp = usize::try_from(glyph.format().bytes_per_pixel()).ok()?;
-        let offset = |to: u32, from: u32| i64::from(to).saturating_sub(i64::from(from)) / 2;
-        let (dx, dy) = (offset(width, glyph.width()), offset(height, glyph.height()));
-        let stride = usize::try_from(width).ok()?.checked_mul(bpp)?;
+        let dy = i64::from(height).saturating_sub(i64::from(glyph.height())) / 2;
+        let stride = usize::try_from(glyph.width()).ok()?.checked_mul(bpp)?;
         let mut pixels = vec![0u8; stride.checked_mul(usize::try_from(height).ok()?)?];
         for (y, row) in pixels.chunks_exact_mut(stride).enumerate() {
-            let Some(sy) = i64::try_from(y).ok().map(|y| y.saturating_sub(dy)) else {
-                continue;
-            };
-            let Some(src) = u32::try_from(sy)
+            let src = i64::try_from(y)
                 .ok()
-                .and_then(|sy| glyph.rows().nth(usize::try_from(sy).ok()?))
-            else {
-                continue;
-            };
-            for (x, px) in row.chunks_exact_mut(bpp).enumerate() {
-                let sx = i64::try_from(x).ok().map(|x| x.saturating_sub(dx));
-                let from = sx.and_then(|sx| usize::try_from(sx).ok()).and_then(|sx| {
-                    src.get(sx.checked_mul(bpp)?..sx.checked_mul(bpp)?.checked_add(bpp)?)
-                });
-                if let Some(from) = from {
-                    px.copy_from_slice(from);
-                }
+                .and_then(|y| usize::try_from(y.saturating_sub(dy)).ok())
+                .and_then(|sy| glyph.rows().nth(sy));
+            if let Some(src) = src {
+                row.copy_from_slice(src);
             }
         }
-        Glyph::from_pixels(width, height, glyph.format(), pixels).map(|g| g.with_cells(cells))
+        let rows = Glyph::from_pixels(glyph.width(), height, glyph.format(), pixels)?;
+        if rows.width() < width {
+            rows.fit(width, cells)
+        } else {
+            Some(rows.with_cells(cells))
+        }
     }
 }
 
@@ -1532,6 +1518,25 @@ impl Face for DeferredFace {
             Some(glyph) => ScriptFrom::Made(glyph),
             None => ScriptFrom::Builtins,
         }
+    }
+
+    /// The built-in font's glyph for a single character, in place of the
+    /// font set's own that would draw as the last step of the fallback
+    /// (ADR-1302 D14, ADR-1200 D7): for a character whose Emoji_Presentation
+    /// is No, which takes one cell, as ❤ does, its text glyph before a
+    /// color glyph in one cell; and for any character a built-in glyph no
+    /// wider than `width`, before a squeeze. A cluster of several
+    /// characters takes none.
+    fn fallback(&self, cluster: &[char], style: Style, width: u32, color: bool) -> Option<Glyph> {
+        let &[c] = cluster else {
+            return None;
+        };
+        if !self.builtin.has_glyph(c) {
+            return None;
+        }
+        let glyph = self.built_in(c, style)?;
+        let text = color && vtium_term::cluster_width(&[c]) == 1;
+        (glyph.format() == Format::Mask && (text || glyph.width() <= width)).then_some(glyph)
     }
 
     /// The lines the helper's strikes at the cell report, once a set there
@@ -3179,36 +3184,106 @@ mod tests {
         assert_eq!(picture(&both), want);
     }
 
-    // #235, ADR-1302 D14: a letter and its spacing marks that need more
-    // room than the letter's cells scale sideways together to fit them,
-    // so no ink is cut: the vowel sign's stem ends in the cell's last
-    // column, and the letter's headline still starts in its first
+    /// The rows of `g`'s ink box, as `#` and `.`.
+    fn boxed_picture(g: &Glyph) -> Vec<String> {
+        let ink = g.ink().unwrap();
+        ink.pixels()
+            .chunks_exact(ink.width() as usize)
+            .map(|r| r.iter().map(|&p| if p > 0 { '#' } else { '.' }).collect())
+            .collect()
+    }
+
+    // covers: text.overhang
+    // #235, ADR-1302 D14: a bitmap letter and its spacing marks that need
+    // at most 2 pixels more than the letter's cells keep their size, so no
+    // ink is cut: their 10 columns are centred on the 8-pixel cell and
+    // reach 1 pixel into the cell on each side. The letter's headline
+    // starts in the cell before, and the vowel sign's stem stands in the
+    // cell after, a blank column inside the cell between it and the
+    // letter's stem. The cluster stays one bit
     #[test]
-    fn a_letter_and_spacing_marks_wider_than_the_cells_scale_to_fit() {
+    fn a_letter_and_spacing_marks_a_little_wider_than_the_cells_keep_their_size() {
         let wide_ka: [&str; 13] = [
             "........", "........", "........", "########", "......#.", "......#.", ".####.#.",
             "#....##.", "#....##.", ".####.#.", "......#.", "......#.", "......#.",
         ];
         let f = face_with(&[(KA, &wide_ka), (AA, &AA_ROWS)]);
-        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        let both = Font::new(f)
+            .glyph(&[KA, AA], Width::Narrow, Style::default())
+            .unwrap();
         assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
-        let ink = |x: u32, y: u32| both.pixel(x, y).unwrap()[0] > 0;
-        // the headline runs the whole cell
-        assert!((0..8).all(|x| ink(x, 3)));
-        // the vowel sign's stem in the last column, alone at the right
-        assert!((4..13).all(|y| ink(7, y)), "{:?}", picture(&both));
-        // the letter's stem stays left of it, with a blank column between
-        assert!((4..13).all(|y| !ink(6, y)), "{:?}", picture(&both));
-        assert!((4..13).all(|y| ink(5, y)), "{:?}", picture(&both));
-        // the 10 columns of ink scale to 8, so the cell's last column takes
-        // eight tenths of the stem's column and two tenths of the blank one
-        // before it: 255 * 8 / 10, rounded down
+        let ink = both.ink().unwrap();
+        assert_eq!((ink.left(), ink.width()), (-1, 10));
+        assert!(ink.pixels().iter().all(|&p| p == 0 || p == 255));
+        let rows = boxed_picture(&both);
+        assert_eq!(rows[3], "##########");
+        for row in &rows[4..13] {
+            assert_eq!(&row[6..], "#..#", "{rows:?}");
+        }
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14: a bitmap letter and its spacing marks wider than the
+    // cell and 2 pixels more are squeezed by OR pooling to the cell and 2
+    // pixels, centred: ka with the vowel sign aa twice takes 12 columns of
+    // ink, squeezed to 10 in an 8-pixel cell, one bit. The glyph
+    // path squeezes the same run of ink to the same pixels, as one piece
+    // of code squeezes both
+    #[test]
+    fn a_letter_and_spacing_marks_much_wider_than_the_cells_are_pooled() {
+        let wide_ka: [&str; 13] = [
+            "........", "........", "........", "########", "......#.", "......#.", ".####.#.",
+            "#....##.", "#....##.", ".####.#.", "......#.", "......#.", "......#.",
+        ];
+        let f = face_with(&[(KA, &wide_ka), (AA, &AA_ROWS)]);
+        let run = f.draw(&[KA, AA, AA], Style::default()).unwrap();
+        let both = Font::new(f)
+            .glyph(&[KA, AA, AA], Width::Narrow, Style::default())
+            .unwrap();
+        let ink = both.ink().unwrap();
+        assert!(run.width() > 10, "the run is {} wide", run.width());
+        assert_eq!((ink.left(), ink.width()), (-1, 10));
+        assert!(
+            both.pixels()
+                .iter()
+                .chain(ink.pixels())
+                .all(|&p| p == 0 || p == 255)
+        );
+        assert_eq!(Some(both), run.fit(8, Width::Narrow));
+    }
+
+    // ADR-1302 D14: an outline letter and its spacing marks wider than the
+    // cells scale sideways together to fill them, each pixel taking the
+    // coverage of what it covers: the vowel sign's stem in the cell's last
+    // column, which takes eight tenths of the stem's column, 255 * 8 / 10
+    // rounded down, and no ink past the cell
+    #[test]
+    fn an_outline_letter_and_spacing_marks_scale_by_coverage() {
+        let wide_ka: [&str; 13] = [
+            "........", "........", "........", "########", "......#.", "......#.", ".####.#.",
+            "#....##.", "#....##.", ".####.#.", "......#.", "......#.", "......#.",
+        ];
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        // one pixel of partial coverage makes the letter an outline glyph
+        let mut gray = drawn(CELL, &wide_ka);
+        gray[0] = 9;
+        let g = s.glyph(Width::Narrow, gray);
+        s.map(KA, g);
+        let a = s.glyph(Width::Narrow, drawn(CELL, &AA_ROWS));
+        s.map(AA, a);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let generated = Shared::default();
+        let runs = vec![(u32::from(KA), 1), (u32::from(AA), 1)];
+        add(&mut lock(&generated), CELL, set, runs, 1);
+        let both = Font::new(face(&generated))
+            .glyph(&[KA, AA], Width::Narrow, Style::default())
+            .unwrap();
+        assert!(both.ink().is_none());
         assert!(
             (4..13).all(|y| both.pixel(7, y).unwrap()[0] == 204),
             "{:?}",
-            (4..13)
-                .map(|y| both.pixel(7, y).unwrap()[0])
-                .collect::<Vec<_>>()
+            picture(&both)
         );
     }
 
@@ -3384,17 +3459,92 @@ mod tests {
         assert_eq!(checked, 33 * 2);
     }
 
-    // #235: the font has placed a mark only in a box as wide as its
-    // letter's. Unifont's vowel sign aa, 16 pixels wide, on a frit's
-    // letter 8 pixels wide, stands after the letter in the letter's cell
-    // instead of being laid on it across two cells
+    /// A face whose store holds `c` as a color glyph one cell wide, every
+    /// pixel opaque red, and `wide` as a mask two cells wide, every pixel
+    /// inked.
+    fn color_and_wide(c: char, wide: char) -> DeferredFace {
+        let mut color = StrikeBuilder::new(PixelFormat::Rgba, CELL, Style::default());
+        let red = [255u8, 0, 0, 255].repeat((CELL.width * CELL.height) as usize);
+        let g = color.glyph(Width::Narrow, red);
+        color.map(c, g);
+        let mut mask = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let g = mask.glyph(
+            Width::Wide,
+            vec![255; (CELL.width * 2 * CELL.height) as usize],
+        );
+        mask.map(wide, g);
+        let bytes = SetBuilder::new("t")
+            .strike(color)
+            .strike(mask)
+            .write()
+            .unwrap();
+        let set = Arc::new(Set::from_bytes(bytes).unwrap());
+        let generated = Shared::default();
+        let runs = vec![(u32::from(c), 1), (u32::from(wide), 1)];
+        add(&mut lock(&generated), CELL, set, runs, 1);
+        face(&generated)
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14, step 2 of the fallback order: ❤ (U+2764) presents as
+    // text by default (Emoji_Presentation=No) and takes one cell, so the
+    // built-in font's text glyph draws it before the font set's color
+    // glyph, which would have to draw in one cell. The text glyph is
+    // GNU Unifont's heart, 16 pixels wide, squeezed 2:1 into the cell
+    #[test]
+    fn a_text_glyph_comes_before_a_color_glyph_in_one_cell() {
+        let heart = '\u{2764}';
+        let font = Font::new(color_and_wide(heart, 'A'));
+        let drawn = font
+            .glyph(&[heart], Width::Narrow, Style::default())
+            .unwrap();
+        assert_eq!(drawn.format(), Format::Mask);
+        let unifont = Font::new(Unifont::new(16))
+            .glyph(&[heart], Width::Narrow, Style::default())
+            .unwrap();
+        assert_eq!(drawn, unifont);
+        // an emoji that presents as emoji by default, drawn in one cell as
+        // wcwidth gives it, keeps the font set's color glyph
+        let grin = '\u{1f600}';
+        let font = Font::new(color_and_wide(grin, 'A'));
+        let drawn = font
+            .glyph(&[grin], Width::Narrow, Style::default())
+            .unwrap();
+        assert_eq!(drawn.format(), Format::Rgba);
+    }
+
+    // covers: text.overhang
+    // ADR-1302 D14, step 3 of the fallback order: a built-in glyph that
+    // fits the cell comes before a squeeze of the font set's own glyph
+    // wider than its cells. The set's A is two cells wide; the built-in
+    // font's A, 8 pixels wide, draws instead
+    #[test]
+    fn a_built_in_glyph_that_fits_comes_before_a_squeeze() {
+        let font = Font::new(color_and_wide('\u{2764}', 'A'));
+        let drawn = font.glyph(&['A'], Width::Narrow, Style::default()).unwrap();
+        let unifont = Font::new(Unifont::new(16))
+            .glyph(&['A'], Width::Narrow, Style::default())
+            .unwrap();
+        assert_eq!(drawn, unifont);
+    }
+
+    // #235, ADR-1302 D14: the font has placed a mark only in a box as wide
+    // as its letter's. Unifont's vowel sign aa, 16 pixels wide, on a
+    // frit's letter 8 pixels wide, stands after the letter instead of being
+    // laid on it across two cells. The two take 9 columns, a pixel more
+    // than the cell, so they keep their size, and the odd column, the top
+    // stroke's last, goes past the cell's right edge
     #[test]
     fn a_mark_in_a_box_wider_than_its_letters_stands_beside_it() {
         let f = face_with(&[(KA, &KA_ROWS)]);
         let sign = Unifont::new(16).draw(&[AA], Style::default()).unwrap();
         assert_eq!(sign.width(), 16, "unifont's aa is two cells");
-        let both = f.draw(&[KA, AA], Style::default()).unwrap();
+        let both = Font::new(f)
+            .glyph(&[KA, AA], Width::Narrow, Style::default())
+            .unwrap();
         assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        let ink = both.ink().unwrap();
+        assert_eq!((ink.left(), ink.width()), (0, 9));
         // the vowel sign's stem ends in the cell's last column
         assert!(
             (4..13).all(|y| both.pixel(7, y).unwrap()[0] > 0),
