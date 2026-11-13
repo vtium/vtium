@@ -11,6 +11,10 @@ use vtium_conformance::scenario::run::Runner;
 use vtium_conformance::scenario::{self, Dump, Sort, capability, transcript};
 use vtium_conformance::spec::Spec;
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 const TOOL: &str = env!("CARGO_MANIFEST_DIR");
 
 fn read(path: &str) -> String {
@@ -1068,9 +1072,7 @@ fn play_shows_each_command_its_side_effects_and_each_dumped_screen_then_waits() 
 #[test]
 fn write_refuses_an_existing_transcript_without_replace_and_lists_a_new_scenario() {
     use vtium_conformance::scenario::run::{NEW_SCENARIO, write_transcript};
-    let dir = std::env::temp_dir().join(format!("vtium-scenarios-write-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+    let dir = Scratch::new("scenarios-write");
     let list = dir.join("provisional.tsv");
     let head = "# NAME<TAB>REASON\nkey-old\treviewed later\n";
     std::fs::write(&list, head).unwrap_or_else(|e| panic!("{e}"));
@@ -1111,7 +1113,6 @@ fn write_refuses_an_existing_transcript_without_replace_and_lists_a_new_scenario
         "already listed"
     );
     assert_eq!(read(&list).matches("key-old").count(), 1);
-    let _ = std::fs::remove_dir_all(&dir);
 }
 
 /// `conformance probes` on the tree: every capability of the list judged

@@ -7,26 +7,17 @@ use std::process::Command;
 use vtium_conformance::runner::{Corpus, Verdict, judge, mask};
 use vtium_conformance::view::View;
 
+#[path = "common/scratch.rs"]
+mod scratch;
+use scratch::Scratch;
+
 /// vtium's screen view of `ab` on a 4 by 1 screen, written out by hand.
 const AB: &str = "size 4x1\ncursor 2,0\nflags AUTO_WRAP\nrow 0 |ab|\n";
-
-/// A test's own directory, removed when the test ends, whether it passes
-/// or fails.
-struct Scratch(PathBuf);
-
-impl Drop for Scratch {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
 
 /// A corpus of one case, `ab`, in a directory of its own, which goes when
 /// the [`Scratch`] returned with it is dropped.
 fn corpus(name: &str) -> (Scratch, Corpus) {
-    let root =
-        std::env::temp_dir().join(format!("vtium-conformance-{name}-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
-    let scratch = Scratch(root.clone());
+    let root = Scratch::new(&format!("conformance-{name}"));
     let write = |path: PathBuf, text: &[u8]| {
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
@@ -36,10 +27,24 @@ fn corpus(name: &str) -> (Scratch, Corpus) {
     write(root.join("cases.list"), b"# name cols rows\nab 4 1\n");
     write(root.join("cases/ab.bin"), b"ab");
     write(root.join("golden/ab.txt"), AB.as_bytes());
-    (
-        scratch,
-        Corpus::open(&root).unwrap_or_else(|e| panic!("{e}")),
-    )
+    let corpus = Corpus::open(&root).unwrap_or_else(|e| panic!("{e}"));
+    (root, corpus)
+}
+
+// A test that panics after it made its corpus still leaves no directory
+// behind: the guard's drop runs as the panic unwinds.
+#[test]
+fn a_corpus_directory_is_removed_when_the_test_panics() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ended = std::thread::spawn(move || {
+        let (root, _) = corpus("panics");
+        let _ = tx.send(root.to_path_buf());
+        panic!("the test fails after it made its corpus");
+    })
+    .join();
+    assert!(ended.is_err(), "the test panicked");
+    let root = rx.recv().unwrap_or_else(|e| panic!("{e}"));
+    assert!(!root.exists(), "{} is left behind", root.display());
 }
 
 fn replay(corpus: &Corpus) -> Result<String, vtium_conformance::Failure> {
