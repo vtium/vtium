@@ -648,6 +648,12 @@ impl Head {
         self.at
     }
 
+    /// Whether a console of the head, shown or hidden, holds a
+    /// setBackground or setForeground that the seat has not taken yet.
+    pub fn display_requested(&self) -> bool {
+        self.consoles().any(|c| c.term.terminal.display_requested())
+    }
+
     /// Where the pointer is on the head's grid, in its pixels, while shown.
     pub fn pointer(&self) -> Option<(u32, u32)> {
         self.pointer

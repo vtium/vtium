@@ -147,7 +147,7 @@ impl App {
         let name = self.head_name(h);
         if self.vt.seat_manager() {
             log::info!(
-                "head {name}: console {id} sent setBackground, and vtium ignores it: a seat manager gives vtium its seat, so a program in a console cannot take the display. Run the graphical program in a session of its own on another VT."
+                "head {name}: console {id} sent setBackground, which asks to hand the display to a graphical program. vtium ignores it, because a seat manager (logind or seatd) holds the seat and would not give the display to that program. Run the graphical program in a session of its own on another VT."
             );
             return;
         }
@@ -159,7 +159,7 @@ impl App {
         }
         if !self.shows(h, id) {
             log::info!(
-                "head {name}: console {id} sent setBackground, and vtium ignores it: only the console that a head shows may hand the display over"
+                "head {name}: console {id} sent setBackground, which asks to hand the display to a graphical program. vtium ignores it, because the head does not show that console. Only the console that a head shows can hand the display over."
             );
             return;
         }
@@ -176,7 +176,7 @@ impl App {
             }
         }
         log::info!(
-            "head {name}: console {id} sent setBackground, so vtium gives up {} until setForeground, the end of the console's session or a switch back to this VT",
+            "head {name}: console {id} sent setBackground, so vtium hands the display to a graphical program. vtium lets go of the graphics cards {}. It takes them back at setForeground from this console, at the end of this console's session, or when this VT is shown again after a switch away.",
             list(&cards)
         );
         self.hand_overs.0.push(HandOver {
@@ -227,15 +227,31 @@ impl App {
             End::VtShown => "this VT is shown again",
         }
         .replace("{id}", &over.console.to_string());
-        let wake: Vec<PathBuf> = over
+        let (wake, held): (Vec<PathBuf>, Vec<PathBuf>) = over
             .cards
             .into_iter()
-            .filter(|node| !self.hand_overs.given_up(node))
-            .collect();
-        log::info!(
-            "head {name}: {why_text}, so vtium takes back {}",
-            list(&wake)
-        );
+            .partition(|node| !self.hand_overs.given_up(node));
+        let shown = why == End::VtShown || self.vt.is_active();
+        let back = match (wake.is_empty(), shown) {
+            (true, _) => String::new(),
+            (false, true) => format!(" vtium takes back the graphics cards {}.", list(&wake)),
+            (false, false) => format!(
+                " vtium takes back the graphics cards {} when this VT is shown again.",
+                list(&wake)
+            ),
+        };
+        log::info!("head {name}: {why_text}, so the hand-over of the display ends.{back}");
+        for o in &self.hand_overs.0 {
+            let kept: Vec<&PathBuf> = held.iter().filter(|n| o.cards.contains(*n)).collect();
+            if !kept.is_empty() {
+                log::info!(
+                    "The graphics cards {} stay with the graphical program of head {}, console {}, which still holds them.",
+                    list(kept),
+                    self.head_name(o.head),
+                    o.console
+                );
+            }
+        }
         // At a VT acquire the acquire wakes every card, and while the VT is
         // another's the next acquire does.
         if why != End::VtShown && self.vt.is_active() {
@@ -247,10 +263,8 @@ impl App {
                 if let Some(video) = self.videos.get_mut(node)
                     && let Err(e) = video.wake_up()
                 {
-                    log::warn!(
-                        "cannot wake {} after the hand-over: {e}; vtium tries again",
-                        node.display()
-                    );
+                    // The card logs its own line once its tries run out.
+                    log::debug!("cannot wake {} yet: {e}", node.display());
                 }
             }
             self.darken();

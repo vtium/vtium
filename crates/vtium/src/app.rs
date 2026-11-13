@@ -3699,6 +3699,17 @@ impl App {
             | HeadChord::PreviousConsole
             | HeadChord::OpenConsole
             | HeadChord::CloseConsole => {
+                // setBackground and setForeground are judged against the
+                // console shown when they came, before the chord shows
+                // another (ADR-1401 D16). A setBackground that pauses the
+                // head takes the chord with it, as a paused head takes no
+                // chord.
+                if let Some(h) = h {
+                    self.display_requests(h);
+                    if self.wholly_paused(h) {
+                        return;
+                    }
+                }
                 let changed = match (h, chord) {
                     // Under closed the count is fixed: the chord is taken,
                     // and does nothing (D1, D5).
@@ -3743,10 +3754,14 @@ impl App {
             }
         };
         self.focus_settled = true;
-        // only to a lit head that can be the active head (D5)
+        // only to a lit head that can be the active head (D5), and never
+        // to one a program holds every display of (ADR-1401 D16)
+        let paused = self.paused_heads();
         let (heads, rules, vt_heads) = (self.heads(), &self.rules, &self.vt_heads);
         let lit = |h: usize| {
-            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !vt_heads.isolated(rules, h)
+            heads.get(h).is_some_and(|head| !head.views.is_empty())
+                && !vt_heads.isolated(rules, h)
+                && !paused.contains(&h)
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);

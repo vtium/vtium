@@ -98,11 +98,14 @@ struct Output {
     announced: bool,
 }
 
-/// A card with displays, standing in for drm2d over a DRM card: it draws
-/// only under DRM master, lets master go at a sleep, and takes it at a
-/// wake-up, which fails while another file holds it. After a failed
-/// wake-up it tries again while it is in the foreground, as drm2d's
-/// retries do, at each [`Card::retry`].
+/// A card with displays, standing in for drm2d over a DRM card: it lends a
+/// buffer only while awake, and the kernel refuses a frame or a power
+/// state set without DRM master. It lets master go at a sleep, and takes
+/// it at a wake-up, which fails while another file holds it. After a
+/// failed wake-up it tries again while it is in the foreground, as drm2d's
+/// retries do, at each [`Card::retry`]. A card made [`Card::slow`] ends
+/// its sleep only some turns later, as drm2d waits for a flip in flight,
+/// and a wake-up meanwhile cancels the sleep, as drm2d's does.
 struct Card {
     name: &'static str,
     master: Rc<RefCell<Master>>,
@@ -112,8 +115,14 @@ struct Card {
     /// only then.
     foreground: bool,
     events: Vec<Event>,
-    /// Frames swapped without DRM master, which the kernel refuses.
+    /// Frames swapped and power states set without DRM master, which the
+    /// kernel refuses.
     refused: u32,
+    /// How many turns, each a call of `events`, a sleep waits before it
+    /// lets master go and reports `Asleep`.
+    sleep_turns: u32,
+    /// The turns left before the sleep under way ends.
+    sleeping: Option<u32>,
 }
 
 impl Card {
@@ -140,7 +149,25 @@ impl Card {
             foreground: false,
             events: Vec::new(),
             refused: 0,
+            sleep_turns: 0,
+            sleeping: None,
         }
+    }
+
+    /// This card, whose sleep ends `turns` turns after it starts.
+    fn slow(self, turns: u32) -> Card {
+        Card {
+            sleep_turns: turns,
+            ..self
+        }
+    }
+
+    /// Ends the sleep under way: master goes, and the owner hears
+    /// `Asleep`.
+    fn finish_sleep(&mut self) {
+        self.sleeping = None;
+        self.master.borrow_mut().drop_master(Holder::Vtium);
+        self.events.push(Event::Asleep);
     }
 
     fn output(&self, id: DisplayId) -> Option<&Output> {
@@ -165,6 +192,11 @@ impl Video for Card {
         "card"
     }
     fn events(&mut self) -> Vec<Event> {
+        match self.sleeping {
+            Some(0) => self.finish_sleep(),
+            Some(n) => self.sleeping = Some(n - 1),
+            None => {}
+        }
         std::mem::take(&mut self.events)
     }
     fn displays(&self) -> Vec<DisplayId> {
@@ -235,7 +267,6 @@ impl Video for Card {
     }
     fn ready_for_frame(&self, id: DisplayId) -> bool {
         self.awake
-            && self.ours()
             && self
                 .output(id)
                 .is_some_and(|o| o.dpms == Some(Dpms::On) && Arc::strong_count(&o.drawn) == 1)
@@ -243,6 +274,10 @@ impl Video for Card {
     fn set_dpms(&mut self, id: DisplayId, dpms: Dpms) -> io::Result<()> {
         if !self.awake {
             return Err(io::Error::other("the display is not online"));
+        }
+        if !self.ours() {
+            self.refused += 1;
+            return Err(io::Error::from_raw_os_error(13));
         }
         if let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) {
             o.dpms = Some(dpms);
@@ -255,11 +290,15 @@ impl Video for Card {
         for o in &mut self.outputs {
             o.lease += 1;
         }
-        self.master.borrow_mut().drop_master(Holder::Vtium);
-        self.events.push(Event::Asleep);
+        self.sleeping = Some(self.sleep_turns);
+        if self.sleep_turns == 0 {
+            self.finish_sleep();
+        }
     }
     fn wake_up(&mut self) -> io::Result<()> {
         self.foreground = true;
+        // A sleep still under way is cancelled, and master stays.
+        self.sleeping = None;
         self.master.borrow_mut().set(Holder::Vtium)?;
         self.awake = true;
         for o in &mut self.outputs {
@@ -304,11 +343,16 @@ struct TestVt {
     vt: CountingVt,
     seat_manager: bool,
     restores: Rc<Cell<u32>>,
+    /// Events the test sends, as the kernel's VT reports a re-take.
+    sent: Rc<RefCell<Vec<VtEvent>>>,
+    events: Vec<VtEvent>,
 }
 
 impl Vt for TestVt {
     fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
-        self.vt.events()
+        self.events.extend(self.vt.events());
+        self.events.append(&mut self.sent.borrow_mut());
+        self.events.drain(..)
     }
     fn acknowledge_release(&mut self) -> io::Result<()> {
         self.vt.acknowledge_release()
@@ -360,6 +404,7 @@ display connector:card-b/B-1 -> other
 input path:kbd-left -> left
 input path:kbd-right -> right
 input path:kbd-other -> other
+input class:keyboard -> roaming
 ";
 
 const CARD_A: &str = "/dev/dri/card-a";
@@ -367,6 +412,7 @@ const CARD_B: &str = "/dev/dri/card-b";
 const KBD_LEFT: &str = "/dev/input/event0";
 const KBD_RIGHT: &str = "/dev/input/event1";
 const KBD_OTHER: &str = "/dev/input/event2";
+const KBD_ROAMING: &str = "/dev/input/event3";
 
 const A1: DisplayId = DisplayId(1);
 const A2: DisplayId = DisplayId(2);
@@ -443,6 +489,25 @@ fn switch_key() -> InputEvent {
     })
 }
 
+/// The key `keysym` held with Ctrl and Super: with Up the roaming chord,
+/// with Right a console chord.
+fn ctrl_super(keysym: u32) -> InputEvent {
+    InputEvent::Key(KeyEvent {
+        keycode: 0,
+        ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
+        mods: Mods::CTRL.union(Mods::LOGO),
+        keysyms: vec![keysym],
+        codepoints: vec![None],
+        repeat: false,
+    })
+}
+
+const UP: u32 = 0xff52;
+const RIGHT: u32 = 0xff53;
+
 /// The rows of every console of head `name`, in the ring's order.
 fn consoles(app: &App, name: &str) -> Vec<Vec<String>> {
     app.head(name)
@@ -465,6 +530,8 @@ struct Seat {
     restores: Rc<Cell<u32>>,
     master_a: Rc<RefCell<Master>>,
     master_b: Rc<RefCell<Master>>,
+    /// Events sent to the VT.
+    vt_sent: Rc<RefCell<Vec<VtEvent>>>,
     dir: Scratch,
 }
 
@@ -490,6 +557,12 @@ impl Seat {
     /// where `seat_manager` holds; it returns once every head's first
     /// console is ready.
     fn boot(test: &str, args: &[&str], seat_manager: bool) -> Seat {
+        Seat::boot_with(test, args, seat_manager, 0)
+    }
+
+    /// [`Seat::boot`], with card A's sleep ending `sleep_turns` turns
+    /// after it starts.
+    fn boot_with(test: &str, args: &[&str], seat_manager: bool, sleep_turns: u32) -> Seat {
         let dir = Scratch::new(test);
         let script = format!("D='{}'\n{SESSION}", dir.display());
         let args: Vec<OsString> = ["--font-size=16"]
@@ -504,17 +577,20 @@ impl Seat {
         let env = vec![(OsString::from("PATH"), OsString::from("/usr/bin:/bin"))];
         let (vt, released) = CountingVt::new(FakeVt::with_number(1));
         let restores = Rc::new(Cell::new(0));
+        let vt_sent = Rc::new(RefCell::new(Vec::new()));
         let vt = TestVt {
             vt,
             seat_manager,
             restores: Rc::clone(&restores),
+            sent: Rc::clone(&vt_sent),
+            events: Vec::new(),
         };
         let mut app = App::new(loaded.config, Box::new(vt), lp.handle(), Rc::new(now), env);
         app.set_font_sources(no_fonts());
         let start = Start::trusted(Path::new("heads.conf"), HEADS.as_bytes());
         assert_eq!(start.line(), None, "a valid head file");
         app.set_heads(start);
-        let a = Card::new("card-a", &["A-1", "A-2"]);
+        let a = Card::new("card-a", &["A-1", "A-2"]).slow(sleep_turns);
         let b = Card::new("card-b", &["B-1", "B-2"]);
         let (master_a, master_b) = (Rc::clone(&a.master), Rc::clone(&b.master));
         app.add_video(PathBuf::from(CARD_A), Box::new(a));
@@ -525,6 +601,7 @@ impl Seat {
         app.add_input(Path::new(KBD_LEFT), keyboard("kbd-left"));
         app.add_input(Path::new(KBD_RIGHT), keyboard("kbd-right"));
         app.add_input(Path::new(KBD_OTHER), keyboard("kbd-other"));
+        app.add_input(Path::new(KBD_ROAMING), keyboard("kbd-roaming"));
         let mut s = Seat {
             lp,
             app,
@@ -532,6 +609,7 @@ impl Seat {
             restores,
             master_a,
             master_b,
+            vt_sent,
             dir,
         };
         assert!(
@@ -565,6 +643,22 @@ impl Seat {
             self.app.turn(now());
         }
         done(&self.app)
+    }
+
+    /// Reads the sessions' output with no turn of the seat, at most
+    /// [`BOUND`], until head `name` holds a setBackground or setForeground
+    /// that the seat has not taken.
+    fn read_until_requested(&mut self, name: &str) -> bool {
+        let end = now() + BOUND;
+        while now() < end {
+            if self.app.head(name).is_some_and(|h| h.display_requested()) {
+                return true;
+            }
+            self.lp
+                .dispatch(Some(Duration::from_millis(20)), &mut self.app)
+                .expect("dispatch");
+        }
+        false
     }
 
     /// Turns the loop for `turns` turns of at most 20 ms each, for a
@@ -844,4 +938,162 @@ fn set_foreground_from_another_console_is_ignored() {
         !console_shows(&s.app, "left", 1, "got:k"),
         "left stays paused"
     );
+}
+
+/// D5 and D16: the roaming chord never makes a wholly paused head the
+/// active head. From `left`, which a hand-over pauses, the chord steps to
+/// `right` and `other`, and from `other` past `left` to `right`.
+// covers: platform.hand-back
+#[test]
+fn the_roaming_chord_skips_a_wholly_paused_head() {
+    let mut s = Seat::boot("hand-over-roaming", &[], false);
+    s.left_sends_background();
+    let mut moved = Vec::new();
+    for _ in 0..3 {
+        s.app
+            .device_input(Path::new(KBD_ROAMING), ctrl_super(UP), now());
+        moved.push(s.app.take_focus_move());
+    }
+    let names = |n: &[&str]| n.iter().map(|n| Some((*n).to_owned())).collect::<Vec<_>>();
+    assert_eq!(moved, names(&["right", "other", "right"]));
+}
+
+/// D16: a card that two hand-overs hold stays given up until both end.
+/// `left` gives up card A; `right`, which still draws on card B, gives up
+/// cards A and B. The end of `left`'s hand-over keeps card A given up, and
+/// the end of `right`'s wakes both cards.
+// covers: platform.hand-back
+#[test]
+fn a_card_two_hand_overs_hold_stays_given_up_until_both_end() {
+    let mut s = Seat::boot("hand-over-overlap", &[], false);
+    s.left_sends_background();
+    s.tell("right", 1, "bg");
+    let master_b = Rc::clone(&s.master_b);
+    assert!(
+        s.until(|a| console_shows(a, "right", 1, "sent:bg") && master_b.borrow().holder.is_none()),
+        "right's hand-over gives up card B"
+    );
+    s.tell("left", 1, "fg");
+    assert!(s.until(|a| console_shows(a, "left", 1, "sent:fg")));
+    s.turns(5);
+    assert_eq!(s.master_a.borrow().holder, None, "right still holds card A");
+    assert!(!s.card(CARD_A).awake);
+    let (left_a, other_b) = (s.frames(CARD_A, A1), s.frames(CARD_B, B1));
+    s.tell("right", 1, "fg");
+    let (master_a, master_b) = (Rc::clone(&s.master_a), Rc::clone(&s.master_b));
+    assert!(
+        s.until(|_| master_a.borrow().holder == Some(Holder::Vtium)
+            && master_b.borrow().holder == Some(Holder::Vtium)),
+        "the end of right's hand-over wakes both cards"
+    );
+    assert!(s.until_frames(CARD_A, A1, left_a), "left draws on card A");
+    assert!(s.until_frames(CARD_B, B1, other_b), "other draws on card B");
+    assert_eq!(s.card(CARD_A).refused + s.card(CARD_B).refused, 0);
+}
+
+/// D16: a card removed and added again at the same place during a
+/// hand-over stays asleep, and the hand-over's end wakes it.
+// covers: platform.hand-back
+#[test]
+fn a_card_added_again_during_a_hand_over_stays_asleep_until_it_ends() {
+    let mut s = Seat::boot("hand-over-re-added", &[], false);
+    s.left_sends_background();
+    s.app.remove_video(Path::new(CARD_A));
+    let mut again = Card::new("card-a", &["A-1", "A-2"]);
+    again.master = Rc::clone(&s.master_a);
+    s.app.add_video(PathBuf::from(CARD_A), Box::new(again));
+    s.turns(5);
+    assert_eq!(
+        s.master_a.borrow().holder,
+        None,
+        "the card added again stays given up"
+    );
+    assert!(!s.card(CARD_A).awake);
+    s.tell("left", 1, "fg");
+    let master = Rc::clone(&s.master_a);
+    assert!(
+        s.until(|_| master.borrow().holder == Some(Holder::Vtium)),
+        "the hand-over's end wakes the card"
+    );
+    assert!(s.until_frames(CARD_A, A1, 0), "left draws on it");
+}
+
+/// D16: a re-take of the VT while a hand-over lasts, as input on the
+/// kernel VT's tty brings, sets up no given-up card again.
+// covers: platform.hand-back
+#[test]
+fn a_re_take_of_the_vt_wakes_no_given_up_card() {
+    let mut s = Seat::boot("hand-over-retake", &[], false);
+    s.left_sends_background();
+    s.vt_sent.borrow_mut().push(VtEvent::Retaken);
+    s.turns(5);
+    assert_eq!(s.master_a.borrow().holder, None, "card A stays given up");
+    assert!(!s.card(CARD_A).awake);
+    assert_eq!(s.master_b.borrow().holder, Some(Holder::Vtium));
+}
+
+/// D16: a setBackground is judged against the console shown when it came.
+/// Console 2 of `left`, hidden, sends it, and a console chord shows console
+/// 2 before the seat's turn takes the request: vtium ignores it.
+// covers: platform.hand-back
+#[test]
+fn a_hidden_consoles_set_background_stays_ignored_when_a_chord_shows_it() {
+    let mut s = Seat::boot("hand-over-chord-shows", &[], false);
+    s.tell("left", 2, "bg");
+    assert!(s.read_until_requested("left"), "console 2's request waits");
+    s.app
+        .device_input(Path::new(KBD_LEFT), ctrl_super(RIGHT), now());
+    s.turns(5);
+    assert_eq!(s.app.head("left").map(|h| h.shown_console()), Some(1));
+    card_a_stays_vtiums(&mut s);
+}
+
+/// D16: a setBackground from the shown console acts though a console chord
+/// comes before the seat's turn takes it; the hand-over pauses the head,
+/// so the chord shows no other console.
+// covers: platform.hand-back
+#[test]
+fn a_shown_consoles_set_background_acts_before_a_chord_hides_it() {
+    let mut s = Seat::boot("hand-over-chord-hides", &[], false);
+    s.tell("left", 1, "bg");
+    assert!(s.read_until_requested("left"), "console 1's request waits");
+    s.app
+        .device_input(Path::new(KBD_LEFT), ctrl_super(RIGHT), now());
+    let master = Rc::clone(&s.master_a);
+    assert!(
+        s.until(|_| master.borrow().holder.is_none()),
+        "card A is given up"
+    );
+    assert_eq!(s.app.head("left").map(|h| h.shown_console()), Some(0));
+}
+
+/// D16: a setForeground that comes while card A's sleep still waits, as
+/// drm2d's waits for a flip in flight, cancels the sleep. Card A keeps DRM
+/// master and wakes, so the display draws and `left` takes its keys, and
+/// the program never had a moment to take the card.
+// covers: platform.hand-back
+#[test]
+fn a_set_foreground_before_the_card_is_asleep_keeps_the_card() {
+    let mut s = Seat::boot_with("hand-over-before-asleep", &[], false, 50);
+    let left_a = s.frames(CARD_A, A1);
+    s.tell("left", 1, "bg");
+    let card_asleep = |s: &mut Seat| !s.card(CARD_A).awake;
+    let end = now() + BOUND;
+    while !card_asleep(&mut s) && now() < end {
+        s.turns(1);
+    }
+    assert!(card_asleep(&mut s), "the sleep started");
+    assert_eq!(s.master_a.borrow().holder, Some(Holder::Vtium), "and waits");
+    s.tell("left", 1, "fg");
+    assert!(s.until(|a| console_shows(a, "left", 1, "sent:fg")));
+    s.turns(60);
+    assert!(
+        s.card(CARD_A).awake,
+        "card A is awake after the sleep's time"
+    );
+    assert_eq!(s.master_a.borrow().holder, Some(Holder::Vtium));
+    assert!(s.until_frames(CARD_A, A1, left_a), "left draws");
+    s.type_on(KBD_LEFT, "k\r");
+    assert!(s.until(|a| console_shows(a, "left", 1, "got:k")));
+    assert_eq!(s.card(CARD_A).refused, 0);
 }
