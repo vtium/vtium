@@ -50,6 +50,7 @@ import t3_impl  # noqa: E402
 import t3_pictures  # noqa: E402
 import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
+import t3_rootchecks  # noqa: E402
 import t3_seat  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
@@ -6856,6 +6857,53 @@ class SeatTest(unittest.TestCase):
         for case in t3_seat.CHECKS:
             self.assertIn(case, t3_evaluate.NO_GOLDEN)
             self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))
+
+
+class RootChecksTest(unittest.TestCase):
+    """The driver of ADR-1400 D4's checks (t3_rootchecks.py), without a
+    guest."""
+
+    def test_answers_are_taken_after_libseat_log(self):
+        # libseat writes its log line to the event port with no newline
+        # before the probe's answer, so an answer can start mid-line.
+        with tempfile.TemporaryDirectory() as d:
+            events = os.path.join(d, "events.log")
+            with open(events, "w") as f:
+                f.write("ROOTCHECKS-BEGIN\n"
+                        "ROOTCHECK 0 kernel: 7.2.11\n"
+                        "00:00:00.085 \x1b[1;34m ROOTCHECK 3-built VT after the seat closed: kd=KD_TEXT\n"
+                        "a line of libseat's alone\n")
+            self.assertEqual(t3_rootchecks.answers(events),
+                             ["ROOTCHECK 0 kernel: 7.2.11",
+                              "ROOTCHECK 3-built VT after the seat closed: kd=KD_TEXT"])
+
+    def test_disc_holds_the_script_the_probe_and_vtium_pam(self):
+        with tempfile.TemporaryDirectory() as d:
+            probe = os.path.join(d, "t3-probe")
+            with open(probe, "w") as f:
+                f.write("probe")
+            disc = os.path.join(d, "disc")
+            t3_rootchecks.stage(probe, disc)
+            self.assertEqual(sorted(os.listdir(disc)), ["setup", "t3-probe", "vtium.pam"])
+            with open(os.path.join(disc, "setup")) as f:
+                self.assertIn("ROOTCHECKS-END", f.read())
+            with open(os.path.join(disc, "vtium.pam")) as f:
+                self.assertIn("pam_systemd.so class=greeter", f.read())
+
+    def test_disc_carries_a_libseat_with_builtin_when_given(self):
+        with tempfile.TemporaryDirectory() as d:
+            probe = os.path.join(d, "t3-probe")
+            lib = os.path.join(d, "libseat.so.1")
+            for path in (probe, lib):
+                with open(path, "w") as f:
+                    f.write("x")
+            disc = os.path.join(d, "disc")
+            t3_rootchecks.stage(probe, disc, (lib, "seatd 0.9.3"))
+            self.assertEqual(sorted(os.listdir(os.path.join(disc, "builtin"))),
+                             ["VERSION", "libseat.so.1"])
+            with open(os.path.join(disc, "builtin", "VERSION")) as f:
+                self.assertEqual(f.read(), "seatd 0.9.3\n")
+
 
 if __name__ == "__main__":
     # A skipped test says why, so a skip is never read as a pass.

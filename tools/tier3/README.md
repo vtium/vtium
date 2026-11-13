@@ -24,6 +24,7 @@ make tier3 VARIANTS="seat-seatd seat-logind seat-logind-survive seat-logind-two 
 make tier3 VARIANTS="seat-seatd-wait"   # the libseat tree on seatd: a vtium that waits for its VT to be shown, and one that waits while another client holds the seat (The seat and a kernel panic)
 make tier3 VARIANTS="boot-claim"     # vtium holds each VT that vtium console claims open from boot, with nobody switching VTs (The seat and a kernel panic)
 make tier3 VARIANTS="panic-sysrq kmsg-notice"   # a kernel panic and a kernel message (The seat and a kernel panic)
+make tier3-rootchecks        # measure ADR-1400 D4's checks in the guest, SEATD_SRC=DIR for the builtin backend (The checks of the privilege split)
 make test-tools              # the harness's self-tests, with no guest
 tools/tier3/showcase.sh      # the showcase: fetch its fonts, run showcase-1920x1080 and write docs/showcase/ (The showcase)
 ```
@@ -329,6 +330,22 @@ The case also shows the kernel dropping the signal. The variant's disc carries a
 
 After the key, the driver waits for vtium's line and the kernel's trace (`t3_power.STAYS_UP`). Then the driver logs in on vtium's console, and the login shows that the guest stayed up. Last, the driver asks QEMU whether it sent a SHUTDOWN event, without waiting for one. busybox init's shutdown lines (`The system is going down`, `Requesting system`) and the kernel's last lines each fail the case.
 
+## The checks of the privilege split
+
+ADR-1400 D4 splits vtium into a root broker and processes that draw without root. Its section "The checks the build makes first" lists nine facts that the split rests on, such as what logind does to the VT and whether a process without root can draw through a passed card. `make tier3-rootchecks` measures them in the guest. It runs no vtium and judges nothing. It fails only when the guest does not finish.
+
+The measurement has three parts:
+
+- The probe `t3-probe`, a Rust program in `tools/tier3/probes` (the crate `vtium-tier3-probes`), makes the system calls, ioctls and D-Bus calls that each check names. It loads libpam, libsystemd and libseat at run time, so that it builds on a machine without them. Its commands are listed at the top of `src/main.rs`.
+- The guest script `guest/rootchecks` is the run's setup. It makes the system account `vtprobe` and installs vtium's PAM file as `/etc/pam.d/vtium`. Then it runs each probe as root or as `vtprobe`, on VTs 7 to 13, where logind starts no getty.
+- The driver `t3_rootchecks.py` builds the probe, boots a throwaway overlay of the base image with the probe on its disc, and collects the answers.
+
+Each answer is one line, `ROOTCHECK <check> <key>: <value>`, on the guest's event port. The driver writes the answers to `target/tier3/rootchecks/answers.txt` and prints them. The guest's serial console and event port are in the same directory. ADR-1400 D4 gives each check's measured answer and the guest's versions.
+
+The run has the network. The last part of check 5 installs polkit with pacman, from the Arch Linux Archive snapshot that the base image pins, and asks its questions again.
+
+Arch's libseat is built without its builtin backend, which check 3 is about. To measure that backend, unpack seatd's source and name it: `make tier3-rootchecks SEATD_SRC=DIR`. The driver then builds libseat with the backend, using meson and ninja, and the guest runs check 3 with that library too, as `3-built`. The answers in ADR-1400 come from seatd 0.9.3, from `https://git.sr.ht/~kennylevinsen/seatd/archive/0.9.3.tar.gz` with SHA-256 `302564d54d8e28191fadfd734f2675ecb0c9e0615a58011b89ef15dfa4dbaa96`.
+
 ## Goldens, tolerances and masks
 
 The goldens are `goldens/<variant>/<screen>.png`, full resolution and lossless, for every variant but those judged another way (`"verdict"` in `t3_scenario.py`) and those judged by another variant's goldens: `GOLDENS_OF` in `t3_evaluate.py` names the directory each of those compares with, today `2d-1280x800/` for `gl-1280x800`, so `goldens/` holds no directory for `gl-1280x800`. The check before a run refuses a golden that no case compares with, and a provisional row for a golden that does not exist. A keyed case's golden is named after the case; `photo-scrollforward` and `vt-restore` are compared with another screen's (`SAME_AS`). A screen that draws differently in a console built with a feature has one golden for each build (`BY_FEATURE` in `t3_evaluate.py`). The panic screens `panic` and `policy-panic` show the maintainer's drawing of Tux (ADR-1401 D7). A console built without `images` draws it as ASCII art, and one built with `images` draws it as a sprite. The head variants run on whichever tree the run builds. So `<screen>.png` judges such a screen on a tree built without the feature, and `<screen>+<feature>.png`, such as `panic+images.png`, judges it on a tree built with the feature. The run picks the golden by the tree's features, which the report records. Comparison is exact unless a sidecar `<screen>.tol` sits beside the golden, holding `max_delta=`, `max_pixels=` and `mask=x0,y0,x1,y1` lines (end-exclusive); `#` starts a comment, and a malformed sidecar fails its case.
@@ -371,6 +388,8 @@ The figures are measured on a guest: a vCPU preempted by the host still counts a
 ## Self-tests
 
 `make test-tools` runs `test_t3img.py` (image I/O and the masked compare) and `test_t3.py`: the captions and screen text, the tree and its budget, the guest's account of its install, the checks a run makes before it starts (`PreflightTest`), where provisioning fetches and builds the images, the base image's inputs, each variant's machine, the console lines the driver reads, the QEMU command line, the benchmark figures and verdicts, the serial reader, the guest without systemd's variants, disc, login and account of its init and udev, the device variants' outputs, VNC size request, mirror check, reading of the udev examples, hotplug helpers and the examples' install paths, the frits and gallery tool the tree stages, and the head-file variants' cases, disc, agent's port and requests, and each check's verdict both ways (`HeadsTest`). `NovtTest` checks the variants on a machine without kernel VTs: their machines, cases and goldens, the disc and the drop-in, and the verdicts of `no-vt` and `display-off` both ways. `BusyboxTest` checks the busybox boot: its variant and disc, grub's entry, busybox's inittab, the kernel's trace, the account of PID 1, and the driver's path through `power-off-busybox`. `SixelGoldenTest` reads the colors and cells of the copied sixel goldens. `PicturesTest` pins the test pictures and checks each file against its picture, the GIF through a GIF reader of its own (`gif_frames`), `ImagesVariantTest` the images variant's cases, tree, disc, guest account and make target, and `PictureGoldenTest` the images variant's goldens (Pictures). `ShowcaseTest` checks the showcase's variant and its `capture` status, its scenes and what they leave out, its fonts' pins and frits, the fetch, its pictures and palettes, the gallery's pictures and photographs' pins, the shell scene's gallery and that it keeps to its six rows, run on a stand-in terminal that answers the gallery tool's questions (`test_gallery_scene`, with `tools/gallery/tests/terminal.py`), and the page `compose` writes (The showcase).
+
+`RootChecksTest` checks the driver of ADR-1400 D4's checks without a guest: which lines of the event port it takes as answers, and what the run's disc holds.
 
 ## What changed from the earlier harness
 
