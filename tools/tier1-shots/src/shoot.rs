@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
+use vtium_conformance::live;
 use vtium_conformance::replay::{Input, run_with};
 use vtium_conformance::runner::{Case, Corpus};
 use vtium_conformance::scenario::Scenario;
@@ -23,7 +24,7 @@ use vtium_tier2::ppm::Image;
 
 use crate::CONFORMANCE;
 use crate::judge::{Masking, differing};
-use crate::manifest::{Dump, Group, Judged, Shot};
+use crate::manifest::{Dump, Group, Judged, Live, Shot};
 use crate::select::{self, Dumped};
 
 /// The blink phase every picture is drawn in: the cursor shown where the
@@ -34,9 +35,14 @@ const PHASE: Phase = Phase {
     rapid_hidden: false,
 };
 
-/// A picture's shot, and the picture, which is missing when the replay or
-/// the drawing failed.
-pub type Drawn = (Shot, Option<Image>);
+/// A picture's shot; the picture, which is missing when the replay or the
+/// drawing failed; and the live path's picture of the same screen when it
+/// differs from the picture.
+pub struct Drawn {
+    pub shot: Shot,
+    pub picture: Option<Image>,
+    pub live: Option<Image>,
+}
 
 /// `term` drawn as the picture of a tier 1 golden.
 pub fn draw(term: &Terminal) -> Result<Image, String> {
@@ -52,24 +58,60 @@ pub fn png(img: &Image) -> Vec<u8> {
     })
 }
 
-/// Replays `input`, drawing the terminal at each block of `blocks`, and
-/// gives what the replay prints, or why it stopped with what it printed
-/// first, and each picture by its block.
-fn replay(
+/// One screen of a replay, at one block: the picture path's drawing of
+/// the terminal, and the live path's bytes for the same terminal with the
+/// grid's size they draw.
+pub struct Screen {
+    pub picture: Result<Image, String>,
+    pub live: Vec<u8>,
+    pub cols: usize,
+    pub rows: usize,
+}
+
+impl Screen {
+    /// The live path's drawing of this screen: its bytes read back through
+    /// a terminal of the grid's size and drawn as the picture path draws.
+    pub fn live_picture(&self) -> Result<Image, String> {
+        draw(&live::read_back(&self.live, self.cols, self.rows))
+    }
+
+    /// The live path's drawing when it differs from the picture, or when
+    /// either drawing fails; `None` when the two agree.
+    pub fn live_differs(&self) -> Option<Result<Image, String>> {
+        let live = self.live_picture();
+        match (&self.picture, &live) {
+            (Ok(a), Ok(b)) if a == b => None,
+            _ => Some(live),
+        }
+    }
+}
+
+/// Replays `input` once, and at each block that `blocks` names, or at every
+/// block when it is `None`, takes the picture and the live path's bytes
+/// from the same terminal: the one replay both paths come from. Gives what
+/// the replay prints, or why it stopped with what it printed first, and
+/// each block's screen.
+pub fn replay(
     input: &Input,
-    blocks: &[usize],
-) -> (
-    Result<String, String>,
-    BTreeMap<usize, Result<Image, String>>,
-) {
-    let mut drawn = BTreeMap::new();
+    blocks: Option<&[usize]>,
+) -> (Result<String, String>, BTreeMap<usize, Screen>) {
+    let mut screens = BTreeMap::new();
     let out = run_with(input, &mut |block, term| {
-        if blocks.contains(&block) {
-            drawn.insert(block, draw(term));
+        if blocks.is_none_or(|b| b.contains(&block)) {
+            let s = term.screen();
+            screens.insert(
+                block,
+                Screen {
+                    picture: draw(term),
+                    live: live::screen(term),
+                    cols: s.cols(),
+                    rows: s.rows(),
+                },
+            );
         }
     });
     let out = out.map_err(|f| format!("the replay exits {}: {}\n{}", f.code, f.message, f.output));
-    (out, drawn)
+    (out, screens)
 }
 
 /// The picture of `case`, a case of `set` in `group`, and its shot:
@@ -85,21 +127,33 @@ pub fn case(set: &Corpus, group: Group, case: &Case, provisional: Option<&String
         provisional: provisional.cloned(),
         goldens: Vec::new(),
         error: None,
+        live: Live {
+            command: format!("make tier1-play CASE={}", case.name),
+            matches: false,
+        },
     };
     let mut picture = None;
+    let mut live_picture = None;
     for (view, name, dir) in select::views(&set.root, case) {
         let input = match set.input(case, view) {
             Ok(input) => input,
             Err(why) => {
                 shot.error = Some(why);
-                return (shot, None);
+                return Drawn {
+                    shot,
+                    picture: None,
+                    live: None,
+                };
             }
         };
         let last = input.cuts.len();
         let blocks: &[usize] = if view == View::Screen { &[last] } else { &[] };
-        let (out, mut drawn) = replay(&input, blocks);
-        if let Some(img) = drawn.remove(&last) {
-            match img {
+        let (out, mut drawn) = replay(&input, Some(blocks));
+        if let Some(screen) = drawn.remove(&last) {
+            let differs = screen.live_differs();
+            shot.live.matches = differs.is_none();
+            live_picture = differs.and_then(Result::ok);
+            match screen.picture {
                 Ok(img) => picture = Some(img),
                 Err(why) => shot.error = Some(format!("the drawing fails: {why}")),
             }
@@ -131,7 +185,11 @@ pub fn case(set: &Corpus, group: Group, case: &Case, provisional: Option<&String
     if let Some(img) = &picture {
         (shot.width, shot.height) = (img.width(), img.height());
     }
-    (shot, picture)
+    Drawn {
+        shot,
+        picture,
+        live: live_picture,
+    }
 }
 
 /// The pictures of each screen `s` dumps, each with its shot: the
@@ -160,7 +218,7 @@ pub fn scenario(
     };
     let (input, _) = runner.input(s, View::Screen, &[]);
     let blocks: Vec<usize> = dumps.iter().map(|d| d.block).collect();
-    let (out, mut drawn) = replay(&input, &blocks);
+    let (out, mut drawn) = replay(&input, Some(&blocks));
     if let Err(why) = out {
         error.get_or_insert(why);
     }
@@ -187,9 +245,21 @@ pub fn scenario(
                     differs: differs.clone(),
                 }],
                 error: error.clone(),
+                live: Live {
+                    command: format!("make tier1-play SCENARIO={}", s.name),
+                    matches: false,
+                },
             };
-            let picture = match drawn.remove(&d.block) {
-                Some(Ok(img)) => Some(img),
+            let mut live_picture = None;
+            let screen = drawn.remove(&d.block);
+            let differs = screen.as_ref().map(Screen::live_differs);
+            let picture = match screen.map(|s| s.picture) {
+                Some(Ok(img)) => {
+                    let differs = differs.flatten();
+                    shot.live.matches = differs.is_none();
+                    live_picture = differs.and_then(Result::ok);
+                    Some(img)
+                }
                 Some(Err(why)) => {
                     shot.error
                         .get_or_insert(format!("the drawing fails: {why}"));
@@ -204,7 +274,11 @@ pub fn scenario(
             if let Some(img) = &picture {
                 (shot.width, shot.height) = (img.width(), img.height());
             }
-            (shot, picture)
+            Drawn {
+                shot,
+                picture,
+                live: live_picture,
+            }
         })
         .collect()
 }

@@ -55,6 +55,17 @@ pub struct Judged {
     pub differs: Vec<Line>,
 }
 
+/// The live path of a picture: the command that plays its case or
+/// scenario in the terminal it runs in, and whether the bytes it writes
+/// for this screen, read back through a terminal, draw this picture.
+/// When they draw another, the tool writes that drawing beside the
+/// picture, at [`Shot::live_file`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Live {
+    pub command: String,
+    pub matches: bool,
+}
+
 /// One picture and what judged it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shot {
@@ -70,12 +81,20 @@ pub struct Shot {
     /// Why the replay or the drawing stopped, when it did: the picture
     /// is then missing, or shows the terminal where the replay stopped.
     pub error: Option<String>,
+    pub live: Live,
 }
 
 impl Shot {
     /// The picture's path in the output.
     pub fn file(&self) -> String {
         file_name(self.group, &self.name, self.dump.as_ref().map(|d| d.number))
+    }
+
+    /// The path in the output of the live path's drawing of the same
+    /// screen, which the tool writes when it differs from the picture.
+    pub fn live_file(&self) -> String {
+        let file = self.file();
+        format!("{}.live.png", file.strip_suffix(".png").unwrap_or(&file))
     }
 
     /// Whether the output equals every golden that judges the picture.
@@ -150,6 +169,16 @@ pub fn json(shots: &[Shot]) -> String {
         out.push_str(&format!(
             "      \"error\": {},\n",
             optional(s.error.as_deref())
+        ));
+        out.push_str(&format!(
+            "      \"live\": {{\"command\": {}, \"matches\": {}, \"file\": {}}},\n",
+            string(&s.live.command),
+            s.live.matches,
+            if s.live.matches {
+                "null".to_owned()
+            } else {
+                string(&s.live_file())
+            }
         ));
         out.push_str("      \"goldens\": [");
         for (k, g) in s.goldens.iter().enumerate() {
@@ -248,6 +277,10 @@ mod tests {
                     },
                 ],
                 error: None,
+                live: Live {
+                    command: "make tier1-play CASE=kit-anim".to_owned(),
+                    matches: true,
+                },
             },
             Shot {
                 group: Group::Scenarios,
@@ -267,6 +300,10 @@ mod tests {
                     differs: Vec::new(),
                 }],
                 error: None,
+                live: Live {
+                    command: "make tier1-play SCENARIO=key-function".to_owned(),
+                    matches: false,
+                },
             },
         ]
     }
@@ -287,6 +324,7 @@ mod tests {
       "provisional": "#32: \"frames\"; not reviewed yet",
       "matches": false,
       "error": null,
+      "live": {"command": "make tier1-play CASE=kit-anim", "matches": true, "file": null},
       "goldens": [
         {"view": "screen", "path": "tools/conformance/vtium/golden/kit-anim.txt", "matches": true, "differs": []},
         {"view": "frame", "path": "tools/conformance/vtium/golden-frame/kit-anim.txt", "matches": false, "differs": [
@@ -305,6 +343,7 @@ mod tests {
       "provisional": null,
       "matches": true,
       "error": null,
+      "live": {"command": "make tier1-play SCENARIO=key-function", "matches": false, "file": "scenarios/key-function-02.live.png"},
       "goldens": [
         {"view": "transcript", "path": "tools/conformance/scenarios/key-function.transcript", "matches": true, "differs": []}
       ]

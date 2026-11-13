@@ -13,7 +13,11 @@
 //! drawn into `OUT/scenarios/NAME-NN.png`, and the scenario's transcript is
 //! checked. `OUT/manifest.json` lists every picture (tools/conformance's
 //! README, "Tier 1's pictures"). A picture whose output differs from its
-//! golden is drawn, and the tool prints the lines that differ.
+//! golden is drawn, and the tool prints the lines that differ. Each
+//! picture is checked against its live path, `make tier1-play`, from the
+//! same replay: when the live path's bytes, read back through a terminal,
+//! draw another picture, the tool prints its name and writes that drawing
+//! beside it as `NAME.live.png`.
 //!
 //! OUT must be new, empty, or the output of an earlier run, which holds a
 //! `manifest.json`. The tool then removes that run's pictures and manifest
@@ -156,24 +160,40 @@ fn run(out: &Path) -> Result<bool, String> {
     ready(out)?;
     let (shots, undumped) = shots(&tier1)?;
     let mut ok = true;
-    for (shot, picture) in &shots {
-        if let Some(img) = picture {
-            let path = out.join(shot.file());
-            std::fs::write(&path, shoot::png(img))
-                .map_err(|e| format!("{}: {e}", path.display()))?;
+    for Drawn {
+        shot,
+        picture,
+        live,
+    } in &shots
+    {
+        for (img, file) in [(picture, shot.file()), (live, shot.live_file())] {
+            if let Some(img) = img {
+                let path = out.join(file);
+                std::fs::write(&path, shoot::png(img))
+                    .map_err(|e| format!("{}: {e}", path.display()))?;
+            }
         }
         if !shot.matches() {
             report(shot);
         }
+        if picture.is_some() && !shot.live.matches {
+            println!(
+                "live differs {}: the bytes `{}` writes for this screen draw {}",
+                shot.file(),
+                shot.live.command,
+                shot.live_file()
+            );
+        }
         ok &= shot.error.is_none() && picture.is_some();
     }
-    let list: Vec<Shot> = shots.into_iter().map(|(s, _)| s).collect();
+    let list: Vec<Shot> = shots.into_iter().map(|d| d.shot).collect();
     let path = out.join(MANIFEST);
     std::fs::write(&path, manifest::json(&list)).map_err(|e| format!("{}: {e}", path.display()))?;
     let count = |g: Group| list.iter().filter(|s| s.group == g).count();
     let differ = list.iter().filter(|s| !s.matches()).count();
+    let live = list.iter().filter(|s| !s.live.matches).count();
     println!(
-        "tier1-shots: {} pictures in {}: corpus {}, vtium {}, scenarios {}; {differ} differ from their goldens or failed",
+        "tier1-shots: {} pictures in {}: corpus {}, vtium {}, scenarios {}; {differ} differ from their goldens or failed; the live play draws {live} differently",
         list.len(),
         out.display(),
         count(Group::Corpus),

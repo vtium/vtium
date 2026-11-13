@@ -55,7 +55,8 @@ fn set(tag: &str, frame: &str) -> PathBuf {
 fn a_case_equal_to_its_goldens_matches_and_draws_at_8x16_cells() {
     let dir = set("match", FRAME);
     let corpus = Corpus::open(&dir).unwrap();
-    let (shot, picture) = shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None);
+    let shoot::Drawn { shot, picture, .. } =
+        shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None);
     assert_eq!(shot.error, None);
     let views: Vec<&str> = shot.goldens.iter().map(|g| g.view.as_str()).collect();
     assert_eq!(views, ["screen", "frame"]);
@@ -76,7 +77,8 @@ fn a_case_equal_to_its_goldens_matches_and_draws_at_8x16_cells() {
 fn a_case_that_differs_from_a_golden_is_drawn_and_names_the_lines() {
     let dir = set("differs", &FRAME.replace("changed 8", "changed 0"));
     let corpus = Corpus::open(&dir).unwrap();
-    let (shot, picture) = shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None);
+    let shoot::Drawn { shot, picture, .. } =
+        shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None);
     assert!(picture.is_some());
     assert!(!shot.matches());
     assert_eq!(shot.goldens[0].differs, []);
@@ -103,7 +105,7 @@ fn two_drawings_of_a_case_write_the_same_bytes() {
     let dir = set("twice", FRAME);
     let corpus = Corpus::open(&dir).unwrap();
     let png = || {
-        let (_, picture) = shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None);
+        let picture = shoot::case(&corpus, Group::Vtium, &corpus.cases[0], None).picture;
         shoot::png(&picture.unwrap())
     };
     assert_eq!(png(), png());
@@ -145,7 +147,7 @@ dump screen
     let shots = shoot::scenario(&runner, &s, missing, None);
     let got: Vec<(String, usize, u32, u32)> = shots
         .iter()
-        .map(|(shot, _)| {
+        .map(|shoot::Drawn { shot, .. }| {
             let d = shot.dump.as_ref().unwrap();
             (shot.file(), d.of, shot.width, shot.height)
         })
@@ -158,6 +160,12 @@ dump screen
         ]
     );
     // a scenario with no transcript on file is drawn and reported
-    let error = shots[0].0.error.as_deref().unwrap_or_default();
+    let error = shots[0].shot.error.as_deref().unwrap_or_default();
+    // each dump's live path draws its picture
+    assert!(
+        shots
+            .iter()
+            .all(|d| d.shot.live.matches && d.live.is_none())
+    );
     assert!(error.contains("view-test.transcript"), "{error}");
 }

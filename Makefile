@@ -494,7 +494,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -686,11 +686,19 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 # each against its goldens, and draws the terminal through vtium's renderer
 # into PNGs with a manifest (tools/conformance/README.md, "Tier 1's
 # pictures"). OUT must be new, empty or an earlier run's output.
+# tier1-play is each picture's live path: it plays one case or scenario in
+# this terminal from the same replay, one screen at a time, so a vtium
+# console draws each screen itself.
 TIER1_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tier1-shots)
-.PHONY: tier1-shots
+.PHONY: tier1-shots tier1-play
 tier1-shots: ## Draw every tier 1 golden as a PNG through vtium's renderer in unifont, with manifest.json, into OUT=DIR (default target/tier1-shots)
 	cargo build --release -p vtium-tier1-shots --features draw --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier1-shots $(TIER1_SHOTS)
+
+tier1-play: ## Play one tier 1 case (CASE=NAME) or scenario (SCENARIO=NAME) in this terminal, one screen at a time from the replay its pictures come from; q stops
+	@if [ -n "$(CASE)" ] && [ -z "$(SCENARIO)" ]; then :; elif [ -z "$(CASE)" ] && [ -n "$(SCENARIO)" ]; then :; else echo "make tier1-play takes CASE=NAME or SCENARIO=NAME" >&2; exit 2; fi
+	cargo build --release -p vtium-tier1-shots --features draw --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier1-play $(if $(CASE),case $(CASE),scenario $(SCENARIO))
 
 # What the maintainer reviews vtium-config's TUI screen goldens on
 # (crates/vtium-config/README.md, "Reviewing the screens"); neither is a gate.

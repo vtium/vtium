@@ -26,6 +26,10 @@ vtium-tier2 = { path = "../tier2" }
 # writes the PNGs, as the specimens are written
 vtium-specimens = { path = "../specimens" }
 
+[dev-dependencies]
+# the pty the live player's test runs tier1-play in, and its loop
+vtium-platform.workspace = true
+
 [features]
 # vtium-replay with images and right-to-left text, the build tier 1's
 # goldens hold, which make tier1-shots turns on. Opt-in, so a workspace
@@ -35,4 +39,8 @@ draw = ["vtium-conformance/images", "vtium-conformance/bidi"]
 
 [[bin]]
 name = "tier1-shots"
+required-features = ["draw"]
+
+[[bin]]
+name = "tier1-play"
 required-features = ["draw"]

@@ -12,14 +12,22 @@
 //! transcript. A picture whose output differs from its golden is still
 //! drawn, and the manifest and the report list the lines that differ.
 //!
+//! Each picture has a live path, `make tier1-play`, which plays its case
+//! or scenario in the terminal it runs in. The picture and the live play
+//! come from one replay of the same input, split at the same points, and
+//! the tool checks that the live path's bytes, read back through a
+//! terminal, draw the picture.
+//!
 //! [`select`] says what is drawn, [`judge`] compares an output with its
-//! golden, [`manifest`] names each picture and writes `manifest.json`, and
-//! [`shoot`] replays and draws.
+//! golden, [`manifest`] names each picture and writes `manifest.json`,
+//! [`shoot`] replays and draws, and [`play`] plays a case live.
 
 pub mod judge;
 pub mod manifest;
 // the display view and the image commands are vtium-replay's with the
 // bidi and images features, which the draw feature turns on
+#[cfg(feature = "draw")]
+pub mod play;
 #[cfg(feature = "draw")]
 pub mod select;
 #[cfg(feature = "draw")]
