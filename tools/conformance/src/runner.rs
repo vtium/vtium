@@ -83,14 +83,31 @@ impl Corpus {
         })
     }
 
-    /// The replay input of `case` in `view`, its cuts included.
+    /// The replay input of `case` in `view`, its cuts included. A case is
+    /// a stream, `cases/NAME.bin` with its cuts in `cases/NAME.cuts`, or a
+    /// readable case, `cases/NAME.case`, whose stream and cuts the scenario
+    /// language's compiler builds here, so no stream of it is kept.
     pub fn input(&self, case: &Case, view: View) -> Result<Input, String> {
         let file = self.root.join("cases").join(format!("{}.bin", case.name));
-        let data = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
-        let cuts_file = self.root.join("cases").join(format!("{}.cuts", case.name));
-        let cuts = match std::fs::read(&cuts_file) {
-            Ok(text) => replay::cuts(&text, data.len()).map_err(|f| f.message)?,
-            Err(_) => Vec::new(),
+        let source = self.root.join("cases").join(format!("{}.case", case.name));
+        let (data, cuts) = if source.exists() {
+            if file.exists() {
+                return Err(format!(
+                    "{}: This case has both a stream and a readable case. Keep one of {} and {}.",
+                    case.name,
+                    file.display(),
+                    source.display()
+                ));
+            }
+            readable(case, &source)?
+        } else {
+            let data = std::fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+            let cuts_file = self.root.join("cases").join(format!("{}.cuts", case.name));
+            let cuts = match std::fs::read(&cuts_file) {
+                Ok(text) => replay::cuts(&text, data.len()).map_err(|f| f.message)?,
+                Err(_) => Vec::new(),
+            };
+            (data, cuts)
         };
         Ok(Input {
             view,
@@ -109,6 +126,25 @@ impl Corpus {
             .join(format!("{}.txt", case.name));
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
+}
+
+/// The stream and cuts of a readable case, compiled from the scenario
+/// language, at the size `cases.list` gives the case.
+fn readable(case: &Case, source: &Path) -> Result<(Vec<u8>, Vec<usize>), String> {
+    let text = std::fs::read_to_string(source).map_err(|e| format!("{}: {e}", source.display()))?;
+    let s = crate::scenario::parse_case(&case.name, &source.display().to_string(), &text)?;
+    if (s.cols, s.rows) != (case.cols, case.rows) {
+        return Err(format!(
+            "{}: This case's `size` is {} by {}, and cases.list gives it {} by {}. The two must agree.",
+            source.display(),
+            s.cols,
+            s.rows,
+            case.cols,
+            case.rows
+        ));
+    }
+    let compiled = s.compile();
+    Ok((compiled.data, compiled.cuts))
 }
 
 /// The counts INTERFACE.md lets an implementation draw differently, masked

@@ -152,3 +152,89 @@ fn the_fixture_directory_sits_beside_the_stream() {
         PathBuf::from("cases/host-identify.files")
     );
 }
+
+/// The corpus of [`corpus`] with `ab` written as a readable case, the
+/// scenario language's `size`, `send` and `dump` lines under a header, in
+/// place of its stream.
+fn readable(name: &str, source: &str) -> (Scratch, Result<Corpus, String>) {
+    let (root, _) = corpus(name);
+    let _ = std::fs::remove_file(root.join("cases/ab.bin"));
+    let _ = std::fs::write(root.join("cases/ab.case"), source);
+    let opened = Corpus::open(&root);
+    (root, opened)
+}
+
+fn readable_input(corpus: &Corpus) -> Result<vtium_conformance::replay::Input, String> {
+    corpus.input(&corpus.cases[0], View::Screen)
+}
+
+#[test]
+fn a_readable_case_is_judged_against_its_golden_as_a_stream_case_is() {
+    let (_dir, c) = readable("readable", "# spec: ECMA-48\nsize 4 1\nsend \"ab\"\n");
+    let c = c.unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(judge(&replay(&c), AB), Verdict::Pass);
+}
+
+#[test]
+fn a_readable_case_whose_bytes_differ_from_its_golden_fails() {
+    let (_dir, c) = readable("readable-plant", "# spec: ECMA-48\nsize 4 1\nsend \"ac\"\n");
+    let c = c.unwrap_or_else(|e| panic!("{e}"));
+    assert!(matches!(judge(&replay(&c), AB), Verdict::Fail(_)));
+}
+
+// A `dump state` adds the state command and a cut after it; a `send` adds
+// no cut, and a dump at the stream's end adds none, since the replay
+// prints a block there anyway.
+#[test]
+fn a_readable_case_cuts_after_each_dump_and_nowhere_else() {
+    let source =
+        "# spec: ECMA-48\nsize 4 1\nsend \"a\"\ndump state\nsend \"b\"\nsend \"\\r\"\ndump state\n";
+    let (_dir, c) = readable("readable-cuts", source);
+    let c = c.unwrap_or_else(|e| panic!("{e}"));
+    let input = readable_input(&c).unwrap_or_else(|e| panic!("{e}"));
+    let state = b"\x1b_tsm-test;state\x1b\\";
+    let mut want = b"a".to_vec();
+    want.extend_from_slice(state);
+    let cut = want.len();
+    want.extend_from_slice(b"b\r");
+    want.extend_from_slice(state);
+    assert_eq!(input.data, want);
+    assert_eq!(input.cuts, vec![cut]);
+    assert_eq!((input.cols, input.rows), (4, 1));
+}
+
+#[test]
+fn a_readable_case_is_refused_when_its_form_is_wrong() {
+    for (name, source, why) in [
+        (
+            "readable-size",
+            "# spec: x\nsize 5 1\nsend \"ab\"\n",
+            "5 by 1",
+        ),
+        (
+            "readable-spec",
+            "size 4 1\nsend \"ab\"\n",
+            "no `# spec:` line",
+        ),
+        (
+            "readable-check",
+            "# spec: x\nsize 4 1\nsend \"ab\"\ncheck\nwant row 0 |ab|\n",
+            "golden",
+        ),
+        (
+            "readable-capability",
+            "# spec: x\n# capability: ab\nsize 4 1\n",
+            "capability",
+        ),
+    ] {
+        let (_dir, c) = readable(name, source);
+        let c = c.unwrap_or_else(|e| panic!("{e}"));
+        let err = readable_input(&c).map(|_| ()).unwrap_err();
+        assert!(err.contains(why), "{name}: {err}");
+    }
+    let (dir, c) = readable("readable-both", "# spec: x\nsize 4 1\nsend \"ab\"\n");
+    let _ = std::fs::write(dir.join("cases/ab.bin"), b"ab");
+    let c = c.unwrap_or_else(|e| panic!("{e}"));
+    let err = readable_input(&c).map(|_| ()).unwrap_err();
+    assert!(err.contains("both"), "{err}");
+}
