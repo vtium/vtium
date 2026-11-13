@@ -1,0 +1,20 @@
+# Claims of the notice sections in docs/concepts/heads.md.
+element	file	symbol
+under oneshot a console's program is not started again, and the console ends	crates/vtium/src/respawn.rs	Next
+the oneshot notice names the roaming chord when no other console of the head runs	crates/vtium/src/notice.rs	session_ended
+the oneshot notice names the console chord when another console of the head runs	crates/vtium/src/notice.rs	session_ended_console
+the oneshot notice shows while the ended console is shown	crates/vtium/src/head.rs	Head::compose_notices
+oneshot is off by default	crates/vtium-settings/src/keys.rs	key oneshot
+Ctrl-Super-Right is the console chord's key for the next console	crates/vtium-settings/src/keys.rs	key key-console-next
+Ctrl-Super-Up is the roaming chord's key for the next head	crates/vtium-settings/src/keys.rs	key key-focus-next
+a console the open chord opened whose session cannot start leaves, with a notice and a log line	crates/vtium/src/app.rs	App::open_console
+the console-not-opened notice, word for word	crates/vtium/src/notice.rs	NO_CONSOLE_OPENED
+an exit within 2 seconds of the start is quick	crates/vtium/src/respawn.rs	QUICK
+more than 5 quick exits in a row end the run	crates/vtium/src/respawn.rs	QUICK_RESTARTS
+under open the crash loop exits with status 1; under closed vtium hangs every session up, darkens the heads' displays and keeps the VT	crates/vtium/src/app.rs	App::gave_up
+the boot display shows the stopped notice for as long as vtium runs	crates/vtium/src/app.rs	App::screen_notice
+the stopped notice, word for word	crates/vtium/src/notice.rs	stopped
+a stopped seat delivers no input, the VT keys included	crates/vtium/src/app.rs	App::deliver
+a valid closed file whose heads have no display shows No head has a connected display	crates/vtium-settings/src/outcome.rs	Outcome::dark_notice
+a head whose display never lit receives no keys	crates/vtium/src/app.rs	App::deliver
+an isolated head's keyboards never switch VTs	crates/vtium/src/head/route.rs	Routes::vt_keys
