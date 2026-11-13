@@ -84,6 +84,14 @@ impl Vt for CountingVt {
         self.vt.restore()
     }
 
+    fn seat_manager(&self) -> bool {
+        self.vt.seat_manager()
+    }
+
+    fn logind_seat(&self) -> bool {
+        self.vt.logind_seat()
+    }
+
     fn bell(&mut self) {
         self.vt.bell();
     }

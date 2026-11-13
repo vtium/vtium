@@ -115,9 +115,14 @@ impl Term {
     pub(crate) fn parse(&mut self, output: &[u8], reply: &mut dyn FnMut(&[u8])) -> usize {
         // The output after an OSC 50 request waits for the turn that
         // switches the font, so a query that follows names the new set,
-        // and the output after an XTWINOPS 8 request for the turn that
-        // resizes, so a size report that follows answers the new size.
-        if self.terminal.font_requested() || self.terminal.grid_requested() {
+        // the output after an XTWINOPS 8 request for the turn that
+        // resizes, so a size report that follows answers the new size, and
+        // the output after setBackground or setForeground for the turn that
+        // takes it, so the seat takes each in order.
+        if self.terminal.font_requested()
+            || self.terminal.grid_requested()
+            || self.terminal.display_requested()
+        {
             return 0;
         }
         let start = (self.clock)();

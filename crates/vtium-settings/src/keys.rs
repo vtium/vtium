@@ -1591,6 +1591,23 @@ pub const ALLOW_WINDOW_OPS: Key = Key {
     cite: "[the font and window operations issue](https://github.com/vtium/vtium/issues/44)",
 };
 
+pub const ALLOW_DISPLAY_OPS: Key = Key {
+    name: "allow-display-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Let a program in a console hand the display to a graphical program, such as a video player or a kiosk application, and take it back, without a VT switch.\n\n\
+           The program sends `OSC setBackground ST` to hand the display over, and `OSC setForeground ST` to take it back. These are kmscon's private sequences. Only the console that a head shows may hand the display over. A head is the terminal that vtium runs on one or more displays.\n\n\
+           vtium then gives up each graphics card that drives a display of that head, so the graphical program can open the card and draw. Other heads with displays on those cards pause on those displays. vtium sends no keys or pointer events to a head whose every display has paused. The VT switch keys keep working.\n\n\
+           vtium takes the display back at setForeground from the same console, when that console's session ends, or when you switch away from vtium's VT and back.\n\n\
+           When off, vtium ignores both sequences. It is on by default.\n\n\
+           [docs] When a seat manager, logind or seatd, gives vtium its seat, vtium ignores setBackground and logs that it did. A graphical program then runs in a session of its own on another VT.",
+    cite: "[the display hand-back issue](https://github.com/vtium/vtium/issues/36)",
+};
+
 pub const GLYPH_SOURCE: Key = Key {
     name: "glyph-source",
     short: None,
@@ -2137,7 +2154,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 127] = [
+pub static KEYS: [Key; 128] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2245,6 +2262,7 @@ pub static KEYS: [Key; 127] = [
     CELL,
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
+    ALLOW_DISPLAY_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
@@ -2331,6 +2349,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Text area size set by programs",
                 keys: &[&ALLOW_WINDOW_OPS],
+            },
+            Group {
+                title: "The display handed to a graphical program",
+                keys: &[&ALLOW_DISPLAY_OPS],
             },
             Group {
                 title: "Right-to-left text",

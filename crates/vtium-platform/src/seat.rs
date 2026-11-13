@@ -1102,6 +1102,10 @@ impl<M: Manager, C: Console> Vt for LibseatVt<M, C> {
         self.logind
     }
 
+    fn seat_manager(&self) -> bool {
+        true
+    }
+
     fn open_device(&mut self, path: &Path) -> io::Result<OwnedFd> {
         if self.open.contains_key(path) {
             return Err(io::Error::from(io::ErrorKind::AlreadyExists));

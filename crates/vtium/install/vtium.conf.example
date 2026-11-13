@@ -185,6 +185,31 @@
 
 #no-allow-window-ops
 
+# -- The display handed to a graphical program -------------------------------
+
+## Let a program in a console hand the display to a graphical program, such as
+## a video player or a kiosk application, and take it back, without a VT
+## switch.
+##
+## The program sends `OSC setBackground ST` to hand the display over, and
+## `OSC setForeground ST` to take it back. These are kmscon's private
+## sequences. Only the console that a head shows may hand the display over. A
+## head is the terminal that vtium runs on one or more displays.
+##
+## vtium then gives up each graphics card that drives a display of that head,
+## so the graphical program can open the card and draw. Other heads with
+## displays on those cards pause on those displays. vtium sends no keys or
+## pointer events to a head whose every display has paused. The VT switch keys
+## keep working.
+##
+## vtium takes the display back at setForeground from the same console, when
+## that console's session ends, or when you switch away from vtium's VT and
+## back.
+##
+## When off, vtium ignores both sequences. It is on by default.
+
+#allow-display-ops
+
 # -- Right-to-left text ------------------------------------------------------
 
 ## Which way a paragraph of text runs when the program that writes it does not

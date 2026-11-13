@@ -308,6 +308,7 @@ pub(crate) fn terminal(
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
     terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
+    terminal.set_display_ops(config.switch(&keys::ALLOW_DISPLAY_OPS));
     // Every build reads `text-direction`; a build without the bidi
     // feature does nothing with it (ADR-1004 D13).
     let direction = config.text(&keys::TEXT_DIRECTION);

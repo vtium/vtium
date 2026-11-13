@@ -135,6 +135,7 @@ use crate::video::Video;
 use crate::wait::Wait;
 
 mod enter_switch;
+mod hand_over;
 mod held;
 #[cfg(feature = "logind")]
 pub mod keyboard_layout;
@@ -468,6 +469,8 @@ pub struct App {
     /// The child writing `/sys/power/state` has not exited: the machine
     /// sleeps, or is going to.
     sleeping: Rc<Cell<bool>>,
+    /// The hand-overs of the display in force (ADR-1401 D16).
+    hand_overs: hand_over::HandOvers,
 }
 
 /// Reads the configuration again, as [`crate::config::load`] read it at
@@ -553,6 +556,7 @@ impl App {
             natural_scrolling: config.switch(&keys::NATURAL_SCROLLING),
             power: Box::new(power::System),
             sleeping: Rc::default(),
+            hand_overs: hand_over::HandOvers::default(),
             modes,
             use_original,
             display_buffers: crate::video::display_buffers(config.display_buffers()),
@@ -971,11 +975,14 @@ impl App {
             .flatten()
     }
 
-    /// Adds a video device, woken while the VT is ours and else put to
-    /// sleep, which lets go of the DRM master a card's open took; the VT's
-    /// acquire wakes it (vtium/vtium#139).
+    /// Adds a video device, woken while the VT is ours and no hand-over
+    /// holds its place, and else put to sleep, which lets go of the DRM
+    /// master a card's open took; the VT's acquire, or the hand-over's
+    /// end, wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
-        if self.awake {
+        // A card a hand-over gave up stays asleep until the hand-over ends
+        // (ADR-1401 D16).
+        if self.awake && !self.hand_overs.given_up(&node) {
             if let Err(e) = video.wake_up() {
                 log::warn!("cannot wake {}: {e}", node.display());
             }
@@ -1491,6 +1498,9 @@ impl App {
     /// announces one ([`open_video`]), a framebuffer does.
     fn darken(&mut self) {
         for (node, id) in self.dark.keys() {
+            if self.hand_overs.given_up(node) {
+                continue;
+            }
             if let Some(video) = self.videos.get_mut(node)
                 && let Err(e) = video.set_dpms(*id, Dpms::Off)
             {
@@ -2091,8 +2101,11 @@ impl App {
             self.blank.input(now);
             return;
         }
-        for video in self.videos.values_mut() {
-            power_down(video.as_mut());
+        // A card a hand-over gave up is the program's to power.
+        for (node, video) in &mut self.videos {
+            if !self.hand_overs.given_up(node) {
+                power_down(video.as_mut());
+            }
         }
         self.deactivate();
     }
@@ -2408,6 +2421,11 @@ impl App {
         if self.blank.input(now) {
             let retake = std::mem::take(&mut self.retake_owed);
             for (node, video) in &mut self.videos {
+                // A card a hand-over gave up stays asleep, and its end
+                // wakes it whole.
+                if self.hand_overs.given_up(node) {
+                    continue;
+                }
                 // A display the rules leave dark is never unblanked: a
                 // device holding one powers up its other displays alone.
                 let dark: Vec<DisplayId> = self
@@ -2453,6 +2471,9 @@ impl App {
     fn vt_event(&mut self, event: VtEvent, now: Instant) {
         match event {
             VtEvent::Acquired => {
+                // vtium's VT shown again ends every hand-over, and the
+                // wake-up below takes their cards back (ADR-1401 D16).
+                self.hand_over_vt_shown();
                 // The wake-up sets every device up, an owed re-take's too,
                 // and each `Awake` it brings counts as activity.
                 self.retake_owed = false;
@@ -2511,6 +2532,10 @@ impl App {
             }
             VtEvent::Retaken => {
                 for (node, video) in &mut self.videos {
+                    // A card a hand-over gave up stays the program's.
+                    if self.hand_overs.given_up(node) {
+                        continue;
+                    }
                     self.retaking.insert(node.clone());
                     if let Err(e) = video.wake_up() {
                         log::warn!("cannot set up {} again: {e}", node.display());
@@ -3299,11 +3324,16 @@ impl App {
                 // ends its notices. An Esc that dismisses the kernel's
                 // messages stays with vtium (ADR-1401 D15).
                 self.focus_settled |= h.is_some();
-                let kept = h.and_then(|h| self.heads.get_mut(h)).is_some_and(|head| {
-                    let dismissed = head.has_kernel() && dismisses(&key);
-                    head.end_notices();
-                    dismissed
-                });
+                // A head a program holds the displays of keeps its notices
+                // (ADR-1401 D16).
+                let shown = h.filter(|&h| !self.wholly_paused(h));
+                let kept = shown
+                    .and_then(|h| self.heads.get_mut(h))
+                    .is_some_and(|head| {
+                        let dismissed = head.has_kernel() && dismisses(&key);
+                        head.end_notices();
+                        dismissed
+                    });
                 self.activity(now);
                 if !kept {
                     self.key(h, node, &key, from, now);
@@ -3363,10 +3393,12 @@ impl App {
     /// of the keys held, as the next call after them finds.
     fn let_go_of_held_keys(&mut self) {
         let awake = self.awake && self.vt.is_active();
+        let paused = self.paused_heads();
         let (heads, routes, vt_heads, focus) =
             (&self.heads, &self.routes, &self.vt_heads, self.focus);
         let owed = self.held.leave(|node, to| {
             awake
+                && !paused.contains(&to.head)
                 && node.is_none_or(|n| routes.knows(n))
                 && routes.elsewhere(node).is_none()
                 && routes.head(vt_heads, node, focus) == Some(to.head)
@@ -3464,7 +3496,9 @@ impl App {
                 return;
             }
         }
-        let Some(h) = h else {
+        // While a program holds every display of the head, its pointer
+        // events reach no console (ADR-1401 D16).
+        let Some(h) = h.filter(|&h| !self.wholly_paused(h)) else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -3539,8 +3573,13 @@ impl App {
             }
             return;
         }
+        // While a program holds every display of the head, the head takes
+        // no key, console chord or grab: only the roaming chord, which
+        // moves the roaming inputs to a head that draws (ADR-1401 D16).
+        let paused = h.is_some_and(|h| self.wholly_paused(h));
         if let Some(grab::Action::Head(chord)) = action
             && (from.roaming || chord.is_console())
+            && !(paused && chord.is_console())
         {
             // One action a press, as the power keys.
             if !key.repeat {
@@ -3548,7 +3587,7 @@ impl App {
             }
             return;
         }
-        let Some(h) = h else {
+        let Some(h) = h.filter(|_| !paused) else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -3675,8 +3714,12 @@ impl App {
                             .get_mut(h)
                             .and_then(|head| head.close_shown(visible))
                             .map(|console| console.id);
-                        // Its session ended, and with it the switch it made
-                        // (ADR-1201 D11).
+                        // Its session ended, and with it the hand-over it
+                        // began (ADR-1401 D16).
+                        if let Some(id) = closed {
+                            self.hand_over_session_ended(h, id);
+                        }
+                        // And the switch it made (ADR-1201 D11).
                         if let Some(id) = closed.filter(|&id| {
                             self.heads
                                 .get(h)
@@ -3906,6 +3949,9 @@ impl App {
             } else {
                 log::info!("child exited: {status}");
             }
+            // The session that sent setBackground ended: its hand-over
+            // ends (ADR-1401 D16).
+            self.hand_over_session_ended(h, id);
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
@@ -4323,6 +4369,9 @@ impl App {
         if let Some(request) = grid {
             self.request_grid(h, request);
         }
+        // setBackground and setForeground under `allow-display-ops`, from
+        // every console, before the exits, which end a hand-over too.
+        self.display_requests(h);
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.
         self.child_exited(h, now);
