@@ -3212,6 +3212,26 @@ mod tests {
         );
     }
 
+    // ADR-1302 D14: with no glyph in the store, the console draws ka
+    // with aa (का) from the built-in GNU Unifont, which draws both 16
+    // pixels wide while the terminal gives the cluster one 8-pixel cell.
+    // The pair is squeezed into the cell, two columns into one, so the
+    // vowel sign's stem, in column 14 of Unifont's 16, stands in the
+    // cell's last column on rows 4 to 12, and ka's own stem, in column 8,
+    // in column 4 left of it
+    #[test]
+    fn ka_with_aa_from_the_built_in_font_keeps_the_stem_in_one_cell() {
+        let font = Font::new(face(&Shared::default()));
+        let both = font
+            .glyph(&[KA, AA], Width::Narrow, Style::default())
+            .unwrap();
+        assert_eq!((both.width(), both.cells()), (8, Width::Narrow));
+        let ink = |x: u32, y: u32| both.pixel(x, y).unwrap()[0] > 0;
+        assert!((4..13).all(|y| ink(7, y)), "{:?}", picture(&both));
+        assert!((4..13).all(|y| ink(4, y)), "{:?}", picture(&both));
+        assert!((0..8).all(|x| ink(x, 3)), "{:?}", picture(&both));
+    }
+
     /// The vowel sign i drawn in the middle of its cell, columns 4 and 5,
     /// away from a letter in columns 0 to 2.
     const I_MID_ROWS: [&str; 13] = [
