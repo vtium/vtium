@@ -81,10 +81,19 @@ impl<K: Kms> Source<K> for Dumbs {
         }
     }
 
+    /// A card the kernel removed answers ENODEV to the framebuffer's
+    /// removal. That is the state of a card that is gone and no failure:
+    /// the kernel frees the card's buffers when the card's file closes, so
+    /// the dumb buffer is left to it.
     fn destroy(&self, card: &K, buffer: Buffer<K::Map>) {
         drop(buffer.map);
         let _ = card.rm_fb(buffer.fb);
-        if let Err(e) = card.destroy_dumb(buffer.handle) {
+        if card.removed() {
+            return;
+        }
+        if let Err(e) = card.destroy_dumb(buffer.handle)
+            && !card.removed()
+        {
             log::warn!("cannot destroy a dumb buffer: {e}");
         }
     }

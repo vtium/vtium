@@ -982,7 +982,10 @@ impl App {
             .map(|(node, _)| node.clone())
             .collect();
         for node in gone {
-            log::info!("{}: the kernel removed the card", node.display());
+            log::info!(
+                "{}: the kernel removed the card, and vtium released the card",
+                node.display()
+            );
             self.remove_video(&node);
         }
     }
@@ -2989,7 +2992,20 @@ impl App {
             },
             DeviceEvent::Removed { kind, node } => match kind {
                 DeviceKind::Input => self.remove_input(&node),
-                DeviceKind::Drm | DeviceKind::Fbdev => self.remove_video(&node),
+                DeviceKind::Drm | DeviceKind::Fbdev => {
+                    if self.videos.contains_key(&node) {
+                        let what = if kind == DeviceKind::Drm {
+                            "card"
+                        } else {
+                            "framebuffer"
+                        };
+                        log::info!(
+                            "{}: udev reports the {what} removed, and vtium released the {what}",
+                            node.display()
+                        );
+                    }
+                    self.remove_video(&node);
+                }
             },
             DeviceEvent::Hotplug { node, .. } => {
                 if let Some(video) = self.videos.get_mut(&node)

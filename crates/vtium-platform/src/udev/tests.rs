@@ -3,9 +3,11 @@
 
 #![expect(clippy::panic, reason = "a test fails by panicking")]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io;
 use std::path::{Path, PathBuf};
+
+use rustix::io::Errno;
 
 use super::{
     Action, Device, DeviceEvent, DeviceFlags, DeviceKind, InputIdentity, Monitor, Probe, Udev,
@@ -20,12 +22,21 @@ use crate::input::{Class, Classes};
 struct Answers {
     drivers: BTreeMap<PathBuf, String>,
     fb_ids: BTreeMap<PathBuf, String>,
+    /// The cards the kernel is still adding. The kernel sends a card's add
+    /// event from `device_add` in `drm_minor_register`, and only after
+    /// that stores the minor where `drm_minor_acquire` finds it, so an
+    /// open of the card's node in between answers ENODEV
+    /// (`drivers/gpu/drm/drm_drv.c`).
+    adding: BTreeSet<PathBuf>,
     asked: Vec<PathBuf>,
 }
 
 impl Probe for Answers {
     fn drm_driver(&mut self, node: &Path) -> io::Result<String> {
         self.asked.push(node.to_owned());
+        if self.adding.contains(node) {
+            return Err(io::Error::from_raw_os_error(Errno::NODEV.raw_os_error()));
+        }
         self.drivers
             .get(node)
             .cloned()
@@ -704,5 +715,94 @@ fn a_card_node_a_new_driver_takes_over_reports_the_new_card() {
     );
     // The same card's add event, racing the scan, adds nothing.
     monitor.handle(Action::Add, &nvidia_card0(), &mut probe);
+    assert_eq!(monitor.events().count(), 0);
+}
+
+/// card1 as udev reports it once udev's rules ran, on a machine where a
+/// udev daemon runs.
+fn card1_set_up() -> Uevent {
+    Uevent {
+        initialized: true,
+        ..card1()
+    }
+}
+
+// vtium/vtium#35: the kernel sends a card's add event before an open of
+// the card can succeed: `drm_minor_register` calls `device_add`, which
+// sends the event, and only then stores the minor where an open finds it.
+// An open in between answers ENODEV. The monitor keeps such a card
+// unreported. `drm_dev_register` then registers the card's connectors,
+// and `drm_connector_register` sends a change event on the card with
+// HOTPLUG=1 for each connector. At that event the card opens, and the
+// monitor reports it, with the flags its driver gives it.
+#[test]
+fn a_card_the_kernel_is_still_adding_is_reported_at_its_next_change() {
+    let mut monitor = Monitor::new("seat0").with_udev_daemon(true);
+    let mut probe = answers();
+    let node = PathBuf::from("/dev/dri/card1");
+    probe.adding.insert(node.clone());
+    let hotplug = Uevent {
+        hotplug: true,
+        ..card1_set_up()
+    };
+    monitor.handle(Action::Add, &card1_set_up(), &mut probe);
+    assert_eq!(
+        probe.asked,
+        std::slice::from_ref(&node),
+        "the monitor opens the card"
+    );
+    assert_eq!(
+        monitor.events().count(),
+        0,
+        "the card is not reported while its open answers ENODEV"
+    );
+    monitor.handle(Action::Change, &card1_set_up(), &mut probe);
+    assert_eq!(
+        monitor.events().count(),
+        0,
+        "nor at a change it cannot open at"
+    );
+    probe.adding.remove(&node);
+    monitor.handle(Action::Change, &hotplug, &mut probe);
+    assert_eq!(
+        monitor.events().collect::<Vec<_>>(),
+        [added(
+            DeviceKind::Drm,
+            "/dev/dri/card1",
+            DeviceFlags {
+                aux: true,
+                ..DeviceFlags::default()
+            },
+            Some("pci-0000:00:14.0-usb-0:2:1.0"),
+        )],
+        "reported once the card opens"
+    );
+    monitor.handle(Action::Change, &hotplug, &mut probe);
+    monitor.handle(Action::Remove, &card1_set_up(), &mut probe);
+    assert_eq!(
+        monitor.events().collect::<Vec<_>>(),
+        [
+            DeviceEvent::Hotplug {
+                kind: DeviceKind::Drm,
+                node: node.clone(),
+            },
+            DeviceEvent::Removed {
+                kind: DeviceKind::Drm,
+                node,
+            },
+        ],
+        "from then on the card is a card the monitor reported"
+    );
+}
+
+// vtium/vtium#35: a card removed while the kernel is still adding it was
+// never reported, so its removal reports nothing either.
+#[test]
+fn a_card_removed_while_the_kernel_is_still_adding_it_reports_nothing() {
+    let mut monitor = Monitor::new("seat0").with_udev_daemon(true);
+    let mut probe = answers();
+    probe.adding.insert(PathBuf::from("/dev/dri/card1"));
+    monitor.handle(Action::Add, &card1_set_up(), &mut probe);
+    monitor.handle(Action::Remove, &card1_set_up(), &mut probe);
     assert_eq!(monitor.events().count(), 0);
 }
