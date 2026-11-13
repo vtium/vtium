@@ -363,6 +363,7 @@ pub fn text(bytes: &[u8]) -> Result<&str, Rejected> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     // A link or a folder swapped between the walk and the read cannot
     // lead the read elsewhere: the read opens the file in the folder the
@@ -372,10 +373,8 @@ mod tests {
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_link_swapped_after_the_walk_cannot_redirect_the_read() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("vtium-settings-swap-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = Scratch::new("settings-swap");
         let (checked, other) = (dir.join("checked"), dir.join("other"));
-        std::fs::create_dir_all(&dir).unwrap();
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
         for (folder, text) in [(&checked, "version = 1\n"), (&other, "secret\n")] {
             std::fs::create_dir_all(folder).unwrap();
@@ -397,7 +396,6 @@ mod tests {
         let (mut file, _) = open_found(&found).unwrap();
         let mut read = String::new();
         file.read_to_string(&mut read).unwrap();
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(read, "version = 1\n");
     }
 }
