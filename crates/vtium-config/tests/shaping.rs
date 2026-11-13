@@ -657,16 +657,19 @@ fn a_stack_past_the_reach_is_fitted_to_the_reach() {
 
 // a beh keyed with U+200D after it, as the console asks for it, is judged a
 // joining form: drawn one cell wide in its initial form, a bar from 300 to
-// 600 units, stretched to its 12-pixel cell from column 6 to its right edge
+// 600 units of its 600-unit advance, 11.7 pixels, a little narrower than
+// its 12-pixel cell. ADR-1302 D2, amended 2026-11-12, does not widen it:
+// its advance ends on the cell's right edge, a fraction of a pixel
+// included, so the bar runs from column 6 to the edge
 #[test]
-fn a_letter_with_a_joiner_draws_one_cell_wide_and_stretched() {
+fn a_letter_with_a_joiner_draws_one_cell_wide_against_its_right_edge() {
     let key = [BEH, ZWJ];
     let asked = vtium_config::shaping::ask(&key.map(u32::from));
     let o = rasterise(&request(vec![asked])).expect("rasterised");
     let init = cluster(&o, &key).expect("the initial beh");
     assert!(!init.wide, "one cell");
     let row = &init.pixels[10 * 12..11 * 12];
-    assert!(row[5] == 0 && row[6] > 200 && row[11] == 255, "{row:?}");
+    assert!(row[5] == 0 && row[6] > 150 && row[11] == 255, "{row:?}");
 }
 
 // A beh with U+FE0F before its joiner, as a program may write after a
@@ -781,19 +784,19 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     }
 }
 
-// ADR-1302 D2: a stretched cluster is stretched as one, its marks' offsets
+// ADR-1302 D2: a squeezed cluster is squeezed as one, its marks' offsets
 // included, so a mark stays over its letter. At 20 pixels, a 12-pixel cell,
-// a beh advancing 400 units, 7.8 pixels, stretches by 12 / 7.8; HarfRust
-// centres its fatha, 200 units wide, over it with an offset. Stretched with
-// its offset, the fatha covers columns 3 to 9 of row 7, centred over the
-// stretched beh; with its offset left unstretched, columns 2 to 8. A seen
-// advancing 1,000 units, 19.5 pixels, takes the one cell the terminal gives
-// it (ADR-1200 D21) and is squeezed to fill it, as ADR-1302 D2 squeezes a
-// letter wider than its cell
+// a beh advancing 1,000 units, 19.5 pixels, is squeezed by 12 / 19.5;
+// HarfRust centres its fatha, 200 units wide, over it with an offset.
+// Squeezed with its offset, the fatha covers columns 5 to 7 of row 7,
+// centred over the squeezed beh; with its offset left unsqueezed, 400 units
+// or 7.8 pixels, it would start right of the middle. A seen advancing
+// 1,000 units takes the one cell the terminal gives it (ADR-1200 D21) and
+// is squeezed to fill it
 #[test]
-fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
+fn a_squeezed_cluster_keeps_its_marks_over_its_letter() {
     let mut f = ttf::test_mono();
-    f.glyphs.push(ttf::Glyph::rect(400, 0, 0, 400, 300));
+    f.glyphs.push(ttf::Glyph::rect(1000, 0, 0, 1000, 300));
     f.glyphs.push(ttf::Glyph::rect(0, 0, 400, 200, 500));
     f.glyphs.push(ttf::Glyph::rect(1000, 0, 0, 1000, 300));
     f.cmap.extend([(0x628, 8), (0x64e, 9), (0x633, 10)]);
@@ -817,17 +820,148 @@ fn a_stretched_cluster_keeps_its_marks_over_its_letter() {
     assert_eq!(o.strikes[0].width, 12);
     let g = cluster(&o, &key).expect("beh and fatha");
     let row: Vec<usize> = (0..12).filter(|&x| g.pixels[7 * 12 + x] > 0).collect();
-    assert_eq!(
-        row,
-        (3..10).collect::<Vec<_>>(),
-        "the fatha centred over the beh"
-    );
+    assert_eq!(row, [5, 6, 7], "the fatha centred over the beh");
     let seen = codepoint(&o, '\u{633}');
     assert!(!seen.wide, "one cell");
     assert!(
         seen.pixels[12 * 12..13 * 12].iter().all(|&p| p == 255),
         "the bar fills its cell"
     );
+}
+
+/// `Test Mono` with Devanagari: ka (U+0915) and ssa (U+0937), each a bar
+/// 900 units wide and 500 tall, wider than the 600-unit cell; the virama
+/// (U+094D), a mark below; and the vowel a (U+0905), a bar 500 units wide
+/// and as tall, which fits its cell. A 20-pixel cell is 12 pixels wide.
+/// `fit` asks for the font as a later source of a frit (ADR-1200 D17).
+fn devanagari(keys: &[&[char]], fit: bool) -> OutlineRequest {
+    let f = unpositioned(&[
+        (0x905, ttf::Glyph::rect(500, 0, 0, 500, 500)),
+        (0x915, ttf::Glyph::rect(900, 0, 0, 900, 500)),
+        (0x937, ttf::Glyph::rect(900, 0, 0, 900, 500)),
+        (0x94d, ttf::Glyph::rect(0, -300, -150, -100, -50)),
+    ]);
+    OutlineRequest {
+        fit,
+        synth: Default::default(),
+        script: Default::default(),
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        cover: Vec::new(),
+        clusters: keys.iter().map(|k| ask(k, Kind::Marks)).collect(),
+        baselines: Vec::new(),
+        sizes: Vec::new(),
+        reaches: Vec::new(),
+        hinting: Hinting::Light,
+    }
+}
+
+/// The first and last rows of a one-cell glyph 12 pixels wide that hold
+/// ink, and the first and last of its inked columns.
+fn ink_edges(p: &Placed) -> ((usize, usize), (usize, usize)) {
+    let rows: Vec<usize> = (0..20).filter(|&y| !inked(p, 12, y).is_empty()).collect();
+    let cols: Vec<usize> = (0..12)
+        .filter(|&x| (0..20).any(|y| p.pixels[y * 12 + x] > 0))
+        .collect();
+    (
+        (rows[0], rows[rows.len() - 1]),
+        (cols[0], cols[cols.len() - 1]),
+    )
+}
+
+// ADR-1307 D1: the conjunct ka, virama, ssa takes the one cell its first
+// character takes, and its advance, 1,800 units, is three cells wide. The
+// helper squeezes it sideways to its cell at full height: its ink fills
+// the cell from edge to edge, none of it passes the cell, and its bars
+// span the rows the vowel a's bar spans, which fits its cell unsqueezed
+#[test]
+fn an_indic_cluster_wider_than_its_cell_is_squeezed_to_it_at_full_height() {
+    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
+    assert_eq!(o.strikes[0].width, 12);
+    let g = cluster(&o, &key).expect("the conjunct");
+    assert!(!g.wide && g.ink.is_none(), "inside its cell: {:?}", g.ink);
+    let a = codepoint(&o, '\u{905}');
+    let (rows, cols) = ink_edges(g);
+    assert_eq!(cols, (0, 11), "across the whole cell");
+    assert_eq!(rows.0, ink_edges(a).0.0, "the bars' top at the vowel's");
+}
+
+// ADR-1307 D1 and D2: a single Indic letter wider than its cell, from a
+// later source of a frit, is squeezed sideways to the cell at full height,
+// where ADR-1200 D17 drew it smaller: its bar keeps the vowel a's rows
+#[test]
+fn an_indic_letter_wider_than_its_cell_is_squeezed_and_not_drawn_smaller() {
+    let o = rasterise(&devanagari(&[], true)).expect("rasterised");
+    let (ka, a) = (codepoint(&o, '\u{915}'), codepoint(&o, '\u{905}'));
+    assert!(ka.ink.is_none(), "inside its cell: {:?}", ka.ink);
+    assert_eq!(
+        ink_edges(ka).0,
+        ink_edges(a).0,
+        "the same rows as the vowel"
+    );
+    assert_eq!(ink_edges(ka).1, (0, 11), "across the whole cell");
+}
+
+/// `Test Shaping` with beh's four forms narrowed to bars 300 units wide
+/// and 500 tall, half its 600-unit cell, and a tatweel (U+0640), a bar
+/// 600 units wide from the baseline to 100 units up, asked for `asks`.
+fn narrow_beh(asks: Vec<Ask>) -> OutlineRequest {
+    let mut f = ttf::test_shaping();
+    let (_, beh) = *f.cmap.iter().find(|(c, _)| *c == 0x628).expect("beh");
+    for g in beh..beh + 4 {
+        f.glyphs[usize::from(g)] = ttf::Glyph::rect(300, 0, 0, 300, 500);
+    }
+    let tatweel = u16::try_from(f.glyphs.len()).expect("a glyph id");
+    f.glyphs.push(ttf::Glyph::rect(600, 0, 0, 600, 100));
+    f.cmap.push((0x640, tatweel));
+    f.cmap.sort_unstable();
+    OutlineRequest {
+        font: f.build().into(),
+        ..request(asks)
+    }
+}
+
+/// The inked columns of the top row and of the bottom row of `p`'s ink, a
+/// glyph one 12-pixel cell wide.
+fn top_and_bottom(p: &Placed) -> (Vec<usize>, Vec<usize>) {
+    let rows: Vec<usize> = (0..20).filter(|&y| !inked(p, 12, y).is_empty()).collect();
+    (inked(p, 12, rows[0]), inked(p, 12, rows[rows.len() - 1]))
+}
+
+// ADR-1302 D2, amended 2026-11-12: a joining letter narrower than its cell
+// is not widened. Beh is right to left, so its advance ends at the cell's
+// right edge, where it meets the letter read before it. The initial beh
+// joins the letter read after it, on its left, so the font's tatweel fills
+// the cell's left part on the baseline; the final beh joins nothing on its
+// left, and the isolated beh nothing at all, so their left part is blank
+#[test]
+fn a_narrow_joining_letter_keeps_its_width_and_a_tatweel_fills_toward_the_next() {
+    let (init, fina) = ([BEH, ZWJ], [ZWJ, BEH]);
+    let asks = [&init[..], &fina]
+        .iter()
+        .map(|k| ask(k, Kind::Joining))
+        .collect();
+    let o = rasterise(&narrow_beh(asks)).expect("rasterised");
+    let (top, bottom) = top_and_bottom(cluster(&o, &init).expect("the initial beh"));
+    assert!(
+        top[0] >= 5 && top[top.len() - 1] == 11,
+        "the beh at the right: {top:?}"
+    );
+    assert_eq!(
+        bottom,
+        (0..12).collect::<Vec<_>>(),
+        "the tatweel to the left edge"
+    );
+    for (what, g) in [
+        ("final", cluster(&o, &fina).expect("the final beh")),
+        ("isolated", codepoint(&o, BEH)),
+    ] {
+        let (top, bottom) = top_and_bottom(g);
+        assert!(top[0] >= 5 && top[top.len() - 1] == 11, "{what}: {top:?}");
+        assert!(bottom[0] >= 5, "{what}: no tatweel, {bottom:?}");
+    }
 }
 
 /// The columns of row `y` that `p`, a glyph `w` pixels wide, inks.

@@ -13,7 +13,7 @@ use harfrust::{
 use swash::FontRef;
 use swash::scale::Source;
 use swash::scale::image::{Content, Image};
-use swash::zeno::Placement;
+use swash::zeno::{Placement, Transform};
 
 use super::{Ask, Kind};
 use crate::outline::Placed;
@@ -26,7 +26,10 @@ use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_draw
 /// which is that order reversed for right-to-left text), whether its
 /// character is a mark and on which side of its base the mark's combining
 /// class puts it ([`super::mark_side`]: 1 above, 2 below, else 0), and
-/// whether the shaper placed it, with an advance or an offset.
+/// whether the shaper placed it, with an advance or an offset, and how far
+/// it is stretched sideways on its own, 1 for every glyph the shaper gives
+/// and more for the tatweel that fills a joining letter's cell (ADR-1302
+/// D2).
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct At {
     g: u16,
@@ -36,6 +39,7 @@ pub(crate) struct At {
     logical: usize,
     mark: Option<u8>,
     placed: bool,
+    stretch: f32,
 }
 
 /// A cluster as the font shapes it: each glyph and the cluster's advance,
@@ -189,6 +193,7 @@ fn shape(shaper: &harfrust::Shaper<'_>, key: &[u32]) -> Shaped {
             logical: if backward { n - 1 - i } else { i },
             mark,
             placed: pos.x_advance != 0 || pos.x_offset != 0 || pos.y_offset != 0,
+            stretch: 1.0,
         });
         pen = pen.saturating_add(pos.x_advance);
     }
@@ -303,37 +308,38 @@ pub(crate) fn draw_all(
                     > 1
             }
         };
-        // ADR-1302 D2: a cluster is placed by its advance; a joining letter,
-        // with the marks on it, is stretched as one to its cells, its pen on
-        // the cell's left edge; and a ligature of joining letters, such as
-        // lam-alef, which shaping places, keeps its pen there unstretched.
-        // Right to left the pen rule is mirrored (ADR-1302 D11): the
-        // ligature's advance ends at its cells' right edge, the side where
-        // its first letter joins the letter read before it
         let letters = s
             .key
             .iter()
             .filter(|&&c| c != super::ZWJ && super::joins(c))
             .count();
+        let indic = s
+            .key
+            .iter()
+            .find(|&&c| c != super::ZWJ)
+            .is_some_and(|&c| super::indic(c));
         let advance_px = s.advance as f32 * scale;
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
+        let mut laid = s.glyphs.clone();
+        let mut shift = 0.0;
         let (advance, sx) = match (s.kind, letters) {
-            (Kind::Emoji, _) | (_, 0) => (Some(advance_px), 1.0),
-            (_, 1) if advance_px > 0.0 => (None, span / advance_px),
-            _ => (None, 1.0),
-        };
-        let ligature = advance.is_none() && sx == 1.0;
-        let laid: Vec<At> = if ligature && s.backward && scale > 0.0 {
-            let pen = ((span - advance_px).round() / scale).round() as i32;
-            s.glyphs
-                .iter()
-                .map(|a| At {
-                    x: a.x.saturating_add(pen),
-                    ..*a
-                })
-                .collect()
-        } else {
-            s.glyphs.clone()
+            (Kind::Emoji, _) => (Some(advance_px), 1.0),
+            // ADR-1307 D1: an Indic cluster wider than its cell is squeezed
+            // sideways to it, at full height, its pen on the cell's left edge
+            (_, 0) if indic && advance_px > span => (None, span / advance_px),
+            // ADR-1302 D2: any other cluster is placed by its advance
+            (_, 0) => (Some(advance_px), 1.0),
+            // ADR-1302 D2: a joining letter wider than its cells is squeezed
+            // to them, with the marks on it, its pen on the left edge
+            (_, 1) if advance_px > span => (None, span / advance_px),
+            // ADR-1302 D2, amended 2026-11-12: a joining letter no wider
+            // than its cells, and a ligature such as lam-alef, keep their
+            // width, against the side where they meet the letter read
+            // before them, and a tatweel fills toward the letter read after
+            _ => {
+                (laid, shift) = fill(drawer, s, scale, span);
+                (None, 1.0)
+            }
         };
         let Some(placed) = place_drawn(
             &mut |ppem, fit| {
@@ -344,7 +350,7 @@ pub(crate) fn draw_all(
                     ppem,
                     fit,
                     Some(row),
-                    sx,
+                    (sx, shift),
                 )
             },
             wide,
@@ -378,6 +384,75 @@ pub(crate) fn draw_all(
     Ok(out)
 }
 
+/// Whether the joining cluster `key` joins the letter read after it: it
+/// ends with U+200D, as the console keys a letter on each side it joins.
+/// Lam-alef never does, since its alef joins nothing after it.
+fn joins_after(key: &[u32]) -> bool {
+    key.last() == Some(&super::ZWJ)
+}
+
+/// Whether the character `c` runs right to left, as HarfRust guesses a
+/// run's direction from its script: Arabic, Syriac, N'Ko, Mandaic and
+/// Adlam do, Mongolian and Phags-pa do not.
+pub(crate) fn backward(c: u32) -> bool {
+    let Some(ch) = char::from_u32(c) else {
+        return false;
+    };
+    let mut buffer = UnicodeBuffer::new();
+    buffer.add(ch, 0);
+    buffer.guess_segment_properties();
+    matches!(
+        buffer.direction(),
+        Direction::RightToLeft | Direction::BottomToTop
+    )
+}
+
+/// The glyphs of `s`, a joining letter or a ligature no wider than its
+/// cells, laid as ADR-1302 D2 lays them since 2026-11-12, `scale` pixels to
+/// a font unit and `span` pixels its cells' width, and how far right the
+/// whole cluster moves, in pixels, a fraction included: unstretched, its
+/// advance against the side where it meets the letter read before it, the
+/// right edge when it runs right to left and the left edge otherwise; and,
+/// when it joins the letter read after it, the font's tatweel stretched
+/// over the rest of its cells, a pixel into the letter so no seam shows. A
+/// font with no tatweel leaves that part blank.
+fn fill(drawer: &Drawer<'_>, s: &Shaped, scale: f32, span: f32) -> (Vec<At>, f32) {
+    let mut laid = s.glyphs.clone();
+    let gap = (span - s.advance as f32 * scale).max(0.0);
+    if scale <= 0.0 {
+        return (laid, 0.0);
+    }
+    let shift = if s.backward { gap } else { 0.0 };
+    let tatweel = drawer.font.charmap().map(super::TATWEEL);
+    let width = drawer.font.glyph_metrics(&[]).advance_width(tatweel);
+    let first = laid.iter().find(|a| a.mark.is_none()).copied();
+    if let Some(first) = first
+        && joins_after(&s.key)
+        && gap > 0.0
+        && tatweel != 0
+        && width > 0.0
+    {
+        // a pixel more than the gap, into the letter's own joining stroke,
+        // from the cells' left edge right to left, and from a pixel before
+        // the letter's advance ends left to right
+        let x = if s.backward {
+            (-gap / scale).round() as i32
+        } else {
+            s.advance.saturating_sub((1.0 / scale).round() as i32)
+        };
+        laid.push(At {
+            g: tatweel,
+            x,
+            y: 0,
+            mark: None,
+            placed: true,
+            stretch: (gap + 1.0) / scale / width,
+            ..first
+        });
+    }
+    (laid, shift)
+}
+
 /// The glyphs of a shaped cluster drawn at `ppem` and laid over each other
 /// at their positions ([`draw_parts`]): one image, color when any glyph
 /// is, its placement from the cluster's origin. A mask glyph in a color
@@ -389,9 +464,9 @@ fn compose(
     ppem: f32,
     fit: (u32, u32),
     row: Option<(i32, i32)>,
-    sx: f32,
+    stretch: (f32, f32),
 ) -> Option<Image> {
-    let parts = draw_parts(drawer, glyphs, scale, ppem, fit, row, sx)?;
+    let parts = draw_parts(drawer, glyphs, scale, ppem, fit, row, stretch)?;
     if let [(image, 0, 0)] = parts.as_slice() {
         return Some(image.clone());
     }
@@ -461,7 +536,10 @@ fn compose(
 /// Each glyph of a shaped cluster drawn at `ppem`, with its position from
 /// the cluster's origin in pixels, `scale` pixels to a font unit. The
 /// whole cluster is stretched sideways by `sx`, each outline and each
-/// offset, so a mark stays over its base. With `row`, the top and bottom
+/// offset, so a mark stays over its base, and moved `shift` pixels right.
+/// A cluster that moves is placed to the fraction of a pixel, each glyph's
+/// outline moved by what its whole-pixel offset leaves; any other glyph's
+/// offset is rounded to the nearest pixel. With `row`, the top and bottom
 /// edges of the glyph's reach in pixels up from the baseline, the marks of
 /// a mask cluster of more than one glyph are placed and fitted to the
 /// reach ([`place_unplaced`], [`fit_marks`]). `None` when a glyph cannot
@@ -473,16 +551,24 @@ fn draw_parts(
     ppem: f32,
     fit: (u32, u32),
     row: Option<(i32, i32)>,
-    sx: f32,
+    (sx, shift): (f32, f32),
 ) -> Option<Vec<(Image, i32, i32)>> {
     let mut parts = Vec::new();
-    for &At { g, x, y, .. } in glyphs {
-        let image = drawer.draw_stretched(g, ppem, fit, sx)?;
-        let (dx, dy) = (
-            (x as f32 * scale * sx).round() as i32,
-            (y as f32 * scale).round() as i32,
-        );
-        parts.push((image, dx, dy));
+    for &At {
+        g, x, y, stretch, ..
+    } in glyphs
+    {
+        let at = x as f32 * scale * sx + shift;
+        let (dx, fraction) = if shift == 0.0 {
+            (at.round(), 0.0)
+        } else {
+            (at.floor(), at - at.floor())
+        };
+        let wide = sx * stretch;
+        let transform = (wide != 1.0 || fraction != 0.0)
+            .then(|| Transform::scale(wide, 1.0).then_translate(fraction, 0.0));
+        let image = drawer.draw_transformed(g, ppem, fit, transform)?;
+        parts.push((image, dx as i32, (y as f32 * scale).round() as i32));
     }
     let marks: Vec<bool> = glyphs.iter().map(|a| a.mark.is_some()).collect();
     if let [(_, 0, 0)] = parts.as_slice() {
@@ -787,7 +873,7 @@ mod tests {
             ppem,
             fit,
             row,
-            1.0,
+            (1.0, 0.0),
         )
         .expect("drawn");
         glyphs

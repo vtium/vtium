@@ -114,6 +114,17 @@ pub fn joins(c: u32) -> bool {
         .is_some_and(|&(_, b)| c <= b)
 }
 
+/// Whether `c` belongs to an Indic script: the blocks from Devanagari to
+/// Sinhala, U+0900 to U+0DFF. A cluster or letter of these scripts wider
+/// than its cell is squeezed sideways to it at full height (ADR-1307 D1).
+pub fn indic(c: u32) -> bool {
+    (0x900..=0xdff).contains(&c)
+}
+
+/// ARABIC LETTER TATWEEL, the stroke that fills a joining letter's cell
+/// toward the letter it joins (ADR-1302 D2).
+pub(crate) const TATWEEL: u32 = 0x640;
+
 /// ARABIC LETTER LAM.
 const LAM: u32 = 0x644;
 
