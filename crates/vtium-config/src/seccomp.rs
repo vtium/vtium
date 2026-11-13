@@ -500,7 +500,6 @@ mod tests {
     // as on a kernel without landlock, where the helper installs this
     // filter in its place. A call that answers the same without the
     // filter, such as one this kernel lacks, is named and not judged.
-    // covers: none
     #[test]
     fn the_fallback_filter_refuses_what_the_landlock_domain_refuses() {
         if let Some(why) = no_caller() {
@@ -770,7 +769,6 @@ mod tests {
 
     // the socket filter refuses making a socket and io_uring, and on
     // x86_64 every call of the x32 numbering, and lets a read through
-    // covers: none
     #[test]
     fn the_socket_filter_refuses_sockets_and_x32_calls() {
         if let Some(why) = no_caller() {
