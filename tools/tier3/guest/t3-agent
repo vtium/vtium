@@ -68,10 +68,11 @@
 #   seat-hold        switches to tty8, where logind starts no console, and
 #                    opens the seat there as a seatd client of its own,
 #                    which holds the seat once seatd enables it; then
-#                    starts vtium's unit on tty8, which finds the seat busy
+#                    starts vtium's unit on tty8, which finds the seat busy;
+#                    once seatd has refused that vtium three times, ends the
+#                    client, and answers the refusals, vtium's PID, whether
+#                    it opened the seat meanwhile and its restarts
 #                    (t3_seat.py's seat-busy check)
-#   seat-release     ends the client that seat-hold started, so that seatd
-#                    removes it from the seat
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -94,8 +95,7 @@ gettys=("getty@$vt.service" "serial-getty@$vt.service")
 # 3.3, and the count of its key presses that `watch` keeps.
 second=/dev/input/by-path/pci-0000:15:00.0-usb-0:3.3:1.0-event-kbd
 keys=/run/t3-agent/second.keys
-# The file the seat-hold client writes once seatd enables it, and beside it
-# the client's PID.
+# The file the seat-hold client writes once seatd enables it.
 held=/run/t3-agent/seat.held
 
 # The PID of vtium on tty2, its unit's main process, and its age in seconds,
@@ -378,10 +378,20 @@ while True:
         # the session of the VT shown, tty8, and enables it once no other
         # client is active (seatd/seat.c, seat_add_client and
         # seat_activate). The client then holds the seat until it ends.
+        # seatd logs "Could not add client" each time it refuses vtium
+        # meanwhile, so the agent ends the client after three refusals,
+        # vtium's first open and two of its retries, whatever the driver's
+        # timing. vtium gives up only after SEAT_OPENS_MAX tries, 5 s.
         seat-hold)
-            mkdir -p "${held%/*}" && rm -f "$held" "$held.pid"
-            timeout 10 chvt 8 && echo "tty8 shown"
-            python3 -I -c '
+            mkdir -p "${held%/*}" && rm -f "$held"
+            if ! timeout 10 chvt 8; then
+                echo "refused: chvt 8 failed, so tty8 is not shown and nothing holds the seat"
+            else
+                refusals() {
+                    journalctl -b -q -o cat -u seatd.service | grep -c "Could not add client"
+                }
+                before=$(refusals)
+                python3 -I -c '
 import os, socket, struct, sys
 s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
 s.connect(os.environ.get("SEATD_SOCK", "/run/seatd.sock"))
@@ -403,25 +413,34 @@ while True:
         elif op == 0x8005:  # SERVER_DISABLE_SEAT, acknowledged
             s.sendall(struct.pack("=HH", 5, 0))
 ' "$held" < /dev/null > /dev/null 2>&1 3>&- &
-            echo $! > "$held.pid"
-            for _ in $(seq 50); do
-                [ -e "$held" ] && break
-                sleep 0.2
-            done
-            if [ -e "$held" ]; then
-                u=${units[0]/tty2/tty8}
-                systemctl start --no-block "$u" \
-                    && echo "holding the seat as $(cat "$held.pid"), started $u"
-            else
-                echo "refused: seatd never enabled the client $(cat "$held.pid")"
-            fi
-            ;;
-        seat-release)
-            pid=$(cat "$held.pid" 2>/dev/null)
-            if [ -n "$pid" ] && kill -s KILL "$pid"; then
-                echo "released the seat held by $pid"
-            else
-                echo "refused: no client holds the seat"
+                holder=$!
+                for _ in $(seq 50); do
+                    [ -e "$held" ] && break
+                    sleep 0.2
+                done
+                if [ ! -e "$held" ]; then
+                    kill -s KILL "$holder"
+                    echo "refused: seatd never enabled the client $holder"
+                else
+                    echo "held $holder"
+                    u=${units[0]/tty2/tty8}
+                    systemctl start --no-block "$u"
+                    n=0
+                    for _ in $(seq 40); do
+                        n=$(( $(refusals) - before ))
+                        [ "$n" -ge 3 ] && break
+                        sleep 0.1
+                    done
+                    echo "refusals $n"
+                    echo "vtium $(systemctl show -P MainPID "$u")"
+                    if journalctl -b -q -o cat -u "$u" | grep -q "the seat seat0 is open"; then
+                        echo "opened yes"
+                    else
+                        echo "opened no"
+                    fi
+                    kill -s KILL "$holder" && echo "released $holder"
+                    echo "restarts $(systemctl show -P NRestarts "$u")"
+                fi
             fi
             ;;
         *) echo "refused $request" ;;

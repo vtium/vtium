@@ -431,6 +431,10 @@ fn with_seatd_the_seat_opens_at_the_turn_that_reads_its_vt_shown() {
     turn(&mut lp, &mut data);
     assert_eq!(opens(&server), 0, "no open while VT 1 is shown");
     assert_eq!(console.0.borrow().shown_reads, 1, "read once at the start");
+    assert!(
+        !vt(&mut data).armed,
+        "no retry timer while vtium waits for its VT"
+    );
     console.show(4);
     turn(&mut lp, &mut data);
     assert_eq!(opens(&server), 0, "no open while VT 4 is shown");
@@ -444,6 +448,36 @@ fn with_seatd_the_seat_opens_at_the_turn_that_reads_its_vt_shown() {
     console.show(1);
     turn(&mut lp, &mut data);
     assert_eq!(console.0.borrow().shown_reads, reads, "no watch once open");
+}
+
+/// seatd gives a new client the session of the VT shown when it adds the
+/// client. So a busy seat is tried again only while vtium's VT is shown.
+/// After a switch away, the retry asks nothing of seatd, and vtium waits
+/// for its VT again; the switch back opens the seat at the turn that reads
+/// it.
+#[test]
+fn a_busy_seat_is_tried_again_only_while_its_vt_is_shown() {
+    let server = StandIn::new();
+    server.0.borrow_mut().seatd = true;
+    server.0.borrow_mut().held = 1;
+    let console = FakeConsole::new(3, 3, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
+    let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), untimed(50, 20));
+    assert_eq!(opens(&server), 1, "the first open finds the seat busy");
+    console.show(1);
+    vt(&mut data).tick();
+    turn(&mut lp, &mut data);
+    assert_eq!(opens(&server), 1, "no retry while VT 1 is shown");
+    assert!(
+        !vt(&mut data).armed,
+        "no retry timer while vtium waits for its VT"
+    );
+    console.show(3);
+    turn(&mut lp, &mut data);
+    assert_eq!(opens(&server), 2, "tried at the turn that read VT 3");
+    assert!(vt(&mut data).is_active());
+    let events: Vec<VtEvent> = vt(&mut data).events().collect();
+    assert_eq!(events, [VtEvent::Acquired]);
 }
 
 /// With seatd listening and its VT not shown, a vtium that cannot watch

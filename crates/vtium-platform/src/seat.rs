@@ -26,7 +26,9 @@
 //!   client: `EBUSY` or `EBADF`, and while seatd listens also `ENOSYS`,
 //!   `EPIPE` or `EIO`, since seatd refuses such a client by hanging up
 //!   ([`busy`]). seatd sends nothing to a process that is not its client,
-//!   so no event says when the previous client is gone. Past the tries, or
+//!   so no event says when the previous client is gone. With seatd, a try
+//!   comes only while vtium's VT is shown; otherwise vtium waits for its VT
+//!   again, as below. Past the tries, or
 //!   on any other failure once vtium has chosen the seat, vtium logs an
 //!   error and reports [`VtEvent::Hangup`].
 //! - **A device** is tried up to [`crate::bounds::DEVICE_OPENS_MAX`] times
@@ -647,15 +649,45 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
 )]
 impl<M: Manager, C: Console> LibseatVt<M, C> {
     /// The loop's timer: the seat and the devices tried again, and the
-    /// timer set again while any still waits.
+    /// timer set again while any still waits. seatd gives a new client the
+    /// session of the VT shown when it adds the client, so with seatd a
+    /// busy seat is tried again only while vtium's VT is shown. Otherwise
+    /// vtium waits for its VT to be shown again.
     pub(crate) fn tick(&mut self) {
         self.armed = false;
         match self.conn {
+            Conn::Opening(_) if self.seatd && !self.shown_now() => self.wait_shown(),
             Conn::Opening(_) => self.connect(),
             Conn::Shown | Conn::Open | Conn::Gone => {}
         }
         self.try_devices();
         self.rearm();
+    }
+
+    /// Whether vtium's VT is shown now, `VT_GETSTATE`'s answer. A VT whose
+    /// state cannot be read is taken as not shown, with a warning, so that
+    /// vtium waits for tty0's `active` to name it.
+    fn shown_now(&self) -> bool {
+        let Some((console, num)) = &self.tty else {
+            return true;
+        };
+        match console.active() {
+            Ok(active) => active == *num,
+            Err(e) => {
+                log::warn!(target: "seat", "cannot read the VT shown: {e}");
+                false
+            }
+        }
+    }
+
+    /// vtium's VT is no longer shown while the seat is busy: vtium stops
+    /// trying the seat and waits for its VT to be shown again.
+    fn wait_shown(&mut self) {
+        if let Some(num) = self.number() {
+            log::info!(target: "seat", "VT {num} is no longer shown, so vtium waits for it to be shown before it tries the seat again");
+        }
+        self.conn = Conn::Shown;
+        self.watch_shown();
     }
 
     /// Puts tty0's `active` in the loop while the seat waits for the VT to

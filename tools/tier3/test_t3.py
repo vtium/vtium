@@ -3504,7 +3504,7 @@ class HeadsTest(unittest.TestCase):
                     "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
                     "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id",
                     "vts 7", "Vts", "vts;id", "seat-wait 4", "Seat-wait", "seat-wait;id",
-                    "seat-hold 8", "seat-hold;id", "seat-release now", "seat-release;id"]
+                    "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -5987,6 +5987,29 @@ class SeatTest(unittest.TestCase):
         for line in (t3_seat.SEAT_OPEN.replace("seat0", "{name}"), t3_seat.SEAT_WAITS,
                      t3_seat.SEAT_BUSY, t3_seat.SEAT_SHOWN.replace("%d", "{num}")):
             self.assertIn(line.split(": ", 1)[1], source)
+
+    def test_a_hold_is_judged_both_ways(self):
+        good = ["held 922", "refusals 3", "vtium 928", "opened no", "released 922",
+                "restarts 0"]
+        hold = t3_seat.parse_hold(good)
+        self.assertEqual(hold, {"held": 922, "refusals": 3, "vtium": 928, "opened": False,
+                                "released": 922, "restarts": 0})
+        self.assertIsNone(t3_seat.hold_verdict(hold))
+        bad = {
+            "refused: chvt 8 failed, so tty8 is not shown and nothing holds the seat":
+                "no client held the seat: chvt 8 failed",
+            "refusals 2": "seatd refused vtium 2 times",
+            "opened yes": "vtium opened the seat while another client held it",
+            "restarts 1": "restarted 1 times",
+            "vtium 0": "runs no process",
+        }
+        for line, want in bad.items():
+            word = line.split()[0]
+            answer = [l for l in good if l.split()[0] != word.rstrip(":")] + [line]
+            with self.subTest(line):
+                self.assertIn(want, t3_seat.hold_verdict(t3_seat.parse_hold(answer)))
+        self.assertIn("did not end", t3_seat.hold_verdict(
+            t3_seat.parse_hold([l for l in good if not l.startswith("released")])))
 
     def test_the_seat_waits_run_on_seatd(self):
         v = t3_scenario.VARIANTS["seat-seatd-wait"]
