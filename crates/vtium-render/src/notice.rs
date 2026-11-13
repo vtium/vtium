@@ -204,6 +204,121 @@ pub struct NoticeReport {
     pub label: String,
     /// What to do next, shown last.
     pub next: String,
+    /// The drawing shown beside or above the text, where the text keeps
+    /// every line it shows without it.
+    pub drawing: Option<Drawing>,
+}
+
+/// A drawing a report shows with its text (ADR-1401 D7), the panic
+/// screen's Tux. The text comes first: the notice draws the drawing only
+/// where the text still shows every line it shows without it. The full
+/// drawing goes to the left of the text where the text keeps
+/// [`TEXT_BESIDE_MIN`] columns beside it, or else above the text; the small
+/// one goes above the text where only it fits; and where neither fits, the
+/// text shows alone. A drawing above the text is centered across the box,
+/// with an empty row under it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Drawing {
+    full: &'static str,
+    small: &'static str,
+    #[cfg(feature = "images")]
+    sprite: Option<Sprite>,
+}
+
+/// The fewest columns the text keeps beside a drawing: 40, the width of
+/// minspec's 320-pixel screen in an 8-pixel font, which the notices are
+/// written to read at.
+pub const TEXT_BESIDE_MIN: u32 = 40;
+
+/// The columns between a drawing and the text beside it.
+const DRAWING_GAP: u32 = 2;
+
+impl Drawing {
+    /// A drawing in text: each line of `full` and of `small`, the version
+    /// for a screen where `full` and the text do not both fit, drawn a
+    /// character to a cell in the notice's font.
+    pub const fn text(full: &'static str, small: &'static str) -> Drawing {
+        Drawing {
+            full,
+            small,
+            #[cfg(feature = "images")]
+            sprite: None,
+        }
+    }
+
+    /// The drawing with `sprite` drawn in place of its text, at the
+    /// largest whole-number scale that fits the cells its text would
+    /// take, full or small, so each of its pixels stays sharp.
+    #[cfg(feature = "images")]
+    pub const fn with_sprite(self, sprite: Sprite) -> Drawing {
+        Drawing {
+            sprite: Some(sprite),
+            ..self
+        }
+    }
+}
+
+/// A picture of a few colors that vtium carries in its own code, such as
+/// the panic screen's Tux: palette indices, with no compressed format to
+/// decode.
+#[cfg(feature = "images")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Sprite {
+    width: u32,
+    height: u32,
+    palette: &'static [Rgb],
+    rows: &'static [u8],
+}
+
+#[cfg(feature = "images")]
+impl Sprite {
+    /// A sprite `width` by `height` pixels of `rows`: row by row, each
+    /// pixel an ASCII digit that names its entry in `palette`, and each row
+    /// ended by a newline.
+    pub const fn new(
+        width: u32,
+        height: u32,
+        palette: &'static [Rgb],
+        rows: &'static [u8],
+    ) -> Sprite {
+        Sprite {
+            width,
+            height,
+            palette,
+            rows,
+        }
+    }
+
+    /// The color of the pixel at `x`, `y`: `None` past the sprite's edge,
+    /// and for a byte that names no entry of its palette.
+    pub fn get(&self, x: u32, y: u32) -> Option<Rgb> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        let at = u64::from(y)
+            .checked_mul(u64::from(self.width).checked_add(1)?)?
+            .checked_add(u64::from(x))?;
+        let digit = self.rows.get(usize::try_from(at).ok()?)?;
+        let entry = usize::from(digit.checked_sub(b'0')?);
+        self.palette.get(entry).copied()
+    }
+
+    /// Whether every pixel names an entry of the palette and every row
+    /// ends where its width says.
+    pub fn is_whole(&self) -> bool {
+        let row = usize::try_from(self.width).unwrap_or(usize::MAX);
+        let rows = usize::try_from(self.height).unwrap_or(usize::MAX);
+        let lines: Vec<&[u8]> = self.rows.split(|&b| b == b'\n').collect();
+        lines.len() == rows.saturating_add(1)
+            && lines.last().is_some_and(|l| l.is_empty())
+            && lines.iter().take(rows).all(|l| {
+                l.len() == row
+                    && l.iter().all(|&b| {
+                        b.checked_sub(b'0')
+                            .is_some_and(|e| usize::from(e) < self.palette.len())
+                    })
+            })
+    }
 }
 
 impl NoticeReport {
@@ -324,38 +439,79 @@ impl Notice {
         };
         // a report's count, which shows only once an item goes, can take
         // characters its full text lacks
+        // characters its full text lacks, and a drawing in text has its own
         let count = self
             .report
             .as_ref()
             .map(|r| format!("{} 0123456789", r.label))
             .unwrap_or_default();
-        let glyphs = Glyphs::new(font, display.depth, &format!("{}{count}", self.text));
+        let drawn = self
+            .report
+            .as_ref()
+            .and_then(|r| r.drawing)
+            .map(|d| format!("{}{}", d.full, d.small))
+            .unwrap_or_default();
+        let glyphs = Glyphs::new(font, display.depth, &format!("{}{count}{drawn}", self.text));
         let width = |c| glyphs.width(c);
-        let lines = match &self.report {
-            Some(report) => fitted(report, room, cols_at, width),
-            None => wrap(&self.text, room, cols_at, width),
+        let laid = match &self.report {
+            Some(report) => arrange(report, Room { cols, rows: room }, (cw, ch), cols_at, width),
+            None => Laid::text(wrap(&self.text, room, cols_at, width)),
         };
-        let shown = u32::try_from(lines.len().max(1)).unwrap_or(1);
         let colors = colors.at(display.depth);
         let mut picture = Picture::new(
             vw,
             inset
                 .1
                 .saturating_mul(2)
-                .saturating_add(shown.saturating_mul(ch)),
+                .saturating_add(laid.rows.max(1).saturating_mul(ch)),
             colors.paper,
         );
         picture.frame(edge, colors.edge);
-        for (y, line) in (inset.1..)
-            .step_by(usize::try_from(ch).unwrap_or(1))
-            .zip(&lines)
-        {
-            let mut x = inset.0;
+        // the top left pixel of the cell `col`, `row` inside the box
+        let at = |col: u32, row: u32| {
+            (
+                inset.0.saturating_add(col.saturating_mul(cw)),
+                inset.1.saturating_add(row.saturating_mul(ch)),
+            )
+        };
+        for (row, line) in (laid.text.1..).zip(&laid.lines) {
+            let (mut x, y) = at(laid.text.0, row);
             for &(c, width) in line {
                 if let Some(g) = glyphs.glyph(c) {
                     picture.glyph(x, y, g, colors);
                 }
                 x = x.saturating_add(cw.saturating_mul(width.cells()));
+            }
+        }
+        if let Some(shown) = &laid.drawing {
+            match shown.art {
+                Art::Text(text) => {
+                    for (row, line) in (0u32..).zip(text.lines()) {
+                        for (col, c) in (0u32..).zip(line.chars()) {
+                            if let Some(g) = glyphs.glyph(c).filter(|_| c != ' ') {
+                                let (gx, gy) = at(
+                                    shown.at.0.saturating_add(col),
+                                    shown.at.1.saturating_add(row),
+                                );
+                                picture.glyph(gx, gy, g, colors);
+                            }
+                        }
+                    }
+                }
+                #[cfg(feature = "images")]
+                Art::Sprite(sprite, scale) => {
+                    // centered in the cells it takes
+                    let side = |cells: u32, cell: u32, px: u32| {
+                        cells
+                            .saturating_mul(cell)
+                            .saturating_sub(px.saturating_mul(scale))
+                            / 2
+                    };
+                    let (x, y) = at(shown.at.0, shown.at.1);
+                    let x = x.saturating_add(side(shown.cells.0, cw, sprite.width));
+                    let y = y.saturating_add(side(shown.cells.1, ch, sprite.height));
+                    picture.sprite(x, y, &sprite, scale);
+                }
             }
         }
         Some(Placed {
@@ -556,24 +712,186 @@ fn wrap(
     out
 }
 
-/// A report's lines on a display of `room` lines (ADR-1401 D7): every item
-/// while they fit, else as many as fit from the first, with the count of
-/// the rest; only when no item fits beside what happened, the count and
-/// the next step is the rest cut, as [`wrap`] cuts.
-fn fitted(
+/// How many of `report`'s items show on a display of `room` lines
+/// (ADR-1401 D7): every item while they fit, else as many as fit from the
+/// first, with the count of the rest. Only when no item fits beside what
+/// happened, the count and the next step is the rest cut, as [`wrap`]
+/// cuts.
+fn kept(
     report: &NoticeReport,
     room: usize,
     cols: impl Fn(usize) -> u32,
     width: impl Fn(char) -> Width,
-) -> Vec<Vec<(char, Width)>> {
+) -> usize {
     // one line past the room shows whether a choice fits
     let over = room.saturating_add(1);
-    let kept = (0..=report.items.len())
+    (0..=report.items.len())
         .rev()
-        .map(|n| report.lines(n))
-        .find(|shown| wrap(shown, over, &cols, &width).len() <= room)
-        .unwrap_or_else(|| report.lines(0));
-    wrap(&kept, room, cols, width)
+        .find(|&n| wrap(&report.lines(n), over, &cols, &width).len() <= room)
+        .unwrap_or(0)
+}
+
+/// The cells inside a notice's box: its columns, and the lines it holds.
+#[derive(Clone, Copy, Debug)]
+struct Room {
+    cols: u32,
+    rows: usize,
+}
+
+/// Where a notice's parts go, in cells inside its box.
+#[derive(Debug)]
+struct Laid {
+    lines: Vec<Vec<(char, Width)>>,
+    /// The column and the row of the text's first line.
+    text: (u32, u32),
+    drawing: Option<Shown>,
+    /// The rows the box holds.
+    rows: u32,
+}
+
+impl Laid {
+    /// `lines`, alone from the top left.
+    fn text(lines: Vec<Vec<(char, Width)>>) -> Laid {
+        Laid {
+            rows: u32::try_from(lines.len()).unwrap_or(u32::MAX),
+            lines,
+            text: (0, 0),
+            drawing: None,
+        }
+    }
+}
+
+/// A report's drawing as the notice shows it: what it draws, the cells it
+/// takes and its top left cell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Shown {
+    art: Art,
+    cells: (u32, u32),
+    at: (u32, u32),
+}
+
+/// What a drawing draws: lines of text, or a sprite at a whole-number
+/// scale.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Art {
+    Text(&'static str),
+    #[cfg(feature = "images")]
+    Sprite(Sprite, u32),
+}
+
+impl Drawing {
+    /// The full drawing, or the small one, with the cells it takes in a
+    /// font of `cell`: its text's longest line and its lines, or its
+    /// sprite's scale and pixels in whole cells. `None` for a sprite that
+    /// does not fit those cells at its own size.
+    fn art(&self, full: bool, cell: (u32, u32)) -> Option<(Art, (u32, u32))> {
+        let text = if full { self.full } else { self.small };
+        let cols = text.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+        let cells = (
+            u32::try_from(cols).unwrap_or(u32::MAX),
+            u32::try_from(text.lines().count()).unwrap_or(u32::MAX),
+        );
+        #[cfg(feature = "images")]
+        if let Some(sprite) = self.sprite {
+            let fit = |cells: u32, cell: u32, px: u32| {
+                cells.saturating_mul(cell).checked_div(px).unwrap_or(0)
+            };
+            let scale = fit(cells.0, cell.0, sprite.width).min(fit(cells.1, cell.1, sprite.height));
+            if scale == 0 {
+                return None;
+            }
+            let whole = |px: u32, cell: u32| px.saturating_mul(scale).div_ceil(cell.max(1));
+            return Some((
+                Art::Sprite(sprite, scale),
+                (whole(sprite.width, cell.0), whole(sprite.height, cell.1)),
+            ));
+        }
+        #[cfg(not(feature = "images"))]
+        let _ = cell;
+        Some((Art::Text(text), cells))
+    }
+}
+
+/// `report` laid out in `room`, in a font of `cell` whose characters are
+/// `width` cells wide, line `i` of the box holding `cols(i)` columns from
+/// its left: the items [`kept`] keeps, with its drawing where the
+/// text still shows each line it shows alone (ADR-1401 D7). The full
+/// drawing goes to the left of the text where [`TEXT_BESIDE_MIN`] columns
+/// are left beside it, else the full or the small one centered above it,
+/// else none.
+fn arrange(
+    report: &NoticeReport,
+    room: Room,
+    cell: (u32, u32),
+    cols: impl Fn(usize) -> u32,
+    width: impl Fn(char) -> Width,
+) -> Laid {
+    let kept = kept(report, room.rows, &cols, &width);
+    let text = report.lines(kept);
+    let alone = || Laid::text(wrap(&text, room.rows, &cols, &width));
+    let Some(drawing) = report.drawing else {
+        return alone();
+    };
+    let row = |r: u32| usize::try_from(r).unwrap_or(usize::MAX);
+    // the text's lines from row `top` and column `left`, when every one
+    // fits below the box's last row
+    let whole = |top: u32, left: u32| {
+        let room_left = room.rows.checked_sub(row(top))?;
+        let lines = wrap(
+            &text,
+            room_left.saturating_add(1),
+            |i| cols(i.saturating_add(row(top))).saturating_sub(left),
+            &width,
+        );
+        (lines.len() <= room_left).then_some(lines)
+    };
+    // every row of a drawing at column `x`, `w` wide and `h` tall, clear
+    // of what the box keeps its text clear of
+    let clear = |x: u32, (w, h): (u32, u32)| {
+        row(h) <= room.rows && (0..row(h)).all(|r| cols(r) >= x.saturating_add(w))
+    };
+    let rows = |lines: &Vec<_>| u32::try_from(Vec::len(lines)).unwrap_or(u32::MAX);
+    if let Some((art, cells)) = drawing.art(true, cell) {
+        let left = cells.0.saturating_add(DRAWING_GAP);
+        if room.cols.saturating_sub(left) >= TEXT_BESIDE_MIN
+            && clear(0, cells)
+            && let Some(lines) = whole(0, left)
+        {
+            return Laid {
+                rows: rows(&lines).max(cells.1),
+                lines,
+                text: (left, 0),
+                drawing: Some(Shown {
+                    art,
+                    cells,
+                    at: (0, 0),
+                }),
+            };
+        }
+    }
+    for full in [true, false] {
+        let Some((art, cells)) = drawing.art(full, cell) else {
+            continue;
+        };
+        let x = room.cols.saturating_sub(cells.0) / 2;
+        let top = cells.1.saturating_add(1);
+        if cells.0 <= room.cols
+            && clear(x, cells)
+            && let Some(lines) = whole(top, 0)
+        {
+            return Laid {
+                rows: top.saturating_add(rows(&lines)),
+                lines,
+                text: (0, top),
+                drawing: Some(Shown {
+                    art,
+                    cells,
+                    at: (x, 0),
+                }),
+            };
+        }
+    }
+    alone()
 }
 
 /// What the console draws, upright, at its place in the text's view of
@@ -715,6 +1033,30 @@ impl Picture {
                     || y >= side.saturating_sub(thick);
                 if filled || edge {
                     self.set(x0.saturating_add(x), y0.saturating_add(y), p);
+                }
+            }
+        }
+    }
+
+    /// `sprite` at `x`, `y`, each of its pixels a square `scale` pixels
+    /// on a side; a pixel that names no color of its palette leaves the
+    /// square as it was.
+    #[cfg(feature = "images")]
+    fn sprite(&mut self, x: u32, y: u32, sprite: &Sprite, scale: u32) {
+        for sy in 0..sprite.height {
+            for sx in 0..sprite.width {
+                let Some(color) = sprite.get(sx, sy) else {
+                    continue;
+                };
+                let p = pixel(color);
+                let (x, y) = (
+                    x.saturating_add(sx.saturating_mul(scale)),
+                    y.saturating_add(sy.saturating_mul(scale)),
+                );
+                for dy in 0..scale {
+                    for dx in 0..scale {
+                        self.set(x.saturating_add(dx), y.saturating_add(dy), p);
+                    }
                 }
             }
         }
@@ -1015,7 +1357,299 @@ mod tests {
             more,
             label: "More:".to_owned(),
             next: "next step".to_owned(),
+            drawing: None,
         }
+    }
+
+    /// `report` laid out in `cols` columns and `rows` lines of a font of
+    /// 8x16 cells whose characters are each one cell wide.
+    fn laid(report: &NoticeReport, cols: u32, rows: usize) -> Laid {
+        arrange(report, Room { cols, rows }, (8, 16), |_| cols, narrow)
+    }
+
+    /// A stand-in for the panic screen's drawing, the sizes of the
+    /// maintainer's: a full one of 32 columns by 20 rows, and a small one of
+    /// 21 by 10.
+    fn drawing() -> Drawing {
+        let art = |cols: usize, rows: usize, c: char| -> &'static str {
+            let line: String = std::iter::repeat_n(c, cols).collect();
+            String::leak(format!("{line}\n").repeat(rows))
+        };
+        Drawing::text(art(32, 20, 'F'), art(21, 10, 'S'))
+    }
+
+    /// The panic screen's text, in the console's words, with its file's
+    /// first `errors` of three.
+    fn panic_report(errors: usize, drawing: Option<Drawing>) -> NoticeReport {
+        let all = [
+            "/etc/vtium/vtium.conf:4: This section has no key named \"focs\". Check the spelling, or remove the line.",
+            "/etc/vtium/vtium.conf:5: This section has no key named \"font-weight\". Check the spelling, or remove the line.",
+            "/etc/vtium/vtium.conf:7: This rule sends devices to head \"k\\u{202e}x\", but the file has no head of that name. Correct the name, or add a `[head NAME]` section for it.",
+        ];
+        NoticeReport {
+            happened: vec![
+                "vtium.conf has errors and counts as closed: all input is off.".to_owned(),
+                "No head can run because of the errors in /etc/vtium/vtium.conf, listed below."
+                    .to_owned(),
+            ],
+            items: all.iter().take(errors).map(|s| (*s).to_owned()).collect(),
+            more: 0,
+            label: "More errors:".to_owned(),
+            next: "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.".to_owned(),
+            drawing,
+        }
+    }
+
+    /// The report's whole text wrapped to `cols` columns: every line it
+    /// shows with no drawing and no limit on its lines.
+    fn whole(report: &NoticeReport, cols: u32) -> Vec<String> {
+        text(&wrap(&report.text(), usize::MAX, |_| cols, narrow))
+    }
+
+    // ADR-1401 D7: on an 80x25 screen, 78 columns by 24 lines inside the
+    // box, the full drawing goes to the left of the text, which keeps 44
+    // columns beside it and shows every line, its three errors among them
+    #[test]
+    fn the_full_drawing_goes_left_of_the_whole_text_on_80x25() {
+        let report = panic_report(3, Some(drawing()));
+        let got = laid(&report, 78, 24);
+        let full = drawing().full;
+        assert_eq!(
+            got.drawing,
+            Some(Shown {
+                art: Art::Text(full),
+                cells: (32, 20),
+                at: (0, 0),
+            })
+        );
+        assert_eq!(got.text, (34, 0));
+        assert_eq!(text(&got.lines), whole(&report, 44));
+        assert_eq!(got.rows, 20.max(got.lines.len() as u32));
+        // with 39 columns left beside it, the full drawing goes above the
+        // text instead where it fits, and else the small one
+        let narrower = arrange(
+            &report,
+            Room { cols: 73, rows: 24 },
+            (8, 16),
+            |_| 73,
+            narrow,
+        );
+        assert_ne!(narrower.text.0, 34, "{narrower:?}");
+        assert!(
+            narrower
+                .drawing
+                .is_none_or(|d| d.at.1 == 0 && narrower.text.0 == 0)
+        );
+    }
+
+    // ADR-1401 D7: where the full drawing fits neither beside the text nor
+    // above it, the small one goes centered above the text, an empty row
+    // between them, as on a 40x25 screen: 38 columns by 24 lines
+    #[test]
+    fn the_small_drawing_goes_centered_above_the_text_on_40x25() {
+        let report = panic_report(1, Some(drawing()));
+        let got = laid(&report, 38, 24);
+        assert_eq!(
+            got.drawing,
+            Some(Shown {
+                art: Art::Text(drawing().small),
+                cells: (21, 10),
+                at: (8, 0),
+            })
+        );
+        assert_eq!(got.text, (0, 11));
+        assert_eq!(text(&got.lines), whole(&report, 38));
+        assert_eq!(got.rows, 11 + got.lines.len() as u32);
+        // a screen tall enough takes the full drawing above the text
+        let tall = laid(&report, 38, 48);
+        assert_eq!(
+            tall.drawing.map(|d| (d.cells, d.at)),
+            Some(((32, 20), (3, 0)))
+        );
+        assert_eq!(tall.text, (0, 21));
+        assert_eq!(text(&tall.lines), whole(&report, 38));
+    }
+
+    // ADR-1401 D7: the text comes first. On a 40x25 screen the three
+    // errors leave no room for even the small drawing, and on 40x15,
+    // minspec's 320x240 screen in an 8x16 font, one error leaves none:
+    // each shows the text alone, exactly as a report with no drawing
+    #[test]
+    fn the_text_shows_alone_where_no_drawing_fits_beside_it() {
+        for (errors, cols, rows) in [(3, 38, 24), (1, 38, 14), (3, 38, 14)] {
+            let with = panic_report(errors, Some(drawing()));
+            let without = panic_report(errors, None);
+            let got = laid(&with, cols, rows);
+            assert_eq!(got.drawing, None, "{errors} errors on {cols}x{rows}");
+            assert_eq!(got.text, (0, 0));
+            assert_eq!(text(&got.lines), text(&laid(&without, cols, rows).lines));
+        }
+        // where all of the text fits, all of it shows
+        assert_eq!(
+            text(&laid(&panic_report(3, Some(drawing())), 38, 24).lines),
+            whole(&panic_report(3, None), 38)
+        );
+    }
+
+    /// A stand-in sprite 80 by 80 in two colors: its top left pixel and
+    /// every pixel on its diagonal 1, red, and the rest 0, blue.
+    #[cfg(feature = "images")]
+    fn sprite() -> Sprite {
+        static PALETTE: [Rgb; 2] = [Rgb::new(0, 0, 0xff), Rgb::new(0xff, 0, 0)];
+        let rows: String = (0..80)
+            .map(|y| {
+                let row: String = (0..80).map(|x| if x == y { '1' } else { '0' }).collect();
+                format!("{row}\n")
+            })
+            .collect();
+        Sprite::new(80, 80, &PALETTE, String::leak(rows).as_bytes())
+    }
+
+    // ADR-1401 D7: a build with image support draws the sprite in the
+    // place of the drawing in text, at the largest whole-number scale that
+    // fits the cells the text would take: in 8x16 cells, three times its
+    // size in the full drawing's 32 by 20 cells, 30 by 15 cells, and twice
+    // in the small one's 21 by 10, 20 by 10 cells
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_sprite_takes_the_drawings_place_at_a_whole_scale() {
+        let sprite = sprite();
+        assert!(sprite.is_whole());
+        let with = Some(drawing().with_sprite(sprite));
+        let report = panic_report(3, with);
+        let got = laid(&report, 78, 24);
+        assert_eq!(
+            got.drawing,
+            Some(Shown {
+                art: Art::Sprite(sprite, 3),
+                cells: (30, 15),
+                at: (0, 0),
+            })
+        );
+        assert_eq!(got.text, (32, 0));
+        assert_eq!(text(&got.lines), whole(&report, 46));
+        let one = panic_report(1, with);
+        let got = laid(&one, 38, 24);
+        assert_eq!(
+            got.drawing,
+            Some(Shown {
+                art: Art::Sprite(sprite, 2),
+                cells: (20, 10),
+                at: (9, 0),
+            })
+        );
+        assert_eq!(got.text, (0, 11));
+        // too small for even the small one, the text shows alone
+        assert_eq!(laid(&one, 38, 14).drawing, None);
+        // in 4x6 cells the small drawing's 84x60 pixels cannot hold the
+        // sprite at its own size, and the full one's 128x120 hold it once
+        let tiny = arrange(
+            &one,
+            Room {
+                cols: 200,
+                rows: 100,
+            },
+            (4, 6),
+            |_| 200,
+            narrow,
+        );
+        assert_eq!(
+            tiny.drawing.map(|d| (d.art, d.cells)),
+            Some((Art::Sprite(sprite, 1), (20, 14)))
+        );
+        let none = Drawing::text("", "").with_sprite(sprite);
+        assert_eq!(none.art(false, (8, 16)), None);
+    }
+
+    // ADR-1401 D7: each pixel of the sprite is a square of the scale's
+    // side, so it stays sharp, and the sprite is centered in its cells
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_notice_draws_each_sprite_pixel_as_a_whole_square() {
+        let (w, h) = (640, 400);
+        let font = font("unifont", 16);
+        let mut canvas = Canvas::new(w, h, 0);
+        let sprite = sprite();
+        Notice::report(panic_report(3, Some(drawing().with_sprite(sprite))))
+            .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        // 30 by 15 cells of 8x16 hold 240x240 pixels: no space across,
+        // and 0 down
+        let (x0, y0) = (2 + 4, 2 + 4);
+        for (sx, sy) in [(0, 0), (1, 0), (0, 1), (40, 40), (79, 79), (79, 0)] {
+            let want = pixel(sprite.get(sx, sy).expect("a pixel"));
+            assert_eq!(
+                block(&canvas, x0 + sx * 3, y0 + sy * 3, 3, 3),
+                vec![want; 9],
+                "{sx},{sy}"
+            );
+        }
+        // the paper around it is the box's
+        assert_eq!(
+            canvas.pixel(x0 + 240, y0),
+            Some(pixel(Colors::NOTICE.paper))
+        );
+        assert_eq!(
+            canvas.pixel(x0, y0 + 240),
+            Some(pixel(Colors::NOTICE.paper))
+        );
+    }
+
+    // a sprite whose rows are cut short, or whose digit names no entry of
+    // its palette, draws nothing there and is not whole
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_sprite_draws_only_what_its_palette_names() {
+        static PALETTE: [Rgb; 1] = [Rgb::new(1, 2, 3)];
+        let short = Sprite::new(2, 2, &PALETTE, b"00\n0");
+        assert!(!short.is_whole());
+        assert_eq!(short.get(1, 0), Some(Rgb::new(1, 2, 3)));
+        assert_eq!(short.get(1, 1), None);
+        assert_eq!(short.get(2, 0), None);
+        let unnamed = Sprite::new(2, 1, &PALETTE, b"01\n");
+        assert!(!unnamed.is_whole());
+        assert_eq!(unnamed.get(1, 0), None);
+        assert!(Sprite::new(2, 1, &PALETTE, b"00\n").is_whole());
+    }
+
+    // ADR-1401 D7: the notice draws the drawing's characters in its font,
+    // each in its cell, with the text beside it
+    #[test]
+    fn the_notice_draws_the_drawing_in_the_fonts_glyphs() {
+        let (w, h) = (640, 400);
+        let font = font("unifont", 16);
+        let mut canvas = Canvas::new(w, h, 0);
+        Notice::report(panic_report(3, Some(drawing())))
+            .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        let (cw, ch) = (8, 16);
+        let inset = (2 + cw / 2, 2 + ch / 4);
+        let c = Colors::NOTICE;
+        let cell = |ch_: char| -> Vec<u32> {
+            let g = font
+                .glyph(&[ch_], Width::Narrow, Style::default())
+                .expect("a glyph");
+            g.pixels()
+                .iter()
+                .map(|&a| mask(c.ink, c.paper, a))
+                .collect()
+        };
+        for (col, row) in [(0, 0), (31, 0), (0, 19), (31, 19)] {
+            assert_eq!(
+                block(&canvas, inset.0 + col * cw, inset.1 + row * ch, cw, ch),
+                cell('F'),
+                "{col},{row}"
+            );
+        }
+        // the gap is paper, and the text's first letter is past it
+        assert_eq!(
+            block(&canvas, inset.0 + 32 * cw, inset.1, 2 * cw, ch),
+            vec![pixel(c.paper); 2 * 8 * 16]
+        );
+        assert_eq!(
+            block(&canvas, inset.0 + 34 * cw, inset.1, cw, ch),
+            cell('v')
+        );
     }
 
     // ADR-1401 D7: a report too tall for its display drops its items from
@@ -1044,7 +1678,7 @@ mod tests {
             drawn(Notice::new("happened\nerror one\nerror two\nerror three")),
             "any other notice is cut"
         );
-        let lines = |r: &NoticeReport, room| text(&fitted(r, room, |_| 38, narrow));
+        let lines = |r: &NoticeReport, room| text(&laid(r, 38, room).lines);
         // with room for every item, nothing goes and nothing is counted
         assert_eq!(
             lines(&three, 9),

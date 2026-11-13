@@ -173,6 +173,17 @@ crates/vtium-config/tests/fixtures/NotoNaskhArabic-LICENSE.txt, and the
 fixtures' README says how the subset was made. The tests read it; vtium
 installs none of it.
 
+The panic screen's drawing of Tux, the Linux penguin, panicked inside a
+computer monitor (crates/vtium/art/), built into vtium: the maintainer's
+drawing in 7-bit ASCII, panic-penguin-aaron.txt and its small version
+panic-penguin-aaron-small.txt, and the maintainer's 80x80 sprite,
+panic-penguin-80x80-oO.png, with the palette indices vtium builds in,
+panic-penguin-80x80-oO-indices.txt, which crates/vtium/tests/panic_sprite.rs
+makes from the PNG. They come under vtium's notice above. The Tux character
+is Larry Ewing's (lewing@isc.tamu.edu), drawn with The GIMP. Larry Ewing
+grants permission to use and modify Tux provided that he and The GIMP are
+acknowledged if someone asks, and this paragraph acknowledges both.
+
 = Unicode License v3 =
 
 The license of the Unicode data tables above, as Unicode publishes it at
