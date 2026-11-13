@@ -11,4 +11,4 @@ scripts-indic	#261: Hindi and Bengali in Iosevka Term's 16x40 cell, each cluster
 panic-640x400	#162: the panic screen on 80x25 in a build without image support, the maintainer's ASCII drawing of a panicked Tux to the left of the whole report; not reviewed yet
 panic-one-320x400	#162: the panic screen on 40x25 with one error in a build without image support, the small ASCII drawing centered above the report; not reviewed yet
 panic-images-640x400	#162: the panic screen on 80x25 in a build with image support, the maintainer's 80x80 sprite at three times its size to the left of the whole report; not reviewed yet
-panic-images-one-320x400	#162: the panic screen on 40x25 with one error in a build with image support, the sprite at twice its size centered above the report; not reviewed yet
+panic-images-one-320x400	#162: the panic screen on 40x25 with one error in a build with image support, redrawn for the maintainer's decision of 2026-11-13 (ADR-1401 D7): the sprite cropped to its monitor, 50x44 pixels at three times its size, centered above the report, in place of the whole sprite at twice its size, and the report one row higher; not reviewed yet
