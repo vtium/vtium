@@ -2,7 +2,3 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
-640x480	#273: the italic word in unifont redrawn with ADR-1302 D4's bands of 2026-11-07; not reviewed yet
-800x480	#273: the italic word in unifont redrawn with ADR-1302 D4's bands of 2026-11-07; not reviewed yet
-1366x768	#273: the italic word in unifont redrawn with ADR-1302 D4's bands of 2026-11-07; not reviewed yet
-640x480-gray16	#273: the italic word in unifont redrawn with ADR-1302 D4's bands of 2026-11-07, simulated on a gray16 panel; not reviewed yet
