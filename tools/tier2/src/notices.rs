@@ -28,6 +28,12 @@ const TWO_ERRORS: &str =
 /// (ADR-1401 D7).
 const BROKEN_CLOSED: &str = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\nfont-size = 24\n[rules]\ndisplay * -> kisok\n[rules]\ninput * -> kiosk\n";
 
+/// A closed kiosk's vtium.conf with one error in its sections: a key its
+/// head section does not take, which drops the head. No head survives, so
+/// the start shows the panic screen with that one error (ADR-1401 D7).
+const ONE_ERROR_CLOSED: &str =
+    "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\n";
+
 /// `osd = full`'s line on the active head.
 pub fn osd_active() -> Result<String, String> {
     Ok(notice::osd_line(true, "desk", 2, 3))
@@ -101,18 +107,67 @@ pub fn panic() -> Result<String, String> {
     panic_report().map(|r| r.text())
 }
 
-/// The panic screen as the screen the display guard lights draws it: a
-/// report, which counts the errors it has no room for.
+/// The panic screen as the screen the display guard lights draws it in a
+/// build without image support: a report, which counts the errors it has
+/// no room for, with the drawing of a panicked Tux in text.
 pub fn panic_screen() -> Result<Notice, String> {
-    panic_report().map(Notice::report)
+    panic_shown(BROKEN_CLOSED, text_drawing())
+}
+
+/// The panic screen of a closed vtium.conf with one error, in a build
+/// without image support.
+pub fn panic_one_screen() -> Result<Notice, String> {
+    panic_shown(ONE_ERROR_CLOSED, text_drawing())
+}
+
+/// The panic screen in a build with image support, which draws the sprite
+/// in the place of the drawing in text.
+pub fn panic_images_screen() -> Result<Notice, String> {
+    panic_shown(BROKEN_CLOSED, sprite_drawing())
+}
+
+/// The panic screen of a closed vtium.conf with one error, in a build with
+/// image support.
+pub fn panic_images_one_screen() -> Result<Notice, String> {
+    panic_shown(ONE_ERROR_CLOSED, sprite_drawing())
+}
+
+/// The drawing a build without image support shows (ADR-1401 D7).
+fn text_drawing() -> vtium_render::Drawing {
+    vtium_render::Drawing::text(notice::penguin::FULL, notice::penguin::SMALL)
+}
+
+/// The drawing a build with image support shows (ADR-1401 D7): tier 2
+/// builds vtium without the feature, so it names the sprite itself.
+fn sprite_drawing() -> vtium_render::Drawing {
+    use notice::penguin::{PALETTE, SPRITE, SPRITE_SIZE};
+    text_drawing().with_sprite(vtium_render::Sprite::new(
+        SPRITE_SIZE.0,
+        SPRITE_SIZE.1,
+        &PALETTE,
+        SPRITE,
+    ))
+}
+
+/// The panic screen of the vtium.conf `file`, showing `drawing`.
+fn panic_shown(file: &str, drawing: vtium_render::Drawing) -> Result<Notice, String> {
+    let mut report = report_of(file)?;
+    report.drawing = Some(drawing);
+    Ok(Notice::report(report))
 }
 
 fn panic_report() -> Result<vtium_render::NoticeReport, String> {
+    report_of(BROKEN_CLOSED)
+}
+
+/// The panic screen's report for the vtium.conf `file`, as the start at
+/// vtium's own path builds it from the file's bytes.
+fn report_of(file: &str) -> Result<vtium_render::NoticeReport, String> {
     let path = std::path::Path::new(vtium_settings::CONF_FILE);
-    vtium::head::Start::trusted(path, BROKEN_CLOSED.as_bytes())
+    vtium::head::Start::trusted(path, file.as_bytes())
         .report()
         .cloned()
-        .ok_or_else(|| format!("the file {BROKEN_CLOSED:?} shows no panic screen"))
+        .ok_or_else(|| format!("the file {file:?} shows no panic screen"))
 }
 
 /// The notice of a closed file whose heads have no display, alone on the
