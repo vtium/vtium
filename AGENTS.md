@@ -42,7 +42,8 @@ Work on vtium happens only in vtium's own repositories, under the vtium organiza
 - A sentence in a page people read stays under about 25 words. `docs/scripts/prose` lists each sentence over 30 words in those pages, and each page whose sentences average over 20 words. Run `docs/scripts/prose --table` with the pages you changed, before and after you edit them. A sentence that must stay longer, for example one that quotes a long string, goes in `docs/scripts/prose-allow.tsv` with the reason it stays.
 - Define a project term the first time a section uses it, in the words a newcomer would use, as in "a frit (a font set file)". Prefer the everyday word where one exists.
 - Name who does what. Write "vtium ignores the keyboard", not "the keyboard falls to the policy's input default".
-- If you had to read a sentence twice, rewrite it before you commit it.
+- If you had to read a sentence twice, rewrite the sentence before you commit.
+- In an instruction, name the thing again instead of writing "it". Someone following steps reads one step at a time and acts on it, so a pronoun makes them guess which thing the step means. Write "Copy the file before you plant the defect, and afterwards restore the file from the copy.", not "Copy the file before you plant the defect, and afterwards restore it."
 - When you brief a subagent that will write prose for people to read, put these rules in the brief so that it follows them.
 - Write the name as "vtium" in running text, code, paths and commands. Write "VTium" in a title or heading that names the project, with VT capitalized the way the hardware terminals printed it. Spell it "color", not "colour".
 
