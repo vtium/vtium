@@ -1,0 +1,25 @@
+# With origin mode (DECOM) set, the home position is the scrolling
+# region's top left. CUP, VPA and VPR count rows from the region's top
+# and stay inside it, and DSR 6 reports the row from the region's top.
+# Setting and resetting the mode moves the cursor to the home position.
+# spec: the VT100 User Guide, DECOM and CPR; the VT510 manual, DECOM
+# covers: DEC-6
+size 10 8
+send "\e[3;6r"
+send "\e[?6h"
+dump state
+send "\e[2;2HX"
+dump state
+send "\e[99;1HY"
+dump state
+send "\e[H\e[5d"
+dump state
+send "\e[H\e[e"
+dump state
+send "\e[2;3H\e[4G"
+dump state
+send "\e[6n"
+send "\e[?6l"
+dump state
+send "\e[2;2HZ"
+dump state

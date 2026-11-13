@@ -1,0 +1,14 @@
+# DCS, SOS, PM and APC strings print nothing, whatever they hold, and the
+# letter after each prints. An OSC inside a DCS and a DCS inside an SOS
+# are part of the string.
+# spec: ECMA-48 8.3.27 DCS, 8.3.128 SOS, 8.3.94 PM and 8.3.2 APC
+size 20 3
+send "\eP1;2|data\e\\A"
+send "\ePq#0;2;0;0;0#1!14~-\e\\B"
+send "\eP\x01\x7fdata\e\\C"
+send "\eX sos \e\\D\e^ pm \e\\E\e_ apc \e\\F"
+send "\eX\x01\x7f\e\\G\eP:ignored\e\\H"
+send "\eP1$q\u{e9}\e\\I"
+send "\eXnested\ePx\e\\J"
+send "\eP\e]2;t\a\e\\K"
+dump state

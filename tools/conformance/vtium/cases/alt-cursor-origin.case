@@ -1,0 +1,14 @@
+# Modes 1048 and 1049 save the cursor with origin mode, and resetting
+# them puts the cursor back where it was on the screen, with origin mode
+# as it was then.
+# spec: ctlseqs, DECSET 1048 and 1049; the VT510 manual, DECSC and DECRC
+# covers: DEC-1048, DEC-1049
+size 10 8
+send "\e[3;6r\e[?6h\e[3;3H"
+dump state
+send "\e[?1048h\e[1;1H\e[?1048l"
+dump state
+send "\e[2;4H\e[?1049h\e[1;1H\e[?1049l"
+dump state
+send "\e[?6l\e[7;7H\e[?1048h\e[?6h\e[1;1H\e[?1048l"
+dump state

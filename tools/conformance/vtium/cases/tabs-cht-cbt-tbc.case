@@ -1,0 +1,44 @@
+# CHT moves the cursor to the next tab stop and CBT to the previous one,
+# by a count where 0 means 1. With no stop left, CHT stops at the last
+# column and CBT at the first. HTS sets a stop, TBC 0 clears the stop at
+# the cursor and TBC 3 every stop, and TBC 1 and 2 do nothing. From a
+# pending wrap, CBT moves left from the last column.
+# spec: ECMA-48 8.3.10 CHT, 8.3.7 CBT, 8.3.62 HTS and 8.3.154 TBC
+# covers: ctl.tabs
+size 30 3
+send "\e[I"
+dump state
+send "\e[2I"
+dump state
+send "\e[0I\e[9I"
+dump state
+send "\e[Z"
+dump state
+send "\e[2Z"
+dump state
+send "\e[9Z"
+dump state
+send "\e[1;30H\e[Z"
+dump state
+# Tab stops only at columns 3, 7 and 20, counted from 1.
+send "\e[3g\e[1;3H\eH\e[1;7H\eH\e[1;20H\eH\e[1;1H"
+send "\e[I"
+dump state
+send "\e[3I"
+dump state
+send "\e[I"
+dump state
+send "\e[Z\e[Z"
+dump state
+send "\e[Z"
+dump state
+# A wide character leaves a pending wrap at the last column.
+send "\e[1;29H\u{4e16}"
+dump state
+send "\e[Z"
+dump state
+# TBC 2 and TBC 1, then TBC 0.
+send "\e[1;7H\e[2g\e[1;3H\e[1g"
+dump state
+send "\e[0g"
+dump state

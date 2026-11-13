@@ -1,0 +1,34 @@
+# IL inserts and DL deletes lines at the cursor's row, inside the
+# scrolling region, and move the cursor to the first column. A count past
+# the region stops at its end. Outside the region, IL and DL do nothing.
+# spec: ECMA-48 8.3.67 IL and 8.3.32 DL; the VT510 manual, IL and DL
+# covers: ctl.edit
+size 4 6
+send "1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[2;3H\e[L"
+dump state
+send "\e[2L"
+dump state
+send "\e[1;1H1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[2;3H\e[M"
+dump state
+send "\e[2M"
+dump state
+send "\e[1;1H1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[3;1H\e[99L"
+dump state
+send "\e[1;1H1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[3;1H\e[99M"
+dump state
+send "\e[1;1H1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+# A scrolling region from row 2 to row 4.
+send "\e[2;4r\e[3;2H\e[L"
+dump state
+send "\e[3;2H\e[M"
+dump state
+send "\e[5;2H\e[L\e[1;2H\e[M"
+dump state
+send "\e[2;2H\e[3L"
+dump state
+send "\e[2;2H\e[3M"
+dump state

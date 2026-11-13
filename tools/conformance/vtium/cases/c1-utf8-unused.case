@@ -1,0 +1,8 @@
+# C1 controls sent as UTF-8 code points, from U+0080 to U+009F, do
+# nothing in UTF-8 input. These are the ones a terminal has no use for,
+# and the letters between them print side by side.
+# spec: ECMA-48 5.3, which defines C1 for 7-bit and 8-bit codes only; vtium-parse's README, "C1 controls do nothing in UTF-8 mode"
+size 20 3
+send "a\u{80}b\u{81}c\u{82}d\u{83}e\u{86}f\u{87}g\u{89}h\u{8a}i\u{8b}j\u{8c}k"
+send "\r\nl\u{91}m\u{92}n\u{93}o\u{94}p\u{95}q\u{96}r\u{97}s\u{99}t"
+dump state

@@ -1,0 +1,10 @@
+# With DEC special graphics in G0, the 32 characters from _ to ~ draw as
+# line-drawing pieces and other symbols, and _ draws as a blank. With
+# ASCII back in G0, the same characters print as themselves.
+# spec: the VT220 manual, table 2-4
+# covers: text.charsets
+size 40 3
+send "\e(0"
+send "_`abcdefghijklmnopqrstuvwxyz{|}~"
+send "\e(B\r\n_`abcdefghijklmnopqrstuvwxyz{|}~"
+dump state

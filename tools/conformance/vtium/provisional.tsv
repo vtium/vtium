@@ -37,3 +37,57 @@ sixel-margins	ADR-1100 D6: a line feed between left and right margins moves a si
 sixel-margins-cursor	ADR-1100 D6: a sixel placed from a column right of the margins scrolls nothing, mode 8452 stops the cursor at the right margin from inside the margins and at the last column from past them, and DECSDM places at the screen's top left whatever the margins; not reviewed yet
 kit-margins	ADR-1100 D6: a line feed between left and right margins moves a kitty placement wholly inside the rectangle and leaves one across the right margin, and the cursor after a placement that passes the right margin wraps to the left margin, from inside the margins and from right of them; not reviewed yet
 iterm2-margins	ADR-1100 D6 and ADR-1103: an iTerm2 picture placed between left and right margins moves with the rectangle on a line feed, as a sixel does; not reviewed yet
+cursor-cha-vpa-vpr	an imported scenario, judged by ECMA-48 8.3.9 CHA, 8.3.158 VPA and 8.3.160 VPR; not reviewed yet
+cursor-cnl-cpl	an imported scenario, judged by ECMA-48 8.3.12 CNL and 8.3.13 CPL; the VT510 manual, CUD (the cursor stops at the bottom margin); not reviewed yet
+cursor-cnl-cpl-clamp	an imported scenario, judged by ECMA-48 8.3.12 CNL and 8.3.13 CPL; not reviewed yet
+cursor-cup-bounds	an imported scenario, judged by ECMA-48 8.3.21 CUP and 8.3.63 HVP; not reviewed yet
+cursor-cuu-cud-cuf-cub	an imported scenario, judged by ECMA-48 8.3.22 CUU, 8.3.19 CUD, 8.3.20 CUF and 8.3.18 CUB; the VT510 manual, CUU and CUD (the margins); not reviewed yet
+cursor-origin-mode	an imported scenario, judged by the VT100 User Guide, DECOM and CPR; the VT510 manual, DECOM; not reviewed yet
+cursor-decsc-origin	an imported scenario, judged by the VT510 manual, DECSC and DECRC; not reviewed yet
+cursor-decsc-decrc	an imported scenario, judged by the VT510 manual, DECSC, DECRC and DECSTR; not reviewed yet
+erase-ech	an imported scenario, judged by ECMA-48 8.3.38 ECH; not reviewed yet
+erase-ed	an imported scenario, judged by ECMA-48 8.3.39 ED; ctlseqs, ED 3; not reviewed yet
+erase-decsed-decsel	an imported scenario, judged by the VT510 manual, DECSCA, DECSED and DECSEL; not reviewed yet
+erase-el	an imported scenario, judged by ECMA-48 8.3.41 EL; not reviewed yet
+erase-bce	an imported scenario, judged by terminfo(5), bce; ECMA-48 8.3.41 EL, 8.3.38 ECH and 8.3.39 ED; not reviewed yet
+edit-ich-dch	an imported scenario, judged by ECMA-48 8.3.64 ICH and 8.3.26 DCH; not reviewed yet
+edit-il-dl	an imported scenario, judged by ECMA-48 8.3.67 IL and 8.3.32 DL; the VT510 manual, IL and DL; not reviewed yet
+edit-irm	an imported scenario, judged by ECMA-48 7.2.10 IRM; not reviewed yet
+print-rep	an imported scenario, judged by ctlseqs, REP ("Repeat the preceding graphic character Ps times"); ECMA-48 8.3.103 REP; not reviewed yet
+tabs-cht-cbt-tbc	an imported scenario, judged by ECMA-48 8.3.10 CHT, 8.3.7 CBT, 8.3.62 HTS and 8.3.154 TBC; not reviewed yet
+tabs-hts	an imported scenario, judged by ECMA-48 8.3.62 HTS, 8.3.60 HT and 8.3.154 TBC; not reviewed yet
+margins-decstbm	an imported scenario, judged by the VT510 manual, DECSTBM; ctlseqs, XTRESTORE; not reviewed yet
+scroll-large-counts	an imported scenario, judged by ECMA-48 8.3.147 SU and 8.3.113 SD; ctlseqs, DSR; not reviewed yet
+scroll-lf-ri-margins	an imported scenario, judged by the VT510 manual, IND and DECAWM; the VT220 manual, chapter 4, RI; not reviewed yet
+scroll-su-sd	an imported scenario, judged by ECMA-48 8.3.147 SU and 8.3.113 SD; not reviewed yet
+scroll-ind-nel-ri	an imported scenario, judged by the VT510 manual, IND and NEL; the VT220 manual, chapter 4, RI; ECMA-48 8.3.86 NEL and 8.3.104 RI; not reviewed yet
+c0-can-sub	an imported scenario, judged by ECMA-48 8.3.6 CAN and 8.3.148 SUB; the VT510 manual, SUB; not reviewed yet
+c0-cursor-moves	an imported scenario, judged by ECMA-48 8.3.5 BS, 8.3.60 HT, 8.3.15 CR, 8.3.74 LF, 8.3.161 VT and 8.3.51 FF; the VT510 manual, LNM; not reviewed yet
+c0-each	an imported scenario, judged by ECMA-48 8.2, the C0 set; vt100.net, "terminals only claiming VT220 compatibility can always ignore 7F"; not reviewed yet
+c0-inside-sequences	an imported scenario, judged by vt100.net's DEC parser, which executes C0 controls in every state; not reviewed yet
+c1-raw-bytes	an imported scenario, judged by the Unicode Standard, 3.9, U+FFFD for an ill-formed sequence; not reviewed yet
+c1-utf8-unused	an imported scenario, judged by ECMA-48 5.3, which defines C1 for 7-bit and 8-bit codes only; vtium-parse's README, "C1 controls do nothing in UTF-8 mode"; not reviewed yet
+c1-utf8-controls	an imported scenario, judged by ECMA-48 5.3, which defines C1 for 7-bit and 8-bit codes only; vtium-parse's README, "C1 controls do nothing in UTF-8 mode"; not reviewed yet
+c1-utf8-introducers	an imported scenario, judged by ECMA-48 5.3, which defines C1 for 7-bit and 8-bit codes only; vtium-parse's README, "C1 controls do nothing in UTF-8 mode"; not reviewed yet
+esc-st-alone	an imported scenario, judged by ECMA-48 8.3.143 ST; not reviewed yet
+charset-decscl	an imported scenario, judged by the VT510 manual, DECSCL; the VT220 manual, 4.4; not reviewed yet
+charset-dec-special	an imported scenario, judged by the VT220 manual, table 2-4; not reviewed yet
+charset-ss2-ss3	an imported scenario, judged by the VT220 manual, 4.4.4; ctlseqs, SS2 and SS3; not reviewed yet
+charset-gr	an imported scenario, judged by xterm's UTF-8 mode, as vtium-term's README describes it under "Character sets"; not reviewed yet
+charset-nrcs	an imported scenario, judged by ctlseqs, SCS; ADR-1000 refuses DECNRCM (DEC-42); not reviewed yet
+charset-so-si	an imported scenario, judged by the VT220 manual, 4.4.3; not reviewed yet
+charset-locking-shifts	an imported scenario, judged by the VT220 manual, 4.4.3; ctlseqs, LS2, LS3, LS1R, LS2R and LS3R; not reviewed yet
+charset-7bit-8bit	an imported scenario, judged by the VT510 manual, DECSCL; vt100.net, "In all states, these codes are treated identically to GL codes 20-7F"; not reviewed yet
+parse-interrupted	an imported scenario, judged by vt100.net's DEC parser; not reviewed yet
+parse-non-ascii	an imported scenario, judged by vt100.net's DEC parser; vtium-parse's README, "A character past ASCII ends a sequence header in UTF-8 mode"; not reviewed yet
+parse-params	an imported scenario, judged by ECMA-48 5.4, 8.3.57 HPA and 8.3.59 HPR; not reviewed yet
+parse-shell-session	an imported scenario, judged by ctlseqs, the sequences the session sends; not reviewed yet
+parse-esc-unknown	an imported scenario, judged by ECMA-48 5.3, escape sequences; the VT510 manual, DECALN; vt100.net's DEC parser; not reviewed yet
+osc-aborted	an imported scenario, judged by ECMA-48 5.6, control strings; vtium-parse's README, "A string acts only when its terminator completes it"; not reviewed yet
+osc-long	an imported scenario, judged by ctlseqs, OSC 4; not reviewed yet
+strings-dcs-sos-pm-apc	an imported scenario, judged by ECMA-48 8.3.27 DCS, 8.3.128 SOS, 8.3.94 PM and 8.3.2 APC; not reviewed yet
+sgr-malformed	an imported scenario, judged by ECMA-48 8.3.117 SGR and 5.4.2; ctlseqs, SGR, XTMODKEYS and XTQMODKEYS; not reviewed yet
+wide-edges	an imported scenario, judged by Unicode UAX #11 (East Asian width); ADR-1000 text.vs-width; not reviewed yet
+alt-1047-1048	an imported scenario, judged by ctlseqs, DECSET 47, 1047 and 1048; not reviewed yet
+alt-bce	an imported scenario, judged by ctlseqs, DECSET 47 and 1049; terminfo(5), bce; not reviewed yet
+alt-cursor-origin	an imported scenario, judged by ctlseqs, DECSET 1048 and 1049; the VT510 manual, DECSC and DECRC; not reviewed yet

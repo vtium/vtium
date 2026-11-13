@@ -1,0 +1,19 @@
+# A wide character that does not fit at the last column wraps whole to
+# the next row. Printing over either half of a wide character erases the
+# other half. With autowrap reset, a wide character that does not fit at
+# the last column is not printed.
+# spec: Unicode UAX #11 (East Asian width); ADR-1000 text.vs-width
+# covers: text.vs-width
+size 6 5
+send "\u{4e16}\u{754c}x"
+dump state
+send "\r\nabcde\u{4e16}"
+dump state
+send "y"
+dump state
+# A and B print over half of each wide character.
+send "\e[1;1HA\e[1;4HB"
+dump state
+# Autowrap reset.
+send "\e[?7l\e[4;1Habcde\u{4e16}\u{754c}"
+dump state

@@ -1,0 +1,14 @@
+# The finals of the national replacement character sets designate ASCII,
+# so # and a print as themselves after each. ESC ( < also designates
+# ASCII in UTF-8 input.
+# spec: ctlseqs, SCS; ADR-1000 refuses DECNRCM (DEC-42)
+# covers: text.charsets
+size 20 9
+send "\e(A#a\e(B#a\r\n"
+send "\e(4#a\e(C#a\e(5#a\r\n"
+send "\e(R#a\e(Q#a\e(K#a\r\n"
+send "\e(Y#a\e(E#a\e(6#a\r\n"
+send "\e(Z#a\e(H#a\e(7#a\r\n"
+send "\e(=#a\e(B\r\n"
+send "\e(<!#$%&'()*\e(B"
+dump state

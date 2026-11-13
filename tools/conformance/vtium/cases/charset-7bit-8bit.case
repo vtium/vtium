@@ -1,0 +1,16 @@
+# In 7-bit input (DECSCL 61), each byte loses its high bit, so C3 prints
+# C and 9B is ESC. In 8-bit input (DECSCL 62), each byte is one
+# character, and inside a control sequence a byte from A0 up acts as the
+# byte 80 below it. DECSCL 65 chooses UTF-8 input again.
+# spec: the VT510 manual, DECSCL; vt100.net, "In all states, these codes are treated identically to GL codes 20-7F"
+# covers: ctl.decscl
+size 20 4
+send "\e[61\"p"
+send "\x61\xc3\xa9\x62\x9b\x31\x6d\x63"
+dump state
+send "\e[62\"p\r\n"
+send "\x61\xc3\xa9\x62\x1b\x5b\x31\x6d\x63\x1b\x5b\x6d\x1b\x5b\xc3\x6d\x64"
+dump state
+send "\e[65\"p\r\n"
+send "\u{e9}"
+dump state

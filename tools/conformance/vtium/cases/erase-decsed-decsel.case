@@ -1,0 +1,14 @@
+# DECSCA 1 protects the characters printed after it, and DECSCA 0 and 2
+# end the protection. DECSEL and DECSED erase every character that is
+# not protected and leave the protected ones.
+# spec: the VT510 manual, DECSCA, DECSED and DECSEL
+# covers: ctl.protect
+size 6 3
+send "aa\e[1\"qPP\e[0\"qaa\r\nbbbbbb"
+dump state
+send "\e[1;1H\e[?K"
+dump state
+send "\e[?J"
+dump state
+send "\e[1;1Hxx\e[1\"qPP\e[2\"qxx\e[1;1H\e[?2J"
+dump state

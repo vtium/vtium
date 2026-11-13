@@ -1,0 +1,7 @@
+# In UTF-8 input, the bytes 80 to 9F are ill-formed UTF-8. Each prints
+# as U+FFFD and acts as no control, so 9B 31 6D prints as U+FFFD, 1 and
+# m.
+# spec: the Unicode Standard, 3.9, U+FFFD for an ill-formed sequence
+size 20 3
+send "\x61\x84\x62\x9b\x31\x6d\x63\x9d\x30\x3b\x78\x07\x64"
+dump state
