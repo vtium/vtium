@@ -3859,6 +3859,49 @@ mod tests {
         assert!(why.contains("past its kind's"), "{why}");
     }
 
+    // ADR-1401 D7: the console takes a coverage answer only whole. It
+    // refuses an answer whose count runs past the codepoints the payload
+    // holds, an answer with a codepoint that is not a Unicode scalar
+    // value, and an answer whose font name is not UTF-8.
+    #[test]
+    fn a_malformed_coverage_answer_is_refused() {
+        let answer = |count: u32, codepoints: &[u32], font: &[u8]| {
+            let mut payload = count.to_le_bytes().to_vec();
+            for c in codepoints {
+                payload.extend_from_slice(&c.to_le_bytes());
+            }
+            payload.extend_from_slice(font);
+            frame(&mut &raw_frame(FRAME_COVERAGE, &payload)[..])
+        };
+        let whole = answer(2, &[0x41, 0x416], b"Noto Sans");
+        assert!(
+            matches!(&whole, Some(Event::Coverage(c, f)) if c == &[0x41, 0x416] && f == "Noto Sans"),
+            "{whole:?}"
+        );
+        let none = answer(0, &[], b"");
+        assert!(
+            matches!(&none, Some(Event::Coverage(c, f)) if c.is_empty() && f.is_empty()),
+            "{none:?}"
+        );
+        let malformed: [(&str, u32, &[u32], &[u8]); 6] = [
+            ("a count past the payload", 3, &[0x41, 0x42], b""),
+            ("a count of u32::MAX", u32::MAX, &[0x41], b""),
+            ("a surrogate", 1, &[0xd800], b""),
+            ("a codepoint past U+10FFFF", 1, &[0x11_0000], b""),
+            ("a font name that is not UTF-8", 1, &[0x41], b"Noto\xff"),
+            ("a font name cut inside a character", 0, &[], b"Noto \xd0"),
+        ];
+        for (what, count, codepoints, font) in malformed {
+            let e = answer(count, codepoints, font);
+            assert!(matches!(&e, Some(Event::Malformed(_))), "{what}: {e:?}");
+        }
+        let short = frame(&mut &raw_frame(FRAME_COVERAGE, &[1, 0])[..]);
+        assert!(
+            matches!(&short, Some(Event::Malformed(why)) if why.contains("without its count")),
+            "{short:?}"
+        );
+    }
+
     #[test]
     fn a_fill_stops_at_the_stores_limit_and_an_ask_past_it_evicts() {
         let a = set(CELL, &['A']);
