@@ -189,7 +189,11 @@ vtium also steps aside for systemd's rescue and emergency modes, as a getty does
 
 ### Turning vtium off for one boot
 
-To start a machine once without vtium, add `vtium.enable=0` to the kernel command line in your boot loader. vtium then exits as soon as it starts, before it touches the screen. Each VT's getty fallback gives you a login prompt. The key works with or without systemd. Without systemd, your init system chooses what runs on the VT after vtium exits. With systemd, you can instead put `systemd.unit=rescue.target` on the kernel command line. That boots into rescue mode, and vtium steps aside for it.
+To start a machine once without vtium, add `vtium.enable=0` to the kernel command line in your boot loader. vtium then exits as soon as it starts, before it touches the screen. Under the open policy, each VT's getty fallback gives you a login prompt.
+
+Under the closed policy, the key still turns vtium off, but no login prompt starts on vtium's VTs. A login prompt would accept any keyboard, which the closed policy forbids. If you run a closed vtium.conf, set a password on your boot loader, so that nobody else can edit the kernel command line. See [Turning vtium off for one boot](systemd.md#turning-vtium-off-for-one-boot) for what vtium does under each policy.
+
+The key also works with or without systemd. Without systemd, your init system chooses what runs on the VT after vtium exits. With systemd, you can instead put `systemd.unit=rescue.target` on the kernel command line. That boots into rescue mode, and vtium steps aside for it.
 
 **Note:** Masking vtium's unit, as with `systemd.mask=vtium@tty2.service`, does not turn vtium off on every VT. logind starts vtium through the template link `autovt@.service`. A mask does not reach a unit that systemd loads through a link. After the install, VT 1 also has no getty enabled. So a mask of `vtium@tty1.service` leaves VT 1 with no console.
 

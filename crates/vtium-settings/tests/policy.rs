@@ -11,7 +11,7 @@
 
 use vtium_settings::{
     Drops, FILE_MAX, LINE_MAX, Line, Policy, PolicyFault, PolicyLine, Problem, Reading, Rest, Runs,
-    Stated, Trusted, reading, resolve, split,
+    Stated, Trusted, policy, reading, resolve, split,
 };
 
 /// Whether line `n` of `text` is among the top-level lines vtium's own
@@ -427,5 +427,49 @@ fn a_policy_lines_error_escapes_what_it_quotes() {
             .unwrap_or_default();
         assert!(shown.contains(escaped), "{shown}");
         assert!(!shown.contains(hidden), "{shown}");
+    }
+}
+
+// ADR-1401 D9: `vtium.enable=0` reads the policy alone, from the lines
+// above the first section, and the policy it reads is the one the whole
+// reading gives, for each kind of policy line D7 names
+// covers: platform.heads.policy
+#[test]
+fn the_policy_alone_is_the_policy_the_whole_reading_gives() {
+    let filler = "# a comment\n".repeat(FILE_MAX / 12 + 1);
+    let cut_at_top = format!(
+        "version = 1\n{}policy = open\n",
+        "#\n".repeat(FILE_MAX / 2 - 11)
+    );
+    let cut_in_rules = format!("version = 1\npolicy = open\n{BODY}{filler}");
+    let too_long = format!("policy = open{}\n{BODY}", " ".repeat(LINE_MAX));
+    let cases: [(&[u8], Policy); 18] = [
+        (b"version = 1\npolicy = closed\n[head a]\n", Policy::Closed),
+        (b"version = 1\npolicy = open\n[head a]\n", Policy::Open),
+        (b"version = 1\n[head a]\n", Policy::Open),
+        (b"", Policy::Open),
+        (b"font-size = 12\n", Policy::Open),
+        (b"policy = closed\n", Policy::Closed),
+        (b"version = 1\npolicy = opne\n[head a]\n", Policy::Closed),
+        (b"Policy = closed\n[head a]\n", Policy::Closed),
+        (b"  policy\n[head a]\n", Policy::Closed),
+        (b"policies = open\n[head a]\n", Policy::Open),
+        (
+            b"policy = open\npolicy = closed\n[head a]\n",
+            Policy::Closed,
+        ),
+        (b"version = 1\n[head a]\npolicy = closed\n", Policy::Open),
+        (b"\xef\xbb\xbfpolicy = closed\n[head a]\n", Policy::Closed),
+        (b"policy = closed\r\n[head a]\r\n", Policy::Closed),
+        (b"policy = op\xffen\n[head a]\n", Policy::Closed),
+        (cut_at_top.as_bytes(), Policy::Closed),
+        (cut_in_rules.as_bytes(), Policy::Open),
+        (too_long.as_bytes(), Policy::Closed),
+    ];
+    assert!(cut_at_top.len() > FILE_MAX && cut_in_rules.len() > FILE_MAX);
+    for (bytes, expected) in cases {
+        let shown = String::from_utf8_lossy(bytes.get(..60).unwrap_or(bytes)).into_owned();
+        assert_eq!(policy(bytes), expected, "{shown:?}");
+        assert_eq!(reading(bytes).parsed.config.policy, expected, "{shown:?}");
     }
 }

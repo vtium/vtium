@@ -130,11 +130,12 @@ Under the closed policy, rules grant rights, as in "this keyboard belongs to the
 
 If vtium fails under the closed policy, its VT is left with no login prompt. vtium can end because it panics, because its VT hangs up, or because it cannot start a session. After such a failure, vtium's systemd unit normally starts a getty on the VT as a fallback. Under a closed policy the fallback skips the getty, because the kernel's login prompt that a getty shows would take any keyboard.
 
-The fallback belongs to vtium's unit alone, so the operator of a closed machine takes three more steps. See [systemd.md](../systemd.md) for details.
+The fallback belongs to vtium's unit alone, so the operator of a closed machine takes four more steps. See [systemd.md](../systemd.md) for details.
 
 - The operator disables any `getty@ttyN` that is enabled on vtium's VT. A later `systemctl start` could still put that getty there.
 - The operator masks the gettys on the other VTs. Once vtium has ended, the kernel acts on `Ctrl-Alt-F<n>` again, so the key could switch to one of those gettys.
 - The operator sets logind's `NAutoVTs=0` and `ReserveVT=0`. Then logind starts no other vtium on a VT when someone switches to it.
+- The operator sets a password on the boot loader. `vtium.enable=0` on the kernel command line turns vtium off for one boot. Under the closed policy, the fallback then skips the getty as well, so the key starts no login prompt. Other words on the kernel command line, such as `init=`, change what the machine runs at boot, and only a boot loader password keeps them out.
 
 When a login keeps ending as soon as it starts, vtium stops every head and keeps its VT. See [All screens stopped](#all-screens-stopped-a-session-kept-ending-as-soon-as-it-started) for details.
 
