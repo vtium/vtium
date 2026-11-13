@@ -127,6 +127,10 @@ pub enum Command {
     /// Whether the host takes XTWINOPS 8, as `allow-window-ops` sets it.
     WindowOps(bool),
     GridRequest,
+    /// Whether the host takes setBackground and setForeground, as
+    /// `allow-display-ops` sets it.
+    DisplayOps(bool),
+    DisplayRequest,
     Cell {
         width: u32,
         height: u32,
@@ -193,7 +197,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.9, in the order of its describe blocks:
+/// Every command of interface 1.10, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -264,6 +268,8 @@ pub const SPECS: &[Spec] = &[
     spec("font-request", Some("font-ops"), &[], true),
     spec("window-ops", Some("window-ops"), &["on"], true),
     spec("grid-request", Some("window-ops"), &[], true),
+    spec("display-ops", Some("display-ops"), &["on"], true),
+    spec("display-request", Some("display-ops"), &[], true),
 ];
 
 const fn spec(
@@ -603,6 +609,8 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "font-request" => Command::FontRequest,
         "window-ops" => Command::WindowOps(f.flag("on", Some(true))?),
         "grid-request" => Command::GridRequest,
+        "display-ops" => Command::DisplayOps(f.flag("on", Some(true))?),
+        "display-request" => Command::DisplayRequest,
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         "cell" => Command::Cell {
@@ -849,6 +857,9 @@ mod tests {
         assert_eq!(parse(b"window-ops"), Ok(Command::WindowOps(true)));
         assert_eq!(parse(b"window-ops;on=0"), Ok(Command::WindowOps(false)));
         assert_eq!(parse(b"grid-request"), Ok(Command::GridRequest));
+        assert_eq!(parse(b"display-ops"), Ok(Command::DisplayOps(true)));
+        assert_eq!(parse(b"display-ops;on=0"), Ok(Command::DisplayOps(false)));
+        assert_eq!(parse(b"display-request"), Ok(Command::DisplayRequest));
     }
 
     #[cfg(feature = "images")]

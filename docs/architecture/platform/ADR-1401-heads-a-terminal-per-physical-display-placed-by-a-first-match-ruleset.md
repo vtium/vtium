@@ -485,6 +485,12 @@ considered:
     said: "Accepted: the warning checks the script's letters from Unicode's Scripts.txt through a small locale-to-script table, and prints outside the exit status, so Install never refuses a file for it."
     via: the maintainer, in the steering session, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "A restart ends the hand-over"
+    via: the maintainer, in the steering session, 2026-11-13
+  - operator: aaronsb
+    said: "Free them, as at a VT switch"
+    via: the maintainer, in the steering session, 2026-11-13
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -1765,12 +1771,18 @@ A graphical program, such as a video player or a kiosk application, can take the
 - **Other heads on those cards pause.** A head pauses on each display that a given-up card drives: vtium draws nothing there, and the program decides what the display shows. A head keeps drawing on its displays that other cards drive. So a head with a display on another card goes on showing it, and a head that has every display on a given-up card is wholly paused.
 - **Focus.** The shown console of each wholly paused head, the sending head among them, gets a focus-out at setBackground and a focus-in when the hand-over ends (D5). A head that still draws on a display keeps the focus it had.
 - **Input to a wholly paused head.** vtium delivers no key or pointer event to the consoles of a wholly paused head while the hand-over lasts, as the C reference put its input to sleep. The program reads the input devices itself. vtium keeps watching for the VT keys, so `Ctrl-Alt-F<n>` still switches VTs. The roaming chord still moves roaming inputs to a head that is not paused.
-- **The hand-over ends** at a setForeground from the console that sent setBackground, when that console's session ends, and when vtium's VT is shown again after a switch away. vtium ignores setForeground from any other console. The VT switch ends a hand-over whose program quit without sending setForeground, so the screen never stays dark with no keys. vtium then takes the cards back through its wake-up, and its wake-up retry keeps trying while the program still holds a card (ADR-1000, "Replies and policy"). Each paused head draws again.
+- **The hand-over ends** at a setForeground from the console that sent setBackground, when that console's session ends, when vtium's VT is shown again after a switch away, and when vtium restarts. vtium ignores setForeground from any other console. The VT switch ends a hand-over whose program quit without sending setForeground, so the screen never stays dark with no keys. vtium then takes the cards back through its wake-up, and its wake-up retry keeps trying while the program still holds a card (ADR-1000, "Replies and policy"). Each paused head draws again. A vtium that restarts knows of no hand-over. It takes its displays back, through its wake-up retry while the program still holds a card, and sends keys to the console again. A setForeground that the console sends later ends no hand-over, and vtium ignores it.
 
 > Edited 2026-11-13, later: the maintainer confirmed the input rule above and added the VT switch as an end of the hand-over (`considered`, 2026-11-13). The input bullet ended: "This is the agent's call, which the maintainer has not yet confirmed." The bullet on the end read: "The hand-over ends at a setForeground from the console that sent setBackground, and when that console's session ends."
 
+- **On the GPU path, a wholly paused head frees its textures.** It gives back its textures and frames as at a VT release (ADR-1303 D9), and keeps only its context's compiled programs. When the hand-over ends, the head draws each display whole and makes them again.
+
+> Edited 2026-11-13, latest: the maintainer decided that a restart of vtium ends a hand-over, and that a wholly paused head on the GPU path frees its textures as at a VT switch (`considered`, 2026-11-13). The bullet on the end did not name a restart, and the bullet on the GPU path is new.
+
 - **While the cards are given up,** vtium lights no display on them. It records each hotplug on those cards and handles it when the hand-over ends (D8). Its wake-up retry does not run for a given-up card until the hand-over ends.
 - **Under a seat manager, setBackground does nothing.** Under logind or seatd, vtium ignores setBackground, logs that it did, and sends no focus report. vtium's session holds the seat, so neither seat manager would give a card that vtium dropped to a program in one of vtium's consoles. The whole-card hand-over happens only on the kernel's VT, in direct mode (ADR-1400 D3). Under a seat manager, a graphical program runs in a session of its own on another VT.
+
+> Note 2026-11-13: a program that takes the display opens the card only after vtium has let it go. A program that does not run as root becomes DRM master only by opening the card while no other program is its master. The kernel refuses a later `DRM_IOCTL_SET_MASTER` from such a program with `EACCES` (drivers/gpu/drm/drm_auth.c, `drm_master_check_perm`). vtium lets the card go a moment after setBackground, once the flip in flight on each display ends. So a program opens the card after vtium has let go, and opens it again if its first open did not make it master.
 
 ### For the operator's check
 

@@ -6,8 +6,8 @@ use core::fmt::Write;
 use std::path::{Path, PathBuf};
 
 use vtium_term::{
-    Age, Extent, Key, KeyEvent, Mods, MouseButton, MouseEvent, Palette, SB_SIZE_MAX,
-    TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
+    Age, DisplayRequest, Extent, Key, KeyEvent, Mods, MouseButton, MouseEvent, Palette,
+    SB_SIZE_MAX, TERMCAP_ENTRIES_MAX, TERMCAP_NAME_MAX, TERMCAP_VALUE_MAX, Termcap, Terminal,
 };
 
 use crate::command::{self, Button, Command, END, Event, How, INTRO, KeyAction};
@@ -316,6 +316,15 @@ impl<'a> Replay<'a> {
                     }
                     None => self.out.push_str("test grid-request none\n"),
                 }
+            }
+            Command::DisplayOps(on) => t.set_display_ops(on),
+            Command::DisplayRequest => {
+                let request = match t.take_display_request() {
+                    Some(DisplayRequest::Background) => "background",
+                    Some(DisplayRequest::Foreground) => "foreground",
+                    None => "none",
+                };
+                let _ = writeln!(self.out, "test display-request {request}");
             }
             Command::Version(text) => {
                 if t.set_version(&text).is_err() {

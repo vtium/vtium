@@ -657,6 +657,99 @@ mod tests {
         end(first);
     }
 
+    /// Types `text` on a keyboard that follows the focus.
+    fn typed(app: &mut App, text: &str) {
+        use vtium_platform::input::{InputEvent, KeyEvent, Mods};
+        for c in text.chars() {
+            let keysym = if c == '\r' { 0xff0d } else { u32::from(c) };
+            let key = KeyEvent {
+                keycode: 0,
+                ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
+                mods: Mods::empty(),
+                keysyms: vec![keysym],
+                codepoints: vec![(c != '\r').then_some(c)],
+                repeat: false,
+            };
+            app.input_event(InputEvent::Key(key), Instant::now());
+        }
+    }
+
+    // ADR-1401 D16, the maintainer's answer of 2026-11-13: a restart of
+    // vtium ends a hand-over of the display. The session that sent
+    // setBackground outlives the vtium it paused, and the next vtium, which
+    // knows of no hand-over, takes its display and sends keys to the
+    // console again. A setForeground the session sends then ends no
+    // hand-over, and vtium ignores it.
+    // covers: platform.hand-back
+    #[test]
+    fn a_restart_ends_a_hand_over() {
+        let (_dir, path, holder) = holder("hand-over");
+        let script = "echo fresh; while read a; do case \"$a\" in \
+                      bg) printf '\\033]setBackground\\007';; \
+                      fg) printf '\\033]setForeground\\007';; esac; \
+                      echo \"got:$a\"; done";
+        let client = hold::Client::connect(&path).unwrap();
+        let (mut lp, mut app) = seat(&[], script, |app| {
+            app.set_survival(Keeper::Hold(client), Vec::new());
+        });
+        assert!(until(&mut lp, &mut app, |a| shows(a, "fresh")));
+        typed(&mut app, "bg\r");
+        assert!(
+            until(&mut lp, &mut app, |a| a.wholly_paused(0)),
+            "the hand-over pauses the head"
+        );
+        typed(&mut app, "k\r");
+        let leader = app.heads()[0].pty().and_then(Pty::child_id).unwrap();
+        app.request_exit(crate::app::Exit::Signal);
+        assert!(until(&mut lp, &mut app, |a| a.finished().is_some()));
+        app.release_sessions();
+        drop(app);
+        drop(lp);
+        assert!(runs(leader), "the session outlives vtium");
+
+        let next = hold::Client::connect(&path).unwrap();
+        let masters = next.take().unwrap();
+        let (mut lp, mut app) = seat(&[], FRESH, |app| {
+            app.set_survival(Keeper::Hold(next), masters);
+        });
+        assert!(
+            app.heads()[0].pty().unwrap().adopted(),
+            "the session is back"
+        );
+        assert!(!app.wholly_paused(0), "the new vtium knows of no hand-over");
+        typed(&mut app, "x\r");
+        assert!(
+            until(&mut lp, &mut app, |a| shows(a, "got:x")),
+            "keys reach it"
+        );
+        typed(&mut app, "fg\r");
+        assert!(until(&mut lp, &mut app, |a| shows(a, "got:fg")));
+        typed(&mut app, "y\r");
+        assert!(
+            until(&mut lp, &mut app, |a| shows(a, "got:y")),
+            "the setForeground changed nothing"
+        );
+        assert!(
+            !shows(&app, "got:k"),
+            "the key typed while paused never arrived"
+        );
+        app.request_exit(crate::app::Exit::Signal);
+        assert!(until(&mut lp, &mut app, |a| a.finished().is_some()));
+        app.release_sessions();
+        drop(app);
+        drop(lp);
+        let last = hold::Client::connect(&path).unwrap();
+        for (name, _) in last.take().unwrap() {
+            last.forget(&name).unwrap();
+        }
+        drop(last);
+        assert!(holder.join().unwrap().is_ok());
+        end(leader);
+    }
+
     // No session inherits what systemd says to vtium alone, through the
     // seat as main builds it, with reset-env off.
     #[test]

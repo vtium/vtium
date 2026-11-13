@@ -64,6 +64,12 @@ impl Vt for FakeVt {
         self.logind
     }
 
+    /// A fake VT that stands in for a seat that libseat's logind backend
+    /// opened stands in for its seat manager too.
+    fn seat_manager(&self) -> bool {
+        self.logind
+    }
+
     fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
         self.events.drain(..)
     }

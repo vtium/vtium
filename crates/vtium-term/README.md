@@ -19,7 +19,8 @@ These parts are in place:
 - OSC 52's copy-out (vtium/vtium#39);
 - the colors a program sets, queries and resets (vtium/vtium#38);
 - OSC 8's links and OSC 133's prompt marks (vtium/vtium#40, ADR-1002);
-- OSC 50's font requests (vtium/vtium#126, ADR-1200).
+- OSC 50's font requests (vtium/vtium#126, ADR-1200);
+- setBackground and setForeground, kmscon's private OSC strings (vtium/vtium#36, ADR-1000).
 
 | Path | What it is |
 |---|---|
@@ -54,6 +55,7 @@ These parts are in place:
 | `src/terminal/inband.rs` | The in-band reports: the text area (mode 2048), the visibility (mode 2033, `CSI ? 998 n`) and the color scheme (mode 2031, `CSI ? 996 n`), and the luma rule that makes a background dark or light. |
 | `src/terminal/clipboard.rs` | OSC 52: the selection a program sets, its base64 decoded strictly, read as UTF-8 text with ill-formed bytes replaced, and held to `CLIPBOARD_MAX`, for the host to take. |
 | `src/terminal/font.rs` | OSC 50: a font set a program asks for by name, for the host to take, and the query, answered with the set the host names. |
+| `src/terminal/display.rs` | setBackground and setForeground: a program hands the display to a graphical program and takes it back, for the host to take. |
 | `src/terminal/input.rs` | What keys, the pointer, focus and pastes send the program: xterm's encodings, modifyOtherKeys and xterm's paste filtering. |
 | `src/termcap.rs` | XTGETTCAP's table, its bounds and its reply. |
 | `src/unicode.rs` | Each codepoint's cell width, and the UAX #29 grapheme cluster rules. |
@@ -530,6 +532,7 @@ The kitty keyboard protocol lets a program ask the terminal to send every key in
   - It takes what a program asked of the screen blank from `Terminal::take_blank_request`. It acts on that request while its configuration lets a program do so (vtium/vtium#79).
   - It turns XTWINOPS 8 on with `set_window_ops` under `allow-window-ops`. It takes a text area asked for from `Terminal::take_grid_request`. It feeds no more output while `grid_requested` holds.
   - It turns OSC 50 on with `set_font_ops` under `allow-font-ops`, and it names the set in use with `set_font_name`. It takes a set asked for from `Terminal::take_font_request`. It feeds no more output while `font_requested` holds (vtium/vtium#126).
+  - It turns setBackground and setForeground on with `set_display_ops` under `allow-display-ops`. It takes each request from `Terminal::take_display_request`, from every console, shown or hidden. It feeds no more output while `display_requested` holds (vtium/vtium#36).
   - It reports a key's press, repeat and release in `Key::event`. It reports `Mods::NUM` among a key's modifiers while NumLock is on. Mode 1035 and the kitty keyboard protocol read that modifier.
   - When it does not report a wheel step, it offers the step to `Terminal::alternate_scroll` before it scrolls its view. While mode 1007 is set, that call sends cursor keys on the alternate screen.
   - It takes a BEL from `Terminal::take_bell`, and it rings the VT's bell when its bell setting is on.

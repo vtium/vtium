@@ -588,6 +588,64 @@ fn a_head_on_the_gpu_path_gives_back_its_textures_while_the_vt_is_away() {
     assert!(!lines.iter().any(|l| l.contains("GPU path")), "{lines:#?}");
 }
 
+// ADR-1401 D16, the maintainer's answer of 2026-11-13: a head that a
+// hand-over of the display wholly pauses gives back its textures and
+// frames, as at a VT release (ADR-1303 D9), and keeps its compiled
+// programs. When the hand-over ends, the head draws its display whole on
+// the GPU path again, making what it gave back.
+// covers: platform.hand-back
+#[test]
+fn a_head_a_hand_over_pauses_gives_back_its_textures_until_it_ends() {
+    logged();
+    let gpu = Arc::new(TestGpu::default());
+    let dir = std::env::temp_dir().join(format!("vtium-gpu-hand-over-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let fg = dir.join("fg");
+    let _ = std::fs::remove_file(&fg);
+    let script = format!(
+        "echo ready; read a; printf '\\033]setBackground\\007'; \
+         while [ ! -e '{}' ]; do sleep 0.02; done; \
+         printf '\\033]setForeground\\007'; echo back; read b",
+        fg.display()
+    );
+    let mut s = Seat::boot(
+        &gpu,
+        None,
+        [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))],
+        &script,
+    );
+    assert!(s.until(BOUND, |a| head_shows(a, "console", "ready")));
+    s.settled();
+    assert!(
+        s.until(BOUND, |_| gpu.kept.load(SeqCst) == 1),
+        "on the GPU path"
+    );
+    let (textures, _, programs) = *gpu.live.lock().unwrap();
+    assert!(textures > 0 && programs > 0, "drawn in GL");
+    s.app.input_event(InputEvent::Key(char_key('\r')), now());
+    assert!(
+        s.until(BOUND, |_| gpu.releases.load(SeqCst) == 1),
+        "the paused head's GPU path released"
+    );
+    assert!(s.app.vt.is_active(), "with no VT switch");
+    assert_eq!(
+        *gpu.live.lock().unwrap(),
+        (0, 0, programs),
+        "the paused head holds only its programs"
+    );
+    let drawn = gpu.drawn.load(SeqCst);
+    std::fs::write(&fg, "").unwrap();
+    assert!(s.until(BOUND, |a| head_shows(a, "console", "back")));
+    assert!(
+        s.until(BOUND, |_| gpu.drawn.load(SeqCst) > drawn),
+        "drawn on the GPU path again"
+    );
+    let (textures_back, targets_back, programs_back) = *gpu.live.lock().unwrap();
+    assert!(textures_back > 0 && targets_back > 0, "made again");
+    assert_eq!(programs_back, programs, "no program compiled again");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 // vtium/vtium#283, ADR-1303 D10: a head whose GPU set-up hangs, as a
 // driver that hangs making its context would, holds neither the loop nor
 // another head. The loop takes the keys for both heads' sessions, and the

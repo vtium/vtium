@@ -120,9 +120,22 @@ pub trait Vt {
         false
     }
 
-    /// Puts the VT's modes back after a program handed the display back
-    /// (vtium/vtium#36).
+    /// Puts the VT's modes back after a program in one of vtium's
+    /// consoles held the display (ADR-1401 D16): the program may have
+    /// changed the VT's display mode, keyboard mode or switching while it
+    /// drew. The owner calls it when a hand-over of the display ends while
+    /// the VT is ours.
     fn restore(&mut self) -> io::Result<()>;
+
+    /// Whether a seat manager, logind or seatd, gives vtium the seat. A
+    /// seat manager gives a card that vtium lets go only to the session
+    /// that holds the seat, which is vtium's own, so a program in one of
+    /// vtium's consoles cannot take the card, and vtium ignores
+    /// setBackground (ADR-1401 D16). The kernel's VT and the fake VT give
+    /// the seat to no seat manager.
+    fn seat_manager(&self) -> bool {
+        false
+    }
 
     /// Rings the console's bell.
     fn bell(&mut self);

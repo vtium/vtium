@@ -22,6 +22,7 @@ mod blank;
 mod charset;
 mod clipboard;
 mod color;
+mod display;
 mod font;
 #[cfg(feature = "images")]
 mod images;
@@ -44,6 +45,7 @@ use crate::style::{Attrs, Style};
 use crate::termcap::Termcap;
 
 pub use blank::{BlankRequest, BlankTimeout};
+pub use display::DisplayRequest;
 pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
 pub use reply::VersionError;
@@ -173,6 +175,9 @@ struct HostSettings {
     font_name: Option<String>,
     /// XTWINOPS 8 is taken: the host's `allow-window-ops`.
     window_ops: bool,
+    /// setBackground and setForeground are taken: the host's
+    /// `allow-display-ops`.
+    display_ops: bool,
     /// vtium.conf's `text-direction`: the paragraph properties DECSTR and
     /// RIS return to, and mode 2501's initial state.
     #[cfg(feature = "bidi")]
@@ -249,6 +254,8 @@ struct State {
     font_request: Option<String>,
     /// The text area XTWINOPS 8 asked for last, until the host takes it.
     grid_request: Option<GridRequest>,
+    /// setBackground or setForeground, until the host takes it.
+    display_request: Option<DisplayRequest>,
     /// The text area and the visibility the in-band reports compare with.
     inband: Inband,
     /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
@@ -283,6 +290,7 @@ impl Terminal {
                 font_ops: false,
                 font_name: None,
                 window_ops: false,
+                display_ops: false,
                 #[cfg(feature = "bidi")]
                 text_direction: TextDirection::Ltr,
             },
@@ -306,6 +314,7 @@ impl Terminal {
             clipboard: None,
             font_request: None,
             grid_request: None,
+            display_request: None,
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
             color_stack: color::Stack::default(),
@@ -463,6 +472,28 @@ impl Terminal {
     /// so that a size report answers the new size.
     pub fn take_grid_request(&mut self) -> Option<GridRequest> {
         self.state.grid_request.take()
+    }
+
+    /// Takes setBackground and setForeground while `on`; off, as until
+    /// the host first turns it on, both are ignored
+    /// (`terminal/display.rs`).
+    pub fn set_display_ops(&mut self, on: bool) {
+        self.state.host.display_ops = on;
+        if !on {
+            self.state.display_request = None;
+        }
+    }
+
+    /// setBackground or setForeground waits for the host to take it.
+    pub fn display_requested(&self) -> bool {
+        self.state.display_request.is_some()
+    }
+
+    /// setBackground or setForeground, sent since the last call. The
+    /// input call returns after each one, so the host takes each request
+    /// before the terminal parses another.
+    pub fn take_display_request(&mut self) -> Option<DisplayRequest> {
+        self.state.display_request.take()
     }
 
     /// What a program asked of the screen blank with the Linux console's
@@ -1151,7 +1182,7 @@ impl Consumer for State {
             self.screen.shell_mark(args);
         } else if let Some(pt) = data.strip_prefix(b"50;") {
             self.osc_font(pt, end);
-        } else {
+        } else if !self.osc_display(data) {
             #[cfg(feature = "images")]
             if self.image_osc(data) {
                 return;

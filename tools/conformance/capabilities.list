@@ -48,6 +48,7 @@ mode-1042-bell                works   -     DEC-1042,ctl.bel               each 
 xtwinops-size-report          works   -     window.size-report             XTWINOPS 18 reports the text area in characters, the size the host made after a request
 xtwinops-resize               works   -     window.resize                  XTWINOPS 8 asks the host for a text area while window operations are on, and is ignored while they are off
 osc-50-font                   works   -     text.font-change               OSC 50 asks the host for a font set and its query names the set in use, while font operations are on
+kmscon-display                works   -     osc.kmscon-display             setBackground and setForeground each reach the host in order while display operations are on, and are ignored while they are off
 
 # input
 kitty-keyboard                works   -     input.kitty-keyboard           the kitty keyboard protocol: CSI ? u reports the flags in force

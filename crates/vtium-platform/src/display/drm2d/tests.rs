@@ -762,6 +762,32 @@ fn a_sleep_waits_for_the_pending_flip() {
     assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
+// A wake-up while a sleep still waits for its flip, as a hand-over of the
+// display that ends at once does (ADR-1401 D16), cancels the sleep: the
+// card keeps DRM master, wakes, and draws whole, and the flip's end lets
+// nothing go.
+// covers: platform.hand-back
+#[test]
+fn a_wake_up_while_a_sleep_waits_for_its_flip_keeps_the_card() {
+    let mut v = awake(one());
+    frame(&mut v, &[DOT]).unwrap();
+    v.sleep();
+    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
+    v.wake_up().unwrap();
+    assert!(events(&mut v).contains(&Event::Awake));
+    flip(&mut v);
+    assert!(
+        !events(&mut v).contains(&Event::Asleep),
+        "the flip's end lets nothing go"
+    );
+    assert!(v.card().state().master, "the card keeps DRM master");
+    // The wake-up's modeset ran once the flip ended, and draws once its own
+    // flip ends.
+    flip(&mut v);
+    assert!(!events(&mut v).contains(&Event::Asleep));
+    assert!(lends(&mut v, A), "the display takes frames");
+}
+
 // A VT release while a frame's flip is in flight waits for it even where
 // no plane shows anything, so the program that takes the card can commit
 // on that CRTC at once: the kernel refuses a commit that does not block
