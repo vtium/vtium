@@ -96,9 +96,30 @@ fn filter(f: Filter) -> platform::Filter {
 impl PlatformGl {
     /// The adapter over `gl`, with a new ledger of its limits.
     pub fn new(gl: platform::Context) -> PlatformGl {
+        PlatformGl::with_largest_texture(gl, u32::MAX)
+    }
+
+    /// The adapter over `gl`, its largest texture held to `side` pixels
+    /// where the context's own is larger: for the tests of a display wider
+    /// than the GPU's largest texture, which no GPU at hand reports. The
+    /// ledger then refuses a larger texture before it reaches GL, as the
+    /// context's own limit is refused (ADR-1303 D3, D9).
+    ///
+    /// The limit holds every texture, not only the upright frame's tiles:
+    /// the glyph pools, the decoration sprites and the ink textures too. At
+    /// a small `side` a frame can differ from the CPU path, or fail, because
+    /// one of those no longer fits, and the tiling is not the cause. A
+    /// review saw a frame differ at 90 pixels on an 84x50 display, and the
+    /// decoration sprites of an 8x16 cell need 64 pixels. OpenGL ES 3.0
+    /// guarantees a largest texture of at least 2048 pixels, so no
+    /// conformant GPU reaches these sizes. A test that holds the limit
+    /// small enough to tile a small display checks that the frame it draws
+    /// still matches the CPU path, as this module's test of a display past
+    /// the largest texture does at 64.
+    pub(crate) fn with_largest_texture(gl: platform::Context, side: u32) -> PlatformGl {
         let l = gl.limits();
         let limits = Limits {
-            texture: l.texture,
+            texture: l.texture.min(side),
             renderbuffer: l.renderbuffer,
             viewport: Size::new(l.viewport.0, l.viewport.1),
             fragment_highp: l.fragment_highp,
@@ -203,8 +224,19 @@ impl Gl for PlatformGl {
     fn import_buffer(&mut self, buffer: &DmaBuf) -> Result<DrawTarget, Error> {
         let (width, height) = buffer.size();
         let (gl, mut met) = (&mut self.gl, Met::default());
-        let made = self.ledger.import_buffer(Size::new(width, height), || {
+        let made = self.ledger.buffer(Size::new(width, height), || {
             gl.import(buffer).map_err(|e| met.keep(e))
+        });
+        self.settle(made, met)
+    }
+
+    /// An RGBA8 renderbuffer in the context's memory, with its framebuffer
+    /// (vtium-platform's `Context::create_buffer`).
+    fn create_buffer(&mut self, size: Size) -> Result<DrawTarget, Error> {
+        let (gl, mut met) = (&mut self.gl, Met::default());
+        let made = self.ledger.buffer(size, || {
+            gl.create_buffer(size.width, size.height)
+                .map_err(|e| met.keep(e))
         });
         self.settle(made, met)
     }
@@ -214,7 +246,7 @@ impl Gl for PlatformGl {
         let freed = self.ledger.free_target(target, |info, texture| {
             match texture {
                 Some(t) => gl.free_frame(info.name, t.name),
-                None => gl.free_import(info.name),
+                None => gl.free_buffer(info.name),
             }
             .map_err(|e| met.keep(e))
         });
@@ -371,10 +403,14 @@ mod tests {
     use super::*;
 
     fn software() -> PlatformGl {
+        PlatformGl::new(llvmpipe())
+    }
+
+    fn llvmpipe() -> platform::Context {
         match platform::Context::software() {
             Ok(gl) => {
                 assert!(gl.renderer().contains("llvmpipe"), "{}", gl.renderer());
-                PlatformGl::new(gl)
+                gl
             }
             Err(e) => panic!(
                 "{e}. The GPU path's tests draw on Mesa's llvmpipe through EGL: install \
@@ -638,6 +674,80 @@ void main() {
         }
         gl.free_target(target).unwrap();
         pipeline.free(&mut gl).unwrap();
+        gl.check(Batch::Frame).unwrap();
+    }
+
+    /// A display wider and taller than the GPU's largest texture draws on
+    /// the GPU path, byte for byte as the CPU path draws it (ADR-1303 D3,
+    /// D9). The adapter holds llvmpipe's largest texture to 64 pixels, so
+    /// the 148x83 display's upright frame is six tiles. The frame is drawn
+    /// into a buffer in GL's memory, as a head draws it for the staging
+    /// copy, which the largest texture does not bound. Text crosses the
+    /// tiles' seams, and the second frame draws into a buffer one frame
+    /// old.
+    #[test]
+    fn a_display_past_the_largest_texture_draws_as_the_cpu_path_does() {
+        use vtium_font::{Font, Unifont};
+        use vtium_render::{Canvas, Config as RenderConfig, DrawState, Renderer};
+        use vtium_term::{Age, Terminal};
+
+        let size = Size::new(148, 83);
+        let mut gl = PlatformGl::with_largest_texture(llvmpipe(), 64);
+        assert_eq!(gl.limits().texture, 64);
+        assert_eq!(gl.create_frame(size).unwrap_err().kind, ErrorKind::Limit);
+        let mut term = Terminal::new(18, 5, 0);
+        let font = || Font::new(Unifont::new(16));
+        let mut cpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+        let mut gpu = Renderer::new(font(), size.width, size.height, RenderConfig::default());
+        let mut canvas = Canvas::new(size.width, size.height, 0);
+        let mut pipeline = Pipeline::new(&mut gl, size, Config::default()).unwrap();
+        let target = gl.create_buffer(size).unwrap();
+        let (textures, _, _) = gl.ledger.live();
+        assert!(textures >= 6, "six tiles: {textures} textures");
+        let mut out = vec![0u8; (size.width * size.height * 4) as usize];
+        let mut since = Age::NEVER;
+        for (age, bytes) in [
+            (
+                0,
+                &b"\x1b[31mthe seams\x1b[42m of tiles\r\n\x1b[0;7mcross here\r\n\r\n\x1b[1;34mat x and y = 64"[..],
+            ),
+            (1, &b"\x1b[4H\x1b[33;44mand again \x1b[4mhere"[..]),
+        ] {
+            let mut rest = bytes;
+            while !rest.is_empty() {
+                let taken = term.input(rest);
+                assert!(taken > 0, "the terminal stopped taking input");
+                rest = &rest[taken..];
+            }
+            let state = DrawState {
+                background: term.palette().bg(),
+                ..DrawState::default()
+            };
+            let frame = term.screen().frame(term.palette(), since);
+            cpu.draw(&frame, &mut canvas, age, &state);
+            gpu.draw_gpu(&mut gl, &mut pipeline, &frame, &target, age, &state, &[])
+                .unwrap();
+            since = term.screen_mut().checkpoint();
+            gl.read(&target, size.rect(), &mut out).unwrap();
+            let differ: Vec<(u32, u32)> = (0..size.height)
+                .flat_map(|y| (0..size.width).map(move |x| (x, y)))
+                .filter(|&(x, y)| {
+                    let i = ((y * size.width + x) * 4) as usize;
+                    let [r, g, b] = [out[i], out[i + 1], out[i + 2]];
+                    let gpu = u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b);
+                    canvas.pixel(x, y) != Some(gpu)
+                })
+                .collect();
+            assert!(
+                differ.is_empty(),
+                "frame at age {age}: {} pixels differ, the first at {:?}",
+                differ.len(),
+                differ.first()
+            );
+        }
+        gl.free_target(target).unwrap();
+        pipeline.free(&mut gl).unwrap();
+        assert_eq!(gl.ledger.live(), (0, 0, 0));
         gl.check(Batch::Frame).unwrap();
     }
 

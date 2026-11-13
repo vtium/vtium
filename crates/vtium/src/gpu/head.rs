@@ -3,12 +3,16 @@
 //! A head whose `hwaccel` is on makes one GL context on its render thread,
 //! on the render node of the card that drives its first display, and keeps
 //! a [`Pipeline`] for each of its displays. Each frame is drawn through the
-//! pipeline into a frame of the display's size kept in GL, and the part of
-//! it the display's buffer lacks at its age is read back into that buffer,
-//! which the display lent in memory, as the CPU path's buffer is. That read
-//! is the staging copy ADR-1401 D2 names for a display whose buffer the
-//! context does not import; every display takes it until the displays lend
-//! their buffers as dma-bufs.
+//! pipeline into a frame of the display's size kept in GL, the staging
+//! frame, and the part of it the display's buffer lacks at its age is read
+//! back into that buffer, which the display lent in memory, as the CPU
+//! path's buffer is. That read is the staging copy ADR-1401 D2 names for a
+//! display whose buffer the context does not import; every display takes
+//! it until the displays lend their buffers as dma-bufs. The staging frame
+//! is a renderbuffer, which the GPU's largest renderbuffer bounds as it
+//! bounds a display's own buffer, so a display wider or taller than the
+//! GPU's largest texture draws on the GPU path, its upright frame in tiles
+//! (ADR-1303 D3).
 //!
 //! A set-up that fails at any step leaves the head on the CPU path, and the
 //! loop logs the step. During a run the failures are sorted by their kind
@@ -21,9 +25,11 @@
 //! A display the GPU path cannot set up at its size for any other reason,
 //! such as a size past the GPU's limits or a shader that does not compile,
 //! holds the whole head on the CPU path while the display keeps that size:
-//! the head keeps its context and each other display's pipeline, and draws
-//! on the GPU path again once the display takes a size the GPU path sets up
-//! or leaves the head. The hold clears every display's window of frames.
+//! the head keeps its context and each other display's pipeline with its
+//! programs, gives back every display's textures and frames as at a VT
+//! release, and draws on the GPU path again once the display takes a size
+//! the GPU path sets up or leaves the head. The hold clears every display's
+//! window of frames.
 //! After three trips back in a run, the next hold ends the GPU path for the
 //! head until vtium restarts ([`TripsBack`]).
 //!
@@ -33,11 +39,12 @@
 //! sets the display up: when the display appears and at each change of its
 //! size, since a mode change that keeps the size meets the same limits.
 //!
-//! When the head's VT is released, [`HeadGpu::release`] gives back what each
-//! display holds in GL, its glyph and picture textures, its upright frame
-//! and its staging frame, and keeps the context and the compiled programs,
-//! so a console in the background holds no textures. The next frame makes
-//! them again and draws whole.
+//! When the head's VT is released ([`HeadGpu::release`]), and when a display
+//! holds the head on the CPU path, each display gives back what it holds in
+//! GL, its glyph and picture textures, its upright frame and its staging
+//! frame, and keeps the context and the compiled programs, so a console in
+//! the background or on the CPU path holds no textures. The next frame on
+//! the GPU path makes them again and draws whole.
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -58,8 +65,9 @@ use crate::term::OnGpuFrame;
 /// that each frame is presented into and read back from.
 struct Display {
     pipeline: Pipeline,
-    /// The frame in GL that each frame is presented into, made at the
-    /// display's set-up and again at the first frame after a release.
+    /// The buffer in GL's memory that each frame is presented into and
+    /// read back from, made at the display's set-up and again at the first
+    /// frame after a release.
     staging: Option<DrawTarget>,
 }
 
@@ -146,8 +154,12 @@ impl HeadGpu {
             GpuSource::Software | GpuSource::Test(_) => platform::Context::software(),
         };
         let context = made.map_err(|e| e.to_string())?;
+        let largest_texture = test
+            .as_ref()
+            .and_then(|t| t.largest_texture.lock().ok().and_then(|side| *side))
+            .unwrap_or(u32::MAX);
         Ok(HeadGpu {
-            gl: PlatformGl::new(context),
+            gl: PlatformGl::with_largest_texture(context, largest_texture),
             displays: BTreeMap::new(),
             read: Vec::new(),
             pixels: Vec::new(),
@@ -191,17 +203,23 @@ impl HeadGpu {
     /// while another session has the VT (ADR-1303 D9). The next frame of
     /// each display makes them again and draws whole.
     pub fn release(&mut self) {
+        self.give_back();
+        if let Some(test) = &self.test {
+            test.releases
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+        self.count();
+    }
+
+    /// Each display gives back its textures and frames and keeps its
+    /// programs, as at a VT release, and the read back's memory goes too.
+    fn give_back(&mut self) {
         for display in self.displays.values_mut() {
             display.release(&mut self.gl);
         }
         self.read = Vec::new();
         self.pixels = Vec::new();
         self.take_pipeline_notes();
-        if let Some(test) = &self.test {
-            test.releases
-                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }
-        self.count();
     }
 
     /// The notes for the log since the last call: the pipelines' notes,
@@ -291,8 +309,7 @@ impl HeadGpu {
             return None;
         }
         if let Err(e) = self.set_up(key, size, orientation) {
-            self.count();
-            return match e.kind {
+            let said = match e.kind {
                 ErrorKind::Gl | ErrorKind::OutOfMemory | ErrorKind::ContextLost => {
                     Some(self.failed(key, &e))
                 }
@@ -305,6 +322,8 @@ impl HeadGpu {
                 // which every display takes already
                 ErrorKind::Import => self.hold(key, size, &e),
             };
+            self.count();
+            return said;
         }
         let lose_at_read = self.raise_a_queued_fault(key);
         let drawn = self.draw_through(key, renderer, frame, target, age, state, lose_at_read);
@@ -325,15 +344,18 @@ impl HeadGpu {
     /// The display `key` cannot be set up at `size`, for `e`: it holds the
     /// whole head on the CPU path while it keeps that size, and the frame
     /// says so. The CPU path draws the frames in between, so the hold
-    /// clears every display's window of frames. Once the head has taken
-    /// its trips back, the hold instead ends the GPU path, and the frame
-    /// says nothing: the loop logs only why the path ended.
+    /// clears every display's window of frames, and every display gives
+    /// back its textures and frames and keeps its programs, so the head
+    /// holds no textures while the CPU path draws (ADR-1303 D9). Once the
+    /// head has taken its trips back, the hold instead ends the GPU path,
+    /// and the frame says nothing: the loop logs only why the path ended.
     fn hold(&mut self, key: &(PathBuf, DisplayId), size: Size, e: &Error) -> Option<OnGpuFrame> {
         self.back = false;
         self.frames.clear();
         match self.trips.held() {
             Hold::WhileItsSizeLasts => {
                 self.refused = Some((key.clone(), size));
+                self.give_back();
                 Some(OnGpuFrame::Refused(e.to_string()))
             }
             Hold::UntilRestart => {
@@ -401,10 +423,12 @@ impl HeadGpu {
 
     /// Makes the display `key`'s pipeline and staging frame at `size` and
     /// `orientation`, unless it has them at that size; a display whose size
-    /// changed gives up its old ones first, and a display released with its
-    /// VT makes its staging frame again. A display whose buffer passes the
-    /// GPU's largest renderbuffer or viewport is refused before anything is
-    /// made (ADR-1303 D9).
+    /// changed gives up its old ones first, and a display that gave its
+    /// frames back makes its staging frame again. A display whose buffer
+    /// passes the GPU's largest renderbuffer or viewport is refused before
+    /// anything is made (ADR-1303 D9). The staging frame is a buffer in GL's
+    /// memory, held to the same limits, so the GPU's largest texture refuses
+    /// no display: the pipeline holds the upright frame in tiles.
     fn set_up(
         &mut self,
         key: &(PathBuf, DisplayId),
@@ -414,7 +438,7 @@ impl HeadGpu {
         match self.displays.get_mut(key) {
             Some(d) if d.pipeline.size() == size => {
                 if d.staging.is_none() {
-                    d.staging = Some(self.gl.create_frame(size)?);
+                    d.staging = Some(self.gl.create_buffer(size)?);
                 }
                 return Ok(());
             }
@@ -472,7 +496,7 @@ impl HeadGpu {
             }
         }
         let pipeline = Pipeline::turned(gl, size, orientation, Config::default())?;
-        let staging = match gl.create_frame(size) {
+        let staging = match gl.create_buffer(size) {
             Ok(t) => t,
             Err(err) => {
                 let _ = pipeline.free(gl);

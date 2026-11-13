@@ -133,6 +133,36 @@ fn a_display_buffer_must_fit_the_largest_renderbuffer_and_viewport() {
     }
 }
 
+// ADR-1303 D9: the frame a head draws into for the staging copy is a
+// buffer in GL's memory, held to the largest renderbuffer and viewport as
+// a display buffer is, so a display wider than the largest texture still
+// draws on the GPU path
+#[test]
+fn a_buffer_in_gl_memory_fits_the_largest_renderbuffer_not_the_largest_texture() {
+    let mut gl = StandIn::with_limits(Limits {
+        texture: 64,
+        renderbuffer: 256,
+        viewport: Size::new(256, 128),
+        ..StandIn::LIMITS
+    });
+    let wide = Size::new(200, 40);
+    assert_eq!(gl.create_frame(wide).unwrap_err().kind, ErrorKind::Limit);
+    for size in [Size::new(257, 8), Size::new(8, 129), Size::new(0, 8)] {
+        assert_eq!(
+            gl.create_buffer(size).unwrap_err().kind,
+            ErrorKind::Limit,
+            "{size:?}"
+        );
+    }
+    let buffer = gl.create_buffer(wide).unwrap();
+    assert_eq!(buffer.size(), wide);
+    assert!(buffer.texture().is_none(), "no texture to sample");
+    assert_eq!(gl.live(), (0, 1, 0));
+    gl.free_target(buffer).unwrap();
+    assert_eq!(gl.live(), (0, 0, 0));
+    assert_eq!(gl.calls(), &[Call::CreateBuffer(wide), Call::FreeTarget]);
+}
+
 #[test]
 fn a_program_declares_each_input_it_lists() {
     let mut gl = StandIn::new();
@@ -414,6 +444,7 @@ fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
     let cases = [
         (Op::CreateTexture, ErrorKind::OutOfMemory),
         (Op::CreateFrame, ErrorKind::OutOfMemory),
+        (Op::CreateBuffer, ErrorKind::OutOfMemory),
         (Op::ImportBuffer, ErrorKind::Import),
         (Op::Compile, ErrorKind::Compile),
     ];
@@ -423,6 +454,7 @@ fn the_stand_in_fails_the_next_call_of_a_kind_as_a_driver_would() {
         let call = |gl: &mut StandIn| match op {
             Op::CreateTexture => gl.create_texture(Format::R8, size).map(|_| ()),
             Op::CreateFrame => gl.create_frame(size).map(|_| ()),
+            Op::CreateBuffer => gl.create_buffer(size).map(|_| ()),
             Op::ImportBuffer => gl.import_buffer(&size).map(|_| ()),
             Op::Compile => gl.compile(&source(&INPUTS)).map(|_| ()),
             Op::Wait => unreachable!("a wait needs a fence: below"),
