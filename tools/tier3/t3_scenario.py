@@ -380,10 +380,10 @@ SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-two-vts", "sysvinit-no-udev",
 # neither catches nor blocks SIGRTMIN+4, so busybox-power-off judges
 # docs/systemd.md's case for such an init: vtium warns at its start, sends
 # the signal on key-power-off, the kernel drops it, and the guest stays up
-# (t3_power.STAYS_UP). It runs only when named.
+# (t3_power.STAYS_UP).
 VARIANTS["busybox-power-off"] = dict(POWER, guest="sysvinit", init="busybox",
                                      power=["power-off-busybox"])
-BUSYBOX_VARIANTS = ["busybox-power-off"]
+SYSVINIT_VARIANTS.append("busybox-power-off")
 
 # Displays and keyboards beyond one of each (t3_devices), on the minspec
 # machine at 640x480 in the 8x16 test font, judged by vtium's own goldens,

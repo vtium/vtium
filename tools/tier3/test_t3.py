@@ -2100,10 +2100,8 @@ class SysvinitTest(unittest.TestCase):
                               r"(.*)", make, re.M).group(1)
         self.assertEqual(nosystemd, "$(or $(VARIANTS),%s)" % " ".join(
             t3_scenario.SYSVINIT_VARIANTS))
-        # The guest's busybox boot (BusyboxTest) runs only when named.
         sysvinit = [n for n, v in t3_scenario.VARIANTS.items() if v.get("guest") == "sysvinit"]
-        self.assertEqual(sorted(sysvinit), sorted(t3_scenario.SYSVINIT_VARIANTS
-                                                  + t3_scenario.BUSYBOX_VARIANTS))
+        self.assertEqual(sorted(sysvinit), sorted(t3_scenario.SYSVINIT_VARIANTS))
         for name in sysvinit:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
@@ -2307,14 +2305,14 @@ class BusyboxTest(unittest.TestCase):
 
     def test_variant(self):
         # The power variants' machine and configuration, on the guest
-        # without systemd booted with busybox init, run only when named.
+        # without systemd booted with busybox init, in make
+        # tier3-nosystemd's run (SysvinitTest.test_variants).
         v = t3_scenario.VARIANTS["busybox-power-off"]
-        self.assertEqual(t3_scenario.BUSYBOX_VARIANTS, ["busybox-power-off"])
         self.assertEqual(v, dict(t3_scenario.POWER, guest="sysvinit", init="busybox",
                                  power=["power-off-busybox"]))
         self.assertEqual(t3_scenario.base_of("busybox-power-off"),
                          (t3_common.BASE_SYSVINIT, "tier3-image-nosystemd"))
-        self.assertNotIn("busybox-power-off", t3_scenario.SYSVINIT_VARIANTS)
+        self.assertIn("busybox-power-off", t3_scenario.SYSVINIT_VARIANTS)
 
     def test_disc(self):
         # The busybox variant's disc carries the grub.cfg that picks the
