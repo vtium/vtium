@@ -3262,6 +3262,7 @@ class HeadsTest(unittest.TestCase):
         "heads-kiosk": ["cjk", "kiosk"],
         "heads-closed-nodisplay": ["display-held", "getty-fallback"],
         "heads-open-nodisplay": ["display-exit"],
+        "heads-open-away": ["display-away"],
         "heads-survive": ["session-survives"],
     }
 
@@ -3300,6 +3301,13 @@ class HeadsTest(unittest.TestCase):
             self.assertEqual(t3_heads.display_wait(v), 5)
         self.assertEqual(t3_scenario.VARIANTS["heads-open-nodisplay"]["heads"],
                          "docs/heads/default.conf")
+        # the display-away guest has no display device either, so vtium's
+        # first frame never comes, and waits 15 s under the shipped open file
+        away = t3_scenario.VARIANTS["heads-open-away"]
+        self.assertIsNone(away["device"])
+        self.assertIsNone(away["renderer"])
+        self.assertEqual(t3_heads.display_wait(away), 15)
+        self.assertEqual((away["heads"], away["policy"]), ("docs/heads/default.conf", "open"))
         self.assertEqual(t3_scenario.VARIANTS["heads-off"]["heads"], "docs/heads/off.conf")
 
     def test_every_check_runs(self):
@@ -3504,7 +3512,9 @@ class HeadsTest(unittest.TestCase):
                     "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
                     "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id",
                     "vts 7", "Vts", "vts;id", "seat-wait 4", "Seat-wait", "seat-wait;id",
-                    "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release"]
+                    "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release",
+                    "chvt", "chvt 3", "chvt 12", "Chvt 1", "chvt 1;id", "chvt 2 now",
+                    "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -3996,6 +4006,89 @@ class HeadsTest(unittest.TestCase):
         self.assertTrue(t3_heads.judge_exit(t3_heads.parse_state(agent_state(pid=None)),
                                             t3_heads.parse_state(agent_state(**ran)), 5, 5)
                         .startswith("vtium was not running when the check read"))
+
+    def test_display_away(self):
+        # The agent's answers to chvt 1 and chvt 2 on a guest whose vtium
+        # 400 started 3 s before the switch away, its state before, and its
+        # state once vtium is older than the 15 s wait and 2 s more.
+        first = t3_heads.parse_state(agent_state(pid=(400, 1.0)))
+        away = t3_heads.parse_switch(["shown 1", "vtium 400 3.0"])
+        self.assertEqual(away, {"shown": 1, "vtium": (400, 3.0)})
+        self.assertIsNone(t3_heads.judge_switch(first, away, 1, 15))
+        refused = t3_heads.parse_switch([
+            "refused: chvt 1 failed or did not return within 10 s, so VT 1 may not be shown",
+            "shown 2", "vtium 400 13.0"])
+        wrong = {
+            "refused": (refused, "the agent could not switch to VT 1: chvt 1 failed"),
+            "not shown": ({"shown": 2, "vtium": (400, 3.0)},
+                          "after the switch to VT 1 the VT shown is 2"),
+            "vtium gone": ({"shown": 1, "vtium": None}, "after the switch to VT 1 vtium on"),
+            "another vtium": ({"shown": 1, "vtium": (500, 0.5)},
+                              "after the switch to VT 1 vtium on tty2 is (500, 0.5)"),
+            "too late": ({"shown": 1, "vtium": (400, 15.2)}, "VT 1 was shown 15.2 s after"),
+        }
+        for name, (switch, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_switch(first, switch, 1, 15)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # the switch back has no wait to fall within
+        self.assertIsNone(t3_heads.judge_switch(
+            first, t3_heads.parse_switch(["shown 2", "vtium 400 30.0"]), 2))
+        # VT 1 shown, vtium kept running past the wait
+        kept = t3_heads.parse_state(agent_state(pid=(400, 17.5), fg=1))
+        self.assertIsNone(t3_heads.judge_kept(first, kept, "", 15))
+        wrong = {
+            "exited": (agent_state(vtium=("failed", "exit-code"), pid=None, fg=1), "",
+                       "vtium does not run on tty2 while VT 1 is shown"),
+            "restarted": (agent_state(pid=(500, 1.2), fg=1), "", "vtium's PID changed"),
+            "too soon": (agent_state(pid=(400, 16.0), fg=1), "", "vtium was read 16.0 s"),
+            "back on 2": (agent_state(pid=(400, 17.5), fg=2), "", "the VT shown is 2, not 1"),
+            # the defect the case covers: the wait ran out while VT 1 was shown
+            "gave up": (agent_state(pid=(400, 17.5), fg=1),
+                        "[   18.2] vtium[400]: no display appeared within 15 s "
+                        "(display-wait), so vtium exits\n",
+                        "vtium logged 'no display appeared within 15 s' while VT 1"),
+        }
+        for name, (lines, serial, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_kept(first, t3_heads.parse_state(lines), serial, 15)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # back on VT 2: vtium waits the full 15 s from the switch, by the
+        # guest's monotonic clock, which the agent reads before chvt 2 and
+        # the journal stamps vtium's line with, matched to vtium's PID. The
+        # journal's stamp of the agent's own line, 0.5 s late here, is not
+        # the time read.
+        def log(back, gone, pid=400, wait=15):
+            out = ["[   20.100000] systemd[1]: Started something else."]
+            if back is not None:
+                out.append("[ %10.6f] t3-agent[300]: switching to VT 2 at %.6f s" % (
+                    back + 0.5, back))
+            if gone is not None:
+                out.append("[ %10.6f] vtium[%d]: no display appeared within %d s "
+                           "(display-wait), so vtium exits" % (gone, pid, wait))
+            return "\r\n".join(out) + "\r\n"
+        self.assertEqual(t3_heads.judge_return(log(21.0, 36.004), 400, 15), (None, 15))
+        wrong = {
+            "no switch line": (log(None, 36.0), "the serial log has no line of the agent's"),
+            "no line": (log(21.0, None), "vtium 400 logged no line that no display"),
+            "another vtium": (log(21.0, 36.0, pid=500), "vtium 400 logged no line"),
+            "another wait": (log(21.0, 31.0, wait=10), "vtium gave up after 10 s, not"),
+            # a wait that kept the 3 s it ran before the switch away
+            "not in full": (log(21.0, 33.0), "vtium gave up 12.000 s after the switch back"),
+            "just short": (log(21.0, 35.999), "vtium gave up 14.999 s after"),
+        }
+        for name, (serial, why) in wrong.items():
+            with self.subTest(name):
+                got, _ = t3_heads.judge_return(serial, 400, 15)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # an earlier switch to VT 1 is not the switch back
+        self.assertTrue(t3_heads.judge_return(
+            "[    4.000000] t3-agent[300]: switching to VT 1 at 3.990000 s\n"
+            + log(None, 19.0), 400, 15)[0]
+            .startswith("the serial log has no line of the agent's switch to VT 2"))
 
     def test_kiosk(self):
         def st(xhci, keys=None, **kw):

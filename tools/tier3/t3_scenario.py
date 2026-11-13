@@ -481,7 +481,12 @@ VARIANTS["showcase-1920x1080"] = {
 # heads-partly-open is the open control of the closed variants' fallback:
 # there the getty does start. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
-# policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf). The kiosk
+# policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf).
+# heads-open-away is the open one at a display-wait of 15 s
+# (guest/vtium-nodisplay-away.conf), whose agent takes vtium's VT away
+# before the wait runs out and gives it back (t3_heads CHECKS
+# "display-away"): with no display, vtium's first frame never comes, so
+# the switch always falls before it. The kiosk
 # switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
 # its session, and the kiosk check presses them itself. heads-policy-typo's
 # file holds a policy line vtium cannot read ("policy_line"), which makes
@@ -528,6 +533,8 @@ VARIANTS.update({
                                    failures=["kill"]),
     "heads-open-nodisplay": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
                                  checks=["display-exit"]),
+    "heads-open-away": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
+                            conf="vtium-nodisplay-away.conf", checks=["display-away"]),
     "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
                           policy="closed", vt_switch=False, checks=["session-survives"]),
 })
@@ -548,7 +555,8 @@ VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
 SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
-                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
+                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-open-away",
+                 "heads-survive"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
