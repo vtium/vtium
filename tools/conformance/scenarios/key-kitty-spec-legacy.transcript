@@ -14,7 +14,7 @@
 > key i mods=ctrl+alt
 < reply "\e\t"
 > cmd key;sym=49;ascii=49;unicode=49;unshifted=69;base=69;mods=5
-< reply "\t"
+< reply "\e[105;6u"
 > key 3 mods=ctrl
 < reply "\e"
 > key 3 mods=ctrl+alt
@@ -24,7 +24,7 @@
 > cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=9
 < reply "\e#"
 > cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=5
-< reply "#"
+< reply "\e[51;6u"
 > key semicolon mods=ctrl
 < reply ";"
 > key semicolon mods=alt
@@ -32,11 +32,11 @@
 > cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=9
 < reply "\e:"
 > cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=5
-< reply ":"
+< reply "\e[59;6u"
 > key a mods=logo
-< reply "a"
+< reply "\e[97;9u"
 > key A mods=shift+ctrl+alt
-< reply "\e\x01"
+< reply "\e[97;8u"
 > key 2 mods=ctrl
 < reply "\x00"
 > key 4 mods=ctrl
@@ -70,19 +70,19 @@
 > key period mods=ctrl
 < reply "."
 > key grave mods=ctrl
-< reply "\x00"
+< reply "`"
 > key Return mods=ctrl
 < reply "\r"
 > key Return mods=alt
 < reply "\e\r"
 > key Return mods=logo
-< reply "\r"
+< reply "\e[13;9u"
 > key Escape mods=ctrl
 < reply "\e"
 > key Escape mods=alt
 < reply "\e\e"
 > key Escape mods=logo
-< reply "\e"
+< reply "\e[27;9u"
 > key BackSpace
 < reply "\b"
 > key BackSpace mods=shift
@@ -90,7 +90,9 @@
 > key BackSpace mods=alt
 < reply "\e\b"
 > key BackSpace mods=ctrl
-< reply "\b"
+< reply "\x7f"
+> key BackSpace mods=ctrl+alt
+< reply "\e\x7f"
 > key Tab mods=alt
 < reply "\e\t"
 > key Tab mods=ctrl+alt
@@ -100,7 +102,7 @@
 > key ISO_Left_Tab mods=shift+ctrl
 < reply "\e[Z"
 > key ISO_Left_Tab mods=shift+alt
-< reply "\e[Z"
+< reply "\e\e[Z"
 > key space mods=shift
 < reply " "
 > key space mods=ctrl
@@ -129,4 +131,4 @@
 > key F1 mods=ctrl
 < reply "\e[1;5P"
 > key F3 mods=shift
-< reply "\e[1;2R"
+< reply "\e[13;2~"

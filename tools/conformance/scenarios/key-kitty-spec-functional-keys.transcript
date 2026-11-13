@@ -58,7 +58,7 @@
 < reply "\e[57417u"
 > key KP_Page_Down mods=shift
 < reply "\e[57422;2u"
-> key KP_Separator
+> key KP_Separator char=","
 < reply ","
 > key KP_Begin mods=ctrl
 < reply "\e[57427;5u"

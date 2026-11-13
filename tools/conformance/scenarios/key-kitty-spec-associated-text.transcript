@@ -18,7 +18,7 @@
 > key a mods=alt
 < reply "\e[97;3u"
 > cmd key;sym=0;unicode=e5
-< reply "\e[229;;229u"
+< reply "\e[0;;229u"
 > send "\e[=26u"
 > cmd key;sym=61;ascii=61;unicode=61
 < reply "\e[97;;97u"

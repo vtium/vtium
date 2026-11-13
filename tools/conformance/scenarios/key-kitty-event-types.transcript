@@ -44,7 +44,7 @@
 > cmd key;sym=ff52;event=release
 < reply "\e[1;1:3A"
 > cmd key;sym=ffc0;mods=1
-< reply "\e[1;2R"
+< reply "\e[13;2~"
 > cmd key;sym=ffc0;mods=1;event=release
 < reply "\e[13;2:3~"
 > cmd key;sym=ff1b;event=repeat
