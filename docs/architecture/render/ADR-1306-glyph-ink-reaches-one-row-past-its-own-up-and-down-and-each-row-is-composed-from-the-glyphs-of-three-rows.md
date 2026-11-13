@@ -91,6 +91,10 @@ considered:
     said: "The emoji's edge follows the normal drawing order (ADR-1302 D7), with no exception."
     via: the maintainer, in the steering session, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "A glyph exactly twice its cells' width squeezes 2:1 inside its cells (OR pooling, no overhang); any other glyph wider than its cells squeezes to the cells' width plus 2 pixels as written."
+    via: the maintainer, in the steering session, after the Wide Glyph Fit page round 3 pictures, 2026-11-13
+    paraphrase: true
 observable:
   - "Tier 2's `overflow-accents` screen shows À, É, Î, Ő, Ű and Ộ whole, their accents drawn over the background of the row above, beside a row of `gjpqy___` whose underscores and descenders stay whole in their own row"
   - "Tier 2's `emoji-spaced-12` and `emoji-spaced-30` screens show the first line's `ÀÉÎ` with whole accents"
@@ -206,7 +210,7 @@ The words used below: a glyph's **reach** is the block of cells its ink may draw
 
 > Note 2026-11-06: the maintainer decided that a glyph from a bitmap source after the first may reach the row above or the row below, within the same one-row reach as an outline glyph (the maintainer, 2026-11-06). The helper places such a glyph so that its font's baseline meets the first source's baseline (ADR-1200 D17), and the ink that then passes the cell's top or bottom goes to the glyph's ink box, which the renderer draws into the row above or below as it draws an outline glyph's. unifont's ẳ behind Terminus is such a glyph: it rises 2 font rows onto Terminus's baseline, and the top of its hook draws in the row above. The second bullet's list of glyphs that stay inside their cells still holds for every other bitmap glyph: the first source's glyphs, and a later source's glyphs whose ink fits the cell once raised.
 
-> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, let two more kinds of glyph reach 1 pixel into the cells beside them: a color emoji that must draw in one cell, and a bitmap glyph wider than its cells, squeezed. Neither reaches up or down. The emoji's square is never taller than the text band, and the squeezed glyph's rows are cut to its cell.
+> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, let two more kinds of glyph reach 1 pixel into the cells beside them: a color emoji that must draw in one cell, and a bitmap glyph wider than its cells, squeezed, unless it is exactly twice their width. Neither reaches up or down. The emoji's square is never taller than the text band, and the squeezed glyph's rows are cut to its cell.
 
 ### D2: the baseline, the marks, and a letter's own ink
 
@@ -249,7 +253,7 @@ The renderer still composes one row of cells at a time in the row scratch, and c
 - **Steps 2 to 7 form the pixel's text layer,** premultiplied, which goes over the background in one step, as ADR-1302 D7 has it.
 - **A cell that no glyph's ink reaches from another cell draws exactly as today.** Each cell keeps one byte saying how far its glyph sends ink into the cells around it (D5, D12), so the renderer finds the cells that receive ink by reading their neighbours' bytes, and every other cell costs that test alone. A screen drawn in bitmap fonts with no italic, or in printable ASCII, has no such cell.
 
-> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, add two cases. A bitmap glyph wider than its cells is squeezed and reaches 1 pixel into each neighbour, so a screen drawn in bitmap fonts has cells that receive ink where such a glyph shows. A color emoji drawn in one cell reaches 1 pixel into each neighbour, and its edge takes step 5 like any other ink beside a cell.
+> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, add two cases. A bitmap glyph wider than its cells, and not exactly twice their width, is squeezed and reaches 1 pixel into each neighbour, so a screen drawn in bitmap fonts has cells that receive ink where such a glyph shows. A color emoji drawn in one cell reaches 1 pixel into each neighbour, and its edge takes step 5 like any other ink beside a cell.
 
 - **The row scratch does not grow:** it still holds one row of cells at the display's width, 87,424 bytes at 1,366 pixels across and 16-pixel rows, at most 1 MiB, and a taller row is still composed in bands of pixel lines. A box from the row above or below is read for the pixel lines of this row it covers.
 - **The cost on the minspec build** (vtium's smallest default build) is bounded: one more byte per cell, 8,160 bytes at 1366x768 in 8x16 cells; a test of that byte per drawn cell; and, for a cell that receives ink, at most one more glyph blend for each neighbour the reach allows, eight at the bound of one cell (D12), each the same blend its own glyph takes. The built-in fonts are bitmap fonts, so a console that uses only them pays the byte and the test and draws the same pixels. `crates/vtium-render/tests/figures.rs` measures the frame in both cases and `crates/vtium-render/tests/memory.rs` pins the byte.
