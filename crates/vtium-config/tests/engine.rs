@@ -958,6 +958,37 @@ fn a_coverage_query_names_the_installed_font_that_covers_the_most() {
     assert_eq!(vtium_config::sources::font_covering(&[], &dirs), None);
 }
 
+// ADR-1401 D7: an installed font whose family name holds a control
+// character, such as ESC or a newline, or a bidirectional override, is
+// never named: the name would inject itself into check-config's output
+// and break the source= line the note suggests
+#[test]
+fn a_family_name_that_does_not_print_as_itself_is_never_named() {
+    for (i, evil) in ["Evil\u{1b}[2J", "Two\nLines", "Turned\u{202e}", "\t"]
+        .into_iter()
+        .enumerate()
+    {
+        let w = World::new(&format!("evil-family-{i}"));
+        let mut font = ttf::test_mono();
+        font.family = evil.to_owned();
+        fs::write(w.path("fonts/Evil-Regular.ttf"), font.build()).expect("font");
+        let dirs = [w.path("fonts")];
+        assert_eq!(
+            vtium_config::sources::font_covering(&['A'], &dirs),
+            None,
+            "{evil:?}"
+        );
+        let mut clean = ttf::test_mono();
+        clean.family = "Clean Mono".to_owned();
+        fs::write(w.path("fonts/Clean-Regular.ttf"), clean.build()).expect("font");
+        assert_eq!(
+            vtium_config::sources::font_covering(&['A'], &dirs).as_deref(),
+            Some("Clean Mono"),
+            "{evil:?}"
+        );
+    }
+}
+
 // ADR-1200 D21, UTS #51 ED-8: U+FE0E asks for the text presentation, so the
 // heart with U+FE0E keeps the frit's order, and the text source draws it
 #[test]

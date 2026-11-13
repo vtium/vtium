@@ -461,7 +461,8 @@ fn find_outline_family_capped(
 
 /// The family of an installed outline font under `dirs` that covers the
 /// most of `letters`, which the font set leaves to the squeeze (ADR-1401
-/// D7): a face's first family name, among its Regular faces first. A face
+/// D7): a face's first family name that prints as itself ([`printable`]),
+/// among its Regular faces first; a face with no such name is left out. A face
 /// covers a letter its character map gives a glyph for. The search opens
 /// at most [`FAMILY_FILES_MAX`] files, in the order of
 /// [`find_outline_family`], and a file holds at most
@@ -484,7 +485,12 @@ pub fn font_covering(letters: &[char], dirs: &[PathBuf]) -> Option<String> {
             let Some(font) = swash::FontRef::from_index(&data, face.index as usize) else {
                 continue;
             };
-            let Some(family) = face.families.first() else {
+            // The font file is user-writable, so its family name can hold
+            // ESC, a newline or a bidirectional override. Such a name would
+            // print control sequences into check-config's output and break
+            // the source= line that the note suggests, so the search skips
+            // the name.
+            let Some(family) = face.families.iter().find(|f| printable(f)) else {
                 continue;
             };
             let map = font.charmap();
@@ -498,6 +504,21 @@ pub fn font_covering(letters: &[char], dirs: &[PathBuf]) -> Option<String> {
         }
     }
     best.map(|(_, _, family)| family)
+}
+
+/// Whether a family name prints as itself on a terminal and in a
+/// `source=font:` line: not empty, and with no control character (Unicode's
+/// Cc), and no character that turns text around or hides (the bidirectional
+/// overrides, isolates and marks, zero-width characters and the byte order
+/// mark).
+fn printable(name: &str) -> bool {
+    let hidden = |c: char| {
+        matches!(
+            c,
+            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
+        )
+    };
+    !name.trim().is_empty() && !name.chars().any(|c| c.is_control() || hidden(c))
 }
 
 /// Every TrueType or OpenType file or collection under `dirs`, with the
