@@ -175,14 +175,6 @@ fn report_of(file: &str) -> Result<vtium_render::NoticeReport, String> {
         .ok_or_else(|| format!("the file {file:?} shows no panic screen"))
 }
 
-/// The notice of a closed file whose heads have no display, alone on the
-/// boot display (ADR-1401 D9).
-pub fn no_display() -> Result<Notice, String> {
-    Ok(Notice::new(vtium::head::outcome_notice(
-        vtium_settings::Line::NoDisplay,
-    )))
-}
-
 /// The console line of a partly broken closed file whose surviving heads
 /// have no display, alone on the boot display (ADR-1401 D7, D9).
 pub fn partly() -> Result<Notice, String> {

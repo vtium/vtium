@@ -1591,7 +1591,7 @@ mod tests {
             ("version = 1\n".to_owned(), check_config::NO_FLOW, UNSET),
             (
                 "version = 1\n[rules]\ninput * -> roaming\n".to_owned(),
-                "This file has rules but no head, so vtium starts with its rules and turns on the boot display for the default head.",
+                "This file has rules but no head, so vtium starts with its rules. Each display that no rule turns off shows a notice that it is not configured for any terminal.",
                 UNSET,
             ),
             (
@@ -1947,17 +1947,16 @@ mod tests {
     }
 
     // ADR-1401 D9, "What fell to the default": each device present no rule
-    // places is noted with what the policy gives it; under open the display
-    // guard lights the display no rule takes, so it is not dark
+    // places is noted with what the policy gives it
     // covers: platform.heads.policy
     #[test]
     fn what_falls_to_the_open_policy_is_noted() {
         let (counted, notes) = remarked(
             "fell-open",
-            "version = 1\n[head a]\n[rules]\ninput class:joystick -> a\n",
+            "version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput class:joystick -> a\n",
             &present(),
         );
-        assert_eq!(counted, [NO_DISPLAY_SENT]);
+        assert_eq!(counted, [] as [String; 0]);
         assert_eq!(
             notes,
             [
@@ -1984,6 +1983,7 @@ mod tests {
             [
                 "head a has only one keyboard, \"Keyboard A\"",
                 "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.",
+                "No rule matches display \"DP-1\", so it stays off. Add a `display` rule for it if a head should use it.",
             ]
         );
     }
@@ -2056,23 +2056,36 @@ mod tests {
         );
     }
 
-    // ADR-1401 D5, D9: under open the display guard gives the first head
-    // the boot display while no head has a display, so the first head no
-    // rule names is not left unreached, with the devices present or away
-    // from them
+    // ADR-1401 D3, D9: for a valid file the table decides, with or without
+    // a VT number, so the first head no rule names gets no display and the
+    // display no rule matches stays off, with the devices present or away
+    // from them. Only what survives of an open file with errors runs the
+    // display guard, which gives the first head the boot display while no
+    // head has one.
     // covers: platform.heads.guards
     #[test]
-    fn the_first_head_no_rule_names_is_lit_by_the_display_guard() {
+    fn the_first_head_no_rule_names_is_lit_by_the_display_guard_only_for_a_file_with_errors() {
         let file = "version = 1\n[head a]\n[rules]\ninput * -> roaming\n";
-        let lit = "No rule names head \"a\". It gets a display only when no other head has one: then, under the open policy, vtium gives it the boot display. Add a rule that sends a display to it, or remove the head.";
-        let (counted, notes) = remarked("unnamed-guard", file, &present());
+        let unused = "Head \"a\" is not used: no rule sends a display or input device to it. Add a rule that sends a display to it, or remove the head.";
+        let (counted, notes) = remarked("unnamed", file, &present());
         assert_eq!(counted, [NO_DISPLAY_SENT]);
-        assert_eq!(notes, [format!("2: {lit}")]);
-        let (out, f) = checked("unnamed-guard-away", file, true);
+        assert_eq!(
+            notes,
+            [
+                "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.".to_owned(),
+                "No rule matches display \"DP-1\", so it stays off. Add a `display` rule for it if a head should use it.".to_owned(),
+                format!("2: {unused}"),
+            ]
+        );
+        let lit = "No rule names head \"a\". Because the file has errors, vtium gives it the boot display under the open policy when no other head has a display. Add a rule that sends a display to it, or remove the head.";
+        let broken = format!("{file}input path:usb-0:9 -> nowhere\n");
+        let (_, notes) = remarked("unnamed-guard", &broken, &present());
+        assert!(notes.contains(&format!("2: {lit}")), "{notes:?}");
+        let (out, f) = checked("unnamed-away", file, true);
         assert_eq!(
             out.notes,
             [
-                format!("{f}:2: {lit}"),
+                format!("{f}:2: {unused}"),
                 format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {AS_WRITTEN}"),
                 format!("{f}: {UNSET}")

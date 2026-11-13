@@ -148,23 +148,21 @@ Reload is not built yet. Once it is, these rules apply to it:
 
 **With no display at start.** Under the open policy, vtium waits for the time that `display-wait` sets, 10 s by default, and then exits. Its unit, `vtium@ttyN`, then starts a getty on that VT. The getty shows the kernel's own login prompt, which any keyboard can type into. Under the closed policy, vtium keeps its VT and waits for a display however long it takes, so that getty never starts.
 
-**A display that no rule places.** When vtium.conf is valid and closed, vtium leaves such a display blank. When vtium.conf is valid and open, such a display shows a notice that says why it has no terminal, such as `DP-9 is not configured for any terminal.` An open vtium.conf with no head and no rule gives every display the built-in default terminal instead. A display that a rule sends to `off` stays blank under either policy.
+**A display that no rule places.** When vtium.conf is valid and closed, vtium leaves such a display blank, with or without kernel VTs. When vtium.conf is valid and open, such a display shows a notice that says why it has no terminal, such as `DP-9 is not configured for any terminal.` An open vtium.conf with no head and no rule gives every display the built-in default terminal instead. A display that a rule sends to `off` stays blank under either policy.
 
 When vtium.conf has errors and its rules turn on no display at all, the display guard turns on the boot display. The boot display is the display that is on when vtium starts, or else the first connected one. See [Terms](../head-file.md#terms) for the exact order. In an open file, the boot display then shows the first head. In a closed file, it shows only the file's console line, or the panic screen.
 
-### No head has a connected display.
+### When no head has a display
 
-![vtium's notice alone on the boot display, 800×480 pixels. A pale red box across the top of the screen holds two lines: "No head has a connected display." and "Connect a display that a rule in /etc/vtium/vtium.conf sends to a head." The rest of the screen is black.](../figures/concepts-notice-alone-no-display.png)
+A valid closed file can declare heads that all lack a display that is on. For example, the kiosk's monitor is unplugged at boot, and another display is connected. Or a rule names a monitor by its EDID serial, and the monitor was replaced. Every display then stays blank, and vtium shows no notice. This holds on every machine, with or without kernel VTs.
 
-**Why.** vtium shows this notice only on a machine whose kernel has no VTs. On a VT, vtium leaves the display blank instead, as "A display that no rule places" above says. The file is valid and closed, and it declares heads, but none of the heads has a display that is on. For example, the kiosk's monitor is unplugged at boot, and another display is connected. Or a rule names a monitor by its EDID serial, and the monitor was replaced. The display guard then turns on the boot display, and the boot display shows this notice alone. A closed file with no heads leaves every display dark and shows no notice.
-
-The notice says nothing about input, because what a keyboard does depends on its head:
+What a keyboard does then depends on its head:
 
 - A head whose display has never been on receives no keys.
 - A head whose last display went away keeps receiving keys from the keyboards that its rules give it. Its sessions run on unseen, as `when-display-lost` decides.
 - The keyboards of an isolated head never switch VTs. Under the closed policy, every head is isolated unless it sets `isolated = no`.
 
-**What to do.** Connect a display that a rule in vtium.conf sends to a head. When that display is on, its head shows on it, and the notice goes. To change the rule instead, edit the file over ssh, then restart vtium.
+**What to do.** Connect a display that a rule in vtium.conf sends to a head. When that display is on, its head shows on it. To change the rule instead, edit the file over ssh, then restart vtium.
 
 **How to avoid it.** Run `vtium check-config` with the displays connected before you install a file. It checks that a connected display reaches a head, and it says what is missing when none does. Name a display by its port, with `connector` or `connector-path`, when the monitor on that port may change. A rule that names the monitor by `edid` stops matching when the monitor is replaced.
 

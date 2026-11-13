@@ -2151,9 +2151,7 @@ impl App {
                 self.add_display(&view.0, view.1);
             }
         }
-        let Some(vt) = self.vt_heads.vt() else {
-            return;
-        };
+        let vt = self.vt_heads.vt();
         // Which VTs vtium runs on, asked once for every notice that needs
         // it (ADR-1401 D3, "Enter on a head's own keyboard").
         let mut running = None;
@@ -5975,7 +5973,7 @@ mod tests {
     fn a_hidden_consoles_clock_arms_no_timer() {
         let t = Instant::now();
         let ms = |n: u64| t + Duration::from_millis(n);
-        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let heads = "version = 1\n[head one]\nconsoles = 2\n[rules]\ndisplay * -> one\n";
         let (_lp, mut app) = drawn_under(Some(heads), &animated(false), t);
         assert_eq!(clock(&app), (Some(ms(30)), Some(1)));
         let App {

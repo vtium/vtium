@@ -59,9 +59,11 @@ pub struct Owner<'a> {
 /// this VT uses it and no rule sends it to `off` (the maintainer,
 /// 2026-11-10: on every VT it runs on, vtium shows either a terminal or a
 /// notice that says why there is none). `owner` is the terminal of other
-/// VTs it is configured for, or `None` when no terminal is.
-pub fn unused_display(vt: u16, connector: &str, owner: Option<&Owner<'_>>) -> String {
-    let Some(owner) = owner else {
+/// VTs it is configured for, or `None` when no terminal is. Without a VT
+/// number, `vt` is `None` and every head runs, so no display has an owner
+/// on other VTs (ADR-1401 D2).
+pub fn unused_display(vt: Option<u16>, connector: &str, owner: Option<&Owner<'_>>) -> String {
+    let (Some(owner), Some(vt)) = (owner, vt) else {
         return format!("{connector} is not configured for any terminal.");
     };
     let vts: Vec<String> = owner.vts.iter().map(u16::to_string).collect();
@@ -618,7 +620,7 @@ mod tests {
             vts: &[3],
         };
         assert_eq!(
-            unused_display(4, "DP-8", Some(&desk)),
+            unused_display(Some(4), "DP-8", Some(&desk)),
             "DP-8 is not configured for VT 4. It is configured for terminal desk, on VT 3."
         );
         let panel = Owner {
@@ -626,11 +628,15 @@ mod tests {
             vts: &[2, 3, 5],
         };
         assert_eq!(
-            unused_display(4, "HDMI-A-1", Some(&panel)),
+            unused_display(Some(4), "HDMI-A-1", Some(&panel)),
             "HDMI-A-1 is not configured for VT 4. It is configured for terminal panel, on VTs 2, 3, and 5."
         );
         assert_eq!(
-            unused_display(4, "DP-9", None),
+            unused_display(Some(4), "DP-9", None),
+            "DP-9 is not configured for any terminal."
+        );
+        assert_eq!(
+            unused_display(None, "DP-9", None),
             "DP-9 is not configured for any terminal."
         );
     }

@@ -741,8 +741,6 @@ const PANIC_IMAGES_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a b
 
 const PANIC_IMAGES_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-one-320x400 screen: in place of the small drawing, the sprite cropped to its monitor, x 15 to 64 and y 6 to 49 of the sprite, 50×44 pixels, as the small drawing is the monitor cropped from the full one. The crop is the monitor's white bezel and its screen, with Tux inside, and the black background in the four corners outside the rounded bezel. It shows no arm, spark, stand or keyboard. Correct: the crop with each of its pixels a sharp 3×3 square, 150×132, centered across the box at its top in the 19 by 9 cells it takes; an empty row; then the report with its one error, every line whole; below the box, the screen's background and nothing else.";
 
-const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): the heads of a closed vtium.conf have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/vtium.conf sends to a head; below the box, the screen's background and nothing else.";
-
 const ALONE_PARTLY_DESC: &str = "vtium's notice of partly broken sections of vtium.conf, alone on the boot display (ADR-1401 D7, D9, ADR-1403 D3): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; below the box, the screen's background and nothing else.";
 
 const ALONE_STOPPED_DESC: &str = "vtium's notice that a crash loop stopped every head under the closed policy, alone on the boot display (ADR-1401 D1): a session kept ending as soon as it started, so vtium hung every session up and holds its VT with this notice for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding the notice that a session kept ending as soon as it started, so vtium stopped every screen and nothing here takes input, then to fix the login command in /etc/vtium/vtium.conf and restart vtium or reboot, wrapped at a space where it is wider than the box; below the box, the screen's background and nothing else.";
@@ -2209,11 +2207,6 @@ const BASE: &[Case] = &[
     small("notices-four-800x480", NOTICES_FOUR_DESC, shown(FOUR)),
     alone_small("panic-800x480", PANIC_800X480_DESC, notices::panic_screen),
     alone_small(
-        "notice-alone-no-display-800x480",
-        ALONE_NO_DISPLAY_DESC,
-        notices::no_display,
-    ),
-    alone_small(
         "notice-alone-partly-800x480",
         ALONE_PARTLY_DESC,
         notices::partly,
@@ -2287,11 +2280,6 @@ const BASE: &[Case] = &[
     ),
     large("notices-four-3840x540", NOTICES_FOUR_DESC, shown(FOUR)),
     alone_large("panic-3840x540", PANIC_DESC, notices::panic_screen),
-    alone_large(
-        "notice-alone-no-display-3840x540",
-        ALONE_NO_DISPLAY_DESC,
-        notices::no_display,
-    ),
     alone_large(
         "notice-alone-partly-3840x540",
         ALONE_PARTLY_DESC,

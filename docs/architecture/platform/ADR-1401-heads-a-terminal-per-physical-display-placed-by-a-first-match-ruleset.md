@@ -438,6 +438,10 @@ considered:
     said: "In the small drawing's place, a build with image support draws the sprite cropped to its monitor, matching the small ASCII drawing: the monitor's bezel and screen, x 15 to 64 and y 6 to 49 of the sprite, inclusive, 50×44 pixels, with no arm, spark, stand or keyboard pixel, and the sprite's own black background in the four corners outside the rounded bezel. The full drawing's place still draws the whole sprite, and the scale rule is unchanged: the largest whole number at which the picture fits the place."
     via: the steering session's question on 2026-11-13, with a mock-up of the cropped sprite; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "A valid closed vtium.conf leaves a display that no rule places blank on every machine, with or without kernel VTs. D3's table decides this for a valid file whether or not vtium has a VT number, as D9 already says a valid closed file shows nothing on a display that no path names."
+    via: the steering session's question on 2026-11-13; the wording is the steering session's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -803,7 +807,7 @@ The example's placement: two heads, each with its own display and keyboard, and 
   | 3 | The rule matches, but its head's `vt` names other VTs only. | It notes that the device belongs to that head, on another VT, and reads on. |
   | 4 | The rules end, and no rule placed the device. | When step 3 noted a head, the device stays with that head, and does nothing on this VT: a keyboard types nowhere, and a display shows no terminal: under `policy = open` it shows the notice below that names its head, and under `policy = closed` it stays blank. Under `policy = open`, vtium still watches such a keyboard for the rescue key (D9), and, when its head sets `switch-on-enter = yes`, for Enter, which switches to that head's VT ("Enter on a head's own keyboard", below). When step 3 noted no head, the policy places the device, as "No match" below says. |
 
-  **What a display with no path shows.** Under the open policy, vtium shows on each display either a terminal or a notice that says why there is none, unless a rule turns that display off. Under the closed policy, a display that no path names stays blank (the maintainer, 2026-11-10). A path names a display on a VT when a rule places the display in a head that runs on that VT. The maintainer's table decides each case, for a valid file:
+  **What a display with no path shows.** Under the open policy, vtium shows on each display either a terminal or a notice that says why there is none, unless a rule turns that display off. Under the closed policy, a display that no path names stays blank (the maintainer, 2026-11-10). A path names a display on a VT when a rule places the display in a head that runs on that VT. The maintainer's table decides each case for a valid file, on every machine, with or without kernel VTs. On a machine whose kernel has no VTs, vtium has no VT number. Every head of the file then runs, and "this VT" in the table means the console that vtium holds there. So a valid closed file leaves a display that no path names blank on every machine (the maintainer, 2026-11-13). Under the open policy, such a display shows its own notice there, as on a VT (the steering session's brief of the same day):
 
   | Policy | What vtium.conf defines | A connected display with no path on this VT |
   |---|---|---|
@@ -816,6 +820,8 @@ The example's placement: two heads, each with its own display and keyboard, and 
   A file that defines paths shows the notices even on a VT where none of its heads runs. Under the open policy, a notice shows for `osd-timeout` from its first frame. vtium then turns that display off and frees its buffer with `Video::park`, so that unused paths send no signal and hold no memory (the maintainer, 2026-11-10: "we also don't want to inadvertently send video signal or take up memory on a bunch of paths"). A key press on the VT, or a switch back to it, shows the notice again, and `osd = off` does not hide it (the steering session's call). Under `osd = silent`, under either policy, a display that no path places shows no notice (D5). Under open, vtium turns such a display off at once, as it does when the notice's time has passed. Under closed, the display stays blank, as it does at every level. Under both, a key press or a switch back leaves it off. Hiding these notices is the purpose of `silent` (the maintainer, 2026-11-13). Because of the exception in step 2, an `off` rule that comes after a rule tying a display to another VT's head does not blank it there. What survives of a file with errors keeps the display guard of D9 and D7's console line, since the table covers a valid file (this record's agent's call).
 
   So a device that any rule claims never falls to the policy, and one display or keyboard can serve a different head on each VT. The maintainer compares the order of the rules to a firewall's (2026-11-10): "if we say 'all devices' and then also specifically say a device, the broad rules are applied after specific rules (thinking like firewall policy order)". vtium still reads the rules in the file's order, and vtium-config keeps the file in that order (ADR-1403 D8). ADR-1403 D7's path tests check each step.
+
+> Edited 2026-11-13: the maintainer decided that a valid closed file leaves a display that no path names blank on every machine, with or without kernel VTs (`considered`, 2026-11-13). The sentence before the table read: "The maintainer's table decides each case, for a valid file:". On a machine whose kernel has no VTs, vtium then ran the display guard of D9 for a valid file too. Under closed, the guard lit the boot display for the notice `No head has a connected display.`, and under open it lit the boot display for the first head.
 
 > Edited 2026-11-13: the maintainer added `osd = silent`, which hides vtium's notices as well as its status (`considered`, 2026-11-13). The maintainer also decided what a display with no path does under it, under either policy (`considered`, 2026-11-13). The paragraph below the table had no sentence on `silent` and went from "and `osd = off` does not hide it (the steering session's call)." to "Because of the exception in step 2".
 
@@ -1110,13 +1116,15 @@ A machine with no configuration at all:
 | untrusted, or not readable as a file | the shipped default | `vtium.conf not used: running the built-in configuration.` |
 | valid | the file | nothing |
 | valid and declaring nothing, under open | the shipped default | nothing |
-| valid, with rules and no head, under open | the file's rules, and the display guard lights the boot display for the default head (D9) | nothing |
+| valid, with rules and no head, under open | the file's rules, with no head: each display that no rule turns off shows its own notice (D3) | nothing |
 | valid and declaring no head, under closed | nothing: every display dark, "loaded but off" | nothing |
 | partly broken, under open | the surviving heads and rules, then the shipped rules' tail | `vtium.conf has errors: running the parts without errors.` |
 | partly broken, under closed | the surviving heads and rules | `vtium.conf has errors: running the parts without errors.` |
 | broken, under open | the shipped default | `vtium.conf not used: running the built-in configuration.` |
 | broken, under closed | nothing | the panic screen, on the boot display |
 | with a policy line vtium cannot read, whatever else it holds | nothing: it is closed and broken | the panic screen, on the boot display |
+
+> Edited 2026-11-13: the maintainer's decision of 2026-11-13 in D3 made the table decide for a valid file on every machine, with or without kernel VTs, so the display guard acts only for a file with errors. The row for a valid file with rules and no head under open read: "the file's rules, and the display guard lights the boot display for the default head (D9)". On a VT, vtium already ran no default head for such a file, as D3's table of 2026-11-10 says.
 
 - **What to do next.** Each notice opens with its console line, worded exactly as the table words it, since the observables and `outcomes.tsv` quote it. The notice adds a second sentence that says what to do next, as the panic screen's last line does: after `vtium.conf not used: running the built-in configuration.` and after `vtium.conf has errors: running the parts without errors.` it reads `To see why, run vtium check-config /etc/vtium/vtium.conf.`. The notice on a display that no path catches names the terminal and the VT that the display is configured for, or says that it is configured for no terminal, as D3 words it. The second sentences live in the notice catalog, and the wording here is illustrative.
 
