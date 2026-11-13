@@ -1,0 +1,25 @@
+# Claims of docs/concepts/osd-and-notices.md.
+element	file	symbol
+osd takes full, minimal, off and silent, minimal by default	crates/vtium-settings/src/keys.rs	key osd
+the four levels, each hiding what the one before it hides	crates/vtium/src/osd.rs	Mode
+only minimal and full draw status, the brief line included	crates/vtium/src/osd.rs	Osd::draws_status
+a change shows the OSD for a time, not under off, silent or never	crates/vtium/src/osd.rs	Osd::shows_on_change
+the full line: a dot, the head's name and the console shown of how many	crates/vtium/src/notice.rs	osd_line
+under full the line shows at a console switch, an open or close, and a display's return	crates/vtium/src/app.rs	App::osd
+the active head's move shows the OSD on each head with a lit display	crates/vtium/src/app.rs	App::move_focus
+osd-timeout is 3 seconds by default, or never	crates/vtium-settings/src/keys.rs	key osd-timeout
+the brief line at a console cap, word for word	crates/vtium/src/notice.rs	no_more_consoles
+under off and silent the open chord at a cap shows no brief line	crates/vtium/src/head.rs	Head::show_brief
+a notice goes after 30 seconds	crates/vtium/src/head.rs	NOTICE_SHOWN
+a head shows at most 4 notices	crates/vtium/src/head.rs	NOTICES_MAX
+the no-keyboard notice, word for word	crates/vtium/src/notice.rs	NO_KEYBOARD
+under silent a head adds no notice	crates/vtium/src/head.rs	Head::add_notice
+under silent a display no rule places shows no notice and stays off, and the log names it	crates/vtium/src/app.rs	App::silence_notices
+under silent the display guard lights the boot display only for the panic screen or the stopped notice	crates/vtium/src/app.rs	App::screen_shows
+under silent the render timer shows no figures on screen	crates/vtium/src/app.rs	App::render_timer
+an osd line vtium cannot read beside silent runs as off	crates/vtium/src/config/mod.rs	keep_notices_on_a_mistake
+the panic screen	crates/vtium/src/notice.rs	panic
+the stopped notice, shown under closed after a crash loop	crates/vtium/src/notice.rs	stopped
+the notice colors	crates/vtium-settings/src/keys.rs	key notice-background
+the OSD colors	crates/vtium-settings/src/keys.rs	key osd-background
+focus-mark is the older name, read where osd and osd-timeout are unset	crates/vtium/src/osd.rs	Osd::configured

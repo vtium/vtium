@@ -26,6 +26,8 @@ Sometimes a program ends and leaves the keyboard sending escape codes, so that e
 
 When you select text with the pointer, vtium copies it into its selection. The console has no system clipboard. Instead, vtium holds one selection. A program can set the selection with OSC 52, but no program can read it back.
 
+When the active head moves, each head shows a filled or a hollow dot at its top right, so you can see where your typing goes. See [The on-screen display and notices](concepts/osd-and-notices.md) for details.
+
 vtium.conf can set a policy, which says what vtium does with devices that no rule names. When the policy is `closed`, Ctrl+Super+Return and Ctrl+Super+Backspace do nothing. Each head then keeps the consoles it started with.
 
 By default, no key reboots, powers off or suspends the machine. To get such a key, bind one with `key-reboot`, `key-power-off` or `key-suspend`. See [config.md](config.md) and [systemd.md](systemd.md) for details.
