@@ -824,6 +824,7 @@ docs/scripts/adr cite --check
 docs/scripts/issue-refs
 docs/scripts/fork-refs
 docs/scripts/claims
+docs/scripts/prose --check
 docs/scripts/coverage
 make test-tools
 make conformance
