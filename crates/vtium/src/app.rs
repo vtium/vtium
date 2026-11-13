@@ -3258,16 +3258,8 @@ impl App {
         let Some(to) = self.held.released(node, key.keycode) else {
             return;
         };
-        let Some(&keysym) = key.keysyms.first() else {
+        let Some(release) = term_key(key, TermKeyEvent::Release) else {
             return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let release = Key {
-            event: TermKeyEvent::Release,
-            unshifted: key.unshifted,
-            shifted: key.shifted,
-            base: key.base,
-            ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
         };
         self.send_release(to, &release);
     }
@@ -3536,22 +3528,13 @@ impl App {
         {
             return;
         }
-        let Some(&keysym) = key.keysyms.first() else {
-            return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let mods = Mods::from_bits(key.mods.bits());
         let event = if key.repeat {
             TermKeyEvent::Repeat
         } else {
             TermKeyEvent::Press
         };
-        let pressed = Key {
-            event,
-            unshifted: key.unshifted,
-            shifted: key.shifted,
-            base: key.base,
-            ..Key::press(keysym, key.ascii, mods, unicode)
+        let Some(pressed) = term_key(key, event) else {
+            return;
         };
         if !key.repeat {
             let to = held::Console {
@@ -5131,6 +5114,24 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
             Some(n) => Depth::Gray(n),
         },
     }
+}
+
+/// vtium-term's description of the key event `key` from vtium-platform,
+/// as `event`: its first keysym and that keysym's character, the ASCII
+/// layout's keysym, the unshifted key, the shifted key, the base layout key
+/// and the modifiers, whose bits the two crates share (ADR-1005, D1 and
+/// D2). `None` for an event with no keysym.
+pub fn term_key(key: &KeyEvent, event: TermKeyEvent) -> Option<Key> {
+    let &keysym = key.keysyms.first()?;
+    let unicode = key.codepoints.first().copied().flatten();
+    let mods = Mods::from_bits(key.mods.bits());
+    Some(Key {
+        event,
+        unshifted: key.unshifted,
+        shifted: key.shifted,
+        base: key.base,
+        ..Key::press(keysym, key.ascii, mods, unicode)
+    })
 }
 
 #[cfg(test)]

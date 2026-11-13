@@ -1150,6 +1150,51 @@ fn the_unshifted_and_base_layout_keys_reach_the_program() {
     );
 }
 
+/// ADR-1005 D9, end to end on xkeyboard-config's Russian layout, the
+/// committed fixture `crates/vtium-platform/tests/keymaps/ru.xkb`: the
+/// keymap makes the key events of Ctrl+С, the key at US `c`, and the binary
+/// hands them to the console. Under the kitty keyboard protocol's flags 7,
+/// the program reads С's press as `CSI 1089 : : 99 ; 5 u`, the base layout
+/// key c after an empty shifted key, and its release with event type 3.
+/// The test fails when the fixture is missing or does not compile.
+// covers: input.kitty-keyboard
+#[test]
+fn the_russian_layout_reaches_the_program() {
+    use vtium_platform::input::{Compiled, Keymap, KeymapConfig};
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vtium-platform/tests/keymaps/ru.xkb");
+    assert!(path.is_file(), "the fixture {} exists", path.display());
+    let config = KeymapConfig {
+        keymap_file: Some(path.clone()),
+        ..KeymapConfig::default()
+    };
+    let ru = Keymap::new(&config).expect("a keymap");
+    assert_eq!(ru.compiled(), &Compiled::File(path), "ru.xkb compiles");
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -icanon -echo; printf '\\033[>7u'; echo ready; \
+         while :; do echo \"k:$(head -c 28 | tr '\\033' E)\"; done",
+    ]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    // KEY_LEFTCTRL 29 and KEY_C 46, from linux/input-event-codes.h.
+    let events = ru.key_events(&[(29, true), (46, true), (46, false), (29, false)]);
+    assert_eq!(events.len(), 4, "two presses and two releases: {events:?}");
+    for event in events {
+        h.app.input_event(event, h.at());
+    }
+    assert!(
+        h.until(BOUND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l == "k:E[1089::99;5uE[1089::99;5:3u")),
+        "Ctrl+С's press and release: {:?}",
+        h.app.screen_text()
+    );
+}
+
 /// Prints a render-timer line as the log writes it, for tier 3's parser:
 /// `VTIUM_PRINT_TIMER=1 cargo test -p vtium --test boot render_timer -- --nocapture`.
 #[test]
