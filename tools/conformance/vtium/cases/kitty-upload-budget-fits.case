@@ -1,6 +1,6 @@
 # The control for kitty-upload-budget-refused: with no old image, the same upload fits and opens.
-# Rule B1 (decided 2026-11-13) of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "The reservation, and the old image under the same id"
 # covers: image.kitty
 # budget: the reference host's 320,000,000 bytes; the upload reserves 319,999,792.
 size 20 10

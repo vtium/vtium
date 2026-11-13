@@ -1,6 +1,6 @@
 # A transmission from a file ends the open upload, and is handled on its own.
-# Rule U7 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "What ends an upload early"
 # covers: image.kitty
 # fixture: a regular file holding one white RGB pixel, ff ff ff; L3RtcC93aGl0ZQ== stands for its path in base64
 size 20 10

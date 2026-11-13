@@ -1,6 +1,6 @@
 # A chunk with no upload open is a command of its own.
-# Rule U13 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "No upload open"
 # covers: image.kitty
 size 20 10
 send "\e_Gm=0,i=1;AP8A\e\\"

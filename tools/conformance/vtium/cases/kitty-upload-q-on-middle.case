@@ -1,6 +1,7 @@
 # A q on a middle chunk applies to the upload.
-# Rule U3 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Suppressing responses from the terminal": "Set it to 1 to suppress OK responses and to 2 to suppress failure responses."
+# spec: ADR-1100 D16, "`q` across chunks"
 # covers: image.kitty
 size 20 10
 send "\e_Ga=t,f=24,s=3,v=1,i=1,m=1;/wAA\e\\"

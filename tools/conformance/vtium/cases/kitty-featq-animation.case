@@ -1,6 +1,6 @@
 # Animation control keys.
-# Rule F2 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "The terminal emulator will include in its reply every key from the feature query that has a non-default value which it supports for that action, with that value, as well as e itself"
 # covers: image.kitty
 size 20 10
 send "\e_Ga=q,i=32,e=a,s=3,v=1,c=2,r=1,z=40\e\\"

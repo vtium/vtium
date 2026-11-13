@@ -1,6 +1,6 @@
 # After a delete ends the upload, a chunk that names every key is a command of its own.
-# Rule U8 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Deleting images": "If an image is being loaded in chunks and the upload is not complete when any delete command is received, the partial upload must be aborted."
 # covers: image.kitty
 size 20 10
 send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"

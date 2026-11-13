@@ -1,6 +1,6 @@
 # A feature query without i gets no reply.
-# Rule F4 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "The e key is only allowed in query actions, and the feature query must have the i key set, as for any other query action."
 # covers: image.kitty
 size 20 10
 send "\e_Ga=q,e=T,U=1\e\\"

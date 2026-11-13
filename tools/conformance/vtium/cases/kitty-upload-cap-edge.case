@@ -1,6 +1,6 @@
 # The control for kitty-upload-cap-passed: an upload whose bytes reach its reservation exactly is accepted.
-# Rule B2 (decided 2026-11-13) of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "A cap on an upload's data"
 # covers: image.kitty
 # 3 + 513 = 516 bytes, exactly the reservation; the bytes past the picture's 3 are ignored.
 size 20 10

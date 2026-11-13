@@ -1,6 +1,6 @@
 # A put between chunks is carried out, and the upload continues.
-# Rule U9 of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "What leaves an upload open"
 # covers: image.kitty
 size 20 10
 send "\e_Ga=t,f=24,s=1,v=1,i=2;AAD/\e\\"

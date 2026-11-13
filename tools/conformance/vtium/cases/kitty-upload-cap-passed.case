@@ -1,6 +1,6 @@
 # A chunk that takes an upload past its reservation fails the upload, whatever command carried it.
-# Rule B2 (decided 2026-11-13) of upload-rules.md.
-# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "A cap on an upload's data"
 # covers: image.kitty
 # The 1x1 RGB upload reserves 4 + 512 = 516 bytes. The frame, the upload's next chunk, brings 516 more, 519 in all.
 size 20 10
