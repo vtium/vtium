@@ -72,6 +72,10 @@ considered:
     said: "Redo the rules for kitty graphics commands that arrive while an upload in chunks is open, clean-room: they are written from the published specification and from black-box runs of kitty, by an author who has read neither kitty's source nor vtium's code for them, and a separate implementer replaces the code from those rules alone."
     via: the steering session's question on 2026-11-13, on the kitty graphics spec review
     paraphrase: true
+  - operator: aaronsb
+    said: "Items 3 to 11 of ADR-1100's For the operator's check are settled as proposed: a frame during a picture's upload is the next chunk, an upload's accumulated bytes are capped at its reservation, and an upload sent in chunks gets at most one reply, at its last chunk."
+    via: the steering session's question on 2026-11-13, on the clean-room kitty upload rules
+    paraphrase: true
 status: accepted
 date: 2026-11-01
 deciders:
@@ -162,9 +166,11 @@ Composition follows the kitty spec's rules. vtium-image's frame code, beside the
 - **The reply** to a frame (`a=f`) names its frame with `r` after `i`, `I` and `p`, as kitty 0.50.0's replies do (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`): the frame an edit names, or else the frame a new frame made, or on a refusal the number the new frame would have had. A reply that finds no image, and a refusal for palette indices, names no `r` unless the command gave one. A composition's and a control's replies carry no `r`, as kitty's do not. A frame's reply, and a composition's, name `i` only when the command gave it; a command that named the image by `I` alone is answered `,I=N,...`, as kitty writes it. An animation control (`a=a`) is answered only when its image does not exist, since kitty answers nothing else to it; vtium answered every control as a put. ADR-1100 D15 lists the refusals' texts.
 
   > Edited 2026-11-06, later: the reply bullet is new; vtium's frame replies named no frame.
-- **A frame sent in chunks** follows ADR-1100 D16: its later chunks carry `a=f`, as the specification asks, and vtium reads each as the upload's next chunk. When the upload's answer comes, and what a frame does that arrives during another picture's upload, wait on the maintainer under ADR-1100's For the operator's check.
+- **A frame sent in chunks** follows ADR-1100 D16: its later chunks carry `a=f`, as the specification asks, and vtium reads each as the upload's next chunk. The upload reserves its frame's cost from the frame allowance at its first chunk, and its data is capped at that reservation. It gets one answer, the reply above, at the chunk that ends it. A frame that arrives during another picture's upload is that upload's next chunk (ADR-1100 D16).
 
   > Added 2026-11-13: the maintainer decided that the rules for uploads in chunks are written clean-room (`considered`), and ADR-1100 D16 holds them.
+
+  > Edited 2026-11-13, later: the maintainer settled the answer to a frame sent in chunks and a frame during another picture's upload (`considered`). The bullet's last sentence read: "When the upload's answer comes, and what a frame does that arrives during another picture's upload, wait on the maintainer under ADR-1100's For the operator's check."
 
   > Edited 2026-11-06, after review: the bullet began "an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL", which no longer matched the frame rules above it; the New frame bullet's last sentence, which an earlier note had swallowed, is back in its bullet.
 
