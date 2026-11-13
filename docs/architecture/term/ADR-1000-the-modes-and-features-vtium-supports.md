@@ -60,6 +60,10 @@ considered:
     said: "After the fast wake-up retries run out, vtium keeps retrying once a second for as long as its VT is the one shown. A key press, a pointer action or a hotplug still tries again at once. A VT release stops the slow retries too, and a VT acquire starts the fast retries again."
     via: the steering session's question on 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium honors the Linux console's cursor blink interval, CSI 16 ; n ], so its row in the features table is planned"
+    via: the steering session's question on 2026-11-13, on an outside scenario survey
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -85,7 +89,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 122 supported, 3 partial, 44 ignored, 8 refused, 8 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (186 rows: 123 supported, 2 partial, 44 ignored, 8 refused, 9 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -113,6 +117,8 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 > Edited 2026-11-11: the work on runtime font changes builds XTWINOPS 8 behind the `allow-window-ops` key, off by default, so `window.resize` is supported; its note says how vtium meets a request. Before this edit the counts above read 183 feature rows, 114 supported, 6 partial and 11 planned, which no longer matched the table's 185 rows.
 
 > Edited 2026-11-13: `platform.libseat` is supported. The maintainer checked the libseat build on a laptop's VTs in seat mode under logind, and every step of the check passed; tier 3 runs the same build on seatd and on logind. Before this edit the counts above read 120 supported and 5 partial feature rows, which already did not match the table's 121 supported and 4 partial.
+
+> Edited 2026-11-13: the features table gains `ctl.linux-blink-interval`, planned. The Linux console sets how fast the cursor blinks with `CSI 16 ; n ]`. The maintainer decided that vtium honors the sequence, and the work on the cursor blink interval builds it. A survey of an outside collection of terminal test scenarios found the sequence. Before this edit the counts above read 185 feature rows, 122 supported, 3 partial and 8 planned. Those counts did not match the table's 123 supported and 2 partial.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
