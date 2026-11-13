@@ -64,12 +64,12 @@ select-copy                   works   -     clipboard.selection            a wor
 key-backspace-del             works   -     input.legacy                   BackSpace sends BS, then DEL once the host chooses it
 key-kitty-events              works   -     input.kitty-keyboard           flag 2: a press, a repeat and a release, and no release once the flags are 0
 key-kitty-events-legacy-keys  works   -     input.kitty-keyboard           flag 2: Enter, Tab and BackSpace keep their bytes and send no release, nor does a text key
-key-kitty-shifted-key         missing #42   input.kitty-keyboard           flag 4: a key held with Shift sends its shifted key
+key-kitty-shifted-key         works   -     input.kitty-keyboard           flag 4: a key held with Shift sends its shifted key
 key-kitty-unshifted-key       missing #42   input.kitty-keyboard           the key code is the unshifted key the host reports, or the symbol when it reports none (needs key-forms)
 key-kitty-base-layout-key     missing #42   input.kitty-keyboard           flag 4: Ctrl+С on a Russian layout sends the base layout key c (needs key-forms)
-key-kitty-all-keys            missing #42   input.kitty-keyboard           flag 8: text keys, Enter, Tab, BackSpace and a modifier key send escape codes, and RIS ends it
-key-kitty-all-keys-events     missing #42   input.kitty-keyboard           flags 2 and 8: a text key, Enter and Shift report their releases
-key-kitty-associated-text     missing #42   input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
+key-kitty-all-keys            works   -     input.kitty-keyboard           flag 8: text keys, Enter, Tab, BackSpace and a modifier key send escape codes, and RIS ends it
+key-kitty-all-keys-events     works   -     input.kitty-keyboard           flags 2 and 8: a text key, Enter and Shift report their releases
+key-kitty-associated-text     works   -     input.kitty-keyboard           flag 16: a key sends its text in the escape code, and never a control character
 
 # strings vtium does not take yet
 osc-8-hyperlink               works   -     osc.8                          links stay in their cells through a wrap and the scrollback, an invalid URI closes the open link, and the pointer and Ctrl show a link whole with its URI
