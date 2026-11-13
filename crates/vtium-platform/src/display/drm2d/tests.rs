@@ -21,6 +21,7 @@ use crate::display::blank::Due;
 use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane, RemoveFb, logs};
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
+use crate::scratch::Scratch;
 
 const A: u32 = 41;
 const B: u32 = 42;
@@ -1618,7 +1619,7 @@ fn a_monitor_back_under_a_new_id_with_its_edid_takes_back_its_crtc() {
     {
         let mut s = card.state();
         s.listed.retain(|&c| c == A);
-        s.sysfs = Some(dir.clone());
+        s.sysfs = Some(dir.to_path_buf());
         for e in [200, 201] {
             s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b11;
         }
@@ -1629,7 +1630,6 @@ fn a_monitor_back_under_a_new_id_with_its_edid_takes_back_its_crtc() {
     v.poll().unwrap();
     let b = drawn(&mut v, B, 0x66);
     assert!(v.card().shows(101, b), "{:?}", v.card().state());
-    std::fs::remove_dir_all(&dir).unwrap();
 }
 
 /// Two monitors of one model with no serial number in their EDIDs, on A
@@ -1653,7 +1653,7 @@ fn one_model_back(test: &str, paths: bool) -> (u32, u32) {
     {
         let mut s = card.state();
         s.listed.retain(|&c| c == A || c == B);
-        s.sysfs = Some(dir.clone());
+        s.sysfs = Some(dir.to_path_buf());
         for e in [200, 201, 202, 203] {
             s.encoders.get_mut(&e).unwrap().possible_crtcs = 0b1111;
         }
@@ -1675,7 +1675,7 @@ fn one_model_back(test: &str, paths: bool) -> (u32, u32) {
     v.poll().unwrap();
     let c = drawn(&mut v, C, 0x66);
     let d = drawn(&mut v, D, 0x77);
-    std::fs::remove_dir_all(&dir).unwrap();
+    drop(dir);
     let on = |fb| {
         [100, 101, 102, 103]
             .into_iter()
@@ -3846,7 +3846,7 @@ fn a_connector_with_no_physical_size_assumes_the_density() {
 // sysfs states, and with none there still assumes the density
 #[test]
 fn a_connector_with_no_physical_size_takes_its_edids_in_sysfs() {
-    let dir = std::env::temp_dir().join(format!("vtium-drm2d-edid-{}", std::process::id()));
+    let dir = sysfs_dir("edid");
     let conn = dir.join(format!("card0-{}", output::connector_name(11, 1)));
     std::fs::create_dir_all(&conn).unwrap();
     // a 27-inch monitor's base block: 60 by 34 cm
@@ -3873,7 +3873,7 @@ fn a_connector_with_no_physical_size_takes_its_edids_in_sysfs() {
         density((299, 168), Some(&dir)),
         density((0, 0), Some(&dir.join("gone"))),
     );
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     let round = |d: Density| (d.dpi().0.round(), d.dpi().1.round());
     assert!(from_edid.measured());
     assert_eq!(round(from_edid), (108.0, 108.0));
@@ -4110,7 +4110,7 @@ fn a_dark_connector_on_a_legacy_card_has_its_crtc_turned_off() {
 // connector lit at start; with no policy every display is lit.
 #[test]
 fn a_displays_identity_names_its_connector_card_and_monitor() {
-    let dir = std::env::temp_dir().join(format!("vtium-drm2d-identity-{}", std::process::id()));
+    let dir = sysfs_dir("identity");
     let conn = dir.join("card1-HDMI-A-2");
     std::fs::create_dir_all(&conn).unwrap();
     // maker AAA, product 1, serial string LARGE00001, 60 by 34 cm
@@ -4122,11 +4122,11 @@ fn a_displays_identity_names_its_connector_card_and_monitor() {
     edid[127] = 0u8.wrapping_sub(edid.iter().fold(0u8, |s, &b| s.wrapping_add(b)));
     std::fs::write(conn.join("edid"), &edid).unwrap();
     let card = dark_card();
-    card.state().sysfs = Some(dir.clone());
+    card.state().sysfs = Some(dir.to_path_buf());
     let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
     v.set_card_path(Some(String::from("pci-0000:03:00.0")));
     let v = awake(v);
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(
         v.displays().collect::<Vec<_>>(),
         [DisplayId(A), DisplayId(B)]
@@ -5424,9 +5424,10 @@ fn a_connector_that_lists_new_modes_takes_its_new_preferred_mode() {
     assert_eq!(age(&mut v, A), 0, "drawn whole");
 }
 
-/// A directory of its own for a test's sysfs, named for the test.
-fn sysfs_dir(test: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!("vtium-drm2d-{test}-{}", std::process::id()))
+/// A directory of its own for a test's sysfs, named for the test, which
+/// the test removes when it ends.
+fn sysfs_dir(test: &str) -> Scratch {
+    Scratch::new(&format!("drm2d-{test}"))
 }
 
 /// Writes connector `name`'s EDID under `dir`, as sysfs shows it: maker
@@ -5475,7 +5476,7 @@ fn a_connector_showing_another_monitor_is_bound_again() {
     let swapped = vec![mode(800, 600, 60, true)];
     v.card().state().connectors.get_mut(&A).unwrap().modes = swapped;
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(
         events(&mut v),
         [Event::Removed(DisplayId(A)), Event::Added(DisplayId(A))]
@@ -5510,7 +5511,7 @@ fn the_same_monitor_keeps_its_display() {
     let retrained = vec![mode(800, 600, 60, true), mode(640, 480, 60, false)];
     v.card().state().connectors.get_mut(&A).unwrap().modes = retrained;
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(events(&mut v), [Event::Redraw(DisplayId(A))]);
     assert_eq!(v.size(DisplayId(A)), Some((800, 600)));
     assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR001"));
@@ -5523,7 +5524,7 @@ fn the_same_monitor_keeps_its_display() {
 fn a_display_whose_edid_becomes_readable_is_bound_again_once() {
     let dir = sysfs_dir("edid-later");
     let v = one();
-    v.card().state().sysfs = Some(dir.clone());
+    v.card().state().sysfs = Some(dir.to_path_buf());
     let mut v = awake(v);
     assert_eq!(serial(&v, A), None);
     write_edid(&dir, "HDMI-A-1", b"MONITOR001", (60, 34));
@@ -5536,7 +5537,7 @@ fn a_display_whose_edid_becomes_readable_is_bound_again_once() {
     flip(&mut v);
     v.events().for_each(drop);
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(events(&mut v), []);
 }
 
@@ -5557,7 +5558,7 @@ fn a_dark_connector_showing_another_monitor_is_asked_again() {
     assert_eq!(v.displays().count(), 0);
     write_edid(&dir, "HDMI-A-1", b"MONITOR002", (60, 34));
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(events(&mut v), [Event::Added(DisplayId(A))]);
     assert_eq!(v.dark().count(), 0);
     assert_eq!(serial(&v, A).as_deref(), Some("AAA:0x0001:MONITOR002"));
@@ -7095,7 +7096,7 @@ fn a_display_left_off_is_removed_at_each_exit_of_d8() {
     let left_off = |exit: &str| {
         let dir = sysfs_dir(&format!("left-off-{exit}"));
         write_edid(&dir, "HDMI-A-1", b"MONITOR001", (60, 34));
-        let sysfs = dir.clone();
+        let sysfs = dir.to_path_buf();
         let (woke, mut v) = wake_beside_c_with(
             true,
             false,
@@ -7114,20 +7115,20 @@ fn a_display_left_off_is_removed_at_each_exit_of_d8() {
     };
     let (dir, mut v) = left_off("same");
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(events(&mut v), [], "the same monitor keeps the record");
     assert_eq!(v.name(DisplayId(A)), Some("HDMI-A-1"));
     let (dir, mut v) = left_off("another");
     write_edid(&dir, "HDMI-A-1", b"MONITOR002", (30, 17));
     v.poll().unwrap();
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     assert_eq!(
         events(&mut v),
         [Event::Removed(DisplayId(A))],
         "another monitor"
     );
     let (dir, mut v) = left_off("dark");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     v.set_dark(Box::new(|identity| identity.connector == "HDMI-A-1"));
     v.poll().unwrap();
     assert_eq!(
@@ -7141,7 +7142,7 @@ fn a_display_left_off_is_removed_at_each_exit_of_d8() {
     );
     assert_eq!(v.name(DisplayId(A)), None);
     let (dir, mut v) = left_off("gone");
-    let _ = std::fs::remove_dir_all(&dir);
+    drop(dir);
     v.card().state().kernel_removed = true;
     let _ = v.poll();
     assert!(v.gone());

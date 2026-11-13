@@ -88,6 +88,8 @@ pub mod power;
 pub mod pty;
 mod queue;
 pub mod rt_signal;
+#[cfg(test)]
+mod scratch;
 #[cfg(feature = "libseat")]
 pub mod seat;
 pub mod udev;
