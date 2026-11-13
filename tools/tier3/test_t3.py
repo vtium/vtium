@@ -2679,7 +2679,8 @@ class DevicesTest(unittest.TestCase):
             "two-outputs-mirror": ["sgr", "sgr@1", "cjk", "cjk@1", "vt-switch", "vt-restore",
                                    "vt-restore@1", "mirror"],
             "two-cards-mirror": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
-                                 "vt-restore", "vt-restore@card1", "mirror"],
+                                 "vt-restore", "vt-restore@card1", "mirror", "display-unplug",
+                                 "display-replug"],
             "usb-keyboards": ["cjk", "vt-switch", "vt-restore", "udev-examples",
                               "keyboard-hotplug"],
         }
@@ -2697,7 +2698,51 @@ class DevicesTest(unittest.TestCase):
                 self.assertEqual(t3_scenario.base_of(name)[0], t3_common.BASE)
         self.assertIn("max_outputs=2", t3_scenario.VARIANTS["two-outputs-mirror"]["device"])
         self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["qemu"],
-                         ["-device", "virtio-gpu-pci,id=video1,xres=640,yres=480,edid=on"])
+                         ["-device", "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1",
+                          "-device", "bochs-display,id=video1,bus=rp1,xres=640,yres=480,edid=on"])
+
+    def test_second_card(self):
+        # The card display-replug plugs back in is the card the guest boots
+        # with: the same device, in the same port, as QMP device_add takes it.
+        self.assertEqual(t3_devices.SECOND_CARD,
+                         {"driver": "bochs-display", "id": "video1", "bus": "rp1",
+                          "xres": 640, "yres": 480, "edid": True})
+        self.assertEqual(t3_devices.device_option(t3_devices.SECOND_CARD),
+                         "bochs-display,id=video1,bus=rp1,xres=640,yres=480,edid=on")
+        self.assertEqual(t3_devices.device_option({"driver": "d", "edid": False}), "d,edid=off")
+        # The port's id is the card's bus, and the card is the output the
+        # variant captures after the first.
+        self.assertIn("id=%s," % t3_devices.SECOND_CARD["bus"], t3_devices.SECOND_PORT)
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["outputs"][0]["device"],
+                         t3_devices.SECOND_CARD["id"])
+        self.assertEqual(set(t3_scenario.CHECK_RUNS) & set(t3_devices.CHECKS),
+                         {"udev-examples", "keyboard-hotplug", "display-unplug",
+                          "display-replug"})
+
+    # The guest's account of its cards (screens/display-cards.sh).
+    CARDS = ["T3-CARD card0 0000:00:01.0", "T3-CARD card1 0000:01:00.0", "T3-DONE display-cards"]
+
+    def test_display_cards(self):
+        self.assertEqual(t3_devices.cards(self.CARDS),
+                         {"card0": "0000:00:01.0", "card1": "0000:01:00.0"})
+        self.assertEqual(t3_devices.cards(["T3-CARD card0", "T3-DONE display-cards"]), {})
+        want = ["0000:01:00.0", "0000:00:01.0"]
+        self.assertIsNone(t3_devices.judge_cards(t3_devices.cards(self.CARDS), want))
+        # The card came back under another name, at the same address.
+        self.assertIsNone(t3_devices.judge_cards({"card0": "0000:00:01.0",
+                                                  "card2": "0000:01:00.0"}, want))
+        self.assertEqual(t3_devices.judge_cards({"card0": "0000:00:01.0"}, want),
+                         "the guest lists the cards at 0000:00:01.0, not at 0000:00:01.0, "
+                         "0000:01:00.0")
+        self.assertEqual(t3_devices.judge_cards({}, want),
+                         "the guest lists the cards at no address, not at 0000:00:01.0, "
+                         "0000:01:00.0")
+        m = t3_devices.DISPLAY_LINE.search(
+            "[   27.753038] vtium[765]: Display Virtual-2 with backend [drm2d] text renderer "
+            "[cpu], cell size 8x16")
+        self.assertEqual(m.group(1), "Virtual-2")
+        self.assertIsNone(t3_devices.DISPLAY_LINE.search(
+            "[   27.748585] vtium[765]: display Virtual-2 at 640x480"))
 
     def test_outputs(self):
         outputs = t3_scenario.VARIANTS["two-outputs-mirror"]["outputs"]

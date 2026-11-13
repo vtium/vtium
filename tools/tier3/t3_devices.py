@@ -10,6 +10,9 @@ case with the output's suffix (`cjk@1`), judged by its own golden. A head
 after a device's first shows nothing until a display asks for its size, so
 an output naming "size" is asked for it over a VNC server of its own
 (t3_qemu.vnc_set_size).
+
+two-cards-mirror's second card is pulled out and plugged back in through
+QMP while vtium runs (display-unplug, display-replug).
 """
 
 import re
@@ -34,6 +37,30 @@ USB = ["-device", "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1,bus-rese
        "-device", "usb-hub,id=hub3,bus=%s,port=3" % USB_BUS,
        "-device", "usb-kbd,id=kbd32,bus=%s,port=3.2" % USB_BUS]
 
+# two-cards-mirror's second card, which display-unplug pulls out and
+# display-replug plugs back in. QEMU refuses to hotplug every virtio-gpu
+# device ("Device 'virtio-gpu-pci' does not support hotplugging"), on any
+# bus, so the second card is a bochs-display, which the guest's bochs DRM
+# driver drives. The q35 machine refuses to hotplug any device on its root
+# bus ("Bus 'pcie.0' does not support hotplugging"), so the card sits behind
+# a PCIe root port of its own. SECOND_CARD gives both the -device option the
+# guest boots with (device_option) and the arguments of QMP device_add.
+SECOND_PORT = "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1"
+SECOND_CARD = {"driver": "bochs-display", "id": "video1", "bus": "rp1",
+               "xres": 640, "yres": 480, "edid": True}
+
+
+def device_option(dev):
+    """The -device option of the device QMP device_add's arguments `dev`
+    describe."""
+    def value(v):
+        return ("on" if v else "off") if isinstance(v, bool) else str(v)
+    return ",".join([dev["driver"]] + ["%s=%s" % (k, value(v)) for k, v in dev.items()
+                                       if k != "driver"])
+
+
+TWO_CARDS = ["-device", SECOND_PORT, "-device", device_option(SECOND_CARD)]
+
 CHECKS = {
     "mirror": "Every screen as each output drew it, against the first output's. Correct: "
               "the same grid on every output, each capture identical to the first's.",
@@ -56,6 +83,19 @@ CHECKS = {
                         "the session and leave the PS/2 count unchanged; the guest lists "
                         "it while plugged and not once pulled out; and the session still "
                         "takes keys.",
+    "display-unplug": "The second card pulled out through QMP while both cards show the "
+                      "head's grid, then a screen typed on the console. Correct: the guest "
+                      "lists the first card alone; the first display shows the grid it "
+                      "showed before, unchanged; and the screen typed while the card is "
+                      "out reaches the session and is drawn on the first display exactly "
+                      "as the run drew it with both cards.",
+    "display-replug": "The second card plugged back in through QMP, into the port it "
+                      "left, after display-unplug, with no key pressed. Correct: the guest "
+                      "lists both cards again, the new one at the old one's PCI address; "
+                      "vtium sets up a display on it; the second display shows the grid "
+                      "the first shows, exactly, before any key; and a screen typed next "
+                      "is drawn on both displays exactly as the run drew it before the "
+                      "unplug.",
 }
 
 # The boot's USB keyboard, which keyboard-hotplug pulls out first: QEMU
@@ -273,6 +313,27 @@ def judge_hotplug(control, plugged, typed, pulled, took):
                 "from %s to %s: its keys came from the PS/2 keyboard" % (before, after))
     if HOT_NAME in listed(pulled):
         return "pulled out, the guest still lists %s" % HOT_NAME
+    return None
+
+
+# vtium's log line for each display it sets up (vtium's video), which
+# display-replug waits for on the new card.
+DISPLAY_LINE = re.compile(r"Display (\S+) with backend \[")
+
+
+def cards(lines):
+    """The DRM cards the guest listed (screens/display-cards.sh), as {name:
+    the PCI address of the card's device}."""
+    return {f[1]: f[2] for f in (l.split() for l in lines) if len(f) == 3 and f[0] == "T3-CARD"}
+
+
+def judge_cards(listed, want):
+    """Why the cards the guest `listed` (cards) are not the PCI addresses
+    `want`; None when they are."""
+    have = sorted(listed.values())
+    if have != sorted(want):
+        return "the guest lists the cards at %s, not at %s" % (", ".join(have) or "no address",
+                                                               ", ".join(sorted(want)))
     return None
 
 

@@ -395,10 +395,9 @@ VARIANTS.update({
                                outputs=[{"suffix": "@1", "device": "video0", "head": 1,
                                          "size": (640, 480)}],
                                mirror=True),
-    "two-cards-mirror": dict(DEVICES, qemu=["-device", "virtio-gpu-pci,id=video1,xres=640,"
-                                                       "yres=480,edid=on"],
+    "two-cards-mirror": dict(DEVICES, qemu=t3_devices.TWO_CARDS,
                              outputs=[{"suffix": "@card1", "device": "video1"}],
-                             mirror=True),
+                             mirror=True, checks=["display-unplug", "display-replug"]),
     "usb-keyboards": dict(DEVICES, qemu=t3_devices.USB, screens=["cjk"],
                           checks=["udev-examples", "keyboard-hotplug"]),
 })
@@ -1462,11 +1461,121 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
         log("%s: %s" % (case, e))
 
 
+def check_display_unplug(_variant, vm, work, caps, errors, log):
+    """The display-unplug check (t3_devices.CHECKS), on two-cards-mirror
+    after the mirror check. The guest lists its cards
+    (screens/display-cards.sh), the control, and the first display settles
+    on the listing. QMP device_del pulls the second card out. Once QEMU
+    reports DEVICE_DELETED, the first display must settle on the screen it
+    showed before, and the guest must list every card but one. The guest
+    then draws sgr, typed on the console, and the first display must show it
+    exactly as this run's capture of sgr shows it. The capture is that
+    screen. vm.unplugged gets the cards the control listed and the PCI
+    address of the card pulled out, which display-replug plugs back in."""
+    case = "display-unplug"
+    vm.unplugged = None
+    tmp = os.path.join(work, "wait.ppm")
+    try:
+        if "sgr" not in caps:
+            raise RuntimeError("the run has no capture of sgr to compare with")
+        want = t3img.read(caps["sgr"])
+        control = t3_devices.cards(t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT))
+        log("%s: before the unplug the guest lists %s" % (case, control))
+        if len(control) != 2:
+            raise RuntimeError("before the unplug, the guest lists the cards %s, not two"
+                               % sorted(control.values()))
+        before = wait_stable(vm, tmp)
+        since = t3_devices.serial_size(vm)
+        vm.cmd("device_del", id=t3_devices.SECOND_CARD["id"])
+        t3_devices.wait_qmp_event(vm, "DEVICE_DELETED", t3_devices.SECOND_CARD["id"], 60)
+        try:
+            wait_stable(vm, tmp, timeout=30, want=lambda img: img.data == before.data)
+        except RuntimeError as e:
+            raise RuntimeError("with the second card out, the first display does not keep "
+                               "the screen it showed: %s" % e) from None
+        listed = t3_devices.cards(t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT))
+        log("%s: with the second card out the guest lists %s" % (case, listed))
+        pulled = sorted(set(control.values()) - set(listed.values()))
+        if len(pulled) != 1 or len(listed) != 1:
+            raise RuntimeError("with the second card out, the guest lists the cards at %s, "
+                               "where it listed %s before"
+                               % (", ".join(sorted(listed.values())) or "no address",
+                                  ", ".join(sorted(control.values()))))
+        t3_devices.run_screen(vm, "sgr", SCREEN_TIMEOUT)
+        path = os.path.join(work, case + ".ppm")
+        try:
+            wait_stable(vm, path, want=lambda img: img.data == want.data)
+        except RuntimeError as e:
+            raise RuntimeError("with the second card out, the first display does not draw "
+                               "sgr as the run drew it with both cards: %s" % e) from None
+        caps[case] = path
+        vm.unplugged = (control, pulled[0])
+        with open(vm.serial, "rb") as f:
+            said = [l for l in f.read()[since:].decode(errors="replace").splitlines()
+                    if "vtium[" in l and "render-timer" not in l]
+        log("%s: vtium logged after the unplug: %s" % (case, " | ".join(said) or "nothing"))
+    except RuntimeError as e:
+        errors[case] = str(e)
+        log("%s: %s" % (case, e))
+
+
+def check_display_replug(variant, vm, work, caps, errors, log):
+    """The display-replug check (t3_devices.CHECKS), after display-unplug.
+    QMP device_add plugs the second card back into the port it left. No key
+    is pressed until vtium has logged a display set up after the plug, and
+    the second display has settled on the screen the first display shows.
+    Then the guest must list the cards the control listed, and draw cjk,
+    which each display must show exactly as this run's capture of cjk on it
+    shows it. The capture is the second display's screen before any key."""
+    case = "display-replug"
+    output = variant["outputs"][0]
+    second = t3_devices.capture(output)
+    tmp = os.path.join(work, "wait.ppm")
+    try:
+        if not getattr(vm, "unplugged", None):
+            raise RuntimeError("not run: display-unplug did not pull the second card out")
+        control, pulled = vm.unplugged
+        for name in ("cjk", "cjk" + output["suffix"]):
+            if name not in caps:
+                raise RuntimeError("the run has no capture of %s to compare with" % name)
+        shown = vm.screendump(tmp)
+        since = t3_devices.serial_size(vm)
+        vm.cmd("device_add", **t3_devices.SECOND_CARD)
+        line = t3_devices.wait_serial_after(vm, t3_devices.DISPLAY_LINE, since, 60)
+        log("%s: vtium set up display %s after the plug" % (case, line.group(1)))
+        path = os.path.join(work, case + ".ppm")
+        try:
+            wait_stable(vm, path, output=second, want=lambda img: img.data == shown.data)
+        except RuntimeError as e:
+            raise RuntimeError("plugged back in, the second display does not show the "
+                               "screen the first shows, with no key pressed: %s" % e) from None
+        listed = t3_devices.cards(t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT))
+        log("%s: plugged back in, the guest lists %s" % (case, listed))
+        why = t3_devices.judge_cards(listed, control.values())
+        if why:
+            raise RuntimeError("plugged back in, %s" % why)
+        t3_devices.run_screen(vm, "cjk", SCREEN_TIMEOUT)
+        for shows, name in ((None, "cjk"), (second, "cjk" + output["suffix"])):
+            want = t3img.read(caps[name])
+            try:
+                wait_stable(vm, tmp, output=shows, want=lambda img, w=want: img.data == w.data)
+            except RuntimeError as e:
+                raise RuntimeError("after the replug, the screen typed next differs from "
+                                   "this run's %s: %s" % (name, e)) from None
+        caps[case] = path
+        log("%s: the card at %s came back" % (case, pulled))
+    except RuntimeError as e:
+        errors[case] = str(e)
+        log("%s: %s" % (case, e))
+
+
 # The checks a variant names ("checks"), each run after the VT switch, or
 # after the first screen when the console gives no login; each takes the
 # variant's entry in VARIANTS first.
 CHECK_RUNS = {"udev-examples": check_udev_examples,
               "keyboard-hotplug": check_keyboard_hotplug,
+              "display-unplug": check_display_unplug,
+              "display-replug": check_display_replug,
               "seat": t3_seat.check_seat,
               "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
