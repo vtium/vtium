@@ -1,0 +1,64 @@
+> size 20 2
+> send "\e[>1u"
+> key F6
+< reply "\e[17~"
+> key F12 mods=ctrl
+< reply "\e[24;5~"
+> key F14
+< reply "\e[57377u"
+> key F24 mods=shift
+< reply "\e[57387;2u"
+> key F35
+< reply "\e[57398u"
+> key Menu mods=alt
+< reply "\e[57363;3u"
+> key Insert mods=shift
+< reply "\e[2;2~"
+> key Page_Down
+< reply "\e[6~"
+> key Home
+< reply "\e[H"
+> key End
+< reply "\e[F"
+> key Right
+< reply "\e[C"
+> key Left mods=alt
+< reply "\e[1;3D"
+> key Down mods=shift+ctrl
+< reply "\e[1;6B"
+> key Pause
+< reply "\e[57362u"
+> key Print
+< reply "\e[57361u"
+> key Scroll_Lock
+< reply "\e[57359u"
+> key 0x1008ff31
+< reply "\e[57429u"
+> key 0x1008ff15
+< reply "\e[57432u"
+> key 0x1008ff97
+< reply "\e[57433u"
+> key 0x1008ff3e
+< reply "\e[57434u"
+> key 0x1008ff17
+< reply "\e[57435u"
+> key 0x1008ff16
+< reply "\e[57436u"
+> key 0x1008ff1c
+< reply "\e[57437u"
+> key 0x1008ff11
+< reply "\e[57438u"
+> key 0x1008ff13
+< reply "\e[57439u"
+> key 0x1008ff12
+< reply "\e[57440u"
+> key KP_Home
+< reply "\e[57423u"
+> key KP_Left
+< reply "\e[57417u"
+> key KP_Page_Down mods=shift
+< reply "\e[57422;2u"
+> key KP_Separator
+< reply ","
+> key KP_Begin mods=ctrl
+< reply "\e[57427;5u"

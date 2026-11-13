@@ -1,0 +1,35 @@
+> size 20 2
+> needs key-events
+> send "\e[>24u"
+> key a
+< reply "\e[97;;97u"
+> key eacute
+< reply "\e[233;;233u"
+> key space
+< reply "\e[32;;32u"
+> key A mods=lock
+< reply "\e[97;65;65u"
+> key KP_1 mods=num char="1"
+< reply "\e[57400;129;49u"
+> key Return
+< reply "\e[13u"
+> key Tab
+< reply "\e[9u"
+> key a mods=alt
+< reply "\e[97;3u"
+> cmd key;sym=0;unicode=e5
+< reply "\e[229;;229u"
+> send "\e[=26u"
+> cmd key;sym=61;ascii=61;unicode=61
+< reply "\e[97;;97u"
+> cmd key;sym=61;ascii=61;unicode=61;event=repeat
+< reply "\e[97;1:2;97u"
+> cmd key;sym=61;ascii=61;unicode=61;event=release
+< reply "\e[97;1:3u"
+> send "\e[=17u"
+> key a
+< reply "a"
+> key a mods=ctrl
+< reply "\e[97;5u"
+> send "\e[?u"
+< reply "\e[?17u"

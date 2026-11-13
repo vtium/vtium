@@ -1,0 +1,132 @@
+> size 20 2
+> needs key-forms
+> send "\e[>2u"
+> key i
+< reply "i"
+> key I mods=shift
+< reply "I"
+> key i mods=alt
+< reply "\ei"
+> key i mods=ctrl
+< reply "\t"
+> key I mods=shift+alt
+< reply "\eI"
+> key i mods=ctrl+alt
+< reply "\e\t"
+> cmd key;sym=49;ascii=49;unicode=49;unshifted=69;base=69;mods=5
+< reply "\t"
+> key 3 mods=ctrl
+< reply "\e"
+> key 3 mods=ctrl+alt
+< reply "\e\e"
+> cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=1
+< reply "#"
+> cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=9
+< reply "\e#"
+> cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=5
+< reply "#"
+> key semicolon mods=ctrl
+< reply ";"
+> key semicolon mods=alt
+< reply "\e;"
+> cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=9
+< reply "\e:"
+> cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=5
+< reply ":"
+> key a mods=logo
+< reply "a"
+> key A mods=shift+ctrl+alt
+< reply "\e\x01"
+> key 2 mods=ctrl
+< reply "\x00"
+> key 4 mods=ctrl
+< reply "\x1c"
+> key 5 mods=ctrl
+< reply "\x1d"
+> key 6 mods=ctrl
+< reply "\x1e"
+> key 7 mods=ctrl
+< reply "\x1f"
+> key 8 mods=ctrl
+< reply "\x7f"
+> key 9 mods=ctrl
+< reply "9"
+> key 0 mods=ctrl
+< reply "0"
+> key slash mods=ctrl
+< reply "\x1f"
+> key bracketright mods=ctrl
+< reply "\x1d"
+> key backslash mods=ctrl
+< reply "\x1c"
+> key minus mods=ctrl
+< reply "-"
+> key equal mods=ctrl
+< reply "="
+> key apostrophe mods=ctrl
+< reply "'"
+> key comma mods=ctrl
+< reply ","
+> key period mods=ctrl
+< reply "."
+> key grave mods=ctrl
+< reply "\x00"
+> key Return mods=ctrl
+< reply "\r"
+> key Return mods=alt
+< reply "\e\r"
+> key Return mods=logo
+< reply "\r"
+> key Escape mods=ctrl
+< reply "\e"
+> key Escape mods=alt
+< reply "\e\e"
+> key Escape mods=logo
+< reply "\e"
+> key BackSpace
+< reply "\b"
+> key BackSpace mods=shift
+< reply "\b"
+> key BackSpace mods=alt
+< reply "\e\b"
+> key BackSpace mods=ctrl
+< reply "\b"
+> key Tab mods=alt
+< reply "\e\t"
+> key Tab mods=ctrl+alt
+< reply "\e\t"
+> key ISO_Left_Tab mods=shift
+< reply "\e[Z"
+> key ISO_Left_Tab mods=shift+ctrl
+< reply "\e[Z"
+> key ISO_Left_Tab mods=shift+alt
+< reply "\e[Z"
+> key space mods=shift
+< reply " "
+> key space mods=ctrl
+< reply "\x00"
+> key space mods=alt
+< reply "\e "
+> key space mods=ctrl+alt
+< reply "\e\x00"
+> key Up mods=num
+< reply "\e[A"
+> key Up mods=ctrl+num
+< reply "\e[1;5A"
+> key F5 mods=lock
+< reply "\e[15~"
+> key End
+< reply "\e[F"
+> key F4
+< reply "\eOS"
+> send "\e[?1h"
+> key Home
+< reply "\eOH"
+> key Home mods=shift
+< reply "\e[1;2H"
+> key F1
+< reply "\eOP"
+> key F1 mods=ctrl
+< reply "\e[1;5P"
+> key F3 mods=shift
+< reply "\e[1;2R"
