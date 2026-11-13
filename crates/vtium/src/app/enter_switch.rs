@@ -127,14 +127,15 @@ impl App {
         }
     }
 
-    /// The text of the notice of the display `connector` on VT `vt`, which
-    /// is configured for the head at `owner` of the file's heads, if any
-    /// (ADR-1401 D3): what [`crate::notice::unused_display`] says, and,
+    /// The text of the notice of the display `connector` on VT `vt`, `None`
+    /// without a VT number, which is configured for the head at `owner` of
+    /// the file's heads, if any (ADR-1401 D3): what
+    /// [`crate::notice::unused_display`] says, and,
     /// while a keyboard of a head that switches on Enter is present, the
     /// line that says where Enter takes it.
     pub(super) fn unused_text(
         &mut self,
-        vt: u16,
+        vt: Option<u16>,
         connector: &str,
         owner: Option<usize>,
         running: &mut Option<Result<VtiumVts, String>>,

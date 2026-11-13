@@ -349,23 +349,22 @@ fn settle(c: &Config, present: u16, rescued: u16, active: Option<u8>) -> View {
             }
         }
     }
-    // the display guard is always on
+    // the display guard acts for a run that has its own console line,
+    // the file having failed: for a valid file the table leaves a display
+    // that no path names unlit, with or without kernel VTs (ADR-1401 D3)
     let mut display_guard = false;
     let mut notice = None;
-    if let (0, Some(boot)) = (lit, boot) {
+    if let (0, Some(boot), Some(_)) = (lit, boot, c.o.line) {
+        display_guard = true;
         match c.o.fallback {
             Fallback::FirstHead => {
                 let h = c.scene.first().unwrap_or(DEF);
-                display_guard = true;
                 lit = h;
                 boot_head = Some(h);
                 shown |= shows(boot, h);
             }
-            // the boot display for the notice alone, and dark for a valid closed file with no head
-            Fallback::NoticeOnly => {
-                display_guard = c.o.line.is_some() || c.scene.heads != 0;
-                notice = c.o.dark_notice();
-            }
+            // the boot display for the notice alone
+            Fallback::NoticeOnly => notice = c.o.dark_notice(),
         }
     }
     let heads = c.scene.heads | (lit & DEF);
@@ -826,7 +825,7 @@ fn under_closed_the_display_guard_lights_the_boot_display_exactly_for_a_notice()
 }
 
 #[test]
-fn a_valid_closed_file_whose_heads_lose_every_display_shows_its_one_notice() {
+fn a_valid_closed_file_whose_heads_lose_every_display_shows_nothing() {
     let read = Read::Trusted(Trusted {
         stated: Stated::Closed,
         rest: Rest::Valid,
@@ -844,8 +843,7 @@ fn a_valid_closed_file_whose_heads_lose_every_display_shows_its_one_notice() {
     // one display left, which no rule claims
     let v = settle(&c, EVERY & !displays | 4, 0, None);
     assert_eq!(o.line, None);
-    assert_eq!(v.notice, Some(Line::NoDisplay));
-    assert_eq!(Line::NoDisplay.text(), "No head has a connected display.");
+    assert!(!v.display_guard && v.notice.is_none());
     assert_eq!(v.reach & (session(H1) | session(H2) | session(DEF)), 0);
 }
 

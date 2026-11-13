@@ -893,28 +893,38 @@ fn the_shipped_rules_close_inputs_an_open_file_gives_the_focus() {
     // the device level of the degraded-run contradiction: a joystick
     let joystick = Identity::input().with_class(Class::Joystick);
     assert_eq!(Config::builtin().walk(&joystick).place, Place::Ignore);
-    let open = parse("version = 1\n").map(|p| p.config).unwrap_or_default();
+    let open = parse("version = 1\n[head a]\n")
+        .map(|p| p.config)
+        .unwrap_or_default();
     assert_eq!(open.walk(&joystick).place, Place::Roaming);
 }
 
-// Under the open policy the display guard lights a head when no head has
-// a display, so the notice that no head has a connected display shows only
-// under the closed policy (ADR-1401 D9)
+// The display guard's notice is the run's own console line, under the
+// closed policy alone: under open the guard lights a head, and a valid
+// file, which has no line, shows no notice, with or without kernel VTs
+// (ADR-1401 D3, D9)
 #[test]
-fn no_head_has_a_connected_display_never_shows_under_the_open_policy() {
+fn the_dark_notice_is_the_runs_own_line_under_the_closed_policy_alone() {
     let mut reads = vec![Read::Missing, Read::Untrusted, Read::Inaccessible];
     for &stated in Stated::ALL {
         for &rest in Rest::ALL {
             reads.push(Read::Trusted(Trusted { stated, rest }));
         }
     }
-    let mut closed = 0;
+    let mut shown = 0;
     for read in &reads {
         let o = resolve(read);
-        match o.policy {
-            Policy::Open => assert_ne!(o.dark_notice(), Some(Line::NoDisplay), "{read:?}"),
-            Policy::Closed => closed += usize::from(o.dark_notice() == Some(Line::NoDisplay)),
-        }
+        let want = match o.policy {
+            Policy::Open => None,
+            Policy::Closed => o.line,
+        };
+        assert_eq!(o.dark_notice(), want, "{read:?}");
+        shown += usize::from(want.is_some());
     }
-    assert!(closed > 0, "the closed policy shows it somewhere");
+    assert!(shown > 0, "the closed policy shows a notice somewhere");
+    let valid = resolve(&Read::Trusted(Trusted {
+        stated: Stated::Closed,
+        rest: Rest::Valid,
+    }));
+    assert_eq!(valid.dark_notice(), None, "a valid closed file");
 }

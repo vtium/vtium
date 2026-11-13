@@ -889,10 +889,12 @@ display edid:AAA:0x0001:0x00000001 -> small
     assert_eq!(grid(&s.app, "large"), Some((80, 20)));
 }
 
-/// D3: a display a rule sends `dark` and a display no rule claims are
-/// left off, set dark, and join no head.
+/// D3: a display a rule sends `off` is left off, set dark, and joins no
+/// head. Under open, a display no rule claims joins no head either, and
+/// shows its own notice, with or without a VT number (the maintainer's
+/// table).
 #[test]
-fn a_display_sent_dark_or_claimed_by_no_rule_is_left_off() {
+fn a_display_sent_off_is_left_off_and_one_no_rule_claims_shows_its_notice() {
     let heads = "version = 1
 [head small]
 [rules]
@@ -905,16 +907,18 @@ display card:mem-large -> off
         ("/dev/mem2", Memory::new(320, 240, "MEM-3", "mem-other")),
     ];
     let mut s = Seat::with_heads(&[], Some(heads), displays, "read x");
-    assert!(s.until(BOUND, |a| a.cells().len() == 1));
+    assert!(
+        s.until(BOUND, |a| a.display_notice("MEM-3")
+            == Some(("MEM-3 is not configured for any terminal.", true))),
+        "the display no rule claims shows its notice"
+    );
     assert!(
         s.until_memory("/dev/mem0", BOUND, |m| m.frames > 0),
         "the small display draws"
     );
-    assert_eq!(s.app.cells(), [(8, 16)]);
-    for node in ["/dev/mem1", "/dev/mem2"] {
-        let m = s.memory(node);
-        assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "{node} is dark");
-    }
+    assert_eq!(grid(&s.app, "small"), Some((40, 10)));
+    let m = s.memory("/dev/mem1");
+    assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "off is dark");
 }
 
 /// D5: every keyboard types into the head holding the focus, which starts
@@ -5185,7 +5189,6 @@ fn notice(app: &App, name: &str) -> Option<String> {
 const SKIPPED: &str = "vtium.conf not used: running the built-in configuration.\nTo see why, run vtium check-config /etc/vtium/vtium.conf.";
 const PARTLY: &str = "vtium.conf has errors: running the parts without errors.\nTo see why, run vtium check-config /etc/vtium/vtium.conf.";
 const CLOSED_OFF: &str = "vtium.conf has errors and counts as closed: all input is off.\nThis console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media.";
-const NO_DISPLAY: &str = "No head has a connected display.\nConnect a display that a rule in /etc/vtium/vtium.conf sends to a head.";
 
 /// The panic screen of a broken closed file whose one error, on line 4,
 /// is the key `focs`, read as `heads.conf` (D7): the console line, that
@@ -5262,6 +5265,19 @@ fn d7_row(row: &Row) {
             assert_eq!(lit, Some(row.lit), "{test}: the displays it lights");
             let lit = s.app.notice_screen().is_some_and(|n| !n.cells().is_empty());
             assert!(!lit, "{test}: a head holds the display");
+        }
+        // under open, a valid file with rules and no head runs no head,
+        // and each display shows its own notice (ADR-1401 D3)
+        None if test == "headless-open" => {
+            for connector in ["MEM-1", "MEM-2"] {
+                let unused = format!("{connector} is not configured for any terminal.");
+                assert!(
+                    s.until(BOUND, |a| a.display_notice(connector)
+                        == Some((unused.as_str(), true))),
+                    "{test}: {connector} shows its notice"
+                );
+            }
+            assert!(s.app.notice_screen().is_none(), "{test}: no notice screen");
         }
         None => {
             assert!(
@@ -5394,7 +5410,7 @@ fn each_row_of_d7s_outcomes_runs_what_it_says_and_shows_its_line() {
             test: "headless-open",
             text: "version = 1\n[rules]\ninput * -> ignore\n".into(),
             kind: Kind::File,
-            heads: &["console"], lit: 1,
+            heads: &[], lit: 0,
             line: None,
         },
         Row {
@@ -5579,28 +5595,71 @@ fn a_broken_closed_file_runs_nothing_and_shows_the_panic_screen_on_the_boot_disp
     );
 }
 
-/// D9: under `policy = closed` a file whose heads have no display lights
-/// the boot display for `No head has a connected display.` alone, which
-/// stays until a head lights, when the head takes its display.
-// covers: platform.heads.guards
+/// The maintainer, 2026-11-13: a valid closed file leaves a display that no
+/// rule places blank on every machine, with or without kernel VTs. Here the
+/// start names no VT, as where the kernel has none, so every head runs, and
+/// the display guard does not act for a valid file (ADR-1401 D3): the
+/// display stays off with no notice, and head desk takes its own display
+/// once it comes.
+// covers: platform.heads.policy
 #[test]
-fn under_closed_heads_with_no_display_light_the_boot_display_for_the_notice_alone() {
+fn under_closed_a_valid_file_leaves_a_display_no_rule_places_blank_without_a_vt() {
     let text =
         "version = 1\npolicy = closed\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\n";
+    let rules = start(text);
+    assert_eq!(
+        (rules.vt(), rules.line()),
+        (None, None),
+        "no VT, a valid file"
+    );
     let displays = [(
         "/dev/mem0",
         Memory::new(320, 160, "MEM-1", "mem-small").lit(),
     )];
-    let mut s = Seat::with_rules(&[], Some(start(text)), displays, ECHO, no_fonts());
-    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.has(PAPER)));
-    assert_eq!(
-        s.app.notice_screen().and_then(Head::notice),
-        Some(NO_DISPLAY)
+    let mut s = Seat::with_rules(&[], Some(rules), displays, ECHO, no_fonts());
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(
+        s.app
+            .notice_screen()
+            .is_none_or(|n| n.cells().is_empty() && n.notice().is_none()),
+        "no notice shows"
     );
+    assert_eq!(s.app.display_notice("MEM-1"), None);
+    let m = s.memory("/dev/mem0");
+    assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "it stays blank");
+    s.app.add_video(
+        PathBuf::from("/dev/mem1"),
+        Box::new(Memory::new(640, 320, "MEM-2", "mem-large")),
+    );
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "desk", "ready")),
+        "a head lit"
+    );
+    assert_eq!(s.memory("/dev/mem0").frames, 0, "still blank");
+}
+
+/// D7 and D9: what survives of a closed file with errors keeps the display
+/// guard without a VT number, as on a VT. When its heads have no display,
+/// the guard lights the boot display for the console line alone, which
+/// stays until a head lights, when the head takes its display.
+// covers: platform.heads.guards
+#[test]
+fn under_closed_a_file_with_errors_lights_the_boot_display_for_its_notice_without_a_vt() {
+    let text = "version = 1\npolicy = closed\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\ninput path:kbd-x -> nowhere\n";
+    let rules = start(text);
+    assert_eq!(rules.vt(), None, "no VT");
+    assert!(rules.line().is_some(), "a file with errors");
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    let mut s = Seat::with_rules(&[], Some(rules), displays, ECHO, no_fonts());
+    assert!(s.until_memory("/dev/mem0", BOUND, |m| m.has(PAPER)));
+    assert_eq!(s.app.notice_screen().and_then(Head::notice), Some(PARTLY));
     s.app.turn(now() + Duration::from_secs(31));
     assert_eq!(
         s.app.notice_screen().and_then(Head::notice),
-        Some(NO_DISPLAY),
+        Some(PARTLY),
         "it stays"
     );
     s.app.add_video(
@@ -6453,10 +6512,15 @@ fn a_keyboard_the_rescue_key_moved_lets_the_anti_lockout_guard_go() {
     assert!(!head_shows(&s.app, "large", "got:b"), "b is small's again");
 }
 
-/// D9: the display guard acts after every display added or removed. The
-/// rules light the large display alone; once it goes the guard lights the
-/// boot display, the small, in the first head, and once it is back the
-/// small goes dark again.
+/// The head file of the display guard's tests: head desk on the large
+/// display, and a rule for a head the file does not declare, so the file
+/// has errors and runs the display guard (ADR-1401 D7, D9).
+const DESK_ON_LARGE_WITH_ERRORS: &str = "version = 1\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\ninput path:kbd-x -> nowhere\n";
+
+/// D9: the display guard acts after every display added or removed, for
+/// what survives of a file with errors. The rules light the large display
+/// alone; once it goes the guard lights the boot display, the small, in
+/// the first head, and once it is back the small goes dark again.
 #[test]
 fn the_display_guard_lights_the_boot_display_while_the_rules_light_none() {
     let displays = [
@@ -6466,8 +6530,9 @@ fn the_display_guard_lights_the_boot_display_while_the_rules_light_none() {
         ),
         ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
     ];
-    let text = "version = 1\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\n";
-    let mut s = Seat::with_heads(&[], Some(text), displays, "echo ready; read x");
+    let rules = start(DESK_ON_LARGE_WITH_ERRORS);
+    assert!(rules.line().is_some(), "a file with errors");
+    let mut s = Seat::with_rules(&[], Some(rules), displays, "echo ready; read x", no_fonts());
     assert!(s.until(BOUND, |a| a.grid() == (80, 20)), "the large alone");
     assert_eq!(s.memory("/dev/mem0").dpms, Some(Dpms::Off));
     s.unplug("/dev/mem1", now());
@@ -6567,8 +6632,7 @@ fn with_no_keyboard_the_anti_lockout_guard_does_nothing() {
 
 /// D7 and D9: a file with `version = 1` alone runs its default head, which
 /// a keyboard following the focus reaches, so the anti-lockout guard never
-/// acts, through a second keyboard too, and a keyboard a rule ignores
-/// stays ignored.
+/// acts, through a second keyboard too.
 #[test]
 fn a_file_with_no_heads_runs_its_default_head_with_no_false_lockout() {
     let displays = [(
@@ -6576,21 +6640,14 @@ fn a_file_with_no_heads_runs_its_default_head_with_no_false_lockout() {
         Memory::new(640, 320, "MEM-2", "mem-large").lit(),
     )];
     let script = "echo ready; while read a; do echo \"got:$a\"; done";
-    let text = "version = 1\n[rules]\ninput path:kbd-ignored -> ignore\n";
-    let mut s = Seat::with_heads(&[], Some(text), displays, script);
+    let mut s = Seat::with_heads(&[], Some("version = 1\n"), displays, script);
+    assert_eq!(head_names(&s.app), ["console"]);
     s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
-    s.app
-        .add_input(Path::new(KBD_IGNORED), keyboard("kbd-ignored"));
     assert!(s.until(BOUND, |a| shows(a, "ready")));
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(notice(&s.app, "console"), None);
-    s.type_on(KBD_IGNORED, "i\r");
     s.type_on(KBD_A, "a\r");
     assert!(s.until(BOUND, |a| shows(a, "got:a")), "types");
-    assert!(
-        !shows(&s.app, "got:i"),
-        "the ignored keyboard types nowhere"
-    );
     s.app.add_input(Path::new(KBD_B), keyboard("kbd-b"));
     s.until(Duration::from_millis(100), |_| false);
     assert_eq!(notice(&s.app, "console"), None);
@@ -6724,9 +6781,9 @@ fn another_vts_key_rescues_nothing() {
     );
 }
 
-/// D9: a connected display always lights. The rules light the large
-/// display alone, and the small one, left dark at its bind while the large
-/// was lit, is never announced; once the large goes the display guard lets
+/// D9: a connected display always lights for what survives of a file with
+/// errors. The rules light the large display alone, and the small one, left
+/// dark at its bind while the large was lit, is never announced; once the large goes the display guard lets
 /// the small go for its device to announce and lights it, and once the
 /// large is back the small goes dark again.
 #[test]
@@ -6738,8 +6795,8 @@ fn a_display_left_dark_at_its_bind_lights_when_the_lit_one_goes() {
         ),
         ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
     ];
-    let text = "version = 1\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\n";
-    let mut s = Seat::with_heads(&[], Some(text), displays, "echo ready; read x");
+    let rules = start(DESK_ON_LARGE_WITH_ERRORS);
+    let mut s = Seat::with_rules(&[], Some(rules), displays, "echo ready; read x", no_fonts());
     assert!(s.until(BOUND, |a| a.grid() == (80, 20)), "the large alone");
     s.unplug("/dev/mem1", now());
     assert!(s.until(BOUND, |a| a.grid() == (40, 10)), "the small lit");

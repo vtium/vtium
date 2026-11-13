@@ -14,7 +14,7 @@
 //! display no path catches shows its own notice. Under closed such a
 //! display stays blank, and so does one a rule turns off.
 
-use vtium_settings::{Config, Identity, Place, Placed, Placement, Policy};
+use vtium_settings::{Config, Identity, Place, Placed, Placement};
 
 /// The heads the vtium on one VT builds, and the VT it places devices for.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -27,8 +27,8 @@ pub(crate) struct VtHeads {
     /// or no head at all.
     file: Vec<usize>,
     /// vtium builds the default head, `[head console]` of the compiled-in
-    /// configuration, alone: on a VT, under open, when the file defines no
-    /// head and no rule; with no VT, under open, when the file declares no
+    /// configuration, alone: under open, when the file defines no head and
+    /// no rule, and where what survives of an open file with errors runs no
     /// head, for the display guard to light (ADR-1401 D9).
     default: bool,
 }
@@ -42,13 +42,9 @@ impl VtHeads {
     /// runs.
     pub(crate) fn new(rules: &Config, vt: Option<u16>) -> VtHeads {
         let (file, default) = match vt {
-            Some(vt) if rules.default_head_on(vt) => (Vec::new(), true),
+            _ if rules.default_head_on(vt) => (Vec::new(), true),
             Some(vt) => (rules.heads_on_vt(vt), false),
-            None => {
-                let every = (0..rules.heads.len()).collect::<Vec<_>>();
-                let default = every.is_empty() && rules.policy == Policy::Open;
-                (every, default)
-            }
+            None => ((0..rules.heads.len()).collect(), false),
         };
         VtHeads { vt, file, default }
     }
@@ -204,12 +200,20 @@ display * -> a
         assert_eq!(names(&closed, Some(4)), Vec::<String>::new(), "closed");
     }
 
+    // the maintainer's table decides with or without a VT number
+    // (ADR-1401 D3): an open file that defines nothing builds the default
+    // head, and one with rules but no head builds none
     #[test]
-    fn with_no_vt_an_open_file_with_no_head_builds_the_default_head() {
-        let open = rules("version = 1\n[rules]\ninput * -> ignore\n");
+    fn with_no_vt_an_open_file_that_defines_nothing_builds_the_default_head() {
+        let names = |r: &Config| -> Vec<String> {
+            let heads = VtHeads::new(r, None);
+            heads.heads(r).into_iter().map(|h| h.name).collect()
+        };
+        let headless = rules("version = 1\n[rules]\ninput * -> ignore\n");
+        assert_eq!(names(&headless), Vec::<String>::new(), "rules, no head");
+        let open = rules("version = 1\n");
         let heads = VtHeads::new(&open, None);
-        let names: Vec<String> = heads.heads(&open).into_iter().map(|h| h.name).collect();
-        assert_eq!(names, ["console"]);
+        assert_eq!(names(&open), ["console"]);
         assert_eq!(heads.head(Place::DefaultHead), Some(0));
         assert_eq!(heads.place(0), Some(Place::DefaultHead));
         assert!(

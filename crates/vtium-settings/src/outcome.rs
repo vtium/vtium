@@ -216,8 +216,6 @@ closed! {
         Skipped = "skipped",
         Partly = "partly",
         ClosedOff = "closed-off",
-        /// A run that declares a head has no display for any of them, under a policy whose display guard lights no head.
-        NoDisplay = "no-display",
     }
 }
 
@@ -247,7 +245,7 @@ closed! {
     pub enum Fallback {
         /// The boot display, for the first head the running text declares, else for the default head, the compiled-in configuration's `[head console]`.
         FirstHead = "first-head",
-        /// Never a head on a display its rules do not claim: the boot display for the notice alone, [`Outcome::dark_notice`], when the run declares a head or has failed, and nothing for a valid closed file with no head, which is dark and silent, loaded but off.
+        /// Never a head on a display its rules do not claim: the boot display for the notice alone, [`Outcome::dark_notice`], when the file has failed, and nothing for a valid closed file, whose displays that no path names stay blank (ADR-1401 D3).
         NoticeOnly = "notice-only",
     }
 }
@@ -378,20 +376,11 @@ impl Outcome {
         self.policy.display_wait()
     }
 
-    /// Whether the running text declares a head: the shipped rules declare the default head, and a file that declares none or a run of nothing declares none.
-    pub fn declares_head(&self) -> bool {
-        match self.runs {
-            Runs::File | Runs::Survivors | Runs::Builtin => true,
-            Runs::NoHead | Runs::Off => false,
-        }
-    }
-
-    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `No head has a connected display.`, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead. On a kernel VT the guard acts only for what survives of a file with errors, which has a line (ADR-1401 D3, D9): a valid closed file leaves a display that no path names blank there. `No head has a connected display.` shows only where vtium places devices with no kernel VT ([`crate::Config::place_rescued`]).
+    /// The notice the display guard shows on the boot display under closed when no head the running text declares has a display: the run's own line. The guard acts only for what survives of a file with errors, which has a line, on every machine, with or without kernel VTs (ADR-1401 D3, D9). A valid closed file has no line and shows no notice: a display that no path names stays blank. Under open the guard lights a head instead.
     pub fn dark_notice(&self) -> Option<Line> {
-        match (self.fallback, self.line) {
-            (Fallback::FirstHead, _) => None,
-            (Fallback::NoticeOnly, Some(line)) => Some(line),
-            (Fallback::NoticeOnly, None) => self.declares_head().then_some(Line::NoDisplay),
+        match self.fallback {
+            Fallback::FirstHead => None,
+            Fallback::NoticeOnly => self.line,
         }
     }
 

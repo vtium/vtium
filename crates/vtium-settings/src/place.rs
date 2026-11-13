@@ -41,9 +41,9 @@ pub enum Place {
     Head(usize),
     /// The default head, `[head console]` of the compiled-in
     /// configuration, which vtium builds as its only head: under open, the
-    /// display guard of [`Config::place`] lights it when the file declares
-    /// no head, and [`Config::place_on`] puts every display in it when the
-    /// file defines nothing ([`Config::uses_builtin_on`]). It is never a
+    /// display guard lights it when what survives of a file with errors
+    /// runs no head, and [`Config::place_on`] puts every display in it when
+    /// the file defines nothing ([`Config::uses_builtin`]). It is never a
     /// head of the file.
     DefaultHead,
     /// An input that roams, typing into the active head.
@@ -259,42 +259,36 @@ impl Config {
     /// The heads the vtium on VT `vt` builds, by their index in
     /// [`Config::heads`], in the file's order: each head whose `vt` names
     /// `vt`, and each head with no `vt` (ADR-1401 D2). When
-    /// [`Config::uses_builtin_on`] holds, vtium builds the default head
-    /// alone instead.
+    /// [`Config::uses_builtin`] holds, vtium builds the default head alone
+    /// instead.
     pub fn heads_on_vt(&self, vt: u16) -> Vec<usize> {
         self.heads_on(Some(vt)).collect()
     }
 
-    /// Whether the vtium on VT `vt` runs the built-in default terminal:
-    /// under open, when the file defines nothing, no head and no rule (the
-    /// maintainer's table, ADR-1401 D3). vtium then builds the default head
-    /// alone, [`Place::DefaultHead`], and [`Config::walk_on`] places every
-    /// display in it and every input by the shipped rules' input rules. A
-    /// file that defines paths never runs it, even on a VT where none of its
-    /// heads runs: there each display shows its notice under open
+    /// Whether vtium runs the built-in default terminal: under open, when
+    /// the file defines nothing, no head and no rule (the maintainer's
+    /// table, ADR-1401 D3). The answer is the same on every VT, and where
+    /// vtium has no VT number. vtium then builds the default head alone,
+    /// [`Place::DefaultHead`], and [`Config::walk_on`] places every display
+    /// in it and every input by the shipped rules' input rules. A file that
+    /// defines paths never runs it, even on a VT where none of its heads
+    /// runs: there each display shows its notice under open
     /// ([`Place::Unused`]) and stays blank under closed.
-    pub fn uses_builtin_on(&self, vt: u16) -> bool {
-        self.builtin_at(Some(vt))
-    }
-
-    /// Whether the vtium on VT `vt` builds the default head: where it runs
-    /// the built-in default terminal ([`Config::uses_builtin_on`]), and,
-    /// for what survives of a file with errors under open, where no head of
-    /// the file runs on `vt`. The display guard then lights the boot
-    /// display in the default head, with its login (ADR-1401 D9, the
-    /// maintainer, 2026-11-12).
-    pub fn default_head_on(&self, vt: u16) -> bool {
-        self.uses_builtin_on(vt) || self.tail() && self.heads_on(Some(vt)).next().is_none()
-    }
-
-    /// [`Config::uses_builtin_on`] for `vt`; a walk that names no VT never
-    /// runs it.
-    fn builtin_at(&self, vt: Option<u16>) -> bool {
-        vt.is_some()
-            && self.policy == Policy::Open
+    pub fn uses_builtin(&self) -> bool {
+        self.policy == Policy::Open
             && !self.survivors
             && self.heads.is_empty()
             && self.rules.is_empty()
+    }
+
+    /// Whether the vtium on VT `vt` builds the default head, where `None`
+    /// names no VT number and every head runs: where it runs the built-in
+    /// default terminal ([`Config::uses_builtin`]), and, for what survives
+    /// of a file with errors under open, where no head of the file runs on
+    /// `vt`. The display guard then lights the boot display in the default
+    /// head, with its login (ADR-1401 D9, the maintainer, 2026-11-12).
+    pub fn default_head_on(&self, vt: Option<u16>) -> bool {
+        self.uses_builtin() || self.tail() && self.heads_on(vt).next().is_none()
     }
 
     /// Whether a head placed at `place` can be the active head on `vt`: a
@@ -356,8 +350,8 @@ impl Config {
     ///    [`Place::Elsewhere`], by the rule that noted it. One with none
     ///    falls to the policy, as [`Config::walk`] says.
     ///
-    /// On a VT where [`Config::uses_builtin_on`] holds, the built-in
-    /// default places the device instead, by [`By::Builtin`].
+    /// Where [`Config::uses_builtin`] holds, the built-in default places
+    /// the device instead, by [`By::Builtin`].
     pub fn walk_on(&self, id: &Identity, vt: u16) -> Placed {
         self.walk_at(id, Some(vt))
     }
@@ -365,7 +359,7 @@ impl Config {
     /// [`Config::walk_on`] for `vt`, where `None` names no VT and every
     /// head runs.
     fn walk_at(&self, id: &Identity, vt: Option<u16>) -> Placed {
-        if self.builtin_at(vt) {
+        if self.uses_builtin() {
             return Placed {
                 place: match id.kind {
                     Kind::Display => Place::DefaultHead,
@@ -451,14 +445,8 @@ impl Config {
     /// types nowhere on `vt` (ADR-1403 D7, path tests 5 to 7). Under open
     /// the rescue key still moves it.
     ///
-    /// For a valid file, the maintainer's table replaces the display guard
-    /// (D3, D9). Under open, each display that no path catches on `vt`,
-    /// and that no rule turns off, shows a notice that says why,
-    /// [`Place::Unused`]: a display tied to a head on another VT names that
-    /// head, and one no rule claims names none. Under closed, such a
-    /// display stays blank. A file that defines nothing runs the built-in
-    /// default under open ([`Config::uses_builtin_on`]). What survives of
-    /// a file with errors keeps the display guard (D7).
+    /// The table and the display guard act as [`Config::place_rescued`]
+    /// says.
     pub fn place_rescued_on(
         &self,
         devices: &[Identity],
@@ -473,6 +461,18 @@ impl Config {
     /// result: the display guard first, then the anti-lockout guard (D9).
     /// `rescued` are the keyboards the rescue key moved, which roam
     /// whatever the rules say and are not placed again.
+    ///
+    /// For a valid file, the maintainer's table replaces the display guard
+    /// (D3, D9), with or without a VT number (the maintainer, 2026-11-13).
+    /// Under open, each display that no path catches, and that no rule
+    /// turns off, shows a notice that says why, [`Place::Unused`]: a
+    /// display tied to a head on another VT names that head, and one no
+    /// rule claims names none. Under closed, such a display stays blank. A
+    /// file that defines nothing runs the built-in default under open
+    /// ([`Config::uses_builtin`]). Only what survives of a file with errors
+    /// runs the display guard (D7): when the rules light no display, it
+    /// lights the boot display, under open for the first head that runs,
+    /// else the default head, and under closed for a notice alone.
     ///
     /// `focus` is the active head, or `None` before there is one. The
     /// active head starts where D5 starts it: on the head holding the boot
@@ -515,22 +515,22 @@ impl Config {
                 .collect()
         };
         let mut never_dark = false;
-        // on a VT, the maintainer's table replaces the display guard for a
-        // valid file; what survives of a file with errors keeps it (D7)
-        let table = vt.is_some() && !self.survivors;
+        // the maintainer's table replaces the display guard for a valid
+        // file, on a VT or not; what survives of a file with errors keeps
+        // it (D7)
+        let table = !self.survivors;
         if !table && lit_heads(&placed).is_empty() {
             // under open the first head of this VT, else the default head;
-            // under closed a notice alone, for a file with heads, on this VT
-            // or not, or one that failed, and nothing for a valid closed
-            // file with no head
-            let first = self.heads_on(vt).next();
+            // under closed a notice alone
             let place = match self.policy {
-                Policy::Open => Some(first.map_or(Place::DefaultHead, Place::Head)),
-                Policy::Closed if self.heads.is_empty() && !self.survivors => None,
-                Policy::Closed => Some(Place::Notice),
+                Policy::Open => self
+                    .heads_on(vt)
+                    .next()
+                    .map_or(Place::DefaultHead, Place::Head),
+                Policy::Closed => Place::Notice,
             };
             let boot = guard_display(devices, &placed).and_then(|i| placed.get_mut(i));
-            if let (Some(place), Some(p)) = (place, boot) {
+            if let Some(p) = boot {
                 *p = Placed {
                     place,
                     by: By::NeverDark,
@@ -585,9 +585,9 @@ impl Config {
             }
         }
         if table && self.policy == Policy::Open {
-            // under open, each display that no path catches on this VT, and
-            // that no rule turns off, shows a notice that says why; under
-            // closed it stays blank (ADR-1401 D3)
+            // under open, each display that no path catches, and that no
+            // rule turns off, shows a notice that says why; under closed it
+            // stays blank (ADR-1401 D3)
             for (d, p) in devices.iter().zip(placed.iter_mut()) {
                 if d.kind != Kind::Display {
                     continue;
