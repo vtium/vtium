@@ -1,0 +1,227 @@
+#!/usr/bin/env python3
+"""
+claims - check that the code each docs figure and page rests on still exists
+
+Usage:
+    docs/scripts/claims [--root DIR] [FILE...]
+
+A page or a figure under docs/ can say what it shows in a claim file beside
+it: `docs/figures/NAME.claims.tsv` for the figure `NAME.svg`, or
+`docs/concepts/NAME.claims.tsv` for the page `NAME.md`. Each row of a claim
+file names one claim, the file it rests on, and a symbol in that file. When
+the code changes so that the symbol goes away or moves, this script names
+the claim, so the change can update the page or the figure with it.
+
+This script reads every claim file that git tracks under docs/
+(`git ls-files 'docs/*.claims.tsv'`). It prints `CLAIMFILE:ROW: MESSAGE` for
+each problem and exits 1 if it finds any. It exits 0 when every claim holds,
+and 2 when git lists no claim file, so a wrong root never passes.
+
+--root DIR reads the checkout at DIR instead of this one. FILE arguments
+read only those claim files, by their path relative to the root.
+
+The claim file:
+    Tab-separated, with the header row `element`, `file`, `symbol`. A blank
+    line, or a line that starts with `#`, is skipped. Every other row has
+    exactly three fields, none empty:
+
+    - element: the box, arrow, state or transition of a figure, or the topic
+      of a page's sentence, in words;
+    - file: the file the claim rests on, relative to the root, which must
+      exist;
+    - symbol: what in that file the claim rests on. Never a line number.
+
+    The claim file's own subject, NAME.svg or NAME.md beside it, must exist
+    too.
+
+What a symbol must match, by the file's kind:
+    - A Rust file (.rs): a definition of the name, as `fn`, `struct`,
+      `enum`, `const`, `static`, `mod`, `trait`, `type` or `union`, with any
+      visibility and qualifiers. `TYPE::NAME` names a member: TYPE must be
+      defined in the file or named by an `impl` there, and NAME must be
+      defined there as a `fn` or `const`, an enum variant or a struct
+      field.
+    - The key table, crates/vtium-settings/src/keys.rs: `key NAME` names
+      the key whose row reads `name: "NAME"`. Other symbols are Rust
+      symbols.
+    - A systemd unit, by its name (.service, .socket, .target, .timer,
+      .path or .mount), or a .conf drop-in in the `NAME.d/` folder of one:
+      `Directive` names a line that sets the directive, and
+      `Directive=value` names that exact line. Every other .conf file, a
+      vtium.conf or a sysusers file among them, is plain text.
+    - Any other file: the symbol must appear as plain text.
+"""
+
+import argparse
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HEADER = ["element", "file", "symbol"]
+
+KEY_TABLE = "crates/vtium-settings/src/keys.rs"
+
+UNIT_SUFFIXES = (".service", ".socket", ".target", ".timer", ".path", ".mount")
+
+# A Rust item's visibility and qualifiers, before its keyword.
+QUALIFIERS = r"(?:pub(?:\([^)]*\))?\s+)?(?:(?:const|async|unsafe|default|extern\s+\"[^\"]*\")\s+)*"
+KINDS = r"(?:fn|struct|enum|const|static|mod|trait|type|union)"
+NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+def rust_definition(text, name):
+    """Whether TEXT defines NAME as an item."""
+    return re.search(rf"^\s*{QUALIFIERS}{KINDS}\s+(?:mut\s+)?{re.escape(name)}\b", text, re.M) is not None
+
+
+def rust_type_named(text, name):
+    """Whether TEXT defines the type NAME or names it in an `impl`."""
+    if rust_definition(text, name):
+        return True
+    return re.search(rf"^\s*(?:unsafe\s+)?impl\b[^{{\n]*\b{re.escape(name)}\b", text, re.M) is not None
+
+
+def rust_member(text, name):
+    """Whether TEXT defines NAME as a fn or const, an enum variant or a
+    struct field."""
+    if rust_definition(text, name):
+        return True
+    variant = rf"^\s*{re.escape(name)}\s*(?:[,({{=]|$)"
+    field = rf"^\s*(?:pub(?:\([^)]*\))?\s+)?{re.escape(name)}\s*:[^:]"
+    return re.search(variant, text, re.M) is not None or re.search(field, text, re.M) is not None
+
+
+def check_rust(text, symbol):
+    """Why SYMBOL does not hold in the Rust TEXT, or None."""
+    if "::" in symbol:
+        owner, _, member = symbol.rpartition("::")
+        if not (NAME.fullmatch(owner) and NAME.fullmatch(member)):
+            return f"'{symbol}' is not a Rust name or TYPE::NAME"
+        if not rust_type_named(text, owner):
+            return f"no definition or impl of '{owner}'"
+        if not rust_member(text, member):
+            return f"no fn, const, variant or field '{member}' for '{owner}'"
+        return None
+    if not NAME.fullmatch(symbol):
+        return f"'{symbol}' is not a Rust name or TYPE::NAME"
+    if not rust_definition(text, symbol):
+        return f"no definition of '{symbol}'"
+    return None
+
+
+def check_unit(text, symbol):
+    """Why SYMBOL does not hold in the unit file TEXT, or None."""
+    lines = [line.strip() for line in text.splitlines()]
+    if "=" in symbol:
+        return None if symbol in lines else f"no line '{symbol}'"
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9]*", symbol):
+        return f"'{symbol}' is not a directive or Directive=value"
+    return None if any(line.startswith(symbol + "=") for line in lines) else f"no directive '{symbol}='"
+
+
+def is_unit(path):
+    """Whether PATH is a systemd unit, by its name, or a drop-in .conf in
+    the `NAME.d/` folder of one. Any other file is plain text, a vtium.conf
+    with its `[rules]` line among them."""
+    if path.endswith(UNIT_SUFFIXES):
+        return True
+    folder, _, name = path.rpartition("/")
+    return name.endswith(".conf") and folder.endswith(tuple(s + ".d" for s in UNIT_SUFFIXES))
+
+
+def check_symbol(path, text, symbol):
+    """Why SYMBOL does not hold in the file PATH holding TEXT, or None."""
+    if path == KEY_TABLE and symbol.startswith("key "):
+        key = symbol[len("key "):]
+        return None if f'name: "{key}"' in text else f"no key '{key}' in the key table"
+    if path.endswith(".rs"):
+        return check_rust(text, symbol)
+    if is_unit(path):
+        return check_unit(text, symbol)
+    return None if symbol in text else f"no text '{symbol}'"
+
+
+def subjects(claim_path):
+    """The files a claim file at CLAIM_PATH may describe."""
+    stem = claim_path.name[: -len(".claims.tsv")]
+    return [claim_path.with_name(stem + ".svg"), claim_path.with_name(stem + ".md")]
+
+
+def check_file(root, rel):
+    """The claims in the claim file REL, and each problem in it as (row,
+    message)."""
+    path = root / rel
+    if not rel.endswith(".claims.tsv"):
+        return 0, [(0, "a claim file's name ends in .claims.tsv")]
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as e:
+        return 0, [(0, f"cannot read it: {e.strerror}")]
+    problems = []
+    if not any(s.is_file() for s in subjects(path)):
+        names = " or ".join(s.name for s in subjects(path))
+        problems.append((0, f"describes nothing: {names} is missing beside it"))
+    rows = [(n, line) for n, line in enumerate(text.splitlines(), 1) if line.strip() and not line.startswith("#")]
+    if not rows or rows[0][1].split("\t") != HEADER:
+        return 0, problems + [(rows[0][0] if rows else 1, "the first row is not the header element, file, symbol")]
+    cache = {}
+    claims = 0
+    for n, line in rows[1:]:
+        fields = line.split("\t")
+        if len(fields) != 3 or not all(f.strip() for f in fields):
+            problems.append((n, f"a row has three fields, none empty; this one has {len(fields)}"))
+            continue
+        claims += 1
+        _element, file, symbol = (f.strip() for f in fields)
+        if file not in cache:
+            try:
+                cache[file] = (root / file).read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                cache[file] = None
+        if cache[file] is None:
+            problems.append((n, f"{file} is missing"))
+            continue
+        why = check_symbol(file, cache[file], symbol)
+        if why:
+            problems.append((n, f"{file}: {why}"))
+    if claims == 0:
+        problems.append((rows[0][0], "it holds no claim"))
+    return claims, problems
+
+
+def tracked(root):
+    out = subprocess.run(["git", "-C", str(root), "ls-files", "-z", "--", "docs/*.claims.tsv"],
+                         capture_output=True, check=True)
+    return sorted(p for p in out.stdout.decode().split("\0") if p)
+
+
+def main():
+    head, _, rest = __doc__.strip().partition("\n\n")
+    parser = argparse.ArgumentParser(description=head, epilog=rest,
+                                     formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--root", default=None)
+    parser.add_argument("files", nargs="*")
+    args = parser.parse_args()
+    root = Path(args.root) if args.root else Path(__file__).resolve().parents[2]
+    files = args.files or tracked(root)
+    if not files:
+        print(f"claims: git lists no claim file under {root}/docs", file=sys.stderr)
+        return 2
+    failed = 0
+    total = 0
+    for rel in files:
+        claims, problems = check_file(root, rel)
+        total += claims
+        for n, message in problems:
+            print(f"{rel}:{n}: {message}")
+        failed += len(problems)
+    if failed:
+        print(f"claims: {failed} problem(s) in {len(files)} claim file(s)")
+        return 1
+    print(f"claims: {total} claims in {len(files)} claim files hold")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

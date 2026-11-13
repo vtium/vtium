@@ -1,0 +1,33 @@
+# Claims of concepts-works-vt.svg and "The VT's life" in docs/concepts/how-vtium-works.md.
+element	file	symbol
+starting: reads vtium.conf	crates/vtium/src/main.rs	main
+starting: writes or removes the closed marker	crates/vtium/src/getty.rs	mark
+starting: finds its keeper	crates/vtium/src/survive.rs	start
+starting: opens the VT, sends READY=1	crates/vtium/src/survive/notify.rs	opened
+waiting: the unit passes --no-switchvt	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+waiting for its VT to be shown	crates/vtium-platform/src/vt.rs	Vt::wait
+transition the VT is shown: SIGUSR1	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acquire_signal
+shown: vtium wakes the input and every display	crates/vtium/src/app.rs	App::vt_event
+the VT's events	crates/vtium-platform/src/vt.rs	VtEvent::Acquired
+transition a switch away: SIGUSR2	crates/vtium-platform/src/vt/kernel.rs	KernelVt::release_signal
+releasing: the input and every display go to sleep	crates/vtium-platform/src/vt.rs	VtEvent::Release
+transition all asleep: vtium lets go	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acknowledge_release
+transition a switch back: displays set up again	crates/vtium/src/app.rs	App::lose_every_view
+a re-take while shown	crates/vtium-platform/src/vt.rs	VtEvent::Retaken
+why vtium ends: exit status 0 or 1	crates/vtium/src/app.rs	Exit::status
+exit 0: SIGTERM or SIGINT	crates/vtium/src/app.rs	Exit::Signal
+exit 0: oneshot sessions ended	crates/vtium/src/head/session.rs	exit_due
+exit 1: the VT hung up	crates/vtium-platform/src/vt.rs	VtEvent::Hangup
+exit 1: no display in time	crates/vtium-settings/src/keys.rs	key display-wait
+exit 1: a session cannot start	crates/vtium/src/app.rs	App::spawn
+exit 1: sessions end too fast	crates/vtium/src/app.rs	Exit::TooQuick
+ending: switches back, if it switched at its start	crates/vtium-platform/src/vt.rs	Vt::leave
+ending: the loop served while the switch is pending	crates/vtium/src/app.rs	LEAVE_WAIT
+ending: leaves the sessions to the keeper	crates/vtium/src/app/survive.rs	App::release_sessions
+ending: puts back text mode	crates/vtium-platform/src/vt/kernel.rs	Restore
+then, under systemd: a failure restarts vtium	crates/vtium/install/vtium@.service	Restart=on-failure
+exit 1, open: a getty takes the VT from vtium-getty@	crates/vtium/install/vtium@.service	OnFailure=vtium-getty@%i.service
+the getty fallback runs vtium console fallback	crates/vtium/install/vtium-getty@.service	ExecStart=/usr/bin/vtium console fallback %i
+exit 1, closed: the marker keeps the getty off	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed
+exit 0: the unit stops, its sessions hang up	crates/vtium/install/vtium@.service	KillMode=process
+note: with libseat, enable and disable	crates/vtium-platform/src/seat.rs	LibseatVt

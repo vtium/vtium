@@ -148,13 +148,11 @@ pub fn install_file(path: &Path, bytes: &[u8], mode: u32) -> io::Result<()> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
-    fn dir(name: &str) -> PathBuf {
-        let d =
-            std::env::temp_dir().join(format!("vtium-settings-copy-{}-{name}", std::process::id()));
-        let _ = fs::remove_dir_all(&d);
-        fs::create_dir_all(&d).unwrap();
-        d
+    /// A directory of the test's own, removed when the test ends.
+    fn dir(name: &str) -> Scratch {
+        Scratch::new(&format!("settings-copy-{name}"))
     }
 
     #[test]
@@ -167,7 +165,6 @@ mod tests {
         assert_eq!(fs::read(d.join("copy")).unwrap(), b"old\n");
         let mode = fs::metadata(d.join("copy")).unwrap().permissions().mode() & 0o7777;
         assert_eq!(mode, 0o600);
-        let _ = fs::remove_dir_all(&d);
     }
 
     #[test]
@@ -177,6 +174,5 @@ mod tests {
         std::os::unix::fs::symlink(d.join("secret"), d.join("vtium.conf")).unwrap();
         assert!(copy_backup(&d.join("vtium.conf"), &d.join("copy")).is_err());
         assert!(!d.join("copy").exists());
-        let _ = fs::remove_dir_all(&d);
     }
 }

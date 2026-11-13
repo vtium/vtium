@@ -524,6 +524,16 @@ fn part_box(obj: Obj, x: usize, y: usize, w: usize, words: (String, String), moo
     }
 }
 
+/// Whether vtium isolates the terminal of the path `p`, as the flow's
+/// head of that name records it. The built-in default's terminal, which
+/// is no head of the flow, is never isolated.
+fn isolated(flow: &Flow, p: &Path) -> bool {
+    p.name
+        .as_deref()
+        .and_then(|name| flow.heads.iter().find(|h| h.name == name))
+        .is_some_and(|h| h.isolated)
+}
+
 /// Lays out the row of the path `p`, its terminal named `name`, from
 /// canvas row `y`. A path of the configuration that roaming inputs reach
 /// ends in a dotted line from the words `roaming inputs` to its terminal.
@@ -720,8 +730,12 @@ fn path_row(
     }
     let mut bottom = y.saturating_add(k.saturating_mul(BOX_ROWS));
     // roaming inputs reach a terminal of the configuration that has no
-    // "no input"
-    if matches!(row, Row::Doc(_)) && !p.no_input && !ctx.doc.roaming.is_empty() {
+    // "no input" and that vtium does not isolate (ADR-1403 D7)
+    if matches!(row, Row::Doc(_))
+        && !p.no_input
+        && !ctx.doc.roaming.is_empty()
+        && !isolated(ctx.flow, p)
+    {
         // on the terminal's title row when the path has no input of its
         // own, else just under its last input
         let row = if k == 0 {
@@ -1445,6 +1459,37 @@ pub(crate) mod tests {
                 roam.w
             );
         }
+    }
+
+    /// The heads the dotted `roaming inputs` stub reaches in `text`'s
+    /// configuration, in the file's order.
+    fn stubbed(text: &str) -> Vec<String> {
+        let f = crate::flowmodel::build(text, &crate::flowmodel::Present::default(), None);
+        let l = lay(&f, &Path::default(), 120);
+        f.heads
+            .iter()
+            .map(|h| h.name.clone())
+            .filter(|n| {
+                l.wires
+                    .iter()
+                    .any(|w| w.stub && w.to == doc(n, Slot::Terminal))
+            })
+            .collect()
+    }
+
+    // ADR-1403 D7: the stub marks each terminal that roaming inputs can
+    // reach because it is not isolated, as vtium decides it: under closed a
+    // head is isolated unless it says `isolated = no`, and under open only
+    // where it says `isolated = yes`
+    #[test]
+    fn the_roaming_stub_reaches_only_a_head_that_is_not_isolated() {
+        let closed = "version = 1\npolicy = closed\n[head kiosk]\n[head admin]\nisolated = no\n[rules]\ndisplay edid:AAA:0x0001:KIOSK00001 -> kiosk\ninput path:pci-0000:15:00.0-usb-0:3.1 -> kiosk\ndisplay edid:BBB:0x0002:ADMIN00001 -> admin\ninput path:pci-0000:15:00.0-usb-0:3.2 -> admin\ninput path:pci-0000:15:00.0-usb-0:3.3 -> roaming\n";
+        assert_eq!(stubbed(closed), ["admin"]);
+        let open = "version = 1\npolicy = open\n[head desk]\nisolated = yes\n[head panel]\n[rules]\ndisplay edid:AAA:0x0001:LARGE00001 -> desk\ninput path:pci-0000:15:00.0-usb-0:3.1 -> desk\ndisplay edid:BBB:0x0002:SMALL00001 -> panel\ninput path:pci-0000:15:00.0-usb-0:3.2 -> panel\ninput class:keyboard -> roaming\n";
+        assert_eq!(stubbed(open), ["panel"]);
+        // under closed with no head that says `isolated = no`, none
+        let stations = "version = 1\npolicy = closed\n[head one]\n[head two]\n[rules]\ndisplay edid:AAA:0x0001:MON0000001 -> one\ninput path:pci-0000:15:00.0-usb-0:3.1 -> one\ndisplay edid:AAA:0x0001:MON0000002 -> two\ninput path:pci-0000:15:00.0-usb-0:3.3 -> roaming\n";
+        assert!(stubbed(stations).is_empty());
     }
 
     fn at<'a>(l: &'a Layout, o: &Obj) -> &'a Boxed {

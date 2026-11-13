@@ -74,7 +74,6 @@ mod tests {
     fn lightdm_starts_on_vt_7_unless_a_file_says_otherwise() {
         let r = root("lightdm", &[]);
         assert_eq!(config(&r).map(|s| s.vt), Some(7));
-        let _ = std::fs::remove_dir_all(r);
         let r = root(
             "lightdm-set",
             &[
@@ -100,6 +99,5 @@ mod tests {
             let got = config(&r).map(|s| s.vt);
             assert_eq!(got, want, "{value}");
         }
-        let _ = std::fs::remove_dir_all(r);
     }
 }

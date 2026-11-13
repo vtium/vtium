@@ -1579,12 +1579,14 @@ pub(crate) mod tests {
                     consoles: 1,
                     look: "big".into(),
                     keys: Vec::new(),
+                    isolated: false,
                 },
                 Head {
                     name: "panel".into(),
                     consoles: 1,
                     look: "default".into(),
                     keys: Vec::new(),
+                    isolated: false,
                 },
             ],
             looks: vec![Look {

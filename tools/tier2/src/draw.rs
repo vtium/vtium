@@ -112,6 +112,11 @@ pub enum InkFonts {
     /// its color emoji font: DejaVu Sans Mono's four faces, then Noto Sans
     /// CJK, whose ink passes their cells as those fonts draw it.
     DejaVu,
+    /// The scripts frit of outline fonts [`crate::fonts`] fetches: Iosevka
+    /// Term, whose cell is half an em wide, then Noto Sans Devanagari,
+    /// Bengali and Arabic, the showcase's fonts for those scripts
+    /// ([`crate::fonts::SCRIPT_FONTS`]).
+    Scripts,
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -768,6 +773,11 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     crate::fonts::check(&fetched)?;
                     let text = crate::fonts::frit_text(&fetched, false, percent);
                     ("tier2-outline-mono", text, fetched.as_path())
+                }
+                InkFonts::Scripts => {
+                    crate::fonts::check_scripts(&fetched)?;
+                    let text = crate::fonts::scripts_frit_text(&fetched);
+                    ("tier2-scripts", text, fetched.as_path())
                 }
             };
             let mut drawn = Vec::new();

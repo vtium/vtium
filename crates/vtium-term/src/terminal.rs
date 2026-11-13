@@ -393,7 +393,8 @@ impl Terminal {
     }
 
     /// The selection a program set with OSC 52 since the last call, decoded,
-    /// at most [`CLIPBOARD_MAX`](crate::CLIPBOARD_MAX) bytes; a later set
+    /// as UTF-8 text with each ill-formed sequence replaced by U+FFFD, at
+    /// most [`CLIPBOARD_MAX`](crate::CLIPBOARD_MAX) bytes; a later set
     /// replaced an earlier one. The host puts it in its selection buffer, or
     /// drops it when its configuration turns copy-out off.
     pub fn take_clipboard_write(&mut self) -> Option<Vec<u8>> {
@@ -418,6 +419,13 @@ impl Terminal {
             self.state.host.font_name = Some(name.to_owned());
         }
         ok
+    }
+
+    /// Says that the font in use has no name a set can take, as a font
+    /// file's path or a family has: OSC 50's query then reports no name,
+    /// so it never names a set that is no longer shown.
+    pub fn clear_font_name(&mut self) {
+        self.state.host.font_name = None;
     }
 
     /// A set asked for with OSC 50 waits for the host to take it.

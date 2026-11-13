@@ -3011,6 +3011,56 @@ mod draft_flow {
         k
     }
 
+    /// A monitor whose EDID reads `maker`, `product` and `serial`, on the
+    /// connector `connector`.
+    fn monitor(maker: &str, product: u16, serial: &str, connector: &str) -> Identity {
+        let mut d = Identity::display();
+        d.edid = Some(vtium_settings::Edid {
+            maker: maker.into(),
+            product,
+            serial: serial.into(),
+        });
+        d.connector = Some(connector.into());
+        d
+    }
+
+    /// An input of `class` named `name`, on the interface `port` of the
+    /// USB controller that docs/heads.md's files name.
+    fn plugged(class: Class, name: &str, port: &str) -> Identity {
+        let mut d = Identity::input().with_class(class);
+        d.name = Some(name.into());
+        d.path = Some(format!("pci-0000:15:00.0-usb-0:{port}"));
+        d
+    }
+
+    /// The machine of docs/heads/kiosk-admin.conf: the kiosk's monitor and
+    /// keyboard, the operator's monitor and keyboard, and the spare port
+    /// empty.
+    fn kiosk_machine() -> Vec<Identity> {
+        vec![
+            monitor("AAA", 1, "KIOSK00001", "DP-1"),
+            monitor("BBB", 2, "ADMIN00001", "HDMI-A-1"),
+            plugged(Class::Keyboard, "kiosk keyboard", "3.1:1.0"),
+            plugged(Class::Keyboard, "operator keyboard", "3.2:1.0"),
+        ]
+    }
+
+    /// The machine of docs/heads/stations.conf: three monitors, and on
+    /// each station's port a hub with its keyboard and mouse.
+    fn stations_machine() -> Vec<Identity> {
+        let mut devices = Vec::new();
+        for (n, connector) in [(1, "DP-1"), (2, "DP-2"), (3, "HDMI-A-1")] {
+            devices.push(monitor("AAA", 1, &format!("MON000000{n}"), connector));
+            devices.push(plugged(
+                Class::Keyboard,
+                "keyboard",
+                &format!("3.{n}.1:1.0"),
+            ));
+            devices.push(plugged(Class::Mouse, "mouse", &format!("3.{n}.2:1.0")));
+        }
+        devices
+    }
+
     fn present(devices: Vec<Identity>, udev: bool) -> Present {
         Present { devices, udev }
     }
@@ -3726,7 +3776,8 @@ mod draft_flow {
     /// D7), each reached by its keys: the shipped default, a configuration
     /// of three paths (desk, panel and the roaming inputs), a new path half
     /// built, the Input maker, the USB port picker, a terminal's card and
-    /// a labelled part.
+    /// a labelled part, and the kiosk with an operator's head and the
+    /// stations of docs/heads.md, each drawn from its file there.
     #[test]
     fn the_flow_view_s_states_at_80x25_and_120x32() {
         const HOME: &[u8] = b"\x1b[H";
@@ -3749,10 +3800,14 @@ mod draft_flow {
         // the same card with the cursor on its Switch on Enter line: desk
         // runs on every VT, so the hint says the key has no effect
         let switch: Vec<&[u8]> = [&[HOME, RIGHT, enter][..], &[DOWN; 6][..]].concat();
+        // two closed files of docs/heads.md, which docs/concepts/flows.md
+        // draws: a kiosk with an operator's head, and three stations
+        let kiosk_admin = include_str!("../../../docs/heads/kiosk-admin.conf");
+        let stations = include_str!("../../../docs/heads/stations.conf");
         // each golden's name, the vtium.conf it starts from when not the
         // fixture's, and the keys that reach it
         type Script<'a> = (&'a str, Option<&'a str>, &'a [&'a [u8]]);
-        let scripts: [Script<'_>; 11] = [
+        let scripts: [Script<'_>; 13] = [
             ("flow-default", Some(shipped), &[]),
             ("flow-paths", None, &[]),
             ("flow-new-path", None, &[HOME, RIGHT, RIGHT, b" "]),
@@ -3764,6 +3819,8 @@ mod draft_flow {
             ("flow-label", None, &label),
             ("flow-shared-vts", Some(vts), &[]),
             ("flow-vt-clash", Some(vts), &clash),
+            ("flow-kiosk-admin", Some(kiosk_admin), &[]),
+            ("flow-stations", Some(stations), &[]),
         ];
         for (cols, rows) in [(80, 25), (120, 32)] {
             for (name, conf, keys) in scripts {
@@ -3771,13 +3828,13 @@ mod draft_flow {
                 if let Some(conf) = conf {
                     std::fs::write(b.root.join("etc/vtium.conf"), conf).expect("vtium.conf");
                 }
-                let ran = run_at(
-                    &b,
-                    (cols, rows),
-                    vec![present(vec![keyboard()], true)],
-                    true,
-                    keys,
-                );
+                // the files of docs/heads.md on machines they were made for
+                let devices = match name {
+                    "flow-kiosk-admin" => kiosk_machine(),
+                    "flow-stations" => stations_machine(),
+                    _ => vec![keyboard()],
+                };
+                let ran = run_at(&b, (cols, rows), vec![present(devices, true)], true, keys);
                 let lines: Vec<&str> = ran.screen().lines().collect();
                 assert_eq!(lines.len(), rows, "{name} at {cols}x{rows}");
                 assert!(lines.iter().all(|l| l.chars().count() <= cols), "{name}");

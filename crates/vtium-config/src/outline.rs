@@ -1099,6 +1099,20 @@ pub(crate) mod raster {
             fit: (u32, u32),
             sx: f32,
         ) -> Option<Image> {
+            let stretch = (sx != 1.0).then(|| Transform::scale(sx, 1.0));
+            self.draw_transformed(g, ppem, fit, stretch)
+        }
+
+        /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
+        /// through `transform` before it is rasterised; a color glyph is
+        /// drawn as it stands.
+        pub(crate) fn draw_transformed(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            fit: (u32, u32),
+            transform: Option<Transform>,
+        ) -> Option<Image> {
             let mut scaler = self.context.builder(self.font).size(ppem).build();
             if scaler.has_color_outlines()
                 && let Some(layers) = scaler.scale_color_outline(g)
@@ -1110,8 +1124,22 @@ pub(crate) mod raster {
             {
                 return Some(image);
             }
-            let stretch = (sx != 1.0).then(|| Transform::scale(sx, 1.0));
-            self.outline(g, ppem, stretch)
+            self.outline(g, ppem, transform)
+        }
+
+        /// Glyph `g` drawn at `ppem` and moved `dx` pixels right of its pen,
+        /// a fraction of a pixel included, as a right-to-left joining letter
+        /// is moved so its advance ends at its cell's right edge (ADR-1302
+        /// D2). A color glyph is drawn where it stands.
+        pub(crate) fn draw_moved(
+            &mut self,
+            g: u16,
+            ppem: f32,
+            fit: (u32, u32),
+            dx: f32,
+        ) -> Option<Image> {
+            let moved = (dx != 0.0).then(|| Transform::translation(dx, 0.0));
+            self.draw_transformed(g, ppem, fit, moved)
         }
 
         /// How the hinter is set for this face (ADR-1200 D1), as FreeType
@@ -1616,15 +1644,15 @@ pub(crate) mod raster {
                         let advance = advances.advance_width(g);
                         // a glyph larger than a set's chunk goes in a chunk of
                         // its own (ADR-1302 D6), so none is left out for its size
-                        let joins = crate::shaping::joins(c);
                         let wide = crate::shaping::wide(&[c]);
                         // a fallback source's glyph too big for its cells is
                         // drawn smaller to fit them (ADR-1200 D17), unless it
                         // is a letter of a joining script, which uses the
                         // reach as the first source's letters do (ADR-1306
-                        // D12)
-                        let fit = request.fit && !joins;
-                        let Some(placed) = place(&mut drawer, g, advance, joins, wide, fit, &cell)
+                        // D12), or of an Indic script, squeezed to its cell
+                        // (ADR-1307 D1); `place` keeps those two at full size
+                        let fit = request.fit;
+                        let Some(placed) = place(&mut drawer, (c, g), advance, wide, fit, &cell)
                         else {
                             continue;
                         };
@@ -1682,32 +1710,50 @@ pub(crate) mod raster {
         pub(crate) script: Script,
     }
 
-    /// Glyph `g`, advancing `advance` pixels, placed in `cell`, two cells
-    /// wide when `wide`, as the terminal gives its character two cells
-    /// (ADR-1200 D21); `None` when the font draws nothing for it. A glyph
-    /// of a character that joins (ADR-1302 D2, `joins`) is stretched
+    /// Glyph `g` of the character `c`, advancing `advance` pixels, placed
+    /// in `cell`, two cells wide when `wide`, as the terminal gives its
+    /// character two cells (ADR-1200 D21); `None` when the font draws
+    /// nothing for it. A glyph wider than its cells of a character that
+    /// joins (ADR-1302 D2) or of an Indic script (ADR-1307 D1) is squeezed
     /// sideways before it is rasterised, by its cells' width over its
     /// advance, unrounded, its pen on its cell's left edge, so its advance
-    /// fills its cells and its joining strokes meet the next letter's. A
-    /// glyph whose ink would pass its cells is drawn smaller to fit them
-    /// when `fit`, as a later source's glyph is (ADR-1200 D17).
+    /// fills its cells, and it is never drawn smaller. A joining letter no
+    /// wider than its cells keeps its width, its advance against the edge
+    /// where it meets the letter read before it: the right edge for a
+    /// right-to-left script (ADR-1302 D2, D11). Any other glyph whose ink
+    /// would pass its cells is drawn smaller to fit them when `fit`, as a
+    /// later source's glyph is (ADR-1200 D17).
     fn place(
         drawer: &mut Drawer<'_>,
-        g: u16,
+        (c, g): (u32, u16),
         advance: f32,
-        joins: bool,
         wide: bool,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
-        if joins && advance > 0.0 {
+        let joins = crate::shaping::joins(c);
+        if (joins || crate::shaping::indic(c)) && advance > span {
             let sx = span / advance;
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
                 wide,
                 None,
-                fit,
+                false,
+                cell,
+            );
+        }
+        if joins && advance > 0.0 {
+            let dx = if crate::shaping::shape::backward(c) {
+                span - advance
+            } else {
+                0.0
+            };
+            return place_drawn(
+                &mut |ppem, bounds| drawer.draw_moved(g, ppem, bounds, dx),
+                wide,
+                None,
+                false,
                 cell,
             );
         }

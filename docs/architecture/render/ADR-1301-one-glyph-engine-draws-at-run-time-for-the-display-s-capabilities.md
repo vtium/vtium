@@ -237,6 +237,8 @@ vtium's own sprites are not the engine's: vtium-render draws them for the cell a
 - Where the helper is unavailable, clusters draw unshaped, one glyph per codepoint, and the console logs one line; the rule checker flags the setup (D8).
 - How a shaped cluster in a syllabic script maps onto cells, and bidirectional text, stay open in the shaping issue.
 
+> Note 2026-11-12: ADR-1307 decides how an Indic cluster maps onto its cell: it keeps the one cell its first character takes, and a cluster wider than that cell is squeezed sideways to it at full height.
+
 #### The console's lookup for a cell
 
 The console finds a cell's glyph, its cluster or single codepoint, in this order, and parses no font at any step:

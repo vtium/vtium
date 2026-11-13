@@ -101,6 +101,20 @@ fn the_host_names_only_a_set_name() {
     assert_eq!(t.take_replies(), b"\x1b]50;unifont\x07", "the name before");
 }
 
+// vtium/vtium#384: a font with no set's name, as a font file's path or a
+// family has, is shown after a set was: the query then names none, never
+// the set no longer shown
+#[test]
+fn a_query_after_the_host_shows_a_font_with_no_sets_name_names_none() {
+    let mut t = on();
+    t.clear_font_name();
+    t.input(b"\x1b]50;?\x07");
+    assert_eq!(t.take_replies(), b"\x1b]50;\x07");
+    assert!(t.set_font_name("ter-v16n"));
+    t.input(b"\x1b]50;?\x07");
+    assert_eq!(t.take_replies(), b"\x1b]50;ter-v16n\x07");
+}
+
 #[test]
 fn a_query_before_the_host_names_a_set_names_none() {
     let mut t = Terminal::new(10, 5, 10);

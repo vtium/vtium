@@ -115,21 +115,62 @@ pub(super) fn markdown() -> String {
          \n\
          <!-- Generated from {SOURCE}; do not edit. `{BLESS}` rewrites it. -->\n\
          \n\
-         vtium reads one file, `vtium.conf` in the configuration directory (`--configdir`, `/etc/vtium` by default), then its command line, which wins over the file. vtium never reads `/etc/kmscon` or a seat file such as `seat0.seat.conf`: a `kmscon.conf` from kmscon is copied to `/etc/vtium/vtium.conf` by hand, and vtium reads the keys `kmscon` takes, in the ways the vtium crate's README, \"Reading the configuration\", sets out. With no file, vtium runs its defaults and its compiled-in heads and rules. The file is read once, at start: a change applies when vtium starts again, as at a restart of its service.\n\
+         vtium reads one file, `vtium.conf`, in the configuration directory. The directory is `/etc/vtium` by default, and `--configdir` names another one. vtium then reads its command line, which wins over the file.\n\
          \n\
-         The file has two parts. Every line above the first section heading is the top level: vtium's own keys, the defaults every head inherits, and the flow's `version` and `policy`. From the first section heading on come the sections: a `[look NAME]` for each look, which names a frit and its size, a `[head NAME]` for each head, and one `[rules]` list, which sends each display and each input device to a head. A file with a section needs `version = 1`. A head's section wins over its look's, and its look's over the top level, for the keys the table below says each may set. The page [The sections of vtium.conf](head-file.md) describes each section and its keys.\n\
+         vtium never reads `/etc/kmscon`, or a seat file such as `seat0.seat.conf`. To use a `kmscon.conf` from kmscon, you copy it to `/etc/vtium/vtium.conf` by hand. vtium reads the keys that `kmscon` takes, in the ways that the vtium crate's README sets out in \"Reading the configuration\". With no file, vtium runs its defaults and its compiled-in heads and rules.\n\
          \n\
-         vtium reads vtium.conf only when root owns it, or, for a vtium that runs as another user, that user, and neither its group nor others can write it or a directory above it. It reads none of a file that fails, runs its compiled-in configuration, and says which path fails and the command that mends it, `chown root:root PATH` or `chmod go-w PATH`.\n\
+         vtium reads the file once, at start. A change applies when vtium starts again, for example when its service restarts.\n\
          \n\
-         `vtium check-config [--no-devices] [FILE]` reads vtium.conf, or FILE in its place to check it before it is installed, both its parts in one run, as the start would, through the start's parser and evaluator. It applies nothing, exits 1 on any warning of the keys and on each error and warning of the sections, each named with its line, and on a file whose flow wires no complete route: a display present that its first matching rule sends to a head that a keyboard present reaches. With no display or no keyboard present, or with `--no-devices`, it judges the rules alone and says so. It notes on standard output what it does not count: the density points convert at, and of the sections each rule sending input to a head by `id` or `name` alone, where no udev daemon runs, each rule using a key that reads udev's database, each rule using `connector-path:`, which it cannot check against the displays present since it opens no card to read a connector's `PATH`, a head no rule names, every head isolated, each head whose `vt` names only VTs on which vtium is not enabled, at boot or as logind's autovt, with the command that enables vtium on one of them, and what the devices present find: each rule matching none of them, each device no rule places with what the policy gives it, no head that can be the active head having a display, under a closed policy no keyboard reaching any head, a head claiming pointers while every keyboard is claimed elsewhere, every keyboard ignored, and a head whose only keyboard is one device. It reads the devices from sysfs and udev's database, `/run/udev/data`, and the VTs vtium is enabled on from systemd's unit links under `/etc/systemd`, and opens nothing under `/dev`. With `--no-devices`, or on a machine not started with systemd, it says that it did not check the heads' VTs. A FILE that root does not own, or that others can write, is checked all the same, with a note, since installing it makes it root's.\n\
+         The file has two parts. Every line above the first section heading is the top level. The top level holds vtium's own keys, the defaults that every head inherits, and the two keys of the sections, `version` and `policy`. The sections start at the first section heading:\n\
          \n\
-         A top-level line holds one key: `key=value`, or a switch's `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. `#` starts a comment at the start of a line or after a blank; a `#` inside a word, or one that opens a `#rrggbb` value, is part of the value, and `\\#` after a blank is a literal `#`. Spaces and tabs around the key and the value are dropped. On the command line a key is `--key=VALUE` or `--key VALUE`, and a switch `--key` or `--no-key`.\n\
+         - a `[look NAME]` section for each look, which names a frit (a font set file) and its size,\n\
+         - a `[head NAME]` section for each head, and\n\
+         - one `[rules]` list, which sends each display and each input device to a head.\n\
          \n\
-         vtium reports, once at start, a top-level key it does not know, however often it appears, and a value it cannot use: a number out of bounds, which it clamps, and a value it cannot read, which it ignores, keeping the value the sources before it gave. An error in a section never drops a top-level key. It drops the section or the rule that holds it, or every section when it leaves their structure untrustworthy, as [Invalid files](head-file.md#invalid-files) describes. It reads at most {FILE_MAX} bytes of the file and {LINE_MAX} of a line.\n\
+         A file with a section needs `version = 1`. A head's section wins over its look's section, and a look's section wins over the top level. This holds for the keys that the table below says each one may set. The page [The sections of vtium.conf](head-file.md) describes each section and its keys.\n\
          \n\
-         Four key bindings had other names before the maintainer renamed them to more accepted terms: {renamed}. vtium still reads each old name as its new one and reports each line that uses it, so that you can rename it. Where a source sets both names, the new one wins.\n\
+         vtium reads vtium.conf only when root owns it. For a vtium that runs as another user, that user may own it instead. Neither the file's group nor other users may be able to write to the file, or to a directory above it. vtium reads none of a file that fails this check, and runs its compiled-in configuration instead. It says which path fails, and gives the command that fixes it, `chown root:root PATH` or `chmod go-w PATH`.\n\
          \n\
-         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections, then the compiled-in looks, heads and rules. Source names the GitHub issue, the specification or the released program each key comes from.\n"
+         `vtium check-config [--no-devices] [FILE]` checks vtium.conf. Given FILE, it checks that file in place of vtium.conf, so that you can check a file before it is installed. It checks both parts of the file in one run. It reads them the way vtium does at start, through the same parser and evaluator. It applies nothing.\n\
+         \n\
+         `vtium check-config` exits 1 in three cases, and names each problem with its line:\n\
+         \n\
+         - any warning about the top-level keys,\n\
+         - any error or warning about the sections, and\n\
+         - a file whose flow wires no complete route.\n\
+         \n\
+         A complete route is a connected display that its first matching rule sends to a head, together with a connected keyboard that reaches that head. When no display or no keyboard is connected, or with `--no-devices`, `vtium check-config` judges the rules alone, and says so.\n\
+         \n\
+         `vtium check-config` also prints notes on standard output. A note does not count toward the exit status. One note gives the density at which vtium converts font points to pixels. For the sections, it notes each of these:\n\
+         \n\
+         - each rule that sends input to a head by `id` or `name` alone, where no udev daemon runs,\n\
+         - each rule that uses a key that reads udev's database,\n\
+         - each rule that uses `connector-path:`, because it opens no graphics card to read a connector's `PATH`, so it cannot check the rule against the connected displays,\n\
+         - a head that no rule names,\n\
+         - a file in which every head is isolated, and\n\
+         - each head whose `vt` names only VTs on which vtium is not enabled, at boot or through logind's autovt service, with the command that enables vtium on one of them.\n\
+         \n\
+         It also notes what it finds among the connected devices:\n\
+         \n\
+         - each rule that matches none of them,\n\
+         - each device that no rule places, with what the policy gives it,\n\
+         - that no head that can be the active head has a display,\n\
+         - under a closed policy, that no keyboard reaches any head,\n\
+         - a head that claims pointers while every keyboard is claimed elsewhere,\n\
+         - that every keyboard is ignored, and\n\
+         - a head whose only keyboard is one device.\n\
+         \n\
+         `vtium check-config` reads the devices from sysfs and from udev's database, `/run/udev/data`. It reads which VTs have vtium enabled from systemd's unit links under `/etc/systemd`. It opens nothing under `/dev`. With `--no-devices`, or on a machine not started with systemd, it says that it did not check the heads' VTs. It checks a FILE that root does not own, or that others can write, all the same, and adds a note, because installing the file makes it root's.\n\
+         \n\
+         A top-level line holds one key. It is `key=value`, or for a switch, `key` to turn it on and `no-key` to turn it off. A section's line is `key = value`. `#` starts a comment at the start of a line, or after a blank, which is a space or a tab. A `#` inside a word is part of the value, and so is a `#` that opens a `#rrggbb` value. `\\#` after a blank is a literal `#`. vtium drops the spaces and tabs around the key and the value. On the command line, a key is `--key=VALUE` or `--key VALUE`, and a switch is `--key` or `--no-key`.\n\
+         \n\
+         vtium reports two kinds of problem in the top level, once at start. The first is a top-level key that it does not know. vtium reports such a key once, however often it appears. The second is a value that vtium cannot use. vtium clamps a number that is out of bounds. It ignores a value that it cannot read, and keeps the value that the sources before it gave.\n\
+         \n\
+         An error in a section never drops a top-level key. vtium drops the section or the rule that holds the error. When the error leaves the structure of the sections untrustworthy, vtium drops every section, as [Invalid files](head-file.md#invalid-files) describes. vtium reads at most {FILE_MAX} bytes of the file, and {LINE_MAX} bytes of a line.\n\
+         \n\
+         Four key bindings had other names before the maintainer renamed them to more accepted terms: {renamed}. vtium still reads each old name as its new one. It reports each line that uses an old name, so that you can rename it. Where a source sets both names, the new one wins.\n\
+         \n\
+         `install/vtium.conf.example` in `crates/vtium` lists the same keys at their defaults, under the same sections. After the keys, it lists the compiled-in looks, heads and rules. The Source column names the GitHub issue, the specification or the released program that each key comes from.\n"
     );
     for section in &SECTIONS {
         let _ = write!(

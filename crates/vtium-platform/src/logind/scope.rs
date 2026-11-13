@@ -749,6 +749,7 @@ mod tests {
     #![expect(clippy::panic, reason = "a test fails by panicking")]
 
     use super::*;
+    use crate::scratch::Scratch;
 
     /// systemd's manager, answering as it does: a unit whose name exists
     /// already is `UnitExists`; a call it takes queues a job, whose
@@ -984,13 +985,7 @@ mod tests {
     // that it fails instead of hanging.
     #[test]
     fn a_bus_that_never_answers_ends_by_the_deadline() {
-        let dir = std::env::temp_dir().join(format!(
-            "vtium-scope-test-{}-{:?}",
-            std::process::id(),
-            std::thread::current().id()
-        ));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let dir = Scratch::new("scope-test");
         let path = dir.join("bus");
         let listener =
             std::os::unix::net::UnixListener::bind(&path).unwrap_or_else(|e| panic!("{e}"));
@@ -1006,7 +1001,6 @@ mod tests {
         });
         let got = rx.recv_timeout(Duration::from_secs(20));
         drop(listener);
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             got,
             Ok(Err("the system bus did not answer in time".to_owned()))

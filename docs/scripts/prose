@@ -1,0 +1,318 @@
+#!/usr/bin/env python3
+"""
+prose - list the long sentences in the pages people read
+
+Usage:
+    docs/scripts/prose [--root DIR] [--check] [--table] [FILE...]
+
+AGENTS.md asks for one idea in each sentence, and a sentence in a page people
+read stays under about 25 words. This script measures that. It reads each
+page, splits its prose into sentences, and counts each sentence's words. It
+prints `file:line: N words: SENTENCE` for each sentence over 30 words, and
+`file: average A words a sentence over N sentences` for each page whose
+average is over 20 words. It ends with a line of totals.
+
+By default it only reports and exits 0. With --check it exits 1 when any
+sentence is over 30 words, any page's average is over 20 words, or an entry
+in the allow list is wrong, so that it can become a gate. It exits 2 when it
+finds no page to read, so a wrong root never passes.
+
+--table also prints one row for each page: its average, its longest
+sentence, its number of sentences, and how many are over 30 words. Run it on
+your pages before and after you rewrite them.
+
+--root DIR reads the pages of the git checkout at DIR instead of this one.
+FILE arguments read only those files, whatever their path.
+
+The pages it reads:
+    The files git tracks (`git ls-files`) at README.md, docs/*.md,
+    docs/concepts/*.md and crates/*/README.md. It leaves out a generated
+    page, which is a page with a line that starts "Generated from" or
+    "<!-- Generated from" among its first five lines. The decision records
+    under docs/architecture/ and the pages under docs/acceptance/ are not in
+    those paths, so it does not read them.
+
+What counts as prose:
+    Paragraphs and list items. It passes over YAML frontmatter, fenced code
+    blocks, HTML comments, headings, tables, quotes, HTML blocks, rules and
+    link definitions. Each list item is a unit of its own, so a sentence
+    never runs from one item into the next.
+
+How it splits and counts:
+    A sentence ends at `.`, `!` or `?`, after any closing quote or bracket,
+    when a space follows. The abbreviations e.g., i.e., cf. and vs. end no
+    sentence, and neither does etc. before a lowercase word. A list item or
+    a paragraph also ends its last sentence. A word is a run of text between
+    spaces or dashes (— and –) that holds a letter or a digit. Inline code
+    counts as one word, whatever it holds. A link counts its text and not
+    its URL, and an image counts nothing. A sentence of fewer than 4 words,
+    such as a list item that only names a page, does not count toward the
+    page's average.
+
+The allow list:
+    docs/scripts/prose-allow.tsv lets a reviewed sentence over 30 words
+    stay, for example one that must quote a long string. Each line is
+    `PAGE<TAB>SENTENCE<TAB>REASON`. SENTENCE is the sentence exactly as this
+    script prints it, and REASON says why it stays. Lines that start with
+    `#` and blank lines are comments. With --check, an entry fails when it
+    has no reason, or when its sentence is no longer a long sentence of a
+    page this run read, so that an entry goes when its sentence is
+    rewritten. An allowed sentence still counts toward its page's average.
+"""
+
+import argparse
+import bisect
+import re
+import subprocess
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+LONG = 30
+AVERAGE = 20
+SHORTEST = 4
+ALLOW = "docs/scripts/prose-allow.tsv"
+
+PAGE = re.compile(r"^(?:README\.md|docs/[^/]+\.md|docs/concepts/[^/]+\.md|crates/[^/]+/README\.md)$")
+GENERATED = re.compile(r"^\s*(?:<!--\s*)?Generated from\b")
+
+FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
+HEADING = re.compile(r"^\s*#{1,6}(?:\s|$)")
+RULE = re.compile(r"^\s*([-*_])(?:\s*\1){2,}\s*$")
+HTML_BLOCK = re.compile(r"^\s*</?[A-Za-z!]")
+LINK_DEF = re.compile(r"^\s*\[[^\]]+\]:\s")
+ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+
+CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
+IMAGE = re.compile(r"!\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
+LINK = re.compile(r"\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])")
+AUTOLINK = re.compile(r"<((?:https?|mailto):[^>\s]+)>")
+TAG = re.compile(r"</?(?:a|b|br|code|details|div|em|i|img|kbd|p|span|strong|sub|summary|sup)\b[^>]*>", re.IGNORECASE)
+STRONG = re.compile(r"\*\*|__")
+
+# Inline code stands in the text as one of these while the text is split, so
+# a full stop inside code ends no sentence and the code counts as one word.
+HOLD = "\x00{}\x00"
+HELD = re.compile("\x00(\\d+)\x00")
+
+END = re.compile(r"[.!?][\"'”’)\]]*(?=\s+\S)")
+ABBREVIATIONS = {"e.g.", "i.e.", "cf.", "vs."}
+WORD = re.compile(r"[^\s—–]+")
+
+
+@dataclass
+class Sentence:
+    line: int
+    text: str
+    words: int
+
+
+def tracked(root):
+    """The paths git tracks under ROOT, or None when git cannot list them."""
+    p = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True)
+    if p.returncode != 0:
+        return None
+    return [name.decode("utf-8", "surrogateescape") for name in p.stdout.split(b"\0") if name]
+
+
+def plural(n, noun):
+    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+
+
+def generated(text):
+    return any(GENERATED.match(line) for line in text.split("\n")[:5])
+
+
+def units(text):
+    """Yield each paragraph and list item as a list of (line number, line)."""
+    # An HTML comment goes, and keeps its line breaks so the numbers hold.
+    text = re.sub(r"<!--.*?-->", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
+    lines = text.split("\n")
+    start = 0
+    if lines and lines[0].rstrip() == "---":
+        for number, line in enumerate(lines[1:], 1):
+            if line.rstrip() in ("---", "..."):
+                start = number + 1
+                break
+    unit = []
+    fence = None
+    for number, line in enumerate(lines[start:], start + 1):
+        if fence:
+            stripped = line.strip()
+            if stripped.startswith(fence) and stripped.strip(fence[0]) == "":
+                fence = None
+            continue
+        m = FENCE.match(line)
+        if m:
+            if unit:
+                yield unit
+            unit = []
+            fence = m.group(1)
+            continue
+        stripped = line.strip()
+        if not stripped or HEADING.match(line) or stripped.startswith(("|", ">")) or RULE.match(line) \
+                or HTML_BLOCK.match(line) or LINK_DEF.match(line):
+            if unit:
+                yield unit
+            unit = []
+            continue
+        m = ITEM.match(line)
+        if m:
+            if unit:
+                yield unit
+            unit = [(number, m.group(1))]
+            continue
+        unit.append((number, stripped))
+    if unit:
+        yield unit
+
+
+def clean(line, held):
+    """The line as a reader sees it, with each code span held aside."""
+    def hold(m):
+        held.append(m.group(0))
+        return HOLD.format(len(held) - 1)
+    line = CODE.sub(hold, line)
+    line = IMAGE.sub("", line)
+    line = LINK.sub(r"\1", line)
+    line = AUTOLINK.sub(r"\1", line)
+    line = TAG.sub(" ", line)
+    return STRONG.sub("", line)
+
+
+def count(text):
+    return sum(1 for w in WORD.findall(text) if HELD.search(w) or re.search(r"\w", w))
+
+
+def sentences(text):
+    """Yield each Sentence of the page's prose."""
+    for unit in units(text):
+        held = []
+        parts = []
+        starts = []
+        at = 0
+        for number, line in unit:
+            part = clean(line, held)
+            starts.append(at)
+            parts.append(part)
+            at += len(part) + 1
+        joined = " ".join(parts)
+        numbers = [number for number, _ in unit]
+        begin = 0
+        cuts = []
+        for m in END.finditer(joined):
+            before = joined[:m.start() + 1].split()
+            word = before[-1].lower() if before else ""
+            after = joined[m.end():].lstrip()
+            if word in ABBREVIATIONS or (word == "etc." and after[:1].islower()):
+                continue
+            cuts.append(m.end())
+        cuts.append(len(joined))
+        for cut in cuts:
+            piece = joined[begin:cut]
+            lead = len(piece) - len(piece.lstrip())
+            piece = piece.strip()
+            if piece:
+                line = numbers[bisect.bisect_right(starts, begin + lead) - 1]
+                shown = " ".join(HELD.sub(lambda m: held[int(m.group(1))], piece).split())
+                yield Sentence(line, shown, count(piece))
+            begin = cut
+
+
+def read_allow(root):
+    """The allow list as (entries, problems): entries maps (page, sentence) to its line."""
+    path = root / ALLOW
+    entries = {}
+    problems = []
+    if not path.is_file():
+        return entries, problems
+    for number, line in enumerate(path.read_text(encoding="utf-8").split("\n"), 1):
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split("\t")
+        if len(fields) != 3:
+            problems.append(f"{ALLOW}:{number}: an entry has three fields, PAGE, SENTENCE and REASON, separated by tabs, and this one has {len(fields)}")
+            continue
+        page, sentence, reason = (f.strip() for f in fields)
+        if not reason:
+            problems.append(f"{ALLOW}:{number}: this entry gives no reason why its sentence may stay over {LONG} words")
+            continue
+        entries[(page, " ".join(sentence.split()))] = number
+    return entries, problems
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1].split(" - ")[1])
+    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--check", action="store_true", help="exit 1 when a page fails")
+    parser.add_argument("--table", action="store_true", help="print a row of figures for each page")
+    parser.add_argument("files", nargs="*", type=Path)
+    args = parser.parse_args()
+    root = args.root.resolve()
+
+    pages = []
+    if args.files:
+        for f in args.files:
+            path = f if f.is_absolute() else Path.cwd() / f
+            try:
+                name = path.resolve().relative_to(root).as_posix()
+            except ValueError:
+                name = f.as_posix()
+            pages.append((name, path))
+    else:
+        for name in sorted(tracked(root) or []):
+            if PAGE.match(name) and (root / name).is_file():
+                if not generated((root / name).read_text(encoding="utf-8", errors="replace")):
+                    pages.append((name, root / name))
+    if not pages:
+        print(f"prose: found no page to read under {root}", file=sys.stderr)
+        return 2
+
+    allow, problems = read_allow(root)
+    used = set()
+    rows = []
+    long_count = 0
+    long_pages = set()
+    dense = 0
+    for name, path in pages:
+        found = list(sentences(path.read_text(encoding="utf-8", errors="replace")))
+        counted = [s for s in found if s.words >= SHORTEST]
+        over = 0
+        for s in found:
+            if s.words <= LONG:
+                continue
+            over += 1
+            if (name, s.text) in allow:
+                used.add((name, s.text))
+                continue
+            print(f"{name}:{s.line}: {s.words} words: {s.text}")
+            long_count += 1
+            long_pages.add(name)
+        average = sum(s.words for s in counted) / len(counted) if counted else 0.0
+        longest = max((s.words for s in found), default=0)
+        rows.append((average, longest, len(counted), over, name))
+        if average > AVERAGE:
+            print(f"{name}: average {average:.1f} words a sentence over {plural(len(counted), 'sentence')}, above {AVERAGE}")
+            dense += 1
+
+    read = {name for name, _ in pages}
+    for (page, sentence), number in sorted(allow.items(), key=lambda e: e[1]):
+        if page in read and (page, sentence) not in used:
+            problems.append(f"{ALLOW}:{number}: this entry's sentence is not a sentence over {LONG} words in {page}, so the entry can go")
+    for problem in problems:
+        print(problem)
+
+    if args.table:
+        print(f"{'average':>7} {'longest':>7} {'sentences':>9} {'over ' + str(LONG):>7}  page")
+        for average, longest, n, over, name in sorted(rows, reverse=True):
+            print(f"{average:7.1f} {longest:7d} {n:9d} {over:7d}  {name}")
+
+    allowed = f", {len(used)} allowed" if used else ""
+    print(f"prose: {plural(len(pages), 'page')} read: {plural(long_count, 'sentence')} over {LONG} words "
+          f"in {plural(len(long_pages), 'page')}{allowed}; {plural(dense, 'page')} average over {AVERAGE} words a sentence")
+    failed = long_count or dense or problems
+    return 1 if args.check and failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

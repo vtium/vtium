@@ -464,3 +464,65 @@ fn a_refusal_names_the_command_that_mends_the_path() {
         format!("chmod go-w '{}'", odd.display())
     );
 }
+
+// ADR-1401 D10: the folders checked are the folders the path crosses. A
+// folder link partway along the path can lead through a folder any user
+// can write, where a link inside it could be swapped for one to a folder
+// of theirs: `entry -> open/link -> real`, with `open` mode 0777, is
+// refused at `open`, at each depth of `open` below the fixture.
+#[test]
+fn a_writable_folder_that_a_folder_link_crosses_is_checked() {
+    for depth in 1..=3 {
+        let dir = fixture(&format!("hop-{depth}"));
+        let real = dir.join("real");
+        fs::create_dir(&real).expect("the real folder");
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).expect("mode");
+        write(&real.join("vtium.conf"), "version = 1\n", 0o644);
+        let mut open = dir.clone();
+        for n in 1..=depth {
+            open = open.join(format!("d{n}"));
+            fs::create_dir(&open).expect("a folder");
+            fs::set_permissions(&open, fs::Permissions::from_mode(0o755)).expect("mode");
+        }
+        symlink(&real, open.join("link")).expect("the inner link");
+        symlink(open.join("link"), dir.join("entry")).expect("the entry link");
+        let file = dir.join("entry/vtium.conf");
+        assert_eq!(
+            read(&file, &me(&dir)).expect("trusted while no folder is writable"),
+            Some("version = 1\n".to_owned()),
+            "depth {depth}"
+        );
+        fs::set_permissions(&open, fs::Permissions::from_mode(0o777)).expect("mode");
+        let p = problem(read(&file, &me(&dir)));
+        assert!(
+            matches!(&p, Problem::Untrusted(Untrusted::Writable { path, mode: 0o777 }) if path.raw() == open.to_string_lossy()),
+            "depth {depth}: {p:?}"
+        );
+    }
+}
+
+// The reviewer's case: the link that leads through the writable folder is
+// itself reached through a link, `frits -> w/link -> real`, and the file is
+// named through the first link
+#[test]
+fn a_writable_folder_reached_through_a_chain_of_folder_links_is_checked() {
+    let dir = fixture("hop-chain");
+    let (real, w) = (dir.join("real"), dir.join("w"));
+    for d in [&real, &w] {
+        fs::create_dir(d).expect("a folder");
+    }
+    fs::set_permissions(&real, fs::Permissions::from_mode(0o755)).expect("mode");
+    fs::set_permissions(&w, fs::Permissions::from_mode(0o777)).expect("mode");
+    write(&real.join("x.vtfrit"), "source=kbd:x\n", 0o644);
+    symlink(&real, w.join("link")).expect("the link in w");
+    symlink(w.join("link"), dir.join("frits")).expect("the frits link");
+    let trust = Trust::running_as(fs::metadata(&dir).expect("the fixture").uid()).below(&dir);
+    let found = inspect(&dir.join("frits/x.vtfrit"), &trust)
+        .expect("read")
+        .expect("present");
+    assert!(
+        matches!(&found.trusted, Err(Untrusted::Writable { path, .. }) if path.raw() == w.to_string_lossy()),
+        "{:?}",
+        found.trusted
+    );
+}

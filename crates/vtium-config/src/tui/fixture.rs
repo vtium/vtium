@@ -102,12 +102,14 @@ pub fn flow() -> Flow {
                 consoles: 1,
                 look: "big".into(),
                 keys: Vec::new(),
+                isolated: false,
             },
             Head {
                 name: "panel".into(),
                 consoles: 2,
                 look: "small".into(),
                 keys: Vec::new(),
+                isolated: false,
             },
         ],
         looks: vec![

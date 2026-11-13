@@ -92,6 +92,5 @@ mod tests {
         .ok();
         std::fs::remove_file(r.join("etc/sddm.conf")).ok();
         assert_eq!(vt(&r), Some(2));
-        let _ = std::fs::remove_dir_all(r);
     }
 }

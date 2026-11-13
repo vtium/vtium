@@ -44,10 +44,13 @@ nav = [
       { "Concepts" = [
           "concepts/index.md",
           { "What vtium is" = "concepts/what-vtium-is.md" },
+          { "How vtium works" = "concepts/how-vtium-works.md" },
           { "The suite" = "concepts/suite.md" },
           { "Deployment and start-up" = "concepts/start-up.md" },
           { "Seats and sessions" = "concepts/seats-and-sessions.md" },
           { "Heads" = "concepts/heads.md" },
+          { "From keyboards to displays" = "concepts/flows.md" },
+          { "Security" = "concepts/security.md" },
           { "Fonts, generated at run time" = "concepts/fonts.md" },
           { "Using vtium" = "concepts/using-vtium.md" },
           { "How vtium is judged" = "concepts/how-vtium-is-judged.md" },
@@ -66,11 +69,14 @@ nav = [
   ] },
 ]
 
-# Files under docs/ that the site leaves out: the scripts, the tables (a page
-# links a TSV by its GitHub address), and the notes on how each figure is
-# made. The patterns are read as a .gitignore's are.
+# Files under docs/ that the site leaves out: the scripts, the instructions
+# for agents that work under docs/ (AGENTS.md and CLAUDE.md), the tables (a
+# page links a TSV by its GitHub address), and the notes on how each figure
+# is made. The patterns are read as a .gitignore's are.
 exclude_docs = """
 /scripts/
+/AGENTS.md
+/CLAUDE.md
 *.tsv
 **/figures/README.md
 """

@@ -5237,7 +5237,7 @@ class ShowcaseTest(unittest.TestCase):
     def test_scripts_scene_runs_right_to_left_lines_from_the_right(self):
         # The scripts scene writes Devanagari, Bengali, Georgian and
         # Ethiopic each on one line; the danda, in the Devanagari block, ends
-        # Bengali sentences too. The Arabic and Hebrew lines and the Arabic
+        # Bengali sentences too. The Arabic and Hebrew lines and the Hebrew
         # mixed line, and no other, start with SCP 2, which makes the line's
         # paragraph run right to left, and end with SCP 0 before the line
         # feed, so the lines after them and the prompt run left to right. The
@@ -5338,7 +5338,7 @@ class ShowcaseTest(unittest.TestCase):
         with open(t3_showcase.TIER2_FONTS) as f:
             rs = f.read()
         for url, sha in tier2.values():
-            self.assertIn('Origin::Url(\n            "%s",' % url, rs)
+            self.assertRegex(rs, r'Origin::Url\(\s*"%s"' % re.escape(url))
             self.assertIn('sha256: "%s"' % sha, rs)
         for rs in (t3_showcase.SPECIMEN_FONTS, t3_showcase.TIER2_FONTS):
             with self.assertRaises(ValueError):

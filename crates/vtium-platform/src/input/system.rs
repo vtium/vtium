@@ -258,10 +258,9 @@ fn translate(table: &str, keymap: &str) -> Option<RuleNames> {
 mod tests {
     #![expect(clippy::panic, reason = "a test fails by panicking")]
 
-    use std::path::PathBuf;
-
     use super::*;
     use crate::input::KeymapConfig;
+    use crate::scratch::Scratch;
 
     /// A few rows of systemd 262's kbd-model-map, with its header.
     const TABLE: &str = "\
@@ -273,16 +272,15 @@ us\t\t\tus\tpc105+inet\t-\t\tterminate:ctrl_alt_bksp\t\t\t\ten-US,en
 ";
 
     /// A root of its own for one test, holding `vconsole` as
-    /// etc/vconsole.conf when given, and the table.
-    fn root(name: &str, vconsole: Option<&str>) -> PathBuf {
+    /// etc/vconsole.conf when given, and the table. The test removes it
+    /// when it ends.
+    fn root(name: &str, vconsole: Option<&str>) -> Scratch {
         root_with(name, vconsole, None)
     }
 
     /// [`root`], with `keyboard` as etc/default/keyboard when given.
-    fn root_with(name: &str, vconsole: Option<&str>, keyboard: Option<&str>) -> PathBuf {
-        let root =
-            std::env::temp_dir().join(format!("vtium-system-layout-{}-{name}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+    fn root_with(name: &str, vconsole: Option<&str>, keyboard: Option<&str>) -> Scratch {
+        let root = Scratch::new(&format!("system-layout-{name}"));
         let write = |path: &str, text: &str| {
             let path = root.join(path);
             if let Some(dir) = path.parent() {

@@ -137,7 +137,7 @@ impl Pty {
     /// The child holds no other descriptor of vtium's: every descriptor
     /// vtium inherited is marked close-on-exec before the fork (see the
     /// crate README's pty rules). It is
-    /// called from vtium's one thread only: a descriptor another thread
+    /// called from vtium's main thread only: a descriptor another thread
     /// opened between the marking and the fork would reach the child.
     pub fn spawn(command: Command, size: Size, erase: Erase) -> io::Result<Pty> {
         Pty::start(command, size, erase, None::<fn(u32)>)

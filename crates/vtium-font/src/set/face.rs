@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use super::read::Set;
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::{Cell, Decorations, Face, Style};
+use crate::face::{Cell, Decorations, Face, Style, Width};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
 use crate::script::lines::at_multiple;
@@ -113,6 +113,11 @@ impl Face for SetFace {
 
     fn sprite_policy(&self) -> SpritePolicy {
         self.set.policy()
+    }
+
+    /// The cells the set's map marks the glyph with.
+    fn advance(&self, c: char) -> Option<Width> {
+        self.set.advance(self.cell, c)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
