@@ -231,18 +231,20 @@ class Qemu:
                 time.sleep(0.1)
         raise RuntimeError("screendump did not produce a readable image")
 
-    def wait_serial(self, marker, timeout, log_path=None, fail=None):
+    def wait_serial(self, marker, timeout, log_path=None, fail=None, since=0):
         """Wait for a line holding `marker` on the console log (or on
         `log_path`), terminal escape sequences left out, and return it.
         Only lines ending in a newline count: the guest writes a line a few
         bytes at a time, and the part of one that has arrived is not yet
-        the line (#61). A line holding `fail`, when it is given, ends the
-        wait at once with a RuntimeError that carries the line, since the
-        guest writes no `marker` after it."""
+        the line (#61). Only what the guest wrote from byte `since` on
+        counts, as after a key the driver pressed. A line holding `fail`,
+        when it is given, ends the wait at once with a RuntimeError that
+        carries the line, since the guest writes no `marker` after it."""
         log_path = log_path or self.serial
         deadline = time.time() + timeout
         while True:
             with open(log_path, "rb") as f:
+                f.seek(since)
                 data = f.read()
             data = data[:data.rfind(b"\n") + 1]
             text = _ESCAPES.sub("", data.decode(errors="replace"))
@@ -356,6 +358,20 @@ class Qemu:
         reasons = [e.get("data", {}).get("reason") for e in self.drain_events()
                    if e.get("event") == "SHUTDOWN"]
         return reasons[-1] if reasons else None
+
+    def shutdown_so_far(self):
+        """QEMU's SHUTDOWN reason so far, without waiting for one: None
+        while the guest runs and QEMU has sent none; the reason once QEMU
+        has ended or sent one; "the guest is STATUS" when the guest stopped
+        running some other way, as when it paused."""
+        if self.proc.poll() is not None:
+            return self.shutdown_reason() or "QEMU exited with %d" % self.proc.returncode
+        status = self.status()  # takes in the events QEMU sent before its reply
+        reasons = [e.get("data", {}).get("reason") for e in self.qmp_events
+                   if e.get("event") == "SHUTDOWN"]
+        if reasons:
+            return reasons[-1]
+        return None if status == "running" else "the guest is %s" % status
 
     def wait_exit(self, timeout):
         try:

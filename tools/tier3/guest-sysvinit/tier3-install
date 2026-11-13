@@ -1,9 +1,11 @@
 #!/bin/sh
-# Boot hook baked into the guest without systemd, run from /etc/rc.local at
-# the end of the runlevel. When the harness attaches the disc labelled T3PKG,
-# runs the disc's own setup script, which installs vtium's tree; everything a
-# run changes lives on the disc. blkid finds the disc with or without a udev
-# daemon.
+# Boot hook baked into the guest without systemd. Under sysvinit,
+# /etc/rc.local runs it at the end of the runlevel. On the busybox boot,
+# busybox init runs it after the boot's scripts (inittab-busybox). Either
+# init runs it before it starts the terminals. When the harness attaches
+# the disc labelled T3PKG, the hook runs the disc's own setup script, which
+# installs vtium's tree; everything a run changes lives on the disc. blkid
+# finds the disc with or without a udev daemon.
 set -eu
 dev=$(blkid -L T3PKG) || {
     echo TIER3-INSTALL-SKIP > /dev/ttyS0

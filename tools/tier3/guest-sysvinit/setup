@@ -3,7 +3,8 @@
 # T3PKG disc mounted at $1, before init starts the inittab's terminals:
 # unpacks vtium's install tree (tree.tar) over the root, and installs the
 # variant's config, its test fonts, the scenario screens and t3-console,
-# which the inittab runs on tty2, and its frits.
+# which the inittab runs on tty2, and its frits. Both of the guest's boots
+# run this script, sysvinit's and busybox init's (tier3-install).
 set -eu
 disc=$1
 tar -xpf "$disc"/tree.tar -C / --no-overwrite-dir --keep-directory-symlink
@@ -43,6 +44,18 @@ if [ -f "$disc"/two-vts ]; then
         /etc/inittab
     grep -qx '3:23:respawn:/usr/local/sbin/t3-console tty3' /etc/inittab
     telinit q
+fi
+# A variant that judges what the kernel does with a signal sent to PID 1
+# has the kernel trace each such signal, but SIGCHLD, which every child's
+# exit sends, and reads the trace onto the serial console. The trace is
+# tracefs's signal_generate event. Its res field is 1 when the kernel drops
+# the signal, as it does for a signal that PID 1 neither catches nor blocks.
+if [ -f "$disc"/trace-pid1-signals ]; then
+    t=/sys/kernel/tracing
+    mountpoint -q "$t" || mount -t tracefs tracefs "$t"
+    echo 'pid == 1 && sig != 17' > "$t"/events/signal/signal_generate/filter
+    echo 1 > "$t"/events/signal/signal_generate/enable
+    cat "$t"/trace_pipe > /dev/ttyS0 &
 fi
 # A variant without udev stops the udev daemon and removes its database
 # before vtium starts, so vtium finds its devices in sysfs alone.

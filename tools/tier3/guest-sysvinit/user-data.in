@@ -3,8 +3,11 @@
 # boot, which runs systemd: the packages come from snapshot.debian.org at
 # @ARCHIVE@, sysvinit-core takes PID 1 from the next boot on, and its
 # inittab runs vtium on tty2 where it ran a getty. t3.py substitutes
-# @ARCHIVE@ (the snapshot's timestamp) and @INSTALL_SCRIPT@ (tier3-install,
-# beside this file) before writing the seed disc.
+# @ARCHIVE@ (the snapshot's timestamp), @INSTALL_SCRIPT@ (tier3-install,
+# beside this file), @BUSYBOX_INITTAB@ (inittab-busybox) and @BUSYBOX_INIT@
+# (t3-busybox-init) before writing the seed disc. grub gets a second entry,
+# t3-busybox, which boots the same guest with busybox init as PID 1; a run's
+# disc picks that entry with a grub.cfg of its own.
 users:
   - name: tester
     plain_text_passwd: tester
@@ -51,9 +54,10 @@ write_files:
       # sysvinit as PID 1 in place of systemd, with its runlevel scripts
       # (sysv-rc); systemd-sysv, which apt counts as essential, goes, with
       # libpam-systemd. And vtium's one library the image lacks, with the
-      # keyboard data it reads.
+      # keyboard data it reads. And busybox, whose init is PID 1 on grub's
+      # second entry.
       apt install --no-install-recommends --allow-remove-essential sysvinit-core sysv-rc \
-        systemd-sysv- libxkbcommon0 xkb-data
+        systemd-sysv- libxkbcommon0 xkb-data busybox
       echo LANG=C.UTF-8 > /etc/default/locale
       # tty2 runs vtium where it ran a getty; tty1 and tty3 keep theirs,
       # and a variant's setup can give tty3 a second vtium. Ctrl+Alt+Del's
@@ -68,6 +72,35 @@ write_files:
       test -x /etc/init.d/rc.local
       printf '#!/bin/sh\nexec /usr/local/sbin/tier3-install\n' > /etc/rc.local
       chmod 0755 /etc/rc.local
+      # grub's second entry, t3-busybox: this boot's kernel, initramfs and
+      # command line, with t3-busybox-init as PID 1, which starts busybox
+      # init. grub.cfg reads custom.cfg after its own entries (41_custom),
+      # so the entry needs no update-grub. custom.cfg then reads the
+      # grub.cfg on a run's disc, labelled T3PKG, when the disc has one,
+      # and that file picks the entry the run boots.
+      kernel=$(sed -n 's/^BOOT_IMAGE=\([^ ]*\) .*/\1/p' /proc/cmdline)
+      args=$(sed 's/^BOOT_IMAGE=[^ ]* //' /proc/cmdline)
+      initrd=/boot/initrd.img-$(uname -r)
+      test -f "$kernel"
+      test -f "$initrd"
+      test -x /bin/busybox
+      /bin/busybox init --help 2>&1 | grep -q 'Init is the first process'
+      cat > /boot/grub/custom.cfg <<EOF
+      menuentry 'Debian GNU/Linux, with busybox init' --id t3-busybox {
+        insmod part_gpt
+        insmod ext2
+        insmod gzio
+        search --no-floppy --fs-uuid --set=root $(findmnt -no UUID /)
+        linux $kernel $args init=/usr/local/sbin/t3-busybox-init
+        initrd $initrd
+      }
+      insmod iso9660
+      if search --no-floppy --label --set=t3pkg T3PKG; then
+        if [ -f (\$t3pkg)/grub.cfg ]; then
+          source (\$t3pkg)/grub.cfg
+        fi
+      fi
+      EOF
       touch /etc/cloud/cloud-init.disabled
       apt-get clean
       touch /home/tester/.hushlogin
@@ -82,5 +115,13 @@ write_files:
     permissions: "0755"
     encoding: b64
     content: @INSTALL_SCRIPT@
+  - path: /etc/inittab.busybox
+    permissions: "0644"
+    encoding: b64
+    content: @BUSYBOX_INITTAB@
+  - path: /usr/local/sbin/t3-busybox-init
+    permissions: "0755"
+    encoding: b64
+    content: @BUSYBOX_INIT@
 runcmd:
   - [/usr/local/sbin/tier3-provision]

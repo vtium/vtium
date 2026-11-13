@@ -324,7 +324,7 @@ A build with `libseat` alone is for seatd. It stages neither file, and opens no 
 
 **With systemd:** vtium sends `SIGRTMIN+4` to PID 1. systemd takes it as `poweroff.target`. It stops the services, unmounts the filesystems, and powers off.
 
-**Without systemd:** sysvinit catches the signal too, and powers off. It goes to runlevel 0, stops the services, and then powers off. Tier 3's `power-off-sysvinit` tests this. An init that does not catch the signal, such as busybox init, never sees it. The kernel drops a signal that PID 1 does not catch, and nothing powers off. vtium does not test this. See [the busybox init test issue](https://github.com/vtium/vtium/issues/140).
+**Without systemd:** sysvinit catches the signal too, and powers off. It goes to runlevel 0, stops the services, and then powers off. Tier 3's `power-off-sysvinit` tests this. An init that does not catch the signal, such as busybox init, never sees it. The kernel drops a signal that PID 1 does not catch, and nothing powers off. Tier 3's `power-off-busybox` tests this on a second boot of the guest without systemd, with busybox init as PID 1. vtium warns at its start that the key will not work, and the guest stays up after the key.
 
 **Under elogind:** As without systemd.
 
@@ -454,7 +454,7 @@ The tests in `crates/vtium/src/getty.rs` test the closed marker against a stand-
 - `heads-closed-broken` runs under a closed policy. Its `getty-fallback` check fails vtium by a kill, a crash, and a hangup. After each, the fallback unit skips itself, no getty runs on the VT, and the unit's `Restart=` line starts vtium again. Its `start-limit` check kills each vtium that the unit starts, until the unit stops restarting. Past the limit, the unit stays failed with `start-limit-hit`, and no getty runs.
 - Under an open policy, the getty starts, and its start stops vtium's unit. `heads-partly-open` runs both checks as the open control. `heads-open-nodisplay` checks this after no display came within `display-wait`.
 
-These are still untested: busybox init, runit and s6, an init that ignores `SIGRTMIN+4`, and elogind. See [the busybox init test issue](https://github.com/vtium/vtium/issues/140) and [the elogind issue](https://github.com/vtium/vtium/issues/100).
+These are still untested: runit and s6, and elogind. See [the elogind issue](https://github.com/vtium/vtium/issues/100).
 
 Tier 3's `heads-survive` restarts vtium's unit, and then kills vtium, under a closed policy. After each, the same logged-in shell leads its session on the same pty, at the same size. The shell answers a line typed on the console's keyboard.
 
