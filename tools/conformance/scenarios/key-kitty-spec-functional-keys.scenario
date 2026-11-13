@@ -4,7 +4,7 @@
 # modifier is held. F13 to F35, Menu, Pause, Print, Scroll Lock, the media
 # keys and the volume keys are CSI u with their numbers from the table.
 # The keypad's keys that make no text are CSI u with their own numbers,
-# and the keypad's Begin is the table's 57427 ~.
+# and the keypad's Begin is CSI 57427 u with its number from the table, as the maintainer decided.
 # spec: kitty's Comprehensive keyboard handling in terminals: Functional key definitions, Disambiguate escape codes, Non-Unicode keys
 # covers: input.kitty-keyboard
 size 20 2
