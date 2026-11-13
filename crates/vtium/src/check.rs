@@ -389,7 +389,7 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
 }
 
 /// [`outcome`], asking the glyph helper through `squeeze` which letters of
-/// the locale's script each look's font set covers (ADR-1401 D7).
+/// the locale's everyday letters each look's font set covers (ADR-1401 D7).
 fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> Outcome {
     let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
@@ -453,7 +453,7 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
 
 /// The subcommand as the binary runs it on the machine's own files: it
 /// prints [`outcome`] and returns the exit status. It asks the glyph
-/// helper which letters of the locale's script each look's font set
+/// helper which of the locale's everyday letters each look's font set
 /// covers, waiting by `clock`.
 pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
@@ -716,7 +716,7 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         };
         let line = Some(named.line);
         let judged = judge(&file, &settings.trust);
-        // a font set the account reads is checked for the locale's script
+        // a font set the account reads is checked for the locale's letters
         if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
             let said = settings
                 .squeeze
@@ -741,13 +741,15 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
 }
 
 /// The note on a look, `look`, whose font set `name` at `file` leaves
-/// letters of the system locale's script to the squeeze (ADR-1401 D7,
-/// ADR-1302 D14): the letters the built-in fonts draw squeezed in the
-/// font set's cell, of those the font set does not cover, as the glyph
-/// helper answers. The note names an installed font that covers them where
-/// the helper finds one. `None` when the locale's script is not in the
-/// table, when the built-in fonts squeeze none of its letters, when the
-/// font set covers every such letter, or when the helper cannot answer.
+/// everyday letters of the system locale's language, CLDR's main exemplar
+/// characters, to the squeeze (ADR-1401 D7, ADR-1302 D14): the letters the
+/// built-in fonts draw squeezed in the font set's cell, of those the font
+/// set does not cover, as the glyph helper answers. The note names the
+/// script they are written in, and an installed font that covers them
+/// where the helper finds one. `None` when the locale's language is not in
+/// the table, when the built-in fonts squeeze none of its letters, when
+/// the font set covers every such letter, or when the helper cannot
+/// answer.
 fn squeeze_note(
     look: &str,
     name: &str,
@@ -764,7 +766,7 @@ fn squeeze_note(
             width: 8,
             height: 16,
         });
-    let squeezed: Vec<u32> = vtium_font::letters::letters(script)
+    let squeezed: Vec<u32> = vtium_font::letters::of_locale(sq.locale)
         .into_iter()
         .filter(|&c| font::builtin_squeezes(c, cell, sq.locale))
         .map(u32::from)
@@ -1842,8 +1844,8 @@ mod tests {
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
     }
 
-    // ADR-1401 D7, ADR-1302 D14: a look whose font set leaves letters of
-    // the locale's script to the squeeze is noted, outside the exit
+    // ADR-1401 D7, ADR-1302 D14: a look whose font set leaves everyday
+    // letters of the locale's language to the squeeze is noted, outside the exit
     // status, naming the look, the font set, the script, how many letters
     // and the installed font the glyph helper names. The stand-in answers
     // as the helper does: it refuses a frit it cannot read, covers what
@@ -1864,13 +1866,13 @@ mod tests {
             if frit.name != "desk" {
                 return Err("no such font set".to_owned());
             }
-            // a font set covers every letter of the script its one source
-            // is named for
-            let covers = |script: &str| {
-                let all = vtium_font::letters::letters(script);
+            // a font set covers every everyday letter of the language its
+            // one source is named for: Latin English's, Devanagari Hindi's
+            let covers = |(script, locale): (&str, &str)| {
+                let all = vtium_font::letters::of_locale(locale);
                 frit.text.contains(script).then_some(all)
             };
-            let held: Vec<char> = ["Latin", "Devanagari"]
+            let held: Vec<char> = [("Latin", "en"), ("Devanagari", "hi")]
                 .into_iter()
                 .filter_map(covers)
                 .flatten()
@@ -1891,7 +1893,7 @@ mod tests {
             };
             conf_file(&file, false, &trust, &machine(true), &settings)
         };
-        let left = vtium_font::letters::letters("Devanagari")
+        let left = vtium_font::letters::of_locale("hi_IN")
             .into_iter()
             .filter(|&c| {
                 font::builtin_squeezes(
@@ -1904,11 +1906,12 @@ mod tests {
                 )
             })
             .count();
-        assert!(left > 50, "{left}");
+        // 67 of Hindi's exemplar characters are two cells wide in GNU Unifont
+        assert_eq!(left, 67);
         let out = check("hi_IN.UTF-8");
         assert!(out.counted.is_empty(), "{:?}", out.counted);
         let want = format!(
-            "{f}:3: Look \"big\": the font set desk has no glyph for {left} letters of the Devanagari script, which the system's locale uses. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. The installed font Noto Sans Devanagari covers them; add it to the font set with a source=font:Noto Sans Devanagari line."
+            "{f}:3: Look \"big\": the font set desk has no glyph for {left} letters that the system's language writes in the Devanagari script. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. The installed font Noto Sans Devanagari covers them; add it to the font set with a source=font:Noto Sans Devanagari line."
         );
         assert!(out.notes.contains(&want), "{:#?}", out.notes);
         let squeezed = |out: &HeadCheck| out.notes.iter().any(|n| n.contains("squeezed"));

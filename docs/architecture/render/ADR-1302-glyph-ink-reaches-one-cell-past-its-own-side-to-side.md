@@ -226,6 +226,10 @@ considered:
     said: "Confirmed: a color emoji's picture is the square around the ink of the glyph helper's 48x96 drawing, cropped before the 10x10 nearest-neighbour shrink."
     via: the maintainer, in the steering session, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "Count the locale's everyday letters: CLDR's exemplar characters"
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
@@ -610,7 +614,9 @@ When the store holds no glyph for a cluster, the console draws the cluster from 
   2. for a character whose Emoji_Presentation is No, such as ❤ (U+2764), a text glyph that a font provides, from the font set or from the built-in fonts. It comes before a color glyph that would have to draw in one cell. Unicode's emoji data gives such a character text presentation by default (UTS #51);
   3. a built-in glyph that fits the cell: no wider than the cluster's cells, at the whole scale ADR-1200 D7 draws the built-in font at;
   4. only then a squeeze: a bitmap glyph wider than its cells, squeezed as the bullets above say, or a color emoji drawn in one cell (D5).
-- **vtium warns when a font set falls to the last step for the locale's script.** `vtium check-config` and vtium-config warn when a font set leaves the letters of the script of the system's locale to step 4, so that those letters draw squeezed. The warning names an installed font that covers that script, and it never makes Install refuse a file. ADR-1401 D7, which decides what `vtium check-config` reports, gives the warning in full.
+- **vtium warns when a font set falls to the last step for the locale's letters.** `vtium check-config` and vtium-config warn when a font set leaves the everyday letters of the system locale's language to step 4, so that those letters draw squeezed. The letters are the language's main exemplar characters in CLDR (the maintainer, 2026-11-13). The warning names an installed font that covers them, and it never makes Install refuse a file. ADR-1401 D7, which decides what `vtium check-config` reports, gives the warning in full.
+
+> Edited 2026-11-13, later: the maintainer decided that the warning counts the locale's everyday letters, CLDR's main exemplar characters, not every letter of the script (`considered`). The bullet read: "**vtium warns when a font set falls to the last step for the locale's script.** `vtium check-config` and vtium-config warn when a font set leaves the letters of the script of the system's locale to step 4, so that those letters draw squeezed. The warning names an installed font that covers that script, and it never makes Install refuse a file."
 
 > Edited 2026-11-13: the maintainer decided that a bitmap glyph wider than its cluster's cells is squeezed into them (`considered`). The bullet read: "GNU Unifont draws Devanagari letters 16 pixels wide, two of its 8-pixel cells, while the terminal gives each letter, and its cluster, one cell. vtium cuts such a glyph to its middle 8 columns when it fits it to the cell (ADR-1200 D7), a letter alone or with its marks, as the C reference cut it; with ा, that cut removes the vowel sign's stem. This decision leaves that cut as it is: it belongs to how a built-in glyph is fitted to the cell."
 

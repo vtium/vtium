@@ -285,13 +285,16 @@ alone and says so.\n\n\
 It exits 1 when it finds an error or warning, and 0 when it finds none.\n\
 Notes, printed on standard output, do not count: for example a weak\n\
 match, a rule that needs udev, a head no rule uses, a device no rule\n\
-places, a head whose VTs have no vtium enabled, or a font helper vtium\n\
-would refuse. The notes end with what vtium would do with the file at\n\
-start, and the file's policy.\n\n\
+places, a head whose VTs have no vtium enabled, a font helper vtium\n\
+would refuse, or a look whose font set has no glyph for letters of the\n\
+system's language, which vtium then draws squeezed. The notes end with\n\
+what vtium would do with the file at start, and the file's policy.\n\n\
 It only reads: vtium.conf, the font set font-name names, the font\n\
 helper's owner and mode, the devices from /sys and /run/udev/data, and\n\
-systemd's unit links under /etc/systemd. It opens nothing under /dev\n\
-and changes nothing.\n";
+systemd's unit links under /etc/systemd. It starts the font helper to\n\
+ask which of the language's letters a look's font set covers, and the\n\
+font helper reads the installed fonts. It opens nothing under /dev and\n\
+changes nothing.\n";
 
     /// The frit `font-name` names, at `path`, that vtium does not read,
     /// and why, `reason` ([`crate::font::frit_text`]).
@@ -393,10 +396,10 @@ and changes nothing.\n";
         )
     }
 
-    /// A look whose font set, `frit`, leaves `left` letters of `script`,
-    /// the script of the system's locale, to the squeeze, the last step
-    /// of the fallback (ADR-1401 D7, ADR-1302 D14), and an installed font
-    /// that covers them, `font`, when one does.
+    /// A look whose font set, `frit`, leaves `left` of the everyday letters
+    /// of the system locale's language, written in `script`, to the
+    /// squeeze, the last step of the fallback (ADR-1401 D7, ADR-1302 D14),
+    /// and an installed font that covers them, `font`, when one does.
     pub fn squeezed_script(
         look: &str,
         frit: &str,
@@ -408,10 +411,10 @@ and changes nothing.\n";
             Some(font) => format!(
                 "The installed font {font} covers them; add it to the font set with a source=font:{font} line."
             ),
-            None => "No installed font covers them; install a font for this script and add it to the font set.".to_owned(),
+            None => "No installed font covers them; install a font for this language and add it to the font set.".to_owned(),
         };
         format!(
-            "Look {look:?}: the font set {frit} has no glyph for {left} {letters} of the {script} script, which the system's locale uses. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. {fix}"
+            "Look {look:?}: the font set {frit} has no glyph for {left} {letters} that the system's language writes in the {script} script. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. {fix}"
         )
     }
 

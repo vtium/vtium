@@ -45,6 +45,9 @@ const FILES: [(&str, &str, &str); 6] = [
 
 /// The licence of the UCD files, copied into the output.
 const LICENSE: &str = include_str!("unicode-license.txt");
+/// CLDR's licence, from its release's `LICENSE`, copied into the letters
+/// file: its data is under the Unicode License v3.
+const CLDR_LICENSE: &str = include_str!("cldr-license.txt");
 
 /// The scripts HarfRust 0.12 shapes with its Arabic shaper, whose joining
 /// letters `JOINING` lists. No code reads `JOINING`: nothing builds the
@@ -154,11 +157,11 @@ const ON_DEMAND_SCRIPTS: [&str; 94] = [
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let [ucd] = args.as_slice() else {
-        eprintln!("usage: gen-shaping UCD_DIR");
+    let [ucd, cldr] = args.as_slice() else {
+        eprintln!("usage: gen-shaping UCD_DIR CLDR_DIR");
         return ExitCode::from(2);
     };
-    match run(Path::new(ucd)) {
+    match run(Path::new(ucd), Path::new(cldr)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("gen-shaping: {e}");
@@ -167,7 +170,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(ucd: &Path) -> Result<(), String> {
+fn run(ucd: &Path, cldr: &Path) -> Result<(), String> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let read = |name: &str| read_pinned(ucd, name);
     let mut emoji = Vec::new();
@@ -196,13 +199,17 @@ fn run(ucd: &Path) -> Result<(), String> {
         &on_demand,
     );
     std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))?;
-    let letters = scripts_ranges(&scripts, LOCALE_SCRIPTS);
+    let mut exemplars = Vec::new();
+    for &(language, pin) in CLDR_FILES {
+        let text = read_cldr(cldr, language, pin)?;
+        exemplars.push((language, exemplar_ranges(&text).map_err(|e| format!("{language}.xml: {e}"))?));
+    }
     let letters_path = root.join("../vtium-font/src/letters/data.rs");
-    std::fs::write(&letters_path, letters_rs(&letters))
+    std::fs::write(&letters_path, letters_rs(&exemplars))
         .map_err(|e| format!("{}: {e}", letters_path.display()))?;
     println!(
-        "../vtium-font/src/letters/data.rs: Unicode {VERSION}, the letters of {} scripts",
-        letters.len()
+        "../vtium-font/src/letters/data.rs: CLDR {CLDR_VERSION}, the main exemplar characters of {} languages",
+        exemplars.len()
     );
     println!(
         "src/shaping/data.rs: Unicode {VERSION}, {} emoji sequences, {} joining letters, \
@@ -442,53 +449,200 @@ fn decomposed(text: &str) -> Result<Vec<Vec<u32>>, String> {
     Ok(keys.into_iter().collect())
 }
 
-/// The scripts vtium-font's table of locales names (ADR-1401 D7): each
-/// language's script, whose letters `vtium check-config` checks a font set
-/// for, by its Scripts.txt name.
-const LOCALE_SCRIPTS: &[&str] = &[
-    "Latin",
-    "Greek",
-    "Cyrillic",
-    "Armenian",
-    "Georgian",
-    "Hebrew",
-    "Arabic",
-    "Thaana",
-    "Devanagari",
-    "Bengali",
-    "Gurmukhi",
-    "Gujarati",
-    "Oriya",
-    "Tamil",
-    "Telugu",
-    "Kannada",
-    "Malayalam",
-    "Sinhala",
-    "Thai",
-    "Lao",
-    "Tibetan",
-    "Myanmar",
-    "Khmer",
-    "Ethiopic",
-    "Han",
-    "Hangul",
+/// The CLDR release whose locale data `vtium check-config` reads.
+const CLDR_VERSION: &str = "49";
+
+/// The locale file of each language in vtium-font's table of locales
+/// (ADR-1401 D7), `common/main/<language>.xml` of CLDR's
+/// `cldr-common-49.zip` (https://unicode.org/Public/cldr/49/), with its
+/// SHA-256. Norwegian Bokmål takes `no.xml`, the parent locale that holds
+/// its exemplar characters; CLDR has no file for Dhivehi, so the table
+/// names none.
+const CLDR_FILES: &[(&str, &str)] = &[
+    ("af", "6cb39b7b008b664352d239458834e94ac49fe6d05186e80e938db8180b1a088e"),
+    ("am", "7e0e10becd72f45b134ccdba7619d9f098dbffb91256fbb85524c9c28f21f26d"),
+    ("ar", "c5bdda5bc6e1540091da9ab5952e88c99ed9d0110c9d3620f5813192b37a0291"),
+    ("as", "d7f1bc6e318005784f748132ef389a418c46cdd8df2e4376ebc02963fdbe724e"),
+    ("az", "90b3628974bf8374bee7c8b8505652aa5fadeb61498b3f0bcfbb0be4567d992d"),
+    ("be", "cf521225786a3eba02fc05903d5dca2ac4c281d596699637c981f190b0bc6532"),
+    ("bg", "536505cb184d7ab6f2f0236a9d23e3560379dd8d9c2f121b145f67b64fe319d8"),
+    ("bn", "84b7ad61fdfbd9ed72c249fb4cef7de115fe1cd7afd33d0a40a984e8e231bdff"),
+    ("bo", "74042a1f06f6d06cbbe7d85e370889d0b38aae20a6959412cf7cf3f647c1ff1c"),
+    ("ca", "8c732216c1ec15e44d74104f5b517266ce170244907f75e58a0c76a945fdcb1b"),
+    ("cs", "3e18918d66786f08df4432d87c364c27fb08e94ca3c1d6acc2a7e50fbe202390"),
+    ("cy", "1ebb24385fc8db334f013f51941fb998a4a29c024342cde077c76ff85a1f9d0c"),
+    ("da", "463f1074008731e5f1e9b178f89eb89bcc336e4b96acc433d375aa59de177c98"),
+    ("de", "044e2f18f7da02aa3702b2d7357a975f5552ba0a2b204b4c05896160ad456785"),
+    ("el", "1541a1e7bf92ede6dd69d0cb7614e3fba67b6862730dbe7062ddda1847a22231"),
+    ("en", "236d562bcbc207efd012cf721b67ed53b711561f23457656f5d2f60a6e9a32e2"),
+    ("eo", "9aad112eb73e6af614b3e7d5f3562a4947a10429dbc0165e817d1fa1d68bebd7"),
+    ("es", "277d2891a2bd7206feb7a66b8419af723e6fcba38aa50cfde586cb41001d0d35"),
+    ("et", "6ba3e30dc8b3a25b5d73899907f4ee046bc24e2a01bf1b78dc42060a438de0aa"),
+    ("eu", "1bab95c0b50d259e42892bbe6922d32cab818fb6f42335e6c7a585695f970b45"),
+    ("fa", "cd486f03425d3747000d42e766fca224509d593a62d588085fe9124341d4b6dd"),
+    ("fi", "33299b06d3f963d32ae70553d7ac79f7894e3e5378db8f036742237ac51bb8f9"),
+    ("fr", "e68f020eef0f6edfaf6dc13d2b7b0657c769147fd8a6ca0d4e894e0d07c026a9"),
+    ("ga", "27b92f00faa538f2c8cf0d8c587530facda2b5e8098d8c561661a0db20833415"),
+    ("gl", "44a8b3e78e8391e1c3621c84a555500feb269506947046ef011907e344a8b142"),
+    ("gu", "a8a691d767ddbeab6efffd51130cb64ca8043830297aa4357c7f674d5fa6c7b0"),
+    ("he", "1c93ae0aab935f808e9825bd69dbac67341018210dc1a5ab554d9ce49f78c038"),
+    ("hi", "82a405352172aee9144b3ce57efa709bf1dfec3002892db36a320e2fb10d05e0"),
+    ("hr", "d281bc43fb7847a7a573a92224ab45c61b908bf72012483c1c0d893d47505a82"),
+    ("hu", "47c36143d654b89fe3ec82ef8274b65390dcc17fe9a05916967aae6ffdd3fa5e"),
+    ("hy", "3e6a767549079b06fb15205c1f9cf9cd127ddb444e12bf9f63e802134c2c8587"),
+    ("id", "b306620c9d10192913f60dd2285a023ccab6bbe682d3e12710b9e3fa527698cd"),
+    ("is", "2de57354a42afbd0746c455d91325a2e8e83c5edc621f3d3395c9f3c4b25e1a8"),
+    ("it", "ce23b3ad04c70a6d2c3917f6f9140bd657bdbcf9a127f929b3f28ea5199d7968"),
+    ("ja", "14e41d40cd7422a4440139a24ed77e1e6907933e373a88e1e9e2df7bb812ac03"),
+    ("ka", "8233b8563e69ccc0637a99a38aff3d7ed579a41f8eb9aef4ced284533ffdf264"),
+    ("kk", "a0db5f93f07b9dbd533c418e279f886c034c9ed14d51b7f31157b86f608fc818"),
+    ("km", "278952d66088a7cfa1a7ed3b589f367c55e12f249ea313383577ca7c4c1f748d"),
+    ("kn", "963de0823b7cd1f61e548f4a17f3701c56a680a1647dac25f9ff10965a3e700d"),
+    ("ko", "8d1286675876849101af5d207b0226ea01fef945e8017813f9828b955015f0a6"),
+    ("ky", "3f7ba17e3336d1ee1d6a2c5468da49f64834f04a3eec98d91c10bef2a9f1c8bc"),
+    ("lo", "99eeaf44812bb067376d5029def4731f112cae4f6e059736659a0d39e4ffc19d"),
+    ("lt", "fb5aa090d5f27b51803685b9cbcdba3ec256def66513709861dd54ff2b0f462e"),
+    ("lv", "47c29e963f458021011c94a3d2d49ca0921a2728d647d752c3e6a017d75e3d83"),
+    ("mk", "e398e67c35b9df7cf1ebb50a81f409ed43a68fb9240257e5a9b0f05f765c16e2"),
+    ("ml", "3a8cf6bdc0a22300d32a6f5c2397a6c9caf4166c7ca18150d982cf929dd70aad"),
+    ("mn", "99589d447b392431f74f5c03c0db4a38688e3a52b92665ae9e9603ad3119fe0d"),
+    ("mr", "62ab3bf77e3d2444b4ee9e9b4f9b9f95a14bf55b94767f04b40c6580cb9d6c63"),
+    ("ms", "2317b7778f49e4ae5c12ce7ede6deb80dbe9b5bc43f87033a10d6164155757ee"),
+    ("my", "6c560676474adc003a6be76b23b1ce1b62c53ddc7867181c08512856e51b0615"),
+    ("no", "7f0d91082d56e7cb9aa3fa9388eea61490b929886d4506781147ccab9fb09463"),
+    ("ne", "4b74f42070364b4fb26c12f29b90a87111555d8c292e4e5bbf5085629bae53d0"),
+    ("nl", "66cef32af2f308bbf79eaeee1871bff82cc17c7a8ba8ab623e87cff1ef1d5d0e"),
+    ("nn", "3e500342fe04d692856aaebb3ea19d9d879cfa0cb370f64f3f995ccd371c8625"),
+    ("or", "3ff03c70a2469126b60cb78024e0e641654e07e421332d6cab5d157a3c626d78"),
+    ("pa", "57517ab1302755f59166d07f12cb2af367ceb53fd399f35ce59c80ba6625c449"),
+    ("pl", "d5185f2a442d855b78f2837eebcb9aec4bbb440ab27c276a38d3c30f304c7bac"),
+    ("ps", "dd8fd2a5e7c39e241578376c9a229a6775a2d0f7421464a4535de3caa002afc5"),
+    ("pt", "91dbf92a2abe67ba2b61b151d68158a0e059b99e7d73029fbef3ed4b1d7751b1"),
+    ("ro", "ee35d283dde660d29ced30690befe0aae28e1b38fbce76ed59f4aadc7d4f24bc"),
+    ("ru", "d9acfc5c9f30f6342f7027cd0f1803cebd2252313e794e74d23bfabbd4781145"),
+    ("sa", "187d52b4a6e3b6977e6c42ac223b31ad369e9e6e035a456391740be01202a5c7"),
+    ("si", "5b105743485550ddebdcd6db50cdce94b753576746882c724c985784df861b3d"),
+    ("sk", "0dce72847df3726d8007c43884c63966d5ff2e022ec5f87a7ce3b3a983ee9159"),
+    ("sl", "8c912f4633e41e5d65a9c8fa1e7f617602f4dc53461e3d512165d0e1ba84eeee"),
+    ("sq", "7f0c59383cd7feb90cb74ad3ff549e815856829557f414b4499a03d33d19bd36"),
+    ("sr", "41357b54d1755f3c64808f158934bd88c46aa142a3e0ac52c5652b7c4e965736"),
+    ("sv", "8d5812e3721000ce6a40585f443243ff7ec7618f8caef0d3462c2790f84f503e"),
+    ("sw", "b645ecb31d459f6773d34f6cb376584d38780ace0bf630fad54bc5c999d57b06"),
+    ("ta", "256847709f3e47d3b2c827308e7c292e36e362b5b3b6eb1b17b745e59afe40de"),
+    ("te", "3888d6605fe4da35dec85318dd8342614fb008bfb768bd4bea082a0c752bffaa"),
+    ("tg", "954c05bf1d2b6fe8c02f6d15a5e7c1b2ae4aea8a3c584768ee5e0b2878c6f05c"),
+    ("th", "d34cbf25d13b9a7624c07e28fe38a623a813c2de870d2bb225163163631d1dbd"),
+    ("ti", "941a47132eb589131b6a9430d50d41db1b99b01b53286b87723756343c02765e"),
+    ("tr", "dd5ff1360718392e08419a930606c724a30e07009667a98d3d1823fb0b8ed7c7"),
+    ("uk", "0a4d77c6767442e058cf9bcc8b55cf30471c6e3624520c2743a1a44e450c986d"),
+    ("ur", "2748477b4c5b93fcd52ee79ec5841c784fb3abeca3695fae50b469bd812dfa32"),
+    ("uz", "ff708850e8bbf081ce0b862552fcad1f6e84af0026cce0f9496cef3cca5c1fd7"),
+    ("vi", "f41e5761bf9d4265255f92195dbdf7e12368500a8f3421c7417a281e799aa5cf"),
+    ("yi", "fc658bef693078ccdb798a8a9a95811fd398e0bce8f49b552b4df7da6ce550a4"),
+    ("zh", "1fb64d2b549ac1ae17efd0479d7678951c7ca8d03ccb6d86da27e76f1a745851"),
 ];
 
-/// vtium-font's `src/letters/data.rs`: each script of
-/// [`LOCALE_SCRIPTS`] and its characters in Scripts.txt, as sorted ranges.
-fn letters_rs(letters: &[(&str, Vec<(u32, u32)>)]) -> String {
+/// A pinned CLDR locale file's text, once its SHA-256 matches the pin.
+fn read_cldr(cldr: &Path, language: &str, pin: &str) -> Result<String, String> {
+    let path = cldr.join("common/main").join(format!("{language}.xml"));
+    let bytes = std::fs::read(&path).map_err(|e| {
+        format!(
+            "{}: {e}; fetch cldr-common-{CLDR_VERSION}.zip from https://unicode.org/Public/cldr/{CLDR_VERSION}/ and unpack it",
+            path.display()
+        )
+    })?;
+    let got = hex(&sha256(&bytes));
+    if got != pin {
+        return Err(format!("{language}.xml: sha256 {got}, pinned {pin}"));
+    }
+    String::from_utf8(bytes).map_err(|e| format!("{language}.xml: {e}"))
+}
+
+/// The characters of a locale file's main exemplar set, the
+/// `<exemplarCharacters>` element with no `type`, as sorted ranges. The
+/// set is written in UnicodeSet syntax: characters, `a-z` ranges,
+/// `{ch}` strings, whose characters each count, and `\uXXXX`, `\UXXXXXXXX`
+/// and `\x` escapes.
+fn exemplar_ranges(text: &str) -> Result<Vec<(u32, u32)>, String> {
+    const OPEN: &str = "<exemplarCharacters>";
+    let start = text.find(OPEN).ok_or("no main exemplar set")? + OPEN.len();
+    let len = text[start..].find("</exemplarCharacters>").ok_or("an exemplar set left open")?;
+    let set = text[start..start + len]
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'");
+    let inner = set
+        .trim()
+        .strip_prefix('[')
+        .and_then(|s| s.strip_suffix(']'))
+        .ok_or("an exemplar set not in brackets")?;
+    let mut chars: Vec<u32> = Vec::new();
+    let mut it = inner.chars().peekable();
+    let mut last: Option<u32> = None;
+    let mut range = false;
+    while let Some(c) = it.next() {
+        let one = match c {
+            c if c.is_whitespace() => continue,
+            '{' | '}' => {
+                last = None;
+                continue;
+            }
+            '-' if last.is_some() => {
+                range = true;
+                continue;
+            }
+            '\\' => match it.next().ok_or("an escape at the end")? {
+                'u' => hex_escape(&mut it, 4)?,
+                'U' => hex_escape(&mut it, 8)?,
+                e => u32::from(e),
+            },
+            c => u32::from(c),
+        };
+        match (range, last) {
+            (true, Some(a)) => {
+                chars.extend(a + 1..=one);
+                range = false;
+            }
+            _ => chars.push(one),
+        }
+        last = Some(one);
+    }
+    chars.sort_unstable();
+    chars.dedup();
+    let mut ranges: Vec<(u32, u32)> = Vec::new();
+    for c in chars {
+        match ranges.last_mut() {
+            Some(r) if r.1 + 1 == c => r.1 = c,
+            _ => ranges.push((c, c)),
+        }
+    }
+    Ok(ranges)
+}
+
+/// `n` hex digits from `it`, as a codepoint.
+fn hex_escape(it: &mut impl Iterator<Item = char>, n: usize) -> Result<u32, String> {
+    let digits: String = it.take(n).collect();
+    u32::from_str_radix(&digits, 16).map_err(|e| format!("\\u{digits}: {e}"))
+}
+
+/// vtium-font's `src/letters/data.rs`: each language of [`CLDR_FILES`]
+/// and its main exemplar characters, as sorted ranges.
+fn letters_rs(exemplars: &[(&str, Vec<(u32, u32)>)]) -> String {
     let mut out = format!(
-        "// Generated by crates/vtium-config/gen-shaping from the Unicode Character\n\
-         // Database {VERSION}. Do not edit; rerun the generator.\n//\n\
+        "// Generated by crates/vtium-config/gen-shaping from the Unicode Common\n\
+         // Locale Data Repository (CLDR) {CLDR_VERSION}. Do not edit; rerun the generator.\n//\n\
          // The Unicode data it comes from is under this licence:\n//\n{}\n",
-        commented(LICENSE)
+        commented(CLDR_LICENSE)
     );
     out.push_str(
-        "/// Each script a locale's language is written in, by its Scripts.txt\n\
-         /// name, and its characters there, as sorted ranges (ADR-1401 D7).\n\
-         pub const LETTERS: &[(&str, &[(u32, u32)])] = &[\n",
+        "/// Each language, by its ISO 639 code, and its main exemplar characters\n\
+         /// in CLDR, the letters its everyday text uses, as sorted ranges\n\
+         /// (ADR-1401 D7).\n\
+         pub const EXEMPLARS: &[(&str, &[(u32, u32)])] = &[\n",
     );
-    for (name, ranges) in letters {
+    for (name, ranges) in exemplars {
         let items: Vec<String> = ranges
             .iter()
             .map(|(a, b)| format!("(0x{a:x}, 0x{b:x})"))

@@ -280,7 +280,7 @@ pub const ASK_MADE: u32 = 7;
 pub const FILL: u32 = 2;
 /// A coverage query asks which of the letters it names the frit covers,
 /// and which installed font covers the rest, for `vtium check-config`'s
-/// warning on a font set that leaves the locale's script to the squeeze
+/// warning on a font set that leaves the locale's everyday letters to the squeeze
 /// (ADR-1401 D7, ADR-1302 D14). It carries a cell of 0 by 0 and the
 /// letters as its codepoints.
 pub const COVERAGE: u32 = 8;
