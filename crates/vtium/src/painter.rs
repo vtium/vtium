@@ -136,6 +136,11 @@ pub struct TestGpu {
     /// the head's own check refuses its set-up (ADR-1303 D9). The
     /// context's when `None`.
     pub widest: std::sync::Mutex<Option<u32>>,
+    /// The GPU's largest texture, which a test sets below the context's:
+    /// the head's context then refuses a larger texture, as a GPU of that
+    /// limit would, and the upright frame is held in tiles (ADR-1303 D3).
+    /// The context's when `None`.
+    pub largest_texture: std::sync::Mutex<Option<u32>>,
     /// The failures the GPU path's next set-ups meet, one a set-up, in
     /// order, whichever display it sets up.
     pub set_up_faults: std::sync::Mutex<std::collections::VecDeque<SetUpFault>>,
@@ -868,16 +873,31 @@ mod tests {
     /// `n` jobs, a display of `size` each, every one running `hook` before
     /// it composes.
     fn jobs_at(n: u32, size: (u32, u32), hook: &DrawHook) -> Vec<Job> {
+        jobs_showing(n, size, (4, 1), b"", hook).0
+    }
+
+    /// `n` jobs, a display of `size` each, every one running `hook` before
+    /// it composes, of a terminal of `grid` columns and rows that took
+    /// `output`; and the buffer every display draws into.
+    fn jobs_showing(
+        n: u32,
+        size: (u32, u32),
+        grid: (usize, usize),
+        output: &[u8],
+        hook: &DrawHook,
+    ) -> (Vec<Job>, Arc<Mutex<Vec<u8>>>) {
         let mut term = Term::new(
-            Terminal::new(4, 1, 0),
+            Terminal::new(grid.0, grid.1, 0),
             Sync::new(Duration::ZERO, 0),
             Blink::new(false),
             Rc::new(Instant::now),
         );
+        assert_eq!(term.parse(output, &mut |_| {}), output.len());
         let bytes = usize::try_from(size.0.saturating_mul(size.1).saturating_mul(4)).unwrap();
-        let mut video = Small(Arc::new(Mutex::new(vec![0; bytes])), size);
+        let buffer = Arc::new(Mutex::new(vec![0; bytes]));
+        let mut video = Small(Arc::clone(&buffer), size);
         let mut snapshot = None;
-        (0..n)
+        let jobs = (0..n)
             .map(|i| {
                 let face: crate::font::DisplayFace = Box::new(Unifont::new(16));
                 let mut view = View::new(
@@ -903,7 +923,8 @@ mod tests {
                     Prepared::Later | Prepared::Nothing => panic!("a job"),
                 }
             })
-            .collect()
+            .collect();
+        (jobs, buffer)
     }
 
     /// The path the head draws on, once the loop has taken the render
@@ -1286,11 +1307,13 @@ mod tests {
     #[cfg(feature = "gpu")]
     fn one_at(painter: &mut Painter, size: (u32, u32)) -> Composed {
         let hook: DrawHook = Arc::new(|| {});
-        assert!(
-            painter
-                .send(Box::new(jobs_at(1, size, &hook).remove(0)))
-                .is_none()
-        );
+        one(painter, jobs_at(1, size, &hook).remove(0))
+    }
+
+    /// Sends `job`, and gives it composed.
+    #[cfg(feature = "gpu")]
+    fn one(painter: &mut Painter, job: Job) -> Composed {
+        assert!(painter.send(Box::new(job)).is_none());
         let end = Instant::now().checked_add(Duration::from_secs(10)).unwrap();
         let mut back = Vec::new();
         while back.is_empty() && Instant::now() < end {
@@ -1413,6 +1436,98 @@ mod tests {
             2,
             "no display set up anew"
         );
+    }
+
+    // ADR-1303 D9: a head held on the CPU path gives back every texture and
+    // frame its displays hold, as at a VT release, and keeps its programs,
+    // so it holds no GPU memory but its programs while the CPU path draws.
+    // Once the display that held it leaves, the next frame makes them again
+    // with no display set up anew, and draws on the GPU path
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_head_held_on_the_cpu_path_holds_no_textures() {
+        let gpu = Arc::new(TestGpu::default());
+        let mut painter =
+            Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
+        assert_eq!(set_up(&mut painter), Path::Gpu);
+        rounds(&mut painter, 1, 1);
+        let (textures, targets, programs) = *gpu.live.lock().unwrap();
+        assert!(
+            textures > 0 && targets > 0 && programs > 0,
+            "drawn on the GPU"
+        );
+        gpu.refuse_set_up.lock().unwrap().insert(DisplayId(1));
+        let frames = rounds(&mut painter, 2, 2);
+        let refused: Vec<DisplayId> = frames
+            .iter()
+            .filter(|c| c.refused_gpu.is_some())
+            .map(|c| c.key.1)
+            .collect();
+        assert_eq!(refused, [DisplayId(1)], "held once, by display 1");
+        assert_eq!(
+            *gpu.live.lock().unwrap(),
+            (0, 0, programs),
+            "only the programs held"
+        );
+        assert_eq!(
+            gpu.kept.load(Ordering::SeqCst),
+            1,
+            "display 0's pipeline kept"
+        );
+        painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
+        let back = rounds(&mut painter, 1, 1);
+        assert!(back.iter().all(|c| c.back_on_gpu), "back on the GPU path");
+        assert_eq!(
+            *gpu.live.lock().unwrap(),
+            (textures, targets, programs),
+            "made again as the first frame made them"
+        );
+        let tries: Vec<DisplayId> = gpu.set_ups.lock().unwrap().iter().map(|k| k.1).collect();
+        assert_eq!(tries, [DisplayId(0), DisplayId(1)], "each set up once");
+    }
+
+    // ADR-1303 D3, D9: a display wider than the GPU's largest texture, and
+    // within its largest renderbuffer, draws on the GPU path, its upright
+    // frame in tiles and its frame in a buffer in GL's memory, with no
+    // refusal; what it draws into the display's buffer is byte for byte
+    // what the CPU path draws there. Text crosses the seam at 64 pixels
+    #[cfg(feature = "gpu")]
+    #[test]
+    fn a_display_past_the_gpus_largest_texture_draws_on_the_gpu_path_as_the_cpu_path_does() {
+        let gpu = Arc::new(TestGpu::default());
+        *gpu.largest_texture.lock().unwrap() = Some(64);
+        let hook: DrawHook = Arc::new(|| {});
+        let mut shown = Vec::new();
+        for (source, path) in [
+            (None, Path::Cpu),
+            (Some(GpuSource::Test(Arc::clone(&gpu))), Path::Gpu),
+        ] {
+            let mut painter = Painter::start("test", source, || {}).unwrap();
+            assert_eq!(set_up(&mut painter), path);
+            let (mut jobs, buffer) = jobs_showing(
+                1,
+                (96, 16),
+                (12, 1),
+                b"\x1b[31mthe se\x1b[42mams\x1b[7m ok",
+                &hook,
+            );
+            let c = one(&mut painter, jobs.remove(0));
+            assert!(
+                c.refused_gpu.is_none() && c.failed_gpu.is_none() && c.left_gpu.is_none(),
+                "{path:?}: {:?} {:?} {:?}",
+                c.refused_gpu,
+                c.failed_gpu,
+                c.left_gpu
+            );
+            shown.push(buffer.lock().unwrap().clone());
+        }
+        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "drawn on the GPU path");
+        let [on_cpu, on_gpu] = <[Vec<u8>; 2]>::try_from(shown).unwrap();
+        assert!(
+            on_cpu.chunks(4).any(|p| on_cpu.get(..4) != Some(p)),
+            "the frame shows more than one color"
+        );
+        assert!(on_cpu == on_gpu, "the GPU path's frame is the CPU path's");
     }
 
     // A head on the CPU path sends nothing at a release: it holds no GPU
