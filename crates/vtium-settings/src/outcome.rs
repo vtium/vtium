@@ -386,7 +386,7 @@ impl Outcome {
         }
     }
 
-    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `No head has a connected display.`, the one notice a valid file shows, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead.
+    /// The notice the display guard shows on the boot display when no head the running text declares has a display: the run's own line, else `No head has a connected display.`, and none for a valid closed file that declares no head, which is dark and silent. Under open the guard lights a head instead. On a kernel VT the guard acts only for what survives of a file with errors, which has a line (ADR-1401 D3, D9): a valid closed file leaves a display that no path names blank there. `No head has a connected display.` shows only where vtium places devices with no kernel VT ([`crate::Config::place_rescued`]).
     pub fn dark_notice(&self) -> Option<Line> {
         match (self.fallback, self.line) {
             (Fallback::FirstHead, _) => None,

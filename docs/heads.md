@@ -125,7 +125,7 @@ input path:pci-0000:15:00.0-usb-0:3.1 -> kiosk   # the kiosk's own USB port
 - The kiosk has one console. `Ctrl-Alt-F<n>` for another VT reaches the program as keys. The rescue key, pressed on the kiosk's keyboard, moves nothing, and vtium swallows it.
 - `vtium check-config` exits 0. It notes that no keyboard can switch the VT, that no head can be the active head, and that only one keyboard reaches the kiosk. It also notes the keyboards present on other ports as ignored.
 - As written, the operator gets in only from outside, since the machine has one display.
-- When you unplug the display, the program keeps running. It comes back when the display returns. If the kiosk's monitor is absent at boot and another display is connected, that display shows `No head has a connected display.` If no display is connected at all, vtium keeps its VT and waits.
+- When you unplug the display, the program keeps running. It comes back when the display returns. If the kiosk's monitor is absent at boot and another display is connected, that display stays blank, because no rule names it. If no display is connected at all, vtium keeps its VT and waits.
 
 ### A kiosk with an operator's head
 
@@ -224,4 +224,4 @@ policy = closed
 
 [heads/off.conf](heads/off.conf)
 
-The boot display stays dark too. Under the closed policy, the display guard lights the boot display only for a file that declares heads.
+The boot display stays dark too. Under the closed policy, a valid file leaves every display that no rule names blank.

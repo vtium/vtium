@@ -5,8 +5,8 @@
 # look-for: by its id with its data kept, shows again at row 9, column 13.
 # look-for: Under the labels of the third and fourth, row 3 is blank. Row 13
 # look-for: gives the reply to placing the third again after its data was
-# look-for: freed, i=33;ENOENT and its message, and row 14 the reply to
-# look-for: placing the second, i=32;OK.
+# look-for: freed, i=33;ENOENT and its message, which wraps onto row 14, and
+# look-for: row 15 the reply to placing the second, i=32;OK.
 # wrong-looks-like: No pictures (the screen says the kitty graphics protocol
 # wrong-looks-like: is not offered), any picture left on row 3 but the first,
 # wrong-looks-like: no picture at row 9, or other replies.

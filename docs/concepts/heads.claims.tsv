@@ -15,6 +15,8 @@ under open the crash loop exits with status 1; under closed vtium hangs every se
 the boot display shows the stopped notice for as long as vtium runs	crates/vtium/src/app.rs	App::screen_notice
 the stopped notice, word for word	crates/vtium/src/notice.rs	stopped
 a stopped seat delivers no input, the VT keys included	crates/vtium/src/app.rs	App::deliver
-a valid closed file whose heads have no display shows No head has a connected display	crates/vtium-settings/src/outcome.rs	Outcome::dark_notice
+on a VT a valid file runs no display guard, so a closed one leaves a display that no rule places blank	crates/vtium-settings/src/place.rs	Config::place_at
+without kernel VTs a valid closed file whose heads have no display shows No head has a connected display	crates/vtium-settings/src/outcome.rs	Outcome::dark_notice
+without kernel VTs vtium places every device with no VT, which runs the display guard	crates/vtium/src/head/vt.rs	VtHeads::placement
 a head whose display never lit receives no keys	crates/vtium/src/app.rs	App::deliver
 an isolated head's keyboards never switch VTs	crates/vtium/src/head/route.rs	Routes::vt_keys

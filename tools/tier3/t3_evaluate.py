@@ -94,6 +94,16 @@ GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
               "two-cards-mirror-hotplug": "two-cards-mirror"}
 
 
+# The screens whose golden depends on a feature of the tree's console, by
+# screen: the feature. The panic screen shows the maintainer's drawing of
+# Tux, as ASCII art in a console built without images and as a sprite in one
+# built with images (ADR-1401 D7), and the head variants run on whichever
+# tree the run builds. Such a screen has one golden for each build:
+# SCREEN.png judges it on a tree built without the feature, and
+# SCREEN+FEATURE.png on a tree built with it (golden_name).
+BY_FEATURE = {"panic": "images", "policy-panic": "images"}
+
+
 def same_as(case, variant=None):
     """The case whose golden `case` of `variant` is compared with (SAME_AS,
     RESTORED), on the same output (t3_devices.split)."""
@@ -101,6 +111,28 @@ def same_as(case, variant=None):
     if screen == "vt-restore" and variant in RESTORED:
         return RESTORED[variant] + output
     return SAME_AS.get(screen, screen) + output
+
+
+def golden_name(case, variant=None, features=()):
+    """The name under the variant's goldens of the golden `case` of
+    `variant` is compared with, on a tree whose console is built with
+    `features`: the case it is compared with (same_as), with "+FEATURE"
+    after its screen when BY_FEATURE names a feature of that screen and the
+    tree has it."""
+    screen, output = t3_devices.split(same_as(case, variant))
+    if BY_FEATURE.get(screen) in features:
+        return "%s+%s%s" % (screen, BY_FEATURE[screen], output)
+    return screen + output
+
+
+def golden_names(case, variant=None):
+    """Every name golden_name gives `case` of `variant`, whatever the tree's
+    features."""
+    screen, output = t3_devices.split(same_as(case, variant))
+    names = [screen + output]
+    if screen in BY_FEATURE:
+        names.append("%s+%s%s" % (screen, BY_FEATURE[screen], output))
+    return names
 
 # The screens that draw sixel or kitty pictures. Every variant with images
 # draws them: both renderers draw image placements, bbulk on the 2D variants
@@ -116,8 +148,9 @@ DRAWS_PICTURES = IMAGE_SCREENS + PICTURE_SCREENS
 # port (T3-REPLY, img-common.inc), in order: the image helper read and
 # decoded each picture, removed the temporary file and refused a file the
 # session's user cannot read (img-png); a delete kept one image's data and
-# freed another's (img-delete); vtium took every animation frame and control
-# (img-animation) and both virtual placements (img-placeholder); and each
+# freed another's (img-delete); vtium took every animation frame, each reply
+# naming the frame the command made (img-animation), and both virtual
+# placements (img-placeholder); and each
 # iTerm2 picture left the cursor on the row of its last pixel row, at its
 # left column, where a dropped picture leaves it at row 3 (img-iterm2). A
 # screen that reports anything else fails, whether or not its golden is
@@ -126,8 +159,11 @@ REPLIES = {
     "img-png": ["i=41;OK", "i=42;OK", "i=43;OK", "removed", "i=44;OK",
                 "i=45;EBADF:Failed to read image file", "rpc_pipefs readable",
                 "i=46;EBADF:Failed to read image file"],
-    "img-delete": ["i=32;OK", "i=33;ENOENT:image not found"],
-    "img-animation": ["i=50;OK"] * 6 + ["i=51;OK"] * 4,
+    "img-delete": ["i=32;OK",
+                   "i=33;ENOENT:Put command refers to non-existent image with id: 33 and "
+                   "number: 0"],
+    "img-animation": ["i=50,r=2;OK", "i=50,r=3;OK", "i=50,r=4;OK", "i=51,r=2;OK",
+                      "i=51,r=3;OK"],
     "img-iterm2": ["png at row 5, column 3", "gif at row 5, column 15",
                    "parts at row 8, column 27", "pixels at row 4, column 47"],
     "img-placeholder": ["i=60;OK", "i=16909060,p=7;OK"],
@@ -270,7 +306,7 @@ def check_goldens(cases_of, root, provisional=()):
     used = {}
     for variant, cases_of_variant in cases_of.items():
         used.setdefault(GOLDENS_OF.get(variant, variant), set()).update(
-            same_as(c, variant) for c in cases_of_variant)
+            name for c in cases_of_variant for name in golden_names(c, variant))
     errors = []
     for dirpath, _, names in os.walk(root):
         for name in names:
@@ -369,13 +405,14 @@ def screen_text(case, log, variant=None):
     return text.rstrip("\n").split("\n")
 
 
-def golden_for(variant, case, root=None):
+def golden_for(variant, case, root=None, features=()):
     """(golden, tolerance sidecar) paths for a case under `root` (default
-    GOLDEN), in the variant's directory or the one GOLDENS_OF names, or
-    (None, None) for a check without a golden (NO_GOLDEN)."""
+    GOLDEN), in the variant's directory or the one GOLDENS_OF names, on a
+    tree whose console is built with `features` (golden_name), or (None,
+    None) for a check without a golden (NO_GOLDEN)."""
     if case in NO_GOLDEN:
         return None, None
-    base = same_as(case, variant)
+    base = golden_name(case, variant, features)
     directory = os.path.join(root or GOLDEN, GOLDENS_OF.get(variant, variant))
     return (os.path.join(directory, base + ".png"),
             os.path.join(directory, base + ".tol"))
@@ -386,13 +423,15 @@ def write_thumb(img, path):
     return rel(path)
 
 
-def evaluate(variant, case, ppm, meta, log, root=None, verdict=None):
+def evaluate(variant, case, ppm, meta, log, root=None, verdict=None, features=()):
     """The report entry for one case, from its capture (or None), judged by
-    its golden under `root` (golden_for). A case of a variant whose
+    its golden under `root` on a tree whose console is built with `features`
+    (golden_for). A case of a variant whose
     `verdict` is "capture", the showcase's, has no golden: it carries the
     status capture once captured, which passes and judges nothing, and
     fails only when it has no capture or the scenario found it wrong."""
-    golden, tolpath = (None, None) if verdict == "capture" else golden_for(variant, case, root)
+    golden, tolpath = ((None, None) if verdict == "capture"
+                       else golden_for(variant, case, root, features))
     stem = os.path.join(RUNDIR, variant, case)
     description, wrong = describe(case)
     if t3_devices.split(case)[0] == "vt-restore" and variant in RESTORED:
@@ -449,7 +488,7 @@ def evaluate(variant, case, ppm, meta, log, root=None, verdict=None):
         entry["thumb_diff"] = write_thumb(t3img.diff_thumbnail(img, points),
                                           stem + ".diff.thumb.png")
     entry["status"] = t3img.verdict(stats, tol)
-    reviewed = "%s/%s" % (GOLDENS_OF.get(variant, variant), same_as(case, variant))
+    reviewed = "%s/%s" % (GOLDENS_OF.get(variant, variant), golden_name(case, variant, features))
     if reviewed in PROVISIONAL:
         entry["note"] = ("provisional: not yet reviewed, so not judged; judged, it would be %s"
                          % entry["status"])

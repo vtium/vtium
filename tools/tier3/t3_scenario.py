@@ -490,7 +490,12 @@ VARIANTS["showcase-1920x1080"] = {
 # getty-fallback check fails vtium in the ways "failures" names; the
 # start-limit check kills it past its unit's start limit.
 # heads-partly-open is the open control of the closed variants' fallback:
-# there the getty does start. The two without a display device ("device":
+# there the getty does start. heads-closed-unmatched's one head names a
+# connector the card does not have, and the file is valid and closed, so
+# vtium leaves the guest's display off and sets up no display (ADR-1401 D3,
+# D9). Its getty-fallback check requires the vtium started again after each
+# failure to log that the display it names ("off") stays off, since no rule
+# matches the display. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
 # policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf).
 # heads-open-away is the open one at a display-wait of 15 s
@@ -523,7 +528,8 @@ VARIANTS.update({
                               failures=["kill"]),
     "heads-closed-unmatched": dict(HEAD_VARIANT,
                                    heads="tools/tier3/guest/heads/closed-unmatched.conf",
-                                   policy="closed", first="no-display-notice", login=False,
+                                   policy="closed", renderer=None, login=False,
+                                   off="Virtual-1",
                                    checks=["no-login", "getty-fallback"],
                                    failures=["kill"]),
     "heads-two-heads": dict(HEAD_VARIANT, agent=False,
@@ -743,12 +749,13 @@ def judge_by_capture(variants, results):
                 entry["note"] = "byte-identical to %s's capture in the same run" % other
 
 
-def evaluate_variant(variant, caps, meta, log):
+def evaluate_variant(variant, caps, meta, log, features=()):
     """The report entries of `variant`'s cases from their captures, each
-    judged by its golden, or given the variant's own verdict ("verdict"),
-    which no golden decides."""
+    judged by its golden for a tree whose console is built with `features`
+    (t3_evaluate.golden_for), or given the variant's own verdict
+    ("verdict"), which no golden decides."""
     return [evaluate(variant, case, caps.get(case), meta, log,
-                     verdict=VARIANTS[variant].get("verdict"))
+                     verdict=VARIANTS[variant].get("verdict"), features=features)
             for case in variant_cases(variant)]
 
 
@@ -1840,10 +1847,10 @@ def failure_meta(error):
             "resident": resident({}), "console": None}
 
 
-def failed_variant(variant, error, log):
+def failed_variant(variant, error, log, features=()):
     log("%s: %s" % (variant, error))
     meta = failure_meta(error)
-    return evaluate_variant(variant, {}, meta, log), meta
+    return evaluate_variant(variant, {}, meta, log, features), meta
 
 
 def variant_job(variant, impl, log):
@@ -1861,7 +1868,7 @@ def variant_job(variant, impl, log):
         log(str(e))
         caps, meta = {}, failure_meta(str(e))
     start = time.time()
-    cases = evaluate_variant(variant, caps, meta, log)
+    cases = evaluate_variant(variant, caps, meta, log, impl["tree_features"])
     timing["evaluate"] = round(time.time() - start, 1)
     log("phase evaluate took %.1f s" % timing["evaluate"])
     meta["timing"] = timing
