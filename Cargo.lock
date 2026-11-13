@@ -899,6 +899,7 @@ dependencies = [
  "rustix",
  "vtium",
  "vtium-platform",
+ "vtium-render",
  "vtium-term",
 ]
 
@@ -1043,6 +1044,17 @@ name = "vtium-testscript"
 version = "0.1.0-alpha.7"
 dependencies = [
  "seccompiler",
+]
+
+[[package]]
+name = "vtium-tier1-shots"
+version = "0.1.0-alpha.7"
+dependencies = [
+ "vtium-conformance",
+ "vtium-platform",
+ "vtium-specimens",
+ "vtium-term",
+ "vtium-tier2",
 ]
 
 [[package]]

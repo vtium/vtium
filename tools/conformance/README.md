@@ -11,6 +11,8 @@ make conformance          # every case, both views and the chunking check
 make conformance-probes   # the capability list, through the capability scenarios
 make conformance-issues   # the capability list and ADR-1000 agree with GitHub (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
+make tier1-shots [OUT=DIR]  # draws every golden as a picture for review; not a gate
+make tier1-play CASE=NAME   # plays a case in this terminal, one screen at a time; or SCENARIO=NAME
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
 target/release/conformance scenarios [NAME...]               # the behaviour scenarios alone
@@ -25,16 +27,17 @@ target/release/conformance scenarios --bin NAME DIR          # writes a scenario
 |---|---|
 | `src/bin/vtium-replay.rs` | The replay interface's command line: `vtium-replay [--frame] COLS ROWS FILE [CUTS]` and `vtium-replay --describe`. |
 | `src/lib.rs` | The command line's parsing, the exit codes and `--describe`. |
-| `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. |
+| `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. `run_with` hands the terminal at each block to a caller, which `make tier1-shots` draws. |
 | `src/replay/links.rs` | The `link` and `hover` commands: the URI of a cell's OSC 8 link, and the cells and overlay row of the link under the pointer. |
 | `src/command.rs` | The test commands of interface 1, each value checked against its form and range. |
+| `src/live.rs` | The live path: a replay's terminal at one block written as the bytes that make another terminal show the same screen, and the reading of those bytes back through a terminal. |
 | `src/view.rs` | The screen and frame views, from vtium-term's lines and frame, and with images the `placement` and `image` lines. |
 | `src/replay/images.rs` | With images: the reference host's image settings, the image commands, and the fixture host answering each request. |
 | `src/host.rs` | With images: the fixture host, its `host:` line and its answer from the case's fixture files. |
 | `src/spec.rs` | The interface's `describe` and `grammar` blocks, over 1.0 and vtium's additions, and the check of a line against the grammar. |
 | `src/runner.rs` | The corpus, the masking and the verdict on each case. |
 | `src/runner/chunking.rs` | The chunking check: each case with extra cuts at random offsets. |
-| `src/scenario.rs`, `src/scenario/` | The scenarios: the reader and its commands (`commands.rs`), the key names (`keys.rs`), the string syntax that the scenarios and the worked examples share (`strings.rs`), the transcript printer and its check (`transcript.rs`), the play through vtium-replay's code (`run.rs`), the capability rules (`capability.rs`) and the player for review (`play.rs`). |
+| `src/scenario.rs`, `src/scenario/` | The scenarios: the reader and its commands (`commands.rs`), the key names (`keys.rs`), the string syntax that the scenarios and the worked examples share (`strings.rs`), the transcript printer and its check (`transcript.rs`), the play through vtium-replay's code (`run.rs`), the capability rules (`capability.rs`) and the player for review and the key reader both players share (`play.rs`). |
 | `src/bin/conformance/scenarios.rs` | `conformance scenarios`, and the scenarios' part of `conformance run` and `conformance interface`. |
 | `scenarios/` | The scenarios, each `NAME.scenario` with a behaviour scenario's transcript `NAME.transcript` beside it, and `provisional.tsv`, the behaviour scenarios whose transcripts wait for the maintainer's review. |
 | `src/probes.rs` | A scenario's input and assertions as the judge reads them, and the checks made before a capability scenario runs. |
@@ -53,6 +56,58 @@ target/release/conformance scenarios --bin NAME DIR          # writes a scenario
 | `capabilities.list` | vtium's capability list: each capability `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
 | `tests/` | The verdicts, the command line, the scenarios and the capability judge on inputs written in the tests: see its README. |
+
+## Tier 1's pictures
+
+Tier 1's goldens are text, and the maintainer reviews them as pictures that vtium draws (ADR-1505, V3). `make tier1-shots` draws them. It builds `tier1-shots` from `tools/tier1-shots/`, with the feature `draw`, which turns on vtium-replay's `images` and `bidi` features. The pictures are review renderings, not goldens. Nothing in the output is committed, and the tool is not a gate.
+
+The tool draws three groups of pictures:
+
+- **corpus** and **vtium**: each case of `corpus/cases.list` and `vtium/cases.list`. The tool replays the case through vtium-replay's own replay, with its test commands, the fixture host and its fixtures, at the 8×16 reference cell. It replays the case once in each view that `conformance run` judges it in. Those are the screen and frame views, and the display view when `golden-display/` holds the case's golden. It then draws the terminal as the screen view's last block leaves it, after every test command.
+- **scenarios**: each screen that a behaviour scenario dumps. The tool plays the scenario as `conformance run` plays it and checks the transcript on file. It replays the scenario once more and draws the terminal at each `dump`'s block, in order. A behaviour scenario that dumps no screen has no picture, and the tool prints its name. A capability scenario has no transcript and no picture.
+
+Each picture is drawn through tier 2's renderer (`vtium_tier2::draw::draw_terminal`) in the built-in unifont, in cells of 8×16 pixels, at the size of the terminal's grid. Text and pictures, kitty, sixel and iTerm2, draw together. The cursor shows where the terminal shows it, and blinking text shows. Two runs write the same bytes.
+
+The tool checks each output against its golden as `conformance run` does, after the same masking. A case or a scenario whose output differs from its golden is still drawn. The tool prints each such picture with the lines that differ, `-` for the golden's and `+` for the output's, each with its line number. A difference does not fail the run, since `conformance run` judges the goldens. The tool exits 1 when a replay or a drawing fails, and 2 when it refuses to run.
+
+### The live path
+
+Each picture has a live path. `make tier1-play CASE=NAME` plays a case in the terminal it runs in, one screen at a time, and `make tier1-play SCENARIO=NAME` plays a scenario. The player waits for a key after each screen, and q stops it. Inside a vtium console, vtium draws each screen itself, its kitty, sixel and iTerm2 pictures included.
+
+The picture and the live play come from one replay of the same input, split at the same cuts. At each block, the replay hands its terminal to both paths. The picture path draws the terminal, and the live path (`src/live.rs`) writes bytes that make another terminal show the same screen. A case stops at every checkpoint, as `prog-vim` stops at each of its screens, and its last screen is the case's picture. A scenario plays through `conformance scenarios --play`'s player, which draws each dump through the live path.
+
+The live path does not send the case's own stream. A test command, an answer of the fixture host or a picture made in another cell has no sequence that a terminal reads. So the live path describes the screen the replay left:
+
+- Each cell is written at its own column, in its resolved colors as direct color, with its attributes, in the width method that gives it its width. The rows go in the order they draw, in explicit bidirectional mode.
+- Each picture is sent through the kitty graphics protocol as the renderer draws it. vtium-render's `placed_picture` gives the part drawn and the pixels the renderer draws there, scaled from the picture's crop and cut to the screen. The live path sends those pixels at their own size, at their place by cell and pixel offset, with the picture's layer. The reading terminal then draws the renderer's pixels, whatever cell the picture was made in.
+- The cursor goes to its cell in its shape, blink and color.
+
+`make tier1-shots` checks each picture against its live path. It reads the live path's bytes for that block back through a terminal of the replay's size, and draws that terminal as the picture path draws. When the two drawings differ, the tool prints the picture's name and writes the live path's drawing beside the picture. Today all 250 pictures match their live play.
+
+The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, empty, or the output of an earlier run, which holds a `manifest.json`. The tool removes an earlier run's pictures and manifest first. It writes:
+
+| Path | What it is |
+|---|---|
+| `corpus/NAME.png`, `vtium/NAME.png` | The picture of a replay case. |
+| `scenarios/NAME-NN.png` | The picture of a scenario's dump `NN`, counted from `01`. |
+| `NAME.live.png`, `NAME-NN.live.png` | The live path's drawing of a screen, beside its picture, only when it differs from the picture. |
+| `manifest.json` | Every picture, in the order drawn: the corpus's cases, vtium's cases, then the scenarios by name. |
+
+`manifest.json` holds `cell`, `[8, 16]`, `font`, `"unifont"`, and `pictures`, a list with one object for each picture:
+
+| Field | What it holds |
+|---|---|
+| `file` | The picture's path in the output. |
+| `group` | `corpus`, `vtium` or `scenarios`. |
+| `name` | The case's or the scenario's name. |
+| `dump` | For a scenario's picture, `number` (from 1), `of` (the scenario's dumps), `command` (the `dump` as the transcript echoes it) and `line` (its line in the scenario's file). `null` for a case. |
+| `width`, `height` | The picture's size in pixels. |
+| `provisional` | The reason the provisional list gives, or `null` for a reviewed golden. |
+| `matches` | Whether the output equals every golden that judges the picture. |
+| `error` | Why a replay or a drawing stopped, or `null`. |
+| `play` | The exact command that plays the picture's case or scenario live, as `make tier1-play CASE=NAME` or `make tier1-play SCENARIO=NAME`. |
+| `live` | `matches`, whether the live path's bytes for this screen draw this picture, and `file`, the live path's drawing when it differs, or `null`. |
+| `goldens` | One object for each golden: `view` (`screen`, `frame`, `display` or `transcript`), `path` (from the repository's root), `matches`, and `differs`, the lines that differ. Each line has `side` (`golden` or `output`), `line` (its number on its side) and `text` (the line as its file holds it). |
 
 ## The copies
 
@@ -104,7 +159,7 @@ A scenario is a short text file under `scenarios/` that sets up one case, sends 
 
 `conformance run`, which `make conformance` runs, plays every behaviour scenario after the corpus, in each view its dumps name, and fails on a scenario whose transcript differs, whose assertions fail, or that cannot be played, such as one that needs a feature vtium-replay does not declare. A difference from a transcript that `scenarios/provisional.tsv` lists is printed as `provisional` and fails nothing, while the scenario's assertions still judge. A failure names the scenario and the command after which the transcript first differs, with each line it expected beside the line it got. Each scenario is then played again with extra cuts, as the corpus's chunking check plays a case, and its transcript must not change. The interface check reads each behaviour scenario's assertions and each transcript's dumps against the grammar.
 
-`conformance scenarios --write NAME` plays a new behaviour scenario, writes its transcript and adds the scenario to `scenarios/provisional.tsv`; it refuses when the transcript exists, and `--write --replace NAME` rewrites one in a golden commit without touching the list. `conformance scenarios --play NAME` plays a scenario in this terminal for the maintainer's review: it shows each command and its side effects, draws each dumped screen in its colors and attributes from the frame view, says whether the transcript on file matches, and waits for a key after each command (q stops). `conformance scenarios --bin NAME DIR` writes the scenario's replay input as `NAME.bin` and `NAME.cuts`, with its fixtures in `NAME.files/`, and prints the `vtium-replay` command line that plays it. No scenario's `.bin` is committed.
+`conformance scenarios --write NAME` plays a new behaviour scenario, writes its transcript and adds the scenario to `scenarios/provisional.tsv`; it refuses when the transcript exists, and `--write --replace NAME` rewrites one in a golden commit without touching the list. `conformance scenarios --play NAME` plays a scenario in this terminal for the maintainer's review. It shows each command and its side effects, draws each dumped screen through the live path, says whether the transcript on file matches, and waits for a key after each command (q stops). The live path (`src/live.rs`, see Tier 1's pictures) makes this terminal draw the screen in its colors and attributes, with its pictures. `conformance scenarios --bin NAME DIR` writes the scenario's replay input as `NAME.bin` and `NAME.cuts`, with its fixtures in `NAME.files/`, and prints the `vtium-replay` command line that plays it. No scenario's `.bin` is committed.
 
 The reader holds these rules beyond the record:
 

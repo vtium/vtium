@@ -1,0 +1,46 @@
+# make tier1-shots: every tier 1 golden drawn as a picture through vtium's
+# own renderer, for the maintainer's review (ADR-1505, V3). Each replay case
+# and each screen a scenario dumps is replayed through vtium-replay's code,
+# checked against its golden, and drawn in unifont at 8x16. The pictures are
+# review renderings, not goldens.
+[package]
+name = "vtium-tier1-shots"
+description = "Tier 1's goldens drawn as pictures through vtium's renderer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]
+vtium-term.workspace = true
+# the replay, its cases, its scenarios and the masking its judge reads
+vtium-conformance = { path = "../conformance" }
+# draws a terminal that is already set up through vtium-render in unifont
+vtium-tier2 = { path = "../tier2" }
+# writes the PNGs, as the specimens are written
+vtium-specimens = { path = "../specimens" }
+
+[dev-dependencies]
+# the pty the live player's test runs tier1-play in, and its loop
+vtium-platform.workspace = true
+
+[features]
+# vtium-replay with images and right-to-left text, the build tier 1's
+# goldens hold, which make tier1-shots turns on. Opt-in, so a workspace
+# build without features keeps vtium-conformance without images, as its
+# README describes
+draw = ["vtium-conformance/images", "vtium-conformance/bidi"]
+
+[[bin]]
+name = "tier1-shots"
+required-features = ["draw"]
+
+[[bin]]
+name = "tier1-play"
+required-features = ["draw"]

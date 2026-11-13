@@ -83,8 +83,20 @@ pub fn cuts(text: &[u8], len: usize) -> Result<Vec<usize>, Failure> {
 /// Replays `input` and returns what it prints, or the failure that stopped
 /// it with what it printed first.
 pub fn run(input: &Input) -> Result<String, Failure> {
+    run_with(input, &mut |_, _| {})
+}
+
+/// Replays `input` as [`run`] does, and hands `at_block` each block's
+/// number, from 0 for the first block, with the terminal as that block
+/// prints it. `at_block` reads the terminal and changes nothing in it, so
+/// the replay prints what [`run`] prints. `make tier1-shots` draws the
+/// terminal it is handed.
+pub fn run_with(
+    input: &Input,
+    at_block: &mut dyn FnMut(usize, &Terminal),
+) -> Result<String, Failure> {
     let mut r = Replay::new(input);
-    match r.play(input) {
+    match r.play(input, at_block) {
         Ok(()) => Ok(r.out),
         Err(f) => Err(Failure { output: r.out, ..f }),
     }
@@ -162,21 +174,28 @@ impl<'a> Replay<'a> {
         }
     }
 
-    /// Feeds the stream, printing a block at each cut and at the end.
-    fn play(&mut self, input: &Input) -> Result<(), Failure> {
+    /// Feeds the stream, printing a block at each cut and at the end, and
+    /// hands `at_block` the terminal after each block.
+    fn play(
+        &mut self,
+        input: &Input,
+        at_block: &mut dyn FnMut(usize, &Terminal),
+    ) -> Result<(), Failure> {
         let mut pos = 0;
-        for &cut in &input.cuts {
+        for (n, &cut) in input.cuts.iter().enumerate() {
             check_cut(&input.data, cut)?;
             self.feed(input.data.get(pos..cut).unwrap_or_default())?;
             pos = cut;
             let _ = writeln!(self.out, "checkpoint {cut}");
             self.block();
+            at_block(n, &self.term);
         }
         self.feed(input.data.get(pos..).unwrap_or_default())?;
         if !input.cuts.is_empty() {
             let _ = writeln!(self.out, "checkpoint {}", input.data.len());
         }
         self.block();
+        at_block(input.cuts.len(), &self.term);
         Ok(())
     }
 
@@ -669,6 +688,19 @@ mod tests {
     fn a_cut_at_the_end_prints_its_own_block_and_the_end_block() {
         let out = run(&input(b"ab", &[2])).unwrap_or_default();
         assert_eq!(out.matches("checkpoint 2\n").count(), 2, "{out}");
+    }
+
+    // run_with hands over the terminal at each block, in order, as that
+    // block prints it, and prints what run prints
+    #[test]
+    fn run_with_hands_over_the_terminal_at_each_block() {
+        let data = b"ab\x1b[2Jcd";
+        let mut seen = Vec::new();
+        let out = run_with(&input(data, &[2, 2]), &mut |block, term| {
+            seen.push((block, term.screen().cursor()));
+        });
+        assert_eq!(out, run(&input(data, &[2, 2])));
+        assert_eq!(seen, [(0, (2, 0)), (1, (2, 0)), (2, (4, 0))]);
     }
 
     #[test]
