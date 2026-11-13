@@ -31,6 +31,32 @@ When vtium misbehaves on a VT, these steps get you out, in this order:
 
 When vtium fails, systemd starts it again. From systemd 254 on, each failure also starts vtium's fallback. The fallback starts the VT's getty, unless vtium.conf's policy is `closed`. So under an open policy, you get a plain login prompt at the first failure instead of a dead screen. The policy is `open` or `closed`, and a vtium.conf without one is open. Under the closed policy, vtium ignores any keyboard that no rule names. See [A VT that shows a getty](#a-vt-that-shows-a-getty) for details.
 
+## Notices on the screen
+
+vtium tells you about a problem on the screen itself, in a notice. A notice is a pale red box across the top of the screen. Most notices appear over the session, and the session keeps running under them. Such a notice goes after 30 seconds, or sooner when you press a key that reaches that screen. A screen shows at most 4 notices at a time, and a fifth one replaces the oldest.
+
+Some notices stay instead:
+
+- `Session ended. It will not start again.` stays for as long as that console is shown.
+- When vtium has no session to show on a display, it can show a notice alone there, on an otherwise black screen. Such a notice stays until the problem is gone, or for as long as vtium runs.
+
+Find the first words of the notice on your screen in this table, and read the section it links:
+
+| The notice starts with | What it means |
+|---|---|
+| `vtium.conf not used: running the built-in configuration.` | [vtium cannot use vtium.conf at all](concepts/start-up.md#vtiumconf-not-used-running-the-built-in-configuration) |
+| `vtium.conf has errors: running the parts without errors.` | [vtium.conf has errors, and vtium runs what is left](concepts/start-up.md#vtiumconf-has-errors-running-the-parts-without-errors) |
+| `vtium.conf has errors and counts as closed: all input is off.` | [The panic screen: nothing of a closed vtium.conf can run](concepts/start-up.md#vtiumconf-has-errors-and-counts-as-closed-all-input-is-off) |
+| `No keyboard found. Connect one to type.` | [vtium found no keyboard at start](concepts/start-up.md#no-keyboard-found-connect-one-to-type) |
+| `No head has a connected display.` | [No display of a closed vtium.conf's heads is on](concepts/heads.md#no-head-has-a-connected-display) |
+| `Every keyboard now types into NAME` | [The anti-lockout guard moved every keyboard](concepts/flows.md#every-keyboard-now-types-into-name) |
+| `Keyboard DEVICE now types into NAME, the active screen` | [The rescue key moved a keyboard](concepts/flows.md#keyboard-device-now-types-into-name-the-active-screen) |
+| `Keyboard DEVICE now types into the active screen` | [The rescue key moved a keyboard, but no head is active](concepts/flows.md#keyboard-device-now-types-into-the-active-screen) |
+| `Session ended. It will not start again.` | [A session ended under `oneshot`](concepts/heads.md#session-ended-it-will-not-start-again) |
+| `Console not opened: login could not start.` | [A new console's session could not start](concepts/heads.md#console-not-opened-login-could-not-start) |
+| `All screens stopped: a session kept ending as soon as it started.` | [A login kept ending, under the closed policy](concepts/heads.md#all-screens-stopped-a-session-kept-ending-as-soon-as-it-started) |
+| `CONNECTOR is not configured for any terminal.` or `CONNECTOR is not configured for VT N.` | [No head on this VT uses that display](head-file.md#terms) |
+
 ## Reading vtium console status
 
 `vtium console status` first says two things about the machine. It says which console logind starts on a VT with no link of its own. It also says which display manager the machine has. Then it prints a line for each VT, with these columns:
