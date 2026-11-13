@@ -178,6 +178,34 @@ pub struct Spacing {
     pub below: u32,
 }
 
+/// A scratch directory that is removed, with everything in it, when the
+/// guard drops. A call that fails part way, after it made the directory,
+/// then leaves nothing behind in the temporary directory.
+struct Gone(std::path::PathBuf);
+
+impl Drop for Gone {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// A new scratch directory `vtium-tier2-<kind>-<pid>-<n>-<file>` in the
+/// temporary directory, and the guard that removes it. `n` counts the
+/// calls in this process, so two calls for the same font at once never
+/// share a directory, and neither removes the other's.
+fn scratch(kind: &str, file: &str) -> Result<(std::path::PathBuf, Gone), String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static CALLS: AtomicU64 = AtomicU64::new(0);
+    let dir = std::env::temp_dir().join(format!(
+        "vtium-tier2-{kind}-{}-{}-{file}",
+        std::process::id(),
+        CALLS.fetch_add(1, Ordering::Relaxed),
+    ));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let gone = Gone(dir.clone());
+    Ok((dir, gone))
+}
+
 /// The PSF fonts the small displays draw with (vtium/vtium#75).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TestFont {
@@ -208,21 +236,16 @@ impl TestFont {
     /// (ADR-1301 D2), draws at the font's own cell from a frit naming the
     /// font, then `fill`, a built-in set: every glyph the frit gives, as a
     /// set's bytes. The engine reads a `file:` source from disk, so the font
-    /// is written to a scratch file this call names and removed once read.
+    /// is written into a scratch directory of this call's, which is removed
+    /// once the engine has read it, or when the call fails.
     pub fn generate(self, fill: Option<&str>) -> Result<Vec<u8>, String> {
-        use std::sync::atomic::{AtomicU64, Ordering};
         use vtium_config::serve::{Engine, FritText, Paths};
-        static CALLS: AtomicU64 = AtomicU64::new(0);
         let bytes = self.bytes()?;
         let cell = Psf::parse(&bytes)
             .map_err(|e| format!("{self:?}: {e}"))?
             .cell();
-        let path = std::env::temp_dir().join(format!(
-            "vtium-tier2-{}-{}-{}",
-            std::process::id(),
-            CALLS.fetch_add(1, Ordering::Relaxed),
-            self.file()
-        ));
+        let (dir, gone) = scratch("font", self.file())?;
+        let path = dir.join(self.file());
         std::fs::write(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
         let mut text = format!("source=file:{}\n", path.display());
         if let Some(fill) = fill {
@@ -233,7 +256,7 @@ impl TestFont {
             text,
         };
         let engine = Engine::load(&frit, &Paths::default(), None);
-        let _ = std::fs::remove_file(&path);
+        drop(gone);
         let engine = engine?;
         engine
             .draw(cell, engine.coverage())?
@@ -244,6 +267,9 @@ impl TestFont {
     /// frit naming the font with a `script-source=` line naming `small`
     /// (ADR-1202 D12): its normal glyphs, and its superscript and subscript
     /// glyphs in each style, each set as the helper sends it, as a face.
+    /// The fonts are written into a scratch directory of this call's,
+    /// which is removed once the engine has read them, or when the call
+    /// fails.
     pub fn generate_scripts(self, small: TestFont) -> Result<Scripted, String> {
         use vtium_config::serve::{Engine, FritText, Paths};
         use vtium_font::{Script, Variant};
@@ -251,12 +277,7 @@ impl TestFont {
         let cell = Psf::parse(&bytes)
             .map_err(|e| format!("{self:?}: {e}"))?
             .cell();
-        let dir = std::env::temp_dir().join(format!(
-            "vtium-tier2-scripts-{}-{}",
-            std::process::id(),
-            self.file()
-        ));
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let (dir, gone) = scratch("scripts", self.file())?;
         let (big, little) = (dir.join(self.file()), dir.join(small.file()));
         std::fs::write(&big, &bytes).map_err(|e| format!("{}: {e}", big.display()))?;
         std::fs::write(&little, small.bytes()?)
@@ -270,7 +291,7 @@ impl TestFont {
             ),
         };
         let engine = Engine::load(&frit, &Paths::default(), None);
-        let _ = std::fs::remove_dir_all(&dir);
+        drop(gone);
         let engine = engine?;
         let face = |bytes: Vec<u8>| -> Result<SetFace, String> {
             let set = Set::from_bytes(bytes).map_err(|e| format!("{self:?}: {e}"))?;
@@ -1267,6 +1288,20 @@ mod tests {
             }
         }
         Some((w, h, px))
+    }
+
+    // vtium/vtium#159: a call that fails after it made its scratch
+    // directory, with a file written in it, leaves the directory behind
+    // no longer: the guard removes it as the call returns its error
+    #[test]
+    fn a_scratch_directory_goes_when_the_call_that_made_it_fails() {
+        let fails = || -> Result<(), std::path::PathBuf> {
+            let (dir, _gone) = scratch("test", "f").unwrap();
+            std::fs::write(dir.join("f"), b"x").unwrap();
+            Err(dir)
+        };
+        let dir = fails().unwrap_err();
+        assert!(!dir.exists(), "{} is left", dir.display());
     }
 
     // ADR-1301 D2, ADR-1200 D1 and D17: the engine's glyphs for a PSF test
