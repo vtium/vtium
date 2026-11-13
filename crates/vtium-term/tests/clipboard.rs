@@ -83,11 +83,14 @@ fn osc_52_decodes_rfc_4648s_vectors() {
         assert_eq!(set(&mut t, &osc52("c", padded)), Some(want.to_vec()));
         assert_eq!(set(&mut t, &osc52("c", unpadded)), Some(want.to_vec()));
     }
+    // the bytes 0x80 to 0xFF, each alone, are ill-formed UTF-8, which the
+    // set replaces (`ill_formed_osc_52_data_is_stored_with_u_fffd`); the
+    // decoder's own test, `the_decoder_returns_every_byte` in
+    // src/terminal/clipboard.rs, checks it returns each of them
     let every_byte: Vec<u8> = (0..=255).collect();
-    assert_eq!(
-        set(&mut t, &osc52("c", &base64(&every_byte))),
-        Some(every_byte)
-    );
+    let mut want: Vec<u8> = (0..=127).collect();
+    want.extend("\u{fffd}".repeat(128).bytes());
+    assert_eq!(set(&mut t, &osc52("c", &base64(&every_byte))), Some(want));
 }
 
 // RFC 4648, section 3.3: "Implementations MUST reject the encoded data if
@@ -284,4 +287,100 @@ fn osc_52_at_the_cap_split_where_its_state_changes() {
         let pieces: Vec<&[u8]> = seq.chunks(4093).collect();
         assert_eq!(fed(&pieces), want, "in pieces");
     }
+}
+
+/// The three inputs, each with the DECSCL that sets it: UTF-8 input, which
+/// the terminal starts in, 8-bit input (DECSCL 62) and 7-bit input (DECSCL
+/// 61).
+const INPUTS: [(&str, &[u8]); 3] = [
+    ("UTF-8", b""),
+    ("8-bit", b"\x1b[62\"p"),
+    ("7-bit", b"\x1b[61\"p"),
+];
+
+// vtium/vtium#101, the maintainer's decision: the bytes OSC 52 decodes
+// are UTF-8 text in every input, and the selection holds them with each
+// ill-formed sequence replaced by U+FFFD when it is set, so it holds valid
+// text from then on. A sequence is replaced as a whole, one U+FFFD for
+// each maximal subpart (Unicode 16.0, 3.9, "U+FFFD Substitution of Maximal
+// Subparts"): 0xFF, a lead byte C3 that `(` follows, and the cut-off
+// three-byte E2 82 are three.
+// covers: osc.52.write
+#[test]
+fn ill_formed_osc_52_data_is_stored_with_u_fffd() {
+    for (input, decscl) in INPUTS {
+        let mut t = term(8, 2, decscl);
+        assert_eq!(
+            set(&mut t, &osc52("c", &base64(b"a\xff\xc3(\xe2\x82"))),
+            Some("a\u{fffd}\u{fffd}(\u{fffd}".as_bytes().to_vec()),
+            "{input} input"
+        );
+        assert_eq!(
+            set(&mut t, &osc52("c", &base64(&[0xe9]))),
+            Some("\u{fffd}".as_bytes().to_vec()),
+            "{input} input"
+        );
+        assert_eq!(
+            set(&mut t, &osc52("c", &base64("\u{e9}".as_bytes()))),
+            Some("\u{e9}".as_bytes().to_vec()),
+            "{input} input"
+        );
+    }
+}
+
+/// What a paste of the selection OSC 52 sets to `data` sends, in the
+/// input `decscl` sets: the host takes the selection and pastes it, as
+/// vtium's middle button and Shift+Insert do.
+fn pasted(decscl: &[u8], data: &[u8]) -> Vec<u8> {
+    let mut t = term(8, 2, decscl);
+    let selection = set(&mut t, &osc52("c", &base64(data))).expect("the set");
+    t.paste(&selection);
+    t.take_replies()
+}
+
+// vtium/vtium#101, the maintainer's decision: OSC 52's text is UTF-8 in
+// every input, and a paste sends it in the input's encoding, as any paste
+// is sent (`a_paste_is_sent_in_the_inputs_encoding` in tests/input.rs).
+// The UTF-8 é, C3 A9, is é: the same two bytes in UTF-8 input, the byte
+// E9 in 8-bit input, and `?` in 7-bit input, which cannot carry it. The
+// Latin-1 é, the byte E9 alone, is ill-formed UTF-8 and is U+FFFD from the
+// set on: its three UTF-8 bytes in UTF-8 input, and `?` in 8-bit and in
+// 7-bit input, which cannot carry it.
+// covers: osc.52.write
+#[test]
+fn osc_52_text_is_pasted_in_the_inputs_encoding() {
+    let utf8: &[u8] = b"\xc3\xa9";
+    let latin1: &[u8] = b"\xe9";
+    for ((input, decscl), (sent_utf8, sent_latin1)) in INPUTS.into_iter().zip([
+        (&b"\xc3\xa9"[..], &b"\xef\xbf\xbd"[..]),
+        (b"\xe9", b"?"),
+        (b"?", b"?"),
+    ]) {
+        assert_eq!(pasted(decscl, utf8), sent_utf8, "UTF-8 é in {input} input");
+        assert_eq!(
+            pasted(decscl, latin1),
+            sent_latin1,
+            "Latin-1 é in {input} input"
+        );
+    }
+}
+
+// The cap (src/bounds.rs, CLIPBOARD_MAX) holds for the text the selection
+// keeps: each ill-formed byte replaced by U+FFFD takes three bytes, so a
+// set whose text then passes the cap is dropped whole, and one that comes
+// to the cap exactly is kept.
+// covers: osc.52.write
+#[test]
+fn osc_52_text_past_the_cap_once_replaced_is_dropped() {
+    let mut at = vec![b'x'; CLIPBOARD_MAX - 3];
+    at.push(0xff);
+    let mut over = vec![b'x'; CLIPBOARD_MAX - 2];
+    over.push(0xff);
+    let mut t = term(8, 2, b"");
+    let kept = set(&mut t, &osc52("c", &base64(&at))).expect("the set at the cap");
+    assert_eq!(kept.len(), CLIPBOARD_MAX);
+    assert!(kept.ends_with("x\u{fffd}".as_bytes()));
+    t.input(&osc52("c", b"aGk="));
+    t.input(&osc52("c", &base64(&over)));
+    assert_eq!(t.take_clipboard_write(), Some(b"hi".to_vec()));
 }

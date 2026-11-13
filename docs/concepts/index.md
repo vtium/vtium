@@ -5,6 +5,7 @@ These pages explain how vtium works. vtium is a terminal for the Linux virtual c
 Each page explains one concept, so you can read them one at a time. Each page links to the decision record, issue or document that holds the details. The commands and the names of settings are there too. A part of vtium that is not built yet is marked proposed, and the page links the issue or record that tracks it.
 
 - [What vtium is](what-vtium-is.md): what vtium draws, how it draws it, and the small machines it is built for first.
+- [How vtium works](how-vtium-works.md): the processes and threads that run, the channels between them, and the states of the VT and of a session, in four figures.
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.
 - [Deployment and start-up](start-up.md): how a package installs vtium, and how vtium takes the place of getty. It also explains what happens when vtium takes a VT, and when the user switches away.
 - [Seats and sessions](seats-and-sessions.md): which program opens the screen and the keyboards, which program holds your login session, and what that session can do. The page covers each build of vtium, each init system and seat manager, and both of vtium's modes, direct mode and seat mode.

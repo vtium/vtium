@@ -164,7 +164,7 @@ const XTGETTCAP_REPLY: Bound = Bound {
 const CLIPBOARD: Bound = Bound {
     name: "CLIPBOARD_MAX",
     value: 512 * 1024,
-    what: "Bytes of selection one OSC 52 sets, decoded, which the terminal holds until the host takes them; a later set replaces one the host has not taken",
+    what: "Bytes of the text one OSC 52 sets, decoded from base64 and with each ill-formed UTF-8 sequence replaced by U+FFFD, which the terminal holds until the host takes them; a later set replaces one the host has not taken",
     past: "The set is dropped whole, and the selection keeps what it held",
     cite: "vtium's own: the largest power of two whose base64, 699,052 bytes, fits vtium-parse's `OSC_MAX` with its `52;` and targets, so one byte over still reaches the check; tmux drops a sequence past 1 MiB, its `input-buffer-size` (`tmux.h:3509` at `df302c5`), and Ghostty an OSC 52 past 8 MiB (`src/terminal/osc.zig:365` at `a732580`)",
 };

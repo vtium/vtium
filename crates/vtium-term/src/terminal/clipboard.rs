@@ -7,14 +7,19 @@
 //! buffers `0` to `7` name none of vtium's, and a character outside the set
 //! is skipped, as xterm skips it (`misc.c`, `ManipulateSelectionData`). The
 //! data is decoded strictly and held to [`CLIPBOARD_MAX`]: anything else is
-//! dropped whole, and the selection keeps what it held. The query, `Pd` of
-//! `?`, gets no reply (ADR-1000, osc.52.read, refused).
+//! dropped whole, and the selection keeps what it held. The decoded bytes
+//! are UTF-8 text in every input, and each ill-formed sequence in them is
+//! replaced by U+FFFD when the selection is set, so the selection holds
+//! valid text (the maintainer's decision in vtium/vtium#101). A paste then
+//! sends that text in the input's encoding, as it sends any paste. The
+//! query, `Pd` of `?`, gets no reply (ADR-1000, osc.52.read, refused).
 
 use super::State;
 use crate::bounds::CLIPBOARD_MAX;
 
-/// A selection OSC 52 set, waiting for the host. Its `Debug` shows its
-/// length alone, so a terminal's `{:?}` never prints what was copied.
+/// A selection OSC 52 set, waiting for the host: well-formed UTF-8, at
+/// most [`CLIPBOARD_MAX`] bytes. Its `Debug` shows its length alone, so a
+/// terminal's `{:?}` never prints what was copied.
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Selection(pub(super) Vec<u8>);
 
@@ -36,10 +41,29 @@ impl State {
         if !names_ours || data == b"?" {
             return;
         }
-        if let Some(bytes) = decode(data, CLIPBOARD_MAX) {
-            self.clipboard = Some(Selection(bytes));
+        if let Some(bytes) = decode(data, CLIPBOARD_MAX)
+            && let Some(text) = text(bytes, CLIPBOARD_MAX)
+        {
+            self.clipboard = Some(Selection(text.into_bytes()));
         }
     }
+}
+
+/// `bytes` read as UTF-8, each ill-formed sequence replaced by one U+FFFD
+/// for each maximal subpart (Unicode 16.0, 3.9, "U+FFFD Substitution of
+/// Maximal Subparts", as `String::from_utf8_lossy` replaces them), or
+/// `None` when the text would pass `max` bytes. Each U+FFFD takes three
+/// bytes, so the text's length is counted before it is built.
+fn text(bytes: Vec<u8>, max: usize) -> Option<String> {
+    let bytes = match String::from_utf8(bytes) {
+        Ok(text) => return (text.len() <= max).then_some(text),
+        Err(e) => e.into_bytes(),
+    };
+    let len = bytes.utf8_chunks().try_fold(0usize, |len, chunk| {
+        let replaced = if chunk.invalid().is_empty() { 0 } else { 3 };
+        len.checked_add(chunk.valid().len())?.checked_add(replaced)
+    })?;
+    (len <= max).then(|| String::from_utf8_lossy(&bytes).into_owned())
 }
 
 /// The bytes `text` encodes in base64 (RFC 4648, section 4), or `None`
@@ -127,6 +151,15 @@ mod tests {
         assert_eq!(decode(b"Zg==", 1), Some(b"f".to_vec()));
         assert_eq!(decode(b"Zg==", 0), None);
         assert_eq!(decode(b"", 0), Some(Vec::new()));
+    }
+
+    // Each byte value comes back from the decoder as it went in; the set
+    // then replaces the ill-formed ones (`set_clipboard`).
+    #[test]
+    fn the_decoder_returns_every_byte() {
+        let every_byte: Vec<u8> = (0..=255).collect();
+        let text = b"AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==";
+        assert_eq!(decode(text, 256), Some(every_byte));
     }
 
     #[test]
