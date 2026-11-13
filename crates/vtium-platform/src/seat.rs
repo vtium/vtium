@@ -15,30 +15,39 @@
 //!   while that acknowledgement waits is reported after it, so the owner
 //!   always sees the release finish before the next acquire.
 //!
-//! Nothing here waits on the loop. Where the seat manager answers that the
-//! seat or a device is busy, vtium keeps it pending and tries again from a
-//! timer in the loop every [`crate::bounds::SEAT_RETRY_MS`], so signals,
-//! timers and the other sources are served in between:
+//! Nothing here waits on the loop. vtium waits for the events that end a
+//! wait where the kernel or the seat manager sends one. Where neither
+//! sends one, vtium keeps the seat or the device pending and tries again
+//! from a timer in the loop every [`crate::bounds::SEAT_RETRY_MS`], so
+//! signals, timers and the other sources are served in between:
 //!
 //! - **The seat** is tried up to [`crate::bounds::SEAT_OPENS_MAX`] times
 //!   while libseat's answer says the seat is still held by its previous
 //!   client: `EBUSY` or `EBADF`, and while seatd listens also `ENOSYS`,
 //!   `EPIPE` or `EIO`, since seatd refuses such a client by hanging up
-//!   ([`busy`]). Past that, or on any other failure once vtium has chosen
-//!   the seat, vtium logs an error and reports [`VtEvent::Hangup`].
+//!   ([`busy`]). seatd sends nothing to a process that is not its client,
+//!   so no event says when the previous client is gone. With seatd, a try
+//!   comes only while vtium's VT is shown; otherwise vtium waits for its VT
+//!   again, as below. Past the tries, or
+//!   on any other failure once vtium has chosen the seat, vtium logs an
+//!   error and reports [`VtEvent::Hangup`].
 //! - **A device** is tried up to [`crate::bounds::DEVICE_OPENS_MAX`] times
-//!   while libseat fails with `ENODEV`, `EACCES` or `EBUSY`, which udev's
-//!   report of a device can bring before the seat manager is ready for it.
-//!   [`Vt::open_device`] answers [`io::ErrorKind::WouldBlock`] meanwhile,
-//!   and [`Vt::settled`] names the device once it has opened or failed. A
-//!   device asked for before the seat is enabled, or refused `EPERM` while
-//!   the seat manager disables vtium, waits for the next enable.
+//!   while libseat fails with `EBUSY`, as logind's open of a card does
+//!   while another process holds the card's DRM master. The kernel sends no
+//!   event when that master is dropped. [`Vt::open_device`] answers
+//!   [`io::ErrorKind::WouldBlock`] meanwhile, and [`Vt::settled`] names the
+//!   device once it has opened or failed. `ENODEV` and `EACCES` are final
+//!   ([`retryable`]). A device asked for before the seat is enabled, or
+//!   refused `EPERM` while the seat manager disables vtium, waits for the
+//!   next enable.
 //!
 //! seatd gives a new client the VT shown when it opens the seat. So when
 //! vtium's VT is not shown at the start and seatd listens, vtium opens the
-//! seat only once its VT is shown, looking every
-//! [`crate::bounds::SEAT_RETRY_MS`]; [`Vt::activate`] asks the kernel to show
-//! it. logind takes the session from vtium's login session instead, so the
+//! seat only once its VT is shown. vtium learns that from tty0's `active`
+//! attribute, which the kernel notifies at each switch
+//! ([`Console::watch_shown`]), and opens the seat at the loop's turn that
+//! reads the notification. [`Vt::activate`] asks the kernel to show the VT.
+//! logind takes the session from vtium's login session instead, so the
 //! seat opens at once.
 //!
 //! [`LibseatVt::start`] tries the seat. When no seat manager answers, it
@@ -60,7 +69,7 @@ use std::cell::RefCell;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Duration;
@@ -351,6 +360,9 @@ struct Hooks {
     arm: Box<dyn Fn(Duration) -> io::Result<()>>,
     /// Watches the seat's descriptor, dispatching it when readable.
     watch: Box<dyn Fn(OwnedFd) -> io::Result<RegistrationToken>>,
+    /// Watches tty0's `active`, calling [`LibseatVt::shown_notified`] at
+    /// each notification of a switch.
+    watch_shown: Box<dyn Fn(OwnedFd) -> io::Result<RegistrationToken>>,
     unwatch: Box<dyn Fn(RegistrationToken)>,
 }
 
@@ -399,6 +411,9 @@ pub struct LibseatVt<M: Manager = Libseat, C: Console = Tty> {
     /// A tick is due.
     armed: bool,
     watched: Option<RegistrationToken>,
+    /// tty0's `active` in the loop, while the seat waits for the VT to be
+    /// shown.
+    shown_watched: Option<RegistrationToken>,
 }
 
 impl<M: Manager, C: Console> std::fmt::Debug for LibseatVt<M, C> {
@@ -534,6 +549,24 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             .map(|_| ())
             .map_err(|e| io::Error::from(e.error))
         });
+        let (h, a) = (handle.clone(), access.clone());
+        // Edge-triggered: sysfs reports the attribute readable at every
+        // poll, and wakes its pollers at each notification.
+        let watch_shown = Box::new(move |fd: OwnedFd| {
+            let a = a.clone();
+            h.insert_source(
+                Generic::new(fd, Interest::READ, Mode::Edge),
+                move |_, fd, data: &mut D| {
+                    let keep = a(data).is_some_and(|vt| vt.shown_notified(fd.as_fd()));
+                    Ok(if keep {
+                        PostAction::Continue
+                    } else {
+                        PostAction::Remove
+                    })
+                },
+            )
+            .map_err(|e| io::Error::from(e.error))
+        });
         let h = handle.clone();
         let watch = Box::new(move |fd: OwnedFd| {
             let a = access.clone();
@@ -593,13 +626,17 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
             hooks: Hooks {
                 arm,
                 watch,
+                watch_shown,
                 unwatch,
             },
             armed: false,
             watched: None,
+            shown_watched: None,
         };
-        if vt.conn == Conn::Open {
-            vt.opened();
+        match vt.conn {
+            Conn::Open => vt.opened(),
+            Conn::Shown => vt.watch_shown(),
+            Conn::Opening(_) | Conn::Gone => {}
         }
         vt.rearm();
         Ok(vt)
@@ -611,12 +648,15 @@ impl<M: Manager + 'static, C: Console + 'static> LibseatVt<M, C> {
     reason = "the manager is Libseat and the console a Tty outside the crate"
 )]
 impl<M: Manager, C: Console> LibseatVt<M, C> {
-    /// The loop's timer: the VT looked at, the seat and the devices tried
-    /// again, and the timer set again while any still waits.
+    /// The loop's timer: the seat and the devices tried again, and the
+    /// timer set again while any still waits. seatd gives a new client the
+    /// session of the VT shown when it adds the client, so with seatd a
+    /// busy seat is tried again only while vtium's VT is shown. Otherwise
+    /// vtium waits for its VT to be shown again.
     pub(crate) fn tick(&mut self) {
         self.armed = false;
         match self.conn {
-            Conn::Shown if self.shown() => self.connect(),
+            Conn::Opening(_) if self.seatd && !self.shown_now() => self.wait_shown(),
             Conn::Opening(_) => self.connect(),
             Conn::Shown | Conn::Open | Conn::Gone => {}
         }
@@ -624,19 +664,75 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         self.rearm();
     }
 
-    /// Whether the VT is shown; a VT whose state cannot be read is taken
-    /// as not shown, with a warning.
-    fn shown(&self) -> bool {
+    /// Whether vtium's VT is shown now, `VT_GETSTATE`'s answer. A VT whose
+    /// state cannot be read is taken as not shown, with a warning, so that
+    /// vtium waits for tty0's `active` to name it.
+    fn shown_now(&self) -> bool {
         let Some((console, num)) = &self.tty else {
             return true;
         };
         match console.active() {
             Ok(active) => active == *num,
             Err(e) => {
-                log::warn!(target: "seat", "cannot find the VT on screen: {e}");
+                log::warn!(target: "seat", "cannot read the VT shown: {e}");
                 false
             }
         }
+    }
+
+    /// vtium's VT is no longer shown while the seat is busy: vtium stops
+    /// trying the seat and waits for its VT to be shown again.
+    fn wait_shown(&mut self) {
+        if let Some(num) = self.number() {
+            log::info!(target: "seat", "VT {num} is no longer shown, so vtium waits for it to be shown before it tries the seat again");
+        }
+        self.conn = Conn::Shown;
+        self.watch_shown();
+    }
+
+    /// Puts tty0's `active` in the loop while the seat waits for the VT to
+    /// be shown. The loop's first turn reads the attribute, so a switch
+    /// made since the start is not missed. Without the watch vtium cannot
+    /// learn when its VT is shown. Opening the seat anyway would give vtium
+    /// the session of the VT shown, so vtium logs an error and hangs up.
+    fn watch_shown(&mut self) {
+        let fd = self
+            .tty
+            .as_ref()
+            .and_then(|(console, _)| console.watch_shown())
+            .unwrap_or_else(|| Err(io::Error::from(io::ErrorKind::Unsupported)));
+        match fd.and_then(|fd| (self.hooks.watch_shown)(fd)) {
+            Ok(token) => self.shown_watched = Some(token),
+            Err(e) => {
+                log::error!(target: "seat", "vtium cannot watch which VT is shown, so it cannot tell when seatd can give it the seat: {e}");
+                self.gone();
+            }
+        }
+    }
+
+    /// tty0's `active` notified a switch. The VT shown is read, and once it
+    /// is vtium's, vtium stops watching and opens the seat. Returns whether
+    /// to keep watching.
+    pub(crate) fn shown_notified(&mut self, watched: BorrowedFd<'_>) -> bool {
+        let Some((console, num)) = self.tty.as_ref().filter(|_| self.conn == Conn::Shown) else {
+            self.shown_watched = None;
+            return false;
+        };
+        let num = *num;
+        match console.shown(watched) {
+            Ok(shown) if shown == num => {}
+            Ok(_) => return true,
+            Err(e) => {
+                log::warn!(target: "seat", "cannot read the VT shown: {e}");
+                return true;
+            }
+        }
+        self.shown_watched = None;
+        log::info!(target: "seat", "VT {num} is shown, so vtium opens the seat now");
+        self.connect();
+        self.try_devices();
+        self.rearm();
+        false
     }
 
     /// One try at the seat.
@@ -775,6 +871,9 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         if let Some(token) = self.watched.take() {
             (self.hooks.unwatch)(token);
         }
+        if let Some(token) = self.shown_watched.take() {
+            (self.hooks.unwatch)(token);
+        }
         self.conn = Conn::Gone;
         self.shared.borrow_mut().close();
         self.events.push(VtEvent::Hangup);
@@ -821,9 +920,9 @@ impl<M: Manager, C: Console> LibseatVt<M, C> {
         }
     }
 
-    /// Sets the timer while the VT, the seat or a device waits.
+    /// Sets the timer while the seat or a device waits for a retry.
     fn rearm(&mut self) {
-        let waiting = matches!(self.conn, Conn::Shown | Conn::Opening(_))
+        let waiting = matches!(self.conn, Conn::Opening(_))
             || self
                 .pending
                 .values()
@@ -1087,6 +1186,9 @@ impl<M: Manager, C: Console> Drop for LibseatVt<M, C> {
         if let Some(token) = self.watched.take() {
             (self.hooks.unwatch)(token);
         }
+        if let Some(token) = self.shown_watched.take() {
+            (self.hooks.unwatch)(token);
+        }
         if self.state != State::Inactive {
             self.tty_text();
         }
@@ -1108,8 +1210,8 @@ type MakeDevice<E> = Box<dyn Fn(&Path, OwnedFd) -> io::Result<E>>;
 /// - While the seat is vtium's, each device opens through the seat
 ///   manager, which gives vtium a descriptor of it; logind revokes that
 ///   descriptor when it takes the seat away, and seatd does too.
-/// - A device refused `ENODEV`, `EACCES` or `EBUSY` is tried again from
-///   the input's timer every [`crate::bounds::SEAT_RETRY_MS`], up to
+/// - A device refused `EBUSY` is tried again from the input's timer every
+///   [`crate::bounds::SEAT_RETRY_MS`], up to
 ///   [`crate::bounds::DEVICE_OPENS_MAX`] tries, as a display device is.
 /// - A device asked for while the seat is not vtium's, or refused `EPERM`
 ///   while the seat manager takes the seat away, waits for the input's
@@ -1253,9 +1355,20 @@ fn busy(e: &io::Error, seatd: bool) -> bool {
     })
 }
 
-/// The seat manager's answers for a device it is not ready to give yet.
+/// The seat manager's answer for a device it may give later: `EBUSY`, as
+/// logind answers while another process holds a card's DRM master
+/// (src/login/logind-session-device.c, `session_device_open`, systemd
+/// v262). Both seat managers open a node as root, so neither answers
+/// `EACCES` for a while and then opens. A card the kernel is still adding
+/// answers `ENODEV`, and the device monitor reports a card only at the
+/// event that finds it open ([`crate::udev`]). The kernel adds an input
+/// device's character device before it sends the node's event
+/// (drivers/input/evdev.c, `evdev_connect`), and logind processes a device
+/// it has not seen yet when it is asked for one (`session_device_verify`).
+/// So `ENODEV` from the seat manager means the device is gone, and udev
+/// reports it removed.
 fn retryable(e: &io::Error) -> bool {
-    errno(e).is_some_and(|n| n == Errno::NODEV || n == Errno::ACCESS || n == Errno::BUSY)
+    errno(e) == Some(Errno::BUSY)
 }
 
 /// The answer for a device asked of a client the seat manager has begun

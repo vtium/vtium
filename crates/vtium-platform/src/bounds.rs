@@ -141,9 +141,9 @@ const RETAKE_QUIET: Bound = Bound {
 const SEAT_RETRY: Bound = Bound {
     name: "SEAT_RETRY_MS",
     value: 100,
-    what: "With `libseat`: milliseconds between tries to open the seat or one of its devices, and between looks at whether the VT is shown before the seat opens",
+    what: "With `libseat`: milliseconds between tries to open the seat while seatd still holds it for its previous client, and between tries to open a device that the seat manager answers `EBUSY` for",
     past: "The next try waits for the loop's timer; signals, timers and the other sources are served in between",
-    cite: "Short beside a seat manager's handover of the seat from its previous client, and served by a loop timer, so no try waits on the loop (vtium/vtium#34)",
+    cite: "Short beside a seat manager's handover of the seat from its previous client, and served by a loop timer, so no try waits on the loop (vtium/vtium#34). No timer runs while vtium waits for its VT to be shown. The kernel notifies tty0's `active` attribute at each switch, and vtium opens the seat at that event",
 };
 
 const SEAT_OPENS: Bound = Bound {
@@ -151,15 +151,15 @@ const SEAT_OPENS: Bound = Bound {
     value: 50,
     what: "With `libseat`: tries to open the seat while the seat manager answers that it is busy",
     past: "vtium logs an error and ends, as a hung-up VT ends it",
-    cite: "About 5 s at `SEAT_RETRY_MS`, for the seat manager to finish disabling the seat's previous client: seatd 0.9.3 refuses a new client meanwhile by hanging up without an error (seatd/client.c, `handle_open_seat`)",
+    cite: "About 5 s at `SEAT_RETRY_MS`. seatd 0.9.3 refuses a new client while another client is active on the seat, and it refuses by hanging up without an error (seatd/seat.c, `seat_add_client`; seatd/client.c, `handle_open_seat`). The refusal ends when seatd removes the other client, at that client's hang-up or close of the seat (`seat_remove_client`). No event tells vtium when that happens. seatd sends nothing to a process that is not its client, and libseat reports nothing before a seat opens. So vtium tries again",
 };
 
 const DEVICE_OPENS: Bound = Bound {
     name: "DEVICE_OPENS_MAX",
     value: 20,
-    what: "With `libseat`: tries to open one display device while the seat manager answers that it is missing, refused or busy",
+    what: "With `libseat`: tries to open one device while the seat manager answers `EBUSY`",
     past: "vtium logs a warning and goes on without the device until udev reports it again",
-    cite: "About 2 s at `SEAT_RETRY_MS`: udev reports a device before the seat manager is ready to give it, which then answers `ENODEV`, `EACCES` or `EBUSY` for a short while",
+    cite: "About 2 s at `SEAT_RETRY_MS`. logind answers `EBUSY` while another process holds the card's DRM master (systemd's src/login/logind-session-device.c, `session_device_open`; the kernel's drivers/gpu/drm/drm_auth.c, `drm_setmaster_ioctl`). The kernel sends no event when a DRM master is dropped, so vtium tries again. vtium takes `ENODEV` and `EACCES` as final. A card the kernel is still adding answers `ENODEV`, but the device monitor reports a card only at the event that finds the card open. Both seat managers open a device as root, so neither answers `EACCES` for a while",
 };
 
 const SCOPE_JOB: Bound = Bound {
@@ -348,8 +348,8 @@ pub const INPUT_READS_PER_TURN: usize = INPUT_READS.value;
 /// as a warning again.
 pub const RETAKE_QUIET_MS: usize = RETAKE_QUIET.value;
 
-/// Milliseconds between tries to open the seat or a device through
-/// libseat.
+/// Milliseconds between tries to open the seat, or a device the seat
+/// manager answers `EBUSY` for, through libseat.
 #[cfg(feature = "libseat")]
 pub(crate) const SEAT_RETRY_MS: usize = SEAT_RETRY.value;
 
@@ -357,7 +357,7 @@ pub(crate) const SEAT_RETRY_MS: usize = SEAT_RETRY.value;
 #[cfg(feature = "libseat")]
 pub(crate) const SEAT_OPENS_MAX: usize = SEAT_OPENS.value;
 
-/// Tries to open one device through the seat manager.
+/// Tries to open one device that the seat manager answers `EBUSY` for.
 #[cfg(feature = "libseat")]
 pub(crate) const DEVICE_OPENS_MAX: usize = DEVICE_OPENS.value;
 

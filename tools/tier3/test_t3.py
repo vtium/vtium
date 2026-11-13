@@ -3503,7 +3503,8 @@ class HeadsTest(unittest.TestCase):
                     "limit 99", "Limit", "reset-failed getty@tty2.service", "reset-failed;id",
                     "prelogin now", "Prelogin", "prelogin;id", "restart now", "Restart",
                     "restart;id", "ptys tty2", "Ptys", "ptys;id", "stop now", "Stop", "stop;id",
-                    "vts 7", "Vts", "vts;id"]
+                    "vts 7", "Vts", "vts;id", "seat-wait 4", "Seat-wait", "seat-wait;id",
+                    "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 os.write(master, b"%d %s\n" % (n, request.encode()))
@@ -5956,6 +5957,75 @@ class SeatTest(unittest.TestCase):
                          "two shells share the session 2")
         self.assertEqual(t3_seat.login_verdict(t3_seat.parse_logins(self.LOGINS), shells=2),
                          "want 2 shell(s) logged in, the agent found 1")
+
+    def test_a_vtium_line_is_found_by_its_message_and_pid(self):
+        text = "\n".join([
+            "[  4.1] vtium[311]: seat: the seat seat0 is open",
+            "[  9.2] vtium[420]: seat: seatd listens: the seat opens once the VT is shown",
+            "[  9.3] systemd[1]: seat: VT 4 is shown, so vtium opens the seat now",
+            "[ 12.5] vtium[420]: seat: VT 4 is shown, so vtium opens the seat now",
+            "[ 12.6] vtium[420]: seat: the seat seat0 is open",
+        ])
+        line, pid = t3_seat.vtium_line(text, t3_seat.SEAT_WAITS)
+        self.assertEqual(pid, 420)
+        self.assertTrue(line.endswith(t3_seat.SEAT_WAITS))
+        # A line from another process, and one from another vtium, count
+        # for nothing.
+        self.assertEqual(t3_seat.vtium_line(text, t3_seat.SEAT_SHOWN % 4)[1], 420)
+        self.assertEqual(t3_seat.vtium_line(text, t3_seat.SEAT_OPEN, 420),
+                         ("[ 12.6] vtium[420]: seat: the seat seat0 is open", 420))
+        self.assertEqual(t3_seat.vtium_line(text, t3_seat.SEAT_OPEN)[1], 311)
+        self.assertIsNone(t3_seat.vtium_line(text, t3_seat.SEAT_BUSY))
+        self.assertIsNone(t3_seat.vtium_line(text, t3_seat.SEAT_SHOWN % 4, 311))
+
+    def test_the_seat_lines_are_the_ones_vtium_logs(self):
+        # Each line the seat checks wait for, after its target, is a string
+        # of seat.rs, so a reworded line fails here and not in a VM.
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium-platform", "src",
+                               "seat.rs")) as f:
+            source = f.read()
+        for line in (t3_seat.SEAT_OPEN.replace("seat0", "{name}"), t3_seat.SEAT_WAITS,
+                     t3_seat.SEAT_BUSY, t3_seat.SEAT_SHOWN.replace("%d", "{num}")):
+            self.assertIn(line.split(": ", 1)[1], source)
+
+    def test_a_hold_is_judged_both_ways(self):
+        good = ["held 922", "refusals 3", "vtium 928", "opened no", "released 922",
+                "restarts 0"]
+        hold = t3_seat.parse_hold(good)
+        self.assertEqual(hold, {"held": 922, "refusals": 3, "vtium": 928, "opened": False,
+                                "released": 922, "restarts": 0})
+        self.assertIsNone(t3_seat.hold_verdict(hold))
+        bad = {
+            "refused: chvt 8 failed, so tty8 is not shown and nothing holds the seat":
+                "no client held the seat: chvt 8 failed",
+            "refusals 2": "seatd refused vtium 2 times",
+            "opened yes": "vtium opened the seat while another client held it",
+            "restarts 1": "restarted 1 times",
+            "vtium 0": "runs no process",
+        }
+        for line, want in bad.items():
+            word = line.split()[0]
+            answer = [l for l in good if l.split()[0] != word.rstrip(":")] + [line]
+            with self.subTest(line):
+                self.assertIn(want, t3_seat.hold_verdict(t3_seat.parse_hold(answer)))
+        self.assertIn("did not end", t3_seat.hold_verdict(
+            t3_seat.parse_hold([l for l in good if not l.startswith("released")])))
+
+    def test_the_seat_waits_run_on_seatd(self):
+        v = t3_scenario.VARIANTS["seat-seatd-wait"]
+        self.assertEqual(v["seat"], "seatd")
+        self.assertTrue(v["agent"])
+        self.assertNotIn("mode", v)
+        self.assertEqual(v["tree_features"], ["libseat", "logind"])
+        self.assertEqual(t3_scenario.variant_cases("seat-seatd-wait")[-3:],
+                         ["seat", "seat-shown", "seat-busy"])
+        self.assertIn("seat-seatd-wait", t3_scenario.SEAT_VARIANTS)
+        self.assertEqual(t3_evaluate.GOLDENS_OF["seat-seatd-wait"], "2d-potato-min")
+        self.assertIs(t3_scenario.CHECK_RUNS["seat-shown"], t3_seat.check_seat_shown)
+        self.assertIs(t3_scenario.CHECK_RUNS["seat-busy"], t3_seat.check_seat_busy)
+        for case in ("seat-shown", "seat-busy"):
+            self.assertIn(case, t3_seat.CHECKS)
+            self.assertIn(case, t3_evaluate.NO_GOLDEN)
 
     def test_the_variants_run_their_checks(self):
         for name in ("seat-seatd", "seat-logind"):

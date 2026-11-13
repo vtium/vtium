@@ -309,10 +309,16 @@ VARIANTS.update({
     "seat-logind": dict(SEAT, seat="logind", mode="seat", agent=True,
                         checks=["seat", "login-session"]),
     "direct-logind": dict(SEAT, checks=["direct"]),
+    # The two waits of a vtium that opens the seat through seatd
+    # (t3_seat.CHECKS "seat-shown" and "seat-busy"), after seat-seatd's
+    # screens and its seat check.
+    "seat-seatd-wait": dict(SEAT, seat="seatd", agent=True,
+                            checks=["seat", "seat-shown", "seat-busy"]),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
-SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "panic-sysrq", "kmsg-notice"]
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
+                 "kmsg-notice"]
 
 # boot-claim checks that vtium console enable --direct --all starts vtium at
 # boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
@@ -1594,6 +1600,8 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "display-unplug": check_display_unplug,
               "display-replug": check_display_replug,
               "seat": t3_seat.check_seat,
+              "seat-shown": t3_seat.check_seat_shown,
+              "seat-busy": t3_seat.check_seat_busy,
               "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
               "boot-claim": t3_seat.check_boot_claim,
