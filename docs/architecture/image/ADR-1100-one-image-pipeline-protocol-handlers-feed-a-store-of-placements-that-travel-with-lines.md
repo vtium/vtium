@@ -206,6 +206,9 @@ considered:
   - operator: aaronsb
     said: "Refuse it; the upload stays open"
     via: the maintainer, in the steering session, 2026-11-13
+  - operator: aaronsb
+    said: "I read the goldens page and the description is what I was expecting"
+    via: the maintainer, reviewing the golden-only commits for kit-chunked (4f7f0d2d) and kit-chunk-abort (eb1a8544) on the Corpus Golden Changes page, 2026-11-13
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
