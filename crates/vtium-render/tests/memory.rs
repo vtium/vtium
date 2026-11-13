@@ -9,7 +9,7 @@
 mod common;
 
 use common::{Screen, rgb, style};
-use vtium_font::{Font, Unifont};
+use vtium_font::{Face, Font, Style, Unifont};
 use vtium_render::{Canvas, Config, DrawState, Profile, Renderer, Storage};
 use vtium_term::Age;
 
@@ -42,16 +42,43 @@ fn fill(height: u32, profile: Profile, storage: Storage) -> Filled {
         Profile::Performance => (4 * cells, 2 * cells),
     };
     let st = style(rgb("ffffff"), rgb("000000"));
+    // narrow glyphs: at scale 1, ideographs drawn narrow, each squeezed
+    // 2:1 into one cell and held in 16 bytes as any narrow glyph; at a
+    // whole scale, where a glyph squeezed counts screen pixels and is held
+    // at its drawn size (ADR-1302 D14), which this table leaves out, the
+    // inked glyphs unifont draws one cell wide, from no sprite of vtium's
+    // own and joined by no right-to-left run
+    let unifont = Unifont::new(16);
+    let one_cell: Vec<char> = match height {
+        16 => Vec::new(),
+        _ => (0x20..0x1_0000u32)
+            .filter_map(char::from_u32)
+            .filter(|&c| unifont.has_glyph(c) && vtium_font::sprite::Range::of(c).is_none())
+            .filter(|&c| !vtium_term::is_rtl_class(c))
+            .filter(|&c| {
+                unifont
+                    .draw(&[c], Style::default())
+                    .is_some_and(|g| g.width() == 8 && g.pixels().iter().any(|&p| p > 0))
+            })
+            .collect(),
+    };
+    let narrow_glyph = |n: u32| match one_cell.get(n as usize) {
+        Some(&c) => c,
+        None => char::from_u32(0x4e00 + n).unwrap(),
+    };
     let mut next = 0u32;
     let frame = |r: &mut Renderer<Unifont>, wide: bool, n: &mut u32| {
         let mut s = Screen::new(cols, rows, rgb("ffffff"), rgb("000000"));
         for row in 0..rows {
             let mut col = 0;
             while col + usize::from(wide) < cols {
-                // ideographs drawn narrow, then Hangul and ideographs wide:
-                // each a glyph the cache has not seen
-                let base = if wide { 0x2_0000 } else { 0x4e00 };
-                s.put(col, row, char::from_u32(base + *n).unwrap(), wide, st);
+                // narrow glyphs, then ideographs wide: each a glyph the
+                // cache has not seen
+                let c = match wide {
+                    true => char::from_u32(0x2_0000 + *n).unwrap(),
+                    false => narrow_glyph(*n),
+                };
+                s.put(col, row, c, wide, st);
                 *n += 1;
                 col += 1 + usize::from(wide);
             }
