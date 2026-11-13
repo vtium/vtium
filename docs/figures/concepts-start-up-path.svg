@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="784" viewBox="0 0 960 784" font-family="DejaVu Sans Mono, monospace">
+<title>vtium from the package that installs it to your session</title>
+<rect width="960" height="784" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- the package -->
+<rect x="40" y="16" width="520" height="76" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="40" font-size="14" text-anchor="middle" fill="#1f2933">a distribution package installs vtium</text>
+<text x="300" y="62" font-size="12" text-anchor="middle" fill="#1f2933">its programs, its units, its terminfo entry and an example</text>
+<text x="300" y="78" font-size="12" text-anchor="middle" fill="#1f2933">vtium.conf. Its install script gives vtium every free VT.</text>
+<line x1="300" y1="92" x2="300" y2="114" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- the init system -->
+<rect x="40" y="116" width="520" height="96" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="140" font-size="14" text-anchor="middle" fill="#1f2933">systemd starts vtium at boot on each VT it has</text>
+<text x="300" y="162" font-size="12" text-anchor="middle" fill="#1f2933">logind starts vtium when you switch to one of those VTs</text>
+<text x="300" y="178" font-size="12" text-anchor="middle" fill="#1f2933">and no vtium runs there. On another init system, an</text>
+<text x="300" y="194" font-size="12" text-anchor="middle" fill="#1f2933">inittab line or a supervisor starts vtium.</text>
+<line x1="300" y1="212" x2="300" y2="238" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- vtium -->
+<rect x="24" y="240" width="552" height="384" fill="#e6eef7" stroke="#2f6fb0" stroke-width="2"/>
+<text x="40" y="264" font-size="14" fill="#1f2933">vtium, as root</text>
+<rect x="40" y="276" width="520" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="298" font-size="13" text-anchor="middle" fill="#1f2933">vtium reads vtium.conf</text>
+<text x="300" y="318" font-size="12" text-anchor="middle" fill="#1f2933">If vtium cannot use all of the file, it runs what it can</text>
+<text x="300" y="334" font-size="12" text-anchor="middle" fill="#1f2933">and shows a notice.</text>
+<line x1="300" y1="344" x2="300" y2="362" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="364" width="520" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="386" font-size="13" text-anchor="middle" fill="#1f2933">vtium opens its VT and tells systemd that it is ready</text>
+<text x="300" y="406" font-size="12" text-anchor="middle" fill="#1f2933">vtium takes over the VT's switches. systemd starts a display</text>
+<text x="300" y="422" font-size="12" text-anchor="middle" fill="#1f2933">manager only after this, so the display manager stays off.</text>
+<line x1="300" y1="432" x2="300" y2="450" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="452" width="520" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="474" font-size="13" text-anchor="middle" fill="#1f2933">vtium opens the keyboards and pointers</text>
+<text x="300" y="494" font-size="12" text-anchor="middle" fill="#1f2933">Under the closed policy, it opens only those a rule names.</text>
+<text x="300" y="510" font-size="12" text-anchor="middle" fill="#1f2933">Then vtium waits for its VT to be shown.</text>
+<line x1="300" y1="520" x2="300" y2="538" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="540" width="520" height="68" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="562" font-size="13" text-anchor="middle" fill="#1f2933">vtium takes the display</text>
+<text x="300" y="582" font-size="12" text-anchor="middle" fill="#1f2933">It becomes the program that sets the display's mode and shows</text>
+<text x="300" y="598" font-size="12" text-anchor="middle" fill="#1f2933">frames on it. It waits for a display for up to display-wait.</text>
+<!-- the session -->
+<line x1="300" y1="608" x2="300" y2="646" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="312" y="640" font-size="12" fill="#1f2933">once a display is set up</text>
+<rect x="24" y="648" width="552" height="76" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="300" y="672" font-size="14" text-anchor="middle" fill="#1f2933">vtium starts login in a pty</text>
+<text x="300" y="694" font-size="12" text-anchor="middle" fill="#1f2933">login shows its prompt, then starts your shell. When login</text>
+<text x="300" y="710" font-size="12" text-anchor="middle" fill="#1f2933">exits, vtium starts it again, so a logout brings back the prompt.</text>
+<!-- a failure -->
+<line x1="577" y1="574" x2="606" y2="574" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="608" y="540" width="336" height="96" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="776" y="562" font-size="13" text-anchor="middle" fill="#1f2933">vtium exits with status 1</text>
+<text x="776" y="582" font-size="12" text-anchor="middle" fill="#1f2933">for example, under the open policy,</text>
+<text x="776" y="598" font-size="12" text-anchor="middle" fill="#1f2933">when no display appears in time, or</text>
+<text x="776" y="614" font-size="12" text-anchor="middle" fill="#1f2933">when sessions end too fast</text>
+<line x1="688" y1="636" x2="688" y2="662" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="864" y1="636" x2="864" y2="662" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="608" y="664" width="160" height="100" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="688" y="686" font-size="13" text-anchor="middle" fill="#1f2933">open policy</text>
+<text x="688" y="706" font-size="12" text-anchor="middle" fill="#1f2933">vtium-getty@ starts</text>
+<text x="688" y="722" font-size="12" text-anchor="middle" fill="#1f2933">a getty on the VT,</text>
+<text x="688" y="738" font-size="12" text-anchor="middle" fill="#1f2933">so you get a login</text>
+<text x="688" y="754" font-size="12" text-anchor="middle" fill="#1f2933">prompt</text>
+<rect x="784" y="664" width="160" height="100" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="864" y="686" font-size="13" text-anchor="middle" fill="#1f2933">closed policy</text>
+<text x="864" y="706" font-size="12" text-anchor="middle" fill="#1f2933">no getty starts;</text>
+<text x="864" y="722" font-size="12" text-anchor="middle" fill="#1f2933">systemd starts vtium</text>
+<text x="864" y="738" font-size="12" text-anchor="middle" fill="#1f2933">again, at most 5</text>
+<text x="864" y="754" font-size="12" text-anchor="middle" fill="#1f2933">starts in 10 s</text>
+<!-- legend -->
+<rect x="24" y="752" width="24" height="14" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="56" y="764" font-size="13" fill="#1f2933">as root</text>
+<rect x="140" y="752" width="24" height="14" fill="#fbecd0" stroke="#9aa5b1" stroke-width="1"/>
+<text x="172" y="764" font-size="13" fill="#1f2933">as the session's user</text>
+<rect x="368" y="752" width="24" height="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="400" y="764" font-size="13" fill="#1f2933">the system</text>
+</svg>
