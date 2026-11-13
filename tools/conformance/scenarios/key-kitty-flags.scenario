@@ -1,5 +1,5 @@
 # The kitty keyboard protocol's flags: CSI ? u reports the flags in force,
-# and only flags 1 and 2 are kept, so a push of 31 reads back 3; CSI = flags ; mode u
+# and all five flags are kept, so a push of 31 reads back 31; CSI = flags ; mode u
 # sets exactly, sets bits and clears bits, and mode 4 changes nothing; a
 # stack keeps eight sets, so a ninth push drops the oldest; CSI < 0 u pops
 # nothing and a pop past the bottom puts 0 in force; each screen keeps its
