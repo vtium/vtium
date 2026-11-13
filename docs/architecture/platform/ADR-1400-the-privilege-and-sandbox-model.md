@@ -430,7 +430,7 @@ The first slice is shaped so that the third does not undo it:
 | Kitty file and shared-memory media | the user's files | the helper, as the session's user (D2) | the image helper and its sandbox |
 | OSC 50 font paths | the user's files | the helper, with the same identity and path rules, as kmscon ADR-103 planned | runtime font changes |
 | OSC 52 write | the clipboard | the OSC string bound; reads refused (ADR-1000) | the OSC string bound and OSC 52 copy-out |
-| setBackground | the display | ADR-1000's row: behind a configuration key, on by default | display hand-back |
+| setBackground | the display | behind `allow-display-ops`, on by default; only a console a head shows; on the kernel's VT only, ignored under a seat manager (ADR-1401 D16) | display hand-back |
 
 ### Where vtium departs, and where the gaps go
 
