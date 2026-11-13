@@ -483,6 +483,25 @@ mod with {
             true
         }
 
+        /// The rectangle of rows `band` and columns `cols`, inside left and
+        /// right margins, is about to scroll `n` rows; returns whether the
+        /// store took the scroll, which `images_scrolled` then ends once the
+        /// cells have moved (ADR-1100, D6).
+        pub(in crate::screen) fn images_scroll_in(
+            &mut self,
+            band: (usize, usize),
+            cols: (usize, usize),
+            n: usize,
+            up: bool,
+        ) -> bool {
+            if !self.images.has_placements() {
+                return false;
+            }
+            let keys = self.active_keys();
+            self.images.scroll_in(band, cols, n, up, keys.rows());
+            true
+        }
+
         pub(in crate::screen) fn images_scrolled(&mut self, took: bool) {
             if took {
                 let keys = self.active_keys();
@@ -803,6 +822,17 @@ mod without {
             _: (usize, usize),
             _: usize,
             _: bool,
+            _: bool,
+        ) -> bool {
+            false
+        }
+
+        #[inline(always)]
+        pub(in crate::screen) fn images_scroll_in(
+            &mut self,
+            _: (usize, usize),
+            _: (usize, usize),
+            _: usize,
             _: bool,
         ) -> bool {
             false

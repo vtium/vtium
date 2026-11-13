@@ -66,13 +66,41 @@ impl Default for Limits {
     }
 }
 
-/// The scroll region's first and last rows, as DECSTBM set them, both
-/// included. vtium has no left and right margins (DECSLRM), so the region
-/// spans every column.
+/// The scroll region's four margins, each included: its first and last
+/// rows, as DECSTBM set them, and its first and last columns, as DECSLRM
+/// set them, which are the screen's first and last columns while DECLRMM
+/// is reset (ADR-1100, D6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Margins {
     pub top: usize,
     pub bottom: usize,
+    pub left: usize,
+    pub right: usize,
+}
+
+impl Margins {
+    /// Whether column `x` lies between the left and right margins, where a
+    /// line feed at the bottom margin scrolls the region.
+    pub fn holds_column(&self, x: usize) -> bool {
+        x >= self.left && x <= self.right
+    }
+
+    /// The column CUF stops at from column `x` on a screen `cols` wide: the
+    /// right margin, or the screen's last column when `x` is past the
+    /// right margin.
+    pub fn right_stop(&self, x: usize, cols: usize) -> usize {
+        if x > self.right {
+            cols.saturating_sub(1)
+        } else {
+            self.right
+        }
+    }
+
+    /// The column CR goes to from column `x`: the left margin, or the
+    /// screen's first column when `x` is left of the left margin.
+    pub fn line_start(&self, x: usize) -> usize {
+        if x >= self.left { self.left } else { 0 }
+    }
 }
 
 /// The sixel state a handler reads, which vtium-term holds (D1): the

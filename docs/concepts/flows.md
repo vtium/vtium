@@ -168,6 +168,48 @@ The picture shows the file with one keyboard connected, `kbd`, on port 3.3.
 
 On VT 3, the keyboard on port 3.3 types into nothing, because its head runs only on VT 4. Its `Ctrl-Alt-F4` still switches to VT 4, where it types into `panel`. With `switch-on-enter = yes` in `panel`'s section, Enter on that keyboard switches to VT 4 too. See [Terms](../head-file.md#terms) for details.
 
+## When a keyboard reaches no screen
+
+Under the open policy, two guards keep you from locking yourself out. The anti-lockout guard and the rescue key each move a keyboard to a head where you can use it. Each one shows a notice over the session that says where the keyboard went. See [Notices on the screen](../troubleshooting.md#notices-on-the-screen) for how long a notice stays. [Heads](heads.md) describes both guards.
+
+### Every keyboard now types into NAME
+
+![vtium's notice over a shell session, 800×480 pixels. A pale red box across the top of the screen holds the notice, wrapped onto two lines: "Every keyboard now types into desk, because no keyboard reached a screen that is on. To send a keyboard elsewhere, change its rule in /etc/vtium/vtium.conf, then restart vtium or reboot." Below the box, the shell session goes on.](../figures/concepts-notice-anti-lockout.png)
+
+**Every keyboard now types into NAME, because no keyboard reached a screen that is on.**
+
+**Why.** The anti-lockout guard shows this notice. A head is lit when at least one of its displays is on. The guard acts while keyboards are connected, but no keyboard reaches a lit head. For example, the rules send your only keyboard to a head whose monitor is unplugged, while another head's monitor is on. The guard then makes every keyboard roam, and it makes a lit head, NAME, the active head. So every keyboard types into NAME.
+
+**What to do.** As soon as a keyboard reaches a lit head through its own rule, the guard stops. Each keyboard then goes back to where its rule sends it. For example, the guard stops when you plug the monitor back in.
+
+To send a keyboard somewhere else for good, change its rule in vtium.conf. Then restart vtium or reboot.
+
+**How to avoid it.** Before you install a file, run `vtium check-config` with your keyboards and displays connected. It notes when the rules ignore every keyboard, and when a head's only keyboard is one device. Keep a rule below your own rules that sends every keyboard somewhere you can use it, such as `input class:keyboard -> roaming`, as the built-in configuration does.
+
+### Keyboard DEVICE now types into NAME, the active screen
+
+![vtium's notice over a shell session, 800×480 pixels. A pale red box across the top of the screen holds the notice, wrapped onto two lines: "Keyboard /dev/input/event3 now types into desk, the active screen, until the next boot (the rescue key moved it). To keep it there, give it a rule in /etc/vtium/vtium.conf." Below the box, the shell session goes on.](../figures/concepts-notice-rescue.png)
+
+**Keyboard DEVICE now types into NAME, the active screen, until the next boot (the rescue key moved it).**
+
+**Why.** You pressed the rescue key, and the rescue key shows this notice. The rescue key is `Ctrl-Alt` and the function key of the VT that is already on screen, such as `Ctrl-Alt-F2` on VT 2. The rescue key makes the keyboard that pressed it roam, so that keyboard types into the active head, NAME. DEVICE is the keyboard's device file, such as `/dev/input/event3`.
+
+**What to do.** Nothing, unless you want the keyboard somewhere else. To keep the keyboard there after the next boot, give the keyboard a rule in vtium.conf. See [Rules and the policy](#rules-and-the-policy) for details.
+
+**How to avoid it.** Give each keyboard a rule that sends it where you want it. You then need the rescue key only when a rule goes wrong.
+
+### Keyboard DEVICE now types into the active screen
+
+![vtium's notice over a shell session, 800×480 pixels. A pale red box across the top of the screen holds the notice, wrapped onto two lines: "Keyboard /dev/input/event3 now types into the active screen until the next boot (the rescue key moved it), but no screen is active. Press Ctrl+Super+↑ to choose one." Below the box, the shell session goes on.](../figures/concepts-notice-rescue-no-head.png)
+
+**Keyboard DEVICE now types into the active screen until the next boot (the rescue key moved it), but no screen is active.**
+
+**Why.** The rescue key moved the keyboard, as above, but no head is the active head at that moment. A head can be the active head only when it is not isolated. So this happens when every head sets `isolated = yes`, or when no head that can be the active head is lit. The keyboard types into nothing until a head becomes the active head.
+
+**What to do.** The notice names the roaming chord, `Ctrl-Super-Up` by default. Press the roaming chord on this keyboard to make a lit head the active head. While no head that can be the active head is lit, the first such head becomes the active head as soon as it lights.
+
+**How to avoid it.** Leave at least one head without `isolated = yes`, and give that head a display that is on. There is then always an active head for the rescue key to send a keyboard to.
+
 ## Where the details are
 
 - [Heads](heads.md) explains the policies, the guards, and what happens when a display goes away.

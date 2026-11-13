@@ -23,6 +23,7 @@ mod events;
 mod frame;
 mod iterm2;
 pub(crate) mod kitty;
+mod margins;
 mod relative;
 mod reserve;
 mod runs;

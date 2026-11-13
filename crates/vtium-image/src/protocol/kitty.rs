@@ -1146,21 +1146,17 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
         return Ok(());
     }
     // down one row fewer than the box's rows, then the column after the
-    // box, or down once more to column 0 when that reaches the right edge;
-    // bounded by the distance to the bottom margin and one screen, so a
-    // box of 10,000 rows costs at most a screen of scrolling
-    let box_cols = usize::try_from(box_cols).unwrap_or(usize::MAX);
-    let target = if box_cols < cols.saturating_sub(x) {
-        x.saturating_add(box_cols)
-    } else {
-        cols
-    };
-    let wraps = target >= cols;
+    // box; when that passes the column CUF stops at, down once more to the
+    // column CR goes to (ADR-1100, D6); the index is bounded by the
+    // distance to the bottom margin and one screen, so a box of 10,000
+    // rows costs at most a screen of scrolling
+    let margins = ctx.margins();
+    let target = x.saturating_add(usize::try_from(box_cols).unwrap_or(usize::MAX));
+    let wraps = target > margins.right_stop(x, cols);
     let down = usize::try_from(box_rows)
         .unwrap_or(usize::MAX)
         .saturating_sub(1)
         .saturating_add(usize::from(wraps));
-    let margins = ctx.margins();
     let room = if cy >= margins.top && cy <= margins.bottom {
         margins.bottom.saturating_sub(cy)
     } else {
@@ -1168,7 +1164,7 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
     };
     ctx.index(down.min(room.saturating_add(rows)));
     let (_, row) = ctx.cursor();
-    ctx.move_cursor(if wraps { 0 } else { target }, row);
+    ctx.move_cursor(if wraps { margins.line_start(x) } else { target }, row);
     Ok(())
 }
 
