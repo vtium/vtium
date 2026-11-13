@@ -126,7 +126,7 @@ kitty-featq-payload 20 10
 kitty-featq-quiet 20 10
 kitty-featq-relative 20 10
 kitty-featq-spec-f 20 10
-kitty-featq-spec-T 20 10
+kitty-featq-spec-capital-t 20 10
 kitty-featq-unknown-action 20 10
 kitty-featq-wrong-action 20 10
 kitty-upload-alt-elsewhere 20 10
@@ -167,4 +167,4 @@ kitty-upload-ris 20 10
 kitty-upload-short 20 10
 kitty-upload-sixel-between 20 10
 kitty-upload-stray 20 10
-kitty-upload-T-cursor 20 10
+kitty-upload-capital-t-cursor 20 10
