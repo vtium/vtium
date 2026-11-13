@@ -552,3 +552,142 @@ fn a_rule_vtium_drops_is_still_numbered() {
         ]
     );
 }
+
+/// Whether vtium reads `text` with no error for a line too long.
+fn reads_every_line(text: &str) -> bool {
+    !vtium_settings::reading(text.as_bytes())
+        .errors
+        .errors
+        .iter()
+        .any(|e| e.problem == vtium_settings::Problem::LineTooLong)
+}
+
+/// `n` bytes of filler.
+fn filler(n: usize) -> String {
+    "x".repeat(n)
+}
+
+#[test]
+fn a_key_s_line_vtium_would_not_read_for_its_length_is_refused() {
+    let max = vtium_settings::LINE_MAX;
+    // a new line `font-name = VALUE`, below the heading on line 2
+    let text = "version = 1\n[look a]\n";
+    let fits = filler(max - "font-name = ".len());
+    let out = set_key(text, Of::Look("a"), "font-name", Some(&fits)).expect("a line of LINE_MAX");
+    assert!(reads_every_line(&out));
+    let over = filler(max + 1 - "font-name = ".len());
+    assert_eq!(
+        set_key(text, Of::Look("a"), "font-name", Some(&over)),
+        Err(SectionEdit::LineTooLong {
+            line: 3,
+            bytes: max + 1
+        })
+    );
+    // a value replaced in place keeps the comment after it, which counts,
+    // and a carriage return before the newline does not
+    let text = "version = 1\r\n[look a]\r\nfont-name = x   # mine\r\n";
+    let fits = filler(max - "font-name = ".len() - "   # mine".len());
+    let out = set_key(text, Of::Look("a"), "font-name", Some(&fits)).expect("a line of LINE_MAX");
+    assert!(out.ends_with("   # mine\r\n"));
+    assert!(reads_every_line(&out));
+    let over = format!("{fits}x");
+    assert_eq!(
+        set_key(text, Of::Look("a"), "font-name", Some(&over)),
+        Err(SectionEdit::LineTooLong {
+            line: 3,
+            bytes: max + 1
+        })
+    );
+    // unsetting comments the line out, one byte longer
+    let full = format!("version = 1\n[look a]\nfont-name = {}\n", filler(max - 12));
+    assert!(reads_every_line(&full));
+    assert_eq!(
+        set_key(&full, Of::Look("a"), "font-name", None),
+        Err(SectionEdit::LineTooLong {
+            line: 3,
+            bytes: max + 1
+        })
+    );
+    let short = format!("version = 1\n[look a]\nfont-name = {}\n", filler(max - 13));
+    let out = set_key(&short, Of::Look("a"), "font-name", None).expect("a line of LINE_MAX");
+    assert!(reads_every_line(&out));
+}
+
+#[test]
+fn a_rule_s_line_vtium_would_not_read_for_its_length_is_refused() {
+    let max = vtium_settings::LINE_MAX;
+    let text = "version = 1\n[head a]\n[rules]\ninput * -> a\n";
+    let rule = |n: usize| format!("display * -> a # {}", filler(n - "display * -> a # ".len()));
+    let out = add_rule(text, &rule(max), None).expect("a line of LINE_MAX");
+    assert!(reads_every_line(&out));
+    assert_eq!(
+        add_rule(text, &rule(max + 1), None),
+        Err(SectionEdit::LineTooLong {
+            line: 5,
+            bytes: max + 1
+        })
+    );
+    // the writer trims the blanks around a rule, so they do not count
+    assert!(add_rule(text, &format!("  {}  ", rule(max)), None).is_ok());
+    // a rule replaced in place keeps the comment after it, which counts
+    let text = "version = 1\n[head a]\n[rules]\ninput * -> a   # mine\n";
+    let fits = rule(max - "   # mine".len());
+    let out = set_rule(text, 1, &fits).expect("a line of LINE_MAX");
+    assert!(reads_every_line(&out));
+    assert_eq!(
+        set_rule(text, 1, &format!("{fits}x")),
+        Err(SectionEdit::LineTooLong {
+            line: 4,
+            bytes: max + 1
+        })
+    );
+}
+
+#[test]
+fn a_rename_that_makes_a_line_too_long_for_vtium_is_refused() {
+    let max = vtium_settings::LINE_MAX;
+    // each line that names `a` is LINE_MAX long, so a longer name makes it
+    // too long, and a name of the same length does not
+    let pad = |line: &str| format!("{line} # {}", filler(max - line.len() - " # ".len()));
+    let text = format!(
+        "version = 1\n[look a]\n{}\n{}\n[rules]\n{}\n",
+        pad("[head a]"),
+        pad("look = a"),
+        pad("display * -> a"),
+    );
+    assert!(reads_every_line(&text));
+    let out = rename_section(&text, Of::Head("a"), "b").expect("the same length");
+    assert!(reads_every_line(&out));
+    assert_eq!(
+        rename_section(&text, Of::Head("a"), "bb"),
+        Err(SectionEdit::LineTooLong {
+            line: 3,
+            bytes: max + 1
+        })
+    );
+    let rules_only = text.replacen(&pad("[head a]"), "[head a]", 1);
+    assert_eq!(
+        rename_section(&rules_only, Of::Head("a"), "bb"),
+        Err(SectionEdit::LineTooLong {
+            line: 6,
+            bytes: max + 1
+        })
+    );
+    assert_eq!(
+        rename_section(&text, Of::Look("a"), "bb"),
+        Err(SectionEdit::LineTooLong {
+            line: 4,
+            bytes: max + 1
+        })
+    );
+    // the refusal names the line and what to do
+    assert_eq!(
+        rename_section(&text, Of::Look("a"), "bb")
+            .err()
+            .map(|e| e.to_string())
+            .as_deref(),
+        Some(
+            "This change would make line 4 of vtium.conf 8193 bytes long. vtium does not read a line longer than 8192 bytes, so vtium-config leaves the file as it is. Use a shorter value, rule, or name, or shorten the comment on that line with vtium config edit."
+        )
+    );
+}
