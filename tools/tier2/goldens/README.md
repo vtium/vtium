@@ -11,7 +11,7 @@ The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a p
 | `edges-upside-down.ppm` | The same turned half round. The two cut wide glyphs show their left halves, as in every orientation. |
 | `edges-left.ppm` | The same turned left: text reads bottom to top. The cut wide glyphs show their left halves, as in every orientation. |
 | `erase-pen.ppm` | 320x96: a red top row scrolled in, then `line one stays as it is`; `line two is ` and red to the end; two red cells and `line three gets two cells inserted`; `line four stays as it is`; `line five is erase` and red to the end. No red cell carries an underline or a strike. |
-| `vs16-unifont.ppm` | 256x80: `a`, the heart and `b` four times. The VS16 heart and the underlined VS16 heart take two cells, the text heart centred in them; the plain and VS15 hearts take one, cut to it. |
+| `vs16-unifont.ppm` | 256x80: `a`, the heart and `b` four times. The VS16 heart and the underlined VS16 heart take two cells, the text heart centred in them; the plain and VS15 hearts take one, squeezed into it, two of unifont's columns into one. |
 | `vs16-wcwidth.ppm` | The same by wcwidth: every heart one cell, the VS16 ones included. |
 | `wide-deco-unifont.ppm` | 384x160: `日本語` underlined, `漢字` curly, `カタカナ` dotted in red; `한글` double, `中文` dashed, `日本語` struck; `a日b本c` underlined; and `語` underlined and struck at the start of row 6, wrapped from the last column of row 5. |
 | `redraw-unifont.ppm` | 384x160: `unchanged line`, `line 2 CHANGED curly` with `curly` under a curly line, `line three stays`, and `new struck` struck through. |
