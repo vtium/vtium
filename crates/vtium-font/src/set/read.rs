@@ -709,6 +709,16 @@ impl Set {
         Some(strike.info.decorations)
     }
 
+    /// How many cells `c`'s regular glyph at `cell` spans, as its strike's
+    /// map marks it, read without decoding the glyph's chunk; `None` when
+    /// the set lacks it.
+    pub(crate) fn advance(&self, cell: Cell, c: char) -> Option<Width> {
+        let cp = u32::from(c);
+        let (strike, _) = self.strike_for(cell, Style::default().into(), cp)?;
+        let at = strike.locate(&self.chunks, strike.index(cp)?)?;
+        Some(if at.wide { Width::Wide } else { Width::Narrow })
+    }
+
     /// The glyph for `c` at `cell`, drawn at `scale`; `None` when the set
     /// lacks it or its chunk does not decode.
     pub(crate) fn draw(&self, cell: Cell, c: char, style: Style, scale: u32) -> Option<Glyph> {

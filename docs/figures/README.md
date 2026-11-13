@@ -4,7 +4,7 @@ The figures of vtium's documentation pages outside the decision records, which k
 
 | Path | What it is | How it is made |
 |---|---|---|
-| `concepts-pieces.svg` | [concepts/suite.md](../concepts/suite.md): vtium's suite, which pieces run as root and which as the user, the pty between them, and the one sudo of each install of vtium.conf or a frit | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
+| `concepts-pieces.svg` | [concepts/suite.md](../concepts/suite.md): vtium's suite, which pieces run as root, which as nobody and which as the user, the pty between vtium and the session, the two helpers that vtium starts, the font helper over two pipes and the image helper over a socket pair, and the one sudo of each install of vtium.conf or a frit | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
 | `concepts-vt-handover.svg` | [concepts/start-up.md](../concepts/start-up.md): who holds the display and the input across a VT switch away and back | Written by hand; `rsvg-convert concepts-vt-handover.svg -o OUT.png` renders it to check |
 | `concepts-works-processes.svg` | [concepts/how-vtium-works.md](../concepts/how-vtium-works.md): the processes that run with vtium, the user each runs as, the console's threads, the crates in each, and the channels between them | Written by hand; `rsvg-convert concepts-works-processes.svg -o OUT.png` renders it to check |
 | `concepts-works-vt.svg` | [concepts/how-vtium-works.md](../concepts/how-vtium-works.md): the VT's life as a state machine, from vtium's start through switches away and back to its end, and what systemd does after each exit | Written by hand; `rsvg-convert concepts-works-vt.svg -o OUT.png` renders it to check |

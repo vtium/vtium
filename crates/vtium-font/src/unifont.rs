@@ -19,7 +19,7 @@
 //! Copyright (c) 2012-2013 David Herrmann <dh.herrmann@googlemail.com>
 
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::{Cell, Decorations, Face, Style};
+use crate::face::{Cell, Decorations, Face, Style, Width};
 use crate::glyph::Glyph;
 use crate::policy::{RangeCoverage, SpritePolicy};
 use crate::script::Origin;
@@ -115,6 +115,12 @@ impl Face for Unifont {
     /// of its own, scaled.
     fn decorations(&self) -> Decorations {
         Decorations::for_height(self.cell().height)
+    }
+
+    /// The cells the built-in set's map marks the glyph with: two for a
+    /// glyph GNU Unifont draws 16 pixels wide.
+    fn advance(&self, c: char) -> Option<Width> {
+        set()?.advance(CELL, c)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {

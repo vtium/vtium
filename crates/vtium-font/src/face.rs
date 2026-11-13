@@ -112,6 +112,16 @@ pub trait Face {
         SpritePolicy::default_for(&Coverage::new(|range| self.coverage(range)))
     }
 
+    /// How many cells the face's glyph for `c` spans, as [`Face::draw`]
+    /// marks the glyph: the glyph's advance, which text is measured by
+    /// before it is drawn. `None` when the face draws no glyph for `c`.
+    /// This default draws the glyph to find out. A face that keeps each
+    /// glyph's width in its map reads the width there, so measuring a
+    /// character does not draw it.
+    fn advance(&self, c: char) -> Option<Width> {
+        self.draw(&[c], Style::default()).map(|g| g.cells())
+    }
+
     /// The glyph for `cluster` at the face's own width for it, marked with
     /// the cells that width spans, or `None`
     /// when the face lacks it. A face that cannot shape draws the first
@@ -251,6 +261,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn sprite_policy(&self) -> SpritePolicy {
         (**self).sprite_policy()
+    }
+    fn advance(&self, c: char) -> Option<Width> {
+        (**self).advance(c)
     }
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
