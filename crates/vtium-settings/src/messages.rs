@@ -1118,6 +1118,11 @@ impl fmt::Display for crate::write::SectionEdit {
                 "vtium.conf has two sections named {}, so vtium-config cannot tell which one to change. Rename or remove one of them with vtium config edit.",
                 Quoted::new(name)
             ),
+            SectionEdit::LineTooLong { line, bytes } => write!(
+                f,
+                "This change would make line {line} of vtium.conf {bytes} bytes long. vtium does not read a line longer than {max} bytes, so vtium-config leaves the file as it is. Use a shorter value, rule, or name, or shorten the comment on that line with vtium config edit.",
+                max = crate::LINE_MAX,
+            ),
         }
     }
 }

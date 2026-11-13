@@ -16,15 +16,65 @@
 //!
 //! The text is built from lines vtium.conf holds (headings, keys, rules,
 //! comments and blank lines) and from any text, with either line ending,
-//! with or without a last newline and a byte-order mark.
+//! with or without a last newline and a byte-order mark. Some of its lines,
+//! values and rules are padded with a comment or filler to within a few
+//! bytes of `LINE_MAX`, either side, since libFuzzer's input cap of 4096
+//! bytes keeps the target from building a line that long byte by byte.
 #![no_main]
+
+use std::sync::LazyLock;
 
 use libfuzzer_sys::arbitrary::{Result, Unstructured};
 use libfuzzer_sys::fuzz_target;
 use vtium_settings::{
-    ERRORS_MAX, Of, Problem, Reading, add_rule, add_section, key_line, move_rule, reading,
-    remove_rule, remove_section, rename_section, rule_lines, set_key, set_rule, split,
+    ERRORS_MAX, LINE_MAX, Of, Problem, Reading, add_rule, add_section, key_line, move_rule,
+    reading, remove_rule, remove_section, rename_section, rule_lines, set_key, set_rule, split,
 };
+
+/// How many bytes a long line's length runs from `LINE_MAX`, either way.
+const NEAR: usize = 16;
+
+/// The filler that pads a value or a comment out to a long line.
+static FILLER: LazyLock<String> = LazyLock::new(|| "x".repeat(LINE_MAX + NEAR));
+
+/// Each of [`RULES`], trimmed, with a comment that makes its line
+/// `LINE_MAX - NEAR` to `LINE_MAX + NEAR` bytes long.
+static LONG_RULES: LazyLock<Vec<String>> = LazyLock::new(|| {
+    let mut out = Vec::new();
+    for rule in RULES {
+        let rule = rule.trim();
+        for len in LINE_MAX - NEAR..=LINE_MAX + NEAR {
+            let pad = len - rule.len() - " # ".len();
+            out.push(format!("{rule} # {}", &FILLER[..pad]));
+        }
+    }
+    out
+});
+
+/// A value that makes a key's line near `LINE_MAX` bytes long.
+fn long_value(u: &mut Unstructured<'_>) -> Result<&'static str> {
+    let n = u.int_in_range(LINE_MAX - NEAR..=LINE_MAX)?;
+    Ok(&FILLER[..n])
+}
+
+/// A value from [`VALUES`], any text, or now and then a long one.
+fn value<'a>(u: &mut Unstructured<'a>) -> Result<&'a str> {
+    if u.ratio(1, 8)? {
+        long_value(u)
+    } else {
+        pick(u, VALUES)
+    }
+}
+
+/// A rule from [`RULES`], any text, or now and then a long one.
+fn rule<'a>(u: &mut Unstructured<'a>) -> Result<&'a str> {
+    if u.ratio(1, 8)? {
+        let rules: &'static [String] = &LONG_RULES;
+        Ok(rules[u.choose_index(rules.len())?].as_str())
+    } else {
+        pick(u, RULES)
+    }
+}
 
 /// Lines vtium.conf holds, which the text is built from.
 const LINES: &[&str] = &[
@@ -107,7 +157,16 @@ fn text(u: &mut Unstructured<'_>) -> Result<String> {
     }
     let n = u.int_in_range(0..=40)?;
     for i in 0..n {
-        out.push_str(pick(u, LINES)?);
+        let line = pick(u, LINES)?;
+        out.push_str(line);
+        // a comment that makes the line LINE_MAX bytes long or a little
+        // less, so an edit that lengthens it can take it past the bound
+        if u.ratio(1, 16)? {
+            let len = u.int_in_range(LINE_MAX - NEAR..=LINE_MAX)?;
+            let pad = len.saturating_sub(line.len() + " # ".len());
+            out.push_str(" # ");
+            out.push_str(&FILLER[..pad]);
+        }
         let last = i + 1 == n;
         if !(last && u.ratio(1, 4)?) {
             out.push_str(if u.ratio(1, 6)? { "\r\n" } else { "\n" });
@@ -144,7 +203,7 @@ enum Op<'a> {
 
 fn op<'a>(u: &mut Unstructured<'a>) -> Result<Op<'a>> {
     Ok(match u.int_in_range(0..=8_u8)? {
-        0 => Op::SetKey(section(u)?, pick(u, KEYS)?, Some(pick(u, VALUES)?)),
+        0 => Op::SetKey(section(u)?, pick(u, KEYS)?, Some(value(u)?)),
         1 => Op::SetKey(section(u)?, pick(u, KEYS)?, None),
         2 => Op::AddSection(section(u)?),
         3 => Op::RemoveSection(section(u)?),
@@ -155,9 +214,9 @@ fn op<'a>(u: &mut Unstructured<'a>) -> Result<Op<'a>> {
             } else {
                 None
             };
-            Op::AddRule(pick(u, RULES)?, before)
+            Op::AddRule(rule(u)?, before)
         }
-        6 => Op::SetRule(number(u)?, pick(u, RULES)?),
+        6 => Op::SetRule(number(u)?, rule(u)?),
         7 => Op::MoveRule(number(u)?, number(u)?),
         _ => Op::RemoveRule(number(u)?),
     })
