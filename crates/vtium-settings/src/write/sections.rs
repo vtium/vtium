@@ -10,12 +10,15 @@
 //! `vtium check-config`. The writer finds what it edits by the file's
 //! lines alone, the section headings and the lines of `[rules]`, and
 //! refuses only an edit it cannot place: a section or a rule that is not
-//! there, a name or a heading given twice, or text it cannot write as one
-//! line that reads back as what it was asked to write. vtium-config's
+//! there, a name or a heading given twice, text it cannot write as one
+//! line that reads back as what it was asked to write, or a line it would
+//! write longer than [`LINE_MAX`] bytes, which vtium does not read.
+//! vtium-config's
 //! commands and its views write the sections through these functions
 //! alone; the line editor, [`edit_conf`](crate::edit_conf), writes the top
 //! level.
 
+use crate::LINE_MAX;
 use crate::config::Rule;
 use crate::error::Rejected;
 use crate::identity::Kind;
@@ -57,6 +60,11 @@ pub enum SectionEdit {
     /// Two sections of this kind and name, so the writer cannot tell which
     /// one it is asked to edit.
     Ambiguous(String),
+    /// A line the edit would write that is longer than
+    /// [`LINE_MAX`](crate::LINE_MAX) bytes, which vtium does not read: the
+    /// line's number in the edited file, counting from 1, and its length
+    /// as the reader measures it.
+    LineTooLong { line: usize, bytes: usize },
 }
 
 /// The file's lines, each with its ending, the ending a new line takes,
@@ -96,8 +104,8 @@ impl Lines {
 
     /// Inserts `text` as a whole line before the line numbered `n`, or at
     /// the end past the last line, giving the line before it an ending
-    /// where it has none.
-    fn insert(&mut self, n: usize, text: &str) {
+    /// where it has none, and returns the number of the line it wrote.
+    fn insert(&mut self, n: usize, text: &str) -> usize {
         let at = n.saturating_sub(1).min(self.lines.len());
         if let Some(before) = at.checked_sub(1).and_then(|i| self.lines.get_mut(i))
             && !before.ends_with('\n')
@@ -105,6 +113,26 @@ impl Lines {
             before.push_str(self.newline);
         }
         self.lines.insert(at, format!("{text}{}", self.newline));
+        at.saturating_add(1)
+    }
+
+    /// Refuses an edit that leaves the line numbered `n` longer than
+    /// [`LINE_MAX`] bytes, which vtium does not read. The length is the
+    /// reader's: the line's bytes without its newline, a carriage return
+    /// before the newline being part of the newline, and the byte-order
+    /// mark before the first line no part of it.
+    fn fits(&self, n: usize) -> Result<(), SectionEdit> {
+        let Some(line) = n.checked_sub(1).and_then(|i| self.lines.get(i)) else {
+            return Ok(());
+        };
+        let bytes = match line.strip_suffix('\n') {
+            Some(l) => l.strip_suffix('\r').unwrap_or(l).len(),
+            None => line.len(),
+        };
+        if bytes > LINE_MAX {
+            return Err(SectionEdit::LineTooLong { line: n, bytes });
+        }
+        Ok(())
     }
 
     /// Replaces the bytes `range` of the line numbered `n`.
@@ -319,9 +347,16 @@ pub fn set_key(
                 .saturating_add(1)
                 .saturating_add(lead);
             lines.replace(n, from..range.end.max(from), value);
+            lines.fits(n)?;
         }
-        (Some(n), None) => lines.replace(n, 0..0, "#"),
-        (None, Some(value)) => lines.insert(start.saturating_add(1), &format!("{key} = {value}")),
+        (Some(n), None) => {
+            lines.replace(n, 0..0, "#");
+            lines.fits(n)?;
+        }
+        (None, Some(value)) => {
+            let n = lines.insert(start.saturating_add(1), &format!("{key} = {value}"));
+            lines.fits(n)?;
+        }
         (None, None) => return Ok(text.to_owned()),
     }
     Ok(lines.text())
@@ -447,6 +482,7 @@ pub fn rename_section(text: &str, of: Of<'_>, new: &str) -> Result<String, Secti
     }
     let range = content_range(lines.body(start).unwrap_or_default());
     lines.replace(start, range, &format!("[{kind} {new}]"));
+    lines.fits(start)?;
     match of {
         Of::Head(_) => {
             for n in lines.rules() {
@@ -469,6 +505,7 @@ pub fn rename_section(text: &str, of: Of<'_>, new: &str) -> Result<String, Secti
                     .saturating_add(2)
                     .saturating_add(lead);
                 lines.replace(n, from..range.end, new);
+                lines.fits(n)?;
             }
         }
         Of::Look(_) => {
@@ -498,6 +535,7 @@ pub fn rename_section(text: &str, of: Of<'_>, new: &str) -> Result<String, Secti
                         .saturating_add(1)
                         .saturating_add(lead);
                     lines.replace(n, from..range.end, new);
+                    lines.fits(n)?;
                 }
             }
         }
@@ -588,7 +626,7 @@ pub fn add_rule(text: &str, rule: &str, before: Option<usize>) -> Result<String,
             place(&read, kind, &matcher)
         }
     };
-    match (rules.get(index), rules.last()) {
+    let written = match (rules.get(index), rules.last()) {
         (Some((next, _)), _) => lines.insert(*next, rule),
         (None, Some((last, _))) => lines.insert(last.saturating_add(1), rule),
         (None, None) => match lines.heading(rules_heading) {
@@ -598,10 +636,11 @@ pub fn add_rule(text: &str, rule: &str, before: Option<usize>) -> Result<String,
                 let end = lines.end();
                 lines.insert(end, "[rules]");
                 let end = lines.end();
-                lines.insert(end, rule);
+                lines.insert(end, rule)
             }
         },
-    }
+    };
+    lines.fits(written)?;
     Ok(lines.text())
 }
 
@@ -613,6 +652,7 @@ pub fn set_rule(text: &str, number: usize, rule: &str) -> Result<String, Section
     let line = numbered(&lines, number)?;
     let range = content_range(lines.body(line).unwrap_or_default());
     lines.replace(line, range, rule);
+    lines.fits(line)?;
     Ok(lines.text())
 }
 

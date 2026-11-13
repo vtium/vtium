@@ -47,3 +47,13 @@ picture of the kiosk: kiosk's row has no roaming line	crates/vtium-config/tests/
 picture of the stations: three stations, each on its port	crates/vtium-config/tests/screens/flow-stations-120x32.txt	station-3
 picture of two heads on two VTs: desk on VT 3	crates/vtium-config/tests/screens/flow-shared-vts-120x32.txt	font set proof · VT 3
 picture of two heads on two VTs: panel on VT 4	crates/vtium-config/tests/screens/flow-shared-vts-120x32.txt	default font set · VT 4
+under open, the anti-lockout guard makes every keyboard roam while none reaches a lit head, and makes a lit head the active head	crates/vtium-settings/src/place.rs	Config::place_at
+the anti-lockout guard's notice, word for word, on the active head	crates/vtium/src/notice.rs	anti_lockout
+the guard runs again as devices and displays change, and stops once a keyboard reaches a lit head	crates/vtium/src/app.rs	App::guard
+the rescue key makes the keyboard that pressed it roam, and shows a notice	crates/vtium/src/app.rs	App::rescue
+the rescue key's notice names the active head, or says no head is active	crates/vtium/src/app.rs	App::rescue_line
+the rescue key's notice with an active head, word for word	crates/vtium/src/notice.rs	rescue
+the rescue key's notice with no active head, word for word	crates/vtium/src/notice.rs	rescue_no_head
+check-config notes when the rules ignore every keyboard, and when a head's only keyboard is one device	crates/vtium/src/check.rs	device_findings
+the built-in configuration sends every keyboard to roaming	crates/vtium-settings/templates/heads.conf	input class:keyboard -> roaming
+a head can be the active head only when it is not isolated and runs on this VT	crates/vtium-settings/src/place.rs	Config::can_be_active

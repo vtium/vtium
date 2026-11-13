@@ -1,0 +1,35 @@
+checkpoint 152
+size 12x6
+cursor 0,0
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbbbbbbbbbbb|
+row 2 |cccccccccccc|
+row 3 |dddddddddddd|
+row 4 |eeeeeeeeeeee|
+row 5 |ffffffffffff|
+checkpoint 224
+size 12x6
+cursor 3,4
+flags AUTO_WRAP
+host: 1 t=d flags=any,frames O=0 max=0 min=0 name= len=32
+row 0 |aaaaaaaaaaaa|
+row 1 |bbbbbbbbbbbb|
+row 2 |cccccccccccc|
+row 3 |dddddddddddd|
+row 4 |eeeeeeeeeeee|
+row 5 |ffffffffffff|
+placement 0 row 3 col 3 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 16x32 digest 0dba61c5
+checkpoint 225
+size 12x6
+cursor 3,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbccccccbbbb|
+row 2 |ccddddddcccc|
+row 3 |ddeeeeeedddd|
+row 4 |ee      eeee|
+row 5 |ffffffffffff|
+placement 0 row 2 col 3 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 16x32 digest 0dba61c5

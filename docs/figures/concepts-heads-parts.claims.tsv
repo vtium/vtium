@@ -1,0 +1,16 @@
+# Claims of concepts-heads-parts.svg in docs/concepts/heads.md.
+element	file	symbol
+vtium on one VT, which holds every head that runs there	crates/vtium/src/head/vt.rs	VtHeads
+head desk, from its [head desk] section	crates/vtium/src/head/session.rs	heads
+the head	crates/vtium/src/head.rs	Head
+look: a font set and its size	crates/vtium-settings/src/keys.rs	key font-name
+look: the size	crates/vtium-settings/src/keys.rs	key font-size
+console 1, shown	crates/vtium/src/head.rs	Head::show
+console: its own login, screen and scrollback	crates/vtium/src/head/console.rs	Console
+behind it, the other consoles run unseen	crates/vtium/src/head.rs	Head::consoles
+Ctrl-Super-Right shows another console	crates/vtium-settings/src/keys.rs	key key-console-next
+Ctrl-Super-Left shows another console	crates/vtium-settings/src/keys.rs	key key-console-previous
+keyboard and mouse on USB port 3.1: a rule sends port 3.1 to desk	crates/vtium/src/head/route.rs	Routes::add
+roaming keyboard: it types into desk while desk is the active head	crates/vtium/src/head/route.rs	head_of
+a rule sends each display to desk	crates/vtium/src/head.rs	place_display
+both displays show the console shown, on one grid	crates/vtium/src/layout.rs	layout

@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="352" viewBox="0 0 880 352" font-family="DejaVu Sans Mono, monospace">
+<title>What the open and the closed policy do with a keyboard that no rule names</title>
+<rect width="880" height="352" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- open -->
+<rect x="16" y="16" width="416" height="320" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="40" font-size="14" fill="#1f2933">policy = open</text>
+<rect x="32" y="60" width="176" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="120" y="82" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="120" y="100" font-size="12" text-anchor="middle" fill="#1f2933">a rule sends it</text>
+<text x="120" y="116" font-size="12" text-anchor="middle" fill="#1f2933">to kiosk</text>
+<line x1="208" y1="92" x2="270" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="272" y="68" width="144" height="48" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="344" y="97" font-size="13" text-anchor="middle" fill="#1f2933">head kiosk</text>
+<rect x="32" y="148" width="176" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="120" y="174" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="120" y="194" font-size="12" text-anchor="middle" fill="#1f2933">no rule names it</text>
+<line x1="208" y1="180" x2="270" y2="180" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<rect x="272" y="148" width="144" height="64" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="344" y="174" font-size="13" text-anchor="middle" fill="#1f2933">the active</text>
+<text x="344" y="192" font-size="13" text-anchor="middle" fill="#1f2933">head</text>
+<text x="32" y="244" font-size="12" fill="#1f2933">No rule names it, so it roams.</text>
+<text x="32" y="268" font-size="12" fill="#1f2933">A head is isolated only with</text>
+<text x="32" y="284" font-size="12" fill="#1f2933">isolated = yes.</text>
+<text x="32" y="308" font-size="12" fill="#1f2933">The rescue key and the anti-lockout</text>
+<text x="32" y="324" font-size="12" fill="#1f2933">guard are on.</text>
+<!-- closed -->
+<rect x="448" y="16" width="416" height="320" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="464" y="40" font-size="14" fill="#1f2933">policy = closed</text>
+<rect x="464" y="60" width="176" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="552" y="82" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="552" y="100" font-size="12" text-anchor="middle" fill="#1f2933">a rule sends it</text>
+<text x="552" y="116" font-size="12" text-anchor="middle" fill="#1f2933">to kiosk</text>
+<line x1="640" y1="92" x2="702" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="704" y="68" width="144" height="48" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="776" y="97" font-size="13" text-anchor="middle" fill="#1f2933">head kiosk</text>
+<rect x="464" y="148" width="176" height="64" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="552" y="174" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="552" y="194" font-size="12" text-anchor="middle" fill="#1f2933">no rule names it</text>
+<line x1="640" y1="180" x2="676" y2="180" stroke="#1f2933" stroke-width="1.5"/>
+<path d="M 678 172 L 694 188 M 694 172 L 678 188" stroke="#1f2933" stroke-width="2.5"/>
+<text x="704" y="168" font-size="13" fill="#1f2933">ignored:</text>
+<text x="704" y="186" font-size="12" fill="#1f2933">vtium never</text>
+<text x="704" y="202" font-size="12" fill="#1f2933">opens it</text>
+<text x="464" y="244" font-size="12" fill="#1f2933">No rule names it, so its keys reach no session.</text>
+<text x="464" y="268" font-size="12" fill="#1f2933">Every head is isolated unless it</text>
+<text x="464" y="284" font-size="12" fill="#1f2933">says isolated = no.</text>
+<text x="464" y="308" font-size="12" fill="#1f2933">The rescue key and the anti-lockout</text>
+<text x="464" y="324" font-size="12" fill="#1f2933">guard are off.</text>
+</svg>

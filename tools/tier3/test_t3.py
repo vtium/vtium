@@ -2680,6 +2680,9 @@ class DevicesTest(unittest.TestCase):
                                    "vt-restore@1", "mirror"],
             "two-cards-mirror": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
                                  "vt-restore", "vt-restore@card1", "mirror"],
+            "two-cards-mirror-hotplug": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
+                                         "vt-restore", "vt-restore@card1", "mirror",
+                                         "display-unplug", "display-replug"],
             "usb-keyboards": ["cjk", "vt-switch", "vt-restore", "udev-examples",
                               "keyboard-hotplug"],
         }
@@ -2698,6 +2701,66 @@ class DevicesTest(unittest.TestCase):
         self.assertIn("max_outputs=2", t3_scenario.VARIANTS["two-outputs-mirror"]["device"])
         self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["qemu"],
                          ["-device", "virtio-gpu-pci,id=video1,xres=640,yres=480,edid=on"])
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror-hotplug"]["qemu"],
+                         ["-device", "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1",
+                          "-device", "bochs-display,id=video1,bus=rp1,xres=640,yres=480,edid=on"])
+        # The hotplug variant is judged by two-cards-mirror's goldens and has
+        # none of its own.
+        root = t3_evaluate.GOLDEN
+        for case in ("sgr@card1", "cjk", "vt-restore@card1"):
+            self.assertEqual(t3_evaluate.golden_for("two-cards-mirror-hotplug", case, root)[0],
+                             t3_evaluate.golden_for("two-cards-mirror", case, root)[0])
+        self.assertFalse(os.path.exists(os.path.join(root, "two-cards-mirror-hotplug")))
+
+    def test_second_card(self):
+        # The card display-replug plugs back in is the card the guest boots
+        # with: the same device, in the same port, as QMP device_add takes it.
+        self.assertEqual(t3_devices.SECOND_CARD,
+                         {"driver": "bochs-display", "id": "video1", "bus": "rp1",
+                          "xres": 640, "yres": 480, "edid": True})
+        self.assertEqual(t3_devices.device_option(t3_devices.SECOND_CARD),
+                         "bochs-display,id=video1,bus=rp1,xres=640,yres=480,edid=on")
+        self.assertEqual(t3_devices.device_option({"driver": "d", "edid": False}), "d,edid=off")
+        # The port's id is the card's bus, and the card is the output the
+        # variant captures after the first.
+        self.assertIn("id=%s," % t3_devices.SECOND_CARD["bus"], t3_devices.SECOND_PORT)
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror-hotplug"]["outputs"][0]
+                         ["device"], t3_devices.SECOND_CARD["id"])
+        self.assertEqual(set(t3_scenario.CHECK_RUNS) & set(t3_devices.CHECKS),
+                         {"udev-examples", "keyboard-hotplug", "display-unplug",
+                          "display-replug"})
+
+    # The guest's account of its cards (screens/display-cards.sh).
+    CARDS = ["T3-CARD card0 0000:00:01.0", "T3-CARD card1 0000:01:00.0", "T3-DONE display-cards"]
+
+    def test_display_cards(self):
+        self.assertEqual(t3_devices.cards(self.CARDS),
+                         {"card0": "0000:00:01.0", "card1": "0000:01:00.0"})
+        self.assertEqual(t3_devices.cards(["T3-CARD card0", "T3-DONE display-cards"]), {})
+        want = ["0000:01:00.0", "0000:00:01.0"]
+        self.assertIsNone(t3_devices.judge_cards(t3_devices.cards(self.CARDS), want))
+        # The card came back under another name, at the same address.
+        self.assertIsNone(t3_devices.judge_cards({"card0": "0000:00:01.0",
+                                                  "card2": "0000:01:00.0"}, want))
+        self.assertEqual(t3_devices.judge_cards({"card0": "0000:00:01.0"}, want),
+                         "the guest lists the cards at 0000:00:01.0, not at 0000:00:01.0, "
+                         "0000:01:00.0")
+        self.assertEqual(t3_devices.judge_cards({}, want),
+                         "the guest lists the cards at no address, not at 0000:00:01.0, "
+                         "0000:01:00.0")
+        # The guest's view goes into a failed replug's error.
+        self.assertEqual(t3_devices.guest_view(self.CARDS[:2] + [
+            "T3-SLOT 0 0000:01:00 1 1", "T3-KMSG pcieport: Slot(0): Card present",
+            "T3-RSS display-cards 6524", "T3-DONE display-cards"]),
+            "card0 0000:00:01.0; card1 0000:01:00.0; 0 0000:01:00 1 1; "
+            "pcieport: Slot(0): Card present")
+        self.assertEqual(t3_devices.guest_view(["T3-DONE display-cards", ""]), "nothing")
+        m = t3_devices.DISPLAY_LINE.search(
+            "[   27.753038] vtium[765]: Display Virtual-2 with backend [drm2d] text renderer "
+            "[cpu], cell size 8x16")
+        self.assertEqual(m.group(1), "Virtual-2")
+        self.assertIsNone(t3_devices.DISPLAY_LINE.search(
+            "[   27.748585] vtium[765]: display Virtual-2 at 640x480"))
 
     def test_outputs(self):
         outputs = t3_scenario.VARIANTS["two-outputs-mirror"]["outputs"]

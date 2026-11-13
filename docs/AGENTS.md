@@ -8,7 +8,7 @@ The site's menu, in `zensical.toml`, sorts the pages. The pages under "For contr
 
 The two kinds differ in two ways:
 
-- A user page links the GitHub issue that tracks a feature or a gap. A contributor page links the decision record behind it.
+- A user page links the GitHub issue that tracks a feature or a gap. A contributor page links the decision record behind the feature or gap.
 - A user page talks to the reader as "you". A contributor page, a record and a code comment stay in the third person.
 
 ## Generated pages
@@ -26,21 +26,21 @@ The tests behind the first two commands fail when a committed page differs from 
 
 ## A new page
 
-Every new page needs a place in `zensical.toml`. Give it an entry in the menu, `nav`, or a pattern in `not_in_nav` when another page links it instead. `cargo test -p vtium-site` fails on a page that has neither. `make docs` builds the site in strict mode, so it fails on a broken link or anchor.
+Every new page needs a place in `zensical.toml`. Give the page an entry in the menu, `nav`, or a pattern in `not_in_nav` when another page links the new page instead. `cargo test -p vtium-site` fails on a page that has neither. `make docs` builds the site in strict mode, so it fails on a broken link or anchor.
 
-Run `docs/scripts/prose --table` on each page you change, before and after you edit it. It lists each sentence over 30 words and each page whose sentences average over 20.
+Run `docs/scripts/prose --table` on each page you change, before and after you edit the page. The script lists each sentence over 30 words and each page whose sentences average over 20.
 
 ## Figures
 
-A figure lives in `figures/`, and `figures/README.md` has a row for it that says what it shows and how it is made. A figure is made in one of two ways:
+A figure lives in `figures/`, and `figures/README.md` has a row for the figure that says what the figure shows and how the figure is made. A figure is made in one of two ways:
 
-- A hand-written SVG uses the vocabulary of the figures already there: their fonts, colors, line styles and legend. It has a claim file beside it, `figures/NAME.claims.tsv`, which lists each box, arrow, state and transition with the file and the symbol it rests on. Render it with `rsvg-convert NAME.svg -o OUT.png` and look at it at its natural size, on a light and on a dark background.
-- A picture of vtium's own output is copied from a golden or drawn by vtium's renderer, by the command its README row gives, such as `make tui-shots` or tier 2's render. Never edit such a picture by hand. Draw it again.
+- A hand-written SVG uses the vocabulary of the figures already there: their fonts, colors, line styles and legend. The SVG has a claim file beside the SVG, `figures/NAME.claims.tsv`, which lists each box, arrow, state and transition with the file and the symbol it rests on. Render the SVG with `rsvg-convert NAME.svg -o OUT.png` and look at the PNG at its natural size, on a light and on a dark background.
+- A picture of vtium's own output is copied from a golden or drawn by vtium's renderer, by the command its README row gives, such as `make tui-shots` or tier 2's render. Never edit such a picture by hand. Draw the picture again.
 
 A page whose sentences rest on the code can have a claim file too, such as `concepts/security.claims.tsv`.
 
 ## When the code changes
 
-Run `docs/scripts/claims`. It names each claim file and row whose file is gone, or whose symbol is no longer defined there. Update the page or the figure that row describes in the same change, and the row with it. When a figure changes, render it again and check it at its natural size.
+Run `docs/scripts/claims`. The script names each claim file and row whose file is gone, or whose symbol is no longer defined there. In the same change, update the page or the figure that row describes, and update the row too. When a figure changes, render the figure again and check the figure at its natural size.
 
-A claim file names a symbol, never a line number. The symbol is a `fn`, a type, a `const` or a `mod`. It can also be a key of the key table, written as `key NAME`, or a unit file's directive. `docs/scripts/claims --help` lists what each kind of symbol must match.
+A claim file names a symbol, never a line number. The symbol is a `fn`, a type, a `const` or a `mod`. The symbol can also be a key of the key table, written as `key NAME`, or a unit file's directive. `docs/scripts/claims --help` lists what each kind of symbol must match.

@@ -1,6 +1,6 @@
 # vtium-image-helper
 
-`vtium-image`, the image helper (ADR-1101): the program vtium starts as the session's user to read the files and shared-memory objects a program names, and to decode PNG, zlib and the formats iTerm2's pictures arrive in, for the console, which runs as root and does neither (ADR-1100 D7). It is its own binary, outside the minspec build, installed as `/usr/bin/vtium-image`. vtium opens it once when it starts and starts every helper from that open file, as vtium-platform's `image_helper` module describes; this crate is the program's side.
+`vtium-image` is the image helper (ADR-1101). vtium starts it as the session's user. The helper reads the files and shared-memory objects that a program names. It decodes PNG, zlib, and the formats that iTerm2's pictures arrive in. It does both for the console, which runs as root and does neither (ADR-1100 D7). It is its own binary, outside the minspec build, installed as `/usr/bin/vtium-image`. vtium opens it once when it starts, and starts every helper from that open file, as vtium-platform's `image_helper` module describes. This crate is the program's side.
 
 | Path | What it is |
 |---|---|
@@ -24,27 +24,72 @@
 
 ## How a request runs
 
-The helper takes a request from vtium on descriptor 3: one packet in the wire vtium-image's `decode::wire` encodes, with a sealed memory file for inline bytes. It exits on a request that `decode_request` refuses. For each request that is no frame of a stream it makes a socket pair and the reply's memory file and forks a one-off worker. The worker checks that vtium's socket is closed in it, adds its second seccomp filter and checks that it runs under one more filter than the helper, opens what the request names under the file rules, removes a temporary file, enters its landlock domain, or on a kernel without landlock adds its third filter, and checks that it can no longer open a directory. The types enforce that order: `sandbox::lock` returns a `Locked` proof that nothing else in a normal build makes, and `job::finish`, the inflater and each decoder take it, so code that inflates or decodes before the lock does not compile. Unit tests and the fuzz targets, which decode in-process with no sandbox, make one with `Locked::unsandboxed`, which exists only under `cfg(test)` and `cfg(fuzzing)`. The worker then reads, inflates or decodes, converts the picture into the store's premultiplied format through vtium-image's one conversion, writes the reply file with `pwrite` and seals it against shrinking, growing and writing, and sends its outcome. The helper replies as soon as the outcome is in and reaps the worker after. A worker killed by a signal, or one that ends without an outcome, as a worker that finds its sandbox wrong does, makes the helper exit with status 1, which vtium counts as a crash, also when the reply has already gone out. The helper exits with status 0 only when it idles out or vtium closes its socket.
+The helper takes a request from vtium on descriptor 3. A request is one packet in the wire that vtium-image's `decode::wire` encodes, with a sealed memory file for inline bytes. The helper exits on a request that `decode_request` refuses. Most requests are not frames of a stream. For each of those, the helper makes a socket pair and the reply's memory file, and forks a one-off worker.
+
+The worker then takes these steps in order:
+
+1. It checks that vtium's socket is closed in it.
+2. It adds its second seccomp filter, and checks that it runs under one more filter than the helper.
+3. It opens what the request names, under the file rules, and removes a temporary file.
+4. It enters its landlock domain. On a kernel without landlock, it adds its third filter instead.
+5. It checks that it can no longer open a directory.
+
+The types enforce that order. `sandbox::lock` returns a `Locked` proof, which nothing else in a normal build makes. `job::finish`, the inflater and each decoder take that proof, so code that inflates or decodes before the lock does not compile. Unit tests and the fuzz targets decode in-process with no sandbox. They make the proof with `Locked::unsandboxed`, which exists only under `cfg(test)` and `cfg(fuzzing)`.
+
+The worker then reads, inflates or decodes. It converts the picture into the store's premultiplied format through vtium-image's one conversion. It writes the reply file with `pwrite`, and seals the file against shrinking, growing and writing. It then sends its outcome. The helper replies as soon as the outcome is in, and reaps the worker after. A worker may be killed by a signal, or may end without an outcome, as a worker that finds its sandbox wrong does. The helper then exits with status 1, which vtium counts as a crash, even when the reply has already gone out. The helper exits with status 0 only when it idles out or vtium closes its socket.
 
 vtium-image's kitty handler sends the helper a discard for the shared-memory object of a `t=s` command it refuses, as tier 1's goldens record. The helper answers the discard OK and leaves the object in place, because ADR-1101 D5 removes an object only after the helper has read a valid picture from it.
 
-Every crate that reads a program's bytes is pure Rust, approved by the maintainer for this program only (2026-11-01): `png`, which inflates through `fdeflate` and pulls in `flate2` and `miniz_oxide` for its encoder alone; `miniz_oxide`; `zune-jpeg` on `zune-core`; `gif` on `weezl`; and `landlock` and `seccompiler` for the sandbox. The lockfile holds `flate2` at 1.1.9, the last that builds on `miniz_oxide` 0.8, so one inflater is in the tree.
+Every crate that reads a program's bytes is pure Rust. The maintainer approved these crates for this program only (2026-11-01):
+
+- `png`, which inflates through `fdeflate`, and pulls in `flate2` and `miniz_oxide` for its encoder alone;
+- `miniz_oxide`;
+- `zune-jpeg` on `zune-core`;
+- `gif` on `weezl`;
+- `landlock` and `seccompiler`, for the sandbox.
+
+The lockfile holds `flate2` at 1.1.9, the last version that builds on `miniz_oxide` 0.8, so one inflater is in the tree.
 
 ## The sandbox
 
-vtium starts the helper with an empty environment, no new privileges, no capabilities, its memory cap, the largest file it may write set to the budget, a session of its own and only descriptors 0 to 3, as the session's user (ADR-1101 D2, D3). Before it reads a request the helper installs its seccomp allow-list, and any call outside it answers ENOSYS, so a C library that tries a newer call falls back to an older one. Some calls are allowed with some arguments only: `socketpair` for Unix sockets of the sequenced-packet type, so no process of the helper makes a datagram socket that could send to `/dev/log` by path; `clone` without `CLONE_PARENT` or any `CLONE_NEW*` flag; `setrlimit` and `prlimit64` for every limit but the descriptor limit of 64 that vtium sets, which they still read; `prctl` for no-new-privileges, `seccomp` for installing a filter, `prlimit64` for the calling process itself, `mmap` and `mprotect` without `PROT_EXEC`, and `fcntl` for reading and setting a descriptor's flags and status flags, never `O_ASYNC`, for seals and for a close-on-exec duplicate. A worker taken over therefore cannot point a descriptor's signals at another process with `F_SETOWN`, change another process's limits, or make memory executable. `seccompiler` builds filters for `x86_64`, `aarch64` and `riscv64` only, so the armv7 helper installs none and says so in its hello, which vtium logs once a boot; the maintainer accepted landlock alone on armv7 (2026-11-02).
+vtium starts the helper as the session's user (ADR-1101 D2, D3). The helper starts with an empty environment, no new privileges, no capabilities, and its memory cap. The largest file it may write is set to the budget. It has a session of its own, and only descriptors 0 to 3. Before it reads a request, the helper installs its seccomp allow-list. Any call outside the list answers ENOSYS, so a C library that tries a newer call falls back to an older one.
 
-Each worker adds a second filter that answers forking, starting a program, making a memory file and making a socket pair with EPERM, and enters a landlock domain once it holds the descriptor it reads. The domain handles every filesystem right the kernel's landlock knows and grants none, refuses binding and connecting TCP sockets from landlock version 4, and from version 6 is scoped against signalling any process outside it and connecting to an abstract Unix socket made outside it. On a kernel without landlock the worker adds a third filter instead, which refuses `open`, `openat`, `openat2` and `unlinkat`, and the hello tells vtium that landlock is missing. A worker's last filter, its second where the kernel offers landlock and its third where it does not, also refuses `seccomp`, so the worker can add no filter after it. On armv7 the domain is the only layer, so a worker there on a kernel without landlock version 6 can still signal its account's processes.
+Some calls are allowed only with some arguments:
 
-Each worker checks its own sandbox before it reads anything and exits without an outcome when the check fails: vtium's socket, descriptor 3, is closed; it runs under one more seccomp filter than the helper, counted from `/proc/self/status`; and once locked in, it cannot open `/`, wherever the kernel offers landlock or the third filter is in force. Each outcome also says whether the worker could open `/` as it answered, probed apart from the lock, and the helper reads the filters the worker runs under from the worker's `/proc/<pid>/status` before it reaps it, which must be the helper's own and the worker's second, and on a kernel without landlock its third. The helper exits as on a crash when either is not what it expects, so a worker whose lock or second filter was skipped altogether fails too. `tests/helper.rs` therefore fails when any of these controls is removed. The kernel keeps the filter count, a process cannot remove a filter, and the worker's last filter refuses adding one, so once that filter is in, the count can neither fall nor rise, a worker taken over included. What a worker reports of itself proves only that vtium's code took each step in a run the worker still controls; a worker a hostile picture has taken over can report anything (ADR-1101 D10).
+- `socketpair` for Unix sockets of the sequenced-packet type. So no process of the helper makes a datagram socket that could send to `/dev/log` by path.
+- `clone` without `CLONE_PARENT` or any `CLONE_NEW*` flag.
+- `setrlimit` and `prlimit64` for every limit but the descriptor limit of 64 that vtium sets. They can still read that limit.
+- `prctl` for no-new-privileges, `seccomp` for installing a filter, and `prlimit64` for the calling process itself.
+- `mmap` and `mprotect` without `PROT_EXEC`.
+- `fcntl` for reading and setting a descriptor's flags and status flags, never `O_ASYNC`. It is also allowed for seals, and for a close-on-exec duplicate.
 
-The file-size cap bounds each memory file the helper and its workers fill, which the memory cap does not count, and workers can make neither memory files nor sockets, so a worker taken over can fill only the reply file it was handed and the send buffer of its channel to the helper. A helper parent taken over could make memory files bounded only by its descriptor limit, but the parent reads no picture's bytes, only vtium's requests and its workers' outcomes.
+A worker taken over therefore cannot point a descriptor's signals at another process with `F_SETOWN`. It cannot change another process's limits, or make memory executable. `seccompiler` builds filters for `x86_64`, `aarch64` and `riscv64` only. So the armv7 helper installs none, and says so in its hello, which vtium logs once a boot. The maintainer accepted landlock alone on armv7 (2026-11-02).
+
+Each worker adds a second filter. That filter answers EPERM to forking, starting a program, making a memory file and making a socket pair. The worker enters a landlock domain once it holds the descriptor it reads. The domain handles every filesystem right that the kernel's landlock knows, and grants none. From landlock version 4, it refuses binding and connecting TCP sockets. From version 6, it is scoped against two things: signalling any process outside it, and connecting to an abstract Unix socket made outside it.
+
+On a kernel without landlock, the worker adds a third filter instead. That filter refuses `open`, `openat`, `openat2` and `unlinkat`, and the hello tells vtium that landlock is missing. A worker's last filter also refuses `seccomp`, so the worker can add no filter after it. The last filter is the second where the kernel offers landlock, and the third where it does not. On armv7 the domain is the only layer. So a worker there, on a kernel without landlock version 6, can still signal its account's processes.
+
+Each worker checks its own sandbox before it reads anything. It exits without an outcome when the check fails. The check has three parts:
+
+- vtium's socket, descriptor 3, is closed;
+- the worker runs under one more seccomp filter than the helper, counted from `/proc/self/status`;
+- once locked in, the worker cannot open `/`, wherever the kernel offers landlock or the third filter is in force.
+
+Each outcome also says whether the worker could open `/` as it answered, probed apart from the lock. Before it reaps the worker, the helper reads the filters that the worker runs under, from the worker's `/proc/<pid>/status`. They must be the helper's own and the worker's second, and on a kernel without landlock its third. The helper exits as on a crash when either the probe or the filters are not what it expects. So a worker whose lock or second filter was skipped altogether fails too. `tests/helper.rs` therefore fails when any of these controls is removed.
+
+The kernel keeps the filter count, and a process cannot remove a filter. The worker's last filter refuses adding one. So once that filter is in, the count can neither fall nor rise, even in a worker that has been taken over. What a worker reports of itself proves only that vtium's code took each step, in a run that the worker still controls. A worker that a hostile picture has taken over can report anything (ADR-1101 D10).
+
+The file-size cap bounds each memory file that the helper and its workers fill, which the memory cap does not count. Workers can make neither memory files nor sockets. So a worker taken over can fill only the reply file it was handed, and the send buffer of its channel to the helper. A helper parent taken over could make memory files bounded only by its descriptor limit. But the parent reads no picture's bytes: it reads only vtium's requests and its workers' outcomes.
 
 ## Streams, and the measurement
 
-ADR-1101 D4 names three ways to serve a program that re-sends a picture for each frame: a fresh worker and reply file for each frame (1); a fresh worker for each frame writing into a small pool of reply files faulted in once (2); and one long-lived worker for the stream (3).
+ADR-1101 D4 names three ways to serve a program that re-sends a picture for each frame:
 
-`examples/streams.rs` measured all three on 2026-11-02 on the maintainer's desktop, an AMD Ryzen 9 9950X3D on Linux 7.2.14, through the real request path with the worker's filter and landlock domain, over 40 frames a case at 1366x768 and 20 at 7680x2160. The figures are the median milliseconds a frame:
+1. a fresh worker and reply file for each frame;
+2. a fresh worker for each frame, writing into a small pool of reply files faulted in once;
+3. one long-lived worker for the stream.
+
+`examples/streams.rs` measured all three on 2026-11-02 on the maintainer's desktop, an AMD Ryzen 9 9950X3D on Linux 7.2.14. It went through the real request path, with the worker's filter and landlock domain. It ran 40 frames a case at 1366x768, and 20 at 7680x2160. The figures are the median milliseconds a frame:
 
 | Size | Frames | (1) fresh | (2) pool | (3) stream | (2) over (3) |
 |---|---|---|---|---|---|
@@ -55,13 +100,15 @@ ADR-1101 D4 names three ways to serve a program that re-sends a picture for each
 | 7680x2160 | inline `f=32,o=z` | 202.64 | 194.83 | 189.12 | 3% |
 | 7680x2160 | inline PNG | 97.53 | 92.35 | 88.82 | 4% |
 
-Over four runs the pool came within 2 to 6 percent of the stream worker at 7680x2160 and within 11 to 14 percent on zlib frames at 1366x768, and 23 to 26 percent over it on PNG frames at 1366x768, about 1.5 ms a frame: the fresh memory each new worker faults in for its decoder. The maintainer chose the stream worker for inline frames, accepting that a hostile frame can reach the later frames of its own stream: "if someone wants to break the parser, that's on them" (2026-11-02). Frames from shared memory gained nothing from the pool at 7680x2160, so they take a fresh worker and a fresh reply file each. The ARM board and tier 3's guest, which ADR-1101 D4 also names, are not measured yet.
+Over four runs, the pool came within 2 to 6 percent of the stream worker at 7680x2160. It came within 11 to 14 percent on zlib frames at 1366x768. On PNG frames at 1366x768, it was 23 to 26 percent over the stream worker, about 1.5 ms a frame. That cost is the fresh memory each new worker faults in for its decoder. The maintainer chose the stream worker for inline frames. The maintainer accepted that a hostile frame can reach the later frames of its own stream: "if someone wants to break the parser, that's on them" (2026-11-02). Frames from shared memory gained nothing from the pool at 7680x2160, so they take a fresh worker and a fresh reply file each. ADR-1101 D4 also names the ARM board and tier 3's guest, which are not measured yet.
 
-Once `STREAM_AFTER` inline requests in a row carry the same flags and picture size, the helper forks the stream worker and keeps `REPLY_POOL_FILES` reply files of that size, sealed against shrinking and growing only; the stream worker writes each later frame into the next one, the reply says the file is pooled, and the console reads it with `pread`. The pool's size comes from the width and height a worker reported, so the helper makes it only within the request's largest width, height and `max_bytes`. A frame that does not fit the pooled file, because it decodes to more or fewer bytes, writes nothing, ends the stream and runs again as a one-off with a fresh file; a frame of another width and height but the same bytes fills the pooled file and replies its own size. The stream ends on a request that does not match, before that request is served, on any outcome but a picture, and after `STREAM_IDLE_MS` with no request. The helper then closes the stream worker's channel and reaps it; a stream worker that does not exit holds the helper until vtium's reply timer stops it.
+Once `STREAM_AFTER` inline requests in a row carry the same flags and picture size, the helper forks the stream worker. It keeps `REPLY_POOL_FILES` reply files of that size, sealed against shrinking and growing only. The stream worker writes each later frame into the next file. The reply says that the file is pooled, and the console reads it with `pread`. The pool's size comes from the width and height that a worker reported. So the helper makes the pool only within the request's largest width, height and `max_bytes`.
+
+A frame may decode to more or fewer bytes than the pooled file holds. That frame writes nothing, ends the stream, and runs again as a one-off with a fresh file. A frame of another width and height, but with the same number of bytes, fills the pooled file and replies its own size. The stream ends in three cases: on a request that does not match, before that request is served; on any outcome but a picture; and after `STREAM_IDLE_MS` with no request. The helper then closes the stream worker's channel and reaps it. A stream worker that does not exit holds the helper until vtium's reply timer stops it.
 
 ## Left to the binary
 
-- **Ending a stream when the console's foreground program changes.** The helper cannot tell programs apart, so any program in the console's session whose frames match continues a stream (ADR-1101 D4). The binary knows the pty's foreground process group, and could stop the helper when it changes, which ends the stream, so a program that starts after a hostile one never sends its frames to the hostile frame's stream worker.
+- **Ending a stream when the console's foreground program changes.** The helper cannot tell programs apart. So any program in the console's session whose frames match continues a stream (ADR-1101 D4). The binary knows the pty's foreground process group, and could stop the helper when that group changes, which ends the stream. A program that starts after a hostile one would then never send its frames to the hostile frame's stream worker.
 
 ## Left to the tier 3 work
 

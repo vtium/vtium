@@ -10,6 +10,8 @@
 //! A notice that would name a key vtium.conf leaves empty leaves the key
 //! out.
 
+pub mod penguin;
+
 use std::fmt::Display;
 
 use crate::grab::{Action, Bindings};
@@ -195,7 +197,9 @@ pub fn no_head_left(path: &std::path::Path) -> String {
 /// `path` shows on the boot display for as long as vtium runs: its console
 /// line, that no head is left, the file's first `errors`, each with its
 /// file and line, the count of the `more` past them and of any the display
-/// has no room for, and what to do next, each naming that file.
+/// has no room for, and what to do next, each naming that file; and the
+/// drawing of a panicked Tux beside or above them, where the text keeps
+/// every line it shows without it.
 pub fn panic(
     path: &std::path::Path,
     errors: Vec<String>,
@@ -208,6 +212,7 @@ pub fn panic(
         more,
         label: MORE_ERRORS.to_owned(),
         next: line.next(path).to_string(),
+        drawing: Some(penguin::drawing()),
     }
 }
 

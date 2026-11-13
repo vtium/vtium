@@ -1,0 +1,7 @@
+# Claims of docs/troubleshooting.md's section Notices on the screen.
+element	file	symbol
+a notice over a session goes after 30 seconds	crates/vtium/src/head.rs	NOTICE_SHOWN
+a key that reaches a head ends its notices	crates/vtium/src/head.rs	Head::end_notices
+a head shows at most 4 notices, and a new one replaces the oldest	crates/vtium/src/head.rs	Head::add_notice
+the oneshot notice stays while its console is shown	crates/vtium/src/head.rs	Head::compose_notices
+a display with no head on this VT shows a notice under open	crates/vtium/src/notice.rs	unused_display

@@ -117,6 +117,33 @@ class Prose(unittest.TestCase):
         self.assertFails({"docs/page.md": f"- {words(10)}\n- {words(31, 'long')}\n  {words(5)}\n- {words(10)}\n"},
                          f"docs/page.md:2: 31 words: {words(31, 'long')}")
 
+    def test_unpunctuated_list_items_are_sentences_of_their_own(self):
+        item = " ".join(["word"] * 20)
+        self.assertPasses({"docs/page.md": (
+            f"A paragraph that leads in:\n- {item}\n- {item}\n\n1) {item}\n2) {item}\n\n"
+            f"- {item}\n  - {item}\n  - {item}\n- `code` {item}\n- `code` {item}\n\n"
+            f"* [x] {item}\n* [ ] {item}\n\n10. {item}\n11. {item}\n")})
+
+    def test_a_sentence_ends_inside_inline_code(self):
+        half = " ".join(["word"] * 15)
+        self.assertPasses({"docs/page.md": f"{SHORT} {half} `Press Enter to switch to VT 12.` Word {half}.\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT} {half} `Is it on?` Word {half}.\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT} {half} (`Done!`) Word {half}.\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT} {half} `Done.` `make gates` runs {half}.\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT} {half} `Done.` vtium then {half}.\n"})
+
+    def test_a_full_stop_inside_inline_code_before_a_lowercase_word_ends_no_sentence(self):
+        half = " ".join(["word"] * 15)
+        for after in ["and", "(ADR-1200"]:
+            with self.subTest(after=after):
+                sentence = f"{half} `Done.` {after} {half}."
+                self.assertFails({"docs/page.md": f"{SHORT} {sentence}\n"}, f"docs/page.md:1: 32 words: {sentence}")
+
+    def test_a_sentence_that_ends_inside_inline_code_is_reported_whole(self):
+        long = " ".join(["long"] * 30)
+        self.assertFails({"docs/page.md": f"{SHORT} {long} `Stop here.` Word {words(10)}\n"},
+                         f"docs/page.md:1: 31 words: {long} `Stop here.`")
+
     def test_inline_code_counts_as_one_word(self):
         code = "`" + " ".join(["arg"] * 20) + ". Stop.`"
         sentence = " ".join(["word"] * 29) + f" {code}."
@@ -133,6 +160,12 @@ class Prose(unittest.TestCase):
     def test_an_image_counts_nothing(self):
         image = "![" + " ".join(["alt"] * 30) + "](picture.png)"
         self.assertPasses({"docs/page.md": f"{SHORT} {words(20)} {image}\n"})
+
+    def test_a_linked_image_counts_nothing(self):
+        badges = "".join(f"[![badge {n}](https://example.com/{n}.svg)](https://example.com/{n})\n" for n in range(40))
+        self.assertPasses({"README.md": f"# Title\n\n{badges}\n{SHORT}\n"})
+        self.tree({"README.md": f"# Title\n\n{badges}\n{SHORT}\n"})
+        self.assertEqual(self.run_prose("--table").stdout.splitlines()[-2], "   10.0      10         6       0  README.md")
 
     def test_dashes_separate_words(self):
         sentence = " ".join(["word"] * 15) + "—" + " ".join(["word"] * 16) + "."

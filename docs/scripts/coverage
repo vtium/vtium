@@ -10,6 +10,22 @@ ADR-1000-features.tsv (ADR-1000, "The tables as data"). Each row has a stable
 `id`, and its `tests` column lists the tests that cite it. This script is the
 only writer of `tests`.
 
+A second file is generated from those columns: tools/conformance/COVERAGE.md,
+which lists each capability of tools/conformance/capabilities.list with the
+rows its scenario judges and the tests that guard those rows. The Rust code in
+tools/conformance/src/coverage.rs is its one generator. With --update, this
+script rewrites the `tests` columns first, because COVERAGE.md reads them.
+Then it runs that generator through cargo:
+
+    VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance --lib TEST
+
+TEST is coverage_map_matches_the_capability_list_and_adr_1000, the test that
+fails when COVERAGE.md is stale. With the variable set, it writes the file.
+
+So docs/scripts/coverage --update brings both generated files up to date.
+Without --update, the script reads files only and never runs cargo, so it
+does not check COVERAGE.md. cargo test -p vtium-conformance checks it.
+
 Ids:
     A mode's id is its kind and number: ANSI-4, DEC-2026.
 
@@ -67,13 +83,15 @@ Checks (exit 1 on any failure):
     note says it is not in vtium's mode table, which DECRQM answers 0.
 
 Options:
-    --update         rewrite the `tests` columns from the tags
+    --update         rewrite the `tests` columns from the tags, then
+                     regenerate tools/conformance/COVERAGE.md through cargo
     --layer LAYER    select the rows whose layer column names LAYER
                      (minspec, text, bidi, images, gpu, seat or top)
     --require        fail while a selected row that needs a test has none
 
-Exit 0 when every check passes, 1 when one fails, 2 when the scan found no
-Rust or scenario files, a table cannot be read, or no row has LAYER.
+Exit 0 when every check passes, 1 when one fails or when --update cannot
+regenerate COVERAGE.md, 2 when the scan found no Rust or scenario files, a
+table cannot be read, or no row has LAYER.
 """
 
 import argparse
@@ -328,6 +346,46 @@ def write_tables(tables, tests_for):
             print(f'coverage: rewrote {table.path.relative_to(ROOT)}')
 
 
+# The one generator of COVERAGE.md is this test in tools/conformance/src/coverage.rs.
+# With VTIUM_CONFORMANCE_BLESS set, the test writes the file before it compares it.
+COVERAGE_MAP = 'tools/conformance/COVERAGE.md'
+COVERAGE_TEST = 'coverage_map_matches_the_capability_list_and_adr_1000'
+COVERAGE_CARGO = ['cargo', 'test', '-p', 'vtium-conformance', '--lib', COVERAGE_TEST]
+# cargo prints this line when the filter ran exactly one test and it passed.
+ONE_PASSED = re.compile(r'^test result: ok\. 1 passed;', re.MULTILINE)
+
+
+def write_coverage_map(root=ROOT, cargo=COVERAGE_CARGO):
+    """Regenerate COVERAGE.md under root by running its Rust test there with
+    VTIUM_CONFORMANCE_BLESS=1. Returns 0, or 1 after printing cargo's output when cargo
+    fails or runs no test. The tests of this script pass a stand-in for cargo."""
+    rel = COVERAGE_MAP
+    path = root / COVERAGE_MAP
+    before = path.read_bytes() if path.is_file() else None
+    command = ' '.join(COVERAGE_CARGO)
+    print(f'coverage: regenerating {rel} with VTIUM_CONFORMANCE_BLESS=1 {command}', flush=True)
+    env = dict(os.environ, VTIUM_CONFORMANCE_BLESS='1')
+    try:
+        run = subprocess.run(cargo, cwd=root, env=env, capture_output=True,
+                             text=True, errors='replace', check=False)
+    except OSError as err:
+        print(f'coverage: cannot run cargo, so {rel} was not regenerated: {err}', file=sys.stderr)
+        return 1
+    output = run.stdout + run.stderr
+    if run.returncode != 0 or not ONE_PASSED.search(run.stdout):
+        sys.stderr.write(output)
+        why = (f'cargo exited with status {run.returncode}' if run.returncode != 0
+               else f'cargo ran no test named {COVERAGE_TEST}')
+        print(f'coverage: {rel} was not regenerated, because {why}. '
+              f'The tables are up to date. Fix the error above and run '
+              f'docs/scripts/coverage --update again.', file=sys.stderr)
+        return 1
+    after = path.read_bytes() if path.is_file() else None
+    if after != before:
+        print(f'coverage: rewrote {rel}')
+    return 0
+
+
 # ADR-1000, "The target set": a mode whose note says this has no row in vtium's mode
 # table, so DECRQM answers it 0 and no test drives it.
 NOT_LISTED = "not in vtium's mode table"
@@ -358,7 +416,9 @@ def fail(errors, note=''):
 def main():
     parser = argparse.ArgumentParser(
         prog='coverage', description="Tie ADR-1000's tables to the tests that cover each row.")
-    parser.add_argument('--update', action='store_true', help='rewrite the tests columns from the tags')
+    parser.add_argument('--update', action='store_true',
+                        help='rewrite the tests columns from the tags, then regenerate '
+                             'tools/conformance/COVERAGE.md through cargo')
     parser.add_argument('--layer', help='select the rows whose layer column names LAYER')
     parser.add_argument('--require', action='store_true',
                         help='fail while a selected row that needs a test has none')
@@ -392,6 +452,8 @@ def main():
         if errors:
             return fail(errors, '; the tables were not rewritten')
         write_tables(tables, tests_for)
+        if write_coverage_map() != 0:
+            return 1
     else:
         errors += stale_cells(tables, tests_for)
 

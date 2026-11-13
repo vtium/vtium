@@ -1,0 +1,78 @@
+checkpoint 152
+size 12x6
+cursor 0,0
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbbbbbbbbbbb|
+row 2 |cccccccccccc|
+row 3 |dddddddddddd|
+row 4 |eeeeeeeeeeee|
+row 5 |ffffffffffff|
+checkpoint 293
+size 12x6
+cursor 3,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbbbbbbbbbbb|
+row 2 |cccccccccccc|
+row 3 |dddddddddddd|
+row 4 |eeeeeeeeeeee|
+row 5 |ffffffffffff|
+placement 0 row 3 col 3 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 16x32 digest 0dba61c5
+checkpoint 295
+size 12x6
+cursor 3,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbddddddbbbb|
+row 2 |cceeeeeecccc|
+row 3 |dd      dddd|
+row 4 |ee      eeee|
+row 5 |ffffffffffff|
+placement 0 row 1 col 3 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 0 opaque
+image 0 16x32 digest 0dba61c5
+checkpoint 436
+size 12x6
+cursor 7,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbddddddbbbb|
+row 2 |cceeeeeecccc|
+row 3 |dd      dddd|
+row 4 |ee      eeee|
+row 5 |ffffffffffff|
+placement 0 row 1 col 3 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 3 col 7 box 2x2 at 0,0 size 16x32 src 0,0 16x32 cell 8x16 z 0 above-text sixel image 1 opaque
+image 0 16x32 digest 0dba61c5
+image 1 16x32 digest 66fd51c5
+checkpoint 437
+size 12x6
+cursor 7,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bbeeeeeebbbb|
+row 2 |cc      cccc|
+row 3 |dd      dddd|
+row 4 |ee      eeee|
+row 5 |ffffffffffff|
+placement 0 row 1 col 3 box 2x1 at 0,0 size 16x16 src 0,16 16x16 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 2 col 7 box 1x2 at 0,0 size 8x32 src 0,0 8x32 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 3 col 8 box 1x2 at 0,0 size 8x32 src 8,0 8x32 cell 8x16 z 0 above-text sixel image 1 opaque
+image 0 16x32 digest 0dba61c5
+image 1 16x32 digest 66fd51c5
+checkpoint 748
+size 12x6
+cursor 3,4
+flags AUTO_WRAP
+row 0 |aaaaaaaaaaaa|
+row 1 |bb      bbbb|
+row 2 |cc      cccc|
+row 3 |dd      dddd|
+row 4 |ee      eeee|
+row 5 |ffffffffffff|
+placement 0 row 3 col 8 box 1x2 at 0,0 size 8x32 src 8,0 8x32 cell 8x16 z 0 above-text sixel image 0 opaque
+placement 1 row 1 col 3 box 2x2 at 0,0 size 16x32 src 0,32 16x32 cell 8x16 z 0 above-text sixel image 1 opaque
+placement 2 row 5 col 3 box 2x2 at 0,0 size 16x32 src 0,64 16x32 cell 8x16 z 0 above-text sixel image 1 opaque
+image 0 16x32 digest 66fd51c5
+image 1 16x96 digest 19982dc5

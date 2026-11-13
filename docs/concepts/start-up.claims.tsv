@@ -1,0 +1,23 @@
+# Claims of docs/concepts/start-up.md's notices: the section Reading vtium.conf and the notice that no keyboard was found.
+element	file	symbol
+with no vtium.conf, vtium runs the built-in configuration and shows nothing	crates/vtium-settings/src/outcome.rs	resolve
+the three console lines of a vtium.conf with errors, word for word	crates/vtium-settings/src/messages.rs	Line::text
+each line's next step: run vtium check-config, or for the panic screen run it over ssh or from other boot media	crates/vtium-settings/src/messages.rs	Next
+vtium logs each error of the file with its line	crates/vtium/src/head.rs	Start::trusted
+a file that fails the ownership check, or that vtium cannot open, runs the built-in configuration with the not-used line	crates/vtium-settings/src/outcome.rs	scope
+an open file whose errors leave no head runs the built-in configuration with the not-used line	crates/vtium-settings/src/outcome.rs	resolve
+a file with errors that leaves a head runs what survives with the has-errors line	crates/vtium-settings/src/outcome.rs	survivors
+under closed, a partly broken file whose heads have no display shows its line alone on the boot display	crates/vtium-settings/src/outcome.rs	Outcome::dark_notice
+a closed file whose errors leave no head, or one with an unreadable policy line, shows the panic screen	crates/vtium-settings/src/outcome.rs	resolve
+the panic screen lists the file's first three errors and counts the rest	crates/vtium/src/head.rs	PANIC_ERRORS_MAX
+the panic screen's lines	crates/vtium/src/notice.rs	panic
+under the panic screen every input is ignored, and an ignored input under closed is never opened	crates/vtium-settings/src/place.rs	Config::disposition
+a device whose disposition is closed is never opened	crates/vtium-platform/src/input/event.rs	Disposition::Closed
+the start checks for a keyboard once its device scan is placed	crates/vtium/src/app.rs	App::scanned
+with no keyboard present, every head shows the no-keyboard notice	crates/vtium/src/app.rs	App::turn
+the no-keyboard notice, word for word	crates/vtium/src/notice.rs	NO_KEYBOARD
+a keyboard plugged in later is placed by the rules alone	crates/vtium-settings/src/place.rs	Config::walk
+vtium config install refuses a draft that fails vtium check-config, and installs a file that passes the ownership check	crates/vtium-config/src/flowcli.rs	Command::install
+vtium config edit checks the draft when the editor exits and installs it with --install only when the check passes	crates/vtium-config/src/flowcli.rs	Command::edit_loop
+vtium config history lists the files earlier installs replaced, and restore copies one into the draft	crates/vtium-config/src/flowcli.rs	Command::restore
+the drawing of Tux on the panic screen, ASCII without image support and a sprite with it	crates/vtium/src/notice/penguin.rs	FULL
