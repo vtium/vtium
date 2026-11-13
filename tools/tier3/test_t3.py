@@ -2679,8 +2679,10 @@ class DevicesTest(unittest.TestCase):
             "two-outputs-mirror": ["sgr", "sgr@1", "cjk", "cjk@1", "vt-switch", "vt-restore",
                                    "vt-restore@1", "mirror"],
             "two-cards-mirror": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
-                                 "vt-restore", "vt-restore@card1", "mirror", "display-unplug",
-                                 "display-replug"],
+                                 "vt-restore", "vt-restore@card1", "mirror"],
+            "two-cards-mirror-hotplug": ["sgr", "sgr@card1", "cjk", "cjk@card1", "vt-switch",
+                                         "vt-restore", "vt-restore@card1", "mirror",
+                                         "display-unplug", "display-replug"],
             "usb-keyboards": ["cjk", "vt-switch", "vt-restore", "udev-examples",
                               "keyboard-hotplug"],
         }
@@ -2698,8 +2700,17 @@ class DevicesTest(unittest.TestCase):
                 self.assertEqual(t3_scenario.base_of(name)[0], t3_common.BASE)
         self.assertIn("max_outputs=2", t3_scenario.VARIANTS["two-outputs-mirror"]["device"])
         self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["qemu"],
+                         ["-device", "virtio-gpu-pci,id=video1,xres=640,yres=480,edid=on"])
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror-hotplug"]["qemu"],
                          ["-device", "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1",
                           "-device", "bochs-display,id=video1,bus=rp1,xres=640,yres=480,edid=on"])
+        # The hotplug variant is judged by two-cards-mirror's goldens and has
+        # none of its own.
+        root = t3_evaluate.GOLDEN
+        for case in ("sgr@card1", "cjk", "vt-restore@card1"):
+            self.assertEqual(t3_evaluate.golden_for("two-cards-mirror-hotplug", case, root)[0],
+                             t3_evaluate.golden_for("two-cards-mirror", case, root)[0])
+        self.assertFalse(os.path.exists(os.path.join(root, "two-cards-mirror-hotplug")))
 
     def test_second_card(self):
         # The card display-replug plugs back in is the card the guest boots
@@ -2713,8 +2724,8 @@ class DevicesTest(unittest.TestCase):
         # The port's id is the card's bus, and the card is the output the
         # variant captures after the first.
         self.assertIn("id=%s," % t3_devices.SECOND_CARD["bus"], t3_devices.SECOND_PORT)
-        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror"]["outputs"][0]["device"],
-                         t3_devices.SECOND_CARD["id"])
+        self.assertEqual(t3_scenario.VARIANTS["two-cards-mirror-hotplug"]["outputs"][0]
+                         ["device"], t3_devices.SECOND_CARD["id"])
         self.assertEqual(set(t3_scenario.CHECK_RUNS) & set(t3_devices.CHECKS),
                          {"udev-examples", "keyboard-hotplug", "display-unplug",
                           "display-replug"})

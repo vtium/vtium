@@ -85,9 +85,12 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # The variants judged by another variant's goldens, by variant: the
 # directory under goldens/ their cases compare with. gl-1280x800 draws on the
 # GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
-# it exactly (ADR-1303 D1, D11).
+# it exactly (ADR-1303 D1, D11). two-cards-mirror-hotplug draws the same
+# screens as two-cards-mirror, and its second card is a bochs-display in place
+# of a virtio-gpu card, so two-cards-mirror's goldens judge it.
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
-              "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min"}
+              "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min",
+              "two-cards-mirror-hotplug": "two-cards-mirror"}
 
 
 def same_as(case, variant=None):

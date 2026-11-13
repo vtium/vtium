@@ -374,6 +374,10 @@ SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-two-vts", "sysvinit-no-udev",
 # and two-cards-mirror two cards with one each: each screen is captured
 # from every output ("outputs"), and the mirror check holds every output's
 # capture to the first's, the one grid vtium draws on every display today.
+# two-cards-mirror-hotplug is two-cards-mirror with a second card that QEMU
+# can hotplug (t3_devices.SECOND_CARD), judged by two-cards-mirror's goldens
+# (t3_evaluate.GOLDENS_OF): it pulls the card out and plugs it back in
+# through QMP ("checks").
 # usb-keyboards puts a keyboard in the USB port ADR-1401's example rule
 # names, has the guest's udev read the example files the tree installs, and
 # plugs a second keyboard in and pulls it out through QMP ("checks").
@@ -395,13 +399,18 @@ VARIANTS.update({
                                outputs=[{"suffix": "@1", "device": "video0", "head": 1,
                                          "size": (640, 480)}],
                                mirror=True),
-    "two-cards-mirror": dict(DEVICES, qemu=t3_devices.TWO_CARDS,
+    "two-cards-mirror": dict(DEVICES, qemu=["-device", "virtio-gpu-pci,id=video1,xres=640,"
+                                                       "yres=480,edid=on"],
                              outputs=[{"suffix": "@card1", "device": "video1"}],
-                             mirror=True, checks=["display-unplug", "display-replug"]),
+                             mirror=True),
+    "two-cards-mirror-hotplug": dict(DEVICES, qemu=t3_devices.TWO_CARDS,
+                                     outputs=[{"suffix": "@card1", "device": "video1"}],
+                                     mirror=True, checks=["display-unplug", "display-replug"]),
     "usb-keyboards": dict(DEVICES, qemu=t3_devices.USB, screens=["cjk"],
                           checks=["udev-examples", "keyboard-hotplug"]),
 })
-DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "usb-keyboards"]
+DEVICE_VARIANTS = ["two-outputs-mirror", "two-cards-mirror", "two-cards-mirror-hotplug",
+                   "usb-keyboards"]
 
 # vtium's pictures on the minspec machine at 640x480 in the 8x16 test font,
 # judged by vtium's own goldens, run by make tier3-images. The tree's
@@ -1462,8 +1471,8 @@ def check_keyboard_hotplug(_variant, vm, work, caps, errors, log):
 
 
 def check_display_unplug(_variant, vm, work, caps, errors, log):
-    """The display-unplug check (t3_devices.CHECKS), on two-cards-mirror
-    after the mirror check. The guest lists its cards
+    """The display-unplug check (t3_devices.CHECKS), on
+    two-cards-mirror-hotplug after the mirror check. The guest lists its cards
     (screens/display-cards.sh), the control, and the first display settles
     on the listing. QMP device_del pulls the second card out. Once QEMU
     reports DEVICE_DELETED, the first display must settle on the screen it

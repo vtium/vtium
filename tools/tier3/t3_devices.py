@@ -11,8 +11,8 @@ after a device's first shows nothing until a display asks for its size, so
 an output naming "size" is asked for it over a VNC server of its own
 (t3_qemu.vnc_set_size).
 
-two-cards-mirror's second card is pulled out and plugged back in through
-QMP while vtium runs (display-unplug, display-replug).
+two-cards-mirror-hotplug's second card is pulled out and plugged back in
+through QMP while vtium runs (display-unplug, display-replug).
 """
 
 import re
@@ -37,7 +37,7 @@ USB = ["-device", "pcie-root-port,id=rp1,bus=pcie.0,addr=0x10,chassis=1,bus-rese
        "-device", "usb-hub,id=hub3,bus=%s,port=3" % USB_BUS,
        "-device", "usb-kbd,id=kbd32,bus=%s,port=3.2" % USB_BUS]
 
-# two-cards-mirror's second card, which display-unplug pulls out and
+# two-cards-mirror-hotplug's second card, which display-unplug pulls out and
 # display-replug plugs back in. QEMU refuses to hotplug every virtio-gpu
 # device ("Device 'virtio-gpu-pci' does not support hotplugging"), on any
 # bus, so the second card is a bochs-display, which the guest's bochs DRM
