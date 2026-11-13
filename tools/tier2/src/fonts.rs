@@ -47,7 +47,7 @@ pub struct Archive {
 pub enum Origin {
     /// The font file itself, at this URL.
     Url(&'static str),
-    /// A member of a `.tar.bz2` archive, at this path in it.
+    /// A member of a `.tar.bz2` or `.zip` archive, at this path in it.
     Member(&'static Archive, &'static str),
 }
 
@@ -126,6 +126,69 @@ pub const DEJAVU: Archive = Archive {
     sha256: "fa9ca4d13871dd122f61258a80d01751d603b4d3ee14095d65453b4e846e17d7",
 };
 
+/// Noto Sans Arabic from the Noto project's release of September 2024,
+/// which draws the Arabic blocks in both of tier 2's frits.
+const NOTO_SANS_ARABIC: Pinned = Pinned {
+    file: "NotoSansArabic-Regular.ttf",
+    sha256: "c270782ee478c685f95509e724125729e1284c82ebfbe414cc67926f29449e1d",
+    origin: Origin::Url(
+        "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Regular.ttf",
+    ),
+    style: FritStyle::Regular,
+    cover: &ARABIC,
+    color: false,
+};
+
+/// Iosevka Term 34.9.1's TrueType release archive, a zip.
+pub const IOSEVKA: Archive = Archive {
+    file: "PkgTTF-IosevkaTerm-34.9.1.zip",
+    url: "https://github.com/be5invis/Iosevka/releases/download/v34.9.1/PkgTTF-IosevkaTerm-34.9.1.zip",
+    sha256: "3bd57a66a7f1e429a131d3bc35f4d0f3a8eb722f2fe8f59f595e424bda9a33c9",
+};
+
+/// The scripts frit's fonts, in its order: Iosevka Term 34.9.1, whose
+/// cell at 40 pixels is 16x40, half an em wide, then Noto Sans
+/// Devanagari, Noto Sans Bengali and Noto Sans Arabic from the Noto
+/// project's release of September 2024, which draw the scripts Iosevka
+/// Term lacks. These are the fonts the showcase's scripts scene draws
+/// Hindi, Bengali and Arabic with, as its `showcase-iosevka` frit names
+/// them, and the files the showcase pins.
+pub const SCRIPT_FONTS: [Pinned; 4] = [
+    Pinned {
+        file: "IosevkaTerm-Regular.ttf",
+        sha256: "430ad4f56c6cd82e4c954efb6dd4b3e2b4cc2b2b1bd4f8143f3d3800096f32b4",
+        origin: Origin::Member(&IOSEVKA, "IosevkaTerm-Regular.ttf"),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansDevanagari-Regular.ttf",
+        sha256: "306b53ecfb182a504dd8a7446093c316387d2fd8dc350d0792ed1753fe0996cd",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansDevanagari/hinted/ttf/NotoSansDevanagari-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansBengali-Regular.ttf",
+        sha256: "9f8b4dd091f19b111d24ea18daae81bea8684cc67de17ea1acd797e144bf20ba",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    NOTO_SANS_ARABIC,
+];
+
+/// The height in pixels the scripts frit draws at, which gives Iosevka
+/// Term its own 16x40 cell, the showcase's.
+pub const SCRIPTS_HEIGHT: u32 = 40;
+
 /// The test frit's fonts, in its order: DejaVu Sans Mono 2.37's four faces,
 /// Noto Sans Hebrew and Noto Sans Arabic from the Noto project's release of
 /// September 2024, Noto Sans CJK SC 2.004, which holds the Chinese,
@@ -181,16 +244,7 @@ pub const FONTS: [Pinned; 8] = [
         cover: &HEBREW,
         color: false,
     },
-    Pinned {
-        file: "NotoSansArabic-Regular.ttf",
-        sha256: "c270782ee478c685f95509e724125729e1284c82ebfbe414cc67926f29449e1d",
-        origin: Origin::Url(
-            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansArabic/hinted/ttf/NotoSansArabic-Regular.ttf",
-        ),
-        style: FritStyle::Regular,
-        cover: &ARABIC,
-        color: false,
-    },
+    NOTO_SANS_ARABIC,
     Pinned {
         file: "NotoSansCJKsc-Regular.otf",
         sha256: "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
@@ -264,6 +318,36 @@ pub fn check(dir: &Path) -> Result<(), String> {
     }
 }
 
+/// Why the scripts frit's fonts in `dir` cannot be drawn from, as
+/// [`check`] says it for the test frit's.
+pub fn check_scripts(dir: &Path) -> Result<(), String> {
+    match SCRIPT_FONTS
+        .iter()
+        .find_map(|f| fault(dir, f.file, f.sha256))
+    {
+        Some(why) => Err(format!(
+            "{why}; `make tier2-fonts` fetches the pinned fonts"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The scripts frit's text, its sources the fonts in `dir`: each of
+/// [`SCRIPT_FONTS`] named by its path, with its `cover=` lines.
+pub fn scripts_frit_text(dir: &Path) -> String {
+    let mut text = String::new();
+    for font in &SCRIPT_FONTS {
+        text.push_str(&format!(
+            "source=outline:{}\n",
+            dir.join(font.file).display()
+        ));
+        for cover in font.cover {
+            text.push_str(&format!("cover={cover}\n"));
+        }
+    }
+    text
+}
+
 /// Downloads `url` into `dir` as `file` with curl, through a `.part` file,
 /// so a download that stops leaves no file of that name.
 fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
@@ -282,21 +366,28 @@ fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
     std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Writes `member` of the `.tar.bz2` archive `archive` to `dir` as `file`,
-/// with `tar`, through a `.part` file.
+/// Writes `member` of the archive `archive` to `dir` as `file`, through a
+/// `.part` file: with `unzip` for a `.zip` archive, and with `tar` for a
+/// `.tar.bz2` one.
 fn unpack(archive: &Path, member: &str, dir: &Path, file: &str) -> Result<(), String> {
     let part = dir.join(format!("{file}.part"));
     let out = std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
-    let status = Command::new("tar")
-        .arg("-xjOf")
+    let zip = archive.extension().is_some_and(|e| e == "zip");
+    let (tool, args) = if zip {
+        ("unzip", ["-p"])
+    } else {
+        ("tar", ["-xjOf"])
+    };
+    let status = Command::new(tool)
+        .args(args)
         .arg(archive)
         .arg(member)
         .stdout(Stdio::from(out))
         .status()
-        .map_err(|e| format!("tar: {e}"))?;
+        .map_err(|e| format!("{tool}: {e}"))?;
     if !status.success() {
         let _ = std::fs::remove_file(&part);
-        return Err(format!("tar {} {member}: {status}", archive.display()));
+        return Err(format!("{tool} {} {member}: {status}", archive.display()));
     }
     let path = dir.join(file);
     std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))
@@ -716,6 +807,76 @@ mod tests {
         let e = fetch(&cache, &[wrong]).unwrap_err();
         assert!(e.contains("f.ttf has SHA-256"), "{e}");
         assert!(!cache.join("f.ttf").exists());
+    }
+
+    // a font in a zip archive, as Iosevka Term's release ships it, is
+    // unpacked with unzip and checked against its own SHA-256, and the
+    // archive is removed once the font is in place
+    #[test]
+    fn a_font_is_unpacked_from_its_checked_zip_archive() {
+        let s = Scratch::new("unzip");
+        let src = s.0.join("src");
+        std::fs::create_dir_all(src.join("pkg")).unwrap();
+        std::fs::write(src.join("pkg/f.ttf"), b"face").unwrap();
+        let zip = s.0.join("a.zip");
+        let ok = Command::new("zip")
+            .arg("-q")
+            .arg(&zip)
+            .arg("pkg/f.ttf")
+            .current_dir(&src)
+            .status()
+            .unwrap();
+        assert!(ok.success());
+        let bytes = std::fs::read(&zip).unwrap();
+        let cache = s.0.join("cache");
+        std::fs::create_dir_all(&cache).unwrap();
+        std::fs::write(cache.join("a.zip"), &bytes).unwrap();
+        let archive: &'static Archive = Box::leak(Box::new(Archive {
+            file: "a.zip",
+            url: "file:///nowhere",
+            sha256: Box::leak(sha(&bytes).into_boxed_str()),
+        }));
+        let font = Pinned {
+            file: "f.ttf",
+            sha256: Box::leak(sha(b"face").into_boxed_str()),
+            origin: Origin::Member(archive, "pkg/f.ttf"),
+            style: FritStyle::Regular,
+            cover: &[],
+            color: false,
+        };
+        fetch(&cache, &[font]).unwrap();
+        assert_eq!(std::fs::read(cache.join("f.ttf")).unwrap(), b"face");
+        assert!(!cache.join("a.zip").exists());
+    }
+
+    // the scripts frit names Iosevka Term first, so its cell and size are
+    // the frit's, then the three Noto fonts for the scripts it lacks, each
+    // over the whole font but Noto Sans Arabic, which keeps its Arabic
+    // blocks, and no style lines
+    #[test]
+    fn the_scripts_frit_names_iosevka_term_then_the_noto_fonts() {
+        let text = scripts_frit_text(Path::new("/c"));
+        let sources: Vec<&str> = text
+            .lines()
+            .filter_map(|l| l.strip_prefix("source=outline:/c/"))
+            .collect();
+        assert_eq!(
+            sources,
+            [
+                "IosevkaTerm-Regular.ttf",
+                "NotoSansDevanagari-Regular.ttf",
+                "NotoSansBengali-Regular.ttf",
+                "NotoSansArabic-Regular.ttf",
+            ]
+        );
+        assert!(!text.contains("style="));
+        assert!(text.ends_with(
+            "source=outline:/c/NotoSansArabic-Regular.ttf\ncover=U+0600-U+06FF\ncover=U+0750-U+077F\ncover=U+0870-U+089F\ncover=U+08A0-U+08FF\ncover=U+FB50-U+FDFF\ncover=U+FE70-U+FEFF\ncover=U+10EC0-U+10EFF\ncover=U+1EE00-U+1EEFF\n"
+        ));
+        assert_eq!(
+            SCRIPT_FONTS[3].sha256, FONTS[5].sha256,
+            "the same Noto Sans Arabic as the test frit"
+        );
     }
 
     #[test]
