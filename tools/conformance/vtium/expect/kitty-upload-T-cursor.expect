@@ -1,0 +1,11 @@
+# Sealed expectation for kitty-upload-T-cursor.case, written from upload-rules.md before any implementation.
+# Replies are exact. A '# expected in the dump' line says in words what the frame view must show.
+> size 20 10
+> send "\e[1;1H\e_Ga=T,f=24,s=2,v=1,i=1,c=4,r=2,C=1,m=1;/wAA\e\\"
+> send "\e[5;10H"
+> send "\e_GC=0,c=8,m=0;AP8A\e\\"
+< reply "\e_Gi=1;OK\e\\"
+> dump frame
+# expected in the dump: one placement of image 1, 4x2 cells, top left at column 9, row 4
+> send "\e[6n"
+< reply "\e[5;10R"

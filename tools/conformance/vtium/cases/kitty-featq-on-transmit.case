@@ -1,0 +1,7 @@
+# e on a transmission is refused.
+# Rule F7 (decided 2026-11-13) of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,i=48,e=T,f=24,s=1,v=1;AAAA\e\\"
+send "\e_Ga=p,i=48,C=1\e\\"

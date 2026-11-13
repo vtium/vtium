@@ -1,0 +1,7 @@
+# A feature query without i gets no reply.
+# Rule F4 of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,e=T,U=1\e\\"
+send "\e_Ga=q,I=5,e=T,U=1\e\\"

@@ -1,0 +1,8 @@
+# A frame sent in chunks and short of its data is answered ENODATA.
+# Rule P4 (decided 2026-11-13) of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty-animation
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=2;AAD/AAD/\e\\"
+send "\e_Ga=f,i=2,f=24,s=3,v=1,m=1;/wAA\e\\"
+send "\e_Ga=f,m=0;AP8A\e\\"

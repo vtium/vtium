@@ -1,0 +1,6 @@
+# The specification's second example; vtium supports X=1.
+# Rule F1 of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=31,e=f,r=1,X=1\e\\"

@@ -1,0 +1,6 @@
+# Animation control keys.
+# Rule F2 of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=32,e=a,s=3,v=1,c=2,r=1,z=40\e\\"

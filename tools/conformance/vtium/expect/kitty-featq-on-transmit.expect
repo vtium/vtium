@@ -1,0 +1,7 @@
+# Sealed expectation for kitty-featq-on-transmit.case, written from upload-rules.md before any implementation.
+# Replies are exact. A '# expected in the dump' line says in words what the frame view must show.
+> size 20 10
+> send "\e_Ga=t,i=48,e=T,f=24,s=1,v=1;AAAA\e\\"
+< reply "\e_Gi=48;EINVAL:invalid argument\e\\"
+> send "\e_Ga=p,i=48,C=1\e\\"
+< reply "\e_Gi=48;ENOENT:Put command refers to non-existent image with id: 48 and number: 0\e\\"

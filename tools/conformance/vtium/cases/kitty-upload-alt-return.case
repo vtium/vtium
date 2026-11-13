@@ -1,0 +1,9 @@
+# A trip to the alternate screen and back leaves the main screen's upload open.
+# Rule U12 of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "\e[?1049h"
+send "\e[?1049l"
+send "\e_Gm=0;AP8A\e\\"

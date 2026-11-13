@@ -1,0 +1,7 @@
+# The payload is ignored and nothing is stored.
+# Rule F6 of upload-rules.md.
+# spec: the kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13)
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=47,e=t,f=24,s=1,v=1;AAAA\e\\"
+send "\e_Ga=p,i=47,C=1\e\\"
