@@ -72,7 +72,7 @@ The right-to-left screens judge how vtium draws Hebrew and Arabic (ADR-1004 D14)
 | `bidi-selection` | A selection dragged across a mixed row, which holds the cells between its ends in written order and so shows in pieces (ADR-1004 D10) |
 | `bidi-unifont` | Arabic in the built-in GNU Unifont, drawn through the console's built-in face, each joined letter by its Arabic presentation form (ADR-1004 D6) |
 
-The scripts screens draw text in a cell half an em wide, as the showcase draws it. They use a second font set, the scripts frit, which `src/fonts.rs` pins and `make tier2-fonts` fetches with the others: Iosevka Term 34.9.1, unpacked from its release's zip archive with `unzip`, then Noto Sans Devanagari, Noto Sans Bengali and Noto Sans Arabic from the Noto project's release of September 2024, the fonts the showcase's scripts scene draws those scripts with. Iosevka Term comes first, so its cell at 40 pixels, 16x40, is the frit's. Both goldens are provisional until the maintainer reviews them at 1:1:
+The scripts screens draw text in a cell half an em wide, as the showcase draws it. They use a second font set, the scripts frit. `src/fonts.rs` pins its fonts, and `make tier2-fonts` fetches them with the others. The frit names Iosevka Term 34.9.1, which `fetch` unpacks from its release's zip archive with `unzip`. Then it names Noto Sans Devanagari, Noto Sans Bengali and Noto Sans Arabic from the Noto project's release of September 2024. These are the fonts the showcase's scripts scene draws those scripts with. Iosevka Term comes first, so its cell at 40 pixels, 16x40, is the frit's. Both goldens are provisional until the maintainer reviews them at 1:1:
 
 | Screen | What it covers |
 |---|---|
