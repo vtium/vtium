@@ -1,0 +1,48 @@
+# A kitty relative placement follows its parent. It moves when a region
+# scroll moves the parent, when a put with the same ids replaces the
+# parent, and when the whole screen scrolls. The part of a child left of
+# the screen is cut off. Deleting the parent's image deletes the child,
+# and takes the child's image too, since that image has no placement left.
+#
+# References: ADR-1100 D13.
+# spec: kitty graphics protocol, "Relative placements"
+# covers: image.kitty-relative
+size 12 6
+cmd cell;w=8;h=16
+cmd sb-max;n=10
+
+# Picture 1, placement 1, is the parent, placed at row 4, column 2.
+send "\e[4;2H"
+# 8×16, every pixel opaque red (ff0000ff)
+send "\e_Ga=T,f=32,s=8,v=16,i=1,p=1,C=1,q=2;/wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP8=\e\\"
+
+# Image 2 is transmitted without a placement.
+# 8×16, every pixel opaque blue (0000ffff)
+send "\e_Ga=t,f=32,s=8,v=16,i=2,q=2;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8=\e\\"
+
+# Child 1 sits 3 columns right of the parent and 1 row down. Child 2
+# sits 1 column left and 2 rows up.
+send "\e_Ga=p,i=2,p=1,P=1,Q=1,H=3,V=1\e\\"
+send "\e_Ga=p,i=2,p=2,P=1,Q=1,H=-1,V=-2\e\\"
+dump
+
+# A region scroll over rows 3 to 5 moves the parent up one row.
+send "\e[3;5r"
+send "\e[S"
+send "\e[r"
+dump
+
+# A put with i=1 and p=1 replaces the parent at row 5, column 8.
+send "\e[5;8H"
+send "\e_Ga=p,i=1,p=1,C=1,q=2\e\\"
+dump
+
+# A line feed at the bottom scrolls the whole screen up one line.
+send "\e[6;1H\n"
+dump
+
+# d=i on image 1 deletes the parent and both children. The puts that
+# follow find image 2 gone and image 1 still stored.
+send "\e_Ga=d,d=i,i=1\e\\"
+send "\e_Ga=p,i=2,C=1\e\\"
+send "\e_Ga=p,i=1,C=1\e\\"
