@@ -102,7 +102,7 @@ mod program {
 
     /// The old ARM ABI's `socketcall`, which the libc crate does not name.
     #[cfg(target_arch = "arm")]
-    const SOCKETCALL: i64 = 102;
+    const SOCKETCALL: libc::c_long = 102;
 
     /// `BPF_MAXINSNS`, the most instructions a program may hold.
     const INSTRUCTIONS_MAX: usize = 4096;
@@ -110,19 +110,19 @@ mod program {
     /// One call a filter refuses, and when.
     pub enum Rule {
         /// The call answers EPERM, whatever its arguments.
-        Always(i64),
+        Always(libc::c_long),
         /// The call answers ENOSYS, as on a kernel that lacks it, so a
         /// program that tries it falls back to an older call.
-        Absent(i64),
+        Absent(libc::c_long),
         /// The call answers EPERM when its argument `arg` has any of
         /// `bits` set.
-        AnyBit(i64, u8, u32),
+        AnyBit(libc::c_long, u8, u32),
         /// The call answers EPERM when its argument `arg` is one of
         /// `values`.
-        OneOf(i64, u8, Vec<u32>),
+        OneOf(libc::c_long, u8, Vec<u32>),
         /// The call answers EPERM unless its argument `arg` is one of
         /// `values`.
-        NoneOf(i64, u8, Vec<u32>),
+        NoneOf(libc::c_long, u8, Vec<u32>),
     }
 
     fn op(code: u16, k: u32) -> sock_filter {
@@ -150,7 +150,7 @@ mod program {
         op(RET, ERRNO | u32::from(errno.unsigned_abs() as u16))
     }
 
-    fn number(call: i64) -> Result<u32, String> {
+    fn number(call: libc::c_long) -> Result<u32, String> {
         u32::try_from(call).map_err(|_| format!("the call number {call} does not fit a filter"))
     }
 
@@ -507,7 +507,7 @@ mod tests {
             return;
         }
         let at = libc::AT_FDCWD.to_string();
-        let call = |nr: i64, args: &[&str]| {
+        let call = |nr: libc::c_long, args: &[&str]| {
             let mut spec = nr.to_string();
             for a in args {
                 spec.push(',');
