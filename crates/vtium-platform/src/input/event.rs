@@ -46,6 +46,17 @@ pub struct KeyEvent {
     pub keycode: u32,
     /// The ASCII keysym for shortcuts, or 0 (`NoSymbol`).
     pub ascii: u32,
+    /// The keysym the key makes at the first shift level of the active
+    /// layout, which is the unshifted key, or 0 (`NoSymbol`) when a
+    /// modifier the kitty keyboard protocol cannot encode, such as AltGr,
+    /// chose the key's symbol (ADR-1005, D9). A keysym outside Latin-1 that
+    /// stands for a character is given as that character's Unicode keysym,
+    /// 0x1000000 plus the code point, which names the same symbol.
+    pub unshifted: u32,
+    /// The character the key types on the US PC-101 layout, which is the
+    /// base layout key, from the kernel's key code; `None` for a key that
+    /// layout does not type a character with (ADR-1005, D9).
+    pub base: Option<char>,
     pub mods: Mods,
     /// The keysyms the key makes; a compose sequence's result replaces
     /// them. A release carries its press's.

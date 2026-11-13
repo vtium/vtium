@@ -731,6 +731,8 @@ fn char_key(c: char) -> KeyEvent {
     KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::empty(),
         keysyms: vec![keysym],
         codepoints: vec![(c != '\r').then_some(c)],
@@ -962,6 +964,8 @@ fn a_zoom_and_a_rotation_change_the_focused_heads_grid_alone() {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods,
             keysyms: vec![keysym],
             codepoints: vec![None],
@@ -2135,6 +2139,8 @@ fn a_frame_composing_holds_up_no_vt_release() {
     let ctrl_super_f12 = KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::LOGO),
         keysyms: vec![0xffc9],
         codepoints: vec![None],
@@ -2209,6 +2215,8 @@ input class:keyboard -> roaming
     let ctrl_super_f12 = KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::LOGO),
         keysyms: vec![0xffc9],
         codepoints: vec![None],
@@ -2346,6 +2354,8 @@ fn ctrl_super(keysym: u32) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::LOGO),
         keysyms: vec![keysym],
         codepoints: vec![None],
@@ -2435,6 +2445,8 @@ fn the_focus_chord_lets_go_of_the_keys_held_on_the_head_it_leaves() {
     let escape = KeyEvent {
         keycode: 9,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::empty(),
         keysyms: vec![0xff1b],
         codepoints: vec![None],
@@ -2475,6 +2487,8 @@ fn mode_1035_reads_the_num_lock_the_input_reports() {
         InputEvent::Key(KeyEvent {
             keycode: 87,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods,
             keysyms: vec![if mods.contains(Mods::NUM) {
                 0xffb1
@@ -2719,6 +2733,8 @@ fn the_reset_key_resets_the_shown_console_and_no_other() {
     let reset = InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::SHIFT),
         keysyms: vec![0xffff],
         codepoints: vec![None],
@@ -3396,6 +3412,8 @@ fn pressed_chord(code: u32, keysym: u32) -> [InputEvent; 3] {
         InputEvent::Key(KeyEvent {
             keycode: code + 8,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods,
             keysyms: vec![keysym],
             codepoints: vec![None],
@@ -5035,6 +5053,8 @@ fn ctrl_alt_f(n: u32) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::ALT),
         keysyms: vec![0xffbe + n - 1],
         codepoints: vec![None],

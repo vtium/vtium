@@ -664,6 +664,8 @@ fn char_key(c: char) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods: Mods::empty(),
         keysyms: vec![u32::from(c)],
         codepoints: vec![Some(c)],
@@ -676,6 +678,8 @@ fn chord(mods: Mods, keysym: u32) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        base: None,
         mods,
         keysyms: vec![keysym],
         codepoints: vec![None],

@@ -3264,6 +3264,8 @@ impl App {
         let unicode = key.codepoints.first().copied().flatten();
         let release = Key {
             event: TermKeyEvent::Release,
+            unshifted: key.unshifted,
+            base: key.base,
             ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
         };
         self.send_release(to, &release);
@@ -3545,6 +3547,8 @@ impl App {
         };
         let pressed = Key {
             event,
+            unshifted: key.unshifted,
+            base: key.base,
             ..Key::press(keysym, key.ascii, mods, unicode)
         };
         if !key.repeat {
@@ -6056,6 +6060,8 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6095,6 +6101,8 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: char::from_u32(keysym)
@@ -6144,6 +6152,8 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: vec![None],
@@ -6197,6 +6207,8 @@ mod tests {
         let chord = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6631,6 +6643,8 @@ mod tests {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods: InputMods::empty(),
             keysyms: vec![keysym],
             codepoints: char::from_u32(keysym)
@@ -6700,6 +6714,8 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],

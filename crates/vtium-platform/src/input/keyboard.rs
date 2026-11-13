@@ -347,6 +347,11 @@ struct Special {
     num: xkb::ModMask,
     hyper: xkb::ModMask,
     meta: xkb::ModMask,
+    /// The real modifiers behind the modifiers the kitty keyboard
+    /// protocol encodes: Shift, Lock, Control, Alt, Super, NumLock, and
+    /// Hyper and Meta where vtium reports them. A modifier outside them,
+    /// such as AltGr's, chooses a symbol the protocol cannot describe.
+    encodable: xkb::ModMask,
 }
 
 impl Special {
@@ -364,13 +369,23 @@ impl Special {
             | real(xkb::MOD_NAME_ALT)
             | real(xkb::MOD_NAME_LOGO);
         let own = |mask: xkb::ModMask| if mask & taken == 0 { mask } else { 0 };
+        let num = set_by(keymap, &[keysyms::KEY_Num_Lock]);
+        let hyper = own(set_by(
+            keymap,
+            &[keysyms::KEY_Hyper_L, keysyms::KEY_Hyper_R],
+        ));
+        let meta = own(set_by(keymap, &[keysyms::KEY_Meta_L, keysyms::KEY_Meta_R]));
         Special {
-            num: set_by(keymap, &[keysyms::KEY_Num_Lock]),
-            hyper: own(set_by(
-                keymap,
-                &[keysyms::KEY_Hyper_L, keysyms::KEY_Hyper_R],
-            )),
-            meta: own(set_by(keymap, &[keysyms::KEY_Meta_L, keysyms::KEY_Meta_R])),
+            num,
+            hyper,
+            meta,
+            encodable: taken
+                | num
+                | hyper
+                | meta
+                | real(xkb::MOD_NAME_SHIFT)
+                | real(xkb::MOD_NAME_CAPS)
+                | real(xkb::MOD_NAME_CTRL),
         }
     }
 }
@@ -401,6 +416,42 @@ fn set_by(keymap: &xkb::Keymap, syms: &[u32]) -> xkb::ModMask {
         }
     });
     mask
+}
+
+/// The character the key with evdev's key code `code` types on the US
+/// PC-101 layout, unshifted: the base layout key of the kitty keyboard
+/// protocol (ADR-1005, D9). The kernel names its key codes after their
+/// places on that keyboard (`linux/input-event-codes.h`), `KEY_1` 2 to
+/// `KEY_EQUAL` 13, `KEY_Q` 16 to `KEY_RIGHTBRACE` 27, `KEY_A` 30 to
+/// `KEY_GRAVE` 41, `KEY_BACKSLASH` 43, `KEY_Z` 44 to `KEY_SLASH` 53 and
+/// `KEY_SPACE` 57, so the table holds whatever layout is configured. A key
+/// the layout types no character with, such as `KEY_102ND`, the extra key
+/// of ISO keyboards, has none.
+pub(crate) fn base_layout_key(code: u32) -> Option<char> {
+    const ROWS: [(u32, &str); 5] = [
+        (2, "1234567890-="),
+        (16, "qwertyuiop[]"),
+        (30, "asdfghjkl;'`"),
+        (43, "\\zxcvbnm,./"),
+        (57, " "),
+    ];
+    ROWS.iter().find_map(|&(first, keys)| {
+        let i = usize::try_from(code.checked_sub(first)?).ok()?;
+        keys.chars().nth(i)
+    })
+}
+
+/// `sym`, or for a keysym outside Latin-1 and below the function keys that
+/// stands for a character, the Unicode keysym of that character, which
+/// xkb treats as the same symbol: Cyrillic_es, 0x6d3, is 0x1000441.
+fn unicode_keysym(sym: u32) -> u32 {
+    if !(0x100..0xfd00).contains(&sym) {
+        return sym;
+    }
+    match xkb::keysym_to_utf32(Keysym::new(sym)) {
+        0 => sym,
+        c => c.saturating_add(0x0100_0000),
+    }
 }
 
 /// One keyboard's state: modifiers held on it apply to it alone.
@@ -507,6 +558,8 @@ impl Keyboard {
         KeyEvent {
             keycode: keycode.raw(),
             ascii: self.ascii(keycode, syms),
+            unshifted: self.unshifted(keycode),
+            base: base_layout_key(keycode.raw().wrapping_sub(EVDEV_KEYCODE_OFFSET)),
             mods: self.mods(),
             keysyms: syms.iter().map(|s| s.raw()).collect(),
             codepoints: syms
@@ -606,6 +659,27 @@ impl Keyboard {
                 }
             })
             .unwrap_or(keysyms::KEY_NoSymbol)
+    }
+
+    /// The unshifted key: the one keysym the key makes at the first level
+    /// of its layout now, or 0 when the key makes several there, or when a
+    /// modifier held chose the key's level that the kitty keyboard
+    /// protocol cannot encode, such as AltGr's or the level-five shift's.
+    /// Without that rule, AltGr+Q, which makes @ on a German layout, would
+    /// be reported as Q, and a program could not tell it from Q (ADR-1005,
+    /// D9).
+    fn unshifted(&self, keycode: Keycode) -> u32 {
+        let consumed = self.state.key_get_consumed_mods(keycode)
+            & self.state.serialize_mods(xkb::STATE_MODS_EFFECTIVE);
+        if consumed & !self.special.encodable != 0 {
+            return keysyms::KEY_NoSymbol;
+        }
+        let keymap = self.state.get_keymap();
+        let layout = self.state.key_get_layout(keycode);
+        match keymap.key_get_syms_by_level(keycode, layout, 0) {
+            [sym] => unicode_keysym(sym.raw()),
+            _ => keysyms::KEY_NoSymbol,
+        }
     }
 
     /// The LEDs the xkb state lights.

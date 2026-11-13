@@ -1803,3 +1803,140 @@ fn a_key_held_across_a_layout_change_reports_its_release() {
         [Did::Release(keysyms::KEY_Up, Mods::empty())]
     );
 }
+
+// evdev's key codes for the key forms' tests, `linux/input-event-codes.h`:
+// KEY_1, KEY_Q, KEY_C, the key the built-in keymap gives ISO_Level3_Shift,
+// and KEY_102ND, the extra key of ISO keyboards.
+const KEY_1: u16 = 2;
+const KEY_Q: u16 = 16;
+const KEY_C: u16 = 46;
+const KEY_LEVEL3: u16 = 84;
+const KEY_102ND: u16 = 86;
+
+/// Each press's keysym, unshifted key and base layout key.
+fn forms(input: &mut Input<Nodes>) -> Vec<(u32, u32, Option<char>)> {
+    keys(input)
+        .iter()
+        .map(|k| (k.keysyms.first().copied().unwrap_or(0), k.unshifted, k.base))
+        .collect()
+}
+
+// ADR-1005 D9: a key reports the keysym it makes at the first level of its
+// layout, the unshifted key, and the character it types on the US PC-101
+// layout, the base layout key, from the kernel's key code. Shift+1 makes
+// exclam, and its unshifted key and base layout key are 1. The keypad and
+// the extra key of ISO keyboards type no character on that layout.
+// covers: input.kitty-keyboard
+#[test]
+fn a_key_reports_its_unshifted_key_and_base_layout_key() {
+    let (mut input, node, id) = with_keyboard();
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_A),
+            release(KEY_A),
+            press(KEY_LEFTSHIFT),
+            press(KEY_1),
+            release(KEY_1),
+            press(KEY_A),
+            release(KEY_A),
+            release(KEY_LEFTSHIFT),
+            press(KEY_102ND),
+            release(KEY_102ND),
+            press(KEY_F2),
+            release(KEY_F2),
+        ],
+    );
+    assert_eq!(
+        forms(&mut input),
+        [
+            (keysyms::KEY_a, keysyms::KEY_a, Some('a')),
+            (keysyms::KEY_Shift_L, keysyms::KEY_Shift_L, None),
+            (keysyms::KEY_exclam, keysyms::KEY_1, Some('1')),
+            (keysyms::KEY_A, keysyms::KEY_a, Some('a')),
+            (keysyms::KEY_less, keysyms::KEY_less, None),
+            (keysyms::KEY_F2, keysyms::KEY_F2, None),
+        ]
+    );
+    // a release carries its press's forms
+    feed(&mut input, &node, id, &[press(KEY_1), release(KEY_1)]);
+    let released: Vec<_> = input
+        .events()
+        .filter_map(|e| match e {
+            InputEvent::Release(k) => Some((k.unshifted, k.base)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(released, [(keysyms::KEY_1, Some('1'))]);
+}
+
+// ADR-1005 D9: on a Russian layout, the key C makes Cyrillic_es and with
+// Shift Cyrillic_ES. Its unshifted key is Cyrillic_es, given as the
+// Unicode keysym of с, U+0441, and its base layout key is c, so that Ctrl+С
+// can match a program's Ctrl+C.
+// covers: input.kitty-keyboard
+#[test]
+fn a_non_latin_layout_reports_the_base_layout_key() {
+    let (mut input, node, id) = with_edited_keymap(&[(
+        "key <AB03> { [ c, C ] };",
+        "key <AB03> { [ Cyrillic_es, Cyrillic_ES ] };",
+    )]);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_C),
+            release(KEY_C),
+            press(KEY_LEFTSHIFT),
+            press(KEY_C),
+            release(KEY_C),
+            release(KEY_LEFTSHIFT),
+        ],
+    );
+    let k = forms(&mut input);
+    assert_eq!(
+        k.first(),
+        Some(&(keysyms::KEY_Cyrillic_es, 0x0100_0441, Some('c')))
+    );
+    assert_eq!(
+        k.get(2),
+        Some(&(keysyms::KEY_Cyrillic_ES, 0x0100_0441, Some('c')))
+    );
+}
+
+// ADR-1005 D9: a key whose symbol AltGr chose reports no unshifted key, as
+// the kitty keyboard protocol cannot encode AltGr. On a German layout
+// AltGr+Q makes @; reported as Q, it could not be told from Q. Shift+Q
+// still reports q.
+// covers: input.kitty-keyboard
+#[test]
+fn a_symbol_altgr_chose_reports_no_unshifted_key() {
+    let (mut input, node, id) = with_edited_keymap(&[(
+        "key <AD01> { [ q, Q ] };",
+        "key <AD01> { type= \"FOUR_LEVEL\", [ q, Q, at, Greek_OMEGA ] };",
+    )]);
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_LEVEL3),
+            press(KEY_Q),
+            release(KEY_Q),
+            release(KEY_LEVEL3),
+            press(KEY_LEFTSHIFT),
+            press(KEY_Q),
+            release(KEY_Q),
+            release(KEY_LEFTSHIFT),
+        ],
+    );
+    let k = forms(&mut input);
+    assert_eq!(
+        k.get(1),
+        Some(&(keysyms::KEY_at, keysyms::KEY_NoSymbol, Some('q')))
+    );
+    assert_eq!(k.get(3), Some(&(keysyms::KEY_Q, keysyms::KEY_q, Some('q'))));
+}
