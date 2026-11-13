@@ -64,6 +64,18 @@ considered:
   - operator: Aaron Bockelie
     said: "[kitty's frame composition: measure before deciding?] Measure first (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "vtium answers the specification's feature queries: a query a=q with e=... keys, whose reply lists every key from the query with a non-default value that vtium supports, plus e itself; a feature query has no effect on images or on any chunked transmission in progress."
+    via: the steering session's question on 2026-11-13, on the kitty graphics spec review
+    paraphrase: true
+  - operator: aaronsb
+    said: "Redo the rules for kitty graphics commands that arrive while an upload in chunks is open, clean-room: they are written from the published specification and from black-box runs of kitty, by an author who has read neither kitty's source nor vtium's code for them, and a separate implementer replaces the code from those rules alone."
+    via: the steering session's question on 2026-11-13, on the kitty graphics spec review
+    paraphrase: true
+  - operator: aaronsb
+    said: "Items 3 to 11 of ADR-1100's For the operator's check are settled as proposed: a frame during a picture's upload is the next chunk, an upload's accumulated bytes are capped at its reservation, and an upload sent in chunks gets at most one reply, at its last chunk."
+    via: the steering session's question on 2026-11-13, on the clean-room kitty upload rules
+    paraphrase: true
 status: accepted
 date: 2026-11-01
 deciders:
@@ -94,6 +106,8 @@ related: []
 > Edited 2026-11-02, after the re-check: `d=f`, `d=F` and frames freed for the allowance set the store's current frame to the root and its run state to stopped, and move both stamps (D1, D3, D5), so the clock tells them from `a=a` with `c` and the store never names a deleted frame. They moved only the frame stamp.
 
 > Edited 2026-11-01, after the fresh review and the maintainer's answers (`considered`): frames past the root take a separate allowance of five times the image budget (D1), where they were charged to the one budget; composed pixels count as input work (D2); the clock answers each command by name, through a frame stamp and a run stamp (D3); `d=f` with neither `i` nor `I` does nothing (D5). The earlier text is in git at 991986ba.
+
+> Edited 2026-11-13: the maintainer decided that vtium answers the specification's feature queries (`considered`), so D6's Detection bullet now names `e=f`, `e=a` and `e=c`. The maintainer also decided that the rules for uploads in chunks are written clean-room (`considered`). They are ADR-1100 D16, and D2 gains a bullet that points a frame sent in chunks to them.
 
 ## Context
 
@@ -152,6 +166,11 @@ Composition follows the kitty spec's rules. vtium-image's frame code, beside the
 - **The reply** to a frame (`a=f`) names its frame with `r` after `i`, `I` and `p`, as kitty 0.50.0's replies do (the maintainer, 2026-11-06, `considered`; ADR-1100 D15's `basis`): the frame an edit names, or else the frame a new frame made, or on a refusal the number the new frame would have had. A reply that finds no image, and a refusal for palette indices, names no `r` unless the command gave one. A composition's and a control's replies carry no `r`, as kitty's do not. A frame's reply, and a composition's, name `i` only when the command gave it; a command that named the image by `I` alone is answered `,I=N,...`, as kitty writes it. An animation control (`a=a`) is answered only when its image does not exist, since kitty answers nothing else to it; vtium answered every control as a put. ADR-1100 D15 lists the refusals' texts.
 
   > Edited 2026-11-06, later: the reply bullet is new; vtium's frame replies named no frame.
+- **A frame sent in chunks** follows ADR-1100 D16: its later chunks carry `a=f`, as the specification asks, and vtium reads each as the upload's next chunk. The upload reserves its frame's cost from the frame allowance at its first chunk, and its data is capped at that reservation. It gets one answer, the reply above, at the chunk that ends it. A frame that arrives during another picture's upload is that upload's next chunk (ADR-1100 D16).
+
+  > Added 2026-11-13: the maintainer decided that the rules for uploads in chunks are written clean-room (`considered`), and ADR-1100 D16 holds them.
+
+  > Edited 2026-11-13, later: the maintainer settled the answer to a frame sent in chunks and a frame during another picture's upload (`considered`). The bullet's last sentence read: "When the upload's answer comes, and what a frame does that arrives during another picture's upload, wait on the maintainer under ADR-1100's For the operator's check."
 
   > Edited 2026-11-06, after review: the bullet began "an image or frame that does not exist answers ENOENT; a rectangle that leaves the image, and a composition whose source and destination are the same frame with rectangles that overlap, answer EINVAL", which no longer matched the frame rules above it; the New frame bullet's last sentence, which an earlier note had swallowed, is back in its bullet.
 
@@ -208,9 +227,11 @@ No command deletes one frame alone, so no change frame ever loses its base: `d=f
 
 ### D6: detection and verification
 
-- **Detection.** Kitty's published specification has no query for animation: a program detects the graphics protocol with the graphics query (`a=q`, ADR-1100 D13's Detection bullet) and then sends `a=f`, `a=a` and `a=c`, reading each reply, or goes by the terminal's name and version. vtium answers each animation command as this record decides, so a program that tries one learns from its reply whether vtium took it.
+- **Detection.** A program detects animation with the feature queries the specification names for it: `a=q` with `e=f` for loading frames, `e=a` for controlling an animation and `e=c` for composing frames. vtium answers each with `e` and with every key of the query that it takes for that action, as ADR-1100 D14 says. A query with `e=f,r=1,X=1`, which asks for editing frames and for the overwrite mode, is answered `e=f,X=1,r=1`, since vtium takes both. A query with `e=f,f=8` is answered `e=f` alone, since vtium refuses frames in palette indices (ADR-1100 D15). vtium also answers each animation command as this record decides, so a program that tries one learns from its reply whether vtium took it.
 
   > Edited 2026-11-02: the maintainer read kitty's published specification (sw.kovidgoyal.net/kitty/graphics-protocol) with the steering session. It has no `e` key and no feature query; a program detects the protocol with the graphics query and learns which transmission mediums, formats and compressions a terminal takes by naming them in that query. This bullet named a feature query and no longer does.
+
+  > Edited 2026-11-13: the maintainer decided that vtium answers the specification's feature queries (`considered`). The specification copy read on 2026-11-13 has them, added in its version 0.50.0. The bullet read: "Kitty's published specification has no query for animation: a program detects the graphics protocol with the graphics query (`a=q`, ADR-1100 D13's Detection bullet) and then sends `a=f`, `a=a` and `a=c`, reading each reply, or goes by the terminal's name and version. vtium answers each animation command as this record decides, so a program that tries one learns from its reply whether vtium took it."
 - **Replay cases,** vtium's own and provisional until the maintainer reviews them, for each action and delete form: a frame on a color canvas and on an earlier frame, by blend and by replacement; an edit; a composition, with each refusal; gaps, loops, run and stop as the store records them, with both stamps; `d=f` with an id and without one.
 - **Unit tests** for the allowance: a frame reserved before it is allocated against the allowance and never the image budget; other images' frames freed least recently used first, never the image's own and never a root; refused with ENOSPC when freeing cannot cover it; the frame count bound; each seen to fail with its check planted out.
 - **Unit tests** for change frames: a frame composed when it is shown holds the same bytes as the same frame composed when its command arrives, for each blend and for a color base; an edit or a composition on a base composes the frames laid on it first, so they keep their pixels, and with that step planted out the test fails; each of D1's three rules stores a frame whole; composing any frame applies at most `FRAME_CHAIN_MAX` layers; a change frame's opacity follows its base and its layers; the cache's charge is the same whatever was shown.
