@@ -2632,10 +2632,23 @@ impl App {
             }
             Event::WakeFailed => {
                 self.retaking.remove(node);
-                log::warn!(
-                    "{}: the displays did not wake; the next key tries again",
-                    node.display()
-                );
+                // A DRM card goes on trying once a second while its VT is
+                // shown; a framebuffer waits for the next key.
+                let slowly = self
+                    .videos
+                    .get(node)
+                    .is_some_and(|video| video.backend() == "drm2d");
+                if slowly {
+                    log::warn!(
+                        "{}: the displays did not wake. vtium tries again once a second while this VT is shown, and at once at the next key press",
+                        node.display()
+                    );
+                } else {
+                    log::warn!(
+                        "{}: the displays did not wake. vtium tries again at the next key press",
+                        node.display()
+                    );
+                }
             }
         }
     }

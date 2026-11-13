@@ -182,7 +182,8 @@ pub enum Event {
     Asleep,
     /// Waking up, a modeset or an unblank failed, and the retries ran out.
     /// The device's `input`, at the user's next key press or pointer
-    /// action, tries again.
+    /// action, tries again. A DRM card also tries again every
+    /// [`crate::WAKE_RETRY_SLOW_MS`] while its VT is shown.
     WakeFailed,
 }
 

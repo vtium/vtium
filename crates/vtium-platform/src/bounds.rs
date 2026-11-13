@@ -110,8 +110,16 @@ const RETRIES: Bound = Bound {
     name: "WAKE_RETRIES",
     value: 2 * FLIP_WAIT.value / WAKE_RETRY.value,
     what: "Tries to wake a DRM card after a wake-up, a hotplug scan or an unblank's modeset failed, and to unblank a framebuffer after `FBIOBLANK` failed",
-    past: "The tries stop with `Event::WakeFailed`, until the next wake-up, hotplug, key press or pointer action; a framebuffer's, until the next wake-up, unblank, key press or pointer action",
+    past: "The fast tries stop with `Event::WakeFailed`. A DRM card then tries again every `WAKE_RETRY_SLOW_MS` while its VT is shown, and at once at the next hotplug, key press or pointer action. A framebuffer tries again at the next wake-up, unblank, key press or pointer action",
     cite: "Twice `FLIP_WAIT_MS` at `WAKE_RETRY_MS`, so the tries outlast the sleep of a process that held DRM master before, which a flip in flight delays by up to `FLIP_WAIT_MS`. vtium/vtium#19",
+};
+
+const WAKE_RETRY_SLOW: Bound = Bound {
+    name: "WAKE_RETRY_SLOW_MS",
+    value: 1000,
+    what: "Milliseconds between tries to wake a DRM card once its `WAKE_RETRIES` fast tries ran out, while its VT is shown",
+    past: "The next try. A VT release stops the tries, and a VT acquire starts the fast tries again",
+    cite: "The operator's decision on vtium/vtium#36: a display wakes about a second after the program that held DRM master lets go, with no key press, as on a kiosk with no keyboard",
 };
 
 const DAMAGE_CLIPS: Bound = Bound {
@@ -252,7 +260,7 @@ const IMAGE_BASE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 29] = [
+pub(crate) const BOUNDS: [Bound; 30] = [
     READ,
     READS,
     BUDGET,
@@ -265,6 +273,7 @@ pub(crate) const BOUNDS: [Bound; 29] = [
     FENCE_WAIT,
     WAKE_RETRY,
     RETRIES,
+    WAKE_RETRY_SLOW,
     DAMAGE_CLIPS,
     INPUT_READS,
     RETAKE_QUIET,
@@ -294,6 +303,9 @@ const _: () = assert!(LOW.value < HIGH.value && HIGH.value < CEILING.value);
 // up to a flip wait to sleep and drop it; the wake-up tries outlast that
 // twice over.
 const _: () = assert!(RETRIES.value * WAKE_RETRY.value >= 2 * FLIP_WAIT.value);
+
+// The slow tries come after the fast ones, further apart.
+const _: () = assert!(WAKE_RETRY_SLOW.value > WAKE_RETRY.value);
 
 /// Bytes one read takes from the pty.
 pub const READ_MAX: usize = READ.value;
@@ -333,9 +345,13 @@ pub const GPU_FENCE_WAIT_MS: usize = FENCE_WAIT.value;
 /// Milliseconds between tries to wake a DRM card.
 pub const WAKE_RETRY_MS: usize = WAKE_RETRY.value;
 
-/// Tries to wake a DRM card or unblank a framebuffer before giving up
-/// until the next wake-up, hotplug or input.
+/// Tries to wake a DRM card or unblank a framebuffer, every
+/// [`WAKE_RETRY_MS`], before the device reports `Event::WakeFailed`.
 pub const WAKE_RETRIES: usize = RETRIES.value;
+
+/// Milliseconds between tries to wake a DRM card once the fast tries ran
+/// out, while its VT is shown.
+pub const WAKE_RETRY_SLOW_MS: usize = WAKE_RETRY_SLOW.value;
 
 /// Damage rectangles one swap sends before they become their bounding
 /// box.
@@ -459,5 +475,6 @@ mod tests {
         assert_eq!(REPLY_MAX, 4 * REPLY_HIGH);
         assert_eq!(FLIP_WAIT_MS, 1000);
         assert_eq!(WAKE_RETRY_MS, 50);
+        assert_eq!(WAKE_RETRY_SLOW_MS, 1000);
     }
 }

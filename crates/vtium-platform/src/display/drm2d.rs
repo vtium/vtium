@@ -217,7 +217,8 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// or a mode owed's.
     waking: bool,
     /// The retries ran out with [`Event::WakeFailed`], and nothing has set
-    /// the displays since: the next input tries again.
+    /// the displays since: the next input tries again, and so does each
+    /// slow retry while the VT is shown ([`Self::retry_slowly`]).
     wake_failed: bool,
     /// The displays the last legacy modeset could not set, at the mode
     /// chosen or at the mode they were set to: each whose set failed for a
@@ -964,7 +965,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Takes DRM master and sets every display up again. While another
     /// process holds master, or the setup fails, the wake-up is tried
     /// again every [`crate::WAKE_RETRY_MS`], at most
-    /// [`crate::WAKE_RETRIES`] times.
+    /// [`crate::WAKE_RETRIES`] times, and then every
+    /// [`crate::WAKE_RETRY_SLOW_MS`] while the VT is shown
+    /// ([`Self::retry_slowly`]).
     pub fn wake_up(&mut self) -> io::Result<()> {
         if self.gone {
             return Err(Errno::NODEV.into());
@@ -993,9 +996,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the atomic modeset left them, so the blank still powers them down.
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         if !self.master {
+            // After the fast retries ran out, each later try that fails
+            // logs at debug level, so the slow retries do not fill the log.
+            let level = if self.wake_failed {
+                log::Level::Debug
+            } else {
+                log::Level::Warn
+            };
             self.card.set_master().inspect_err(|e| {
                 if !card_removed(e) {
-                    log::warn!("cannot take DRM master: {e}");
+                    log::log!(level, "cannot take DRM master: {e}");
                 }
             })?;
             self.master = true;
@@ -1067,12 +1077,44 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     o.hold_back_owed();
                 }
             } else {
-                log::error!("cannot wake the display after {tried} retries");
+                log::error!(
+                    "cannot wake the display after {tried} retries; the card tries again every {} ms while its VT is shown",
+                    crate::WAKE_RETRY_SLOW_MS
+                );
                 self.wake_failed = true;
                 self.events.push(Event::WakeFailed);
             }
         } else {
             self.retries = Some(tried.saturating_add(1));
+        }
+        self.settle();
+    }
+
+    /// Whether the slow retries run: the fast retries ran out with
+    /// [`Event::WakeFailed`], nothing has set the displays since, and the
+    /// card's VT is shown.
+    fn retrying_slowly(&self) -> bool {
+        self.wake_failed && self.foreground && self.retries.is_none() && !self.gone
+    }
+
+    /// The slow retry's timer fired. After [`Event::WakeFailed`], while
+    /// its VT is shown, the card tries once every
+    /// [`crate::WAKE_RETRY_SLOW_MS`]: the wake-up where it is asleep, or
+    /// else a modeset of every display. A try that fails leaves the next
+    /// one to the timer, and starts no fast retries. Blanked, an awake
+    /// card's scan commits nothing: it leaves the modeset owed to the input
+    /// that ends the blank, and the slow retries stop.
+    pub(crate) fn retry_slowly(&mut self) {
+        if !self.retrying_slowly() {
+            return;
+        }
+        let tried = if self.awake {
+            self.scan(Scan::Retry)
+        } else {
+            self.try_wake(Scan::WakeUp)
+        };
+        if tried.is_ok() {
+            self.wake_failed = false;
         }
         self.settle();
     }
@@ -1415,7 +1457,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Arms and disarms the loop's timers to match what waits: a bound for
     /// each flip in flight, armed when the flip starts, and the wake-up
-    /// retries.
+    /// retries, fast and slow.
     fn settle(&mut self) {
         self.let_card_go();
         let Some(link) = &self.link else {
@@ -1437,6 +1479,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let token = &mut self.timers.wake_retry;
         match (self.retries.is_some(), token.take()) {
             (true, None) => *token = link.arm(Clock::WakeRetry),
+            (false, Some(t)) => link.disarm(t),
+            (_, t) => *token = t,
+        }
+        let slow = self.retrying_slowly();
+        let token = &mut self.timers.slow_retry;
+        match (slow, token.take()) {
+            (true, None) => *token = link.arm(Clock::SlowRetry),
             (false, Some(t)) => link.disarm(t),
             (_, t) => *token = t,
         }
@@ -3356,6 +3405,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     pub(crate) fn waits(&self) -> (bool, bool) {
         (self.waiting.is_some(), self.retries.is_some())
     }
+
+    /// Whether the slow retry's timer is armed in the loop.
+    #[cfg(test)]
+    pub(crate) fn slow_armed(&self) -> bool {
+        self.timers.slow_retry.is_some()
+    }
 }
 
 /// Whether `now` names the monitor `was` named. Where both connectors have
@@ -3423,10 +3478,13 @@ impl Failure {
 
 impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
     fn drop(&mut self) {
-        if let Some(link) = &self.link
-            && let Some(token) = self.timers.wake_retry.take()
-        {
-            link.disarm(token);
+        if let Some(link) = &self.link {
+            for token in [self.timers.wake_retry.take(), self.timers.slow_retry.take()]
+                .into_iter()
+                .flatten()
+            {
+                link.disarm(token);
+            }
         }
         for o in std::mem::take(&mut self.outputs) {
             self.free(o);

@@ -3200,6 +3200,145 @@ fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
     );
 }
 
+/// Wakes `v` while another program holds DRM master, and runs the fast
+/// retries out: the card is asleep in the foreground after
+/// [`Event::WakeFailed`].
+fn slow_after_wake_failed(v: &mut Drm2d<FakeCard>) {
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(v), [Event::WakeFailed]);
+}
+
+// The maintainer's decision of 2026-11-13 on the display hand-back: once
+// the fast retries run out, the card tries the wake-up again at each slow
+// retry, and wakes at the first one after the other program lets go of
+// DRM master, with no input. A slow try that fails starts no fast retries.
+// covers: platform.hand-back
+#[test]
+fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
+    let mut v = one();
+    slow_after_wake_failed(&mut v);
+    for _ in 0..3 {
+        v.retry_slowly();
+        assert_eq!(v.waits(), (false, false), "a failed slow try");
+    }
+    assert!(events(&mut v).is_empty());
+    v.card().state().master_elsewhere = false;
+    v.retry_slowly();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+    let commits = v.card().state().commits.len();
+    v.retry_slowly();
+    assert_eq!(v.card().state().commits.len(), commits, "the card is awake");
+}
+
+// In the loop, the slow retry's timer is armed once the fast retries run
+// out, and it wakes the card with no input once the other program lets go
+// of master. The test counts the loop's turns until the card wakes.
+#[test]
+fn the_loop_wakes_the_card_at_a_slow_retry() {
+    let (mut lp, mut app) = in_loop(one());
+    slow_after_wake_failed(&mut app.0);
+    assert!(app.0.slow_armed());
+    app.0.card().state().master_elsewhere = false;
+    let mut turns = 0;
+    turn_until(&mut lp, &mut app, |app| {
+        turns += 1;
+        assert!(!app.0.waits().1, "a fast retry ran");
+        app.0.events().any(|e| e == Event::Awake)
+    });
+    assert!(turns > 1, "the card woke before the slow retry fired");
+    assert!(!app.0.slow_armed());
+    assert_eq!(app.0.waits(), (false, false));
+}
+
+// A VT release stops the slow retries, and the acquire that follows starts
+// the fast ones again.
+#[test]
+fn a_vt_release_stops_the_slow_retries() {
+    let (_lp, mut app) = in_loop(one());
+    let v = &mut app.0;
+    slow_after_wake_failed(v);
+    assert!(v.slow_armed());
+    v.sleep();
+    assert!(!v.slow_armed());
+    assert_eq!(events(v), [Event::Asleep]);
+    v.card().state().master_elsewhere = false;
+    v.retry_slowly();
+    assert!(events(v).is_empty(), "a slow try after the release");
+    assert!(!v.card().state().master);
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    assert_eq!(v.waits(), (false, true));
+    assert!(!v.slow_armed());
+}
+
+// While the slow retries run, a key press or a pointer action tries the
+// wake-up at once, without waiting for the next slow try.
+#[test]
+fn input_tries_at_once_while_the_slow_retries_run() {
+    let mut v = one();
+    slow_after_wake_failed(&mut v);
+    v.card().state().master_elsewhere = false;
+    v.input().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+}
+
+// After a failed hotplug's retries run out, master is kept, and a slow
+// retry sets the modes. Blanked, the slow retry commits nothing: the
+// modeset is owed to the input that ends the blank, and the slow retries
+// stop.
+#[test]
+fn a_slow_retry_sets_the_modes_unless_blanked() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 200]);
+    assert!(v.poll().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(&mut v), [Event::WakeFailed]);
+    v.retry_slowly();
+    assert!(events(&mut v).is_empty(), "the card still refuses");
+    v.card().state().commit_errors.clear();
+    v.retry_slowly();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+
+    let (_lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
+    let v = &mut app.0;
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 200]);
+    assert!(v.poll().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(v), [Event::WakeFailed]);
+    v.card().state().commit_errors.clear();
+    let (mut blank, at) = blanked(v);
+    assert!(v.slow_armed());
+    let commits = v.card().state().commits.len();
+    v.retry_slowly();
+    assert_eq!(v.card().state().commits.len(), commits, "blanked");
+    assert!(!v.slow_armed(), "the slow retries stop while blanked");
+    assert!(blank.input(at));
+    v.input().unwrap();
+    v.unblank().unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+}
+
 // Finding 2 and the frame contract, rule 6: a display powered down lends
 // no token, so no frame is drawn and lost; powered on, every buffer is
 // age 0, its next frame goes whole, and the owner is told to redraw.
