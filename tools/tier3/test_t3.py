@@ -2748,6 +2748,13 @@ class DevicesTest(unittest.TestCase):
         self.assertEqual(t3_devices.judge_cards({}, want),
                          "the guest lists the cards at no address, not at 0000:00:01.0, "
                          "0000:01:00.0")
+        # The guest's view goes into a failed replug's error.
+        self.assertEqual(t3_devices.guest_view(self.CARDS[:2] + [
+            "T3-SLOT 0 0000:01:00 1 1", "T3-KMSG pcieport: Slot(0): Card present",
+            "T3-RSS display-cards 6524", "T3-DONE display-cards"]),
+            "card0 0000:00:01.0; card1 0000:01:00.0; 0 0000:01:00 1 1; "
+            "pcieport: Slot(0): Card present")
+        self.assertEqual(t3_devices.guest_view(["T3-DONE display-cards", ""]), "nothing")
         m = t3_devices.DISPLAY_LINE.search(
             "[   27.753038] vtium[765]: Display Virtual-2 with backend [drm2d] text renderer "
             "[cpu], cell size 8x16")

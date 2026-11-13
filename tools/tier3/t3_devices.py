@@ -327,6 +327,14 @@ def cards(lines):
     return {f[1]: f[2] for f in (l.split() for l in lines) if len(f) == 3 and f[0] == "T3-CARD"}
 
 
+def guest_view(lines):
+    """The guest's account of its cards, hotplug slots and the kernel's
+    hotplug lines (screens/display-cards.sh), as one line for an error."""
+    return "; ".join(l.split(None, 1)[1] for l in lines
+                     if l.split(None, 1)[0:1] in (["T3-CARD"], ["T3-SLOT"], ["T3-KMSG"])
+                     and len(l.split(None, 1)) == 2) or "nothing"
+
+
 def judge_cards(listed, want):
     """Why the cards the guest `listed` (cards) are not the PCI addresses
     `want`; None when they are."""

@@ -1550,7 +1550,14 @@ def check_display_replug(variant, vm, work, caps, errors, log):
         shown = vm.screendump(tmp)
         since = t3_devices.serial_size(vm)
         vm.cmd("device_add", **t3_devices.SECOND_CARD)
-        line = t3_devices.wait_serial_after(vm, t3_devices.DISPLAY_LINE, since, 60)
+        try:
+            line = t3_devices.wait_serial_after(vm, t3_devices.DISPLAY_LINE, since, 60)
+        except RuntimeError as e:
+            # Whether the guest found the card tells the guest's part from
+            # vtium's, so the guest's view goes into the error.
+            seen = t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT)
+            raise RuntimeError("plugged back in, vtium set up no display: %s; the guest "
+                               "reports %s" % (e, t3_devices.guest_view(seen))) from None
         log("%s: vtium set up display %s after the plug" % (case, line.group(1)))
         path = os.path.join(work, case + ".ppm")
         try:
@@ -1558,8 +1565,9 @@ def check_display_replug(variant, vm, work, caps, errors, log):
         except RuntimeError as e:
             raise RuntimeError("plugged back in, the second display does not show the "
                                "screen the first shows, with no key pressed: %s" % e) from None
-        listed = t3_devices.cards(t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT))
-        log("%s: plugged back in, the guest lists %s" % (case, listed))
+        seen = t3_devices.run_screen(vm, "display-cards", SCREEN_TIMEOUT)
+        listed = t3_devices.cards(seen)
+        log("%s: plugged back in, the guest reports %s" % (case, t3_devices.guest_view(seen)))
         why = t3_devices.judge_cards(listed, control.values())
         if why:
             raise RuntimeError("plugged back in, %s" % why)
