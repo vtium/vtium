@@ -99,6 +99,64 @@ class Prose(unittest.TestCase):
             f"{SHORT}\n\n```sh\n{long}\n```\n\n~~~\n{long}\n~~~\n\n"
             f"1. a step\n\n    ```\n    {long}\n    ```\n\n````md\n```\n{long}\n```\n{long}\n````\n\n{SHORT}\n")})
 
+    # Indented code blocks, as CommonMark defines them: a block whose lines are
+    # indented four spaces or a tab past the column where its container's
+    # text starts. That column is 0 on the page and the item's content column
+    # in a list item.
+
+    def test_an_indented_code_block_after_a_blank_line_is_not_prose(self):
+        long = words(40)
+        self.assertPasses({"docs/page.md": f"{SHORT}\n\n    {long}\n    {long}\n\n{SHORT}\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT}\n\n\t{long}\n\n{SHORT}\n"})
+        self.assertPasses({"docs/page.md": f"{SHORT}\n\n    $ make docs\n    - {long}\n\n      {long}\n\n{SHORT}\n"})
+
+    def test_a_fence_inside_an_indented_code_block_opens_no_fence(self):
+        long = words(31, "long")
+        self.assertFails({"docs/page.md": f"{SHORT}\n\n    ```\n\n{SHORT} {long}\n"},
+                         f"docs/page.md:5: 31 words: {long}")
+
+    def test_a_paragraph_line_indented_four_spaces_continues_the_paragraph(self):
+        self.assertFails({"docs/page.md": f"{SHORT} word word\n    word {words(30, 'long')}\n"},
+                         f"docs/page.md:1: 33 words: word word word {words(30, 'long')}")
+        self.assertFails({"docs/page.md": f"- {words(5)} word word\n      word {words(30, 'long')}\n"},
+                         f"docs/page.md:1: 33 words: word word word {words(30, 'long')}")
+        # Indented four spaces, a line that would start a heading or a
+        # fence on its own still continues the paragraph.
+        self.assertFails({"docs/page.md": f"{SHORT} word word\n    # word {words(30, 'long')}\n"},
+                         f"docs/page.md:1: 33 words: word word # word {words(30, 'long')}")
+        self.assertFails({"docs/page.md": f"{SHORT} word word\n    ```\nword {words(30, 'long')}\n"},
+                         f"docs/page.md:1: 33 words: word word ``` word {words(30, 'long')}")
+
+    def test_text_at_a_list_items_content_column_is_prose(self):
+        long = words(31, "long")
+        for page, line in [(f"- {words(5)}\n\n  {long}\n", 3), (f"1.  {words(5)}\n\n    {long}\n", 3),
+                           (f"- {words(5)}\n  - {words(5)}\n\n    {long}\n", 4), (f"10. {words(5)}\n\n    {long}\n", 3),
+                           (f"1.  {words(5)}\n\n       {long}\n", 3)]:
+            with self.subTest(page=page):
+                self.assertFails({"docs/page.md": page}, f"docs/page.md:{line}: 31 words: {long}")
+
+    def test_a_block_four_columns_past_a_list_items_content_column_is_code(self):
+        long = words(40)
+        for page in [f"- {words(5)}\n\n      {long}\n", f"1. {words(5)}\n\n       {long}\n",
+                     f"- {words(5)}\n  - {words(5)}\n\n        {long}\n", f"- {words(5)}\n\n\t  {long}\n"]:
+            with self.subTest(page=page):
+                self.assertPasses({"docs/page.md": page})
+
+    def test_an_item_whose_text_starts_five_columns_past_its_marker_starts_with_code(self):
+        long = words(31, "long")
+        self.assertFails({"docs/page.md": f"{SHORT}\n\n-     {words(40)}\n\n  {long}\n"}, f"docs/page.md:5: 31 words: {long}")
+
+    def test_a_list_item_ends_at_a_line_left_of_its_content_column(self):
+        long = words(40)
+        self.assertPasses({"docs/page.md": f"- {words(5)}\n\n{SHORT}\n\n    {long}\n"})
+        self.assertFails({"docs/page.md": f"- {words(5)}\n  - {words(5)}\n\n  {words(31, 'long')}\n"},
+                         f"docs/page.md:4: 31 words: {words(31, 'long')}")
+
+    def test_a_fenced_block_inside_a_list_item_is_not_prose(self):
+        long = words(31, "long")
+        self.assertFails({"docs/page.md": f"- {words(5)}\n\n  ```\n  {words(40)}\n  ```\n\n  {long}\n"},
+                         f"docs/page.md:7: 31 words: {long}")
+
     def test_an_unclosed_code_block_runs_to_the_end_of_the_page(self):
         self.assertPasses({"docs/page.md": f"{SHORT}\n\n```\n{words(40)}\n"})
 
