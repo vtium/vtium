@@ -807,6 +807,31 @@ fn a_buffer_in_gl_memory_draws_and_reads_back() {
     drop(gl);
 }
 
+// An upright frame's free and a buffer's free each refuse the other's
+// framebuffer, reaching no GL: the refused free leaves the frame's texture
+// and the buffer as they were, and each frees by its own call
+#[test]
+fn a_frames_free_and_a_buffers_free_refuse_each_others_framebuffer() {
+    let mut gl = software();
+    let buffer = gl.create_buffer(4, 4).unwrap();
+    let (texture, frame) = gl.create_frame(4, 4).unwrap();
+    let e = gl.free_frame(buffer, texture).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    let e = gl.free_buffer(frame).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[0; 4], 4)
+        .unwrap();
+    gl.clear(buffer, (4, 4), rect(0, 0, 4, 4), 0x10_2030)
+        .unwrap();
+    gl.check().unwrap();
+    let mut out = vec![0u8; 4 * 4 * 4];
+    gl.read(buffer, rect(0, 0, 4, 4), &mut out).unwrap();
+    assert!(out.chunks(4).all(|p| p == [0x10, 0x20, 0x30, 0xFF]));
+    gl.free_frame(frame, texture).unwrap();
+    gl.free_buffer(buffer).unwrap();
+    gl.check().unwrap();
+}
+
 // the issue on the EGL sync before the flip: a frame ends with a fence
 // after its commands, an EGL fence sync on llvmpipe, which a wait takes
 // once, in any order; a name no submit gave, or one a wait took, is

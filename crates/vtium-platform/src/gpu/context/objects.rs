@@ -360,9 +360,16 @@ impl Context {
         Ok(fb.0.get())
     }
 
-    /// Frees an upright frame's framebuffer and texture.
+    /// Frees an upright frame's framebuffer and texture. Refused, reaching
+    /// no GL, when the framebuffer is a buffer's, which
+    /// [`Context::free_buffer`] frees.
     pub fn free_frame(&mut self, framebuffer: u32, texture: u32) -> Result<(), Error> {
         let fb = glow::NativeFramebuffer(name(framebuffer)?);
+        if self.buffers.contains_key(&framebuffer) {
+            return Err(misuse(format!(
+                "framebuffer {framebuffer} is a buffer's, not an upright frame's"
+            )));
+        }
         self.free_texture(texture)?;
         // SAFETY: a GL call on the current context with no pointer.
         #[expect(unsafe_code, reason = "glDeleteFramebuffers")]
