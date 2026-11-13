@@ -2,29 +2,9 @@
 
 You have probably logged in at a text console: you switch to it with Ctrl+Alt and a function key, type your name and your password, and get a shell. vtium gives you the same login prompt. Behind that prompt, two questions have different answers on different machines. The first is which program opens the screen and the keyboard. The second is which program keeps track of your login session, and so decides whether you can play sound, mount a USB stick or shut the machine down without a password.
 
-This page answers both questions for each setup vtium runs in. It starts from what is the same on every machine. Then it follows two forks: how vtium is built, and which init system and seat manager the machine runs. On a systemd machine with the build that uses libseat and logind, a third fork is the mode you choose for each VT. The figure shows the tree, and each section below is one of its branches.
+This page answers both questions for each setup vtium runs in. It starts from what is the same on every machine. Then it follows two forks: how vtium is built, and which init system and seat manager the machine runs. On a systemd machine with the build that uses libseat and logind, a third fork is the mode you choose for each VT. The figure below shows the tree, and each section below it is one of its branches.
 
-```mermaid
-flowchart TD
-    ROOT["vtium runs on a VT<br>in place of getty,<br>and /bin/login logs you in"]
-    ROOT --> DEF["the default build:<br>vtium opens the screen<br>and the keyboards itself"]
-    ROOT --> LS["the build with<br>libseat and logind<br>(the vtium package)"]
-    DEF --> DSD["systemd and logind:<br>your login is the seat's<br>active session"]
-    DEF --> DEL["elogind:<br>the same through elogind<br>(untested)"]
-    DEF --> DNO["seatd, or no<br>seat manager:<br>no login session"]
-    LS --> LSD["systemd and logind:<br>you choose a mode<br>for each VT"]
-    LS --> LEL["elogind:<br>as direct mode<br>(untested)"]
-    LS --> LSE["seatd:<br>vtium takes the screen<br>and keyboards from seatd"]
-    LS --> LNO["no seat manager:<br>as the default build"]
-    LSD --> DIR["direct mode, the advice:<br>your login is the seat's<br>active session"]
-    LSD --> SEAT["seat mode:<br>vtium holds the seat,<br>your login has no seat"]
-    classDef root fill:#7c3aed,color:#ffffff,stroke:#94a3b8
-    classDef fork fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
-    classDef leaf fill:#475569,color:#ffffff,stroke:#94a3b8
-    class ROOT root
-    class DEF,LS,LSD fork
-    class DSD,DEL,DNO,LEL,LSE,LNO,DIR,SEAT leaf
-```
+![A tree that reads from left to right. At its root, vtium runs on a VT in place of getty, and /bin/login logs you in. The tree first forks by how vtium is built. In the default build, vtium opens the screen and the keyboards itself. The build with libseat and logind is the vtium package, and it asks a seat manager for its devices first. Each build then forks by the init system and the seat manager, and each branch ends in what your login gets. In the default build: with systemd and logind, your login is the seat's active session while its VT is shown; with elogind, the same through elogind, untested; with seatd or no seat manager, your login gets no session, and your Unix groups give you your devices. In the build with libseat and logind: with systemd and logind, you choose a mode for each VT. In direct mode, which is the advice, your login is the seat's active session while its VT is shown. In seat mode, vtium's own session holds the seat, and your login gets a session with no seat. With elogind, it works as in direct mode, untested. With seatd, vtium takes the screen and the keyboards from seatd, and your login gets no session. With no seat manager, it works as the default build: vtium opens its devices itself, and your login gets no session.](../figures/concepts-seats-tree.svg)
 
 ## What is the same everywhere
 

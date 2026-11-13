@@ -1,0 +1,40 @@
+# Claims of concepts-fonts-path.svg and the paragraphs around it in docs/concepts/fonts.md.
+element	file	symbol
+you, at a terminal: vtium config runs as you, and refuses root but for apply	crates/vtium-config/src/cli.rs	root_refusal
+vtium config preview draws a sample of each font, and writes nothing	crates/vtium-config/src/preview.rs	command
+transition you pick fonts: preview names the fonts new-frit takes	crates/vtium-config/src/commands.rs	name_from
+vtium config new-frit makes a font set of the fonts you name	crates/vtium-config/src/commands.rs	frit_from
+vtium config new-frit --template prints a frit with each key explained	crates/vtium-config/src/commands.rs	TEMPLATE
+vtium config new-frit --from takes a file you wrote from its template	crates/vtium-config/src/commands.rs	new
+by hand: the file you write is read as strictly as any frit	crates/vtium-config/src/frit.rs	FritError
+transition installing it asks for sudo once	crates/vtium-config/src/apply.rs	Route::Sudo
+the frit: the directory of frits, /etc/vtium/fonts/	crates/vtium/src/font.rs	frits
+the frit: NAME.vtfrit	crates/vtium/src/font.rs	frit
+the frit names the sources in order	crates/vtium-config/src/frit.rs	Frit
+the frit: root owns it, and vtium reads it only after the ownership check	crates/vtium/src/font.rs	trust
+vtium reads the frit, once the frit passes the ownership check that vtium.conf passes	crates/vtium/src/font.rs	frit_text
+vtium, the console, as root, starts the font helper	crates/vtium/src/helper.rs	Launcher::process
+the built-in fonts, Unifont and Unscii-8, compiled into vtium	crates/vtium-font/src/set/builtin.rs	builtin
+Unscii-8 draws character cells under 16 pixels high	crates/vtium-font/src/set/builtin.rs	builtin_name
+the built-in fonts draw the first frame, and each character the store lacks	crates/vtium/src/deferred.rs	DeferredFace
+the glyph store, in vtium's memory; nothing goes to disk	crates/vtium/src/deferred.rs	Generated
+the glyph store's limit, set by the machine's memory	crates/vtium/src/deferred.rs	store_limit
+a full store makes room only for a request for characters on the screen	crates/vtium/src/deferred.rs	Generated::make_room
+transition the frit's text goes to the font helper in each request	crates/vtium/src/helper.rs	encode
+transition the characters to draw: the screen's, asked first	crates/vtium/src/helper.rs	Helper::ask
+transition the characters to draw: the fill, while nothing is asked	crates/vtium/src/helper.rs	Helper::fill
+transition glyphs at the character cell's size; vtium checks each one	crates/vtium/src/helper.rs	Helper::glyphs
+transition vtium checks each answer's length before it reads it	crates/vtium/src/helper.rs	FRAME_BYTES_MAX
+vtium-config serve, the font helper	crates/vtium-config/src/serve.rs	SERVE_ARG
+the font helper runs as nobody	crates/vtium/src/helper.rs	nobody
+the font helper runs in a sandbox	crates/vtium-config/src/serve.rs	lock_out
+the font helper exits when it has nothing to do	crates/vtium-config/src/serve.rs	HELPER_IDLE_MS
+vtium starts a crashed font helper again a limited number of times per boot	crates/vtium/src/helper.rs	RESTARTS_MAX
+font files: the directories where the font helper finds installed fonts	crates/vtium/src/helper.rs	font_dirs
+your session: vtium config use-frit NAME	crates/vtium-config/src/switch.rs	command
+use-frit switches to another font set or to a built-in font	crates/vtium-config/src/switch.rs	known
+transition OSC 50, through the pty	crates/vtium-config/src/switch.rs	switch
+vtium takes the font that OSC 50 names	crates/vtium-term/src/terminal.rs	Terminal::take_font_request
+vtium switches the console to that font	crates/vtium/src/app.rs	App::switch_font
+while allow-font-ops is on, as it is by default	crates/vtium-settings/src/keys.rs	key allow-font-ops
+until this session ends: vtium returns the console to the configured font	crates/vtium/src/app.rs	App::return_font

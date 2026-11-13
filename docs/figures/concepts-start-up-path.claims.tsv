@@ -1,0 +1,28 @@
+# Claims of concepts-start-up-path.svg and the paragraphs around it in docs/concepts/start-up.md.
+element	file	symbol
+a distribution package installs vtium's programs and units	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+its install script gives vtium every free VT, with vtium console enable --direct --all	crates/vtium/src/console.rs	run
+systemd starts vtium at boot on each VT it has	crates/vtium/install/vtium@.service	WantedBy=getty.target
+logind starts vtium when you switch to one of those VTs and no vtium runs there	crates/vtium/install/vtium@.service	Alias=autovt@.service
+logind starts a console on VTs 1 to 6 by itself	crates/vtium/src/console.rs	logind_starts
+vtium reads vtium.conf	crates/vtium/src/main.rs	main
+if vtium cannot use all of the file, it runs what it can and shows a notice	crates/vtium-settings/src/messages.rs	Line::text
+vtium opens its VT	crates/vtium/src/main.rs	run_kernel
+vtium takes over the VT's switches	crates/vtium-platform/src/vt/kernel.rs	KernelVt::open
+vtium tells systemd that it is ready, once its VT is open	crates/vtium/src/survive/notify.rs	opened
+systemd starts a display manager only after this	crates/vtium/install/vtium@.service	Before=display-manager.service
+vtium opens the keyboards and pointers that udev reports	crates/vtium/src/app.rs	App::add_input
+under the closed policy, vtium opens only those a rule names	crates/vtium/src/head/route.rs	Routes::add
+vtium waits for its VT to be shown	crates/vtium-platform/src/vt.rs	Vt::wait
+vtium takes the display: it becomes the program that sets the display's mode	crates/vtium-platform/src/display/card.rs	set_master
+it waits for a display for up to display-wait	crates/vtium-settings/src/keys.rs	key display-wait
+transition once a display is set up	crates/vtium/src/respawn.rs	first_start_due
+vtium starts login in a pty	crates/vtium/src/child.rs	child
+when login exits, vtium starts it again	crates/vtium/src/respawn.rs	Next::Restart
+vtium exits with status 1	crates/vtium/src/app.rs	Exit::status
+no display appears in time	crates/vtium/src/app.rs	Exit::NoDisplay
+sessions end too fast, under the open policy	crates/vtium/src/app.rs	App::gave_up
+open policy: vtium-getty@ starts	crates/vtium/install/vtium@.service	OnFailure=vtium-getty@%i.service
+open policy: a getty on the VT	crates/vtium/install/vtium-getty@.service	ExecStart=/usr/bin/vtium console fallback %i
+closed policy: no getty starts	crates/vtium/install/vtium-getty@.service	ConditionPathExists=!/run/vtium/%i.closed
+closed policy: systemd starts vtium again	crates/vtium/install/vtium@.service	Restart=on-failure

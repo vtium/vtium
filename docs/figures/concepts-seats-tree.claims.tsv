@@ -1,0 +1,21 @@
+# Claims of concepts-seats-tree.svg in docs/concepts/seats-and-sessions.md.
+element	file	symbol
+vtium runs on a VT in place of getty	crates/vtium/install/vtium@.service	Conflicts=getty@%i.service
+and /bin/login logs you in	crates/vtium-settings/src/keys.rs	key login
+the default build: vtium opens the screen and the keyboards itself, on the kernel's VT	crates/vtium/src/main.rs	run_kernel
+the build with libseat and logind asks a seat manager for its devices first	crates/vtium-platform/src/seat.rs	LibseatVt
+a seat manager answered: the seat is vtium's VT backend	crates/vtium-platform/src/seat.rs	Chosen::Seat
+no seat manager answered: vtium opens its devices itself, as the default build does	crates/vtium-platform/src/seat.rs	Chosen::Kernel
+libseat tries seatd, then logind	crates/vtium-platform/src/seat.rs	logind_backend
+default build and direct mode: vtium gives login XDG_SEAT and XDG_VTNR, so pam_systemd or pam_elogind registers your login on seat0	crates/vtium/src/child.rs	child
+systemd and logind: you choose a mode for each VT	crates/vtium/src/console.rs	Mode
+direct mode's unit, vtium@.service	crates/vtium/src/console.rs	VTIUM
+seat mode's unit, vtium-seat@.service	crates/vtium/src/console.rs	SEAT
+direct mode is the advice	crates/vtium/src/console/advice.rs	recommend
+direct mode: vtium never asks logind for its devices, and takes them from seatd where seatd runs	crates/vtium-platform/src/seat.rs	keep_from_logind
+seat mode: systemd opens a PAM session of vtium's own	crates/vtium/install/vtium-libseat.conf	PAMName=vtium
+seat mode: vtium's own session is a greeter's	crates/vtium/install/vtium.pam	pam_systemd.so class=greeter
+seat mode: your login gets no seat variables, and none of vtium's session	crates/vtium/src/child.rs	Place::logind_seat
+seat mode: your login runs in a systemd scope of its own, so it gets a session with no seat	crates/vtium/src/app.rs	login_scope
+seat mode needs the build, the unit, the PAM file and logind's seat0	crates/vtium/src/console/advice.rs	seat_block
+elogind, the libseat build: as in direct mode, the PAM file holds the seat only if init opens it	crates/vtium/install/vtium.pam	pam_elogind.so class=greeter
