@@ -1,193 +1,86 @@
-//! `conformance scenarios --play`: a behaviour scenario played in the
-//! reviewer's terminal one command at a time (ADR-1504 D6). Each step
-//! shows the command and prints its side effects; a dump draws the screen
-//! with its colors and attributes, from the frame view's cells; then the
-//! player waits for a key.
+//! `conformance scenarios --play` and `make tier1-play SCENARIO=NAME`: a
+//! behaviour scenario played in the reviewer's terminal one command at a
+//! time (ADR-1504 D6). Each step shows the command and prints its side
+//! effects; a dump draws the screen through the live path
+//! ([`crate::live`]), so the terminal the player runs in draws it in its
+//! colors and attributes, its pictures included; then the player waits
+//! for a key ([`Keys`]).
 
-use std::io::Write;
+use std::collections::BTreeMap;
+use std::io::{IsTerminal, Read, Write};
+use std::process::{Command, Stdio};
 
 use super::Scenario;
 use super::run::Runner;
-use super::transcript::{self, Block};
+use super::transcript;
+use crate::live;
 use crate::replay;
 use crate::view::View;
-
-/// One cell's look, as a `cells` line or the cursor's cell describes it.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Look {
-    wide: u8,
-    fg: (u8, u8, u8),
-    bg: (u8, u8, u8),
-    ul: (u8, u8, u8),
-    underline: Option<&'static str>,
-    bold: bool,
-    italic: bool,
-    blink: bool,
-    strike: bool,
-}
-
-fn rgb(text: &str) -> Option<(u8, u8, u8)> {
-    let h = text.strip_prefix('#')?;
-    let v = |i: usize| u8::from_str_radix(h.get(i..i.saturating_add(2))?, 16).ok();
-    Some((v(0)?, v(2)?, v(4)?))
-}
-
-/// A cell description, `w= fg= bg= ul=` and its keys, read over `base`.
-fn look(words: &[&str], base: &Look) -> Look {
-    let mut l = base.clone();
-    l.wide = 1;
-    for w in words {
-        let (k, v) = w.split_once('=').unwrap_or((w, ""));
-        match k {
-            "w" => l.wide = v.parse().unwrap_or(1),
-            "fg" => l.fg = rgb(v).unwrap_or(l.fg),
-            "bg" => l.bg = rgb(v).unwrap_or(l.bg),
-            "ul" => l.ul = rgb(v).unwrap_or(l.ul),
-            "underline" => {
-                l.underline = Some(match v {
-                    "double" => "4:2",
-                    "curly" => "4:3",
-                    "dotted" => "4:4",
-                    "dashed" => "4:5",
-                    _ => "4",
-                });
-            }
-            "bold" => l.bold = true,
-            "italic" => l.italic = true,
-            "blink" => l.blink = true,
-            "strike" => l.strike = true,
-            _ => {}
-        }
-    }
-    l
-}
-
-/// The SGR that draws `l` in a terminal with direct color.
-fn sgr(l: &Look) -> String {
-    let (f, b, u) = (l.fg, l.bg, l.ul);
-    let mut s = format!(
-        "\x1b[0;38;2;{};{};{};48;2;{};{};{}",
-        f.0, f.1, f.2, b.0, b.1, b.2
-    );
-    if let Some(ul) = l.underline {
-        s.push_str(&format!(";{ul};58;2;{};{};{}", u.0, u.1, u.2));
-    }
-    for (on, code) in [
-        (l.bold, ";1"),
-        (l.italic, ";3"),
-        (l.blink, ";5"),
-        (l.strike, ";9"),
-    ] {
-        if on {
-            s.push_str(code);
-        }
-    }
-    s.push('m');
-    s
-}
-
-/// Whether `c` joins the character before it in its cell: a combining
-/// mark, a variation selector or a joiner. An approximation, which is
-/// enough to draw a screen for a reviewer.
-fn joins(c: char) -> bool {
-    matches!(u32::from(c),
-        0x0300..=0x036f | 0x0483..=0x0489 | 0x0591..=0x05bd | 0x0610..=0x061a
-        | 0x064b..=0x065f | 0x0e31 | 0x0e34..=0x0e3a | 0x1ab0..=0x1aff
-        | 0x1dc0..=0x1dff | 0x200c..=0x200d | 0x20d0..=0x20ff
-        | 0xfe00..=0xfe0f | 0xfe20..=0xfe2f)
-}
-
-/// Draws a frame view's block: a box around the screen, each cell in its
-/// colors and attributes, the cursor's cell as the cursor draws it.
-fn draw(body: &[String], out: &mut String) {
-    let mut cols = 0usize;
-    let mut base = Look::default();
-    let mut cursor: Option<(usize, usize, Look)> = None;
-    let mut rows: Vec<(String, Vec<Look>)> = Vec::new();
-    for line in body {
-        let words: Vec<&str> = line.split(' ').collect();
-        match words.first().copied() {
-            Some("size") => {
-                cols = words
-                    .get(1)
-                    .and_then(|s| s.split_once('x'))
-                    .and_then(|(c, _)| c.parse().ok())
-                    .unwrap_or(0);
-            }
-            Some("palette") => base = look(words.get(2..).unwrap_or_default(), &base),
-            Some("frame-cursor") if words.get(3) == Some(&"visible") => {
-                let at = words.get(1).and_then(|p| p.split_once(','));
-                if let Some((x, y)) = at.and_then(|(x, y)| Some((x.parse().ok()?, y.parse().ok()?)))
-                {
-                    cursor = Some((x, y, look(words.get(4..).unwrap_or_default(), &base)));
-                }
-            }
-            Some("row") => {
-                let text = line
-                    .split_once('|')
-                    .and_then(|(_, t)| t.strip_suffix('|'))
-                    .unwrap_or_default();
-                rows.push((text.to_owned(), vec![look(&[], &base); cols]));
-            }
-            Some("cells") => {
-                let span = words.get(2).and_then(|s| s.split_once('-'));
-                let (Some((a, b)), Some((_, cells))) = (span, rows.last_mut()) else {
-                    continue;
-                };
-                let l = look(words.get(3..).unwrap_or_default(), &base);
-                let (a, b): (usize, usize) = (a.parse().unwrap_or(0), b.parse().unwrap_or(0));
-                for cell in cells.iter_mut().take(b.saturating_add(1)).skip(a) {
-                    cell.clone_from(&l);
-                }
-            }
-            _ => {}
-        }
-    }
-    let bar = "─".repeat(cols);
-    out.push_str(&format!("┌{bar}┐\n"));
-    for (y, (text, looks)) in rows.iter().enumerate() {
-        out.push('│');
-        let mut chars = text.chars().peekable();
-        let mut x = 0;
-        while x < cols {
-            let mut l = looks.get(x).cloned().unwrap_or_default();
-            if l.wide == 0 {
-                x = x.saturating_add(1);
-                continue;
-            }
-            let mut glyph = String::new();
-            if let Some(c) = chars.next() {
-                glyph.push(c);
-                while let Some(&m) = chars.peek() {
-                    if !joins(m) {
-                        break;
-                    }
-                    glyph.push(m);
-                    chars.next();
-                }
-            } else {
-                glyph.push(' ');
-            }
-            if let Some((cx, cy, cl)) = &cursor
-                && *cx == x
-                && *cy == y
-            {
-                l.clone_from(cl);
-            }
-            out.push_str(&sgr(&l));
-            out.push_str(&glyph);
-            x = x.saturating_add(usize::from(l.wide.max(1)));
-        }
-        out.push_str("\x1b[0m│\n");
-    }
-    out.push_str(&format!("└{bar}┘\n"));
-}
 
 /// What a reviewer's key does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Step {
     Next,
     Quit,
+}
+
+/// The reviewer's terminal in the mode the players read keys in, one at a
+/// time without echo, put back as it was when dropped. On a standard input
+/// that is not a terminal, the player does not wait.
+pub struct Keys {
+    saved: Option<String>,
+}
+
+impl Default for Keys {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Keys {
+    pub fn new() -> Self {
+        if !std::io::stdin().is_terminal() {
+            return Self { saved: None };
+        }
+        let stty = |args: &[&str]| {
+            Command::new("stty")
+                .args(args)
+                .stdin(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
+        };
+        let saved = stty(&["-g"]);
+        if saved.is_some() {
+            let _ = stty(&["-icanon", "-echo", "min", "1"]);
+        }
+        Self { saved }
+    }
+
+    pub fn wait(&self) -> Step {
+        if self.saved.is_none() {
+            return Step::Next;
+        }
+        let mut byte = [0u8; 1];
+        match std::io::stdin().read(&mut byte) {
+            Ok(1) if matches!(byte[0], b'q' | b'Q' | 0x03 | 0x04) => Step::Quit,
+            Ok(1) => Step::Next,
+            _ => Step::Quit,
+        }
+    }
+}
+
+impl Drop for Keys {
+    fn drop(&mut self) {
+        if let Some(saved) = &self.saved {
+            let _ = Command::new("stty")
+                .arg(saved)
+                .stdin(Stdio::inherit())
+                .status();
+        }
+    }
 }
 
 /// Plays `s` for a reviewer: `on_file` is its transcript on file, if any,
@@ -203,16 +96,29 @@ pub fn play(
     wait: &mut dyn FnMut() -> Step,
 ) -> Result<bool, String> {
     let played = runner.play(s, &[])?;
-    let (input, tags) = runner.input(s, View::Frame, &[]);
-    let frame =
-        replay::run(&input).map_err(|f| format!("the replay exited {}: {}", f.code, f.message))?;
-    let blocks: Vec<Block> = transcript::blocks(&frame);
+    // the same input and cuts the pictures of `make tier1-shots` come from
+    let (input, tags) = runner.input(s, View::Screen, &[]);
     let mut at = Vec::new();
     for (j, tag) in tags.iter().enumerate() {
         if tag.is_some() {
             at.push(j);
         }
     }
+    let commands: Vec<_> = s.commands().collect();
+    let dumped: Vec<usize> = commands
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| !c.dump.is_empty())
+        .filter_map(|(i, _)| at.get(i).copied())
+        .collect();
+    let mut screens: BTreeMap<usize, (Vec<u8>, usize, usize)> = BTreeMap::new();
+    replay::run_with(&input, &mut |block, term| {
+        if dumped.contains(&block) {
+            let size = (term.screen().cols(), term.screen().rows());
+            screens.insert(block, (live::screen(term), size.0, size.1));
+        }
+    })
+    .map_err(|f| format!("the replay exited {}: {}", f.code, f.message))?;
     let mut text = format!("\x1b[1mscenario {}\x1b[0m  {}\n", s.name, s.file);
     text.push_str(&match provisional {
         Some(reason) => format!("provisional: {reason}\n"),
@@ -234,7 +140,6 @@ pub fn play(
         text.clear();
         Ok(())
     };
-    let commands: Vec<_> = s.commands().collect();
     let sections: Vec<Vec<&str>> = {
         let mut v: Vec<Vec<&str>> = Vec::new();
         for line in played.transcript.lines() {
@@ -261,10 +166,11 @@ pub fn play(
                 dump.push(*line);
             }
         }
-        if c.is_some_and(|c| !c.dump.is_empty()) {
-            if let Some(b) = at.get(i).and_then(|&j| blocks.get(j)) {
-                draw(&b.body, &mut text);
-            }
+        let screen = c
+            .filter(|c| !c.dump.is_empty())
+            .and_then(|_| at.get(i))
+            .and_then(|j| screens.get(j));
+        if screen.is_some() {
             for line in dump.iter().filter(|l| {
                 ["cursor ", "flags ", "test state"]
                     .iter()
@@ -274,9 +180,21 @@ pub fn play(
             }
         }
         text.push_str("\x1b[2m(any key: next command, q: stop)\x1b[0m");
-        emit(&mut text, out)?;
+        let mut bytes = std::mem::take(&mut text).into_bytes();
+        if let Some((screen, cols, _)) = screen {
+            bytes.extend_from_slice(format!("\r\n{}\r\n", "─".repeat(*cols)).as_bytes());
+            bytes.extend_from_slice(screen);
+        }
+        out.write_all(&bytes).map_err(|e| e.to_string())?;
+        out.flush().map_err(|e| e.to_string())?;
         let step = wait();
-        text.push_str("\r\x1b[2K");
+        match screen {
+            Some((_, cols, rows)) => {
+                text.push_str(&String::from_utf8_lossy(&live::below(*rows)));
+                text.push_str(&format!("{}\n", "─".repeat(*cols)));
+            }
+            None => text.push_str("\r\x1b[2K"),
+        }
         if step == Step::Quit {
             text.push('\n');
             emit(&mut text, out)?;
