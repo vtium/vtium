@@ -146,7 +146,7 @@
 //! and a bitmap font scaled by the largest whole factor that fits, centred
 //! across the cell. The first source's glyphs stand on the cell's bottom
 //! row, as `create` places one, and a later source's glyphs stand on the
-//! first source's baseline (ADR-1200 D17; see [`glyph_top`]). A bitmap font
+//! first source's baseline (ADR-1200 D17; see `glyph_top`). A bitmap font
 //! whose cell does not fit gives nothing, and the console draws those
 //! characters in the built-in font.
 //!
