@@ -1,0 +1,14 @@
+# A sequence whose bytes arrive in parts acts once its last byte
+# arrives. An ESC inside a control sequence starts a new sequence, and an
+# OSC string ends at its BEL even when its parts arrive apart.
+# spec: vt100.net's DEC parser
+size 10 4
+send "a\e[1"
+send ";31mb\e"
+send "[0mc\e]2;ti"
+send "tle\a"
+send "\e[2;\e[3;4Hd"
+dump state
+send "\e[1;31\e]2;x\ae"
+send "\e]2;y\e[1mf\e[m"
+dump state

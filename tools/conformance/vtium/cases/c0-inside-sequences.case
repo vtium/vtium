@@ -1,0 +1,12 @@
+# A C0 control inside a control sequence or an escape sequence acts at
+# once, and the sequence goes on to its final byte.
+# spec: vt100.net's DEC parser, which executes C0 controls in every state
+size 10 5
+send "\e[2\n;5H"
+dump state
+send "\e[\r3;3H"
+dump state
+send "\e\b7a"
+dump state
+send "\e[1;\a31mX"
+dump state

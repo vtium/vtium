@@ -1,0 +1,16 @@
+# DECRC with nothing saved moves the cursor home and resets the pen.
+# DECSC saves the cursor, the pen, the character sets, autowrap and origin
+# mode, and DECRC restores them. After DECSTR, DECRC restores the
+# defaults.
+# spec: the VT510 manual, DECSC, DECRC and DECSTR
+# covers: ctl.decsc
+size 10 5
+send "\e[3;4H\e[1;31m\e8x"
+dump state
+send "\e[2;3H\e[4;44m\e(0\e[?7l\e[2;4r\e[?6h\e[3 q\e7"
+send "\e[m\e(B\e[?7h\e[?6l\e[0 q\e[5;5H"
+dump state
+send "\e8q"
+dump state
+send "\e7\e[!p\e8y"
+dump state

@@ -1,0 +1,46 @@
+test state margins 0-7 0-29
+test state tabs 0,8,16,24
+test state modes ansi 8,12 dec 7,8,12,25,47,1007,1034,1035,1036,1042,1047,1049,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 20
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 376
+size 30x8
+cursor 4,0
+flags AUTO_WRAP|ALTERNATE
+row 0 |line one|
+attr 0 0-7 fg=4
+row 1 |line two|
+attr 1 0-7 bold
+row 2 |~|
+row 3 |~|
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 |"notes.txt" 3L, 42B|
+test state margins 0-7 0-29
+test state tabs 0,8,16,24
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 20
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 505
+size 30x8
+cursor 13,3
+flags AUTO_WRAP
+row 0 |user@host:~$ ls|
+attr 0 0-8 fg=2 bold
+attr 0 10-10 fg=4 bold
+row 1 |bin  run.sh  notes.txt|
+attr 1 0-2 fg=4 bold
+attr 1 5-10 fg=2 bold
+row 2 |user@host:~$ vi|
+attr 2 0-8 fg=2 bold
+attr 2 10-10 fg=4 bold
+row 3 |user@host:~$|
+attr 3 0-8 fg=2 bold
+attr 3 10-10 fg=4 bold
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||

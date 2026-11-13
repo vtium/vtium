@@ -1,0 +1,11 @@
+# A character past ASCII inside a sequence ends it. In a CSI or DCS
+# header, vtium ignores the sequence up to its final byte. After ESC or
+# ESC (, vtium drops the sequence, so the next character prints.
+# spec: vt100.net's DEC parser; vtium-parse's README, "A character past ASCII ends a sequence header in UTF-8 mode"
+size 10 4
+send "\e[1\u{e9}mA\e[m"
+send "\e\u{e9}B"
+send "\e[\u{4e16}2CC"
+send "\e(\u{e9}0D"
+send "\eP1\u{e9}q\e\\E"
+dump state

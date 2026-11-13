@@ -40,6 +40,9 @@ pub enum Sort {
     Behaviour,
     /// Judged by its assertions against the capability of this name.
     Capability(String),
+    /// One of vtium's own replay cases, `vtium/cases/NAME.case`: the runner
+    /// judges its replay against its goldens as it judges a `.bin` case.
+    Case,
 }
 
 /// A view or the state a `dump` prints.
@@ -173,6 +176,57 @@ fn tag(line: &str) -> Option<(&'static str, &str)> {
 /// Reads one scenario: `name` is its file's name without `.scenario`, and
 /// `file` the path messages name it by.
 pub fn parse(name: &str, file: &str, text: &str) -> Result<Scenario, String> {
+    let (s, capability) = read(name, file, text)?;
+    finish(s, capability)
+}
+
+/// Reads one of vtium's own replay cases, `vtium/cases/NAME.case`: a
+/// header with `# spec:` and, where the case checks ADR-1000 rows, a
+/// line naming those rows, then the commands of a behaviour scenario. Its goldens
+/// judge it, so it has no assertions, and it names no capability. Its
+/// replay input has a cut after each `dump` and nowhere else.
+pub fn parse_case(name: &str, file: &str, text: &str) -> Result<Scenario, String> {
+    let (mut s, capability) = read(name, file, text)?;
+    if s.spec.is_empty() {
+        return Err(format!(
+            "{file}: This case has no `# spec:` line. Its header names the specification or the vtium decision its golden follows, as in `# spec: ECMA-48 8.3.10 CHT`."
+        ));
+    }
+    if capability.is_some() {
+        return Err(format!(
+            "{file}: This case has a `# capability:` line. A capability is judged by a capability scenario under scenarios/, and a case by its goldens."
+        ));
+    }
+    if !hyphenated(&s.name) {
+        return Err(format!(
+            "{file}: The name {} is not lowercase words joined by hyphens.",
+            s.name
+        ));
+    }
+    if s.placeholder.is_some() {
+        return Err(format!(
+            "{file}: This case has a `placeholder`. Only a capability scenario can stand in for a capability vtium lacks."
+        ));
+    }
+    if s.cols == 0 {
+        return Err(format!(
+            "{file}: This case has no `size` line. Its first command is `size COLS ROWS`, the screen cases.list gives it."
+        ));
+    }
+    if let Some((_, n)) = s.items.iter().find(|(i, _)| !matches!(i, Item::Command(_))) {
+        return Err(format!(
+            "{file}:{n}: This case has a `check`, an assertion or an example. A case is judged by its goldens, so it has only commands."
+        ));
+    }
+    s.sort = Sort::Case;
+    s.row_ids.sort();
+    s.row_ids.dedup();
+    Ok(s)
+}
+
+/// Reads a file in the scenario language, with the capability its header
+/// names, before the checks that differ between scenarios and cases.
+fn read(name: &str, file: &str, text: &str) -> Result<(Scenario, Option<String>), String> {
     let mut s = Scenario {
         name: name.to_owned(),
         file: file.to_owned(),
@@ -261,7 +315,7 @@ pub fn parse(name: &str, file: &str, text: &str) -> Result<Scenario, String> {
         }
         s.items.push((item, n));
     }
-    finish(s, capability)
+    Ok((s, capability))
 }
 
 /// The checks every scenario passes once read.
@@ -385,7 +439,8 @@ impl Scenario {
 
     /// The scenario's replay input. A behaviour scenario has a cut after
     /// each command; a capability scenario has a cut at each `check` and
-    /// nowhere else, as a probe had.
+    /// nowhere else, as a probe had. A case has a cut after each `dump`,
+    /// except at the stream's end, where the replay prints a block anyway.
     pub fn compile(&self) -> Compiled {
         let mut out = Compiled {
             data: Vec::new(),
@@ -405,6 +460,14 @@ impl Scenario {
                 Item::Check if !behaviour => out.cuts.push(out.data.len()),
                 _ => {}
             }
+            if let (Sort::Case, Item::Command(c)) = (&self.sort, item)
+                && !c.dump.is_empty()
+            {
+                out.cuts.push(out.data.len());
+            }
+        }
+        if self.sort == Sort::Case && out.cuts.last() == Some(&out.data.len()) {
+            out.cuts.pop();
         }
         out
     }

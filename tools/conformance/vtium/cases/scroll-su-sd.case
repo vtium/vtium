@@ -1,0 +1,24 @@
+# SU scrolls up and SD down by a count where 0 means 1. Inside a
+# scrolling region they scroll only the region, and a count past the
+# region empties it.
+# spec: ECMA-48 8.3.147 SU and 8.3.113 SD
+# covers: ctl.edit
+size 4 6
+send "1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666\e[3;2H"
+send "\e[S"
+dump state
+send "\e[2S"
+dump state
+send "\e[0T"
+dump state
+send "\e[2T"
+dump state
+send "\e[1;1H1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[2;4r\e[S"
+dump state
+send "\e[T"
+dump state
+send "\e[9S"
+dump state
+send "\e[r\e[9T"
+dump state

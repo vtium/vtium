@@ -1,0 +1,8 @@
+# SO invokes G1 into GL and SI invokes G0. With DEC special graphics in
+# G1, l, q and k draw as line-drawing pieces only between SO and SI.
+# spec: the VT220 manual, 4.4.3
+# covers: text.charsets
+size 20 3
+send "\e)0"
+send "lqk\x0elqk\x0flqk"
+dump state

@@ -1,0 +1,6 @@
+# ST (ESC \) with no string open does nothing, and the letters on both
+# sides of it print side by side.
+# spec: ECMA-48 8.3.143 ST
+size 10 2
+send "a\e\\b"
+dump state

@@ -1,0 +1,26 @@
+# DECSTBM sets the scrolling region's top and bottom rows and moves the
+# cursor home. An omitted or zero top is the first row and an omitted or
+# zero bottom the last. A region whose top is not above its bottom is
+# ignored, and a bottom past the screen is its last row. CSI ? 1 r is
+# XTRESTORE, not DECSTBM, so the region stays.
+# spec: the VT510 manual, DECSTBM; ctlseqs, XTRESTORE
+# covers: ctl.decstbm
+size 10 6
+send "\e[2;4r"
+dump state
+send "\e[4;2r"
+dump state
+send "\e[2;9r"
+dump state
+send "\e[3r"
+dump state
+send "\e[;3r"
+dump state
+send "\e[0;0r"
+dump state
+send "\e[3;4H\e[2;5r"
+dump state
+send "\e[?1r"
+dump state
+send "\e[r"
+dump state

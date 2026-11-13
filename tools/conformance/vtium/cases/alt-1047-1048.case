@@ -1,0 +1,16 @@
+# Mode 1048 saves the cursor when it is set and restores it when it is
+# reset. Mode 1047 shows the alternate screen and clears it when it is
+# reset. Mode 47 shows the alternate screen again, as 1047 left it.
+# spec: ctlseqs, DECSET 47, 1047 and 1048
+# covers: DEC-47, DEC-1047, DEC-1048
+size 6 3
+send "main\e[2;3H"
+send "\e[?1048h\e[?1047h"
+dump state
+send "\e[1;1Halt\e[3;5H"
+send "\e[?1047l"
+dump state
+send "\e[?1048l"
+dump state
+send "\e[?47h"
+dump state

@@ -1,0 +1,13 @@
+# HTS sets a tab stop at the cursor's column, and HT moves the cursor to
+# the next stop. TBC with an omitted or zero parameter clears the stop at
+# the cursor's column.
+# spec: ECMA-48 8.3.62 HTS, 8.3.60 HT and 8.3.154 TBC
+# covers: ctl.tabs
+size 30 3
+send "\e[3g"
+send "\e[5G\eH\e[12G\eH\e[1G"
+dump state
+send "\ta\tb\tc"
+dump state
+send "\e[1;12H\e[0g\e[1;5H\e[g\r\tz"
+dump state

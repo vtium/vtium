@@ -1,0 +1,24 @@
+# CHA moves the cursor to a column, VPA to a row, and VPR down by a
+# count. An omitted or zero parameter means 1. A column or row past the
+# screen stops at the last one.
+# spec: ECMA-48 8.3.9 CHA, 8.3.158 VPA and 8.3.160 VPR
+# covers: ctl.edit
+size 10 6
+send "\e[3;3H\e[G"
+dump state
+send "\e[5G"
+dump state
+send "\e[0G\e[99G"
+dump state
+send "\e[d"
+dump state
+send "\e[4d"
+dump state
+send "\e[99d"
+dump state
+send "\e[1;1H\e[e"
+dump state
+send "\e[2e"
+dump state
+send "\e[0e\e[99e"
+dump state

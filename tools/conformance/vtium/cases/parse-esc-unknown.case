@@ -1,0 +1,14 @@
+# ESC # 8 (DECALN) fills the screen with E. ESC # 7, ESC % G, ESC SP S,
+# ESC - A, the national sets and escape sequences with unknown finals
+# change nothing on the screen. A DEL inside an escape sequence is
+# dropped, and an ESC inside one starts a new sequence.
+# spec: ECMA-48 5.3, escape sequences; the VT510 manual, DECALN; vt100.net's DEC parser
+size 10 4
+send "\e[2;3H\e7\e[1;1H\e#8"
+dump state
+send "\e[3;3H\e#7\e[1;1H\e8"
+dump state
+send "\e%G\e SD\e-A\e(=\e)E"
+dump state
+send "\ek\eq\e\x7fDx\e\e[2Cy"
+dump state

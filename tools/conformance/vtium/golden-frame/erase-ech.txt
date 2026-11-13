@@ -1,0 +1,75 @@
+test state margins 0-1 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 35
+size 8x2
+cursor 2,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 16
+frame-cursor 2,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab defgh|
+row 1 ||
+test state margins 0-1 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 57
+size 8x2
+cursor 2,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 2
+frame-cursor 2,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab  efgh|
+row 1 ||
+test state margins 0-1 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 79
+size 8x2
+cursor 2,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 2,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab  efgh|
+row 1 ||
+test state margins 0-1 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 108
+size 8x2
+cursor 5,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 3
+frame-cursor 5,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab  e|
+row 1 ||
+test state margins 0-1 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 144
+size 8x2
+cursor 8,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 8
+frame-cursor 7,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ab  e|
+row 1 |0123456|

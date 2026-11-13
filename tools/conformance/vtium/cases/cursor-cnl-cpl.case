@@ -1,0 +1,16 @@
+# CNL moves the cursor down and CPL up by a count, each to the first
+# column. A zero count means 1. CPL stops at the top row, and CNL from
+# inside the scrolling region stops at its bottom margin.
+# spec: ECMA-48 8.3.12 CNL and 8.3.13 CPL; the VT510 manual, CUD (the cursor stops at the bottom margin)
+# covers: ctl.edit
+size 10 6
+send "\e[3;5H\e[E"
+dump state
+send "\e[3;5H\e[2E"
+dump state
+send "\e[3;5H\e[0F"
+dump state
+send "\e[3;5H\e[9F"
+dump state
+send "\e[2;4r\e[3;5H\e[9E"
+dump state

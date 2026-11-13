@@ -1,0 +1,25 @@
+# ED 0 erases from the cursor to the screen's end, ED 1 from its start to
+# the cursor, and ED 2 the whole screen; none moves the cursor. ED 3
+# empties the scrollback, which this screen keeps none of, so the screen
+# stays. From a pending wrap, ED 0 erases from the last column.
+# spec: ECMA-48 8.3.39 ED; ctlseqs, ED 3
+# covers: ctl.edit
+size 6 4
+send "aaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\e[2;3H"
+send "\e[J"
+dump state
+send "\e[1;1Haaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\e[2;3H"
+send "\e[0J"
+dump state
+send "\e[1;1Haaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\e[2;3H"
+send "\e[1J"
+dump state
+send "\e[1;1Haaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\e[2;3H"
+send "\e[2J"
+dump state
+send "\e[1;1Haaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\e[2;3H"
+send "\e[3J"
+dump state
+send "\e[1;1Haaaaaa\r\nbbbbbb"
+send "\e[J"
+dump state
