@@ -84,6 +84,10 @@ considered:
     said: "Under flag 2 alone, and any flags without 1 or 8, a key that makes text gets a release, sent as an escape code, as kitty does; whether a key gets a release follows from its press."
     via: the steering session's question on 2026-11-13, after a fresh review that compared the readings with the specification and with kitty's own encoder
     paraphrase: true
+  - operator: aaronsb
+    said: "vtium's keyboard tests run against real xkeyboard-config layouts, at least US, Russian, German and French AZERTY, compiled once and committed unchanged as fixtures; a change to keyboard handling adds or updates cases on those layouts, not only on US; a test that needs a fixture fails, never skips; xkbcli is part of the requirement, through make keymaps."
+    via: the steering session's question on 2026-11-13
+    paraphrase: true
 status: accepted
 date: 2026-11-07
 deciders:
@@ -348,6 +352,12 @@ Each slice is a card of its own, branched from `integration`, and lands in this 
 > 6. **The unshifted key's form, in vtium-platform.** vtium-platform gives a keysym outside Latin-1 that stands for a character as that character's Unicode keysym, such as 0x1000441 for Cyrillic_es. xkb treats both keysyms as the same symbol, and vtium-term can then read the character without xkb's table. "A modifier the protocol cannot encode" (D9) is read as any modifier xkb reports as consumed by the key, other than Shift, Lock, Control, Alt, Super, NumLock, and Hyper and Meta where vtium reports them.
 
 A case the specification leaves unclear while a slice is built is settled by running kitty as a program, and the crate's README records what kitty did. Keys reach kitty under Xvfb through XTEST only once its window has the keyboard focus, which this record's runs did not achieve.
+
+### D14: keyboard tests run on real layouts
+
+vtium's keyboard tests run against real keyboard layouts from xkeyboard-config, at least US, Russian, German and French AZERTY. Each layout is compiled once with `xkbcli compile-keymap` and committed unchanged as a test fixture in `crates/vtium-platform/tests/keymaps/`, whose README records the command and the xkeyboard-config version. A change to how vtium handles keys adds or updates cases on those layouts, not only on US. A test that needs a layout fails when its file is missing or does not compile, and never skips. `make keymaps` compiles the files again, and needs `xkbcli`; the tests read the committed files, so `cargo test` needs no xkbcli. A layout edited by hand for a test, as the tests of D8 edit the built-in keymap, does not stand in for a real one.
+
+> Added 2026-11-13: the maintainer decided that real layouts are a requirement for testing vtium's keyboard handling (`considered`, 2026-11-13). The record said nothing about which keymaps the tests use.
 
 ## Consequences
 
