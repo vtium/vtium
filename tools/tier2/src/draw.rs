@@ -703,6 +703,34 @@ pub fn draw(screen: &Screen) -> Result<Image, String> {
     draw_on(screen, &mut Cpu)
 }
 
+/// Draws `term`, a terminal that another tool has already set up, as one
+/// frame on the CPU path: in the built-in unifont at 16 pixels, in cells of
+/// 8×16, at the size of the terminal's grid, with the default
+/// configuration and in `phase`. The terminal's pictures draw with its
+/// text. The frame is read since [`Age::NEVER`], so every cell draws, and
+/// the terminal does not change. `make tier1-shots` draws tier 1's
+/// replays through it, after their test commands have run.
+pub fn draw_terminal(term: &Terminal, phase: Phase) -> Result<Image, String> {
+    let font = Font::new(Unifont::new(16));
+    let cell = font.cell();
+    let screen = term.screen();
+    let size = |cells: usize, px: u32| {
+        u32::try_from(cells)
+            .ok()
+            .and_then(|n| n.checked_mul(px))
+            .ok_or_else(|| format!("a grid of {}x{} cells", screen.cols(), screen.rows()))
+    };
+    let (w, h) = (
+        size(screen.cols(), cell.width)?,
+        size(screen.rows(), cell.height)?,
+    );
+    let mut r = Renderer::new(font, w, h, Config::default());
+    let mut canvas = Canvas::new(w, h, 0);
+    let frame = screen.frame(term.palette(), Age::NEVER);
+    r.draw(&frame, &mut canvas, 0, &phase.state(term.palette().bg()));
+    Image::from_xrgb(w, h, canvas.pixels()).ok_or_else(|| format!("a display of {w}x{h} pixels"))
+}
+
 /// Draws `screen` through `painter`, and checks it draws the same in every
 /// configuration.
 pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, String> {
