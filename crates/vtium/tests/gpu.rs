@@ -229,6 +229,7 @@ impl Video for Memory {
 fn no_fonts() -> Sources {
     Sources {
         frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+        trust: vtium::font::trust(),
         helper: None,
         vconsole_conf: PathBuf::from("/dev/null"),
         kernel_cmdline: PathBuf::from("/dev/null"),

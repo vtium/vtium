@@ -429,8 +429,9 @@ VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_accou
 IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
 
 # The showcase (ADR-1502 D6, t3_showcase): the default machine at 1920x1080,
-# its console built with images and drawing on the CPU renderer, with the
-# scenes the documentation shows ("screens") in Iosevka Term and the fonts
+# its console built with images and bidi, so the scripts scene's Arabic and
+# Hebrew run right to left (ADR-1004), and drawing on the CPU renderer, with
+# the scenes the documentation shows ("screens") in Iosevka Term and the fonts
 # t3_showcase pins, which the disc carries ("showcase"), named by frits the
 # helper generates at run time ("deferred_frits"). The fonts scene
 # switches the console to each of the other frits with OSC 50. Its cases
@@ -444,7 +445,7 @@ VARIANTS["showcase-1920x1080"] = {
     "renderer": "cpu",
     "cpus": 4,
     "memory_mb": 4096,
-    "tree_features": ["images"],
+    "tree_features": ["bidi", "images"],
     "deferred_frits": ["showcase-iosevka.vtfrit", "showcase-shell.vtfrit",
                        "showcase-jetbrains.vtfrit", "showcase-terminus.vtfrit",
                        "showcase-unifont.vtfrit"],

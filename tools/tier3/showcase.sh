@@ -30,6 +30,6 @@ done
 
 if [ "$run" = yes ]; then
 	python3 -I -B tools/tier3/t3_showcase.py fetch-fonts
-	make tier3 FEATURES=images VARIANTS=showcase-1920x1080
+	make tier3 FEATURES='bidi images' VARIANTS=showcase-1920x1080
 fi
 python3 -I -B tools/tier3/t3_showcase.py compose

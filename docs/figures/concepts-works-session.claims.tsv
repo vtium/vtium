@@ -1,0 +1,22 @@
+# Claims of concepts-works-session.svg and "A session's life" in docs/concepts/how-vtium-works.md.
+element	file	symbol
+not started: waits for its VT and a display	crates/vtium/src/respawn.rs	first_start_due
+running: login on the pty	crates/vtium/src/child.rs	child
+running: a new pty	crates/vtium-platform/src/pty.rs	Pty::spawn
+running: the login command, /bin/login -p by default	crates/vtium-settings/src/keys.rs	key reset-env
+running: the login key	crates/vtium-settings/src/keys.rs	key login
+running: a scope of its own for each login, in seat mode	crates/vtium/src/app.rs	login_scope
+vtium watches only its child	crates/vtium-platform/src/channel.rs	Consumer
+transition the child exits: vtium resets the screen and starts login again	crates/vtium/src/head/session.rs	session_ended
+transition vtium hangs it up: no quick exit counted	crates/vtium/src/respawn.rs	Respawn::hung_up
+transition the child exits under oneshot	crates/vtium/src/respawn.rs	Next::Oneshot
+ended: the console starts nothing more	crates/vtium/src/head/session.rs	exited
+transition the 6th exit in a row	crates/vtium/src/respawn.rs	QUICK_RESTARTS
+transition each within 2 s of its start	crates/vtium/src/respawn.rs	QUICK
+the respawn count	crates/vtium/src/respawn.rs	Respawn::exited
+vtium gives up: open exits 1, closed holds the VT with a notice	crates/vtium/src/app.rs	gave_up
+transition vtium crashes or restarts	crates/vtium/src/survive.rs	Keeper
+kept: the fd store or vtium hold holds the pty	crates/vtium/src/app/survive.rs	Survival
+transition the next vtium takes the pty back	crates/vtium-platform/src/pty.rs	Pty::adopt
+vtium lets go of a session without hanging it up	crates/vtium-platform/src/pty.rs	Pty::release
+a session that ended while no vtium ran	crates/vtium/src/head/session.rs	ended_away

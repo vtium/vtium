@@ -343,13 +343,31 @@ fn main() -> ExitCode {
 mod tests {
     use super::*;
 
-    /// A fresh, empty directory of this test's own.
-    fn fresh(name: &str) -> PathBuf {
+    /// A fresh, empty directory of this test's own, which the test
+    /// removes when it drops the guard, as it ends, whether it passes or
+    /// fails.
+    struct Fresh(PathBuf);
+
+    impl std::ops::Deref for Fresh {
+        type Target = Path;
+
+        fn deref(&self) -> &Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Fresh {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn fresh(name: &str) -> Fresh {
         let dir =
             std::env::temp_dir().join(format!("vtium-tui-demo-test-{}-{name}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("the directory");
-        dir
+        Fresh(dir)
     }
 
     /// The variables the demo sets, each under `root`, with `name` set to
@@ -416,7 +434,8 @@ mod tests {
         let full = fresh("full");
         std::fs::write(full.join("kept"), b"x").expect("a file");
         assert!(refused(&full, &vars(&full, "", None), home), "not empty");
-        let gone = fresh("gone").join("missing");
+        let gone_parent = fresh("gone");
+        let gone = gone_parent.join("missing");
         assert!(refused(&gone, &vars(&gone, "", None), home), "missing");
         let up = fresh("up");
         let dotted = up.join("x").join("..");
@@ -428,8 +447,9 @@ mod tests {
             "relative"
         );
         let target = fresh("target");
-        let link = fresh("link-parent").join("link");
-        symlink(&target, &link).expect("a link");
+        let link_parent = fresh("link-parent");
+        let link = link_parent.join("link");
+        symlink(&*target, &link).expect("a link");
         assert!(refused(&link, &vars(&link, "", None), home), "a link");
     }
 

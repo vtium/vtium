@@ -1,0 +1,97 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="DejaVu Sans Mono, monospace">
+<title>One key and one byte of output through vtium's crates</title>
+<rect width="960" height="500" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- a key -->
+<text x="24" y="36" font-size="15" fill="#1f2933">a key, from the keyboard to the session</text>
+<rect x="24" y="52" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="94" y="76" font-size="14" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="94" y="96" font-size="12" text-anchor="middle" fill="#1f2933">a key is</text>
+<text x="94" y="112" font-size="12" text-anchor="middle" fill="#1f2933">pressed</text>
+<line x1="164" y1="92" x2="178" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="180" y="52" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="250" y="76" font-size="14" text-anchor="middle" fill="#1f2933">evdev</text>
+<text x="250" y="96" font-size="12" text-anchor="middle" fill="#1f2933">the kernel's</text>
+<text x="250" y="112" font-size="12" text-anchor="middle" fill="#1f2933">input event</text>
+<line x1="320" y1="92" x2="334" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="336" y="52" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="406" y="76" font-size="14" text-anchor="middle" fill="#1f2933">vtium-platform</text>
+<text x="406" y="96" font-size="12" text-anchor="middle" fill="#1f2933">reads the event;</text>
+<text x="406" y="112" font-size="12" text-anchor="middle" fill="#1f2933">xkb makes a key</text>
+<line x1="476" y1="92" x2="490" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="492" y="52" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="562" y="76" font-size="14" text-anchor="middle" fill="#1f2933">vtium</text>
+<text x="562" y="96" font-size="12" text-anchor="middle" fill="#1f2933">picks the head,</text>
+<text x="562" y="112" font-size="12" text-anchor="middle" fill="#1f2933">then the key order</text>
+<line x1="632" y1="92" x2="646" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="648" y="52" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="718" y="76" font-size="14" text-anchor="middle" fill="#1f2933">vtium-term</text>
+<text x="718" y="96" font-size="12" text-anchor="middle" fill="#1f2933">encodes the key</text>
+<text x="718" y="112" font-size="12" text-anchor="middle" fill="#1f2933">as bytes</text>
+<line x1="788" y1="92" x2="802" y2="92" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="804" y="52" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="874" y="76" font-size="14" text-anchor="middle" fill="#1f2933">the pty</text>
+<text x="874" y="96" font-size="12" text-anchor="middle" fill="#1f2933">the session's</text>
+<text x="874" y="112" font-size="12" text-anchor="middle" fill="#1f2933">program reads it</text>
+<!-- a byte of output -->
+<text x="24" y="176" font-size="15" fill="#1f2933">a byte, from the program to the display</text>
+<rect x="24" y="192" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="94" y="216" font-size="14" text-anchor="middle" fill="#1f2933">a program</text>
+<text x="94" y="236" font-size="12" text-anchor="middle" fill="#1f2933">writes to its</text>
+<text x="94" y="252" font-size="12" text-anchor="middle" fill="#1f2933">terminal</text>
+<line x1="164" y1="232" x2="178" y2="232" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="180" y="192" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="250" y="216" font-size="14" text-anchor="middle" fill="#1f2933">the pty</text>
+<text x="250" y="236" font-size="12" text-anchor="middle" fill="#1f2933">vtium's side</text>
+<text x="250" y="252" font-size="12" text-anchor="middle" fill="#1f2933">has bytes to read</text>
+<line x1="320" y1="232" x2="334" y2="232" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="336" y="192" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="406" y="216" font-size="14" text-anchor="middle" fill="#1f2933">vtium-platform</text>
+<text x="406" y="236" font-size="12" text-anchor="middle" fill="#1f2933">reads them and</text>
+<text x="406" y="252" font-size="12" text-anchor="middle" fill="#1f2933">hands them on</text>
+<line x1="476" y1="232" x2="490" y2="232" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="492" y="192" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="562" y="216" font-size="14" text-anchor="middle" fill="#1f2933">vtium-parse</text>
+<text x="562" y="236" font-size="12" text-anchor="middle" fill="#1f2933">turns bytes</text>
+<text x="562" y="252" font-size="12" text-anchor="middle" fill="#1f2933">into actions</text>
+<line x1="632" y1="232" x2="646" y2="232" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="648" y="192" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="718" y="216" font-size="14" text-anchor="middle" fill="#1f2933">vtium-term</text>
+<text x="718" y="236" font-size="12" text-anchor="middle" fill="#1f2933">changes the</text>
+<text x="718" y="252" font-size="12" text-anchor="middle" fill="#1f2933">screen's cells</text>
+<path d="M 718 272 L 718 296 L 94 296 L 94 318" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="24" y="320" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="94" y="344" font-size="14" text-anchor="middle" fill="#1f2933">vtium</text>
+<text x="94" y="364" font-size="12" text-anchor="middle" fill="#1f2933">takes the frame</text>
+<text x="94" y="380" font-size="12" text-anchor="middle" fill="#1f2933">and a buffer</text>
+<line x1="164" y1="360" x2="178" y2="360" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="180" y="320" width="140" height="80" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="250" y="344" font-size="14" text-anchor="middle" fill="#1f2933">vtium-render</text>
+<text x="250" y="364" font-size="12" text-anchor="middle" fill="#1f2933">composes the</text>
+<text x="250" y="380" font-size="12" text-anchor="middle" fill="#1f2933">frame in it</text>
+<line x1="320" y1="360" x2="334" y2="360" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="336" y="320" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="406" y="344" font-size="14" text-anchor="middle" fill="#1f2933">vtium</text>
+<text x="406" y="364" font-size="12" text-anchor="middle" fill="#1f2933">gives the buffer</text>
+<text x="406" y="380" font-size="12" text-anchor="middle" fill="#1f2933">back to show</text>
+<line x1="476" y1="360" x2="490" y2="360" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="492" y="320" width="140" height="80" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="562" y="344" font-size="14" text-anchor="middle" fill="#1f2933">vtium-platform</text>
+<text x="562" y="364" font-size="12" text-anchor="middle" fill="#1f2933">a page flip on</text>
+<text x="562" y="380" font-size="12" text-anchor="middle" fill="#1f2933">KMS/DRM, or fbdev</text>
+<line x1="632" y1="360" x2="646" y2="360" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="648" y="320" width="140" height="80" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="718" y="344" font-size="14" text-anchor="middle" fill="#1f2933">the display</text>
+<text x="718" y="364" font-size="12" text-anchor="middle" fill="#1f2933">shows the frame</text>
+<!-- legend -->
+<rect x="24" y="432" width="24" height="14" fill="#e6eef7" stroke="#9aa5b1" stroke-width="1"/>
+<text x="56" y="444" font-size="13" fill="#1f2933">vtium's main thread, the event loop</text>
+<rect x="24" y="456" width="24" height="14" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="56" y="468" font-size="13" fill="#1f2933">the head's render thread</text>
+<rect x="400" y="432" width="24" height="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="432" y="444" font-size="13" fill="#1f2933">outside vtium</text>
+<line x1="400" y1="463" x2="440" y2="463" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="452" y="468" font-size="13" fill="#1f2933">hands on to</text>
+</svg>

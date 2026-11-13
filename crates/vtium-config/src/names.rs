@@ -294,19 +294,18 @@ pub(crate) fn sfnt_in(faces: &[&[(u16, u16, &str)]]) -> Vec<u8> {
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     /// The faces of `bytes`, read once as bytes and once as a file, which
     /// must agree. The file is in a directory of the test's own, named with
     /// the test process's id, so two test runs at once never write each
     /// other's file, and the directory is removed once the file is read.
     fn faces_of(bytes: &[u8], test: &str) -> Result<Vec<Face>, String> {
-        let dir =
-            std::env::temp_dir().join(format!("vtium-config-names-{test}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new(&format!("config-names-{test}"));
         let path = dir.join(test);
         std::fs::write(&path, bytes).unwrap();
         let from_file = faces(&File::open(&path).unwrap());
-        std::fs::remove_dir_all(&dir).unwrap();
+        drop(dir);
         let from_bytes = faces(bytes);
         assert_eq!(from_file.is_ok(), from_bytes.is_ok(), "{test}");
         assert_eq!(from_file.as_ref().ok(), from_bytes.as_ref().ok(), "{test}");

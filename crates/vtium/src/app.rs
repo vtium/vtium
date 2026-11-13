@@ -78,9 +78,11 @@
 //!   never lit receives nothing, and the focus never moves because a
 //!   display left or came back.
 //! - **Drawing** (D2). Each head's render thread composes its frames
-//!   ([`crate::painter`]); the loop takes each frame from the screen,
-//!   and at the next turn's start, after the VT's events, copies it into
-//!   the display's buffer and presents it.
+//!   ([`crate::painter`]). The loop takes each frame from the screen with
+//!   the buffer its display lends, and the thread composes the frame
+//!   straight into that buffer; no copy is kept. At the next turn's
+//!   start, after the VT's events, the loop gives the buffer back to the
+//!   display, which presents it ([`crate::term::View::present`]).
 //! - **Exit.** A request (SIGTERM, SIGINT, a hangup, the policy) switches
 //!   back to the VT shown at the start and serves the loop for up to
 //!   [`LEAVE_WAIT`] while the switch is pending.
@@ -1158,11 +1160,17 @@ impl App {
         // The frit's cell is read as text before the first frame; its fonts
         // are the helper's to parse (#145).
         let on_the_fly = font::frit(&s.frits, &wanted.name).is_none();
-        let chosen = font::frit_named(&s.frits, &wanted).and_then(|frit| {
-            let made = on_the_fly.then(|| frit.clone());
-            Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made))
-        });
-        match chosen {
+        let frit = match font::frit_named(s, &wanted) {
+            Ok(frit) => frit,
+            // the one line a frit vtium does not read gets at the start: the
+            // start's warnings leave it to this read
+            Err(refusal) => {
+                log::warn!("{refusal} vtium draws its built-in font instead.");
+                return (Chosen::builtins(look), None);
+            }
+        };
+        let made = on_the_fly.then(|| frit.clone());
+        match Chosen::frit(frit, head.sized(), look).map(|chosen| (chosen, made)) {
             Ok((chosen, made)) => {
                 log::info!(
                     "the font is the frit {}, drawn in the built-in font until its glyphs are generated",
@@ -1375,7 +1383,8 @@ impl App {
             Err(why) => {
                 if head.font_refused == 0 {
                     log::warn!(
-                        "OSC 50 asked for the font {name}: {why}; the font stays {current}, and OSC 50's further refusals are counted until a switch"
+                        "OSC 50 asked for the font {name}: {}; the font stays {current}, and OSC 50's further refusals are counted until a switch",
+                        why.trim_end_matches('.')
                     );
                 }
                 head.font_refused = head.font_refused.saturating_add(1);
@@ -1546,6 +1555,12 @@ impl App {
     /// cannot be found.
     fn relayout(&mut self, h: usize) -> bool {
         if self.heads.get(h).is_none_or(|head| head.views.is_empty()) {
+            // nothing to lay out, but a switch still changed the font
+            let locale = self.locale.as_str();
+            if let Some(head) = self.heads.get_mut(h) {
+                let name = head.chosen().name(head.font_size, locale).to_owned();
+                head.name_font(&name);
+            }
             return true;
         }
         self.choose_font(h);
@@ -1591,7 +1606,7 @@ impl App {
         };
         head.font_size = base;
         let name = head.chosen().name(base, locale).to_owned();
-        head.console.term.terminal.set_font_name(&name);
+        head.name_font(&name);
         let cell = |head: &Head, at: u32| {
             head.face(at, locale).ok().map(|f| {
                 let c = f.cell();
@@ -5096,6 +5111,7 @@ mod tests {
     use vtium_platform::event_loop::Loop;
 
     use super::*;
+    use crate::scratch::Scratch;
 
     /// A device in memory with the displays `ids`, in the order it lists
     /// them, each 320x160 and named for the rules by its connector on the
@@ -5354,6 +5370,7 @@ mod tests {
     pub(super) fn no_fonts() -> font::Sources {
         font::Sources {
             frits: PathBuf::from("/nonexistent/vtium-test-frits"),
+            trust: font::trust(),
             helper: None,
             vconsole_conf: PathBuf::from("/dev/null"),
             kernel_cmdline: PathBuf::from("/dev/null"),
@@ -5416,12 +5433,11 @@ mod tests {
     // head's cell alone.
     #[test]
     fn a_frit_a_head_left_keeps_the_cells_of_the_heads_still_drawing_it() {
-        let dir = std::env::temp_dir().join(format!("vtium-app-left-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("app-left");
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -5455,8 +5471,6 @@ mod tests {
         app.switch_font(0, "unifont");
         assert_eq!(app.heads.first().and_then(Head::frit), None);
         assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
-        drop(app);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1302 D13: one cell size can carry two bands on two heads. Here
@@ -5466,12 +5480,11 @@ mod tests {
     // The helper is asked for each, and each keeps glyphs of its own.
     #[test]
     fn one_cell_size_with_two_bands_is_asked_for_twice() {
-        let dir = std::env::temp_dir().join(format!("vtium-app-bands-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("app-bands");
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\ncell=8x20\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -5498,8 +5511,6 @@ mod tests {
             .unwrap_or_default();
         asked.sort_unstable();
         assert_eq!(asked, [(8, 20, 0, 0), (8, 20, 2, 2)]);
-        drop(app);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1401 D3: vtium.conf's `mouse` off drops the pointer rules from
@@ -6205,15 +6216,15 @@ mod tests {
     /// bitmap frit `t` and `b` the bitmap frit `u`. Their helpers never
     /// answer, so each frit's cell query at the start has no answer in
     /// time, and each head still wants its frit's cell.
-    /// The seat is shown, and the frit's directory kept for the test.
-    fn late_seat(test: &str) -> (Loop<App>, App, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    /// The seat is shown, and the frits' directory kept for the test,
+    /// which removes it when the test ends.
+    fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
+        let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
         std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
+            trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
                 args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6243,12 +6254,11 @@ mod tests {
     fn a_late_outline_cell_is_drawn_at_its_own_width() {
         for (width, height) in [(18, 40), (42, 40), (13, 32)] {
             let test = format!("late-outline-{width}x{height}");
-            let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
+            let dir = Scratch::new(&format!("app-{test}"));
             std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
             let fonts = font::Sources {
-                frits: dir.clone(),
+                frits: dir.to_path_buf(),
+                trust: font::trust().below(&dir),
                 helper: Some(helper::Command {
                     program: helper::stand_in_shell().to_path_buf(),
                     args: vec!["-c".into(), "exec sleep 30".into()],
@@ -6296,7 +6306,6 @@ mod tests {
             let columns = usize::try_from(320 / width).unwrap();
             let rows = usize::try_from(160 / height).unwrap();
             assert_eq!(head.grid(), (columns, rows), "{width}x{height}: the grid");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 
@@ -6312,7 +6321,7 @@ mod tests {
     // rebuilt no view leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
-        let (_lp, mut app, dir) = late_seat("late-heads");
+        let (_lp, mut app, _dir) = late_seat("late-heads");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
         assert!(
@@ -6354,7 +6363,6 @@ mod tests {
         let columns = usize::try_from(320 / own.width).unwrap();
         assert_eq!(*a_columns, columns, "a's grid takes the late cell");
         assert_eq!(after.get(1).unwrap(), b_before, "b is not laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: a late answer takes the place of a missing answer
@@ -6366,7 +6374,7 @@ mod tests {
     // refusal in time stays too; a late refusal fills a missing answer.
     #[test]
     fn a_late_cell_answer_fills_only_a_missing_answer() {
-        let (_lp, mut app, dir) = late_seat("late-missing");
+        let (_lp, mut app, _dir) = late_seat("late-missing");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let cell = |w, h| vtium_font::Cell {
             width: w,
@@ -6396,7 +6404,6 @@ mod tests {
         assert_eq!(known.get(&(at + 1)), Some(&refused));
         assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
         assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
@@ -6407,7 +6414,7 @@ mod tests {
     // cell first, finds.
     #[test]
     fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
-        let (_lp, mut app, dir) = late_seat("late-refused");
+        let (_lp, mut app, _dir) = late_seat("late-refused");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let refused = Err(helper::NoCell {
             why: "no such font".to_owned(),
@@ -6441,7 +6448,6 @@ mod tests {
         assert_eq!(frit.answer_at(at, false), Some(refused.clone()));
         assert_eq!(frit.answer_at(at + 3, false), Some(refused));
         assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: the answers, and not the frit's text, say which kind a
@@ -6453,7 +6459,7 @@ mod tests {
     // at the other height.
     #[test]
     fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
-        let (_lp, mut app, dir) = late_seat("late-kind");
+        let (_lp, mut app, _dir) = late_seat("late-kind");
         let at = 16;
         let outline = Ok(helper::OwnCell::Outline(vtium_font::Cell {
             width: 9,
@@ -6484,7 +6490,6 @@ mod tests {
             );
             assert_eq!(frit.answer_at(20, false), Some(failed));
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A seat on one display under `render-timer=value`, shown at the

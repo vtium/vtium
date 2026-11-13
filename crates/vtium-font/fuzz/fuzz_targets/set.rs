@@ -11,6 +11,8 @@
 //! inside the reach and no taller than the row (D8), and a color glyph
 //! still premultiplied. Each codepoint is drawn from the set's superscript
 //! and subscript strikes too (ADR-1202 D11), each glyph its cells' size.
+//! Each codepoint's advance is the cells of its regular glyph, where the
+//! face draws one, and none where the face lacks the codepoint.
 #![no_main]
 
 use std::sync::Arc;
@@ -40,6 +42,12 @@ fuzz_target!(|data: &[u8]| {
                 assert!(d.overline + d.underline_thickness <= c.height);
             }
             for ch in (0..0x300).filter_map(char::from_u32).chain(['\u{10ffff}']) {
+                if let Some(g) = face.draw(&[ch], Style::default()) {
+                    assert_eq!(face.advance(ch), Some(g.cells()));
+                }
+                if !face.has_glyph(ch) {
+                    assert_eq!(face.advance(ch), None);
+                }
                 for (bold, italic) in [(false, false), (true, false), (false, true), (true, true)] {
                     let style = Style { bold, italic };
                     for script in [Script::Super, Script::Sub] {

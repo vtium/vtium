@@ -1,0 +1,32 @@
+ Flow  Looks  Fonts  Settings  Help                                     v View file  s Save  i Install  r Revert  n New
+ draft bench   All devices are in a path · no changes · no problems
+ policy closed: vtium ignores a keyboard that no rule names
+ CONFIGURATION
+ DISPLAYS                            TERMINALS                                     INPUTS
+ ┌───────────────────────┐           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ │ DP-1                  │──────────►│ station-1                    │◄─────────────│ inputs on USB 3.1                │
+ │ MON0000001 · by EDID  │           │ default font set · every VT  │              │ every input on that port         │
+ └───────────────────────┘           └──────────────────────────────┘              └──────────────────────────────────┘
+
+ ┏━━━━━━━━━━━━━━━━━━━━━━━┓           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ ┃ DP-2                  ┃━━━━━━━━━━▶│ station-2                    │◄─────────────│ inputs on USB 3.2                │
+ ┃ MON0000002 · by EDID  ┃           │ default font set · every VT  │              │ every input on that port         │
+ ┗━━━━━━━━━━━━━━━━━━━━━━━┛           └──────────────────────────────┘              └──────────────────────────────────┘
+
+ ┌───────────────────────┐           ┌──────────────────────────────┐              ┌──────────────────────────────────┐
+ │ HDMI-A-1              │──────────►│ station-3                    │◄─────────────│ inputs on USB 3.3                │
+ │ MON0000003 · by EDID  │           │ default font set · every VT  │              │ every input on that port         │
+ └───────────────────────┘           └──────────────────────────────┘              └──────────────────────────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔═════════════════╗                 ╔══════════════════════════════╗              ╔═════════════════╗
+ ║ Display         ║                 ║ Terminal                     ║              ║ Input           ║
+ ║ Choose… [Enter] ║                 ║ new: terminal-1              ║              ║ Choose… [Enter] ║
+ ╚═════════════════╝                 ╚══════════════════════════════╝              ╚═════════════════╝
+
+ ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ PARTS
+ DISPLAYS
+
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit

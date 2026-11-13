@@ -73,6 +73,8 @@ mod outcome;
 mod parse;
 mod place;
 mod route;
+#[cfg(test)]
+mod scratch;
 mod split;
 mod write;
 
@@ -86,8 +88,8 @@ pub use config::{
     value_for,
 };
 pub use error::{
-    At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Refusal, Rejected,
-    Remark, Renamed, Shown, Stating, Syntax, Warning, at,
+    At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Reason, Refusal,
+    Rejected, Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
 pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, text};
 pub use findings::{Against, remarks, warnings};

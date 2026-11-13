@@ -1,14 +1,16 @@
-# tier 3's showcase set (t3_showcase.py, ADR-1502 D6): Iosevka Term for
-# Latin, Greek, Cyrillic, symbols, box drawing and the powerline arrows;
-# Symbols Nerd Font Mono for the icons in its private-use ranges, less Font
-# Logos (U+F300 to U+F385), which carries no licence grant, as the
-# specimens' desktop frit leaves them out; Noto Color
-# Emoji for emoji; Noto Sans Thai and Noto Sans CJK SC for the scripts
-# Iosevka Term lacks; and the built-in GNU Unifont for anything none of them
-# holds. Each font is pinned by URL and SHA-256 in t3_showcase.py and
-# carried to the guest on the run's disc. Iosevka Term holds a few
-# monochrome emoji, such as U+1F642, which it draws in their place, so the
-# scenes leave those out.
+# tier 3's showcase set (t3_showcase.py, ADR-1502 D6): Iosevka Term for Latin,
+# Greek, Cyrillic, symbols, box drawing and the powerline arrows; Symbols Nerd
+# Font Mono for the icons in its private-use ranges, less Font Logos (U+F300
+# to U+F385), which carries no licence grant, as the specimens' desktop frit
+# leaves them out; Noto Color Emoji for emoji; Noto Sans Thai and Noto Sans
+# CJK SC for the scripts Iosevka Term lacks; Noto Sans Devanagari, Bengali,
+# Arabic, Hebrew, Georgian and Ethiopic for the scripts scene's lines in those
+# scripts, which Iosevka Term and the fonts before them lack, listed after
+# Noto Sans CJK SC so that no character an earlier font draws moves to them;
+# and the built-in GNU Unifont for anything none of them holds. Each font is
+# pinned by URL and SHA-256 in t3_showcase.py and carried to the guest on the
+# run's disc. Iosevka Term holds a few monochrome emoji, such as U+1F642,
+# which it draws in their place, so the scenes leave those out.
 #
 # 30 points are 40 pixels at the variant's 96 DPI, which gives Iosevka Term
 # its own cell of 16x40 and the 1920x1080 display a grid of 120 by 27. The
@@ -24,6 +26,12 @@ cover=U+F0001-U+F1AF0
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoColorEmoji.ttf
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansThai-Regular.ttf
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansCJKsc-Regular.otf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansDevanagari-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansBengali-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansArabic-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansHebrew-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansGeorgian-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansEthiopic-Regular.ttf
 source=builtin:unifont
 size=30
 cell=16x40

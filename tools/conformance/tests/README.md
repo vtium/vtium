@@ -4,10 +4,11 @@
 
 | Path | What it is |
 |---|---|
-| `runner.rs` | The runner's verdicts on a corpus of one case written in the test: a match, a difference, a replay that exits, and the masking; and `vtium-replay`'s exit codes. |
+| `runner.rs` | The runner's verdicts on a corpus of one case written in the test: a match, a difference, a replay that exits, and the masking; `vtium-replay`'s exit codes; and that a test that panics leaves no corpus directory behind. |
 | `generate.rs` | The generator against the copies: every synthetic case byte for byte, its cuts and its fixtures, and its inputs refused when one is missing. |
 | `interface.rs` | The interface check on the tree, and each kind of fault it catches on inputs written in the test. |
 | `stand_in.rs` | Built with images: the image store against the `img-` cases' goldens, each solid sixel string replaced by the `image` and `place` commands that make the same picture, each compared with its goldens exactly, and the one case whose sixels are not solid left to the sixel handler. |
 | `termcap.rs` | The xtgettcap capability scenario's fixture against the XTGETTCAP table vtium answers from. |
 | `capabilities.rs` | The capability judge on capability scenarios written in the test: a pass and each kind of failure, the order of `test` lines, an absent feature and a placeholder, the checks made before anything runs (the grammar, the reserved keys, the masked counts, the examples, and a command or feature the interface lacks), a fixture served from `fixtures/`, and each verdict against the list. |
 | `scenarios.rs` | The scenario language on scenarios written in the test: the reader on good and bad files, each command's test command and the cuts of both sorts of scenario, the transcript printer on blocks written in the test, ADR-1504's worked scenario played through vtium-replay's code to its worked transcript, the verdicts against a transcript and the provisional list, the assertions, the scenarios vtium-replay cannot play, the player, the capability rules on lists and scenarios written in the test, and `conformance probes` on the tree. |
+| `common/scratch.rs` | The guard that `runner.rs`, `generate.rs` and `scenarios.rs` hold for each directory they make. It makes the directory under the build's own temporary directory, `CARGO_TARGET_TMPDIR`, and removes it when the test ends, whether the test passes or fails. |

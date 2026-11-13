@@ -690,9 +690,12 @@ impl Entry {
 /// answer:
 /// a strike a pixel format, its chunks raw, a codepoint in its map and a
 /// cluster in its cluster map. Each glyph keeps its format: RGBA stays
-/// RGBA, and a mask whose every pixel is 0 or 255 in a set with a 1-bit
-/// strike stays 1-bit, every other mask R8. The new face and its bytes;
-/// `None` when a glyph cannot be drawn or the set cannot be written.
+/// RGBA, and a mask whose every pixel, and every pixel of its ink box, is
+/// 0 or 255 in a set with a 1-bit strike stays 1-bit, every other mask R8.
+/// Each mask keeps its ink box past its cells (ADR-1306 D3), so the set
+/// written again draws every kept glyph as the helper's set drew it. The
+/// new face and its bytes; `None` when a glyph cannot be drawn or the set
+/// cannot be written.
 fn rewrite(
     face: &SetFace,
     cell: Cell,
@@ -714,26 +717,41 @@ fn rewrite(
         if let Some(info) = strikes.iter().find(|s| s.format == format) {
             s = s.baseline(info.baseline).decorations(info.decorations);
         }
-        (s, BTreeMap::<(bool, Vec<u8>), u32>::new())
+        (s, BTreeMap::<(bool, Vec<u8>, Option<InkBytes>), u32>::new())
     });
+    let binary = |pixels: &[u8]| pixels.iter().all(|&p| p == 0 || p == 0xff);
     for (text, _) in kept {
         let glyph = draw_text(face, text, variant, true)?;
         let pixels = glyph.pixels();
-        let (slot, bytes) = match glyph.format() {
-            Format::Rgba => (2, pixels.to_vec()),
-            Format::Mask if one_bit && pixels.iter().all(|&p| p == 0 || p == 0xff) => {
-                (0, pack(&glyph)?)
+        let ink = glyph.ink();
+        let (slot, bytes, ink) = match glyph.format() {
+            Format::Rgba => (2, pixels.to_vec(), None),
+            Format::Mask if one_bit && binary(pixels) && ink.is_none_or(|i| binary(i.pixels())) => {
+                let ink = match ink {
+                    Some(i) => Some(ink_bytes(i, pack(i.pixels(), i.width())?)),
+                    None => None,
+                };
+                (0, pack(pixels, glyph.width())?, ink)
             }
-            Format::Mask => (1, pixels.to_vec()),
+            Format::Mask => (
+                1,
+                pixels.to_vec(),
+                ink.map(|i| ink_bytes(i, i.pixels().to_vec())),
+            ),
         };
         let (strike, placed) = builders.get_mut(slot)?;
         let wide = glyph.cells() == Width::Wide;
-        // texts that shared a glyph share it again
-        let index = match placed.get(&(wide, bytes.clone())) {
+        // texts that shared a glyph, its pixels and its ink, share it again
+        let key = (wide, bytes, ink);
+        let index = match placed.get(&key) {
             Some(&i) => i,
             None => {
+                let (_, bytes, ink) = &key;
                 let i = strike.glyph(glyph.cells(), bytes.clone());
-                placed.insert((wide, bytes), i);
+                if let Some((at, size, boxed)) = ink {
+                    strike.ink(i, *at, *size, boxed.clone());
+                }
+                placed.insert(key, i);
                 i
             }
         };
@@ -757,12 +775,23 @@ fn rewrite(
     Some((SetFace::new(Arc::new(set), cell.height)?, len))
 }
 
-/// A mask of 0 and 255 as 1-bit rows padded to a byte, the first pixel
-/// the high bit.
-fn pack(glyph: &Glyph) -> Option<Vec<u8>> {
-    let row = usize::try_from(glyph.width().div_ceil(8)).ok()?;
-    let mut out = Vec::with_capacity(row.checked_mul(usize::try_from(glyph.height()).ok()?)?);
-    for line in glyph.rows() {
+/// An ink box as a strike writes it ([`StrikeBuilder::ink`]): its place
+/// from the glyph's first cell, its size, and its bytes in the strike's
+/// format.
+type InkBytes = ((i32, i32), (u32, u32), Vec<u8>);
+
+/// `ink`'s place and size, with `bytes`, its pixels in the strike's format.
+fn ink_bytes(ink: &vtium_font::Ink, bytes: Vec<u8>) -> InkBytes {
+    ((ink.left(), ink.top()), (ink.width(), ink.height()), bytes)
+}
+
+/// A mask of 0 and 255, `width` pixels a row, as 1-bit rows padded to a
+/// byte, the first pixel the high bit.
+fn pack(pixels: &[u8], width: u32) -> Option<Vec<u8>> {
+    let width = usize::try_from(width).ok().filter(|&w| w > 0)?;
+    let row = width.div_ceil(8);
+    let mut out = Vec::with_capacity(row.checked_mul(pixels.len().checked_div(width)?)?);
+    for line in pixels.chunks(width) {
         let at = out.len();
         out.resize(at.checked_add(row)?, 0);
         for (x, _) in line.iter().enumerate().filter(|&(_, &p)| p != 0) {
@@ -1043,6 +1072,13 @@ impl Generated {
             .iter()
             .find(|e| e.at() == at && e.variant.script == script)?;
         Some(e.face.script_decorations(script))
+    }
+
+    /// How many cells the store's normal glyph for `c` at `at` spans, as
+    /// its set's map marks it, without drawing it; `None` when the store
+    /// holds no such glyph.
+    fn advance(&self, at: SpacedCell, c: char) -> Option<Width> {
+        self.entry(at, Variant::default(), &[c])?.face.advance(c)
     }
 
     /// `text`'s glyph at `at` in `variant`, from the store: a set of that
@@ -1424,6 +1460,15 @@ impl Face for DeferredFace {
         self.builtin.sprite_policy()
     }
 
+    /// The store's glyph's cells, else the built-in font's: the glyph
+    /// [`Face::draw`] gives `c`, measured without drawing it. A built-in
+    /// glyph keeps its cells when it is fitted to the face's cell.
+    fn advance(&self, c: char) -> Option<Width> {
+        lock(&self.generated)
+            .advance(self.at(), c)
+            .or_else(|| self.builtin.advance(c))
+    }
+
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.draw_in(cluster, style.into())
     }
@@ -1576,6 +1621,10 @@ impl Face for Builtins<'_> {
 
     fn sprite_policy(&self) -> SpritePolicy {
         self.0.builtin.sprite_policy()
+    }
+
+    fn advance(&self, c: char) -> Option<Width> {
+        self.0.builtin.advance(c)
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
@@ -2583,6 +2632,146 @@ mod tests {
 
     const ACUTE: [char; 2] = ['e', '\u{301}'];
 
+    /// A set at [`CELL`] in `format`, 1-bit or R8, where `A` is solid,
+    /// `n` is a body inside its cell, and `o` is the same body with a horn
+    /// whose ink reaches one column into the cell after it (ADR-1306 D3),
+    /// as Iosevka Term draws U+01A1 at 15x38: its ink box is the cell and
+    /// that column, the horn's pixel in it gray in R8.
+    fn horned(format: PixelFormat) -> Arc<Set> {
+        let (w, h) = (CELL.width as usize, CELL.height as usize);
+        let body = |x: usize, y: usize| (2..6).contains(&x) && (6..14).contains(&y);
+        let horn = if format == PixelFormat::Bits {
+            255
+        } else {
+            128
+        };
+        let own: Vec<u8> = (0..h)
+            .flat_map(|y| (0..w).map(move |x| if body(x, y) { 255 } else { 0 }))
+            .collect();
+        let boxed: Vec<u8> = (0..h)
+            .flat_map(|y| {
+                (0..=w).map(move |x| match x {
+                    _ if body(x, y) => 255,
+                    8 if (6..8).contains(&y) => horn,
+                    _ => 0,
+                })
+            })
+            .collect();
+        // a 1-bit strike holds its rows packed, the first pixel the high bit
+        let bytes = |px: &[u8], width: usize| -> Vec<u8> {
+            if format != PixelFormat::Bits {
+                return px.to_vec();
+            }
+            let row = width.div_ceil(8);
+            let mut out = vec![0u8; row * h];
+            for (y, line) in px.chunks(width).enumerate() {
+                for (x, _) in line.iter().enumerate().filter(|&(_, &p)| p != 0) {
+                    out[y * row + x / 8] |= 0x80 >> (x % 8);
+                }
+            }
+            out
+        };
+        let mut s = StrikeBuilder::new(format, CELL, Style::default());
+        let solid = s.glyph(Width::Narrow, bytes(&vec![255; w * h], w));
+        s.map('A', solid);
+        let plain = s.glyph(Width::Narrow, bytes(&own, w));
+        s.map('n', plain);
+        let horned = s.glyph(Width::Narrow, bytes(&own, w));
+        s.ink(
+            horned,
+            (0, 0),
+            (CELL.width + 1, CELL.height),
+            bytes(&boxed, w + 1),
+        );
+        s.map('o', horned);
+        Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap())
+    }
+
+    /// `g`'s ink box past its cell, as its place, size and pixels.
+    fn ink_of(g: &Glyph) -> Option<InkBytes> {
+        g.ink().map(|i| ink_bytes(i, i.pixels().to_vec()))
+    }
+
+    const HORNED_RUNS: [(u32, u32); 3] = [(0x41, 1), (0x6e, 1), (0x6f, 1)];
+
+    // ADR-1200 D18, ADR-1306 D3: a helper's answer that carries a glyph the
+    // store already holds is written again without it, and the glyphs it
+    // keeps keep their ink past the cell. The store draws the same glyph
+    // for `o` whether its set came first or after a set that brought `A`,
+    // so the frame does not depend on the order the answers arrived in.
+    #[test]
+    fn an_answer_written_again_without_held_glyphs_keeps_their_ink() {
+        for format in [PixelFormat::R8, PixelFormat::Bits] {
+            let mut first = Generated::default();
+            add(&mut first, CELL, horned(format), HORNED_RUNS.to_vec(), 1);
+            let mut after = Generated::default();
+            add(&mut after, CELL, solid(CELL, &['A']), vec![(0x41, 1)], 1);
+            let fresh = after
+                .fresh((AT, Variant::default()), horned(format), &HORNED_RUNS, 1)
+                .unwrap();
+            assert_eq!(
+                fresh.texts().cloned().collect::<Vec<_>>(),
+                texts(&['n', 'o']),
+                "{format:?}: the answer is written again without A"
+            );
+            assert!(after.add(fresh).is_some());
+            let whole = first.draw(AT, &['o'], Variant::default()).unwrap();
+            let again = after.draw(AT, &['o'], Variant::default()).unwrap();
+            assert!(
+                ink_of(&whole).is_some(),
+                "{format:?}: the helper's o has a horn"
+            );
+            assert_eq!(
+                ink_of(&again),
+                ink_of(&whole),
+                "{format:?}: o keeps its horn"
+            );
+            assert_eq!(
+                again.pixels(),
+                whole.pixels(),
+                "{format:?}: o inside its cell"
+            );
+            // n shares o's pixels inside the cell, and has no ink past it
+            let n = after.draw(AT, &['n'], Variant::default()).unwrap();
+            assert_eq!(ink_of(&n), None, "{format:?}: n takes no horn from o");
+            assert_eq!(n.pixels(), whole.pixels(), "{format:?}: n inside its cell");
+        }
+    }
+
+    // ADR-1200 D19, ADR-1306 D3: compaction writes a set again without the
+    // glyphs least recently shown, and the glyphs it keeps keep their ink
+    #[test]
+    fn compaction_keeps_the_ink_of_the_glyphs_it_keeps() {
+        let mut g = Generated::default();
+        add(
+            &mut g,
+            CELL,
+            horned(PixelFormat::R8),
+            HORNED_RUNS.to_vec(),
+            3,
+        );
+        let whole = ink_of(&g.draw(AT, &['o'], Variant::default()).unwrap());
+        g.touch(
+            AT,
+            &Shown {
+                variant: Variant::default(),
+                chars: vec!['o'],
+                clusters: Vec::new(),
+            },
+        );
+        let left = g.make_room(1);
+        assert!(
+            left.iter().any(|(_, _, gone)| gone.contains(&vec!['A'])),
+            "A leaves the store: {left:?}"
+        );
+        assert!(g.held(AT, Variant::default(), &['o']));
+        assert!(whole.is_some());
+        assert_eq!(
+            ink_of(&g.draw(AT, &['o'], Variant::default()).unwrap()),
+            whole
+        );
+    }
+
     // ADR-1200 D20, D22 step 1: a cluster's glyph is keyed by its whole
     // text, apart from its first codepoint's
     #[test]
@@ -2895,6 +3084,46 @@ mod tests {
         let runs = glyphs.iter().map(|&(c, _)| (u32::from(c), 1)).collect();
         add(&mut lock(&generated), CELL, set, runs, 1);
         face(&generated)
+    }
+
+    // vtium/vtium#159: the face measures a character by the store's
+    // glyph for it, else the built-in font's, without drawing either: the
+    // store holds a wide `W`, which the built-in font draws narrow, and the
+    // set's chunk stays undecoded. The built-in fonts alone, which the
+    // console draws its notices with, measure `W` by the built-in font's
+    #[test]
+    fn the_face_measures_by_the_store_else_the_built_in_font() {
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default()).compress(true);
+        let g = s.glyph(
+            Width::Wide,
+            vec![255; (2 * CELL.width * CELL.height) as usize],
+        );
+        s.map('W', g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let generated = Shared::default();
+        add(
+            &mut lock(&generated),
+            CELL,
+            Arc::clone(&set),
+            vec![(0x57, 1)],
+            1,
+        );
+        let f = face(&generated);
+        assert_eq!(f.advance('W'), Some(Width::Wide), "the store's glyph");
+        assert_eq!(f.advance('\u{4e00}'), Some(Width::Wide), "unifont's glyph");
+        assert_eq!(f.advance('A'), Some(Width::Narrow), "unifont's glyph");
+        assert_eq!(f.advance('\u{10ffff}'), None);
+        assert_eq!(set.loaded_chunks(), 0, "measuring drew the store's glyph");
+        let builtins = f.builtins().unwrap();
+        assert_eq!(builtins.advance('W'), Some(Width::Narrow));
+        assert_eq!(builtins.advance('\u{4e00}'), Some(Width::Wide));
+        assert_eq!(builtins.advance('\u{10ffff}'), None);
+        for c in ['W', '\u{4e00}', 'A', '\u{10ffff}'] {
+            let drawn = |face: &dyn Face| face.draw(&[c], Style::default()).map(|g| g.cells());
+            assert_eq!(f.advance(c), drawn(&f), "{c:?}");
+            assert_eq!(builtins.advance(c), drawn(&*builtins), "{c:?}");
+        }
     }
 
     const KA: char = '\u{915}';

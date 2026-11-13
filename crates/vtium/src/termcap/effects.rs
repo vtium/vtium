@@ -21,6 +21,7 @@ use vtium_term::{
 };
 
 use super::terminfo::{Cap, ENTRY, KMSCON, parse};
+use crate::scratch::Scratch;
 
 /// A `tparm` parameter.
 #[derive(Clone, Debug)]
@@ -314,9 +315,7 @@ fn tparm_matches_tput_for_each_capability_with_parameters() {
         );
         return;
     }
-    let dir = std::env::temp_dir().join(format!("vtium-termcap-tput-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&dir);
-    std::fs::create_dir_all(&dir).expect("a directory");
+    let dir = Scratch::new("termcap-tput");
     // each list reaches other branches of setaf's, setab's and sgr's
     // conditions, and rep's %c of 0 and of more than a byte
     let lists: [[i64; 9]; 4] = [
@@ -332,7 +331,7 @@ fn tparm_matches_tput_for_each_capability_with_parameters() {
         let tic = std::process::Command::new("tic")
             .arg("-x")
             .arg("-o")
-            .arg(&dir)
+            .arg(&*dir)
             .arg(&ti)
             .output()
             .expect("tic runs");
@@ -371,7 +370,7 @@ fn tparm_matches_tput_for_each_capability_with_parameters() {
                     })
                     .collect();
                 let tput = std::process::Command::new("tput")
-                    .env("TERMINFO", &dir)
+                    .env("TERMINFO", &*dir)
                     .arg("-T")
                     .arg(term)
                     .arg(name)
@@ -391,7 +390,6 @@ fn tparm_matches_tput_for_each_capability_with_parameters() {
             }
         }
     }
-    let _ = std::fs::remove_dir_all(&dir);
     // both entries' capabilities with parameters, u8 aside, four lists
     // each
     assert_eq!(compared, (30 + 28) * 4, "the capabilities compared");

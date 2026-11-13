@@ -1,0 +1,25 @@
+ Flow  Looks  Fonts  Settings  Help       View file  Save  Install  Revert  New
+ draft bench   All devices are in a path · no changes · no problems
+ policy closed: vtium ignores a keyboard that no rule names
+ CONFIGURATION
+ DISPLAYS               TERMINALS                                INPUTS
+ ┌──────────────┐       ┌──────────────────────────────┐         ┌────────────┐
+ │ DP-1         │──────►│ station-1                    │◄────────│ inputs on… │
+ │ MON0000001 … │       │ default font set · every VT  │         │ every inp… │
+ └──────────────┘       └──────────────────────────────┘         └────────────┘
+
+ ┏━━━━━━━━━━━━━━┓       ┌──────────────────────────────┐         ┌────────────┐
+ ┃ DP-2         ┃━━━━━━▶│ station-2                    │◄────────│ inputs on… │
+ ┃ MON0000002 … ┃       │ default font set · every VT  │         │ every inp… │
+ ┗━━━━━━━━━━━━━━┛       └──────────────────────────────┘         └────────────┘
+
+ ┌──────────────┐       ┌──────────────────────────────┐         ┌────────────┐
+ │ HDMI-A-1     │──────►│ station-3                    │◄────────│ inputs on… │
+ │ MON0000003 … │       │ default font set · every VT  │         │ every inp… │
+ └──────────────┘       └──────────────────────────────┘         └────────────┘
+
+ ──────────────────────────────────────────────────────────────────────────────
+ NEW PATH     Pick an input and a display to make a path.
+ ╔══════════════╗       ╔══════════════════════════════╗         ╔════════════╗
+ ║ Display      ║       ║ Terminal                     ║         ║ Input      ║
+ ↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  q quit

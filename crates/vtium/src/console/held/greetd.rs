@@ -142,7 +142,6 @@ mod tests {
             .ok();
             assert_eq!(vt_of(config(&r, "greetd.service", None)), want, "{value}");
         }
-        let _ = std::fs::remove_dir_all(r);
     }
 
     #[test]
@@ -160,6 +159,5 @@ mod tests {
         assert_eq!(exec("greetd --config /etc/greetd/other.toml"), Some(4));
         assert_eq!(exec("greetd -c /etc/greetd/other.toml --vt next"), None);
         assert_eq!(exec("greetd --config /etc/greetd/missing.toml"), None);
-        let _ = std::fs::remove_dir_all(r);
     }
 }

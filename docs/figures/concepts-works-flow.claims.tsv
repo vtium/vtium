@@ -1,0 +1,18 @@
+# Claims of concepts-works-flow.svg and "One key and one byte of output" in docs/concepts/how-vtium-works.md.
+element	file	symbol
+evdev: the kernel's input event	crates/vtium-platform/src/input/evdev.rs	RawEvent
+vtium-platform reads the event	crates/vtium-platform/src/input/evdev.rs	EVENTS_PER_READ
+xkb makes a key	crates/vtium-platform/src/input.rs	Input
+vtium picks the head	crates/vtium/src/head/route.rs	Routes
+then the key order	crates/vtium/src/app.rs	App::key
+vtium-term encodes the key as bytes	crates/vtium-term/src/terminal/input.rs	Terminal::key
+the pty: the session's program reads it	crates/vtium-platform/src/pty.rs	Pty::write
+the pty: vtium's side has bytes to read	crates/vtium-platform/src/channel.rs	Channel
+vtium-platform reads them and hands them on	crates/vtium-platform/src/channel.rs	Consumer
+vtium-parse turns bytes into actions	crates/vtium-parse/src/parser.rs	Parser
+vtium-term changes the screen's cells	crates/vtium/src/term.rs	Term::parse
+vtium takes the frame and a buffer	crates/vtium/src/term.rs	View::prepare
+vtium-render composes the frame in it, on the render thread	crates/vtium/src/term.rs	Job::compose
+vtium gives the buffer back to show	crates/vtium/src/term.rs	View::present
+vtium-platform: a page flip on KMS/DRM	crates/vtium-platform/src/display.rs	Event::Flipped
+or fbdev	crates/vtium-platform/src/display/fbdev.rs	Fbdev

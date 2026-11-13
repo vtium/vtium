@@ -1,5 +1,7 @@
 # Your first frit
 
-This tutorial is coming. In it you will run `vtium config tui` in a vtium console, move the highlight through the fonts while the live console changes to each one, keep your choice and install it, and see it at vtium's next start. A frit, or font set file, is the short text file, `/etc/vtium/fonts/NAME.vtfrit`, that names the fonts vtium draws from.
+This tutorial is not written yet. A frit, or font set file, is a short text file that names the fonts vtium renders from. It lives at `/etc/vtium/fonts/NAME.vtfrit`.
 
-Until it is written, [Choose a font](fonts.md) lists the steps, and [Try vtium on one VT](tutorial-try-vtium.md) gets vtium running on a VT to try them on.
+In the tutorial, you will run `vtium config tui` in a vtium console. You will move the highlight through the fonts, and try each one on the live console with `t`. You will keep your choice and install it. Then you will see your font the next time vtium starts.
+
+Until the tutorial is written, [Choose a font](fonts.md) lists the steps. [Try vtium on one VT](tutorial-try-vtium.md) gets vtium running on a VT, where you can try them.

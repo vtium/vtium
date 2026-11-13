@@ -454,9 +454,9 @@ fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Opti
 }
 
 /// The glyphs of a notice's characters, each drawn once however often it
-/// appears, with the cells it takes: its face's own width, one cell for a
-/// character the face lacks. The faces have no advance apart from the
-/// glyph, so measuring a character draws it.
+/// appears, with the cells it takes: its face's advance for it, which the
+/// face gives without drawing the glyph, and one cell for a character the
+/// face lacks.
 struct Glyphs {
     /// Sorted by character.
     glyphs: Vec<(char, Width, Option<Glyph>)>,
@@ -470,10 +470,7 @@ impl Glyphs {
         let glyphs = chars
             .into_iter()
             .map(|c| {
-                let width = font
-                    .face()
-                    .draw(&[c], Style::default())
-                    .map_or(Width::Narrow, |g| g.cells());
+                let width = font.face().advance(c).unwrap_or(Width::Narrow);
                 (c, width, standin(font, depth, c, width))
             })
             .collect();
@@ -1496,8 +1493,12 @@ mod tests {
         assert_eq!(block(&canvas, 5, 3, 8, 8), want);
     }
 
-    /// A face of `x` alone, solid, that counts the glyphs it draws.
+    /// A face of a narrow `x` and a wide U+4E00, solid, that counts the
+    /// glyphs it draws. It knows each glyph's width without drawing it,
+    /// as a face that keeps the widths in its map does.
     struct Counting(std::cell::Cell<u32>);
+
+    const WIDE: char = '\u{4e00}';
 
     impl Face for Counting {
         fn cell(&self) -> vtium_font::Cell {
@@ -1510,26 +1511,48 @@ mod tests {
             8
         }
         fn has_glyph(&self, c: char) -> bool {
-            c == 'x'
+            c == 'x' || c == WIDE
+        }
+        fn advance(&self, c: char) -> Option<Width> {
+            match c {
+                'x' => Some(Width::Narrow),
+                WIDE => Some(Width::Wide),
+                _ => None,
+            }
         }
         fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
             self.0.set(self.0.get() + 1);
-            (cluster == ['x'])
-                .then(|| vtium_font::Glyph::from_pixels(8, 8, Format::Mask, vec![255; 64]))
-                .flatten()
+            match cluster {
+                ['x'] => vtium_font::Glyph::from_pixels(8, 8, Format::Mask, vec![255; 64]),
+                [WIDE] => vtium_font::Glyph::from_pixels(16, 8, Format::Mask, vec![255; 128])
+                    .map(|g| g.with_cells(Width::Wide)),
+                _ => None,
+            }
         }
     }
 
-    // the notice draws each character it shows once, however often it
-    // appears, so its cost follows the characters and not the text
+    // vtium/vtium#159: the notice measures its text by the face's advance
+    // and draws each character it shows once, however often it appears,
+    // so its cost follows the characters and not the text; the wide
+    // character takes two cells, so the `x` after it starts three cells
+    // from the line's start
     #[test]
-    fn a_notice_draws_each_character_once() {
-        let font = Font::new(Counting(std::cell::Cell::new(0)));
-        let mut canvas = Canvas::new(320, 240, 0);
-        Notice::new("x".repeat(300))
-            .draw(&font, display(320, 240), Colors::NOTICE, None, &mut canvas)
-            .expect("it fits");
-        // one draw to measure it and one to draw it
-        assert!(font.face().0.get() <= 2, "{} draws", font.face().0.get());
+    fn a_notice_measures_by_the_advance_and_draws_each_character_once() {
+        let draw = |text: String| {
+            let font = Font::new(Counting(std::cell::Cell::new(0)));
+            let mut canvas = Canvas::new(320, 240, 0);
+            Notice::new(text)
+                .draw(&font, display(320, 240), Colors::NOTICE, None, &mut canvas)
+                .expect("it fits");
+            (font.face().0.get(), canvas)
+        };
+        let (draws, _) = draw(format!("x{WIDE}x").repeat(100));
+        assert_eq!(draws, 2, "one draw for each character");
+        let (_, canvas) = draw(format!("x{WIDE}x"));
+        // the text starts an eighth of the cell plus half a cell across and
+        // an eighth plus a quarter down: at 5 and 3
+        let ink = pixel(Colors::NOTICE.ink);
+        assert!(block(&canvas, 5, 3, 32, 8).iter().all(|&p| p == ink));
+        assert!(block(&canvas, 37, 3, 1, 8).iter().all(|&p| p != ink));
     }
 }
