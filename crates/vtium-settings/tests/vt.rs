@@ -603,6 +603,57 @@ fn table_open_with_nothing_defined_runs_the_built_in_default() {
     assert!(!config(NO_DISPLAY_HERE).uses_builtin_on(5));
 }
 
+/// Two heads on VT 3 that hold both displays, and a rule for a head the
+/// file does not define, so the file has errors.
+const BROKEN_ON_VT3: &str = "\
+version = 1
+[head desk]
+vt = 3
+[head panel]
+vt = 3
+[rules]
+display connector:card0/DP-8 -> desk
+display connector:card0/DP-9 -> panel
+input path:usb-0:9 -> nowhere
+";
+
+/// ADR-1401 D9's display guard, as the maintainer decided on 2026-11-12:
+/// on a VT where no head of a file with errors runs, the guard lights the
+/// boot display, though a rule ties it to a head of another VT. Under
+/// open the default head takes it and is the active head. Under closed it
+/// shows a notice alone, and vtium builds no default head.
+// covers: platform.heads.guards
+#[test]
+fn a_file_with_errors_lights_the_boot_display_where_none_of_its_heads_runs() {
+    let devices = [
+        monitor("DP-8", "L"),
+        monitor("DP-9", "S"),
+        keyboard("usb-0:1"),
+    ];
+    let survivors = |text: &str| reading(text.as_bytes()).parsed.config;
+    let open = survivors(BROKEN_ON_VT3);
+    assert!(open.survivors, "the file has errors");
+    assert!(open.default_head_on(4) && !open.uses_builtin_on(4));
+    assert!(!open.default_head_on(3), "the file's heads run on VT 3");
+    let placement = open.place_on(&devices, None, 4);
+    let got: Vec<(Place, By)> = placement.placed.iter().map(|p| (p.place, p.by)).collect();
+    assert_eq!(got[0], (Place::DefaultHead, By::NeverDark));
+    assert_eq!(got[1].0, elsewhere(&open, "panel"));
+    assert_eq!(got[2].0, Place::Roaming);
+    assert!(placement.never_dark);
+    assert_eq!(placement.focus, Some(Place::DefaultHead));
+    let shut = survivors(&closed(BROKEN_ON_VT3));
+    assert!(shut.survivors && !shut.default_head_on(4));
+    let placement = shut.place_on(&devices, None, 4);
+    assert_eq!(placement.placed[0].place, Place::Notice);
+    assert_eq!(placement.placed[1].place, elsewhere(&shut, "panel"));
+    assert_eq!(placement.focus, None);
+    // a valid file keeps the table: each display shows its own notice
+    let valid = config(&BROKEN_ON_VT3.replace("input path:usb-0:9 -> nowhere\n", ""));
+    assert!(!valid.survivors && !valid.default_head_on(4));
+    assert!(!valid.place_on(&devices, None, 4).never_dark);
+}
+
 /// Open, with some paths: each display that no path catches on this VT
 /// shows its own notice, naming the terminal and VT it is configured for,
 /// or no terminal. No head's console shows on it.
