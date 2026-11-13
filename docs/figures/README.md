@@ -37,7 +37,7 @@ The figures of vtium's documentation pages outside the decision records, which k
 | `concepts-notice-anti-lockout.png` | [concepts/flows.md](../concepts/flows.md): the anti-lockout guard's notice, over a shell session | Converted from tier 2's golden `notice-anti-lockout-800x480`, below |
 | `concepts-notice-rescue.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while the head `desk` is active, over a shell session | Converted from tier 2's golden `notice-rescue-800x480`, below |
 | `concepts-notice-rescue-no-head.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while no head is active, over a shell session | Converted from tier 2's golden `notice-rescue-no-head-800x480`, below |
-| `concepts-panic.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's panic screen for a closed vtium.conf whose errors leave no head, alone on the boot display | Converted from tier 2's golden `panic-800x480`, below |
+| `concepts-panic.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's panic screen for a closed vtium.conf whose errors leave no head, alone on the boot display, with the ASCII drawing of a panicked Tux beside the report | Converted from tier 2's golden `panic-800x480`, below |
 
 The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
 
