@@ -170,7 +170,7 @@ When every policy line is readable, a `policy = closed` line wins over any other
 
 If a head survives, vtium runs what survives and shows `vtium.conf has errors: running the parts without errors.` In an open file, vtium then adds builtin's input rules after the surviving rules. So a keyboard, pointer or key device that no surviving rule places roams, and vtium ignores every other input. vtium also runs every surviving head as not isolated, so that the rescue key and the active head always have somewhere to land. A closed file keeps its heads' isolation as written.
 
-If nothing survives, an open file runs builtin and shows `vtium.conf not used: running the built-in configuration.` A closed file shows the panic screen.
+If nothing survives, an open file runs builtin and shows `vtium.conf not used: running the built-in configuration.` A closed file shows the panic screen. See [the panic screen in Deployment and start-up](concepts/start-up.md#vtiumconf-has-errors-and-counts-as-closed-all-input-is-off) for why it appears, what to do, and how to avoid it.
 
 The panic screen means that vtium has started correctly but can serve nothing. The boot display shows these lines:
 
