@@ -8,7 +8,7 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 
 - **The GPU path's remaining pieces.** A console built with the `gpu` feature renders on the GPU, through glow over EGL and GBM. It does so on each head whose `hwaccel` setting is on. `hwaccel` is off unless the build turns it on ([config.md](config.md)). The AUR's `vtium` and `vtium-git` packages turn it on from v0.1.0-alpha.6 on. A display wider than the GPU's largest texture is still rendered on the CPU. See [the texture tiling issue](https://github.com/vtium/vtium/issues/297).
 - **libseat,** for access to the seat through seatd or logind. A seat is the set of displays and input devices that one person uses. See [the libseat issue](https://github.com/vtium/vtium/issues/34). Today vtium opens the VT, the graphics cards, and the input devices itself, as root.
-- **Handing the display back without a VT switch,** through the `setBackground` sequence. See [the hand-back issue](https://github.com/vtium/vtium/issues/36).
+- **Handing the display to a graphical program without a VT switch.** A program in a console sends the `setBackground` sequence, and vtium lets go of the graphics cards of that console's head. The `setForeground` sequence takes them back. This works today. The focus reports, which tell a program in a console that it lost the display and got it back, are still to come. See [the hand-back issue](https://github.com/vtium/vtium/issues/36).
 
 These are also not built yet:
 
