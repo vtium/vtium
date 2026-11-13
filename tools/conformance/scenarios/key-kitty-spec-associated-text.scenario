@@ -1,0 +1,32 @@
+# The kitty keyboard protocol's flag 16, report associated text, with
+# flag 8. A key that makes text carries the text's code point in a third
+# field after an empty modifiers field: a, é and Space. A with Caps Lock
+# carries the lock's bit and the text A. The keypad's 1 carries its own
+# number, NumLock and the text 1. Enter and Tab make control characters,
+# which the text never holds, so they carry no text field. Alt+A makes
+# no text, so it carries none. A text event with no key, keysym 0, is
+# sent with the key number 0. With flag 2 too, a press and a repeat
+# carry the text and a release carries none. Flag 16 without flag 8
+# adds no text, and the query still reports it.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report associated text, Text as code points, Event types; ADR-1005 D13 slice 3
+# covers: input.kitty-keyboard
+size 20 2
+needs key-events
+send "\e[>24u"
+key a
+key eacute
+key space
+key A mods=lock
+key KP_1 mods=num char="1"
+key Return
+key Tab
+key a mods=alt
+cmd key;sym=0;unicode=e5
+send "\e[=26u"
+cmd key;sym=61;ascii=61;unicode=61
+cmd key;sym=61;ascii=61;unicode=61;event=repeat
+cmd key;sym=61;ascii=61;unicode=61;event=release
+send "\e[=17u"
+key a
+key a mods=ctrl
+send "\e[?u"

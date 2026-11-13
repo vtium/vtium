@@ -1,0 +1,42 @@
+# The kitty keyboard protocol's table of functional keys under flag 1.
+# F5 to F12, Insert, Delete, Page Up and Page Down keep their CSI number ~
+# forms. Home, End and the arrows are CSI and a letter, with no 1 when no
+# modifier is held. F13 to F35, Menu, Pause, Print, Scroll Lock, the media
+# keys and the volume keys are CSI u with their numbers from the table.
+# The keypad's keys that make no text are CSI u with their own numbers,
+# and the keypad's Begin is the table's 57427 ~.
+# spec: kitty's Comprehensive keyboard handling in terminals: Functional key definitions, Disambiguate escape codes, Non-Unicode keys
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>1u"
+key F6
+key F12 mods=ctrl
+key F14
+key F24 mods=shift
+key F35
+key Menu mods=alt
+key Insert mods=shift
+key Page_Down
+key Home
+key End
+key Right
+key Left mods=alt
+key Down mods=shift+ctrl
+key Pause
+key Print
+key Scroll_Lock
+key 0x1008ff31
+key 0x1008ff15
+key 0x1008ff97
+key 0x1008ff3e
+key 0x1008ff17
+key 0x1008ff16
+key 0x1008ff1c
+key 0x1008ff11
+key 0x1008ff13
+key 0x1008ff12
+key KP_Home
+key KP_Left
+key KP_Page_Down mods=shift
+key KP_Separator
+key KP_Begin mods=ctrl

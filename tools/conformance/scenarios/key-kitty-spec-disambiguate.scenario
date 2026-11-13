@@ -1,0 +1,31 @@
+# The kitty keyboard protocol's flag 1, disambiguate escape codes, on the
+# keys that the specification names and that no other flag 1 scenario
+# presses. Ctrl+C, Escape with Ctrl or Alt, Alt+Space and Ctrl+Shift+Alt+A
+# are each sent as CSI code ; modifiers u. Ctrl+Shift+Tab is CSI 9 ; 6 u,
+# because Shift+Tab is not a key of its own. A non-ASCII key with Alt or
+# Ctrl is CSI u with its code point, and alone it sends its text. A key
+# that makes no text carries Caps Lock and NumLock in its modifiers. F2
+# with no modifier is CSI Q, and F4 with Alt is CSI 1 ; 3 S. A keypad key
+# that makes text sends it with Shift, and is CSI u with its own number
+# with Ctrl.
+# spec: kitty's Comprehensive keyboard handling in terminals: Disambiguate escape codes, Modifiers, Legacy key event encoding, Functional key definitions, Bugs in fixterms
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[>1u"
+key c mods=ctrl
+key Escape mods=ctrl
+key Escape mods=alt
+key space mods=alt
+key A mods=shift+ctrl+alt
+key ISO_Left_Tab mods=shift+ctrl
+key eacute
+key eacute mods=alt
+key eacute mods=ctrl
+key Up mods=lock
+key F5 mods=num
+key Delete mods=ctrl+num
+key F2
+key F4 mods=alt
+key End mods=ctrl
+key KP_Equal mods=shift+num char="="
+key KP_Multiply mods=ctrl+num char="*"
