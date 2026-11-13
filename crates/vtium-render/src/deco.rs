@@ -427,11 +427,11 @@ mod tests {
     // curl past a quarter of the cell, and the dash in a cell 2 or more
     // pixels wide, are redrawn: the stored digest is of the earlier shape,
     // so each must differ from it and draw the fallback or the dash. When a
-    // digest differs, the test writes every `deco` line as vtium draws it to
-    // `vtium-render-digests-<pid>/deco.tsv` in the system's temporary
-    // directory, named for the test's process so two runs at once write two
-    // files, a redrawn sprite's line as it is, and fails naming that file
-    // and how many lines differ.
+    // digest differs, the test fails and says how many lines differ. When
+    // the environment variable VTIUM_DECO_DIGESTS names a file, the test
+    // also writes every `deco` line as vtium draws it to that file, a
+    // redrawn sprite's line as it is, and names the file; without it the
+    // test writes nothing, so a failing run leaves nothing behind.
     // covers: platform.compositor
     #[test]
     fn every_sprite_matches_its_digest_or_its_redrawn_shape() {
@@ -480,24 +480,27 @@ mod tests {
             }
             drawn.push('\n');
         }
-        let out = std::env::temp_dir()
-            .join(format!("vtium-render-digests-{}", std::process::id()))
-            .join("deco.tsv");
-        if differ > 0 {
-            std::fs::create_dir_all(out.parent().unwrap()).unwrap();
-            std::fs::write(&out, drawn).unwrap();
-        }
+        let out = std::env::var_os("VTIUM_DECO_DIGESTS").map(std::path::PathBuf::from);
+        let written = match &out {
+            Some(out) if differ > 0 => {
+                std::fs::write(out, drawn).unwrap();
+                format!(
+                    "vtium's digests for every deco line are in {}",
+                    out.display()
+                )
+            }
+            _ => "set VTIUM_DECO_DIGESTS to a file's path to have the test write vtium's \
+                  digests for every deco line there"
+                .to_owned(),
+        };
         assert!(
             bad.is_empty(),
             "{} redrawn sprite(s) wrong: {bad:?}",
             bad.len()
         );
         assert_eq!(
-            differ,
-            0,
-            "{differ} of {checked} deco digests differ from tests/digests/cells.tsv; \
-             vtium's digests for every deco line are in {}",
-            out.display()
+            differ, 0,
+            "{differ} of {checked} deco digests differ from tests/digests/cells.tsv; {written}"
         );
         assert_eq!(checked, 6 * 24 * 48);
         // every width's double at heights 2 to 11; every width's curl at
