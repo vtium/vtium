@@ -18,7 +18,7 @@ Read more:
 
 ## Root for the console, fewer rights for the helpers
 
-vtium runs as root for its whole life. It needs root's rights for four jobs. It opens the VT and controls it, as getty does. It takes control of the displays. It reads the keyboards and pointers straight from the kernel's input devices. It starts `/bin/login`, as getty does. `login` must start as root, so that it can switch to your account when you log in.
+vtium runs as root for its whole life. It needs root's rights for four main jobs. It opens the VT and controls it, as getty does. It takes control of the displays. It reads the keyboards and pointers straight from the kernel's input devices. It starts `/bin/login`, as getty does. `login` must start as root, so that it can switch to your account when you log in. vtium also needs root for smaller jobs. It starts its helper programs as other users. It ends the programs of a session that closes. It restarts or powers off the machine when you press a key bound to that.
 
 systemd can sandbox a service: it can start the service with limits on what the service may do. vtium's systemd unit, the file that tells systemd how to start vtium, sets none of these limits. vtium starts your login session, so your session would inherit every limit the unit set. For example, `NoNewPrivileges=` would stop `sudo` from working in your session. Without those limits, your session works the same as a session that getty starts.
 
