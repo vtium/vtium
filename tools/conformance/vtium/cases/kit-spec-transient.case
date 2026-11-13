@@ -1,0 +1,24 @@
+# The transient usage hint (N=1). When the image budget is full, vtium
+# evicts an image that has no placement, and among those a transient
+# image goes before the rest, even when it is newer. Each 8×8 image here
+# costs 768 bytes, and the budget holds three.
+#
+# References: ADR-1100 D5.
+# spec: kitty graphics protocol, "Usage hints" and "Image persistence and storage quotas"
+# covers: image.kitty
+size 12 2
+cmd limit;b=2304
+
+# Images 1, 2 and 3, none placed. Image 2 is transient.
+send "\e_Ga=t,f=32,s=8,v=8,i=1;/wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA/w==\e\\"
+send "\e_Ga=t,f=32,s=8,v=8,i=2,N=1;AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/w==\e\\"
+send "\e_Ga=t,f=32,s=8,v=8,i=3;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+
+# Image 4 needs room, so one image is evicted.
+send "\e_Ga=t,f=32,s=8,v=8,i=4;/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////w==\e\\"
+
+# A put of each image, one column apart, shows which one went.
+send "\e_Ga=p,i=1,C=1\e\\"
+send "\e[1;3H\e_Ga=p,i=2,C=1\e\\"
+send "\e[1;5H\e_Ga=p,i=3,C=1\e\\"
+send "\e[1;7H\e_Ga=p,i=4,C=1\e\\"

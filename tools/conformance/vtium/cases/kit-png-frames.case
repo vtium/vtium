@@ -1,0 +1,72 @@
+# Frames sent the way a video player sends them: each frame is a PNG
+# transmitted directly in three chunks (a=t, f=100, m=1, q=2), under one
+# of two image ids in turn, and placed twice. The image under the other id
+# is deleted with d=I, and all of it runs inside DECSC and DECRC. The
+# placements then move, and a last d=I deletes the image. Each frame shows
+# a new picture, and only one image is stored at a time. The fixture host
+# answers each PNG from the files in kit-png-frames.files.
+# spec: kitty graphics protocol, "Remote client" and "Deleting images"
+# covers: image.kitty
+size 12 4
+cmd cell;w=8;h=16
+
+# Frame 1, as image 7501, placed at columns 1 and 7.
+send "\e7"
+send "\e_Ga=t,i=7501,q=2,f=100,m=1;iVBORw0KGgoHCAkKCwwN\e\\"
+send "\e_Gm=1,q=2;Dg8QERITFBUWFxgZGhsc\e\\"
+send "\e_Gm=0,q=2;HR4f\e\\"
+send "\e[1;1H"
+send "\e_Ga=p,i=7501,p=1,c=3,r=2,z=3,C=1,q=2;\e\\"
+send "\e[1;7H"
+send "\e_Ga=p,i=7501,p=2,c=3,r=2,z=2,C=1,q=2;\e\\"
+send "\e8"
+dump
+send "\e7"
+
+# Frame 2, as image 7502, and image 7501 is deleted.
+send "\e_Ga=t,i=7502,q=2,f=100,m=1;iVBORw0KGgoODxAREhMU\e\\"
+send "\e_Gm=1,q=2;FRYXGBkaGxwdHh8gISIj\e\\"
+send "\e_Gm=0,q=2;JCUm\e\\"
+send "\e[1;1H"
+send "\e_Ga=p,i=7502,p=1,c=3,r=2,z=3,C=1,q=2;\e\\"
+send "\e[1;7H"
+send "\e_Ga=p,i=7502,p=2,c=3,r=2,z=2,C=1,q=2;\e\\"
+send "\e_Ga=d,d=I,i=7501,q=2;\e\\"
+send "\e8"
+dump
+send "\e7"
+send "\e_Ga=t,i=7501,q=2,f=100,m=1;iVBORw0KGgoVFhcYGRob\e\\"
+
+# Frame 3, as image 7501 again, and image 7502 is deleted.
+send "\e_Gm=1,q=2;HB0eHyAhIiMkJSYnKCkq\e\\"
+send "\e_Gm=0,q=2;Kywt\e\\"
+send "\e[1;1H"
+send "\e_Ga=p,i=7501,p=1,c=3,r=2,z=3,C=1,q=2;\e\\"
+send "\e[1;7H"
+send "\e_Ga=p,i=7501,p=2,c=3,r=2,z=2,C=1,q=2;\e\\"
+send "\e_Ga=d,d=I,i=7502,q=2;\e\\"
+send "\e8"
+dump
+send "\e7"
+send "\e_Ga=t,i=7502,q=2,f=100,m=1;iVBORw0KGgocHR4fICEi\e\\"
+send "\e_Gm=1,q=2;IyQlJicoKSorLC0uLzAx\e\\"
+
+# Frame 4, as image 7502 again, and image 7501 is deleted.
+send "\e_Gm=0,q=2;MjM0\e\\"
+send "\e[1;1H"
+send "\e_Ga=p,i=7502,p=1,c=3,r=2,z=3,C=1,q=2;\e\\"
+send "\e[1;7H"
+send "\e_Ga=p,i=7502,p=2,c=3,r=2,z=2,C=1,q=2;\e\\"
+send "\e_Ga=d,d=I,i=7501,q=2;\e\\"
+send "\e8"
+dump
+send "\e7"
+send "\e[1;2H"
+send "\e_Ga=p,i=7502,p=1,c=3,r=2,z=3,C=1,q=2;\e\\"
+send "\e[1;8H"
+
+# Both placements of image 7502 move one column right.
+send "\e_Ga=p,i=7502,p=2,c=3,r=2,z=2,C=1,q=2;\e\\"
+send "\e8"
+dump
+send "\e_Ga=d,d=I,i=7502,q=2;\e\\"

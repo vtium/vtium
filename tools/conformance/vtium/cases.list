@@ -103,3 +103,12 @@ wide-edges 6 5
 alt-1047-1048 6 3
 alt-bce 4 3
 alt-cursor-origin 10 8
+kit-spec-indexed 12 4
+kit-spec-feature-query 12 2
+kit-spec-placeholder-ids 16 8
+kit-spec-placeholder-deletes 12 4
+kit-spec-relative-virtual 12 6
+kit-spec-ids 12 4
+kit-spec-anim-numbers 12 2
+kit-spec-transient 12 2
+kit-spec-refusals 12 2

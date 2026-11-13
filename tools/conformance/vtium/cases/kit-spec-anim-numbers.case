@@ -1,0 +1,45 @@
+# Kitty animation addressed by image number (I) instead of id. A frame's
+# data comes in chunks, each with a=f. A frame sent with no z gets the
+# default gap of 40 ms, and the root frame's gap stays 0. z=0 and v=0 in
+# a control are ignored. A composition names a source frame or a
+# destination frame that does not exist, or a source rectangle past the
+# image, and each is refused. A composition within one frame whose
+# rectangles do not overlap is allowed. d=f with I deletes the frames.
+#
+# References: ADR-1102 D2, D4 and D5.
+# spec: kitty graphics protocol, "Animation", "Transferring animation frame data", "Controlling animations" and "Composing animation frames"
+# covers: image.kitty-animation
+size 12 2
+
+# Image number 7: two red pixels, placed at the top left.
+send "\e_Ga=T,f=32,s=2,v=1,I=7,C=1;/wAA//8AAP8=\e\\"
+
+# Frame 2: two blue pixels in three chunks, each chunk with a=f.
+send "\e_Ga=f,I=7,s=2,v=1,m=1;AAD/\e\\"
+send "\e_Ga=f,m=1;/wAA\e\\"
+send "\e_Ga=f,m=0;//8=\e\\"
+dump
+
+# z=0 on frame 2 and v=0 change nothing. v=5 sets the loops, and a later
+# v=0 keeps them.
+send "\e_Ga=a,I=7,r=2,z=0\e\\"
+send "\e_Ga=a,I=7,v=0\e\\"
+dump
+send "\e_Ga=a,I=7,v=5\e\\"
+send "\e_Ga=a,I=7,v=0\e\\"
+dump
+
+# Compositions refused: source frame 5, destination frame 5, an image
+# that does not exist, and a source rectangle past the image's edge.
+send "\e_Ga=c,I=7,r=5,c=1\e\\"
+send "\e_Ga=c,I=7,r=1,c=5\e\\"
+send "\e_Ga=c,i=99,r=1,c=2\e\\"
+send "\e_Ga=c,I=7,r=1,c=2,X=1,w=2,h=1\e\\"
+
+# A composition within frame 2, from pixel 0 to pixel 1, which do not
+# overlap.
+send "\e_Ga=c,I=7,r=2,c=2,X=0,Y=0,x=1,y=0,w=1,h=1\e\\"
+dump
+
+# d=f with I deletes every frame but the root.
+send "\e_Ga=d,d=f,I=7\e\\"

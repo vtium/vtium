@@ -1,0 +1,55 @@
+# How a Unicode placeholder cell names its image and its placement. A
+# third diacritic gives the image id's top byte, and a direct color in
+# SGR 38;2 gives a 24-bit id. The underline color names a placement, and a
+# cell with no underline color takes the image's virtual placement made
+# last. The spec's own examples are used where it gives one: image
+# 33554474, and a 2×3 grid that gives only the first column's row.
+# a=T with U=1 transmits and makes the virtual placement at once. A
+# picture whose shape differs from its box is fitted with its aspect kept.
+#
+# References: ADR-1100 D13.
+# spec: kitty graphics protocol, "Unicode placeholders"
+# covers: image.kitty-placeholders
+size 16 8
+
+# Image 33554474 (42 + 2 << 24), 2×4 pixels in eight colors, transmitted
+# with its virtual placement of 2 columns by 2 rows in one command.
+send "\e_Ga=T,U=1,f=24,s=2,v=4,i=33554474,c=2,r=2,q=2;/wAAAP8AAAD///////8AAP//AAAAgICA\e\\"
+
+# Image 258, 2×4 pixels, green above blue, and its virtual placement.
+send "\e_Ga=t,f=24,s=2,v=4,i=258,q=2;AP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/\e\\"
+send "\e_Ga=p,U=1,i=258,c=2,r=2,q=2\e\\"
+
+# Image 42, 6×4 pixels in white, red, green and blue rows. Its virtual
+# placement is 3 columns by 2 rows, taller than the picture's shape.
+send "\e_Ga=t,f=24,s=6,v=4,i=42,q=2;/////////////////////////wAA/wAA/wAA/wAA/wAA/wAAAP8AAP8AAP8AAP8AAP8AAP8AAAD/AAD/AAD/AAD/AAD/AAD/\e\\"
+send "\e_Ga=p,U=1,i=42,c=3,r=2,q=2\e\\"
+
+# Image 7, 2×4 pixels, with placement 1 of 2×2 cells and placement 2
+# of 4×2 cells.
+send "\e_Ga=t,f=24,s=2,v=4,i=7,q=2;/wAA/wAAAP8AAP8AAAD/AAD/////////\e\\"
+send "\e_Ga=p,U=1,i=7,p=1,c=2,r=2,q=2\e\\"
+send "\e_Ga=p,U=1,i=7,p=2,c=4,r=2,q=2\e\\"
+
+# The spec's example for image 33554474, at rows 2 and 3.
+send "\e[2;1H\e[38;5;42m\u{10EEEE}\u{305}\u{305}\u{30E}\u{10EEEE}\u{305}\u{30D}\u{30E}"
+send "\e[3;1H\u{10EEEE}\u{30D}\u{305}\u{30E}\u{10EEEE}\u{30D}\u{30D}\u{30E}\e[39m"
+
+# Image 258 through a direct color, 0;1;2 being 258.
+send "\e[2;5H\e[38;2;0;1;2m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}"
+send "\e[3;5H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}\e[39m"
+
+# The spec's 2×3 example for image 42: only the first column's row.
+send "\e[2;9H\e[38;5;42m\u{10EEEE}\u{305}\u{10EEEE}\u{10EEEE}"
+send "\e[3;9H\u{10EEEE}\u{30D}\u{10EEEE}\u{10EEEE}\e[39m"
+
+# Image 7's placement 1, named by underline color 1.
+send "\e[5;1H\e[38;5;7;58;5;1m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}"
+send "\e[6;1H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}"
+
+# Image 7's placement 2, named by underline color 2, four columns wide.
+send "\e[5;5H\e[58;5;2m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}\u{10EEEE}\u{305}\u{30E}\u{10EEEE}\u{305}\u{310}"
+send "\e[6;5H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}\u{10EEEE}\u{30D}\u{30E}\u{10EEEE}\u{30D}\u{310}"
+
+# Two cells of image 7 with no underline color, row 0 and columns 0 and 1.
+send "\e[8;1H\e[59m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\e[m"

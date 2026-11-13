@@ -1,0 +1,52 @@
+# Kitty's palette-index formats. With f=8 each pixel is an index into the
+# terminal's colors, and the picture is opaque. With f=16 each pixel is an
+# index and an alpha. Indices 0 to 247 are the 256-color table's colors,
+# 248 the default background, 249 and 255 the default foreground, and 250
+# to 254 the selection, cursor and link colors. A query with f=8 is
+# answered OK. A palette change after an upload leaves the stored picture
+# as it is. Compression, a file medium, a missing size, frames and
+# compositions are refused for these formats.
+#
+# References: ADR-1100 D15.
+# spec: kitty graphics protocol, "Indexed color data"
+# covers: image.kitty
+size 12 4
+
+# A query with f=8 tells a program that vtium takes the format.
+send "\e_Ga=q,i=1,f=8,s=1,v=1;AA==\e\\"
+
+# Image 2: indices 1, 21, 196 and 232 of the 256-color table.
+send "\e_Ga=T,i=2,f=8,s=4,v=1,C=1;ARXE6A==\e\\"
+
+# Image 3: indices 248, 249, 254 and 255.
+send "\e[1;3H\e_Ga=T,i=3,f=8,s=4,v=1,C=1;+Pn+/w==\e\\"
+
+# Image 4, in f=16: index 9 opaque, then index 9 fully transparent.
+send "\e[1;5H\e_Ga=T,i=4,f=16,s=2,v=1,C=1;Cf8JAA==\e\\"
+
+# Image 5: indices 250 to 253, while no program has set the selection or
+# cursor colors.
+send "\e[1;7H\e_Ga=T,i=5,f=8,s=4,v=1,C=1;+vv8/Q==\e\\"
+dump
+
+# OSC 12 sets the cursor color, and image 6 shows index 252 in it.
+send "\e]12;#00ff00\e\\"
+send "\e[1;9H\e_Ga=T,i=6,f=8,s=1,v=1,C=1;/A==\e\\"
+
+# OSC 4 changes color 1. Image 2 keeps the color it arrived with, and
+# image 7, sent after the change, shows the new color.
+send "\e]4;1;#123456\e\\"
+send "\e[2;1H\e_Ga=T,i=7,f=8,s=1,v=1,C=1;AQ==\e\\"
+dump
+
+# Refused: f=8 with compression, f=16 from a file, and f=8 without v.
+send "\e_Ga=t,i=8,f=8,s=1,v=1,o=z;eJxjAAAAAQAB\e\\"
+send "\e_Ga=t,i=9,f=16,s=1,v=1,t=f;L3RtcC9waXhlbHM=\e\\"
+send "\e_Ga=t,i=10,f=8,s=1;AA==\e\\"
+
+# Refused: a frame on an image that arrived as palette indices, a frame
+# in f=8 on an RGBA image, and a composition on the palette-index image.
+send "\e_Ga=f,i=2,s=1,v=1;/wAA/w==\e\\"
+send "\e_Ga=t,i=11,s=1,v=1;/wAA/w==\e\\"
+send "\e_Ga=f,i=11,f=8,s=1,v=1;AQ==\e\\"
+send "\e_Ga=c,i=2,r=1,c=1\e\\"

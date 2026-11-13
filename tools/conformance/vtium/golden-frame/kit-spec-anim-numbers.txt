@@ -1,0 +1,71 @@
+checkpoint 105
+size 12x2
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d312c493d373b4f4b1b5c1b5f472c493d372c723d323b4f4b1b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 24
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 0 opaque changed
+image 0 2x1 digest f7305551
+anim 0 frames 2 current 1 run stopped loops 1 stamps 0 0
+anim 0 frame 1 gap 0 digest f7305551
+anim 0 frame 2 gap 40 digest 94f2d041
+checkpoint 141
+size 12x2
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 2x1 digest f7305551
+anim 0 frames 2 current 1 run stopped loops 1 stamps 0 0
+anim 0 frame 1 gap 0 digest f7305551
+anim 0 frame 2 gap 40 digest 94f2d041
+checkpoint 173
+size 12x2
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 2x1 digest f7305551
+anim 0 frames 2 current 1 run stopped loops 5 stamps 0 1
+anim 0 frame 1 gap 0 digest f7305551
+anim 0 frame 2 gap 40 digest 94f2d041
+checkpoint 310
+size 12x2
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f472c493d373b454e4f454e543a696d616765206e6f7420666f756e641b5c1b5f472c493d373b454e4f454e543a4e6f2064657374696e6174696f6e206672616d65206e756d62657220352065786973747320696e20696d6167652069643a20310a1b5c1b5f47693d39393b454e4f454e543a416e696d6174696f6e20636f6d6d616e642072656665727320746f206e6f6e2d6578697374656e7420696d61676520776974682069643a20393920616e64206e756d6265723a20301b5c1b5f472c493d373b45494e56414c3a696e76616c696420617267756d656e741b5c1b5f472c493d373b4f4b1b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 2x1 digest f7305551
+anim 0 frames 2 current 1 run stopped loops 5 stamps 0 1
+anim 0 frame 1 gap 0 digest f7305551
+anim 0 frame 2 gap 40 digest 94f2d041
+checkpoint 326
+size 12x2
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 2x1 src 0,0 2x1 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 2x1 digest f7305551
+anim 0 frames 1 current 1 run stopped loops 5 stamps 1 2
+anim 0 frame 1 gap 0 digest f7305551
