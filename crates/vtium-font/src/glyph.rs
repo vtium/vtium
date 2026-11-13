@@ -293,11 +293,13 @@ impl Glyph {
     }
 
     /// This glyph boxed to `width` pixels and marked as spanning `cells`:
-    /// its pixels unchanged when it is that wide already, centred when it
-    /// is narrower, the odd spare pixel after it, and squeezed sideways
-    /// when it is wider, so no ink is cut (ADR-1302 D14). A glyph boxed to
-    /// another width loses its ink box, which was placed for its own
-    /// cells.
+    /// its pixels unchanged when it is that wide already, and otherwise
+    /// centred, the odd spare pixel after it. A mask wider than `width` is
+    /// squeezed sideways into it instead, so no ink is cut (ADR-1302 D14).
+    /// A color glyph wider than `width` is cut evenly from both sides, the
+    /// odd column from the right: it is a picture, which a squeeze would
+    /// spread (ADR-1302 D5). A glyph boxed to another width loses its ink
+    /// box, which was placed for its own cells.
     ///
     /// `unit` is the side of one of the font's pixels in the glyph's
     /// pixels: a bitmap face's whole scale, else 1. A squeeze works in the
@@ -308,30 +310,34 @@ impl Glyph {
         if width == self.width {
             return Some(self.with_cells(cells));
         }
-        if width < self.width {
+        if width < self.width && self.format == Format::Mask {
             return self.squeezed(width, unit).map(|g| g.with_cells(cells));
         }
         let mut out = Glyph::new(width, self.height, self.format)?.with_cells(cells);
         let bpp = self.format.bytes_per_pixel();
         let bytes = |px: u32| usize::try_from(px.saturating_mul(bpp)).ok();
-        let n = bytes(self.width)?;
+        let n = bytes(self.width.min(width))?;
         let dst = bytes(width.saturating_sub(self.width) / 2)?;
+        let src = bytes(self.width.saturating_sub(width) / 2)?;
         for (to, from) in out.rows_mut().zip(self.rows()) {
-            if let Some(to) = to.get_mut(dst..dst.saturating_add(n)) {
+            if let (Some(to), Some(from)) = (
+                to.get_mut(dst..dst.saturating_add(n)),
+                from.get(src..src.saturating_add(n)),
+            ) {
                 to.copy_from_slice(from);
             }
         }
         Some(out)
     }
 
-    /// This glyph scaled sideways to `width` pixels, narrower than it, in
+    /// This mask scaled sideways to `width` pixels, narrower than it, in
     /// the font's pixels `unit` across where both widths are whole
-    /// numbers of them. Where the glyph's width is a whole multiple of
-    /// `width`, each of a mask's columns takes the strongest pixel of the
-    /// columns it covers, so a 1-bit glyph stays 1-bit and on its font's
-    /// grid. Otherwise, and for a color glyph, each pixel takes the
-    /// coverage of the part of the row it covers, rounded down, as the
-    /// console scales a letter and its spacing marks (ADR-1302 D14).
+    /// numbers of them. Where the mask's width is a whole multiple of
+    /// `width`, each column takes the strongest pixel of the columns it
+    /// covers, so a 1-bit glyph stays 1-bit and on its font's grid.
+    /// Otherwise each pixel takes the coverage of the part of the row it
+    /// covers, rounded down, as the console scales a letter and its
+    /// spacing marks (ADR-1302 D14).
     fn squeezed(&self, width: u32, unit: u32) -> Option<Glyph> {
         let whole_units = |n: u32| n.checked_rem(unit) == Some(0);
         let unit = if whole_units(self.width) && whole_units(width) {
@@ -340,50 +346,43 @@ impl Glyph {
             1
         };
         let (from, to) = (self.width.checked_div(unit)?, width.checked_div(unit)?);
-        let strongest = self.format == Format::Mask && from.checked_rem(to) == Some(0);
-        let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
+        let strongest = from.checked_rem(to) == Some(0);
         let unit = usize::try_from(unit).ok()?;
         let (f, t) = (u64::from(from), u64::from(to));
-        let mut out = Glyph::new(width, self.height, self.format)?;
+        let mut out = Glyph::new(width, self.height, Format::Mask)?;
         for (dst, src) in out.rows_mut().zip(self.rows()) {
             // the row in the font's pixels: each the strongest of the
             // `unit` pixels it is drawn as, which are alike in a glyph
             // drawn at a whole scale
-            let font: Vec<&[u8]> = src.chunks_exact(bpp.checked_mul(unit)?).collect();
-            let font_px = |i: u64, ch: usize| -> u64 {
-                let px = usize::try_from(i).ok().and_then(|i| font.get(i));
-                px.map_or(0, |px| {
-                    px.iter()
-                        .skip(ch)
-                        .step_by(bpp)
-                        .copied()
-                        .max()
-                        .map_or(0, u64::from)
-                })
+            let font: Vec<u64> = src
+                .chunks_exact(unit)
+                .map(|px| px.iter().copied().max().map_or(0, u64::from))
+                .collect();
+            let font_px = |i: u64| {
+                usize::try_from(i)
+                    .ok()
+                    .and_then(|i| font.get(i))
+                    .copied()
+                    .unwrap_or(0)
             };
-            for (j, out_px) in (0u64..).zip(dst.chunks_exact_mut(bpp.checked_mul(unit)?)) {
+            for (j, out_px) in (0u64..).zip(dst.chunks_exact_mut(unit)) {
                 // output pixel j spans [j * from, (j + 1) * from) of the
                 // row's from * to parts, and font pixel i spans
                 // [i * to, (i + 1) * to)
                 let (start, end) = (j.checked_mul(f)?, j.checked_add(1)?.checked_mul(f)?);
                 let (first, last) = (start.checked_div(t)?, end.div_ceil(t));
-                for ch in 0..bpp {
-                    let value = if strongest {
-                        (first..last).map(|i| font_px(i, ch)).max().unwrap_or(0)
-                    } else {
-                        let mut sum = 0u64;
-                        for i in first..last {
-                            let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
-                            let overlap = end.min(b).saturating_sub(start.max(a));
-                            sum = sum.checked_add(font_px(i, ch).checked_mul(overlap)?)?;
-                        }
-                        sum.checked_div(f)?
-                    };
-                    let value = u8::try_from(value).ok()?;
-                    for px in out_px.chunks_exact_mut(bpp) {
-                        *px.get_mut(ch)? = value;
+                let value = if strongest {
+                    (first..last).map(font_px).max().unwrap_or(0)
+                } else {
+                    let mut sum = 0u64;
+                    for i in first..last {
+                        let (a, b) = (i.checked_mul(t)?, i.checked_add(1)?.checked_mul(t)?);
+                        let overlap = end.min(b).saturating_sub(start.max(a));
+                        sum = sum.checked_add(font_px(i).checked_mul(overlap)?)?;
                     }
-                }
+                    sum.checked_div(f)?
+                };
+                out_px.fill(u8::try_from(value).ok()?);
             }
         }
         Some(out)
@@ -458,19 +457,15 @@ mod tests {
         assert_eq!(first_row(&out), [255; 8]);
     }
 
-    // a color glyph squeezed by a whole ratio averages its pixels, which
-    // are premultiplied, instead of taking each channel's strongest
+    // ADR-1302 D5: a color glyph wider than its cells is a picture, which
+    // a squeeze would spread, so it is cut evenly from both sides instead,
+    // the odd column from the right
     #[test]
-    fn a_color_glyph_squeezed_averages_its_pixels() {
-        let px = [
-            [200, 0, 0, 200],
-            [0, 0, 100, 100],
-            [0, 0, 0, 0],
-            [40, 40, 40, 255],
-        ];
-        let g = Glyph::from_pixels(4, 1, Format::Rgba, px.concat()).expect("a glyph");
+    fn a_color_glyph_wider_than_its_cells_keeps_its_middle() {
+        let px: Vec<[u8; 4]> = (1..=5).map(|i| [i, i, i, 255]).collect();
+        let g = Glyph::from_pixels(5, 1, Format::Rgba, px.concat()).expect("a glyph");
         let out = g.fit(2, Width::Narrow, 1).expect("fitted");
-        assert_eq!(out.pixels(), [100, 0, 50, 150, 20, 20, 20, 127]);
+        assert_eq!(out.pixels(), [2, 2, 2, 255, 3, 3, 3, 255]);
     }
 
     // a glyph as wide as its cells keeps its pixels and its ink box, and

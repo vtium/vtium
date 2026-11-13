@@ -448,8 +448,9 @@ impl<F: Face> Font<F> {
     /// glyph for the cluster, otherwise draws as the font's missing glyph:
     /// the [`Missing`] glyph, whose last fallback is U+25A1, else `?`, else
     /// the face's last resort. A glyph narrower than its cells is centred
-    /// in them, and a wider one is squeezed sideways into them, in the
-    /// face's own pixels, so no ink is cut (ADR-1302 D14).
+    /// in them. A wider mask is squeezed sideways into them, in the face's
+    /// own pixels, so no ink is cut, and a wider color glyph is cut evenly
+    /// (ADR-1302 D14, D5).
     /// `None` only for an empty cluster or a face that can draw nothing.
     pub fn drawn(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let &first = cluster.first()?;
