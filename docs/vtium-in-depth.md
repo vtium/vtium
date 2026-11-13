@@ -16,7 +16,7 @@ You can switch between VTs with Ctrl+Alt and a function key. Ctrl+Alt+F3 usually
 
 The kernel’s built-in text console has remained simple by design. It serves as a fallback when other parts of the system fail. A terminal connected through a serial port provides an even more basic way to access the machine.
 
-That role is changing. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic) and propose replacing it with a console that runs as an ordinary program.
+That role is changing. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic). They propose replacing it with a console that runs as an ordinary program.
 
 vtium is one such console. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
 
@@ -24,7 +24,7 @@ vtium is written in Rust and began as a port of `kmscon` and its library, `libts
 
 ## What it does
 
-vtium renders directly to the display using one of two Linux interfaces: [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, or the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), which remains useful on some older or smaller machines.
+vtium renders directly to the display using one of two Linux interfaces. One is [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. The other is the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), which remains useful on some older or smaller machines.
 
 Because vtium handles rendering itself, it does not need a display server—the software that manages graphical output for a desktop such as GNOME or KDE. It can render entirely on the CPU, so a GPU is optional.
 
@@ -32,7 +32,7 @@ Programs running in vtium get many of the features available in desktop terminal
 
 - 24-bit color and the 256-color palette; bold, faint, italic, and reversed text; and five underline styles.
 - Unicode support, including double-width Chinese, Japanese, and Korean text and color emoji, using bitmap or outline fonts.
-- Right-to-left text such as Arabic and Hebrew, laid out by the Unicode bidirectional algorithm, with Arabic letters joined and the cursor and selection following the text, when built with the `bidi` feature.
+- Right-to-left text such as Arabic and Hebrew, when vtium is built with the `bidi` feature. vtium lays out the text with the Unicode bidirectional algorithm and joins Arabic letters, and the cursor and selection follow the text.
 - Mouse reporting, bracketed paste, synchronized output, OSC 8 hyperlinks, and OSC 52 clipboard copying.
 - Scrollback with a configurable byte limit and text that rewraps when the screen width changes.
 - Images sent through sixel, the kitty graphics protocol, or iTerm2’s inline image protocol, when built with the `images` feature.
@@ -100,6 +100,6 @@ The tests run in tiers, from unit tests to virtual machine tests that boot vtium
 
 ## Provenance
 
-vtium began as a Rust port of two C projects: `kmscon`, a Linux console terminal written by David Herrmann and contributors, and `libtsm`, its terminal library, by Aetf, David Herrmann, and Ran Benita.
+vtium began as a Rust port of two C projects. The first is `kmscon`, a Linux console terminal written by David Herrmann and contributors. The second is `libtsm`, its terminal library, by Aetf, David Herrmann, and Ran Benita.
 
 The console and libraries now consist of Rust code written for vtium. [COPYING](https://github.com/vtium/vtium/blob/main/COPYING) preserves the original author credits and notices.

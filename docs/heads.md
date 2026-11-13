@@ -203,7 +203,7 @@ input path:pci-0000:15:00.0-usb-0:3.3 -> station-3  # station's keyboard and mou
 
 **What stays shared.**
 
-- One vtium process, running as root, serves every station. vtium gives a copy of each session's pty to a keeper that outlives it: systemd's file-descriptor store for vtium's unit, or, on a host without systemd, a holder process of vtium's own. So the stations' sessions keep running when vtium is restarted, under either policy.
+- One vtium process, running as root, serves every station. vtium gives a copy of each session's pty to a keeper that outlives vtium. With systemd, the keeper is systemd's file-descriptor store for vtium's unit. On a host without systemd, the keeper is a holder process of vtium's own. So the stations' sessions keep running when vtium is restarted, under either policy.
 - Under the closed policy, the stations' sessions also keep running when vtium crashes. vtium's unit starts vtium again after 100 ms, and no getty takes the VT. The vtium that starts again puts each session back on its station's console. Each program redraws, but the screen's earlier contents and its scrollback are lost.
 - A fault that crashes vtium faster than 5 starts in 10 s trips the unit's start limit, and the unit stays failed. Every station's display then shows no login prompt until vtium starts again. The operator runs `systemctl reset-failed vtium@ttyN` and then starts the unit. Where logind starts vtium as `autovt@ttyN`, switching away from its VT and back also starts vtium again, once the 10 s have passed.
 - One kernel VT is shown on every station's display, so anything that switches the VT switches every station.

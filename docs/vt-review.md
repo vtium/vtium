@@ -149,8 +149,8 @@ In a guide's text, `{vt}` stands for the run's VT and `{desktop}` for the deskto
 - `vt.guide` checks the switch away and back, and that keys reach vtium and not the kernel console (#19).
 - `script.guide` shows superscripts and subscripts (SGR 73 and 74) on the VT. It uses the text and escape sequences of tier 2's four script pictures, so you can judge them live before you accept the pictures. It shows them in unifont at its own size, at twice that size and at three times it. It also shows them in Terminus 16, with Terminus 12 as its smaller size. Each step describes where the underline in each style, the strike-through and the overline lie: under, across and over the small glyphs (ADR-1202 D8). The guide switches the font with OSC 50, to the built-in unifont and to the frit `tools/vt/sections/frits/script-terminus.vtfrit`. A setup step asks you to press Ctrl+- or Ctrl+= until the character cells have the step's size. The guide's `cleanup:` line switches back to the font that the run started with. Terminus 12 stands in for the 8×8 test font of the `script-source` picture, because that font exists only in memory, in the tier 2 tool. At three times unifont's size, the text needs a display at least 1152 pixels wide and 600 high.
 - `wave-a.guide` checks what Wave A changed on screen: the blink styles, X11 color names, and a program waking the blank.
-- `token.guide` checks frames drawn straight into the display's buffer (ADR-1401 D2). It covers text appearing a letter at a time, scrolling, a full-screen redraw and clear, the scrollback, the cursor, a VT switch while lines arrive, the displays going dark and waking, and a display unplugged and plugged back. Each must show no tearing, no missing line and no old content.
-- `daily.guide` is the daily-driver soak, run with `DEMO_ARGS='--bell'`. It covers your own login shell, an editor, a pager, top or htop, tmux, a long `cat`, 256 colors and truecolor, Unicode and wide characters, copy and paste with the mouse, the wheel, an OSC 8 link with Ctrl's overlay and Ctrl+click, OSC 133 prompt jumps, the bell, zoom, and suspend and resume. Last, it asks whether you would leave vtium running on a VT. The guide runs as vtium's session directly, so no login prompt comes before it. `make vt-login` checks the login prompt itself, because it runs `/bin/login -p` as the session.
+- `token.guide` checks frames drawn straight into the display's buffer (ADR-1401 D2). It covers text appearing a letter at a time, scrolling, a full-screen redraw and clear, the scrollback and the cursor. It also covers a VT switch while lines arrive, the displays going dark and waking, and a display unplugged and plugged back. Each must show no tearing, no missing line and no old content.
+- `daily.guide` is the daily-driver soak, run with `DEMO_ARGS='--bell'`. It covers your own login shell, an editor, a pager, top or htop, tmux, and a long `cat`. It covers 256 colors and truecolor, Unicode and wide characters, copy and paste with the mouse, and the wheel. It also covers an OSC 8 link with Ctrl's overlay and Ctrl+click, OSC 133 prompt jumps, the bell, zoom, and suspend and resume. Last, it asks whether you would leave vtium running on a VT. The guide runs as vtium's session directly, so no login prompt comes before it. `make vt-login` checks the login prompt itself, because it runs `/bin/login -p` as the session.
 - `chords.guide` runs with `DEMO_ARGS='--osd=full'`, so that the top line names the console shown. It checks the console chords under the open policy (ADR-1401 D1, D5):
   - Ctrl+Super+Enter opens a console just after the one shown.
   - Ctrl+Super+Backspace closes the one shown, and does nothing on the last.
@@ -341,7 +341,8 @@ The acceptance pass (ADR-1501) is one pass through every page in `tools/vt/secti
 Each answer rewrites the pass's record. The record is a markdown file named after the pass, in `~/.local/state/vtium/acceptance/` (`$XDG_STATE_HOME/vtium/acceptance`, or `ACCEPT_DIR`). It holds:
 
 - the build's label, VT, binary, features and render path;
-- the hardware the pass ran on: the machine's model, the kernel, each GPU or display controller with its driver, each connected display's connector, preferred mode and EDID make and model, and the text area that vtium reports;
+- the hardware the pass ran on: the machine's model, the kernel, and each GPU or display controller with its driver;
+- each connected display's connector, preferred mode and EDID make and model, and the text area that vtium reports;
 - the fonts, the terminal, and its DA1 answer;
 - each page's answer and comment.
 
@@ -380,7 +381,8 @@ The tests run every path without a VT, sudo or logind. `VTIUM_VT_STANDINS` names
 - a `run:` step shows its command, runs it on the guide's terminal, and drops a key pressed meanwhile;
 - a console after the head's first runs a shell in place of the guide;
 - `vt-install.sh` generates the units from the shipped ones, with only their names, `ExecStart=`'s path and the fallback's name changed;
-- `vt-install.sh` refuses VT 1, the VT on screen, a VT with a session, a VT that `kmscon`'s console or the packaged vtium holds, a console that would start another helper, and a file it did not write;
+- `vt-install.sh` refuses VT 1, the VT on screen, a VT with a session, and a VT that `kmscon`'s console or the packaged vtium holds;
+- `vt-install.sh` refuses a console that would start another helper, and a file it did not write;
 - `vt-install.sh` records and restores the getty's state, keeps files that another VT still holds, and runs nothing in a dry run;
 - the review runs take the development VT, stop and start again only the units they found running there, and hold the VT open from the stop to the restart;
 - the review runs pass over a VT that the packaged vtium holds, and logind's reserved VT;
