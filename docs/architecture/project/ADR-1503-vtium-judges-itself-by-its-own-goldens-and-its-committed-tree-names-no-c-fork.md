@@ -130,11 +130,17 @@ considered:
   - operator: aaronsb
     said: "let's actually just re-write the 'nobody working on vtium writes to kmscon/kmscon and instead use the phrasing 'we only work on vtium repositories' or something to that effect. basically, anywhere there's guidance about kmscon, we remove that guidance and replace it with something redirecting logically to interact with vtium"
     via: the steering session, 2026-11-07, on AGENTS.md's rule about kmscon's repositories
+  - operator: aaronsb
+    said: "vtium's goldens fall into two tiers that are reviewed differently. The maintainer reviews every new or moved pixel golden of tier 2, tier 3 and the specimens by eye, at natural 1:1 resolution, because people judge the shape and flow of a drawing best. A behaviour golden of tier 1 is a readable case that cites the specification statement it tests in a # spec: line, with an expected result written independently of vtium before vtium's output is seen, from the specification or from an outside reference. Where that expectation agrees with vtium's output, a fresh reviewer agent checks that each cited statement supports it, and the steering session accepts the golden in a golden-only commit; the maintainer does not review these one by one. Where the two disagree, the case comes to the maintainer as a short question. An opaque .bin case converts to a readable case where its input stays byte-identical, and a .bin case that stays keeps the maintainer's review. At intervals the maintainer reviews the behaviour tier as a whole, to catch drift that case-by-case agreement cannot see. The author of a change never accepts its own golden, in either tier."
+    via: the steering session's question on 2026-11-13, on reviewing tier 1 goldens
+    paraphrase: true
+    covers: [the behaviour tier's review]
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
   - "`git ls-files` lists no provenance.tsv under tools/conformance, tools/tier2 or tools/tier3, no .c file, and no docs/c-reference.md, and `make help` lists no target with provenance in its name"
   - "No crate README has a section named Departures, C behaviour kept, Beyond the C reference or C notes"
+  - Every `.scenario` under tools/conformance/scenarios/ and every `.case` under tools/conformance/vtium/cases/ has a `# spec:` line
 status: accepted
 date: 2026-11-04
 deciders:
@@ -143,6 +149,8 @@ related:
   - ADR-1000
   - ADR-1501
   - ADR-1502
+  - ADR-1504
+  - ADR-1505
 ---
 
 
@@ -152,10 +160,12 @@ related:
 
 > Edited 2026-11-07: the revisit happened (D6), and the Decided line's sentence about AGENTS.md and CLAUDE.md says what they say now. The earlier sentence kept them as they were until the revisit, apart from the smallest edit that removed AGENTS.md's references to deleted files and targets; git keeps that text.
 
-- **Decided:** vtium's own goldens are the judge of every tier. Every golden copied from the C reference, the maintainer's forks of `kmscon` and `libtsm`, becomes vtium's golden under the same review rule as every other golden, and each case has one golden in one directory per tier: the cases that pass today only because a list excuses their difference, about 85, get vtium's own output as their golden in golden commits batched by tier for one review pass, and the excuse lists go. The behaviour vtium implements is defined by the specifications it cites, ADR-1000's tables and its goldens, so the crate READMEs' departure lists go and a choice a reader needs is stated in the present tense as what vtium does and why. ADR-1000 drops its `c_reference` column and gains a `linux` column for the Linux kernel's own console. The leftovers of the fork are deleted now, and git keeps them: the three provenance records and the checks that read them, the three C test programs, tier 2's list of copied goldens and the code that checks screens against a C file, the three provenance make targets, and docs/c-reference.md. The docs, the README, the crate READMEs, code comments and strings, CONTRIBUTING.md, the Makefile and the tools are swept now, and a new check, `docs/scripts/fork-refs`, keeps the committed tree from naming the fork again. AGENTS.md gives no guidance about `kmscon`: it says that other terminals are external references and that work on vtium happens only in vtium's own repositories, and it no longer tells agents to design from the C reference; CLAUDE.md only imports AGENTS.md (D6). The README keeps a short history in the past tense, the licence files and ported files keep their copyright notices, and text about the released `kmscon` program stays, including `kmscon` as a terminal name a user can choose. Existing decision records stay as history, with a pass over sentences that read as if the forks can be opened.
-- **Trades away:** an outside judge. The copied goldens were drawn by a program vtium did not write; once they are vtium's, a regression the maintainer approves in a golden commit is no longer caught by anything independent. The departure lists' record of why each behaviour differs shrinks to the statements a reader still needs, and the rest lives in git history. The maintainer reviews three golden commits, one per tier, for about 85 cases (50 in tier 1, 4 in tier 2, 31 variant and screen pairs in tier 3). A contributor, and an agent, loses the map of how the C reference worked and the pointer from a comment to the C code it was written against; the maintainer chose that on purpose and watches how agents work without it.
+> Edited 2026-11-13: goldens are reviewed in two tiers (D10). The Decided line gained its last four sentences, the Trades away line its last two sentences, and the Probes their second *Not confident* probe.
+
+- **Decided:** vtium's own goldens are the judge of every tier. Every golden copied from the C reference, the maintainer's forks of `kmscon` and `libtsm`, becomes vtium's golden under the same review rule as every other golden, and each case has one golden in one directory per tier: the cases that pass today only because a list excuses their difference, about 85, get vtium's own output as their golden in golden commits batched by tier for one review pass, and the excuse lists go. The behaviour vtium implements is defined by the specifications it cites, ADR-1000's tables and its goldens, so the crate READMEs' departure lists go and a choice a reader needs is stated in the present tense as what vtium does and why. ADR-1000 drops its `c_reference` column and gains a `linux` column for the Linux kernel's own console. The leftovers of the fork are deleted now, and git keeps them: the three provenance records and the checks that read them, the three C test programs, tier 2's list of copied goldens and the code that checks screens against a C file, the three provenance make targets, and docs/c-reference.md. The docs, the README, the crate READMEs, code comments and strings, CONTRIBUTING.md, the Makefile and the tools are swept now, and a new check, `docs/scripts/fork-refs`, keeps the committed tree from naming the fork again. AGENTS.md gives no guidance about `kmscon`: it says that other terminals are external references and that work on vtium happens only in vtium's own repositories, and it no longer tells agents to design from the C reference; CLAUDE.md only imports AGENTS.md (D6). The README keeps a short history in the past tense, the licence files and ported files keep their copyright notices, and text about the released `kmscon` program stays, including `kmscon` as a terminal name a user can choose. Existing decision records stay as history, with a pass over sentences that read as if the forks can be opened. Goldens are reviewed in two tiers (D10). The maintainer reviews each pixel golden by eye. A behaviour golden whose independently written expectation agrees with vtium is accepted after a fresh reviewer checks it against the specification. Disagreements and a periodic review against drift go to the maintainer.
+- **Trades away:** an outside judge. The copied goldens were drawn by a program vtium did not write; once they are vtium's, a regression the maintainer approves in a golden commit is no longer caught by anything independent. The departure lists' record of why each behaviour differs shrinks to the statements a reader still needs, and the rest lives in git history. The maintainer reviews three golden commits, one per tier, for about 85 cases (50 in tier 1, 4 in tier 2, 31 variant and screen pairs in tier 3). A contributor, and an agent, loses the map of how the C reference worked and the pointer from a comment to the C code it was written against; the maintainer chose that on purpose and watches how agents work without it. Under D10, the maintainer no longer reads each behaviour golden that agrees with its expectation. A reading that both the case's author and its reviewer got wrong waits for the drift review.
 - **One-way?** Expensive now, and one-way once the maintainer deletes the forks. Every committed change, the deleted files included, is in git and can be put back. Once the forks are gone, nobody can check a copied golden against its source again.
-- **Probes:** *Confident (the judge):* where vtium deliberately draws or answers something other than a copied golden shows, the golden is replaced by vtium's output in a commit the maintainer reviews, and no list of departures stays beside it. *Not confident (ADR-1000's comparison column):* ADR-1000's tables lose their `c_reference` column, which recorded what the C reference did for each mode and feature, even though ADR-1000 is otherwise a record the maintainer called historical; the five columns for other terminals stay.
+- **Probes:** *Confident (the judge):* where vtium deliberately draws or answers something other than a copied golden shows, the golden is replaced by vtium's output in a commit the maintainer reviews, and no list of departures stays beside it. *Not confident (ADR-1000's comparison column):* ADR-1000's tables lose their `c_reference` column, which recorded what the C reference did for each mode and feature, even though ADR-1000 is otherwise a record the maintainer called historical; the five columns for other terminals stay. *Not confident (the behaviour tier's review):* a fresh reviewer's check of each cited statement catches what the maintainer's own review of each behaviour golden caught. The drift review catches the rest.
 - **Inversion:** Between "keep naming the C reference as the judge until the forks are deleted" (the tree stays tied to code nobody outside can read) and "erase every trace of where vtium came from" (history, licence notices and the released `kmscon` user's path go too). The answer keeps the judge's values as vtium's own goldens, deletes the files that exist only to tie vtium to the fork, keeps the history in the README, the records and git, and leaves AGENTS.md's working rules for the steering session to the revisit.
 
 ## Context
@@ -164,13 +174,17 @@ vtium was built against the C reference: the maintainer's forks of the C termina
 
 vtium now does more than the C reference did, and in places it draws better, so a copied golden can hold vtium back. The maintainer plans to delete the forks. A reader of the public repository cannot open them, and a list of "differences from kmscon" describes vtium by what another program did, which goes stale and breaks the rule that vtium is written about in the present tense. The maintainer also expects that files about the fork, left in the tree, keep pulling agents' reasoning toward it.
 
-Terms used below. A golden is a saved expected result that a tier compares vtium's output with. A provisional golden is one of vtium's goldens that the maintainer has not reviewed yet, and it judges nothing. A golden commit is a commit that changes goldens' values and nothing else, lists each value that moved and why, and that the maintainer reviews. An excuse list is a file that lets a case pass while vtium's output differs from its golden: tools/conformance/expected.tsv, tools/tier2/departures.tsv and tools/tier3/departures.tsv. The revisit is the later piece of work, once the open issues have come down and vtium is more stable, that decides what AGENTS.md and CLAUDE.md say about the forks and whether a private layer of uncommitted files holds that (D6).
+> Edited 2026-11-13: goldens are reviewed in two tiers (D10). The terms read: "A provisional golden is one of vtium's goldens that the maintainer has not reviewed yet, and it judges nothing. A golden commit is a commit that changes goldens' values and nothing else, lists each value that moved and why, and that the maintainer reviews."
+
+Terms used below. A golden is a saved expected result that a tier compares vtium's output with. A provisional golden is one of vtium's goldens that has not been accepted yet, and it judges nothing. A golden commit is a commit that changes goldens' values and nothing else, and lists each value that moved and why. D10 says who reviews a golden commit. An excuse list is a file that lets a case pass while vtium's output differs from its golden: tools/conformance/expected.tsv, tools/tier2/departures.tsv and tools/tier3/departures.tsv. The revisit is the later piece of work, once the open issues have come down and vtium is more stable, that decides what AGENTS.md and CLAUDE.md say about the forks and whether a private layer of uncommitted files holds that (D6).
 
 ## Decision
 
 ### D1: vtium's goldens are the judge
 
-Every tier judges vtium by vtium's goldens. Every golden copied from the C reference becomes vtium's golden. AGENTS.md's rule holds for all of them alike: the author of a change never rewrites the golden that judges it, and a golden changes only in a golden commit the maintainer reviews.
+> Edited 2026-11-13: goldens are reviewed in two tiers (D10). The paragraph's last sentence read: "AGENTS.md's rule holds for all of them alike: the author of a change never rewrites the golden that judges it, and a golden changes only in a golden commit the maintainer reviews."
+
+Every tier judges vtium by vtium's goldens. Every golden copied from the C reference becomes vtium's golden. AGENTS.md's rule holds for all of them alike: the author of a change never rewrites the golden that judges it, and a golden changes only in a golden commit. D10 says who reviews that commit, by the tier of review the golden belongs to.
 
 Every case passes today, but not every case passes because vtium produces what its copied golden shows. About 85 cases pass only because an excuse list covers their difference: the 50 cases that the 57 rows of tools/conformance/expected.tsv cover, the 4 of tools/tier2/departures.tsv, and the 10 rows of tools/tier3/departures.tsv, which cover 31 variant and screen pairs. Calling those copied goldens vtium's as they stand would give vtium goldens that show output vtium does not produce. Each of these cases instead gets vtium's own output as its golden. The golden commits are batched one per tier, and each lists every case, what moved, and the specification or decision behind the difference, so the maintainer reviews all of them in one pass. Each tier's excuse list goes in the commit after that tier's golden commit.
 
@@ -244,7 +258,9 @@ adr.yaml's comments follow D3, and its `cite.exclude` entry for tools/tier3/gues
 
 > Edited 2026-11-07, later the same day: the maintainer asked that AGENTS.md drop its guidance about `kmscon` and point agents at vtium instead (the twenty-fourth `considered` entry). The heading read "AGENTS.md and CLAUDE.md treat kmscon as an external reference". The earlier text had AGENTS.md call the released `kmscon` an external reference that agents read like the other terminals, and keep the rule that nobody working on vtium writes to `kmscon/kmscon` or `kmscon/libtsm`; git keeps that text.
 
-AGENTS.md says that vtium's behaviour is defined by the specifications vtium cites, ADR-1000's tables and vtium's own goldens (D1, D2). It says that other terminals are external references, and that ADR-1000's tables compare vtium with the Linux console, xterm, foot, Ghostty, WezTerm and kitty, from each one's published documentation. It says that work on vtium happens only in vtium's own repositories, under the vtium organization on GitHub, and that issues, pull requests and comments about vtium go there. AGENTS.md gives no guidance about `kmscon` or `libtsm`. It no longer tells agents to read the forks, to answer a design question or diagnose a problem from the C reference's code first, or to list a departure from it. Its account of the goldens says that every golden is vtium's own and that a provisional golden judges nothing until the maintainer reviews it (D1).
+> Edited 2026-11-13: goldens are reviewed in two tiers (D10). The first paragraph's last sentence ended "until the maintainer reviews it (D1)."
+
+AGENTS.md says that vtium's behaviour is defined by the specifications vtium cites, ADR-1000's tables and vtium's own goldens (D1, D2). It says that other terminals are external references, and that ADR-1000's tables compare vtium with the Linux console, xterm, foot, Ghostty, WezTerm and kitty, from each one's published documentation. It says that work on vtium happens only in vtium's own repositories, under the vtium organization on GitHub, and that issues, pull requests and comments about vtium go there. AGENTS.md gives no guidance about `kmscon` or `libtsm`. It no longer tells agents to read the forks, to answer a design question or diagnose a problem from the C reference's code first, or to list a departure from it. Its account of the goldens says that every golden is vtium's own and that a provisional golden judges nothing until it is accepted (D1, D10).
 
 CLAUDE.md does not change. It imports AGENTS.md and holds nothing else.
 
@@ -280,6 +296,30 @@ Tier 3's seven text screens whose goldens the C reference drew with pango (`sgr`
 
 The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, which the maintainer reviews as pictures. That includes the screens with pictures, the render timer's on-screen display, and the two screens that need added line spacing, so line spacing (ADR-1302 D13) is built first.
 
+### D10: goldens are reviewed in two tiers
+
+> Added 2026-11-13 by the maintainer's decision (the twenty-fifth `considered` entry).
+
+vtium's goldens fall into two tiers, and each tier has its own review. In both tiers, the author of a change never accepts its own golden.
+
+Pixel goldens judge how vtium renders. They are the goldens of tier 2 and tier 3, and the specimens. The maintainer reviews every new or moved pixel golden by eye, at its natural 1:1 resolution. A person judges the shape and flow of what is drawn better than any check does.
+
+Behaviour goldens judge what vtium does with bytes and keys: the text on the screen, the cursor, the modes and the replies. They are tier 1's goldens: vtium's own cases, the copied corpus and the behaviour scenarios. A behaviour golden can be accepted without the maintainer's review of each case when its case meets three conditions:
+
+- The case is readable. It is a `.case` or `.scenario` file, not an opaque `.bin` stream.
+- The case cites the specification statement it tests, in a `# spec:` line.
+- The case's expected result was written independently of vtium, before anyone saw vtium's output for it. Either the author wrote it from the specification, or it comes from an outside reference, such as another implementation's recorded output.
+
+When the independent expectation agrees with vtium's output, a fresh reviewer checks the case. The fresh reviewer is an agent that did not write the case. It checks that each cited statement supports the expected result. The steering session then accepts the golden in a commit that changes goldens and nothing else. That commit names each case, where each expectation came from, and the reviewer's check. The maintainer does not review these goldens one by one. When a cited statement does not support its expectation, the reviewer sends the case back to its author in V2's single fix round (ADR-1505). A case still in doubt after that round goes to the maintainer as a question.
+
+When the independent expectation and vtium's output disagree, the case goes to the maintainer as a short question. The question quotes the specification, gives the two readings, and says which reading vtium follows. The maintainer's answer decides. Either vtium changes to follow the expectation, or vtium's reading becomes the golden. Until the maintainer answers, the case stays provisional.
+
+An opaque `.bin` case converts to a readable case when the readable case produces the same input bytes. A `.bin` case that stays, for example one whose payload is too large to read, keeps the earlier rule: the maintainer reviews its golden.
+
+At intervals, the maintainer looks over the behaviour tier as a whole. This review catches drift that agreement case by case cannot see. For example, many small readings, each accepted on its own, can add up to a direction the maintainer did not choose.
+
+The cadence of the drift review is a proposal, which the maintainer settles when reading this record. The proposal: the drift review runs once per release candidate, as part of the maintainer's V3 look before the tag (ADR-1505). It covers each behaviour case accepted by the reviewer's check since the previous release's tag. The steering session finds those cases in the acceptance commits, because each commit names its cases. The steering session shows each case with its specification quote, its picture from `make tier1-shots` and its `make tier1-play` command.
+
 ## Consequences
 
 ### Positive
@@ -288,6 +328,8 @@ The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, 
 - A case is judged by one golden in one place, so a reviewer reads one expected result instead of a copied golden, a list of rectangles where vtium may differ, and a README entry that explains it.
 - The gate line and CI need nothing beside the vtium checkout, as before, and the Makefile loses the targets that would break when the forks are deleted.
 - The check in D8 stops the break from wearing away as agents trained on the old text keep writing "the C reference".
+- The maintainer's review goes where a person's eye matters most: the pixel goldens, and the behaviour cases where the specification and vtium disagree (D10, added 2026-11-13).
+- Each accepted behaviour golden carries the specification statement that supports it and an expectation that did not come from vtium. A golden no longer rests only on vtium agreeing with itself (D10, added 2026-11-13).
 
 ### Negative
 
@@ -301,6 +343,8 @@ The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, 
 - Most of the 246 departure items carried reasoning. Those that are dropped keep their reasoning only in git history, and a later reader who wants it has to find the commit.
 - Each checkout builds a new tier 3 base image once, about 330 MiB of packages and a file of about 1.1 GiB.
 - Once the forks are deleted, nobody can check where a copied golden came from.
+- A behaviour golden whose expectation and spec check are wrong in the same way is accepted. Only the drift review or a user finds it (D10, added 2026-11-13).
+- A behaviour case costs more to write: it needs a `# spec:` line and an expectation written before vtium runs it (D10, added 2026-11-13).
 
 ### Neutral
 
@@ -326,6 +370,8 @@ The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, 
 
 1. **A private directory under version control.** Closed at the revisit (D6). The maintainer chose to treat `kmscon` as an external reference and to drop the rule to design from the C reference (the twenty-first `considered` entry). That leaves no working rules about the forks to keep privately, so no private directory is needed. The maintainer confirmed that the question closes (the twenty-third `considered` entry).
 
+2. **Where a behaviour case's independent expectation is kept.** Added 2026-11-13 with D10. D10 requires that the expectation exists before anyone sees vtium's output, and that the acceptance commit names where the expectation came from. It does not yet say where the expectation lives in the tree, so that a reviewer can see from git that it came first. The lean: the author commits the expectation as the case's golden, with the case on the provisional list, before running vtium on the case. The first run of `make conformance` then shows whether vtium agrees.
+
 The maintainer answered the record's other questions on 2026-11-04 (the `considered` entries), and the decision above carries each answer.
 
 ## Alternatives Considered
@@ -340,3 +386,7 @@ The maintainer answered the record's other questions on 2026-11-04 (the `conside
 - **Import the private rules from the home directory in the committed CLAUDE.md.** Claude Code's documentation suggests it for sharing private instructions across worktrees, but the committed file would then name a private path that every other contributor's agent tries to import and lacks. Rejected.
 - **Rewrite git history to remove the C reference.** It would break every link to an earlier commit and remove the history the maintainer wants kept, and the licence requires the notices anyway. Rejected.
 - **Leave the decision records entirely untouched.** It keeps a few sentences that tell a reader to open the forks, which the maintainer asked to change. Rejected for the narrow tense pass in D5.
+- **The maintainer reviews every golden, behaviour goldens included.** This was the rule until 2026-11-13. A picture of a screen's text state shows the maintainer little that a quoted specification statement does not. The maintainer's time is better spent on pixels and on disagreements. Rejected for D10.
+- **A reviewer agent accepts every golden, pixel goldens included.** People judge the shape and flow of a drawing better than an agent's check does. Rejected for D10's pixel tier.
+- **Accept a behaviour golden as soon as vtium's output matches its expectation, with no reviewer.** The author writes both the expectation and the citation. A citation that does not support the expectation would then pass unseen. Rejected for D10's fresh reviewer.
+- **No review of the behaviour tier as a whole.** Readings accepted one at a time can drift in a direction nobody chose. Rejected for D10's drift review.
