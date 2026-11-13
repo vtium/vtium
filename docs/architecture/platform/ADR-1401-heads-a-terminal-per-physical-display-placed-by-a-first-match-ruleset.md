@@ -388,6 +388,22 @@ considered:
   - operator: aaronsb
     said: "Before the stage PR (Recommended)"
     via: steering session, 2026-11-12, testing two heads on the test laptop; the question tool, asked when the switch lands; the option's wording is the steering session's
+  - operator: aaronsb
+    said: "When this card is built, embed the sprite as raw palette indices rather than a PNG, so the root process decodes no compressed image (the security page's rule)."
+    via: comments by the maintainer on the issue that adds a picture to the panic screen, 2026-11-12
+  - operator: aaronsb
+    said: "The maintainer chose the ASCII version on 2026-11-12. It is their own drawing of Tux, panicked, inside the monitor. It is 32 columns by 20 rows of plain 7-bit ASCII … A build without image support draws this. A build with image support draws the 80×80 six-color sprite … The Tux character is Larry Ewing's; vtium's credits name him and The GIMP when this card lands."
+    via: comments by the maintainer on the issue that adds a picture to the panic screen, 2026-11-12
+  - operator: aaronsb
+    said: "The maintainer chose the sprite on 2026-11-12: the o_O version, matching the ASCII Tux's mismatched eyes. … It is still 80×80 pixels in the same six colors. The source file is the maintainer's panic-penguin-80x80-oO.png."
+    via: comments by the maintainer on the issue that adds a picture to the panic screen, 2026-11-12
+  - operator: aaronsb
+    said: "The maintainer chose a small ASCII version for small screens on 2026-11-12. … The small version is the monitor from the same drawing, without the sparks and the keyboard. The small version is 21 columns by 10 rows … On a 40×25 console, the small version sits centered above the text … A build without image support draws the full drawing where it fits beside or above the text, as on an 80×25 console, and the small one where only that fits. The text always comes first: on a screen too small for even the small drawing, the panic screen shows the text alone."
+    via: comments by the maintainer on the issue that adds a picture to the panic screen, 2026-11-12
+  - operator: aaronsb
+    said: "The panic screen names /etc/vtium/vtium.conf. On a screen too small even for the small drawing, the screen shows the text alone, as on 40×15, the 320×240 minspec screen with an 8×16 font. The sprite is drawn at a whole-number scale, so every pixel stays sharp. The words carry the meaning without color, so the screen reads correctly on fbdev and for color-blind readers. The Tux character is Larry Ewing's, drawn with The GIMP, and vtium's credits name both."
+    via: the maintainer's decisions of 2026-11-12, relayed in the brief of the work that adds the drawing to the panic screen; the wording is the steering session's
+    paraphrase: true
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -404,6 +420,7 @@ observable:
   - '`vtium config flow` as an unprivileged user lists every connected display and input device with its match keys, the strongest first, and `vtium config rule add` takes one of them as a rule''s selector'
   - A display the card cannot light beside the others, its monitor still plugged in, keeps its head and that head's sessions under `when-display-lost = hangup`, and lights at the first later hotplug or wake-up that can light it
   - On a VT where a head with `switch-on-enter = yes` does not run, under the open policy, Enter on a keyboard its rules claim switches to the first VT of its `vt` on which vtium runs, and its display's notice says so
+  - On an 80×25 screen, a minspec build's panic screen shows the maintainer's ASCII drawing of a panicked Tux to the left of its whole text; on 40×25 with one error, the small drawing centered above the text; on 40×15, the text alone; and a build with image support shows the 80×80 sprite at a whole-number scale in the drawing's place
 status: accepted
 date: 2026-10-29
 deciders:
@@ -1065,7 +1082,17 @@ A machine with no configuration at all:
   nothing on this console takes input; the full report: vtium check-config /etc/vtium/vtium.conf
   ```
 
-  with the first errors, each with its file and line, between the second line and the last. When a policy line vtium cannot read is why the file is closed and broken, that line's error comes first, and the other errors follow in the file's order. It names `check-config` because `check-config` rebuilds the report from the file itself, run over ssh or from other boot media with the disk mounted. The screen stays for as long as vtium runs, with no timeout. Separate work on the panic screen adds a picture to it alone.
+  with the first errors, each with its file and line, between the second line and the last. When a policy line vtium cannot read is why the file is closed and broken, that line's error comes first, and the other errors follow in the file's order. It names `check-config` because `check-config` rebuilds the report from the file itself, run over ssh or from other boot media with the disk mounted. The screen stays for as long as vtium runs, with no timeout.
+- **The panic screen's drawing.** The panic screen shows the maintainer's drawing of Tux, the Linux penguin, panicked inside a computer monitor, beside or above its text. The maintainer chose the drawings and where each one goes (2026-11-12):
+  - **The text always comes first.** The drawing shows only where the text still shows every line that it shows without the drawing. Where the drawing does not fit, the panic screen shows the text alone.
+  - **A build without image support** (the minspec build) draws the drawing in plain 7-bit ASCII, one character to a character cell, so it shows in any font, code page 437 included. The full drawing is 32 columns by 20 rows. The small drawing is the monitor cropped from the full one, without the sparks and the keyboard, and it is 21 columns by 10 rows.
+  - **Where each drawing goes.** The full drawing sits beside the text where the screen is wide enough, as on an 80×25 screen, or else above the text. The small drawing sits centered above the text where only the small one fits, as on a 40×25 screen. On a screen too small for even the small drawing, the panic screen shows the text alone. An example is 40×15, minspec's 320×240 screen with an 8×16 font.
+  - **A build with image support** (the `images` feature) draws the maintainer's sprite in place of the ASCII drawing: 80×80 pixels in six colors (black, white, gray, beak orange, mouth dark red and tongue pink). vtium scales the sprite by the largest whole number at which it fits the place the ASCII drawing would take, full or small, so every pixel stays sharp. vtium's root process decodes no compressed image, so vtium carries the sprite as raw palette indices and a six-entry palette, never as a PNG.
+  - **The words carry the meaning.** The drawing adds no meaning that the text lacks, and the text needs no color. The screen therefore reads correctly on a display with few colors, such as an fbdev console, and for a reader who does not see color.
+  - **Credit.** The Tux character is Larry Ewing's, drawn with The GIMP. vtium's COPYING credits both.
+  - **The agent's calls on placement.** Beside the text means to the left of it, so that the drawing comes before the text in reading order in both layouts: to the left, or above. The drawing and the text both start at the top of the notice's box, two columns apart. The text beside the drawing keeps at least 40 columns, the width of minspec's 320-pixel screen in an 8-pixel font. A drawing above the text is centered across the box, with one empty row between it and the text.
+
+> Edited 2026-11-12: the maintainer chose the panic screen's drawings, their sizes and where each goes (`considered`, 2026-11-12). The panic screen bullet ended: "Separate work on the panic screen adds a picture to it alone."
 - **A closed file's failure is final,** by design, as a sealed TPM's is. vtium keeps no copy and no last-known-good of any file, and still writes none (D6). A closed file is recovered out of band (D9), and is tested before it is relied on by the staged trial of a vtium-config install (D12).
 
 > Edited 2026-11-07: the maintainer decided that vtium-config takes over the job D12 planned for `vtiumctl`, which vtium does not build (D12). The bullet read "by `vtiumctl`'s staged trial (D12)".
