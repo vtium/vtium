@@ -2715,12 +2715,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Frees `buffers`, keeping each whose memory a token holds until the
     /// token comes back, so the display never waits for the render thread.
     /// A card the kernel removed frees them with its file, so they are
-    /// only unmapped.
+    /// only unmapped, including the rest of them once freeing one finds
+    /// the card removed.
     fn release(&self, buffers: Vec<Buffer<S::Memory>>) {
-        if self.card.removed() {
-            return;
-        }
         for b in buffers {
+            if self.card.removed() {
+                return;
+            }
             if Arc::strong_count(&b.map) > 1 {
                 self.retired.borrow_mut().push(b);
             } else {

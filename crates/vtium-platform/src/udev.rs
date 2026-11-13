@@ -14,6 +14,17 @@
 //! the card's `ID_PATH`. Another device's `add` at a known node replaces
 //! the old device.
 //!
+//! The kernel sends a card's `add` event before an open of the card can
+//! succeed: `drm_minor_register` sends it from `device_add`, and only then
+//! stores the minor where an open finds it, so an open in between answers
+//! ENODEV (`drivers/gpu/drm/drm_drv.c`). The monitor keeps a card whose
+//! open answers ENODEV as known but unreported. `drm_dev_register` goes on
+//! to register the card's connectors, and `drm_connector_register` sends a
+//! `change` event on the card for each of them
+//! (`drivers/gpu/drm/drm_connector.c`). At the card's next event the
+//! monitor opens the card again, and reports the card once the open
+//! succeeds.
+//!
 //! An event node carries its identity for a head file's rules (ADR-1401
 //! D4), read without opening it ([`InputIdentity`]): its udev classes,
 //! else the classes udev's rule gives its capability bitmaps; its
@@ -33,6 +44,7 @@ use std::path::{Path, PathBuf};
 use calloop::generic::Generic;
 use calloop::{Interest, LoopHandle, Mode, PostAction};
 use rustix::fs::OFlags;
+use rustix::io::Errno;
 
 use crate::bounds::{UDEV_PROPERTIES_MAX, UDEV_PROPERTY_MAX};
 use crate::input::class::{Bitmaps, Class, Classes};
@@ -288,12 +300,16 @@ pub(crate) trait Probe {
 /// each device and then announces it.
 const UDEV_CONTROL: &str = "/run/udev/control";
 
-/// A device the monitor reported, and the sysfs path of the device the
+/// A device the monitor found, and the sysfs path of the device the
 /// kernel had at its node then.
 #[derive(Debug)]
 struct Known {
     kind: DeviceKind,
     syspath: String,
+    /// The monitor reported the device. A card whose open answered ENODEV
+    /// because the kernel was still adding it is not reported until the
+    /// card's next event finds it open.
+    reported: bool,
 }
 
 /// The seat's devices, as the events so far leave them.
@@ -355,17 +371,23 @@ impl Monitor {
             log::debug!(target: "monitor", "{}: udev has not set it up yet, so its add event reports it", dev.syspath);
             return;
         }
-        match self.known.get(node) {
+        // Whether this is a card the kernel was still adding at its last
+        // event, which the monitor opens again now.
+        let waited = match self.known.get(node) {
             Some(known) if known.syspath == dev.syspath => {
-                log::debug!(target: "monitor", "not adding {} again", dev.syspath);
-                return;
+                if known.reported {
+                    log::debug!(target: "monitor", "not adding {} again", dev.syspath);
+                    return;
+                }
+                true
             }
             Some(_) => {
                 log::debug!(target: "monitor", "{} now belongs to {}", node.display(), dev.syspath);
                 self.forget(node);
+                false
             }
-            None => {}
-        }
+            None => false,
+        };
         let kind = match dev.subsystem.as_deref() {
             Some("drm") if numbered(&dev.sysname, "card") => DeviceKind::Drm,
             Some("graphics") if numbered(&dev.sysname, "fb") => DeviceKind::Fbdev,
@@ -387,15 +409,31 @@ impl Monitor {
         }
         let flags = match kind {
             DeviceKind::Drm => drm_flags(dev, node, probe),
-            DeviceKind::Fbdev => fb_flags(node, probe),
-            DeviceKind::Input => DeviceFlags::default(),
+            DeviceKind::Fbdev => Some(fb_flags(node, probe)),
+            DeviceKind::Input => Some(DeviceFlags::default()),
         };
+        let Some(flags) = flags else {
+            log::info!(target: "monitor", "{} cannot be opened yet, because the kernel is still adding the card. vtium opens the card at the card's next event from the kernel.", node.display());
+            self.known.insert(
+                node.clone(),
+                Known {
+                    kind,
+                    syspath: dev.syspath.clone(),
+                    reported: false,
+                },
+            );
+            return;
+        };
+        if waited {
+            log::info!(target: "monitor", "the kernel has finished adding the card {}, and vtium opens the card now", node.display());
+        }
         let input = (kind == DeviceKind::Input).then(|| Box::new(InputIdentity::of(dev)));
         self.known.insert(
             node.clone(),
             Known {
                 kind,
                 syspath: dev.syspath.clone(),
+                reported: true,
             },
         );
         self.events.push(DeviceEvent::Added(Device {
@@ -419,6 +457,9 @@ impl Monitor {
     /// Reports the device at `node` removed, if it was reported.
     fn forget(&mut self, node: &Path) {
         match self.known.remove(node) {
+            Some(known) if !known.reported => {
+                log::debug!(target: "monitor", "removing {}, which was never reported", node.display());
+            }
             Some(known) => {
                 log::debug!(target: "monitor", "removing {} from seat {}", node.display(), self.seat);
                 self.events.push(DeviceEvent::Removed {
@@ -431,13 +472,14 @@ impl Monitor {
     }
 
     /// A known device that moved to another seat is removed and added
-    /// again; an unknown one may have moved to this seat; a known card
-    /// reports a hotplug.
+    /// again; an unknown one may have moved to this seat; a card not
+    /// reported yet, because the kernel was still adding it, is opened
+    /// again; a known card reports a hotplug.
     fn change(&mut self, dev: &Uevent, probe: &mut dyn Probe) {
         let Some(node) = dev.devnode.as_ref() else {
             return;
         };
-        let Some(kind) = self.known.get(node).map(|k| k.kind) else {
+        let Some(kind) = self.known.get(node).filter(|k| k.reported).map(|k| k.kind) else {
             self.add(dev, probe);
             return;
         };
@@ -470,24 +512,27 @@ pub(crate) fn primary(dev: &Uevent) -> bool {
     }
 }
 
-/// A card is [`primary`], and auxiliary when its driver is `udl`.
-fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> DeviceFlags {
+/// A card is [`primary`], and auxiliary when its driver is `udl`. `None`
+/// when the card's open answers ENODEV, as the open of a card the kernel
+/// is still adding does.
+fn drm_flags(dev: &Uevent, node: &Path, probe: &mut dyn Probe) -> Option<DeviceFlags> {
     let primary = primary(dev);
     let aux = match probe.drm_driver(node) {
         Ok(driver) => {
             log::debug!(target: "monitor", "DRM device {} uses driver {driver}", node.display());
             driver == "udl"
         }
+        Err(e) if e.raw_os_error() == Some(Errno::NODEV.raw_os_error()) => return None,
         Err(e) => {
             log::warn!(target: "monitor", "cannot get the driver of {}: {e}", node.display());
             false
         }
     };
-    DeviceFlags {
+    Some(DeviceFlags {
         primary,
         aux,
         drm_backed: false,
-    }
+    })
 }
 
 /// A framebuffer is DRM-backed unless its id says otherwise: a DRM

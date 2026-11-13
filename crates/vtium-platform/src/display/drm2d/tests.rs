@@ -8040,3 +8040,21 @@ fn only_a_display_online_on_an_awake_card_is_parked() {
     flip(&mut v);
     assert!(v.park(DisplayId(A)).is_err());
 }
+
+// vtium/vtium#35: udev reports a card removed before any ioctl of vtium's
+// has found it gone, and the owner drops the card. Every ioctl on the card
+// answers ENODEV by then. That is the state of a card that is gone, so the
+// drop logs no warning: the kernel frees the card's buffers when the
+// card's file closes.
+#[test]
+fn a_card_dropped_after_the_kernel_removed_it_warns_of_nothing() {
+    let v = awake(one());
+    assert!(
+        !v.card().state().dumbs.is_empty(),
+        "the display has buffers"
+    );
+    v.card().state().kernel_removed = true;
+    logs::capture();
+    drop(v);
+    assert_eq!(logs::at_least(Level::Warn), Vec::<String>::new());
+}
