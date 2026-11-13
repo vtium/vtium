@@ -973,6 +973,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             return Err(Errno::NODEV.into());
         }
         self.reap();
+        // A sleep still waiting for a flip is cancelled: the card keeps the
+        // master it holds, and the wake-up sets every display up again once
+        // the flip ends (ADR-1401 D16).
+        if self.waiting == Some(Waiting::Sleep) {
+            self.waiting = None;
+        }
         self.foreground = true;
         self.retries = None;
         let woken = self.try_wake(Scan::WakeUp);
