@@ -11,6 +11,7 @@ make conformance          # every case, both views and the chunking check
 make conformance-probes   # the capability list, through the capability scenarios
 make conformance-issues   # the capability list and ADR-1000 agree with GitHub (gh)
 make conformance-record OUT=DIR [NAMES='prog-shell ...']   # records the programs' cases; not a gate
+make tier1-shots [OUT=DIR]  # draws every golden as a picture for review; not a gate
 target/release/conformance generate DIR   # writes every synthetic case and prints its cases.list lines
 target/release/conformance interface      # the interface check alone
 target/release/conformance scenarios [NAME...]               # the behaviour scenarios alone
@@ -25,7 +26,7 @@ target/release/conformance scenarios --bin NAME DIR          # writes a scenario
 |---|---|
 | `src/bin/vtium-replay.rs` | The replay interface's command line: `vtium-replay [--frame] COLS ROWS FILE [CUTS]` and `vtium-replay --describe`. |
 | `src/lib.rs` | The command line's parsing, the exit codes and `--describe`. |
-| `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. |
+| `src/replay.rs` | The replay: the reference host's settings, the feed between cuts, the test commands and the head of each block. `run_with` hands the terminal at each block to a caller, which `make tier1-shots` draws. |
 | `src/replay/links.rs` | The `link` and `hover` commands: the URI of a cell's OSC 8 link, and the cells and overlay row of the link under the pointer. |
 | `src/command.rs` | The test commands of interface 1, each value checked against its form and range. |
 | `src/view.rs` | The screen and frame views, from vtium-term's lines and frame, and with images the `placement` and `image` lines. |
@@ -53,6 +54,41 @@ target/release/conformance scenarios --bin NAME DIR          # writes a scenario
 | `capabilities.list` | vtium's capability list: each capability `works` or `missing`, with the issue for each gap and the ADR-1000 rows it judges. |
 | `COVERAGE.md` | Each capability, the tests that guard its rows, and its gap. |
 | `tests/` | The verdicts, the command line, the scenarios and the capability judge on inputs written in the tests: see its README. |
+
+## Tier 1's pictures
+
+Tier 1's goldens are text, and the maintainer reviews them as pictures that vtium draws (ADR-1505, V3). `make tier1-shots` draws them. It builds `tier1-shots` from `tools/tier1-shots/`, with the feature `draw`, which turns on vtium-replay's `images` and `bidi` features. The pictures are review renderings, not goldens. Nothing in the output is committed, and the tool is not a gate.
+
+The tool draws three groups of pictures:
+
+- **corpus** and **vtium**: each case of `corpus/cases.list` and `vtium/cases.list`. The tool replays the case through vtium-replay's own replay, with its test commands, the fixture host and its fixtures, at the 8×16 reference cell. It replays the case once in each view that `conformance run` judges it in. Those are the screen and frame views, and the display view when `golden-display/` holds the case's golden. It then draws the terminal as the screen view's last block leaves it, after every test command.
+- **scenarios**: each screen that a behaviour scenario dumps. The tool plays the scenario as `conformance run` plays it and checks the transcript on file. It replays the scenario once more and draws the terminal at each `dump`'s block, in order. A behaviour scenario that dumps no screen has no picture, and the tool prints its name. A capability scenario has no transcript and no picture.
+
+Each picture is drawn through tier 2's renderer (`vtium_tier2::draw::draw_terminal`) in the built-in unifont, in cells of 8×16 pixels, at the size of the terminal's grid. Text and pictures, kitty, sixel and iTerm2, draw together. The cursor shows where the terminal shows it, and blinking text shows. Two runs write the same bytes.
+
+The tool checks each output against its golden as `conformance run` does, after the same masking. A case or a scenario whose output differs from its golden is still drawn. The tool prints each such picture with the lines that differ, `-` for the golden's and `+` for the output's, each with its line number. A difference does not fail the run, since `conformance run` judges the goldens. The tool exits 1 when a replay or a drawing fails, and 2 when it refuses to run.
+
+The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, empty, or the output of an earlier run, which holds a `manifest.json`. The tool removes an earlier run's pictures and manifest first. It writes:
+
+| Path | What it is |
+|---|---|
+| `corpus/NAME.png`, `vtium/NAME.png` | The picture of a replay case. |
+| `scenarios/NAME-NN.png` | The picture of a scenario's dump `NN`, counted from `01`. |
+| `manifest.json` | Every picture, in the order drawn: the corpus's cases, vtium's cases, then the scenarios by name. |
+
+`manifest.json` holds `cell`, `[8, 16]`, `font`, `"unifont"`, and `pictures`, a list with one object for each picture:
+
+| Field | What it holds |
+|---|---|
+| `file` | The picture's path in the output. |
+| `group` | `corpus`, `vtium` or `scenarios`. |
+| `name` | The case's or the scenario's name. |
+| `dump` | For a scenario's picture, `number` (from 1), `of` (the scenario's dumps), `command` (the `dump` as the transcript echoes it) and `line` (its line in the scenario's file). `null` for a case. |
+| `width`, `height` | The picture's size in pixels. |
+| `provisional` | The reason the provisional list gives, or `null` for a reviewed golden. |
+| `matches` | Whether the output equals every golden that judges the picture. |
+| `error` | Why a replay or a drawing stopped, or `null`. |
+| `goldens` | One object for each golden: `view` (`screen`, `frame`, `display` or `transcript`), `path` (from the repository's root), `matches`, and `differs`, the lines that differ. Each line has `side` (`golden` or `output`), `line` (its number on its side) and `text` (the line as its file holds it). |
 
 ## The copies
 

@@ -1046,6 +1046,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-tier1-shots"
+version = "0.1.0-alpha.7"
+dependencies = [
+ "vtium-conformance",
+ "vtium-specimens",
+ "vtium-term",
+ "vtium-tier2",
+]
+
+[[package]]
 name = "vtium-tier2"
 version = "0.1.0-alpha.7"
 dependencies = [

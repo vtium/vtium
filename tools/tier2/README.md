@@ -17,7 +17,7 @@ target/release/tier2 fetch-fonts # what make tier2-fonts runs
 | Path | What it is |
 |---|---|
 | `src/screens.rs` | The screens, with where each one's golden lives. |
-| `src/draw.rs` | Drawing a screen: the terminal, the frames, the two buffers, and the configurations that must draw the same bytes. |
+| `src/draw.rs` | Drawing a screen: the terminal, the frames, the two buffers, and the configurations that must draw the same bytes. `draw_terminal` draws a terminal that another tool has already set up, as `make tier1-shots` draws tier 1's replays. |
 | `src/fonts.rs` | The outline fonts the outline screens draw with, each pinned by its URL and SHA-256 and fetched into a cache, and the console's face over the glyphs vtium-config's engine generates from them. |
 | `src/notices.rs` | The words of the overlay screens, each from the console function that gives it. |
 | `src/inkfont.rs` | The ink test font, an outline font built in memory whose glyphs send their ink past their cells by known amounts, which the ink screens draw with. |
