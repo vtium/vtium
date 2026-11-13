@@ -429,6 +429,15 @@ const EMOJI_RGBA: &[u8] = concat!(
 )
 .as_bytes();
 
+/// emoji-rgba-marks's bytes: the heart, which takes one cell with no
+/// selector, beside the cells a selection covers, and two hearts on each
+/// side of the y a block cursor stands on, all on yellow.
+const EMOJI_RGBA_MARKS: &[u8] = concat!(
+    "\x1b[43ma\u{2764}b  a\u{2764}b    \r\n",
+    "x\u{2764}y\u{2764}z       \x1b[0m",
+)
+.as_bytes();
+
 /// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
 /// with a line that wraps, a box of sprites around styled words, the 16
 /// background and foreground colors, block, shade, Braille and sextant
@@ -1980,10 +1989,29 @@ const BASE: &[Case] = &[
             font: FontKind::ColorSet { height: 16 },
             ..Screen::new(
                 "emoji-rgba",
-                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16 and cut to its middle cell otherwise; the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
+                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16; otherwise the whole heart scaled to a 10×10 square centred on its one cell, reaching 1 pixel into the cell on each side (ADR-1302 D5); the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
                 EMOJI_RGBA,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::ColorSet { height: 16 },
+            selection: Some(((2, 0), (5, 0))),
+            tail: b"\x1b[2;3H\x1b[2 q\x1b[?25h",
+            phase: crate::draw::Phase {
+                cursor_on: true,
+                blink_hidden: false,
+                rapid_hidden: false,
+            },
+            ..Screen::new(
+                "emoji-rgba-marks",
+                "The heart of emoji-rgba's color set, which takes one cell with no selector, beside a selection and beside a block cursor (ADR-1302 D5, ADR-1306 D4), on yellow cells so its ink shows where it reaches. The first row is a❤b, two spaces, then a❤b, with a selection from the b after the first heart to the a before the second. The second row is x❤y❤z, with a block cursor on the y. Correct: each heart scaled to a 10×10 square centred on its one cell, reaching 1 pixel into the cell on each side, in its own colors; the hearts themselves unselected, and their edges that reach into the selected b and a in the hearts' own colors over the selection's background; and the edges of the two hearts beside the cursor reaching into the cursor's cell in the hearts' own colors over the cursor's background, on each side of the y.",
+                EMOJI_RGBA_MARKS,
+                12,
+                2,
             )
         },
     },
