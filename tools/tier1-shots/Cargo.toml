@@ -1,8 +1,9 @@
 # make tier1-shots: every tier 1 golden drawn as a picture through vtium's
 # own renderer, for the maintainer's review (ADR-1505, V3). Each replay case
 # and each screen a scenario dumps is replayed through vtium-replay's code,
-# checked against its golden, and drawn in unifont at 8x16. The pictures are
-# review renderings, not goldens.
+# checked against its golden, and drawn through the console's built-in face
+# in unifont at 8x16, or, for a screen that shows Arabic, in tier 2's scripts
+# font set at 16x40. The pictures are review renderings, not goldens.
 [package]
 name = "vtium-tier1-shots"
 description = "Tier 1's goldens drawn as pictures through vtium's renderer"
@@ -21,8 +22,16 @@ workspace = true
 vtium-term.workspace = true
 # the replay, its cases, its scenarios and the masking its judge reads
 vtium-conformance = { path = "../conformance" }
-# draws a terminal that is already set up through vtium-render in unifont
+# tier 2's scripts font set, its fonts' cache and the glyphs its engine
+# generates for a screen, which the pictures of Arabic draw in; and its image
+# type, which the pictures are drawn into
 vtium-tier2 = { path = "../tier2" }
+# the console's built-in face, and what a screen shows for a font set's
+# glyphs, as the console reads it
+vtium = { path = "../../crates/vtium", features = ["bidi"] }
+# the renderer that draws each picture, and the face it draws through
+vtium-render = { workspace = true, features = ["images", "bidi"] }
+vtium-font.workspace = true
 # writes the PNGs, as the specimens are written
 vtium-specimens = { path = "../specimens" }
 

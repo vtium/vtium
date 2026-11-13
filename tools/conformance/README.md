@@ -66,7 +66,7 @@ The tool draws three groups of pictures:
 - **corpus** and **vtium**: each case of `corpus/cases.list` and `vtium/cases.list`. The tool replays the case through vtium-replay's own replay, with its test commands, the fixture host and its fixtures, at the 8×16 reference cell. It replays the case once in each view that `conformance run` judges it in. Those are the screen and frame views, and the display view when `golden-display/` holds the case's golden. It then draws the terminal as the screen view's last block leaves it, after every test command.
 - **scenarios**: each screen that a behaviour scenario dumps. The tool plays the scenario as `conformance run` plays it and checks the transcript on file. It replays the scenario once more and draws the terminal at each `dump`'s block, in order. A behaviour scenario that dumps no screen has no picture, and the tool prints its name. A capability scenario has no transcript and no picture.
 
-Each picture is drawn through tier 2's renderer (`vtium_tier2::draw::draw_terminal`) in the built-in unifont, in cells of 8×16 pixels, at the size of the terminal's grid. Text and pictures, kitty, sixel and iTerm2, draw together. The cursor shows where the terminal shows it, and blinking text shows. Two runs write the same bytes.
+Each picture is drawn through vtium's renderer at the size of the terminal's grid. Its text draws as the console draws it with no font set, through the console's built-in face: GNU Unifont, in cells of 8×16 pixels. A cluster that the font has no glyph for draws as its NFC form, or as its base with its combining marks over it (ADR-1200 D22). A screen that shows Arabic draws instead in tier 2's scripts font set, the fonts of tier 2's `scripts-arabic` screen. That set is Iosevka Term in its 16×40 cell at 40 pixels, with Noto Sans Arabic behind it, so each Arabic letter takes its joined form. `make tier2-fonts` fetches those fonts. When they are missing, the tool draws no picture for that screen, and it prints the missing font and the command that fetches it. Text and pictures, kitty, sixel and iTerm2, draw together. The cursor shows where the terminal shows it, and blinking text shows. Two runs write the same bytes.
 
 The tool checks each output against its golden as `conformance run` does, after the same masking. A case or a scenario whose output differs from its golden is still drawn. The tool prints each such picture with the lines that differ, `-` for the golden's and `+` for the output's, each with its line number. A difference does not fail the run, since `conformance run` judges the goldens. The tool exits 1 when a replay or a drawing fails, and 2 when it refuses to run.
 
@@ -93,7 +93,7 @@ The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, e
 | `NAME.live.png`, `NAME-NN.live.png` | The live path's drawing of a screen, beside its picture, only when it differs from the picture. |
 | `manifest.json` | Every picture, in the order drawn: the corpus's cases, vtium's cases, then the scenarios by name. |
 
-`manifest.json` holds `cell`, `[8, 16]`, `font`, `"unifont"`, and `pictures`, a list with one object for each picture:
+`manifest.json` holds `cell`, `[8, 16]`, and `font`, `"unifont"`, the cell and the font of a picture that shows no Arabic. It also holds `pictures`, a list with one object for each picture:
 
 | Field | What it holds |
 |---|---|
@@ -102,6 +102,8 @@ The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, e
 | `name` | The case's or the scenario's name. |
 | `dump` | For a scenario's picture, `number` (from 1), `of` (the scenario's dumps), `command` (the `dump` as the transcript echoes it) and `line` (its line in the scenario's file). `null` for a case. |
 | `width`, `height` | The picture's size in pixels. |
+| `cell` | The size in pixels of the picture's character cell, or `[0, 0]` when there is no picture. |
+| `font` | `unifont` for the console's built-in face, or `tier2-scripts` for tier 2's scripts font set, which draws a screen that shows Arabic. |
 | `provisional` | The reason the provisional list gives, or `null` for a reviewed golden. |
 | `matches` | Whether the output equals every golden that judges the picture. |
 | `error` | Why a replay or a drawing stopped, or `null`. |
