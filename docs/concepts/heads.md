@@ -70,6 +70,38 @@ If you prefer not to write the file by hand, vtium-config writes it for you. It 
 
 Two features are not built yet. vtium-config cannot yet ask you to press a key to find out which keyboard belongs to which display. It also cannot yet report what the running console did with each device. See [the issue that tracks them](https://github.com/vtium/vtium/issues/367).
 
+## When a session ends or cannot start
+
+A head's consoles run their sessions. vtium shows a notice when a session ends for good, when a new console's session cannot start, or when sessions keep ending as soon as they start. See [Notices on the screen](../troubleshooting.md#notices-on-the-screen) for how long a notice stays.
+
+### Session ended. It will not start again.
+
+![vtium's notice over the last screen of a session, 800×480 pixels. A pale red box across the top of the screen holds one line: "Session ended. It will not start again. Press Ctrl+Super+↑ to switch to another screen." Below the box, the session's last screen stays as it was.](../figures/concepts-notice-oneshot.png)
+
+With the `oneshot` setting, vtium does not start a console's program again when the program exits. The console keeps its last screen, and vtium shows this notice over it. The notice stays for as long as that console is shown.
+
+The notice's second sentence names a key that takes you elsewhere. When no other console of the head still runs, it names the roaming chord, `Ctrl-Super-Up` by default, which makes another head the active head. When another console of the head still runs, it names the console chord, `Ctrl-Super-Right` by default, which shows that console. When vtium.conf binds no key to that action, the notice names no key.
+
+vtium exits once no head has anything left to run. To have vtium start the program again when the program exits, turn `oneshot` off. See [config.md](../config.md) for the key.
+
+### Console not opened: login could not start.
+
+![vtium's notice over a shell session, 800×480 pixels. A pale red box across the top of the screen holds one line: "Console not opened: login could not start." Below the box, the shell session goes on.](../figures/concepts-notice-no-console-opened.png)
+
+Under the open policy, `Ctrl-Super-Return` opens another console on a head. vtium shows this notice when it cannot start the new console's session. vtium then removes the new console, and the head goes on showing the console it showed before.
+
+vtium's log gives the reason, in a line that begins `head NAME: console N does not open:`. Fix what the line names, such as the command that the `login` key gives, then press `Ctrl-Super-Return` again.
+
+### All screens stopped: a session kept ending as soon as it started.
+
+![vtium's notice alone on the boot display, 800×480 pixels. A pale red box across the top of the screen holds the notice: "All screens stopped: a session kept ending as soon as it started. Nothing here takes input. Fix the login command in /etc/vtium/vtium.conf, then restart vtium or reboot." The rest of the screen is black.](../figures/concepts-notice-alone-stopped.png)
+
+vtium starts a console's program again when the program exits. An exit within 2 seconds of the program's start counts as quick. When a console's program exits quickly more than 5 times in a row, vtium hangs up the sessions of every head. Under the open policy, vtium then exits with status 1, so a getty takes the VT.
+
+Under the closed policy, vtium shows this notice instead. vtium starts no session again, every display that a head used goes dark, and the boot display shows this notice alone. The boot display is the display that was on when vtium started, or else the first connected one. The notice stays for as long as vtium runs.
+
+Nothing on this VT takes input. vtium delivers no key to anything, so no key switches to another VT either. Fix the command that the `login` key gives from outside this console, for example over ssh. Then restart vtium or reboot. See [Recovery from outside](#recovery-from-outside) for details.
+
 ## Two policies: open and closed
 
 vtium.conf's rules decide which keyboards reach which displays, much as a firewall decides which traffic passes. Like a firewall, the file has a default policy: `policy = open` or `policy = closed`. A file that does not set `policy` is open.
@@ -103,7 +135,7 @@ The fallback belongs to vtium's unit alone, so the operator of a closed machine 
 - The operator masks the gettys on the other VTs. Once vtium has ended, the kernel acts on `Ctrl-Alt-F<n>` again, so the key could switch to one of those gettys.
 - The operator sets logind's `NAutoVTs=0` and `ReserveVT=0`. Then logind starts no other vtium on a VT when someone switches to it.
 
-When a login keeps ending as soon as it starts, vtium stops every head, keeps its VT and shows a notice.
+When a login keeps ending as soon as it starts, vtium stops every head and keeps its VT. See [All screens stopped](#all-screens-stopped-a-session-kept-ending-as-soon-as-it-started) for details.
 
 Once vtium has read `policy = closed` in a file it trusts, nothing opens anything for as long as vtium runs. No other line of the file opens anything, whether that line is broken or not. Nothing that happens while vtium runs opens anything either.
 
@@ -117,7 +149,19 @@ Reload is not built yet. Once it is, these rules apply to it:
 
 Under either policy, vtium turns off a display that no rule matches. When the rules turn on no display at all, the display guard turns on the boot display. The boot display is the display that is on when vtium starts, or else the first connected one. See [Terms](../head-file.md#terms) for the exact order. In an open file, the boot display then shows the first head. In a closed file, it shows only a notice.
 
-When a valid closed file has heads but none of them has a display that is on, the boot display shows `No head has a connected display.` It is the only notice a valid file shows. A keyboard that a rule gives to a head keeps typing into that head while the head is dark, as on the kernel's console. So the notice says nothing about input. A closed file with no heads leaves every display dark and shows no notice.
+### No head has a connected display.
+
+![vtium's notice alone on the boot display, 800×480 pixels. A pale red box across the top of the screen holds two lines: "No head has a connected display." and "Connect a display that a rule in /etc/vtium/vtium.conf sends to a head." The rest of the screen is black.](../figures/concepts-notice-alone-no-display.png)
+
+vtium shows this notice when a valid closed file declares heads, but none of the heads has a display that is on. For example, the kiosk's monitor is unplugged at boot, and another display is connected. The display guard then turns on the boot display, and the boot display shows this notice alone. Of the notices about vtium.conf, this is the only one that a valid file shows. A closed file with no heads leaves every display dark and shows no notice.
+
+The notice says nothing about input, because what a keyboard does depends on its head:
+
+- A head whose display has never been on receives no keys.
+- A head whose last display went away keeps receiving keys from the keyboards that its rules give it. Its sessions run on unseen, as `when-display-lost` decides.
+- The keyboards of an isolated head never switch VTs. Under the closed policy, every head is isolated unless it sets `isolated = no`.
+
+Connect a display that a rule in vtium.conf sends to a head. When that display is on, its head shows on it, and the notice goes. `vtium check-config` checks that a connected display reaches a head, and it says what is missing when none does.
 
 `vtium check-config` lists the keyboards, mice and displays present that no rule matches, and what the policy does with each one. It lists them as notes. For a closed file, it says prominently when no keyboard present can reach any head. You can run it before you install the file.
 
