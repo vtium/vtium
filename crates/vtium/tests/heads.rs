@@ -8503,6 +8503,70 @@ fn the_rescue_notice_shows_on_a_vt_where_no_head_runs() {
     assert_eq!(s.app.display_notice("MEM-1"), Some((own, false)));
 }
 
+/// The seat of VT 4 under [`every_head_on_vt3`]'s file for `policy`, with
+/// a rule for a head the file does not define, so the file has errors. The
+/// large display is the boot display, and a keyboard no rule names is
+/// present.
+fn broken_on_vt4(policy: &str) -> Seat {
+    let text = format!(
+        "{}input path:kbd-gone -> nowhere\n",
+        every_head_on_vt3(policy)
+    );
+    let rules = start(&text);
+    assert!(rules.line().is_some(), "a vtium.conf with errors");
+    let [small, (node, large)] = two_displays();
+    let displays = [small, (node, large.lit())];
+    let rules = Some(rules.on_vt(Some(4)));
+    let mut s = Seat::with_rules(&[], rules, displays, ECHO, no_fonts());
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-any"));
+    s
+}
+
+/// D9's display guard and D7, as the maintainer decided on 2026-11-12:
+/// under open, on a VT where no head of a file with errors runs, the
+/// default head lights the boot display, with its login, and shows the
+/// file's console line.
+// covers: platform.heads.guards
+#[test]
+fn under_open_a_file_with_errors_lights_the_default_head_where_none_of_its_heads_runs() {
+    let mut s = broken_on_vt4("open");
+    assert_eq!(head_names(&s.app), ["console"]);
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "console", "ready")),
+        "its login runs"
+    );
+    assert!(
+        s.until_memory("/dev/mem1", BOUND, |m| m.frames > 0),
+        "the boot display lights"
+    );
+    assert_eq!(s.app.cells().len(), 1, "on the boot display alone");
+    assert_eq!(notice(&s.app, "console").as_deref(), Some(PARTLY));
+    s.type_on(KBD_A, "k\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "console", "got:k")),
+        "a keyboard types into it"
+    );
+}
+
+/// D9's display guard and D7: under closed, on a VT where no head of a
+/// file with errors runs, the boot display shows the file's console line
+/// as a notice alone, and no login starts.
+// covers: platform.heads.guards
+#[test]
+fn under_closed_a_file_with_errors_shows_its_notice_alone_where_none_of_its_heads_runs() {
+    let mut s = broken_on_vt4("closed");
+    assert_eq!(head_names(&s.app), Vec::<&str>::new());
+    assert!(s.until(BOUND, |a| {
+        a.notice_screen().is_some_and(|n| !n.cells().is_empty())
+    }));
+    assert_eq!(s.app.notice_screen().and_then(Head::notice), Some(PARTLY));
+    assert!(
+        s.until_memory("/dev/mem1", BOUND, |m| m.frames > 0),
+        "the boot display lights"
+    );
+    assert!(!s.app.started(), "no login starts");
+}
+
 impl Seat {
     /// The VT switches away, in a turn at `at`, and vtium lets it go.
     fn switch_away(&mut self, at: Instant) {

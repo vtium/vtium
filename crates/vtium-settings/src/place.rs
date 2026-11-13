@@ -172,14 +172,29 @@ fn boot_order(a: &Identity, b: &Identity) -> Ordering {
 /// A display that `placed` ties to a head on another VT is never the boot
 /// display (ADR-1401 D3, step 4).
 fn boot_display(devices: &[Identity], placed: &[Placed]) -> Option<usize> {
+    boot_display_of(devices, placed, |p| !matches!(p.place, Place::Elsewhere(_)))
+}
+
+/// The display the display guard lights (D9): the [`boot_display`], else,
+/// when a rule ties every connected display to a head of another VT, the
+/// boot display among those, so that a VT never stays dark for what
+/// survives of a file with errors.
+fn guard_display(devices: &[Identity], placed: &[Placed]) -> Option<usize> {
+    boot_display(devices, placed).or_else(|| boot_display_of(devices, placed, |_| true))
+}
+
+/// The boot display among the displays whose placement `among` keeps.
+fn boot_display_of(
+    devices: &[Identity],
+    placed: &[Placed],
+    among: impl Fn(&Placed) -> bool,
+) -> Option<usize> {
     let pick = |keep: fn(&Identity) -> bool| {
         devices
             .iter()
             .zip(placed)
             .enumerate()
-            .filter(|(_, (d, p))| {
-                d.kind == Kind::Display && !matches!(p.place, Place::Elsewhere(_)) && keep(d)
-            })
+            .filter(|(_, (d, p))| d.kind == Kind::Display && among(p) && keep(d))
             .min_by(|(_, (a, _)), (_, (b, _))| boot_order(a, b))
             .map(|(i, _)| i)
     };
@@ -262,6 +277,16 @@ impl Config {
         self.builtin_at(Some(vt))
     }
 
+    /// Whether the vtium on VT `vt` builds the default head: where it runs
+    /// the built-in default terminal ([`Config::uses_builtin_on`]), and,
+    /// for what survives of a file with errors under open, where no head of
+    /// the file runs on `vt`. The display guard then lights the boot
+    /// display in the default head, with its login (ADR-1401 D9, the
+    /// maintainer, 2026-11-12).
+    pub fn default_head_on(&self, vt: u16) -> bool {
+        self.uses_builtin_on(vt) || self.tail() && self.heads_on(Some(vt)).next().is_none()
+    }
+
     /// [`Config::uses_builtin_on`] for `vt`; a walk that names no VT never
     /// runs it.
     fn builtin_at(&self, vt: Option<u16>) -> bool {
@@ -279,8 +304,9 @@ impl Config {
     fn can_be_active(&self, place: Place, vt: Option<u16>) -> bool {
         match place {
             Place::Head(i) => i < self.heads.len() && self.runs(i, vt) && !self.isolated(i),
-            // the default head runs under open alone, for a file with no head
-            Place::DefaultHead => self.heads.is_empty() && self.policy == Policy::Open,
+            // the default head runs under open alone, where no head of the
+            // file runs on `vt`
+            Place::DefaultHead => self.policy == Policy::Open && self.heads_on(vt).next().is_none(),
             Place::Roaming
             | Place::Ignore
             | Place::Off
@@ -503,7 +529,7 @@ impl Config {
                 Policy::Closed if self.heads.is_empty() && !self.survivors => None,
                 Policy::Closed => Some(Place::Notice),
             };
-            let boot = boot_display(devices, &placed).and_then(|i| placed.get_mut(i));
+            let boot = guard_display(devices, &placed).and_then(|i| placed.get_mut(i));
             if let (Some(place), Some(p)) = (place, boot) {
                 *p = Placed {
                     place,
