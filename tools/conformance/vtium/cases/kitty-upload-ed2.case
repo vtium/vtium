@@ -1,7 +1,6 @@
 # ED 2 between chunks leaves the upload open.
 # References: ADR-1100 D16.
-# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "the cursor position used to display the image must be the position when the final chunk is received"
-# spec: ADR-1100 D16, "A clear leaves an open upload alone"
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "the cursor position used to display the image must be the position when the final chunk is received"; ADR-1100 D16, "A clear leaves an open upload alone"
 # covers: image.kitty
 size 20 10
 send "\e[1;1H\e_Ga=T,f=24,s=2,v=1,i=1,c=4,r=2,C=1,m=1;/wAA\e\\"

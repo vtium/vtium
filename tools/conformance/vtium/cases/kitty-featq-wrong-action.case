@@ -1,7 +1,6 @@
 # Keys the action does not read are not reported.
 # References: ADR-1100 D14.
-# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "the other keys in the feature query are interpreted as they would be for that action"
-# spec: ADR-1100 D14, "What the answer leaves out"
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "the other keys in the feature query are interpreted as they would be for that action"; ADR-1100 D14, "What the answer leaves out"
 # covers: image.kitty
 size 20 10
 send "\e_Ga=q,i=38,e=t,U=1,C=1,c=3\e\\"

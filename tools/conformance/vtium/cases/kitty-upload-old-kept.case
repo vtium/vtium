@@ -1,7 +1,6 @@
 # The old image under the same id stays until the new upload is accepted.
 # References: ADR-1100 D16.
-# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "terminals must not display anything, until the entire sequence is received and validated"
-# spec: ADR-1100 D16, "The reservation, and the old image under the same id"
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "terminals must not display anything, until the entire sequence is received and validated"; ADR-1100 D16, "The reservation, and the old image under the same id"
 # covers: image.kitty
 size 20 10
 send "\e_Ga=t,f=24,s=1,v=1,i=1;AAD/\e\\"
