@@ -68,7 +68,10 @@ def guest_of(name):
     systemd, "sysvinit" Debian with sysvinit as PID 1 (guest-sysvinit/)."""
     if name == "sysvinit":
         return {"dir": GUEST_SYSVINIT, "inputs": t3_common.SYSVINIT_INPUTS,
-                "embed": {"@INSTALL_SCRIPT@": "tier3-install"}, "prefix": "sysvinit-",
+                "embed": {"@INSTALL_SCRIPT@": "tier3-install",
+                          "@BUSYBOX_INITTAB@": "inittab-busybox",
+                          "@BUSYBOX_INIT@": "t3-busybox-init"},
+                "prefix": "sysvinit-",
                 "base": BASE_SYSVINIT, "fetch": "fetch-debian.sh"}
     return {"dir": GUEST, "inputs": t3_common.BASE_INPUTS,
             "embed": {"@INSTALL_SCRIPT@": "tier3-install",

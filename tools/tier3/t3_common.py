@@ -38,8 +38,10 @@ IMAGES = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/
 GOLDEN = os.path.join(HERE, "goldens")
 # The files in GUEST that provisioning builds the base image from.
 BASE_INPUTS = ("user-data.in", "meta-data", "tier3-install", "tier3-install.service")
-# The files in GUEST_SYSVINIT that provisioning builds its base image from.
-SYSVINIT_INPUTS = ("user-data.in", "meta-data", "tier3-install")
+# The files in GUEST_SYSVINIT that provisioning builds its base image from:
+# with its busybox boot's inittab and the script that starts busybox init.
+SYSVINIT_INPUTS = ("user-data.in", "meta-data", "tier3-install", "inittab-busybox",
+                   "t3-busybox-init")
 
 
 def base_image(image, archive, guest=None, inputs=BASE_INPUTS, prefix=""):

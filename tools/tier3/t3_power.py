@@ -6,7 +6,9 @@ drew before the key (after the resume, for suspend), and it passes when the cons
 vtium asked for the action and the guest carried it out the way the action
 promises, with no kernel panic. QEMU runs with -no-reboot, so a reboot ends
 the VM as a power-off does: QEMU's SHUTDOWN event tells them apart,
-"guest-reset" from "guest-shutdown".
+"guest-reset" from "guest-shutdown". On the busybox boot, whose PID 1 does
+not take the power-off signal, the case passes when vtium warned of that at
+its start and the guest stays up after the key (STAYS_UP).
 """
 
 import re
@@ -21,6 +23,7 @@ CHORDS = {
     "suspend-sysfs": ("ctrl", "alt", "home"),
     "reboot-sysvinit": ("ctrl", "alt", "delete"),
     "power-off-sysvinit": ("ctrl", "alt", "end"),
+    "power-off-busybox": ("ctrl", "alt", "end"),
 }
 # The cases that suspend: QMP sees the guest suspended and wakes it.
 SUSPENDS = ("suspend", "suspend-sysfs")
@@ -58,6 +61,11 @@ CHECKS = {
                        "sysvinit runs its inittab's ctrlaltdel entry, shutdown -r, which "
                        "switches to runlevel 6, stopping the services and unmounting the "
                        "filesystems, and the kernel restarts.",
+    "power-off-busybox": "key-power-off (Ctrl+Alt+End) on the guest without systemd booted "
+                         "with busybox init, which neither catches nor blocks SIGRTMIN+4. "
+                         "Correct: vtium warns at its start that the key will not work, sends "
+                         "the signal, the kernel drops it, and the guest stays up: a login "
+                         "on vtium's console after the key works.",
 }
 
 # The words that open each of vtium's warnings at its start that a bound
@@ -65,6 +73,19 @@ CHECKS = {
 # blocks it ("will not work"), or /proc/1/status does not say ("may not
 # work"). vtium's check-config notices (crates/vtium/src/notice.rs) word them.
 POWER_OFF_WARNING = "the key-power-off key"
+# The warning that PID 1 neither catches nor blocks the signal, which names
+# the signal's number as the guest's libc numbers SIGRTMIN+4.
+WILL_NOT_WORK = POWER_OFF_WARNING + " will not work"
+_WILL_NOT_WORK = re.compile(re.escape(WILL_NOT_WORK) + r": .*\(signal (\d+),")
+# The kernel's trace of a signal sent to PID 1, tracefs's signal_generate
+# event, which guest-sysvinit/setup reads onto the console for a disc with
+# trace-pid1-signals. Its res field is the kernel's verdict on the signal:
+# 0 delivered or queued, 1 dropped (TRACE_SIGNAL_IGNORED in the kernel's
+# include/trace/events/signal.h). The kernel drops a signal that PID 1
+# neither catches nor blocks.
+SIGNAL_TRACE = "signal_generate: "
+_SIGNAL_TRACE = re.compile(r"signal_generate: sig=(\d+) errno=-?\d+ code=-?\d+ comm=.* "
+                           r"pid=(\d+) grp=\d+ res=(\d+)")
 
 POWER_OFF = {
     "before": {"forbid": [POWER_OFF_WARNING]},
@@ -78,8 +99,9 @@ POWER_OFF = {
 
 # Lines each case requires on the console after its key, in order, lines it
 # requires in any order, lines it forbids, lines it requires or forbids
-# before the key ("before"), and the reason of QEMU's SHUTDOWN event it
-# requires (None: the guest runs on). vtium's own line shows the key
+# before the key ("before"), whether the kernel must drop the signal the
+# warning before the key names ("dropped"), and the reason of QEMU's
+# SHUTDOWN event it requires (None: the guest runs on). vtium's own line shows the key
 # reached it; systemd's targets, or sysvinit's runlevel and its scripts'
 # lines, show the services stopped and the filesystems unmounted; the
 # kernel's last line and QEMU's event show how the machine ended. A kernel
@@ -117,6 +139,14 @@ EXPECT = {
         "forbid": ["reboot: Restarting system", "Reached target"],
         "shutdown": "guest-shutdown",
     },
+    "power-off-busybox": {
+        "before": {"require": [WILL_NOT_WORK]},
+        "require": ["key-power-off: asking init to power off"],
+        "dropped": True,
+        "forbid": ["The system is going down", "Requesting system", "reboot: Power down",
+                   "reboot: Restarting system"],
+        "shutdown": None,
+    },
     "power-off": POWER_OFF,
     "power-off-after-s3": POWER_OFF,
     "suspend": {
@@ -138,6 +168,12 @@ EXPECT = {
 }
 
 PANIC = "Kernel panic"
+
+# The cases after whose key the guest stays up, and does not suspend: for
+# each, the lines the driver waits for after the key before it logs in on
+# vtium's console, vtium's line that it sent the signal and the kernel's
+# trace of the signal. A login that works shows the guest stayed up.
+STAYS_UP = {"power-off-busybox": ["key-power-off: asking init to power off", SIGNAL_TRACE]}
 
 # Cases that fail today for a reason outside vtium, each with the lines
 # that show it and why. Such a case passes with a note while it fails that
@@ -172,6 +208,8 @@ def judge(case, serial, since=0, shutdown=None):
     key must appear before `since`, and none it forbids there; after it,
     each required line must appear after the one before it, each "anywhere"
     line somewhere, no forbidden line and no kernel panic may appear, and
+    a "dropped" case needs the kernel's trace, after the key, of the signal
+    vtium's warning before the key names, sent to PID 1 and dropped, and
     QEMU's event must be the one the case requires."""
     lines = _lines(serial, since)
     want = EXPECT[case]
@@ -195,8 +233,31 @@ def judge(case, serial, since=0, shutdown=None):
     for marker in want["forbid"] + [PANIC]:
         if any(marker in line for line in lines):
             return "%r on the console after the key" % marker
+    if want.get("dropped"):
+        why = _dropped(before, lines)
+        if why:
+            return why
     if shutdown != want["shutdown"]:
         return "QEMU's SHUTDOWN reason is %r, not %r" % (shutdown, want["shutdown"])
+    return None
+
+
+def _dropped(before, lines):
+    """Why the kernel's trace in `lines` does not show the signal that
+    vtium's warning in `before` names sent to PID 1 and dropped; None when
+    it does."""
+    warned = next((m for m in map(_WILL_NOT_WORK.search, before) if m), None)
+    if warned is None:
+        return "vtium's warning before the key names no signal"
+    signal = warned.group(1)
+    traces = [m for m in map(_SIGNAL_TRACE.search, lines)
+              if m and m.group(1) == signal and m.group(2) == "1"]
+    if not traces:
+        return "no trace of signal %s sent to PID 1 after the key" % signal
+    delivered = next((m for m in traces if m.group(3) != "1"), None)
+    if delivered:
+        return ("the kernel delivered signal %s to PID 1 (res=%s), so PID 1 caught or "
+                "blocked it" % (signal, delivered.group(3)))
     return None
 
 

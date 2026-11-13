@@ -1750,6 +1750,12 @@ class PowerTest(unittest.TestCase):
                                "INIT: Switching to runlevel: 0",
                                "Will now halt.",
                                "[ 9.9] reboot: Power down"],
+        # The kernel's trace of the signal can reach the console before
+        # vtium's line, which t3-console stamps and forwards.
+        "power-off-busybox": ["           vtium-404     [000] d..2.     9.100500: "
+                              "signal_generate: sig=38 errno=0 code=0 comm=busybox pid=1 "
+                              "grp=1 res=1",
+                              "[ 9.1] vtium[404]: key-power-off: asking init to power off"],
     }
     # vtium's warning at its start where PID 1 neither catches nor blocks
     # SIGRTMIN+4.
@@ -1757,6 +1763,9 @@ class PowerTest(unittest.TestCase):
                "system (PID 1) neither handles nor blocks SIGRTMIN+4 (signal 38, from SigCgt "
                "and SigBlk in /proc/1/status). Unbind the key, or use an init system that "
                "powers off on that signal, such as systemd or sysvinit.")
+    # The console before the key, where a case needs lines there: on the
+    # busybox boot, vtium's warning at its start.
+    BEFORE = {"power-off-busybox": [WARNING]}
 
     # What a power-off after S3 ends with in QEMU: systemd-shutdown exits
     # when reboot(2) returns, ten seconds after the kernel's last line.
@@ -1764,13 +1773,22 @@ class PowerTest(unittest.TestCase):
     SHUTDOWN = {"reboot": "guest-reset", "reboot-hard": "guest-reset",
                 "power-off": "guest-shutdown", "power-off-after-s3": "guest-shutdown",
                 "suspend": None, "suspend-sysfs": None,
-                "reboot-sysvinit": "guest-reset", "power-off-sysvinit": "guest-shutdown"}
+                "reboot-sysvinit": "guest-reset", "power-off-sysvinit": "guest-shutdown",
+                "power-off-busybox": None}
 
-    def log(self, case, before=(), drop=None, extra=()):
-        lines = list(before) + [l for l in self.LOGS[case] if drop is None or drop not in l]
-        return ("\r\n".join(lines + list(extra)) + "\r\n").encode()
+    def before(self, case):
+        """The console before the key in `case`'s log: BEFORE's lines."""
+        lines = self.BEFORE.get(case, [])
+        return ("\r\n".join(lines) + "\r\n").encode() if lines else b""
 
-    def judge(self, case, serial, since=0):
+    def log(self, case, drop=None, extra=()):
+        lines = [l for l in self.LOGS[case] if drop is None or drop not in l]
+        return self.before(case) + ("\r\n".join(lines + list(extra)) + "\r\n").encode()
+
+    def judge(self, case, serial, since=None):
+        """t3_power.judge, with the key pressed after BEFORE's lines unless
+        `since` says where."""
+        since = len(self.before(case)) if since is None else since
         return t3_power.judge(case, serial, since, self.SHUTDOWN[case])
 
     def test_variants(self):
@@ -1779,7 +1797,7 @@ class PowerTest(unittest.TestCase):
         potato = t3_scenario.VARIANTS["2d-potato-min"]
         seen = []
         for name in t3_scenario.POWER_VARIANTS + ["sysvinit-reboot", "sysvinit-restart",
-                                                  "sysvinit-power-off"]:
+                                                  "sysvinit-power-off", "busybox-power-off"]:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
                 for key in ("device", "cpus", "memory_mb", "renderer"):
@@ -1827,7 +1845,8 @@ class PowerTest(unittest.TestCase):
                 "power-off": "key-power-off", "power-off-after-s3": "key-power-off",
                 "suspend": "key-suspend", "suspend-sysfs": "key-suspend",
                 "reboot-sysvinit": "key-reboot",
-                "power-off-sysvinit": "key-power-off"}
+                "power-off-sysvinit": "key-power-off",
+                "power-off-busybox": "key-power-off"}
         with open(os.path.join(t3_common.GUEST, "vtium-power.conf")) as f:
             conf = dict(line.strip().split("=", 1) for line in f if line.startswith("key-"))
         for case, chord in t3_power.CHORDS.items():
@@ -1894,6 +1913,95 @@ class PowerTest(unittest.TestCase):
         warned = (self.WARNING + "\r\n").encode()
         why, _ = t3_power.verdict(case, warned + self.log(case), len(warned), "guest-shutdown")
         self.assertIn("on the console before the key", why or "")
+
+    # The kernel's trace of a signal sent to PID 1, as tracefs's
+    # signal_generate event prints it: res=1 when the kernel drops the
+    # signal, res=0 when it delivers it.
+    TRACE = ("           vtium-404     [000] d..2.     9.100500: signal_generate: sig=%d "
+             "errno=0 code=0 comm=busybox pid=%d grp=1 res=%d")
+
+    def test_busybox_needs_the_warning_before_the_key(self):
+        # busybox init neither catches nor blocks SIGRTMIN+4, so vtium
+        # warns at its start that the key will not work. No warning, or
+        # the warning that vtium cannot tell, fails the case.
+        case = "power-off-busybox"
+        unwarned = self.log(case)[len(self.before(case)):]
+        why = self.judge(case, unwarned, since=0)
+        self.assertIn("no 'the key-power-off key will not work' on the console before the key",
+                      why or "")
+        unsure = ("[ 3.2] vtium[404]: config: the key-power-off key may not work: vtium cannot "
+                  "tell whether the init system (PID 1) handles SIGRTMIN+4 (signal 38), "
+                  "because /proc/1/status could not be read: denied\r\n").encode()
+        why = self.judge(case, unsure + unwarned, since=len(unsure))
+        self.assertIn("will not work' on the console before the key", why or "")
+        # A warning after the key is not the warning at vtium's start.
+        why = self.judge(case, self.log(case), since=0)
+        self.assertIn("before the key", why or "")
+
+    def test_busybox_needs_the_kernel_to_drop_the_signal(self):
+        # The kernel's trace after the key shows PID 1 sent the signal the
+        # warning names, and dropped: res=1.
+        case = "power-off-busybox"
+        self.assertIsNone(self.judge(case, self.log(case)))
+        for name, lines, want in (
+                ("no trace", [], "no trace of signal 38 sent to PID 1 after the key"),
+                ("another signal", [self.TRACE % (12, 1, 0)],
+                 "no trace of signal 38 sent to PID 1 after the key"),
+                ("another process", [self.TRACE % (38, 404, 1)],
+                 "no trace of signal 38 sent to PID 1 after the key"),
+                ("delivered", [self.TRACE % (38, 1, 0)],
+                 "the kernel delivered signal 38 to PID 1 (res=0), so PID 1 caught or "
+                 "blocked it")):
+            with self.subTest(name):
+                serial = self.log(case, drop="signal_generate", extra=lines)
+                self.assertEqual(self.judge(case, serial), want)
+        # A trace from before the key does not count.
+        trace = (self.TRACE % (38, 1, 1) + "\r\n").encode()
+        serial = self.before(case) + trace + self.log(case, drop="signal_generate")[
+            len(self.before(case)):]
+        why = self.judge(case, serial, since=len(self.before(case)) + len(trace))
+        self.assertEqual(why, "no trace of signal 38 sent to PID 1 after the key")
+
+    def test_busybox_reads_the_signal_from_the_warning(self):
+        # The signal is the number vtium's warning names, SIGRTMIN+4 as the
+        # guest's libc numbers it, not a number the judge assumes.
+        case = "power-off-busybox"
+        warned = (self.WARNING.replace("(signal 38,", "(signal 40,") + "\r\n").encode()
+        after = self.log(case)[len(self.before(case)):]
+        self.assertEqual(t3_power.judge(case, warned + after, len(warned), None),
+                         "no trace of signal 40 sent to PID 1 after the key")
+        after = self.log(case, drop="signal_generate", extra=[self.TRACE % (40, 1, 1)])[
+            len(self.before(case)):]
+        self.assertIsNone(t3_power.judge(case, warned + after, len(warned), None))
+
+    def test_busybox_fails_a_guest_that_went_down(self):
+        # The guest stays up: busybox init's shutdown, the kernel's last
+        # line, or QEMU's SHUTDOWN event each fail the case.
+        case = "power-off-busybox"
+        for extra in ("The system is going down NOW!", "Requesting system poweroff",
+                      "[ 12.1] reboot: Power down", "[ 12.1] reboot: Restarting system"):
+            with self.subTest(extra):
+                why = self.judge(case, self.log(case, extra=[extra]))
+                self.assertIn("on the console after the key", why or "")
+        for shutdown in ("guest-shutdown", "guest-reset", "the guest is paused"):
+            with self.subTest(shutdown):
+                why = t3_power.judge(case, self.log(case), len(self.before(case)), shutdown)
+                self.assertEqual(why, "QEMU's SHUTDOWN reason is %r, not None" % shutdown)
+        why = self.judge(case, self.log(case, extra=self.PANIC))
+        self.assertIn("'Kernel panic' on the console", why or "")
+
+    def test_busybox_case_stays_up(self):
+        # The driver waits for the guest's own lines after the key, then
+        # logs in, where every other case that does not suspend waits for
+        # the VM to end; the disc has the kernel trace the signals to PID 1.
+        self.assertEqual(t3_power.STAYS_UP, {
+            "power-off-busybox": ["key-power-off: asking init to power off",
+                                  "signal_generate: "]})
+        for case in t3_power.CHECKS:
+            with self.subTest(case):
+                self.assertEqual(case in t3_power.STAYS_UP,
+                                 t3_power.EXPECT[case]["shutdown"] is None
+                                 and case not in t3_power.SUSPENDS)
 
     def test_forbidden_lines(self):
         for case, extra in (("reboot-hard", OK_TARGET_REBOOT),
@@ -1984,8 +2092,10 @@ class SysvinitTest(unittest.TestCase):
                               r"(.*)", make, re.M).group(1)
         self.assertEqual(nosystemd, "$(or $(VARIANTS),%s)" % " ".join(
             t3_scenario.SYSVINIT_VARIANTS))
+        # The guest's busybox boot (BusyboxTest) runs only when named.
         sysvinit = [n for n, v in t3_scenario.VARIANTS.items() if v.get("guest") == "sysvinit"]
-        self.assertEqual(sorted(sysvinit), sorted(t3_scenario.SYSVINIT_VARIANTS))
+        self.assertEqual(sorted(sysvinit), sorted(t3_scenario.SYSVINIT_VARIANTS
+                                                  + t3_scenario.BUSYBOX_VARIANTS))
         for name in sysvinit:
             with self.subTest(name):
                 v = t3_scenario.VARIANTS[name]
@@ -2160,7 +2270,7 @@ class SysvinitTest(unittest.TestCase):
         image = "debian-13-generic-amd64-%s.qcow2" % make["T3SV_IMAGE_VER"]
         base = t3_common.base_image(image, make["T3SV_SNAPSHOT"], t3_common.GUEST_SYSVINIT,
                                     t3_common.SYSVINIT_INPUTS, "sysvinit-")
-        self.assertEqual(os.path.basename(base), "sysvinit-cbcceb5d646e8d78.qcow2")
+        self.assertEqual(os.path.basename(base), "sysvinit-10a794a420c61f4a.qcow2")
 
     def test_run_needs_its_base(self):
         # A run naming a variant of the guest without systemd refuses
@@ -2171,6 +2281,223 @@ class SysvinitTest(unittest.TestCase):
         with mock.patch.dict(t3_scenario.GUESTS["sysvinit"], base=missing):
             with self.assertRaisesRegex(SystemExit, "run `make tier3-image-nosystemd`"):
                 t3.run(args, LOG)
+
+
+class BusyboxTest(unittest.TestCase):
+    """The busybox boot of the guest without systemd: grub's second entry,
+    which a variant's disc picks, busybox init's inittab, the kernel's trace
+    of the signals sent to PID 1, the account of PID 1, and the driver's
+    path through a case the guest stays up after."""
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+
+    def read(self, name):
+        with open(os.path.join(t3_common.GUEST_SYSVINIT, name)) as f:
+            return f.read()
+
+    def test_variant(self):
+        # The power variants' machine and configuration, on the guest
+        # without systemd booted with busybox init, run only when named.
+        v = t3_scenario.VARIANTS["busybox-power-off"]
+        self.assertEqual(t3_scenario.BUSYBOX_VARIANTS, ["busybox-power-off"])
+        self.assertEqual(v, dict(t3_scenario.POWER, guest="sysvinit", init="busybox",
+                                 power=["power-off-busybox"]))
+        self.assertEqual(t3_scenario.base_of("busybox-power-off"),
+                         (t3_common.BASE_SYSVINIT, "tier3-image-nosystemd"))
+        self.assertNotIn("busybox-power-off", t3_scenario.SYSVINIT_VARIANTS)
+
+    def test_disc(self):
+        # The busybox variant's disc carries the grub.cfg that picks the
+        # busybox boot and the file that has the guest trace the signals
+        # sent to PID 1; the sysvinit variants' discs carry neither.
+        tree = os.path.join(self.dir.name, "tree")
+        write_tree(tree, ImplementationTest.TREE)
+        impl = t3_impl.tree(tree, os.path.join(self.dir.name, "out", "tree.tar"))
+        disc = os.path.join(self.dir.name, "disc")
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("busybox-power-off", self.dir.name, impl)
+            self.assertEqual(sorted(os.listdir(disc)),
+                             sorted(["vtium.conf", "screens", "setup", "t3", "t3-console",
+                                     "tree.tar", "grub.cfg", "trace-pid1-signals"]))
+            with open(os.path.join(disc, "grub.cfg")) as f:
+                self.assertEqual(f.read(), self.read("grub-busybox.cfg"))
+            t3_scenario.build_disc("sysvinit-power-off", self.dir.name, impl)
+            self.assertNotIn("grub.cfg", os.listdir(disc))
+            self.assertNotIn("trace-pid1-signals", os.listdir(disc))
+
+    def test_grub_picks_the_busybox_entry(self):
+        # The disc's grub.cfg names the entry provisioning writes to
+        # custom.cfg, whose kernel line runs t3-busybox-init as PID 1, and
+        # custom.cfg reads the disc's grub.cfg only after that entry, from
+        # the disc labelled T3PKG.
+        cfg = [l for l in self.read("grub-busybox.cfg").splitlines()
+               if l and not l.startswith("#")]
+        self.assertEqual(cfg, ["set default=t3-busybox"])
+        data = self.read("user-data.in")
+        custom = data[data.index("cat > /boot/grub/custom.cfg"):]
+        custom = custom[:custom.index("\n      EOF\n")]
+        entry = custom.index("menuentry 'Debian GNU/Linux, with busybox init' --id t3-busybox {")
+        self.assertIn(" init=/usr/local/sbin/t3-busybox-init\n", custom[entry:])
+        search = custom.index("search --no-floppy --label --set=t3pkg T3PKG")
+        self.assertLess(entry, search)
+        self.assertIn("source ($t3pkg)/grub.cfg", custom[search:].replace("\\$", "$"))
+        self.assertIn("insmod iso9660", custom)
+
+    def test_busybox_init_reads_its_own_inittab(self):
+        # t3-busybox-init binds busybox init's inittab over the sysvinit
+        # one, whose runlevel lines busybox would run one after another,
+        # then becomes busybox init.
+        script = [l for l in self.read("t3-busybox-init").splitlines()
+                  if l and not l.startswith("#")]
+        self.assertEqual(script[-1], "exec /bin/busybox init")
+        self.assertIn("if ! /bin/busybox mount -n -o bind /etc/inittab.busybox /etc/inittab; then",
+                      script)
+        data = self.read("user-data.in")
+        for path, placeholder in (("/etc/inittab.busybox", "@BUSYBOX_INITTAB@"),
+                                  ("/usr/local/sbin/t3-busybox-init", "@BUSYBOX_INIT@")):
+            with self.subTest(path):
+                at = data.index("  - path: %s\n" % path)
+                self.assertIn("content: %s\n" % placeholder, data[at:at + 200])
+        self.assertEqual(t3.guest_of("sysvinit")["embed"],
+                         {"@INSTALL_SCRIPT@": "tier3-install",
+                          "@BUSYBOX_INITTAB@": "inittab-busybox",
+                          "@BUSYBOX_INIT@": "t3-busybox-init"})
+        for name in ("inittab-busybox", "t3-busybox-init"):
+            self.assertIn(name, t3_common.SYSVINIT_INPUTS)
+        install = data[data.index("apt install --no-install-recommends"):]
+        self.assertIn("busybox", install[:install.index("\n      echo LANG")].split())
+
+    def test_inittab(self):
+        # Each line is one busybox init reads: four fields, an action it
+        # knows (init/init.c, parse_inittab), and a command. It runs the
+        # boot's scripts, then the boot hook, then the terminals: vtium on
+        # tty2 with init's console as its standard input, as under
+        # sysvinit, and gettys on tty1 and tty3.
+        actions = {"sysinit", "wait", "once", "respawn", "askfirst", "ctrlaltdel", "shutdown",
+                   "restart"}
+        lines = [l for l in self.read("inittab-busybox").splitlines()
+                 if l and not l.startswith("#")]
+        for line in lines:
+            with self.subTest(line):
+                fields = line.split(":", 3)
+                self.assertEqual(len(fields), 4)
+                self.assertIn(fields[2], actions)
+                self.assertTrue(fields[3])
+        self.assertEqual(lines, ["::sysinit:/etc/init.d/rcS",
+                                 "::wait:/usr/local/sbin/tier3-install",
+                                 "tty1::respawn:/sbin/getty --noclear 38400 tty1",
+                                 "::respawn:/usr/local/sbin/t3-console tty2",
+                                 "tty3::respawn:/sbin/getty 38400 tty3"])
+
+    def test_setup_traces_the_signals_to_pid1(self):
+        # Only on a disc that asks: the kernel's signal_generate event for
+        # each signal sent to PID 1 but SIGCHLD, read onto the console.
+        setup = self.read("setup")
+        block = setup[setup.index('if [ -f "$disc"/trace-pid1-signals ]; then'):]
+        block = block[:block.index("\nfi\n")]
+        for part in ("mount -t tracefs tracefs",
+                     "echo 'pid == 1 && sig != 17' > \"$t\"/events/signal/signal_generate/filter",
+                     "echo 1 > \"$t\"/events/signal/signal_generate/enable",
+                     "cat \"$t\"/trace_pipe > /dev/ttyS0 &"):
+            self.assertIn(part, block)
+
+    def test_check_guest(self):
+        # PID 1 is the init the variant boots.
+        good = {"init": "busybox /usr/bin/busybox", "systemd": "no", "udev": "212", "tree": "x"}
+        t3_scenario.check_guest("busybox-power-off", good)
+        with self.assertRaisesRegex(RuntimeError, "the guest's PID 1 is 'init /usr/sbin/init' "
+                                    "and systemd's directory is absent; the variant runs "
+                                    "busybox init"):
+            t3_scenario.check_guest("busybox-power-off", dict(good, init="init /usr/sbin/init"))
+        with self.assertRaisesRegex(RuntimeError, "the variant runs sysvinit"):
+            t3_scenario.check_guest("sysvinit-power-off", good)
+        with self.assertRaisesRegex(RuntimeError, "directory exists"):
+            t3_scenario.check_guest("busybox-power-off", dict(good, systemd="yes"))
+
+    class Vm:
+        """A guest the driver presses a stays-up case on: its console log
+        gets `after` once the key is pressed, its event port reports
+        `login`, and QEMU reports `shutdown`."""
+
+        def __init__(self, serial, before, after, login="T3-LOGIN /dev/pts/0",
+                     shutdown=None):
+            self.serial, self.after, self.login, self.shutdown = serial, after, login, shutdown
+            self.did = []
+            with open(serial, "wb") as f:
+                f.write(before)
+
+        def keys(self, *qcodes):
+            self.did.append(("keys", qcodes))
+            with open(self.serial, "ab") as f:
+                f.write(self.after)
+
+        def wait_serial(self, marker, timeout, since=0):
+            self.did.append(("wait", marker, since))
+            with open(self.serial, "rb") as f:
+                if marker not in f.read()[since:].decode():
+                    raise RuntimeError("no %r within %d s" % (marker, timeout))
+
+        def type(self, text):
+            self.did.append(("type", text))
+
+        def wait_event(self, marker, timeout):
+            self.did.append(("event", marker))
+            if self.login is None:
+                raise RuntimeError("no %r within %d s" % (marker, timeout))
+            return self.login
+
+        def shutdown_so_far(self):
+            return self.shutdown
+
+    def press(self, vm):
+        caps, errors, notes = {}, {}, {}
+        screen = t3img.Image(1, 1, b"\0\0\0")
+        with mock.patch.object(t3_scenario, "wait_stable", lambda *a, **k: screen):
+            t3_scenario.press_power_keys(vm, ["power-off-busybox"], self.dir.name, caps, errors,
+                                         notes, LOG, lambda name: None)
+        return caps, errors
+
+    def test_the_driver_logs_in_after_the_key(self):
+        # It waits for vtium's line and the kernel's trace written after
+        # the key, then logs in on vtium's console, and the case passes.
+        before = (PowerTest.WARNING + "\r\n").encode()
+        after = ("\r\n".join(PowerTest.LOGS["power-off-busybox"]) + "\r\n").encode()
+        vm = self.Vm(os.path.join(self.dir.name, "serial.log"), before, after)
+        caps, errors = self.press(vm)
+        self.assertEqual(errors, {})
+        self.assertEqual(list(caps), ["power-off-busybox"])
+        self.assertEqual(vm.did, [("keys", ("ctrl", "alt", "end")),
+                                  ("wait", "key-power-off: asking init to power off", len(before)),
+                                  ("wait", "signal_generate: ", len(before)),
+                                  ("type", "tester\n"), ("type", "tester\n"),
+                                  ("event", "T3-LOGIN")])
+
+    def test_the_judges_reason_comes_first(self):
+        # A guest that powered off fails with the judge's reason, not with
+        # the login that could not happen.
+        before = (PowerTest.WARNING + "\r\n").encode()
+        after = ("\r\n".join(PowerTest.LOGS["power-off-busybox"]
+                             + ["Requesting system poweroff", "[ 12.0] reboot: Power down"])
+                 + "\r\n").encode()
+        vm = self.Vm(os.path.join(self.dir.name, "serial.log"), before, after, login=None,
+                     shutdown="guest-shutdown")
+        caps, errors = self.press(vm)
+        self.assertEqual(caps, {})
+        self.assertEqual(errors, {"power-off-busybox":
+                                  "'Requesting system' on the console after the key"})
+        # A judge that passes leaves the login's failure as the reason.
+        after = ("\r\n".join(PowerTest.LOGS["power-off-busybox"]) + "\r\n").encode()
+        vm = self.Vm(os.path.join(self.dir.name, "serial.log"), before, after, login=None)
+        caps, errors = self.press(vm)
+        self.assertEqual(errors, {"power-off-busybox": "no 'T3-LOGIN' within 60 s"})
+        # No trace of the signal: the wait for it fails, and the judge says why.
+        after = ("\r\n".join(PowerTest.LOGS["power-off-busybox"][1:]) + "\r\n").encode()
+        vm = self.Vm(os.path.join(self.dir.name, "serial.log"), before, after)
+        caps, errors = self.press(vm)
+        self.assertEqual(errors, {"power-off-busybox":
+                                  "no trace of signal 38 sent to PID 1 after the key"})
 
 
 class PointerTest(unittest.TestCase):
@@ -2645,6 +2972,19 @@ class SerialTest(unittest.TestCase):
         line = "T3-DONE cjk \u4e2d".encode()
         self.assertEqual(self.wait([line[:-1], line[-1:] + b"\n"], marker="T3-DONE"),
                          "T3-DONE cjk \u4e2d")
+
+    def test_since(self):
+        # A wait from an offset reads only what the guest wrote after it:
+        # the marker the boot already logged does not end the wait, and the
+        # one written later does.
+        start = len(b"[  OK  ] Started \x1b[0;1;39mUser Login Management\x1b[0m.\r\r\n")
+        with self.assertRaisesRegex(RuntimeError, "no 'User Login Management' within 5 s"):
+            self.wait([], marker="User Login Management", timeout=5,
+                      how=lambda vm: vm.wait_serial("User Login Management", 5, since=start))
+        self.assertEqual(self.wait([b"[  30.0] Stopped User Login Management.\r\n"],
+                                   how=lambda vm: vm.wait_serial("User Login Management", 5,
+                                                                 since=start)),
+                         "[  30.0] Stopped User Login Management.")
 
 
 class LoggerTest(unittest.TestCase):

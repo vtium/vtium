@@ -1,0 +1,17 @@
+# The inittab of the guest's busybox boot, in busybox init's own format,
+# id:runlevels:action:command. busybox init takes the id as the terminal it
+# opens for the command, its init's console when the id is empty, and
+# ignores the runlevels. t3-busybox-init binds this file over the sysvinit
+# inittab at /etc/inittab, which busybox would otherwise read: busybox init
+# runs every "wait" line of that file, and its lines for runlevels 0 and 6
+# halt and restart the guest.
+#
+# busybox init runs the boot's scripts first, then the boot hook, which
+# installs the run's disc as rc.local does under sysvinit, and then starts
+# the terminals: vtium on tty2, with init's console as its standard input,
+# as sysvinit starts it, and gettys on tty1 and tty3.
+::sysinit:/etc/init.d/rcS
+::wait:/usr/local/sbin/tier3-install
+tty1::respawn:/sbin/getty --noclear 38400 tty1
+::respawn:/usr/local/sbin/t3-console tty2
+tty3::respawn:/sbin/getty 38400 tty3
