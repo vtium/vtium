@@ -137,17 +137,21 @@ fn text_drawing() -> vtium_render::Drawing {
     vtium_render::Drawing::text(notice::penguin::FULL, notice::penguin::SMALL)
 }
 
-/// The drawing a build with image support shows (ADR-1401 D7): tier 2
-/// builds vtium without the feature, so it names the sprite itself.
+/// The drawing a build with image support shows (ADR-1401 D7): the whole
+/// sprite in the full drawing's place, and the sprite cropped to its
+/// monitor in the small one's. Tier 2 builds vtium without the feature,
+/// so it names the sprite and its crop itself.
 fn sprite_drawing() -> Result<vtium_render::Drawing, String> {
-    use notice::penguin::{PALETTE, SPRITE_SIZE, samples};
+    use notice::penguin::{PALETTE, SPRITE_MONITOR_AT, SPRITE_MONITOR_SIZE, SPRITE_SIZE, samples};
     let samples = samples().ok_or("the sprite's PPM has another header")?;
-    Ok(text_drawing().with_sprite(vtium_render::Sprite::new(
-        SPRITE_SIZE.0,
-        SPRITE_SIZE.1,
-        &PALETTE,
-        samples,
-    )))
+    let sprite = vtium_render::Sprite::new(SPRITE_SIZE.0, SPRITE_SIZE.1, &PALETTE, samples);
+    let monitor = sprite.crop(
+        SPRITE_MONITOR_AT.0,
+        SPRITE_MONITOR_AT.1,
+        SPRITE_MONITOR_SIZE.0,
+        SPRITE_MONITOR_SIZE.1,
+    );
+    Ok(text_drawing().with_sprite(sprite, monitor))
 }
 
 /// The panic screen of the vtium.conf `file`, showing `drawing`.
