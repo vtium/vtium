@@ -87,7 +87,12 @@ impl Host {
             next_line: 100,
             cols: 12,
             cursor: (0, 0),
-            margins: Margins { top: 0, bottom: 3 },
+            margins: Margins {
+                top: 0,
+                bottom: 3,
+                left: 0,
+                right: 11,
+            },
             helper: false,
             replies: Vec::new(),
             requests: Vec::new(),
@@ -201,7 +206,8 @@ impl Context for Host {
     fn index(&mut self, n: usize) {
         // as the screen's move_down: inside the region the cursor stops at
         // the bottom margin and the region scrolls, which the stand-in
-        // cannot do; below it the cursor stops at the screen's last row
+        // cannot do, unless the cursor is outside the left and right
+        // margins; below it the cursor stops at the screen's last row
         self.indexed.push(n);
         let (col, row) = self.cursor;
         let bottom = self.margins.bottom;
@@ -212,7 +218,7 @@ impl Context for Host {
         };
         let room = end - row - 1;
         assert!(
-            n <= room || row > bottom,
+            n <= room || row > bottom || !self.margins.holds_column(col),
             "the stand-in screen does not scroll"
         );
         self.cursor = (col, row + n.min(room));
@@ -1865,7 +1871,10 @@ fn the_cursor_after_a_tall_image_is_bounded_by_the_margin_and_a_screen() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     // the cursor below the region: the rows indexed stop at the screen's
     // last row, and the column goes past the box
-    h.margins = Margins { top: 0, bottom: 1 };
+    h.margins = Margins {
+        bottom: 1,
+        ..h.margins
+    };
     h.cursor = (3, 2);
     send(&mut k, &mut h, &format!("a=T,s=8,v=96,i=1;{}", red(8 * 96)));
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
@@ -1876,7 +1885,10 @@ fn the_cursor_after_a_tall_image_is_bounded_by_the_margin_and_a_screen() {
     assert_eq!(h.cursor, (4, 3));
     // a box as wide as the screen from column 0 wraps: down one row more
     // than its rows less one, to column 0
-    h.margins = Margins { top: 0, bottom: 3 };
+    h.margins = Margins {
+        bottom: 3,
+        ..h.margins
+    };
     h.cursor = (0, 0);
     send(
         &mut k,
