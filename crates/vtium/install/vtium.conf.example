@@ -203,8 +203,8 @@
 ## keep working.
 ##
 ## vtium takes the display back at setForeground from the same console, when
-## that console's session ends, or when you switch away from vtium's VT and
-## back.
+## that console's session ends, when you switch away from vtium's VT and back,
+## or when vtium restarts.
 ##
 ## When off, vtium ignores both sequences. It is on by default.
 

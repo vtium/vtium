@@ -32,6 +32,14 @@
 //!   wake-up retry goes on while the program still holds a card. At a VT
 //!   acquire, the acquire wakes every card. Each head that draws again
 //!   draws whole.
+//! - **A restart of vtium** ends every hand-over, since the new vtium
+//!   knows of none. It takes its displays back, through the wake-up retry
+//!   while the program still holds a card, and sends keys to the console
+//!   again. A setForeground that the console sends later ends no
+//!   hand-over, and vtium ignores it.
+//! - **On the GPU path,** a wholly paused head gives back its textures
+//!   and frames as at a VT release (ADR-1303 D9), and makes them again
+//!   when it draws whole at the end.
 //!
 //! [`Vt::seat_manager`]: vtium_platform::vt::Vt::seat_manager
 //! [`Vt::restore`]: vtium_platform::vt::Vt::restore
@@ -274,12 +282,17 @@ impl App {
     }
 
     /// The heads wholly paused were `before`, and are `after`. A head
-    /// that pauses ends its pointer's drag and lets go of the keys its
-    /// consoles hold. A head that draws again draws each display whole.
+    /// that pauses ends its pointer's drag, lets go of the keys its
+    /// consoles hold, and on the GPU path gives back its textures and
+    /// frames, as at a VT release (ADR-1303 D9). A head that draws again
+    /// draws each display whole, making on the GPU path what it gave back.
     fn pause_changed(&mut self, before: &BTreeSet<usize>, after: &BTreeSet<usize>) {
         for &h in after.difference(before) {
             if let Some(head) = self.heads.get_mut(h) {
                 head.pointer.drag = None;
+                if let Some(painter) = &mut head.painter {
+                    painter.release();
+                }
             }
         }
         for &h in before.difference(after) {
