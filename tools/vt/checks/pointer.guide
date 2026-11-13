@@ -1,0 +1,25 @@
+# Whether the arrow pointer reads on every background (vtium/vtium#102).
+# vtium draws the pointer as an arrow. #102 would draw it by inverting the
+# pixels under it instead, so it reads on any background. This guide shows
+# backgrounds where an arrow might be hard to see; the answers decide
+# whether #102 is needed.
+#
+#   make vt-check GUIDE=pointer
+
+title: the arrow pointer on every background
+
+step: White, black and mid gray
+run: clear; for c in 107 40 100; do for i in $(seq 1 8); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; sleep 30
+expect: three bands fill the screen: white, black and mid gray. Move the mouse
+expect: across all three. The arrow is easy to see on each band, and its tip
+expect: is clear enough to aim at a single character.
+
+step: Strong colors
+run: clear; for c in 41 42 43 44 45 46; do for i in $(seq 1 4); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; sleep 30
+expect: six bands: red, green, yellow, blue, magenta and cyan. Move the mouse
+expect: across every band. The arrow is easy to see on each one.
+
+step: Busy text
+run: clear; for i in $(seq 1 24); do printf '\033[3%dm%s\033[0m\n' $((i % 8)) "$(head -c 400 /dev/urandom | base64 -w0 | cut -c1-$(tput cols))"; done; sleep 30
+expect: the screen is full of dense colored characters. Move the mouse over
+expect: the text. You can follow the arrow without losing it.
