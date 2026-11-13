@@ -13,7 +13,6 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 These are also not built yet:
 
 - Ligatures, and shaping across character cells.
-- The rest of the kitty keyboard protocol. A program can already turn on the protocol's unambiguous escape codes, and its key repeat and release events. See [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42).
 - Input methods.
 - The rest of the configuration tool's job: identifying a device by a keypress, `vtium config status`, and staging a trial. See [the issue that tracks it](https://github.com/vtium/vtium/issues/367).
 - `vtium-clipboard`.
@@ -63,6 +62,8 @@ The file's policy, `open` or `closed`, decides what vtium does with any device t
 ## Input
 
 vtium reads keyboards and pointers directly from their devices. It uses libxkbcommon for the keymap.
+
+A program can ask for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which editors such as Neovim and Helix and shells such as fish use. Under it, the program can tell every key and modifier apart, Escape from the start of an escape sequence and Ctrl+I from Tab among them. It can also ask for a key's repeats and releases, for every key as an escape code, and for the text a key types. On a non-Latin layout it gets each key's place on the US layout too, so a shortcut such as Ctrl+C works there. See [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42).
 
 You select text with the pointer. The middle button and Shift+Insert paste it. A program can copy text into the same selection with OSC 52. A program cannot read the selection back.
 

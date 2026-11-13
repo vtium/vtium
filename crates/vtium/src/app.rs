@@ -3269,13 +3269,8 @@ impl App {
         let Some(to) = self.held.released(node, key.keycode) else {
             return;
         };
-        let Some(&keysym) = key.keysyms.first() else {
+        let Some(release) = term_key(key, TermKeyEvent::Release) else {
             return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let release = Key {
-            event: TermKeyEvent::Release,
-            ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
         };
         self.send_release(to, &release);
     }
@@ -3544,19 +3539,13 @@ impl App {
         {
             return;
         }
-        let Some(&keysym) = key.keysyms.first() else {
-            return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let mods = Mods::from_bits(key.mods.bits());
         let event = if key.repeat {
             TermKeyEvent::Repeat
         } else {
             TermKeyEvent::Press
         };
-        let pressed = Key {
-            event,
-            ..Key::press(keysym, key.ascii, mods, unicode)
+        let Some(pressed) = term_key(key, event) else {
+            return;
         };
         if !key.repeat {
             let to = held::Console {
@@ -5138,6 +5127,24 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
     }
 }
 
+/// vtium-term's description of the key event `key` from vtium-platform,
+/// as `event`: its first keysym and that keysym's character, the ASCII
+/// layout's keysym, the unshifted key, the shifted key, the base layout key
+/// and the modifiers, whose bits the two crates share (ADR-1005, D1 and
+/// D2). `None` for an event with no keysym.
+pub fn term_key(key: &KeyEvent, event: TermKeyEvent) -> Option<Key> {
+    let &keysym = key.keysyms.first()?;
+    let unicode = key.codepoints.first().copied().flatten();
+    let mods = Mods::from_bits(key.mods.bits());
+    Some(Key {
+        event,
+        unshifted: key.unshifted,
+        shifted: key.shifted,
+        base: key.base,
+        ..Key::press(keysym, key.ascii, mods, unicode)
+    })
+}
+
 #[cfg(test)]
 #[expect(
     clippy::disallowed_methods,
@@ -6067,6 +6074,9 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6106,6 +6116,9 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: char::from_u32(keysym)
@@ -6155,6 +6168,9 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: vec![None],
@@ -6208,6 +6224,9 @@ mod tests {
         let chord = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6642,6 +6661,9 @@ mod tests {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::empty(),
             keysyms: vec![keysym],
             codepoints: char::from_u32(keysym)
@@ -6711,6 +6733,9 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],

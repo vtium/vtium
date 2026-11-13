@@ -731,6 +731,9 @@ impl Harness {
             let key = KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods: Mods::empty(),
                 keysyms: vec![keysym],
                 codepoints: vec![(c != '\r').then_some(c)],
@@ -786,6 +789,9 @@ fn the_seat_boots_draws_takes_keys_and_exits() {
     let ctrl_super_f12 = KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::LOGO),
         keysyms: vec![0xffc9],
         codepoints: vec![None],
@@ -1046,6 +1052,9 @@ fn a_switch_the_vt_raises_lets_go_of_the_keys_held() {
     let up = KeyEvent {
         keycode: 111,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::empty(),
         keysyms: vec![0xff52],
         codepoints: vec![None],
@@ -1077,6 +1086,111 @@ fn a_switch_the_vt_raises_lets_go_of_the_keys_held() {
     assert!(
         h.until(BOUND, |a| lines(a) == 2),
         "the stray release went nowhere: {:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D9: the binary hands vtium-term the unshifted key, the shifted
+/// key and the base layout key that vtium-platform reports, with each
+/// press and each release. Under the kitty keyboard protocol's flags 7,
+/// Ctrl+С on a Russian layout reaches the program as `CSI 1089 : : 99 ; 5
+/// u`, the base layout key c after an empty shifted key. Ctrl+Shift+1 on a
+/// US layout makes exclam, and reaches the program as `CSI 49 : 33 ; 6 u`:
+/// without the unshifted key its code would be 33. Each release carries
+/// the same forms.
+// covers: input.kitty-keyboard
+#[test]
+fn the_unshifted_and_base_layout_keys_reach_the_program() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -icanon -echo; printf '\\033[>7u'; echo ready; \
+         while :; do echo \"k:$(head -c 28 | tr '\\033' E)\"; \
+         echo \"j:$(head -c 22 | tr '\\033' E)\"; done",
+    ]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    let es = KeyEvent {
+        keycode: 54,
+        ascii: u32::from(b'c'),
+        unshifted: 0x0100_0441,
+        shifted: 0x0100_0421,
+        base: Some('c'),
+        mods: Mods::CTRL,
+        keysyms: vec![0x6d3],
+        codepoints: vec![Some('\u{441}')],
+        repeat: false,
+    };
+    let bang = KeyEvent {
+        keycode: 10,
+        ascii: u32::from(b'!'),
+        unshifted: u32::from(b'1'),
+        shifted: u32::from(b'!'),
+        base: Some('1'),
+        mods: Mods::CTRL.union(Mods::SHIFT),
+        keysyms: vec![u32::from(b'!')],
+        codepoints: vec![Some('!')],
+        repeat: false,
+    };
+    for key in [es, bang] {
+        h.app.input_event(InputEvent::Key(key.clone()), h.at());
+        h.app.input_event(InputEvent::Release(key), h.at());
+    }
+    let seen = |a: &App, want: &str| a.screen_text().iter().any(|l| l == want);
+    assert!(
+        h.until(BOUND, |a| seen(a, "k:E[1089::99;5uE[1089::99;5:3u")),
+        "Ctrl+С's press and release: {:?}",
+        h.app.screen_text()
+    );
+    assert!(
+        h.until(BOUND, |a| seen(a, "j:E[49:33;6uE[49:33;6:3u")),
+        "Ctrl+Shift+1's press and release: {:?}",
+        h.app.screen_text()
+    );
+}
+
+/// ADR-1005 D9, end to end on xkeyboard-config's Russian layout, the
+/// committed fixture `crates/vtium-platform/tests/keymaps/ru.xkb`: the
+/// keymap makes the key events of Ctrl+С, the key at US `c`, and the binary
+/// hands them to the console. Under the kitty keyboard protocol's flags 7,
+/// the program reads С's press as `CSI 1089 : : 99 ; 5 u`, the base layout
+/// key c after an empty shifted key, and its release with event type 3.
+/// The test fails when the fixture is missing or does not compile.
+// covers: input.kitty-keyboard
+#[test]
+fn the_russian_layout_reaches_the_program() {
+    use vtium_platform::input::{Compiled, Keymap, KeymapConfig};
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../vtium-platform/tests/keymaps/ru.xkb");
+    assert!(path.is_file(), "the fixture {} exists", path.display());
+    let config = KeymapConfig {
+        keymap_file: Some(path.clone()),
+        ..KeymapConfig::default()
+    };
+    let ru = Keymap::new(&config).expect("a keymap");
+    assert_eq!(ru.compiled(), &Compiled::File(path), "ru.xkb compiles");
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "stty -icanon -echo; printf '\\033[>7u'; echo ready; \
+         while :; do echo \"k:$(head -c 28 | tr '\\033' E)\"; done",
+    ]);
+    assert!(h.until(BOUND, |a| a.screen_text().iter().any(|l| l == "ready")));
+    // KEY_LEFTCTRL 29 and KEY_C 46, from linux/input-event-codes.h.
+    let events = ru.key_events(&[(29, true), (46, true), (46, false), (29, false)]);
+    assert_eq!(events.len(), 4, "two presses and two releases: {events:?}");
+    for event in events {
+        h.app.input_event(event, h.at());
+    }
+    assert!(
+        h.until(BOUND, |a| a
+            .screen_text()
+            .iter()
+            .any(|l| l == "k:E[1089::99;5uE[1089::99;5:3u")),
+        "Ctrl+С's press and release: {:?}",
         h.app.screen_text()
     );
 }
@@ -1727,6 +1841,9 @@ fn key(mods: Mods, keysym: u32) -> InputEvent {
     InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods,
         keysyms: vec![keysym],
         codepoints: vec![None],
@@ -2947,6 +3064,9 @@ fn key_paste_binds_the_paste() {
     let alt_p = InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: u32::from('p'),
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::ALT,
         keysyms: vec![u32::from('p')],
         codepoints: vec![Some('p')],
@@ -3041,6 +3161,9 @@ fn a_shift_chord_names_the_shifted_keysym() {
     let ctrl_shift_v = InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: u32::from('v'),
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::CTRL.union(Mods::SHIFT),
         keysyms: vec![u32::from('V')],
         codepoints: vec![Some('V')],
@@ -3139,6 +3262,9 @@ fn a_key_bound_elsewhere_acts_on_its_new_combination_and_its_old_reaches_the_pro
     let alt_k = InputEvent::Key(KeyEvent {
         keycode: 0,
         ascii: u32::from('k'),
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::ALT,
         keysyms: vec![u32::from('k')],
         codepoints: vec![Some('k')],
@@ -3271,6 +3397,9 @@ fn a_held_reset_key_resets_once() {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: Mods::CTRL.union(Mods::SHIFT),
             keysyms: vec![0xffff],
             codepoints: vec![None],
@@ -3530,6 +3659,9 @@ fn a_hostile_selection_is_pasted_filtered_once_a_press() {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: Mods::SHIFT,
             keysyms: vec![0xff63],
             codepoints: vec![None],

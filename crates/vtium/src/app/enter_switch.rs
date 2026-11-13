@@ -67,6 +67,9 @@ fn switch_key(n: u16) -> KeyEvent {
     KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: InputMods::empty(),
         keysyms: vec![SWITCH_VT_1 + u32::from(n.saturating_sub(1))],
         codepoints: vec![None],
@@ -217,6 +220,9 @@ mod tests {
         KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods,
             keysyms: vec![sym],
             codepoints: vec![None],

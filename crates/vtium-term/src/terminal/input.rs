@@ -3,7 +3,7 @@
 //! a key while the kitty keyboard protocol's flags are not 0, that
 //! protocol's (`kitty_keyboard.rs`).
 
-use super::kitty_keyboard::{disambiguates, legacy_event};
+use super::kitty_keyboard::{disambiguates, legacy_event, legacy_release, owes_release};
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
 use vtium_parse::InputMode;
@@ -101,6 +101,11 @@ pub struct Key {
     /// unshifted key, or 0 when the host does not report it. The kitty
     /// keyboard protocol sends it as the key's code.
     pub unshifted: u32,
+    /// The keysym the key makes at its Shift level in the active layout,
+    /// the shifted key, or 0 when the host does not report it. The kitty
+    /// keyboard protocol sends it while Shift is held, so with Caps Lock
+    /// on, Shift+A's shifted key is still A.
+    pub shifted: u32,
     /// The character the key types on the US PC-101 layout, the base
     /// layout key, when the host reports it.
     pub base: Option<char>,
@@ -124,6 +129,7 @@ impl Key {
             event: KeyEvent::Press,
             keysym,
             unshifted: 0,
+            shifted: 0,
             base: None,
             ascii,
             text,
@@ -659,7 +665,14 @@ impl Terminal {
     pub fn key(&mut self, key: &Key) -> bool {
         let keysym = self.arrow_keysym(key.keysym);
         let unshifted = self.arrow_keysym(key.unshifted);
+        if key.event == KeyEvent::Release {
+            return self.key_release(key, keysym, unshifted);
+        }
         let flags = self.state.keyboard.flags(self.state.screen.alternate());
+        if key.event == KeyEvent::Press {
+            let owed = owes_release(key, keysym, flags).then_some(flags);
+            self.state.keyboard.pressed(key.keysym, owed);
+        }
         if disambiguates(flags) {
             let Some(bytes) = self.state.kitty_key_bytes(key, keysym, unshifted, flags) else {
                 return false;
@@ -672,9 +685,6 @@ impl Terminal {
         {
             self.send(&bytes);
             return true;
-        }
-        if key.event == KeyEvent::Release {
-            return false;
         }
         let ascii = self.arrow_keysym(key.ascii);
         let mods = key.mods;
@@ -694,6 +704,26 @@ impl Terminal {
             bytes
         };
         self.send(&out);
+        true
+    }
+
+    /// A key's release: sent only where its press owed it, as the press
+    /// decided under the flags in force then, whatever the flags are now
+    /// (ADR-1005, D7). The release has the code its press used and the
+    /// modifiers held at the release.
+    fn key_release(&mut self, key: &Key, keysym: u32, unshifted: u32) -> bool {
+        let Some(flags) = self.state.keyboard.take(key.keysym) else {
+            return false;
+        };
+        let bytes = if disambiguates(flags) {
+            self.state.kitty_key_bytes(key, keysym, unshifted, flags)
+        } else {
+            legacy_release(key, keysym, unshifted)
+        };
+        let Some(bytes) = bytes else {
+            return false;
+        };
+        self.send(&bytes);
         true
     }
 

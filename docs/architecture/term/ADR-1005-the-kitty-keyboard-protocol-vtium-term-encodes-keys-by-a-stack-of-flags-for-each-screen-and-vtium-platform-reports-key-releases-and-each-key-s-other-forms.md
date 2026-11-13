@@ -76,6 +76,18 @@ considered:
     said: "Yes, keep them fixed (Recommended)"
     via: "the steering session's question tool, 2026-11-07: whether Ctrl+Alt+F1 to F12 and the rescue key stay fixed with no vtium.conf key; the maintainer chose this option, whose wording is the steering session's"
     covers: [two keys stay fixed]
+  - operator: aaronsb
+    said: "The six readings in the 2026-11-13 note are accepted as the maintainer's decisions, because they keep vtium closest to the specification, though kitty differs on Menu under flag 2 and on an alternate key equal to the key code."
+    via: the steering session's question on 2026-11-13, after a fresh review that compared the readings with the specification and with kitty's own encoder
+    paraphrase: true
+  - operator: aaronsb
+    said: "Under flag 2 alone, and any flags without 1 or 8, a key that makes text gets a release, sent as an escape code, as kitty does; whether a key gets a release follows from its press."
+    via: the steering session's question on 2026-11-13, after a fresh review that compared the readings with the specification and with kitty's own encoder
+    paraphrase: true
+  - operator: aaronsb
+    said: "vtium's keyboard tests run against real xkeyboard-config layouts, at least US, Russian, German and French AZERTY, compiled once and committed unchanged as fixtures; a change to keyboard handling adds or updates cases on those layouts, not only on US; a test that needs a fixture fails, never skips; xkbcli is part of the requirement, through make keymaps."
+    via: the steering session's question on 2026-11-13
+    paraphrase: true
 status: accepted
 date: 2026-11-07
 deciders:
@@ -257,7 +269,9 @@ The keys vtium keeps on both screens are the keys that lead out of a program or 
 
 A key vtium takes is vtium's for its whole life. vtium remembers which keys of each keyboard it took, and it takes their repeats and their releases as well, so a program never sees a release whose press it did not see.
 
-A program that asked for releases gets one for every press it got. The binary remembers, for each console, the keys it delivered there and that are still held. When the console stops receiving the keyboard while such a key is held, the binary sends the console a release for each of them. That happens when the VT is switched away, when a console chord shows another console, when the focus chord moves the keyboard to another head, and when the keyboard is unplugged. vtium-term encodes these releases only while flag 2 is in force, as it does any release. The specification does not say what a terminal does with keys held when it loses the keyboard. Without this rule, a program that saw Ctrl pressed before a VT switch would believe Ctrl is still held when the VT comes back, because vtium-platform starts a fresh keyboard state when it wakes.
+A program that asked for releases gets one for every press it got. The binary remembers, for each console, the keys it delivered there and that are still held. When the console stops receiving the keyboard while such a key is held, the binary sends the console a release for each of them. That happens when the VT is switched away, when a console chord shows another console, when the focus chord moves the keyboard to another head, and when the keyboard is unplugged. vtium-term decides whether a key gets a release as its press goes out, under the flags in force then. A key pressed while flag 2 was in force, whose press reports events, gets its release as an escape code, whatever the flags are at the release, with the code its press used and the modifiers held at the release. A key pressed while flag 2 was not in force gets none. With flag 1 or flag 8 in force, a press reports events when it is sent as an escape code. Without them, it reports events when the specification's legacy section gives it an escape code with a modifiers field, and when the key makes text, which the protocol's legacy section leaves without a release. The specification does not say what a terminal does with keys held when it loses the keyboard. Without this rule, a program that saw Ctrl pressed before a VT switch would believe Ctrl is still held when the VT comes back, because vtium-platform starts a fresh keyboard state when it wakes.
+
+> Edited 2026-11-13: the maintainer decided, after a fresh review, that whether a key gets a release follows from its press, and that under flags without 1 or 8 a key that makes text gets a release as an escape code, as kitty sends one (`considered`, 2026-11-13). So under flag 2 alone, `a` sends `a` on its press and `CSI 97 ; 1:3 u` on its release. The review found that vtium chose a release's form from the modifiers held at the release: under flags 3, Ctrl+A's press was `CSI 97 ; 5 u`, and with Ctrl let go first, A's release sent nothing. The paragraph's sentence read: "vtium-term encodes these releases only while flag 2 is in force, as it does any release." The second slice also sent nothing for the release of a key that makes text under flag 2 alone.
 
 ### D8: releases, repeats and the modifiers, from vtium-platform
 
@@ -271,7 +285,9 @@ A program that asked for releases gets one for every press it got. The binary re
 
 - **The unshifted key** is the keysym the key makes at the first shift level of the active layout. vtium-term sends it as the key's code: Ctrl+Shift+A is sent with the code 97, `a`. When a modifier the protocol cannot encode chose the key's symbol, such as AltGr or the level-five shift, the platform reports no unshifted key, and vtium-term sends the symbol the key made. Otherwise AltGr+Q, which makes `@` on a German layout, would be sent as Q with no modifier, and a program could not tell it from Q. foot follows the same rule.
 - **The base layout key** comes from a fixed table in vtium-platform, from the kernel's key code to the character the key types on the US PC-101 layout. The kernel names its key codes after their places on that keyboard, `KEY_Q` and `KEY_A` among them, so the table gives exactly the key the specification describes, whatever layout the user has configured. On a Russian layout, Ctrl+С is sent with the base layout key 99, `c`. A key the PC-101 layout lacks, such as the extra key of ISO keyboards, has no base layout key. vtium-term sends the base layout key only under flag 4, and only where it differs from the key's code.
-- **The shifted key** is the keysym the key makes with the modifiers held. vtium-term sends it under flag 4 only while Shift is held, as the specification says.
+- **The shifted key** is the keysym the key makes at the level of its layout that Shift alone chooses, which vtium-platform reports. vtium-term sends it under flag 4 only while Shift is held, as the specification says. Where the host reports none, vtium-term sends the character the key made.
+
+> Edited 2026-11-13: a fresh review found that with Caps Lock on, Ctrl+Shift+A under flags 5 was `CSI 97 ; 70 u`, because Caps Lock and Shift together make a, where the specification asks for the shifted key, `CSI 97:65 ; 70 u`. The bullet read: "**The shifted key** is the keysym the key makes with the modifiers held. vtium-term sends it under flag 4 only while Shift is held, as the specification says."
 
 ### D10: vtium's own keys in vtium.conf, the reset key among them
 
@@ -326,7 +342,22 @@ Each slice is a card of its own, branched from `integration`, and lands in this 
 
 > Edited 2026-11-07: item 4 named its keys `grab-` keys; the maintainer renamed them to key bindings named `key-` (D10).
 
+> Edited 2026-11-13: the work that builds the third slice settles six readings of the specification that this record left open. The work offered each as this record agent's call, and on 2026-11-13 the maintainer accepted all six as their decisions, because they keep vtium closest to the specification (`considered`, 2026-11-13). A fresh review compared the readings with kitty's own encoder, and kitty differs on two of them. Under flag 2 without flag 1, kitty sends Menu as `CSI 57363 u`, where vtium follows the legacy section's table, `CSI 29 ~` (reading 1). kitty also sends an alternate key that equals the key code, which vtium leaves out (reading 3). vtium now keeps all five flags, so D3's last sentence about the slices no longer drops any bit.
+>
+> 1. **Keys the legacy section does not describe, under flags without 1 or 8.** The specification's legacy section says "Any key events not described in this section are sent using the standard `CSI u` encoding", and also that terminals "may instead choose to ignore such keys in legacy mode". D6 lets the specification decide every key while the flags are not 0. So under flag 2 alone, or any flags that hold neither 1 nor 8, vtium sends F13 to F35, Scroll Lock, Print, Pause and the media keys as `CSI number u` with their numbers from the table, press, repeat and release. Menu is the legacy table's `CSI 29 ~`. While the flags are 0, these keys keep xterm's encoding or send nothing, as D6's first bullet says.
+> 2. **The keypad under flags without 1 or 8.** The legacy section says "All keypad keys are reported as their equivalent non-keypad keys". So the keypad's cursor and editing keys send the repeat and the release of the key they stand for, such as End's `CSI 1 ; 1:3 F` for the keypad's End. The keypad's Enter is Enter and sends no release. A press keeps xterm's bytes, as slice 2 decided for the cursor keys.
+> 3. **Which keys carry alternate keys.** The specification defines the shifted key and the base layout key as sub-fields of the Unicode key code. vtium adds them only to a key that makes text and is sent as `CSI code u`. The functional keys, Enter, Tab, Backspace and the keypad carry none. vtium leaves out an alternate key that equals the code. D9 decides that for the base layout key, and the specification says nothing about a shifted key equal to the code.
+> 4. **When flag 16 adds text.** The specification calls flag 16 "undefined if used without" flag 8. vtium adds text only while flag 8 is also in force. A key makes text while nothing but Shift and the locks is held, so Alt+A carries no text field. A press and a repeat carry the text, and a release carries none.
+> 5. **The locks under flag 8.** The disambiguate section says the lock modifiers are not reported for keys that make text, and points to flag 8 "to get lock modifiers for all keys". So under flag 8 a text key's escape code carries the Caps Lock and NumLock bits.
+> 6. **The unshifted key's form, in vtium-platform.** vtium-platform gives a keysym outside Latin-1 that stands for a character as that character's Unicode keysym, such as 0x1000441 for Cyrillic_es. xkb treats both keysyms as the same symbol, and vtium-term can then read the character without xkb's table. "A modifier the protocol cannot encode" (D9) is read as any modifier xkb reports as consumed by the key, other than Shift, Lock, Control, Alt, Super, NumLock, and Hyper and Meta where vtium reports them.
+
 A case the specification leaves unclear while a slice is built is settled by running kitty as a program, and the crate's README records what kitty did. Keys reach kitty under Xvfb through XTEST only once its window has the keyboard focus, which this record's runs did not achieve.
+
+### D14: keyboard tests run on real layouts
+
+vtium's keyboard tests run against real keyboard layouts from xkeyboard-config, at least US, Russian, German and French AZERTY. Each layout is compiled once with `xkbcli compile-keymap` and committed unchanged as a test fixture in `crates/vtium-platform/tests/keymaps/`, whose README records the command and the xkeyboard-config version. A change to how vtium handles keys adds or updates cases on those layouts, not only on US. A test that needs a layout fails when its file is missing or does not compile, and never skips. `make keymaps` compiles the files again, and needs `xkbcli`; the tests read the committed files, so `cargo test` needs no xkbcli. A layout edited by hand for a test, as the tests of D8 edit the built-in keymap, does not stand in for a real one.
+
+> Added 2026-11-13: the maintainer decided that real layouts are a requirement for testing vtium's keyboard handling (`considered`, 2026-11-13). The record said nothing about which keymaps the tests use.
 
 ## Consequences
 

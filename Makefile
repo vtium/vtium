@@ -436,6 +436,10 @@ define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
 
+.PHONY: keymaps
+keymaps: ## Compile the keyboard tests' keymap fixtures again from this machine's xkeyboard-config with xkbcli, and record its version (needs xkbcli)
+	tools/keymaps/compile
+
 .PHONY: deny
 deny: ## Check the license and the source of every crate that a lock file of vtium's names against deny.toml (needs cargo-deny at DENY_VERSION)
 	$(deny-version)

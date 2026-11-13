@@ -173,6 +173,18 @@ crates/vtium-config/tests/fixtures/NotoNaskhArabic-LICENSE.txt, and the
 fixtures' README says how the subset was made. The tests read it; vtium
 installs none of it.
 
+The real keyboard layouts of the keyboard tests, the files us.xkb, ru.xkb,
+de.xkb and fr.xkb in crates/vtium-platform/tests/keymaps/: xkeyboard-config
+2.49's US, Russian, German and French layouts, as `xkbcli compile-keymap`
+compiles them, unchanged. vtium does not change these layouts; it only uses
+them. They come under xkeyboard-config's copyright and permission notices, a
+set of X11 and MIT-style notices from the holders its COPYING file names,
+among them Joseph Moss, the Free Software Foundation, Digital Equipment
+Corporation and The Open Group. That COPYING file's text is
+crates/vtium-platform/tests/keymaps/xkeyboard-config-COPYING, unchanged, and
+the fixtures' README says how the files are made. vtium's tests read them; no
+vtium binary includes them, and no vtium package installs them.
+
 The panic screen's drawing of Tux, the Linux penguin, panicked inside a
 computer monitor (crates/vtium/art/), built into vtium: the maintainer's
 drawing in 7-bit ASCII, panic-penguin-aaron.txt and its small version

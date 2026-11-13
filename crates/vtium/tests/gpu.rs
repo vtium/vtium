@@ -473,6 +473,9 @@ fn char_key(c: char) -> KeyEvent {
     KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods: Mods::empty(),
         keysyms: vec![keysym],
         codepoints: vec![(c != '\r').then_some(c)],

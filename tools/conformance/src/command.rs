@@ -75,6 +75,10 @@ pub enum Command {
         unicode: Option<u32>,
         mods: u8,
         event: KeyAction,
+        /// The unshifted key, 0 for none (the feature `key-forms`).
+        unshifted: u32,
+        /// The base layout key's code point (the feature `key-forms`).
+        base: Option<u32>,
     },
     Mouse {
         col: u64,
@@ -189,7 +193,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.8, in the order of its describe blocks:
+/// Every command of interface 1.9, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -226,7 +230,15 @@ pub const SPECS: &[Spec] = &[
     spec(
         "key",
         Some("input"),
-        &["sym", "ascii", "unicode", "mods", "event"],
+        &[
+            "sym",
+            "ascii",
+            "unicode",
+            "mods",
+            "event",
+            "unshifted",
+            "base",
+        ],
         true,
     ),
     spec(
@@ -466,6 +478,11 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 )?,
                 None => KeyAction::Press,
             },
+            unshifted: to_u32(f.hex("unshifted", 0x1fff_ffff, Some(0))?),
+            base: match f.get("base") {
+                Some(_) => Some(to_u32(f.hex("base", 0x10_ffff, None)?)),
+                None => None,
+            },
         },
         "mouse" => {
             let button = f.name_of(
@@ -696,8 +713,25 @@ mod tests {
                 unicode: Some(0x62),
                 mods: 0,
                 event: KeyAction::Press,
+                unshifted: 0,
+                base: None,
             })
         );
+        // INTERFACE-vtium.md, the feature key-forms
+        assert_eq!(
+            parse(b"key;sym=6d3;unicode=441;unshifted=6d3;base=63;mods=4"),
+            Ok(Command::Key {
+                sym: 0x6d3,
+                ascii: 0,
+                unicode: Some(0x441),
+                mods: 4,
+                event: KeyAction::Press,
+                unshifted: 0x6d3,
+                base: Some(0x63),
+            })
+        );
+        assert_eq!(code("key;sym=61;base=110000"), Some(2));
+        assert_eq!(code("key;sym=61;unshifted=20000000"), Some(2));
         // INTERFACE-vtium.md, the feature key-events
         for (name, event) in [
             ("press", KeyAction::Press),
@@ -713,6 +747,8 @@ mod tests {
                     unicode: None,
                     mods: 4,
                     event,
+                    unshifted: 0,
+                    base: None,
                 }),
                 "{text}"
             );

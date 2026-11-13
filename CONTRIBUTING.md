@@ -34,6 +34,8 @@ The gates are the checks every change passes before review. [AGENTS.md](AGENTS.m
 
 `rust-toolchain.toml` pins the Rust toolchain that the gates and CI run on, and rustup installs it the first time you run cargo in the checkout. `rust-version` in `Cargo.toml` is the oldest Rust that vtium builds on, and `make msrv`, one of the gates, builds the workspace, its tests included, and the minspec profile with it. To move the pin, change `channel` in `rust-toolchain.toml`, fix what the gates then report, and put both in one commit.
 
+The keyboard tests read real keyboard layouts that `crates/vtium-platform/tests/keymaps/` holds as committed files, so `cargo test` needs nothing more. To compile those files again, `make keymaps` needs `xkbcli`, libxkbcommon's command line tool, and xkeyboard-config with its pkg-config file. The package libxkbcommon provides `xkbcli` on Arch, libxkbcommon-tools on Debian and libxkbcommon-utils on Fedora. The fixtures' README says when to run it.
+
 [AGENTS.md](AGENTS.md) also describes the rest of the working loop: the worktrees, the VT review, and how work reaches main.
 
 ### The pull request

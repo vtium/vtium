@@ -39,5 +39,7 @@ view-scrollback	a new scenario; its transcript waits for the maintainer's review
 view-prompt-jump	a new scenario; its transcript waits for the maintainer's review
 key-backspace	a new scenario; its transcript waits for the maintainer's review
 reset-state	a new scenario; its transcript waits for the maintainer's review
-key-kitty-flags	the kitty keyboard protocol's flag 2 moves three replies of its transcript: a push of 31 and a set of 31 by mode 2 read back 3 where they read 1, and a clear of 1 by mode 3 then reads back 2 where it read 0; it waits for the maintainer's review again
+key-kitty-flags	vtium keeps flags 4, 8 and 16 as well, and that moves three replies of its transcript, which this change leaves as it was: a push of 31 and a set of 31 by mode 2 read back 31 where the transcript reads 3, and a clear of 1 by mode 3 then reads back 30 where it reads 2; it waits for the maintainer's review and a golden commit
 key-kitty-event-types	a new scenario; its transcript waits for the maintainer's review
+key-kitty-legacy-functional	a new scenario: under flag 2 without flag 1, F13 and F35 send CSI 57376 u and CSI 57398 u with their repeats and releases, Menu sends CSI 29 ~ and its release, the keypad's End and Delete send End's and Delete's releases, the keypad's Enter sends CR and no release, and F13 at flags 0 sends CSI 25 ~ again; its transcript waits for the maintainer's review
+key-kitty-release-rule	a new scenario: under flag 2 alone a text key sends its text and its release as CSI 97;1:3u; Ctrl+a pressed under flags 3 gets its release CSI 97;1:3u after a pop to flags 0; a press at flags 0 gets no release once flag 2 is pushed; and a release with no press sends nothing; its transcript waits for the maintainer's review

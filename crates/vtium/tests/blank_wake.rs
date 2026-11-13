@@ -355,6 +355,9 @@ impl Harness {
         let key = KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: Mods::empty(),
             keysyms: vec![u32::from('a')],
             codepoints: vec![Some('a')],
