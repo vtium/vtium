@@ -17,3 +17,7 @@ the start checks for a keyboard once its device scan is placed	crates/vtium/src/
 with no keyboard present, every head shows the no-keyboard notice	crates/vtium/src/app.rs	App::turn
 the no-keyboard notice, word for word	crates/vtium/src/notice.rs	NO_KEYBOARD
 a keyboard plugged in later is placed by the rules alone	crates/vtium-settings/src/place.rs	Config::walk
+vtium config install refuses a draft that fails vtium check-config, and installs a file that passes the ownership check	crates/vtium-config/src/flowcli.rs	Command::install
+vtium config edit checks the draft when the editor exits and installs it with --install only when the check passes	crates/vtium-config/src/flowcli.rs	Command::edit_loop
+vtium config history lists the files earlier installs replaced, and restore copies one into the draft	crates/vtium-config/src/flowcli.rs	Command::restore
+the drawing of Tux on the panic screen, ASCII without image support and a sprite with it	crates/vtium/src/notice/penguin.rs	FULL

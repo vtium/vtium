@@ -54,3 +54,6 @@ the rescue key makes the keyboard that pressed it roam, and shows a notice	crate
 the rescue key's notice names the active head, or says no head is active	crates/vtium/src/app.rs	App::rescue_line
 the rescue key's notice with an active head, word for word	crates/vtium/src/notice.rs	rescue
 the rescue key's notice with no active head, word for word	crates/vtium/src/notice.rs	rescue_no_head
+check-config notes when the rules ignore every keyboard, and when a head's only keyboard is one device	crates/vtium/src/check.rs	device_findings
+the built-in configuration sends every keyboard to roaming	crates/vtium-settings/templates/heads.conf	input class:keyboard -> roaming
+a head can be the active head only when it is not isolated and runs on this VT	crates/vtium-settings/src/place.rs	Config::can_be_active
