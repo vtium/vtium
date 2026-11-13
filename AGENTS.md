@@ -25,6 +25,19 @@ Work on vtium happens only in vtium's own repositories, under the vtium organiza
 ## Writing
 
 - Write about vtium in the present tense everywhere you write: docs, comments, commits, PR bodies and issues. History can be told in the past tense.
+- A code comment explains in its own plain words what the code does and why. A reader understands it without following any reference, so it never leans on a decision record to finish a sentence. The maintainer decided this on 2026-11-13, after spot checks found comments that assume the reader already knows each record. Decision-record references go in a block of their own at the end of the comment, headed `References:`, with one line for each record that says what the record decides for this code:
+
+  ```rust
+  /// Tries to wake the displays again once a second while this VT is shown.
+  /// Another program may let go of the display at any moment, and nobody may
+  /// press a key, so vtium keeps trying on its own instead of waiting for input.
+  ///
+  /// References:
+  /// - ADR-1000, "Replies and policy": the slow retry and its once-a-second pace.
+  /// - ADR-1400 D1: why vtium needs DRM master to draw.
+  ```
+
+  Write "ADR-1401 D9 decides it" in the block, never "(ADR-1401 D9)" in the middle of a sentence. New and changed comments follow this now. The existing comments move to it crate by crate, and a check that fails on a citation outside a References block comes with that work. See #403.
 - A decision record (an ADR, under `docs/architecture/`) never names a GitHub issue or PR by its number. The record says in a short phrase what the issue is about: what the work builds, what was found, or what was decided, as in "the work that draws right-to-left text". The record then carries its meaning on its own, the way a statically linked program carries its libraries, where a number only points somewhere else. The issue column of ADR-1000's TSVs is the one exception, because that column exists to name each row's issue. Issues, PRs, commits, code and the other docs keep using numbers.
 - Say each fact once. Don't hard-wrap prose: one paragraph is one line in the file.
 - The configuration files vtium ships, `crates/vtium/install/vtium.conf.example` (generated from the key table) and the head file template `crates/vtium-settings/templates/heads.conf`, wrap the prose of their comments at 78 columns and break each description into paragraphs, because people read them in a terminal editor. vtium-config keeps those comments as they are when it edits a vtium.conf. Source, docs and records keep one paragraph per line.
