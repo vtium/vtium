@@ -3916,6 +3916,11 @@ fn under_oneshot_vtium_exits_when_the_last_heads_program_ends() {
 /// of the other head's consoles have set their trap, so the exit comes
 /// after them; every start after the first exits at once.
 fn crash_loop(dir: &Path, looping: &str, policy: &str) -> Seat {
+    crash_loop_with(&[], dir, looping, policy)
+}
+
+/// [`crash_loop`], with the command line `args`.
+fn crash_loop_with(args: &[&str], dir: &Path, looping: &str, policy: &str) -> Seat {
     let script = format!(
         "d={d}; if [ \"$VTIUM_HEAD\" = {looping} ]; then \
          while [ ! -e $d/ready-1 ] || [ ! -e $d/ready-2 ]; do sleep 0.01; done; exit 1; fi; \
@@ -3941,7 +3946,7 @@ input path:kbd-roaming -> roaming
         small = if looping == "small" { 1 } else { 2 },
         large = if looping == "large" { 1 } else { 2 },
     );
-    Seat::with_heads(&[], Some(&heads), two_displays(), &script)
+    Seat::with_heads(args, Some(&heads), two_displays(), &script)
 }
 
 /// D1, the operator's decision of 2026-10-31: a session that keeps
@@ -5959,6 +5964,7 @@ fn osd_timeout_never_keeps_it_up_and_osd_off_draws_none() {
 
 /// D5 and vtium/vtium#169: `osd = off` governs status alone, and a notice
 /// of a problem still shows: here a head's session that ended for good.
+/// Only `osd = silent` hides it.
 #[test]
 fn osd_off_still_shows_a_notice_of_a_problem() {
     let mut s = claimed_with(&["--osd=off", "--oneshot"]);
@@ -6209,10 +6215,11 @@ const OSD_OFF: [&[&str]; 5] = [
 
 /// D5 and D7, the maintainer's decision of 2026-11-05: a console the open
 /// chord opens whose login cannot start is a notice of a problem, which
-/// shows whatever `osd` says: under every way of turning the OSD off and
-/// under `minimal` and `full`, the head shows the notice in the notices'
-/// colors and no brief line, and a key reaching the head ends it, as it
-/// ends the guards' notices.
+/// shows at every level of `osd` but `silent`: under every way of turning
+/// the OSD off and under `minimal` and `full`, the head shows the notice
+/// in the notices' colors and no brief line, and a key reaching the head
+/// ends it, as it ends the guards' notices.
+/// [`osd_silent_hides_a_heads_notices_and_logs_them`] covers `silent`.
 // covers: platform.heads
 #[test]
 fn a_console_that_cannot_start_shows_a_notice_under_every_osd() {
@@ -8439,6 +8446,392 @@ fn osd_off_still_shows_an_unused_displays_notice() {
     assert_eq!(s.app.display_notice("MEM-1").map(|(_, on)| on), Some(true));
 }
 
+/// Each way vtium.conf reaches `osd = silent`: the key alone, beside an
+/// `osd-timeout` that keeps the on-screen display up, and beside the older
+/// `focus-mark`, which never stands in for a key that is set.
+const OSD_SILENT: [&[&str]; 3] = [
+    &["--osd=silent"],
+    &["--osd=silent", "--osd-timeout=never"],
+    &["--focus-mark=always", "--osd=silent"],
+];
+
+/// The log lines the seat writes while it turns until one of them holds
+/// `text`, at most [`BOUND`]. Returns every line read, so a test can check
+/// what else the log holds.
+fn log_until(s: &mut Seat, text: &str) -> Vec<String> {
+    let mut lines = Vec::new();
+    s.until(BOUND, |_| {
+        lines.extend(logged());
+        lines.iter().any(|l| l.contains(text))
+    });
+    lines.extend(logged());
+    lines
+}
+
+/// Under `osd = silent`, vtium draws none of its own status. A move of the
+/// active head draws no dot and no line, and the open chord at a cap
+/// draws no brief line and starts no frame. The move itself still happens.
+///
+/// References:
+/// - ADR-1401 D5: `silent` hides everything `off` hides, and the brief
+///   line answers a press only under `minimal` and `full`.
+// covers: platform.heads.focus
+#[test]
+fn osd_silent_draws_no_status_and_no_brief_line() {
+    for args in OSD_SILENT {
+        let mut s = claimed_with(args);
+        s.app
+            .device_input(Path::new(KBD_FOCUS), ctrl_super(UP), now());
+        s.app.turn(now());
+        assert_eq!(s.app.focus_head(), Some("small"), "{args:?}: it moved");
+        assert_eq!(marks(&s.app), [None, None], "{args:?}");
+        assert_eq!(statuses(&s.app), [None, None], "{args:?}");
+    }
+    let mut s = claimed_with(&["--osd=silent", "--no-blink", "--head-consoles-max=1"]);
+    let pressed = turn_of_frame(&mut s, "/dev/mem0", |s| {
+        press_chord(s, KBD_SMALL, RETURN);
+    });
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)));
+    assert_eq!(pressed, None, "the press draws nothing");
+    assert_eq!(s.app.head("small").and_then(Head::status), None);
+}
+
+/// Under `osd = silent`, vtium draws none of a head's ordinary notices,
+/// and its log still holds each one. Here they are a session that ended
+/// for good under `oneshot`, and a console the open chord opens whose
+/// login cannot start. Nothing is drawn in the notices' colors.
+///
+/// References:
+/// - ADR-1401 D5, "Notices that only `osd = silent` hides".
+// covers: platform.heads
+#[test]
+fn osd_silent_hides_a_heads_notices_and_logs_them() {
+    logged();
+    let mut s = claimed_with(&["--osd=silent", "--oneshot"]);
+    s.type_on(KBD_SMALL, "q\r");
+    let lines = log_until(&mut s, "its program ended under oneshot");
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("console 1: its program ended under oneshot")),
+        "logged: {lines:#?}"
+    );
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(notice(&s.app, "small"), None, "no notice");
+    assert!(!s.memory("/dev/mem0").has(PAPER), "nothing in its colors");
+
+    let dir = Scratch::new("heads-osd-silent-unstartable");
+    let login = dir.join("login");
+    let heads = CLAIMED.replace(
+        "[head small]\n",
+        &format!("[head small]\nlogin = {}\n", login.display()),
+    );
+    script::executable(
+        &login,
+        "#!/bin/sh\necho ready; while read a; do echo \"got:$a\"; done\n",
+    );
+    let mut s = claimed_on(&["--osd=silent"], &heads);
+    std::fs::remove_file(&login).expect("the login removed");
+    logged();
+    press_chord(&mut s, KBD_SMALL, RETURN);
+    let lines = log_until(&mut s, "does not open");
+    assert!(
+        lines.iter().any(|l| l.contains("console 2 does not open")),
+        "logged: {lines:#?}"
+    );
+    assert_eq!(consoles(&s.app, "small"), Some((1, 0)));
+    assert_eq!(notice(&s.app, "small"), None, "no notice");
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!s.memory("/dev/mem0").has(PAPER), "nothing in its colors");
+}
+
+/// Under `osd = silent`, every guard acts as at the other levels, and only
+/// its text is gone. The anti-lockout guard still makes the keyboards
+/// roam, and the rescue key still moves the keyboard that pressed it. vtium
+/// draws neither notice, and the log holds each.
+///
+/// References:
+/// - ADR-1401 D9, "The guards under `osd = silent`".
+// covers: platform.heads.guards
+#[test]
+fn osd_silent_keeps_every_guard_and_hides_their_notices() {
+    logged();
+    let displays = [("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large"))];
+    let script = "echo ready; while read a; do echo \"got:$a\"; done";
+    let mut s = Seat::with_rules(
+        &["--osd=silent"],
+        Some(start(STRANDED)),
+        displays,
+        script,
+        no_fonts(),
+    );
+    s.app.add_input(Path::new(KBD_A), keyboard("kbd-a"));
+    assert!(s.until(BOUND, |a| head_shows(a, "large", "ready")));
+    let lines = log_until(&mut s, LOCKED_OUT);
+    assert!(
+        lines.iter().any(|l| l.contains(LOCKED_OUT)),
+        "logged: {lines:#?}"
+    );
+    // a key reaching the head ends a notice, so the check comes first
+    assert_eq!(notice(&s.app, "large"), None, "no notice");
+    s.type_on(KBD_A, "a\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "got:a")),
+        "the keyboard roams"
+    );
+
+    let mut s = Seat::with_rules(
+        &["--osd=silent"],
+        Some(start(RESCUE)),
+        [
+            ("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small")),
+            (
+                "/dev/mem1",
+                Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+            ),
+        ],
+        script,
+        no_fonts(),
+    );
+    s.app.add_input(Path::new(KBD_SMALL), keyboard("kbd-small"));
+    assert!(s.until(BOUND, |a| head_shows(a, "small", "ready")
+        && head_shows(a, "large", "ready")));
+    logged();
+    s.app
+        .device_input(Path::new(KBD_SMALL), ctrl_alt_f(1), now());
+    s.app.turn(now());
+    let lines = log_until(&mut s, "the rescue key moved it");
+    assert!(
+        lines.iter().any(|l| l.contains("now types into large")),
+        "logged: {lines:#?}"
+    );
+    assert_eq!(notice(&s.app, "large"), None, "no notice");
+    s.type_on(KBD_SMALL, "r\r");
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "large", "got:r")),
+        "the rescue key moved the keyboard"
+    );
+}
+
+/// Under `osd = silent`, a seat with no keyboard at its start shows no
+/// notice that says so, and the log still says so.
+///
+/// References:
+/// - ADR-1401 D5, "Notices that only `osd = silent` hides".
+#[test]
+fn osd_silent_hides_the_no_keyboard_notice() {
+    logged();
+    let displays = [("/dev/mem0", Memory::new(320, 160, "MEM-1", "mem-small"))];
+    let mut s = Seat::boot(&["--osd=silent"], displays, "echo ready; read x");
+    s.app.scanned();
+    s.app.turn(now());
+    assert!(
+        logged().iter().any(|l| l.contains("No keyboard found.")),
+        "logged"
+    );
+    assert_eq!(notice(&s.app, "console"), None);
+}
+
+/// Under `osd = silent`, a file with errors under the open policy runs the
+/// parts without errors, and the display guard still lights the boot
+/// display with a login. The console line about the errors shows on no
+/// head, and the log holds it.
+///
+/// References:
+/// - ADR-1401 D7: the console line of the outcome shows unless
+///   `osd = silent`.
+/// - ADR-1401 D9: the display guard under `osd = silent`.
+// covers: platform.heads.guards
+#[test]
+fn osd_silent_hides_an_open_files_console_line_and_the_guard_still_lights() {
+    let displays = [
+        (
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        ),
+        ("/dev/mem1", Memory::new(640, 320, "MEM-2", "mem-large")),
+    ];
+    let rules = start(DESK_ON_LARGE_WITH_ERRORS);
+    assert!(rules.line().is_some(), "a file with errors");
+    logged();
+    let mut s = Seat::with_rules(
+        &["--osd=silent"],
+        Some(rules),
+        displays,
+        "echo ready; read x",
+        no_fonts(),
+    );
+    assert!(
+        s.until(BOUND, |a| head_shows(a, "desk", "ready")),
+        "the guard lit the boot display with a login"
+    );
+    let line = "vtium.conf has errors: running the parts without errors.";
+    let lines = log_until(&mut s, line);
+    assert!(lines.iter().any(|l| l.contains(line)), "logged: {lines:#?}");
+    assert_eq!(notice(&s.app, "desk"), None, "no notice");
+    s.until(Duration::from_millis(200), |_| false);
+    assert!(!s.memory("/dev/mem0").has(PAPER), "nothing in its colors");
+}
+
+/// Under `osd = silent`, the display guard of a closed file with errors
+/// lights the boot display for nothing but the panic screen or the notice
+/// of a crash loop. A file that runs its parts without errors, whose heads
+/// have no display, leaves every display off, and the log holds its
+/// console line. Under `osd = minimal`, the control, the guard lights the
+/// boot display for that console line.
+///
+/// References:
+/// - ADR-1401 D9: what the display guard lights under `osd = silent`.
+// covers: platform.heads.guards
+#[test]
+fn under_closed_osd_silent_lights_no_display_for_a_console_line() {
+    let text = "version = 1\npolicy = closed\n[head desk]\n[rules]\ndisplay card:mem-large -> desk\ninput path:kbd-x -> nowhere\n";
+    for (osd, lights) in [("--osd=silent", false), ("--osd=minimal", true)] {
+        let displays = [(
+            "/dev/mem0",
+            Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+        )];
+        logged();
+        let mut s = Seat::with_rules(&[osd], Some(start(text)), displays, ECHO, no_fonts());
+        let line = "vtium.conf has errors: running the parts without errors.";
+        let lines = log_until(&mut s, line);
+        assert!(lines.iter().any(|l| l.contains(line)), "{osd}: {lines:#?}");
+        s.until(Duration::from_millis(200), |_| false);
+        let lit = s.app.notice_screen().is_some_and(|n| !n.cells().is_empty());
+        assert_eq!(lit, lights, "{osd}: the notice screen lit");
+        if !lights {
+            assert_eq!(s.app.notice_screen().and_then(Head::notice), None, "{osd}");
+            let m = s.memory("/dev/mem0");
+            assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "{osd}: blank");
+        }
+    }
+}
+
+/// The panic screen of a broken closed file shows in full under every
+/// level of `osd`, `silent` included, since vtium serves nothing then: the
+/// same text on the boot display, and the same pixels, as under
+/// `osd = minimal`.
+///
+/// References:
+/// - ADR-1401 D5, "What every level shows".
+/// - ADR-1401 D7: the panic screen.
+// covers: platform.heads.policy
+#[test]
+fn the_panic_screen_looks_the_same_under_osd_silent_as_under_minimal() {
+    let text = "version = 1\npolicy = closed\n[head kiosk]\nfocs = 1\n[rules]\ndisplay * -> kiosk\ninput * -> kiosk\n";
+    let drawn: Vec<(Option<String>, Vec<u8>)> = ["--osd=minimal", "--osd=silent"]
+        .into_iter()
+        .map(|osd| {
+            let displays = [(
+                "/dev/mem1",
+                Memory::new(640, 320, "MEM-2", "mem-large").lit(),
+            )];
+            let mut s = Seat::with_rules(
+                &[osd, "--no-blink"],
+                Some(start(text)),
+                displays,
+                ECHO,
+                no_fonts(),
+            );
+            assert!(
+                s.until_memory("/dev/mem1", BOUND, |m| m.has(PAPER)),
+                "{osd}: drawn on the boot display"
+            );
+            s.until(Duration::from_millis(200), |_| false);
+            let shown = s
+                .app
+                .notice_screen()
+                .and_then(Head::notice)
+                .map(str::to_owned);
+            (shown, s.memory("/dev/mem1").pixels.clone())
+        })
+        .collect();
+    assert_eq!(drawn[0].0.as_deref(), Some(PANIC), "the full panic screen");
+    assert_eq!(drawn[1].0, drawn[0].0, "the same text");
+    assert!(drawn[1].1 == drawn[0].1, "the same pixels");
+}
+
+/// The notice of a crash loop that stops every head under the closed
+/// policy shows in full under every level of `osd`, `silent` included,
+/// since vtium serves nothing then: the same text as under
+/// `osd = minimal`, on the boot display alone.
+///
+/// References:
+/// - ADR-1401 D1: the crash loop under a closed policy.
+/// - ADR-1401 D5, "What every level shows".
+// covers: platform.heads.policy
+#[test]
+fn a_closed_crash_loops_notice_shows_under_osd_silent() {
+    let dir = Scratch::new("heads-crash-loop-closed-silent");
+    let mut s = crash_loop_with(&["--osd=silent"], &dir, "small", "closed");
+    let stopped = vtium::notice::stopped();
+    assert!(
+        s.until(BOUND, |a| a.notice_screen().and_then(Head::notice)
+            == Some(stopped.as_str())),
+        "the notice on the notice screen"
+    );
+    assert_eq!(
+        s.app.notice_screen().map(|n| n.cells().len()),
+        Some(1),
+        "the boot display alone"
+    );
+    assert!(
+        s.until_memory("/dev/mem0", BOUND, |m| m.has(PAPER)),
+        "drawn in the notices' colors on the boot display"
+    );
+}
+
+/// Under `osd = silent`, under the open policy, a display that no path
+/// places on this VT shows no notice. vtium leaves it off at once, and a
+/// key on this VT leaves it off. The log names the display and what its
+/// notice would say. vtium does not end at `display-wait` for want of a
+/// display, since the display came and vtium left it off on purpose.
+///
+/// References:
+/// - ADR-1401 D3, "What a display with no path shows".
+// covers: platform.heads.rules
+#[test]
+fn osd_silent_leaves_a_display_no_path_places_off_with_no_notice() {
+    let displays = [(
+        "/dev/mem0",
+        Memory::new(320, 160, "MEM-1", "mem-small").lit(),
+    )];
+    logged();
+    let mut s = on_vt_with(
+        &["--osd=silent", "--display-wait=1"],
+        4,
+        &every_head_on_vt3("open"),
+        displays,
+        &[(KBD_A, "kbd-any")],
+    );
+    let said = "MEM-1 is not configured for VT 4. It is configured for terminal panel, on VT 3.";
+    let lines = log_until(&mut s, said);
+    assert!(lines.iter().any(|l| l.contains(said)), "logged: {lines:#?}");
+    s.until(Duration::from_millis(200), |_| false);
+    assert_eq!(s.app.display_notice("MEM-1"), None, "no notice");
+    let m = s.memory("/dev/mem0");
+    assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "off at once");
+    s.type_on(KBD_A, "x");
+    s.until(Duration::from_millis(200), |_| false);
+    let m = s.memory("/dev/mem0");
+    assert_eq!(
+        (m.dpms, m.frames),
+        (Some(Dpms::Off), 0),
+        "a key leaves it off"
+    );
+    logged();
+    s.app.turn(now() + Duration::from_secs(30));
+    s.app.turn(now() + Duration::from_secs(31));
+    let lines = logged();
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.starts_with("no display appeared within")),
+        "vtium runs on past display-wait: {lines:#?}"
+    );
+    assert_eq!(s.app.finished(), None);
+}
+
 /// Two heads on VT 3, one of them isolated, and a keyboard for each kind
 /// of rule, under the policy `policy`.
 fn vt_keys_on_vt3(policy: &str) -> String {
@@ -8983,6 +9376,15 @@ input * -> roaming
     /// where vtium runs on `running` or cannot tell; and the VTs the VT
     /// keys asked for.
     fn on_vt2(text: &str, running: Result<VtiumVts, String>) -> (Seat, Rc<RefCell<Vec<u16>>>) {
+        on_vt2_with(&[], text, running)
+    }
+
+    /// [`on_vt2`], with the command line `args`.
+    fn on_vt2_with(
+        args: &[&str],
+        text: &str,
+        running: Result<VtiumVts, String>,
+    ) -> (Seat, Rc<RefCell<Vec<u16>>>) {
         let rules = start(text);
         assert_eq!(rules.line(), None, "a valid vtium.conf");
         let switched = Rc::new(RefCell::new(Vec::new()));
@@ -8993,7 +9395,7 @@ input * -> roaming
         ];
         let script = "echo ready; while read a; do echo \"got:$a\"; done";
         let mut s = Seat::set_up(
-            &[],
+            args,
             Some(rules.on_vt(Some(2))),
             displays,
             script,
@@ -9158,5 +9560,28 @@ input * -> roaming
         );
         s.type_on(USB, "\r");
         assert_eq!(*switched.borrow(), [] as [u16; 0]);
+    }
+
+    /// Under `osd = silent`, the head's display on this VT shows no notice
+    /// and stays off, and Enter on the head's own keyboard still switches
+    /// to the head's VT. The key is a right the file grants, and `osd`
+    /// governs only what vtium draws.
+    ///
+    /// References:
+    /// - ADR-1401 D3, "Enter on a head's own keyboard".
+    // covers: platform.heads.rules
+    #[test]
+    fn under_osd_silent_enter_still_switches_and_the_display_shows_no_notice() {
+        let (mut s, switched) = on_vt2_with(
+            &["--osd=silent"],
+            &laptop("open", "12", "switch-on-enter = yes"),
+            vts(&[2, 12]),
+        );
+        s.until(Duration::from_millis(200), |_| false);
+        assert_eq!(s.app.display_notice("MEM-2"), None, "no notice");
+        let m = s.memory("/dev/mem1");
+        assert_eq!((m.dpms, m.frames), (Some(Dpms::Off), 0), "it stays off");
+        s.type_on(USB, "\r");
+        assert_eq!(*switched.borrow(), [12]);
     }
 }

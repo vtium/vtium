@@ -482,14 +482,14 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
 pub const OSD: Key = Key {
     name: "osd",
     short: None,
-    kind: Kind::Choice(&["off", "minimal", "full"]),
+    kind: Kind::Choice(&["full", "minimal", "off", "silent"]),
     default: Default::Text("minimal"),
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "What the on-screen display shows at the top of each screen after a change, such as a console switch.\n\n\
-           `minimal` shows a dot in the top-right character cell: filled on the active head, hollow on the others. `full` shows a line across the top, such as `● desk · console 2 of 3`. `off` shows nothing.\n\n\
-           A notice about a problem appears whatever `osd` says.",
+           `full` shows a line across the top, such as `● desk · console 2 of 3`. `minimal` shows a dot in the top-right character cell: filled on the active head, hollow on the others. `off` shows nothing. Under these three, a notice about a problem still appears, such as one about errors in vtium.conf.\n\n\
+           `silent` shows nothing, and it hides vtium's notices too. vtium still writes each notice to its log. Two screens appear even under `silent`, because no console runs while they show. One is the panic screen of a closed vtium.conf that cannot run. The other is the notice that vtium stopped every screen because a session kept ending.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -531,7 +531,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The text color of a notice. A notice is a box that reports a problem, such as errors in vtium.conf. It appears whatever `osd` says.",
+    what: "The text color of a notice. A notice is a box that reports a problem, such as errors in vtium.conf. It appears at every level of `osd` except `silent`.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -1758,7 +1758,8 @@ pub const RENDER_TIMER: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-render",
-    what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.",
+    what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.\n\n\
+           With `render-timer = osd`, vtium shows the figures at the top of each display, in the on-screen display's box. When `osd = silent`, vtium shows no figures on screen: `render-timer = osd` then shows nothing, and `render-timer = both` writes only the log.",
     cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 

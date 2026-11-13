@@ -1,8 +1,15 @@
-//! The on-screen display, the OSD (ADR-1401 D5): vtium's status at the top
-//! of each head, outside the session's output. It says which head is
-//! active, and in full which console the head shows, for `osd-timeout`
-//! after a change. vtium.conf's `focus-mark` is read as the older name of
-//! `osd` and `osd-timeout`.
+//! The on-screen display, the OSD: vtium's status at the top of each head,
+//! outside the session's output. It says which head is active, and under
+//! `full` which console the head shows, for `osd-timeout` after a change.
+//! vtium.conf's `osd` picks one of four levels, `full`, `minimal`, `off`
+//! and `silent`, and each level hides everything the one before it hides.
+//! `silent` also hides vtium's ordinary notices, which every other level
+//! shows. vtium.conf's `focus-mark` is read as the older name of `osd` and
+//! `osd-timeout`.
+//!
+//! References:
+//! - ADR-1401 D5: the levels, when the OSD shows, and the notices that
+//!   only `silent` hides.
 
 use std::time::Duration;
 
@@ -17,6 +24,10 @@ pub enum Mode {
     Minimal,
     /// A line across the top of each head ([`crate::notice::osd_line`]).
     Full,
+    /// No status, and none of vtium's ordinary notices either. The panic
+    /// screen, the notice of a crash loop that stopped every head, and the
+    /// kernel's messages still show.
+    Silent,
 }
 
 /// The OSD as vtium.conf sets it.
@@ -44,6 +55,7 @@ impl Osd {
             _ if old == Some("off") && !set(&keys::OSD) => Mode::Off,
             Some("off") => Mode::Off,
             Some("full") => Mode::Full,
+            Some("silent") => Mode::Silent,
             _ => Mode::Minimal,
         };
         let timeout = if old == Some("always") && !set(&keys::OSD_TIMEOUT) {
@@ -54,11 +66,29 @@ impl Osd {
         Osd { mode, timeout }
     }
 
-    /// Whether a change shows the OSD for a time: not under `off`, which
-    /// draws none, nor under `never`, which keeps it up.
-    pub fn shows_on_change(self) -> bool {
-        self.mode != Mode::Off && self.timeout.is_some()
+    /// Whether the OSD draws status at all: the dot of `minimal` or the
+    /// line of `full`, and the brief line that answers a press.
+    pub fn draws_status(self) -> bool {
+        matches!(self.mode, Mode::Minimal | Mode::Full)
     }
+
+    /// Whether vtium hides its ordinary notices and the render timer's
+    /// figures, under `osd = silent`.
+    pub fn silent(self) -> bool {
+        self.mode == Mode::Silent
+    }
+
+    /// Whether a change shows the OSD for a time: not under `off` or
+    /// `silent`, which draw none, nor under `never`, which keeps it up.
+    pub fn shows_on_change(self) -> bool {
+        self.draws_status() && self.timeout.is_some()
+    }
+}
+
+/// Whether `config` sets `osd = silent`, which a head reads to hide its
+/// notices. It reads `osd` alone, since `focus-mark` never means `silent`.
+pub fn silent(config: &Config) -> bool {
+    config.text(&keys::OSD) == Some("silent")
 }
 
 #[cfg(test)]
@@ -90,6 +120,22 @@ mod tests {
             at(Mode::Minimal, Some(Duration::from_secs(10)))
         );
         assert_eq!(osd(&["--osd-timeout=never"]), at(Mode::Minimal, None));
+    }
+
+    /// `osd = silent` is a level of its own, below `off`. `focus-mark`,
+    /// the older name, never stands in for it, since `osd` is set.
+    ///
+    /// References:
+    /// - ADR-1401 D5: the four levels, `full`, `minimal`, `off` and
+    ///   `silent`.
+    #[test]
+    fn osd_silent_is_a_level_of_its_own() {
+        let at = |mode, timeout| Osd { mode, timeout };
+        assert_eq!(osd(&["--osd=silent"]), at(Mode::Silent, THREE));
+        assert_eq!(
+            osd(&["--focus-mark=always", "--osd=silent"]),
+            at(Mode::Silent, None)
+        );
     }
 
     // ADR-1401 D5: `focus-mark` is the older name: `auto` the defaults,

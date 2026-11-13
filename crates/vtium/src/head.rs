@@ -141,6 +141,10 @@ pub struct Head {
     /// the head runs, else the console chord's.
     ended_notice: String,
     ended_notice_console: String,
+    /// vtium.conf sets `osd = silent`: the head draws none of vtium's
+    /// ordinary notices, the ended session's included. The caller logs
+    /// each one, and the kernel's messages still show.
+    silent: bool,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
@@ -176,7 +180,8 @@ pub struct Head {
     pub(crate) status: Option<String>,
     /// The on-screen display's brief line, which answers one press of the
     /// open chord at a cap, until `brief_due` (ADR-1401 D5). Only
-    /// [`Head::show_brief`] sets it, which sets none under `osd = off`.
+    /// [`Head::show_brief`] sets it, which sets none under `osd = off` or
+    /// `osd = silent`.
     brief: Option<String>,
     /// When the brief line goes, armed at its first frame.
     brief_due: Option<Instant>,
@@ -469,6 +474,7 @@ impl Head {
             login: None,
             ended_notice: crate::notice::session_ended(&bindings),
             ended_notice_console: crate::notice::session_ended_console(&bindings),
+            silent: crate::osd::silent(config),
             notices: Vec::new(),
             kernel: Vec::new(),
             kernel_due: None,
@@ -649,8 +655,11 @@ impl Head {
     }
 
     /// What vtium shows on the head of its own: that the shown console's
-    /// session ended for good, above its notices, which always show too
-    /// (ADR-1401 D5).
+    /// session ended for good, above its notices, then the kernel's
+    /// messages. Under `osd = silent` only the kernel's messages show.
+    ///
+    /// References:
+    /// - ADR-1401 D5: the notices every level but `silent` shows.
     pub fn notice(&self) -> Option<&str> {
         (!self.shown.is_empty()).then_some(self.shown.as_str())
     }
@@ -658,7 +667,7 @@ impl Head {
     /// Writes what the head shows of its own again, after its notices,
     /// its shown console or a console's session changed.
     pub(crate) fn compose_notices(&mut self) {
-        let ended = self.console.ended.then(|| {
+        let ended = (self.console.ended && !self.silent).then(|| {
             if self.hidden.iter().any(|c| !c.ended) {
                 &self.ended_notice_console
             } else {
@@ -702,11 +711,14 @@ impl Head {
     }
 
     /// The on-screen display shows `line` as its brief line from the
-    /// head's next frame, which answers one press (ADR-1401 D5). Under
-    /// `osd = off`, which `osd` gives, vtium shows no brief line, so the
+    /// head's next frame, which answers one press. Under `osd = off` and
+    /// `osd = silent`, which `osd` gives, vtium shows no brief line, so the
     /// press leaves the screen as it was and draws no frame.
+    ///
+    /// References:
+    /// - ADR-1401 D5: the brief line at a console cap.
     pub(crate) fn show_brief(&mut self, line: String, osd: crate::osd::Osd) {
-        if osd.mode == crate::osd::Mode::Off {
+        if !osd.draws_status() {
             return;
         }
         self.brief = Some(line);
@@ -757,9 +769,13 @@ impl Head {
 
     /// Adds `text` to the head's notices, which show from its next frame
     /// for [`NOTICE_SHOWN`] afresh; a notice the head already shows is
-    /// left as it is, its time with it.
+    /// left as it is, its time with it. Under `osd = silent` the head adds
+    /// nothing, and the caller's log line is all that holds the notice.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "Notices that only `osd = silent` hides".
     pub(crate) fn add_notice(&mut self, text: &str) {
-        if self.notices.iter().any(|n| n == text) {
+        if self.silent || self.notices.iter().any(|n| n == text) {
             return;
         }
         if self.notices.len() >= NOTICES_MAX {
