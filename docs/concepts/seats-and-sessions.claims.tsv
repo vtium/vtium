@@ -1,0 +1,24 @@
+# Claims of the section "What you see in each mode" in docs/concepts/seats-and-sessions.md.
+element	file	symbol
+direct mode's unit, vtium@ttyN.service	crates/vtium/src/console.rs	VTIUM
+seat mode's unit, vtium-seat@ttyN.service	crates/vtium/src/console.rs	SEAT
+seat mode's vtium runs as root with --vt=ttyN --no-switchvt	crates/vtium/install/vtium@.service	ExecStart=/usr/bin/vtium --vt=%I --no-switchvt
+vtium's own session comes from the PAM file /etc/pam.d/vtium	crates/vtium/install/vtium-libseat.conf	PAMName=vtium
+vtium's own session has the class greeter	crates/vtium/install/vtium.pam	pam_systemd.so class=greeter
+vtium console status leaves vtium's own greeter session out of the programs that hold a VT	crates/vtium/src/console/graphical.rs	sessions
+in direct mode, login gets XDG_SEAT and XDG_VTNR, so the login is on seat0 and the VT	crates/vtium/src/child.rs	Place::logind_seat
+before you log in, login runs in a scope named vtium-login-ttyN-PID.scope	crates/vtium-platform/src/logind/scope.rs	unit_name
+vtium opens seat0 at once and logs that the seat is open	crates/vtium-platform/src/seat.rs	LibseatVt::opened
+vtium logs that it waits for the seat manager to give it the seat	crates/vtium-platform/src/seat.rs	LibseatVt::wait
+the vtium of each VT starts without switching to its VT	crates/vtium/src/main.rs	run
+logind gives vtium the seat: vtium takes its VT into graphics mode with the kernel's keyboard off, and draws	crates/vtium-platform/src/seat.rs	LibseatVt::enable
+the seat taken: vtium wakes its input and displays and draws whole	crates/vtium/src/app.rs	App::vt_event
+Ctrl+Alt and a function key ask logind through libseat for that VT, and the shown VT's own key does nothing	crates/vtium-platform/src/seat.rs	LibseatVt::key
+logind asks for the seat back: vtium stops drawing, closes its keyboards and pointers, and lets the graphics card go	crates/vtium-platform/src/seat.rs	LibseatVt::disable
+vtium tells logind it is done once its displays sleep	crates/vtium-platform/src/seat.rs	LibseatVt::acknowledge_release
+keyboards and pointers open through the seat manager, and log each open	crates/vtium-platform/src/seat.rs	SeatInput
+vtium watches for devices on its seat	crates/vtium-platform/src/udev.rs	Udev
+a device plugged in while another VT is shown waits for the next time vtium gets the seat	crates/vtium-platform/src/input.rs	Input::wake_up
+an unplugged device's read fails, and vtium logs it and closes the device	crates/vtium-platform/src/input.rs	Input::remove
+vtium console enable passes by a VT a login screen, a desktop session or another console uses now	crates/vtium/src/console/held.rs	Holder
+the seat manager's connection fails: vtium logs an error and exits	crates/vtium-platform/src/seat.rs	LibseatVt::gone
