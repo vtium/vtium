@@ -1,7 +1,9 @@
 //! The COVERAGE map: each capability of `capabilities.list`, the ADR-1000
 //! rows its scenario judges, the tests that guard those rows, and the gap.
 //! It is generated from the list and ADR-1000's tables, and a test fails
-//! when the committed `COVERAGE.md` differs.
+//! when the committed `COVERAGE.md` differs. `docs/scripts/coverage
+//! --update` rewrites the tables' `tests` columns and then runs that test
+//! with `VTIUM_CONFORMANCE_BLESS=1`, which rewrites `COVERAGE.md`.
 
 use core::fmt::Write;
 use std::collections::BTreeMap;
@@ -90,7 +92,7 @@ pub fn render(
     tests: &BTreeMap<String, Vec<String>>,
 ) -> Result<String, String> {
     let mut out = String::from(
-        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->\n\nEach capability the capability scenarios judge, the ADR-1000 rows its scenario covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The capability scenarios themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
+        "# Coverage\n\n<!-- generated from capabilities.list and ADR-1000's tables; docs/scripts/coverage --update rewrites it, by running VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage -->\n\nEach capability the capability scenarios judge, the ADR-1000 rows its scenario covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The capability scenarios themselves run through `conformance probes` (README.md).\n\n| Capability | Status | ADR-1000 rows | Tests | Gap |\n|---|---|---|---|---|\n",
     );
     for c in caps {
         let mut guards: Vec<&str> = Vec::new();
@@ -178,7 +180,7 @@ mod tests {
         assert_eq!(
             read(&path),
             want,
-            "COVERAGE.md differs from capabilities.list and ADR-1000; VTIUM_CONFORMANCE_BLESS=1 rewrites it"
+            "COVERAGE.md differs from capabilities.list and ADR-1000's tests columns. Run docs/scripts/coverage --update to rewrite it. That command runs this test with VTIUM_CONFORMANCE_BLESS=1."
         );
     }
 
