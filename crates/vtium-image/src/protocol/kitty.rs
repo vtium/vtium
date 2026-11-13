@@ -1,97 +1,53 @@
-//! The kitty graphics handler, which takes APC `G` strings (ADR-1100, D6).
+//! The kitty graphics protocol's handler: APC `G` strings, read as they
+//! stream in (ADR-1100, D6).
 //!
-//! It follows the kitty graphics protocol's specification
-//! (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-02), and
-//! kitty's own behaviour where the specification is silent (D14).
+//! A string is `G`, then control keys, `KEY=VALUE` pairs separated by
+//! commas, then `;` and a base64 payload. The handler reads the keys
+//! first, at most [`KEYS_MAX`] bytes of them, and decides from them what
+//! the string is before a byte of the payload arrives:
 //!
-//! A string is a command: control keys up to the first `;`, at most
-//! [`KEYS_MAX`] bytes of them, then a base64 payload. A longer key section
-//! makes the whole string ignored. The payload is decoded as it streams in,
-//! never collected whole: raw `f=8`, `f=16`, `f=24` and `f=32` pixels go
-//! straight into the pending image, whose bytes the store reserves when the
-//! first chunk names its size, and a file or shared-memory name goes into a
-//! buffer of at most [`NAME_MAX`] bytes.
+//! - **A direct transmission** (`a=t`, `a=T`, `a=f`, or no `a`, sent
+//!   directly) or a query (`a=q`) decodes its payload into a transfer
+//!   ([`upload`]) as the pieces arrive. Raw pixels are converted at once,
+//!   and a PNG or zlib payload is kept for the image helper under the
+//!   budget. When the string ends, the handler stores the picture or the
+//!   frame, or asks the helper, and answers.
+//! - **A transmission from a file, a temporary file or shared memory**
+//!   decodes its payload into the object's name, which the helper opens.
+//! - **A put, a delete, an animation control or a composition** acts
+//!   when the string ends, and carries no data.
+//! - **A feature query**, a query with `e` ([`feature`]), is answered when
+//!   the string ends. `e` on any other action is refused.
 //!
-//! - **Chunks.** A direct transmission (`t=d`) may come in chunks: `m=1` on
-//!   every chunk but the last. While an upload is open, a command does what
-//!   kitty 0.49.2 does with it (`Command::within_upload`), with the departures
-//!   below. A transmission or frame sent directly is the next chunk: the
-//!   handler reads only its `m` and `q`, and fails the upload when one of its
-//!   keys cannot be read, where kitty drops such a chunk and the upload fails
-//!   short at its end. One from a named medium, and a delete, end the upload,
-//!   which gives back what it reserved; a put, a composition and an animation
-//!   control run beside it, the control on the image the upload loads; during
-//!   a picture's own upload that is the image of its id already stored, since
-//!   vtium stores the picture only at its last chunk, where kitty makes it at
-//!   the first. The other departures each end the upload where kitty keeps it
-//!   open: a transmission or frame that names another image by `i` or `I`,
-//!   other than 0, output of any other kind between two chunks, RIS, and the
-//!   session's end ([`Handler::interrupt`]). A transmission that fails part
-//!   way swallows its remaining chunks and answers once, at its last. A
-//!   chunk's `q` of 1 or 2 holds from then on.
-//! - **The helper.** PNG (`f=100`) and zlib (`o=z`) payloads sent directly
-//!   are kept, each growth of the buffer reserved first, and handed to the
-//!   image helper whole; files, temporary files and shared memory (`t=f`,
-//!   `t=t`, `t=s`) go to it by name (D7). A `t=t` or `t=s` command the
-//!   handler refuses still goes to the helper as a discard, which removes
-//!   the object, since the spec gives its removal to the terminal. Without
-//!   a helper, every named medium answers EBADF and PNG and zlib answer
-//!   EINVAL, as D7's "Without a helper" says.
-//! - **Palette indices** (D15). `f=8` and `f=16` pixels are indices into
-//!   the terminal's palette, which the handler turns into colors as they
-//!   arrive, with the colors [`Context::colors`] gives when the upload's
-//!   first chunk arrives; a later palette change leaves the picture as it
-//!   is. They are taken only sent directly and uncompressed: a frame, a
-//!   named medium, `o=z`, and a host that gives no colors answer EINVAL.
-//! - **Data short of the pixels.** Raw data sent directly and uncompressed
-//!   that holds fewer bytes than `s` and `v` call for answers
-//!   `ENODATA:Insufficient image data: GOT < WANT`, a transmission's and a
-//!   frame's alike, as kitty answers it (D15; ADR-1102, D2). Data the
-//!   helper inflates short answers EINVAL, as kitty answers it.
-//! - **Data past the pixels.** A raw upload, or an `a=q` that counts one,
-//!   ignores the bytes past the pixels `s` and `v` call for, as kitty
-//!   ignores them, and answers as if they had not come. The handler notes
-//!   them for vtium's log ([`Context::note`]).
-//! - **Notes for the operator.** A program may leave a command unanswered
-//!   with `q=2` or no id, so the handler also notes the refusals an
-//!   operator can act on: the budget's ENOSPC, a picture past
-//!   `max-graphic-size` or a box past `BOX_CELLS_MAX`, a payload or file
-//!   that needs the image helper while none runs, and a helper that fails
-//!   or finds the picture past its bounds.
-//! - **Replies.** Only a command that carries `i` or `I` is answered; `q=1`
-//!   leaves out OK and `q=2` every reply. An `a=q` without `i` reads nothing
-//!   and is answered under no `q`, as kitty 0.49.2 answers it. A delete answers only
-//!   an error.
-//! - **A frame's reply** names its frame with `r`, after `i`, `I` and
-//!   `p`, as kitty does (ADR-1102, D2): the frame an edit names, or the
-//!   frame a new frame made, or would have made had it not been refused.
-//! - **The cursor.** After a placement the cursor goes down one row fewer
-//!   than the box has rows, then to the column after the box; when that
-//!   reaches the right edge it goes down once more, to column 0. `C=1`
-//!   leaves it where it is, and so does every relative or virtual
-//!   placement, whatever `C` says, as the spec asks.
-//! - **Relative and virtual placements** (D13). A put with `P` makes a
-//!   relative placement of the placement that `P`, the parent's image id,
-//!   and `Q`, its placement id, name, offset `H` columns and `V` rows from
-//!   the parent's origin. A missing parent answers ENOPARENT, a placement
-//!   that would follow itself ECYCLE, and a chain deeper than
-//!   `RELATIVE_DEPTH_MAX` ETOODEEP. A put with `U=1` makes a virtual
-//!   placement, which lies on no line; the placeholder cells that show it
-//!   are vtium-term's to read.
+//! # Uploads in chunks
 //!
-//! - **Animation** (ADR-1102). `a=f` sends a frame's data, through the same
-//!   media and chunks as a transmission, onto the image `i` or `I` names:
-//!   a new frame on a color or an earlier frame (`c`, `Y`), or an edit of
-//!   frame `r`, laid by blending or with `X=1` by replacement over the
-//!   rectangle `x`, `y`, `s`, `v`. Raw data without `s` or `v` reaches the
-//!   image's edge. Its bytes are reserved of the frame allowance before they
-//!   arrive, and the store reserves the rest of the frame's cost when it
-//!   stores it. `a=c` composes a rectangle of one frame onto another, and
-//!   `a=a` sets the current frame, the run state, the loops and a frame's
-//!   gap. `d=f` and `d=F` delete every frame of the image they name but its
-//!   root. A missing image or frame answers ENOENT, a rectangle that leaves
-//!   the image EINVAL, and a frame the allowance or `FRAMES_MAX` refuses
-//!   ENOSPC.
+//! A program may split a picture's base64 into chunks, each a command of
+//! its own. The first carries the keys and `m=1`, and the last carries
+//! `m=0` or no `m`. Each buffer, the main screen and the alternate screen,
+//! holds at most one open upload. A command reaches the upload of the
+//! buffer in use when it arrives, so a switch of screens leaves each
+//! upload as it was. While an upload is open:
+//!
+//! - every direct transmission is its next chunk, whatever keys it
+//!   carries: the handler takes its data, its `m`, and a `q` other than 0,
+//!   and ignores the rest;
+//! - a delete, and a transmission from a file, a temporary file or shared
+//!   memory, end it with no answer, and then act on their own;
+//! - a put, a composition, an animation control, a query and a feature
+//!   query act on their own and leave it open, as does any output that is
+//!   not a kitty graphics command, a sixel and an iTerm2 picture among it;
+//! - RIS ends it, and so does the end of the session, with no answer.
+//!
+//! The first chunk reserves the upload's whole cost from the budget beside
+//! the image of the same id, which stays until the upload is accepted, so
+//! a put during the upload finds the old image. A first chunk refused by
+//! its keys, or by the budget, is answered at once and opens nothing. An
+//! upload's data is capped at its reservation, and a chunk that passes the
+//! cap fails the upload with EINVAL at once. Otherwise the upload gets one
+//! answer, at its last chunk, built from the first chunk's keys and the
+//! data of every chunk, and `q=2` silences it.
+//!
+//! References: ADR-1100 D2, D5, D6, D7, D14, D15, D16; ADR-1102 D1, D2.
 
 use vtium_parse::Chunk;
 
@@ -108,10 +64,13 @@ use crate::store::kitty::{Delete, Select};
 use crate::store::{Compose, Control, Link, NewFrame, Placing, Reservation, Store, layer_cost};
 
 mod command;
+mod feature;
 #[cfg(test)]
 mod tests;
+mod upload;
 
-use command::{Answer, Command, Error, Within, charge, graphic, reply};
+use command::{Answer, Command, Error, charge, graphic, reply};
+use upload::{Data, Transfer, TransferSink};
 
 /// The most bytes of control keys a command may carry; the handler
 /// ignores a string whose keys pass it. A command that gives every key
@@ -126,193 +85,60 @@ pub const NAME_MAX: usize = 4095;
 /// doubles as it fills.
 const HOST_FIRST: u64 = 4096;
 
-/// The note for an upload's bytes past the pixels its keys call for.
+/// The note for a transmission's bytes past the pixels its keys call for.
 const PAST: &str = "a kitty upload's data past the pixels s and v call for, ignored";
 
 /// The note for a payload or a file that only the image helper reads,
 /// while no helper runs.
 const NO_HELPER: &str = "no image helper reads a kitty picture's file, PNG or zlib payload";
 
+/// The buffers an upload can be open in: the main screen, then the
+/// alternate screen.
+const BUFFERS: usize = 2;
+
 /// Where the string is in its reading.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 enum Phase {
-    /// No string, or one whose keys passed [`KEYS_MAX`].
+    /// No string is being read.
     #[default]
-    Ignore,
+    Idle,
+    /// The control keys, up to the `;`.
     Keys,
+    /// The payload, which goes where the string's [`Role`] says.
     Payload,
+    /// The keys passed [`KEYS_MAX`]: the whole string is ignored.
+    Ignored,
 }
 
-/// Where a string's payload goes.
+/// What the string being read is, decided from its keys.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-enum Target {
+enum Role {
+    /// It reads no payload: a put, a delete, an animation control, a
+    /// composition, a feature query, a query without `i`, or a command its
+    /// keys refuse, which is answered when the string ends.
     #[default]
-    None,
-    /// The pending direct upload.
-    Upload,
-    /// A file, temporary-file or shared-memory name.
-    Name,
+    Plain,
+    /// Its payload is data for the transfer the handler holds: a whole
+    /// command, the first chunk of an upload, or the next chunk of the
+    /// open upload of the buffer in use.
+    Direct,
+    /// Its payload is the name of a file, a temporary file or a
+    /// shared-memory object.
+    Named,
 }
 
-/// What the pending direct upload does with its data.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-enum Mode {
-    /// No upload pending.
-    #[default]
-    None,
-    /// Refused or failed: its chunks are swallowed, and its last answers
-    /// this.
-    Skip(Answer),
-    /// `f=8`, `f=16`, `f=24` or `f=32` into the pending image, whose bytes
-    /// are reserved.
-    Raw { raw: Raw, reservation: Reservation },
-    /// `a=q`: the bytes counted, not kept, and whether bytes past `want`
-    /// came.
-    Count { len: u64, want: u64, past: bool },
-    /// PNG or zlib, kept for the helper; `cap` is the buffer's reserved
-    /// size.
-    Host {
-        data: Vec<u8>,
-        cap: u64,
-        reservation: Option<Reservation>,
-    },
-}
-
-/// The pending direct upload: its first chunk's keys and its decoder.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-struct Upload {
-    mode: Mode,
-    cmd: Command,
-    base64: Base64,
-}
-
-/// The request out to the helper, until its reply.
+/// A request out to the helper.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Pending {
     cmd: Command,
-    /// A discard answers the handler's own refusal, whatever the helper
-    /// says.
+    /// The handler's own refusal of a temporary file or shared-memory
+    /// object, which the helper removes and reads nothing of.
     discard: Option<Error>,
-    /// The bytes a directly sent payload held in the console, given back
-    /// when the reply comes.
+    /// The reservation of a buffered payload, given back at the answer.
     held: Option<Reservation>,
 }
 
-/// The kitty graphics protocol's front end.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Kitty {
-    phase: Phase,
-    keys: Vec<u8>,
-    cmd: Command,
-    target: Target,
-    name: Vec<u8>,
-    /// The name failed: too long or holding NUL (EBADF), or not base64
-    /// (EINVAL).
-    name_error: Option<Error>,
-    name_base64: Base64,
-    upload: Upload,
-    pending: Option<Pending>,
-}
-
-/// The pending upload as the base64 decoder's sink.
-struct UploadSink<'a, 'c> {
-    mode: &'a mut Mode,
-    ctx: &'a mut (dyn Context + 'c),
-}
-
-impl UploadSink<'_, '_> {
-    /// The upload fails with `error`; the rest of its data is ignored.
-    fn fail(&mut self, error: Error) {
-        fail(self.mode, self.ctx, error);
-    }
-}
-
-/// Gives back what an upload holds, and leaves no upload pending.
-fn abort(mode: &mut Mode, ctx: &mut dyn Context) {
-    match core::mem::take(mode) {
-        Mode::Raw { reservation, .. }
-        | Mode::Host {
-            reservation: Some(reservation),
-            ..
-        } => ctx.unreserve(reservation),
-        _ => {}
-    }
-}
-
-/// The upload fails with `error`, once: a failed upload stays failed.
-fn fail(mode: &mut Mode, ctx: &mut dyn Context, error: Error) {
-    if matches!(mode, Mode::Skip(_)) {
-        return;
-    }
-    abort(mode, ctx);
-    *mode = Mode::Skip(Err(error));
-}
-
-impl Sink for UploadSink<'_, '_> {
-    fn open(&self) -> bool {
-        matches!(
-            self.mode,
-            Mode::Raw { .. } | Mode::Count { .. } | Mode::Host { .. }
-        )
-    }
-
-    fn bytes(&mut self, data: &[u8]) {
-        let n = u64::try_from(data.len()).unwrap_or(u64::MAX);
-        match self.mode {
-            Mode::Raw { raw, .. } => raw.push(data),
-            Mode::Count { len, want, past } => {
-                *past |= n > want.saturating_sub(*len);
-                *len = len.saturating_add(n).min(*want);
-            }
-            Mode::Host {
-                data: buf,
-                cap,
-                reservation,
-            } => {
-                // a later string without a helper buffers nothing more
-                if !self.ctx.helper() {
-                    self.ctx.note(Cause::Console, NO_HELPER);
-                    self.fail(Error::Invalid);
-                    return;
-                }
-                let len = u64::try_from(buf.len()).unwrap_or(u64::MAX);
-                let need = len.saturating_add(n);
-                if need > *cap {
-                    let mut grown = if *cap == 0 { HOST_FIRST } else { *cap };
-                    while grown < need {
-                        grown = grown.saturating_mul(2);
-                    }
-                    let more = grown.saturating_sub(*cap);
-                    let ok = match reservation {
-                        Some(r) => self.ctx.grow(r, more).is_ok(),
-                        None => match self.ctx.reserve(Protocol::KITTY, 0, more) {
-                            Ok(r) => {
-                                *reservation = Some(r);
-                                true
-                            }
-                            Err(_) => false,
-                        },
-                    };
-                    if !ok {
-                        self.fail(Error::NoSpace);
-                        return;
-                    }
-                    self.ctx.add_work(more);
-                    *cap = grown;
-                    buf.reserve_exact(usize::try_from(more).unwrap_or(0));
-                }
-                buf.extend_from_slice(data);
-            }
-            Mode::None | Mode::Skip(_) => {}
-        }
-    }
-
-    fn error(&mut self) {
-        self.fail(Error::Invalid);
-    }
-}
-
-/// A name as the base64 decoder's sink.
+/// A name's base64 as the decoder's sink.
 struct NameSink<'a> {
     name: &'a mut Vec<u8>,
     error: &'a mut Option<Error>,
@@ -324,234 +150,265 @@ impl Sink for NameSink<'_> {
     }
 
     fn bytes(&mut self, data: &[u8]) {
-        for &b in data {
-            if b == 0 || self.name.len() >= NAME_MAX {
-                *self.error = Some(Error::BadFile);
-                return;
-            }
-            self.name.push(b);
+        if data.contains(&0) || self.name.len().saturating_add(data.len()) > NAME_MAX {
+            *self.error = Some(Error::BadFile);
+            return;
         }
+        self.name.extend_from_slice(data);
     }
 
     fn error(&mut self) {
-        self.error.get_or_insert(Error::Invalid);
+        *self.error = Some(Error::Invalid);
     }
 }
 
-impl Kitty {
-    /// Decodes payload bytes into the string's target.
-    fn payload(&mut self, ctx: &mut dyn Context, data: &[u8]) {
-        match self.target {
-            Target::Upload => {
-                let Upload { mode, base64, .. } = &mut self.upload;
-                base64.feed(data, &mut UploadSink { mode, ctx });
-            }
-            Target::Name => self.name_base64.feed(
-                data,
-                &mut NameSink {
-                    name: &mut self.name,
-                    error: &mut self.name_error,
-                },
-            ),
-            Target::None => {}
-        }
-    }
+/// The kitty graphics protocol's front end.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Kitty {
+    phase: Phase,
+    keys: Vec<u8>,
+    /// The string's keys, once read.
+    cmd: Command,
+    role: Role,
+    /// The refusal the keys alone decide, answered when the string ends.
+    refusal: Option<Error>,
+    /// The base64 decoder of the string's payload; each string, each
+    /// chunk among them, decodes on its own.
+    base64: Base64,
+    /// The transfer the string's data goes to.
+    transfer: Option<Transfer>,
+    /// The string is the next chunk of the open upload of this buffer.
+    chunk_of: Option<usize>,
+    /// A named medium's name, decoded.
+    name: Vec<u8>,
+    /// The name failed: too long or holding NUL (EBADF), or not base64
+    /// (EINVAL).
+    name_error: Option<Error>,
+    /// The open upload in chunks of each buffer, main then alternate.
+    open: [Option<Transfer>; BUFFERS],
+    /// The request out to the helper.
+    pending: Option<Pending>,
+}
 
-    /// The keys are read: where the payload goes.
-    fn command_start(&mut self, ctx: &mut dyn Context) {
-        self.cmd = Command::parse(&self.keys);
-        self.target = Target::None;
-        let cmd = self.cmd;
-        if self.upload.mode != Mode::None {
-            match cmd.within_upload(&self.upload.cmd) {
-                Within::Continues => {
-                    if cmd.bad {
-                        fail(&mut self.upload.mode, ctx, Error::Invalid);
-                    }
-                    // a chunk's q of 1 or 2 holds from then on, and q=0
-                    // keeps the first chunk's, as kitty keeps it
-                    if cmd.quiet != 0 {
-                        self.upload.cmd.quiet = cmd.quiet;
-                    }
-                    self.target = Target::Upload;
-                    return;
-                }
-                Within::Beside => {
-                    // an animation control acts on the image the upload
-                    // loads; a query's picture is never stored, so then
-                    // it names none
-                    if cmd.action == b'a' {
-                        let query = self.upload.cmd.action == b'q';
-                        self.cmd.id = if query { 0 } else { self.upload.cmd.id };
-                        self.cmd.number = if query { 0 } else { self.upload.cmd.number };
-                    }
-                    return;
-                }
-                Within::Ends => abort(&mut self.upload.mode, ctx),
-            }
-        }
-        if !cmd.transmits() {
+/// The index of the buffer in use, as [`Kitty::open`] holds them.
+fn buffer_in_use(ctx: &dyn Context) -> usize {
+    usize::from(ctx.store().in_alternate())
+}
+
+impl Kitty {
+    /// Takes control-key bytes, up to the `;`.
+    fn keys(&mut self, ctx: &mut dyn Context, bytes: &[u8]) {
+        let (keys, payload) = match bytes.iter().position(|&b| b == b';') {
+            Some(at) => (
+                bytes.get(..at).unwrap_or_default(),
+                bytes.get(at.saturating_add(1)..),
+            ),
+            None => (bytes, None),
+        };
+        if self.keys.len().saturating_add(keys.len()) > KEYS_MAX {
+            self.phase = Phase::Ignored;
+            self.keys.clear();
             return;
         }
-        if cmd.medium == b'd' {
-            self.upload_start(ctx);
-            self.target = Target::Upload;
-        } else {
-            self.name.clear();
-            self.name_error = None;
-            self.name_base64 = Base64::new();
-            self.target = Target::Name;
+        self.keys.extend_from_slice(keys);
+        if let Some(payload) = payload {
+            self.begin(ctx);
+            self.phase = Phase::Payload;
+            self.payload(ctx, payload);
         }
     }
 
-    /// The first chunk of a direct transmission. Raw data has its pixels'
-    /// bytes reserved before they are allocated; `a=q` only counts what
-    /// arrives.
-    fn upload_start(&mut self, ctx: &mut dyn Context) {
-        let cmd = self.cmd;
-        self.upload = Upload {
-            mode: Mode::Skip(Ok(())),
-            cmd,
-            base64: Base64::new(),
-        };
+    /// The keys are read: decides what the string is, and readies where
+    /// its payload goes.
+    fn begin(&mut self, ctx: &mut dyn Context) {
+        let cmd = Command::parse(&self.keys);
+        self.cmd = cmd;
+        self.role = Role::Plain;
+        // a feature query reads no data; e on another action is refused
+        if cmd.asks() {
+            return;
+        }
+        let b = buffer_in_use(ctx);
+        if cmd.direct()
+            && let Some(mut open) = self.open.get_mut(b).and_then(Option::take)
+        {
+            // the next chunk of the open upload, whatever its other keys
+            open.chunk_quiet(cmd.quiet);
+            self.transfer = Some(open);
+            self.chunk_of = Some(b);
+            self.role = Role::Direct;
+            return;
+        }
+        match cmd.action {
+            b't' | b'T' | b'q' | b'f' if cmd.medium == b'd' => {
+                // a query while an upload is open is answered whole, its m
+                // ignored
+                let open = self.open.get(b).is_some_and(Option::is_some);
+                let chunked = cmd.more != 0 && !(cmd.action == b'q' && open);
+                self.transmit(ctx, cmd, chunked);
+            }
+            b't' | b'T' | b'q' | b'f' => {
+                self.role = Role::Named;
+                self.name.clear();
+                self.name_error = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// A direct transmission or query begins: refused by its keys, or a
+    /// transfer readied with its reservation. `chunked` opens an upload.
+    fn transmit(&mut self, ctx: &mut dyn Context, mut cmd: Command, chunked: bool) {
         if cmd.dropped() {
             return;
         }
-        if let Some(e) = refused(ctx, &cmd) {
-            self.upload.mode = Mode::Skip(Err(e));
+        let refusal = refused(ctx, &cmd).or_else(|| {
+            (cmd.action == b'f')
+                .then(|| frame_target(ctx, &mut cmd).err())
+                .flatten()
+        });
+        if let Some(e) = refusal {
+            self.refusal = Some(e);
             return;
         }
-        let frame = if cmd.action == b'f' {
-            match frame_target(ctx, &mut self.upload.cmd) {
-                Ok(key) => Some(key),
-                Err(e) => {
-                    self.upload.mode = Mode::Skip(Err(e));
-                    return;
-                }
+        match ready(ctx, &cmd, chunked) {
+            Ok((data, reservation, cost)) => {
+                self.cmd = cmd;
+                self.transfer = Some(Transfer::new(cmd, data, reservation, chunked, cost));
+                self.role = Role::Direct;
             }
-        } else {
-            None
-        };
-        let cmd = self.upload.cmd;
-        if cmd.for_helper() {
-            if !ctx.helper() {
-                ctx.note(Cause::Console, NO_HELPER);
-                self.upload.mode = Mode::Skip(Err(Error::Invalid));
-                return;
-            }
-            // a frame's payload is kept of the frame allowance, in a
-            // reservation that holds its image from the first byte; a
-            // picture's grows of the image budget as it arrives
-            let reservation = match frame {
-                Some(key) => match ctx.edit(|e| e.frame_reserve(key, 0)).and_then(Result::ok) {
-                    Some(r) => Some(r),
-                    None => {
-                        self.upload.mode = Mode::Skip(Err(Error::NoSpace));
-                        return;
-                    }
-                },
-                None => None,
-            };
-            self.upload.mode = Mode::Host {
-                data: Vec::new(),
-                cap: 0,
-                reservation,
-            };
-            return;
+            Err(e) => self.refusal = Some(e),
         }
-        // palette indices take the terminal's colors as they are now, once
-        // for the whole upload (D15)
-        let colors = if cmd.indexed() {
-            match ctx.colors() {
-                Some(colors) => Some(Box::new(colors.resolved())),
-                None => {
-                    self.upload.mode = Mode::Skip(Err(Error::Invalid));
-                    return;
-                }
-            }
-        } else {
-            None
-        };
-        let pixels = cmd.pixels();
-        let want = pixels.saturating_mul(u64::from(cmd.bpp()));
-        if cmd.action == b'q' {
-            self.upload.mode = Mode::Count {
-                len: 0,
-                want,
-                past: false,
-            };
-            return;
-        }
-        // a frame's data is reserved of the frame allowance, an image's of
-        // the image budget
-        let reserved = |ctx: &mut dyn Context, count: usize| match frame {
-            Some(key) => ctx
-                .edit(|e| e.frame_reserve(key, layer_cost(cmd.width, cmd.height)))
-                .and_then(Result::ok)
-                .map(|r| (Vec::new(), r)),
-            None => buffer(ctx, cmd.id, count, charge(pixels)),
-        };
-        let Some((count, (buffer, reservation))) = usize::try_from(pixels)
-            .ok()
-            .and_then(|count| Some((count, reserved(ctx, count)?)))
-        else {
-            self.upload.mode = Mode::Skip(Err(Error::NoSpace));
-            return;
-        };
-        let format = match (colors, cmd.format) {
-            (Some(colors), 8) => Format::Index(colors),
-            (Some(colors), _) => Format::IndexAlpha(colors),
-            (None, 24) => Format::Rgb,
-            (None, _) => Format::Rgba,
-        };
-        self.upload.mode = Mode::Raw {
-            raw: Raw::new(format, count, buffer),
-            reservation,
-        };
     }
 
-    /// The upload's last chunk has arrived.
-    fn upload_finish(&mut self, ctx: &mut dyn Context) {
-        let cmd = self.upload.cmd;
-        match core::mem::take(&mut self.upload.mode) {
-            Mode::None => {}
-            Mode::Skip(answer) => reply(ctx, &cmd, cmd.id, answer),
-            Mode::Count { len, want, past } => {
-                if past {
-                    ctx.note(Cause::Program, PAST);
+    /// Takes payload bytes.
+    fn payload(&mut self, ctx: &mut dyn Context, bytes: &[u8]) {
+        match self.role {
+            Role::Plain => {}
+            Role::Direct => {
+                if let Some(transfer) = self.transfer.as_mut() {
+                    let mut sink = TransferSink { transfer, ctx };
+                    self.base64.feed(bytes, &mut sink);
                 }
-                let answer = if len < want {
-                    Err(Error::NoData { got: len, want })
-                } else {
-                    Ok(())
+            }
+            Role::Named => {
+                let mut sink = NameSink {
+                    name: &mut self.name,
+                    error: &mut self.name_error,
                 };
-                reply(ctx, &cmd, cmd.id, answer);
+                self.base64.feed(bytes, &mut sink);
             }
-            Mode::Host {
-                data, reservation, ..
-            } => {
-                if ctx.helper() {
-                    self.request(ctx, &cmd, Medium::Direct(data), None, reservation);
-                } else {
-                    if let Some(r) = reservation {
-                        ctx.unreserve(r);
+        }
+    }
+
+    /// The string ended with its terminator: acts on it and answers.
+    fn end(&mut self, ctx: &mut dyn Context) {
+        match self.phase {
+            Phase::Idle | Phase::Ignored => return,
+            Phase::Keys => self.begin(ctx),
+            Phase::Payload => {}
+        }
+        let cmd = self.cmd;
+        match self.role {
+            Role::Direct => self.end_direct(ctx),
+            Role::Named => {
+                let mut sink = NameSink {
+                    name: &mut self.name,
+                    error: &mut self.name_error,
+                };
+                self.base64.flush(&mut sink);
+                // a transmission from a named medium ends the open upload,
+                // and a query leaves it
+                if cmd.action != b'q' {
+                    self.end_upload(ctx);
+                }
+                self.media_finish(ctx);
+            }
+            Role::Plain => {
+                if cmd.asks() {
+                    if cmd.action == b'q' {
+                        feature::answer(ctx, &cmd, &self.keys);
+                    } else {
+                        // the specification allows e only in a query
+                        reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
                     }
-                    ctx.note(Cause::Console, NO_HELPER);
-                    reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
+                } else if let Some(e) = self.refusal {
+                    reply(ctx, &cmd, cmd.id, Err(e));
+                } else {
+                    match cmd.action {
+                        b'p' => self.put(ctx),
+                        b'd' => {
+                            // the specification: "the partial upload must be
+                            // aborted"
+                            self.end_upload(ctx);
+                            self.delete(ctx);
+                        }
+                        b'a' | b'c' => self.animate(ctx),
+                        // a query without i reads nothing and is never
+                        // answered
+                        b'q' => {}
+                        _ => reply(ctx, &cmd, cmd.id, Err(Error::Invalid)),
+                    }
                 }
             }
-            Mode::Raw { raw, reservation } => {
+        }
+    }
+
+    /// A direct transmission's string ended: an upload stays open for its
+    /// next chunk while the chunk says `m=1`, and otherwise the transfer
+    /// ends and is answered.
+    fn end_direct(&mut self, ctx: &mut dyn Context) {
+        let Some(mut transfer) = self.transfer.take() else {
+            return;
+        };
+        let mut sink = TransferSink {
+            transfer: &mut transfer,
+            ctx,
+        };
+        self.base64.end_unpadded(&mut sink);
+        if transfer.chunked && !transfer.ended && self.cmd.more != 0 {
+            let b = self.chunk_of.unwrap_or_else(|| buffer_in_use(ctx));
+            if let Some(slot) = self.open.get_mut(b) {
+                *slot = Some(transfer);
+            }
+            return;
+        }
+        self.complete(ctx, transfer);
+    }
+
+    /// Ends the open upload of the buffer in use, dropping its data with
+    /// no answer.
+    fn end_upload(&mut self, ctx: &mut dyn Context) {
+        let b = buffer_in_use(ctx);
+        if let Some(open) = self.open.get_mut(b).and_then(Option::take) {
+            open.drop_quietly(ctx);
+        }
+    }
+
+    /// A transfer ended: stores its picture or frame, answers a query, or
+    /// hands a PNG or zlib payload to the helper.
+    fn complete(&mut self, ctx: &mut dyn Context, mut transfer: Transfer) {
+        let cmd = transfer.cmd;
+        if let Some(e) = transfer.failed {
+            transfer.drop_quietly(ctx);
+            return reply(ctx, &cmd, cmd.id, Err(e));
+        }
+        let reservation = transfer.reservation.take();
+        match transfer.data {
+            Data::Raw(raw) => {
                 if raw.ignored() {
                     ctx.note(Cause::Program, PAST);
                 }
-                // raw data must hold every pixel the keys call for
                 if !raw.complete() {
+                    if let Some(r) = reservation {
+                        ctx.unreserve(r);
+                    }
                     let (got, want) = (raw.received(), raw.wanted());
-                    ctx.unreserve(reservation);
-                    reply(ctx, &cmd, cmd.id, Err(Error::NoData { got, want }));
-                    return;
+                    return reply(ctx, &cmd, cmd.id, Err(Error::NoData { got, want }));
                 }
-                ctx.add_work(cmd.pixels());
+                let Some(reservation) = reservation else {
+                    return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
+                };
                 let (pixels, opaque) = raw.into_pixels();
                 let picture = (cmd.width, cmd.height, pixels, opaque);
                 if cmd.action == b'f' {
@@ -560,12 +417,69 @@ impl Kitty {
                     store(ctx, &cmd, picture, reservation);
                 }
             }
+            Data::Count { want } => {
+                if transfer.taken < want {
+                    let got = transfer.taken;
+                    return reply(ctx, &cmd, cmd.id, Err(Error::NoData { got, want }));
+                }
+                if transfer.taken > want {
+                    ctx.note(Cause::Program, PAST);
+                }
+                reply(ctx, &cmd, cmd.id, Ok(()));
+            }
+            Data::Bytes { data, .. } => {
+                self.request(ctx, &cmd, Medium::Direct(data), None, reservation);
+            }
+            Data::Dropped => {
+                if let Some(r) = reservation {
+                    ctx.unreserve(r);
+                }
+            }
+        }
+    }
+
+    /// Drops the string being read, giving back what its transfer holds.
+    /// A chunk's transfer is its upload's, so the upload ends with it.
+    fn drop_string(&mut self, ctx: &mut dyn Context) {
+        if let Some(transfer) = self.transfer.take() {
+            transfer.drop_quietly(ctx);
+        }
+        self.clear_string();
+    }
+
+    /// Forgets the string just read.
+    fn clear_string(&mut self) {
+        self.phase = Phase::Idle;
+        self.keys.clear();
+        self.role = Role::Plain;
+        self.refusal = None;
+        self.base64 = Base64::new();
+        self.chunk_of = None;
+        self.name.clear();
+        self.name_error = None;
+    }
+
+    /// Forgets the request out to the helper, giving back the payload's
+    /// reservation, with no answer.
+    fn drop_request(&mut self, ctx: &mut dyn Context) {
+        if let Some(held) = self.pending.take().and_then(|p| p.held) {
+            ctx.unreserve(held);
+        }
+    }
+
+    /// Drops every open upload, giving back what each holds, with no
+    /// answer.
+    fn drop_uploads(&mut self, ctx: &mut dyn Context) {
+        for slot in &mut self.open {
+            if let Some(open) = slot.take() {
+                open.drop_quietly(ctx);
+            }
         }
     }
 
     /// A transmission from a file, temporary file or shared memory, which
     /// the helper reads. An empty name, a longer one or one holding NUL
-    /// answers EBADF with no request, as an unreadable file does.
+    /// is EBADF, and a name that is not base64 is EINVAL.
     fn media_finish(&mut self, ctx: &mut dyn Context) {
         let mut cmd = self.cmd;
         if cmd.dropped() {
@@ -799,53 +713,8 @@ impl Kitty {
         }
         reply(ctx, &cmd, cmd.id, answer);
     }
-
-    /// The string ended with its terminator.
-    fn command_finish(&mut self, ctx: &mut dyn Context) {
-        match self.target {
-            Target::Upload => {
-                let Upload { mode, base64, .. } = &mut self.upload;
-                base64.flush(&mut UploadSink { mode, ctx });
-                if self.cmd.more == 0 {
-                    self.upload_finish(ctx);
-                }
-            }
-            Target::Name => {
-                self.name_base64.flush(&mut NameSink {
-                    name: &mut self.name,
-                    error: &mut self.name_error,
-                });
-                self.media_finish(ctx);
-            }
-            Target::None => match self.cmd.action {
-                b'p' => self.put(ctx),
-                b'd' => self.delete(ctx),
-                b'a' | b'c' => self.animate(ctx),
-                _ => {
-                    let cmd = self.cmd;
-                    reply(ctx, &cmd, cmd.id, Err(Error::Invalid));
-                }
-            },
-        }
-        self.target = Target::None;
-    }
-
-    /// Gives back everything the handler holds: the pending upload's
-    /// reservation, and the bytes a request out holds.
-    fn release(&mut self, ctx: &mut dyn Context) {
-        abort(&mut self.upload.mode, ctx);
-        if let Some(Pending {
-            held: Some(held), ..
-        }) = self.pending.take()
-        {
-            ctx.unreserve(held);
-        }
-    }
 }
 
-/// Stores `cmd`'s transmitted picture, its width, height, pixels and
-/// whether every pixel is opaque, whose bytes `reservation` holds, places
-/// it for `a=T`, and answers.
 fn store(
     ctx: &mut dyn Context,
     cmd: &Command,
@@ -1200,91 +1069,138 @@ fn outcome(reply: &Reply, named: bool, inflate: bool) -> Error {
     }
 }
 
+/// Where direct transmission `cmd`'s data goes, what the budget reserved
+/// for it, and the cost an upload's cap is, or the refusal that the keys
+/// and the budget decide before any data (ADR-1100, D5, D16). An upload in
+/// chunks, `chunked`, of a picture reserves its whole cost beside the
+/// image of the same id; a whole command counts that image toward its own
+/// cost, as a replacement frees it.
+fn ready(
+    ctx: &mut dyn Context,
+    cmd: &Command,
+    chunked: bool,
+) -> Result<(Data, Option<Reservation>, Option<u64>), Error> {
+    let frame_key = |ctx: &mut dyn Context| {
+        ctx.find_image(cmd.id, cmd.number)
+            .ok_or(Error::AnimNotFound {
+                id: cmd.id,
+                number: cmd.number,
+            })
+    };
+    if cmd.for_helper() {
+        if !ctx.helper() {
+            ctx.note(Cause::Console, NO_HELPER);
+            return Err(Error::Invalid);
+        }
+        let reserved = match cmd.action {
+            b'f' => {
+                let key = frame_key(ctx)?;
+                ctx.edit(|e| e.frame_reserve(key, HOST_FIRST))
+                    .unwrap_or(Err(Refusal::NoSpace))
+            }
+            b'q' => ctx.reserve(Protocol::KITTY, 0, HOST_FIRST),
+            _ if chunked => ctx
+                .edit(|e| e.reserve_beside(cmd.id, HOST_FIRST))
+                .unwrap_or(Err(Refusal::NoSpace)),
+            _ => ctx.reserve(Protocol::KITTY, cmd.id, HOST_FIRST),
+        };
+        let reservation = reserved.map_err(error)?;
+        let data = Data::Bytes {
+            data: Vec::new(),
+            room: HOST_FIRST,
+        };
+        return Ok((data, Some(reservation), None));
+    }
+    let count = cmd.pixels();
+    if cmd.action == b'q' {
+        if cmd.indexed() && ctx.colors().is_none() {
+            return Err(Error::Invalid);
+        }
+        let want = count.saturating_mul(u64::from(cmd.bpp()));
+        return Ok((Data::Count { want }, None, None));
+    }
+    // palette indices take the colors in force at the first chunk
+    let colors = || {
+        ctx.colors()
+            .map(|c| Box::new(c.resolved()))
+            .ok_or(Error::Invalid)
+    };
+    let format = match cmd.format {
+        8 => Format::Index(colors()?),
+        16 => Format::IndexAlpha(colors()?),
+        24 => Format::Rgb,
+        _ => Format::Rgba,
+    };
+    let len = usize::try_from(count).map_err(|_| Error::Invalid)?;
+    if cmd.action == b'f' {
+        let key = frame_key(ctx)?;
+        let cost = layer_cost(cmd.width, cmd.height);
+        let reservation = ctx
+            .edit(|e| e.frame_reserve(key, cost))
+            .unwrap_or(Err(Refusal::NoSpace))
+            .map_err(error)?;
+        let raw = Raw::new(format, len, Vec::new());
+        return Ok((Data::Raw(raw), Some(reservation), Some(cost)));
+    }
+    let cost = charge(count);
+    let (into, reservation) = if chunked {
+        let reservation = ctx
+            .edit(|e| e.reserve_beside(cmd.id, cost))
+            .unwrap_or(Err(Refusal::NoSpace))
+            .map_err(error)?;
+        (Vec::new(), reservation)
+    } else {
+        buffer(ctx, cmd.id, len, cost).ok_or(Error::NoSpace)?
+    };
+    let raw = Raw::new(format, len, into);
+    Ok((Data::Raw(raw), Some(reservation), Some(cost)))
+}
+
 impl Handler for Kitty {
-    fn start(&mut self, _: &mut dyn Context, _: Intro<'_>) {
+    fn start(&mut self, ctx: &mut dyn Context, _: Intro<'_>) {
+        self.drop_string(ctx);
         self.phase = Phase::Keys;
-        self.keys.clear();
-        self.target = Target::None;
     }
 
     fn feed(&mut self, ctx: &mut dyn Context, data: Chunk<'_>) {
         ctx.add_work(chunk_work(data));
-        let wide = [0x80u8];
-        let mut bytes: &[u8] = match data {
-            Chunk::Bytes(b) => b,
-            // a character from U+00A0 up is neither a key nor base64
-            Chunk::Char(_) => &wide,
+        // a character past ASCII is outside both the keys and base64
+        let bytes = match data {
+            Chunk::Bytes(bytes) => bytes,
+            Chunk::Char(_) => &[0xff],
         };
-        if self.phase == Phase::Keys {
-            let end = bytes.iter().position(|&b| b == b';');
-            let keys = end.map_or(bytes, |e| bytes.get(..e).unwrap_or_default());
-            if self.keys.len().saturating_add(keys.len()) > KEYS_MAX {
-                // a longer key section: the whole string is ignored
-                self.phase = Phase::Ignore;
-                return;
-            }
-            self.keys.extend_from_slice(keys);
-            let Some(end) = end else {
-                return;
-            };
-            self.command_start(ctx);
-            self.phase = Phase::Payload;
-            bytes = bytes.get(end.saturating_add(1)..).unwrap_or_default();
-        }
-        if self.phase == Phase::Payload && !bytes.is_empty() {
-            self.payload(ctx, bytes);
+        match self.phase {
+            Phase::Keys => self.keys(ctx, bytes),
+            Phase::Payload => self.payload(ctx, bytes),
+            Phase::Idle | Phase::Ignored => {}
         }
     }
 
-    /// A run of an APC string's data: the key section whole, since it is at
-    /// most 1 KiB, and of the payload only as many bytes as `work_left`
-    /// allows, each byte one unit of work, at least one byte of a run that
-    /// is not empty. The base64 decoder keeps its open group between runs,
-    /// so the rest of the run decodes the same in the next input call.
     fn feed_some(&mut self, ctx: &mut dyn Context, run: &[u8], work_left: u64) -> usize {
-        let mut taken = 0usize;
-        if self.phase == Phase::Keys {
-            let keys = run
-                .iter()
-                .position(|&b| b == b';')
-                .map_or(run.len(), |e| e.saturating_add(1));
-            self.feed(ctx, Chunk::Bytes(run.get(..keys).unwrap_or_default()));
-            taken = keys;
-        }
-        let rest = run.get(taken..).unwrap_or_default();
-        if rest.is_empty() {
-            return taken.max(usize::from(!run.is_empty()));
-        }
-        if self.phase != Phase::Payload {
-            // an ignored string reads nothing more
-            ctx.add_work(chunk_work(Chunk::Bytes(rest)));
-            return run.len();
-        }
-        let left = work_left.saturating_sub(u64::try_from(taken).unwrap_or(u64::MAX));
-        let n = usize::try_from(left)
+        // one unit of work for each byte, and at least one byte a call
+        let n = usize::try_from(work_left)
             .unwrap_or(usize::MAX)
-            .clamp(usize::from(taken == 0), rest.len());
-        if n > 0 {
-            self.feed(ctx, Chunk::Bytes(rest.get(..n).unwrap_or_default()));
+            .clamp(1, run.len().max(1))
+            .min(run.len());
+        if let Some(taken) = run.get(..n)
+            && !taken.is_empty()
+        {
+            self.feed(ctx, Chunk::Bytes(taken));
         }
-        taken.saturating_add(n)
+        n
     }
 
     fn finish(&mut self, ctx: &mut dyn Context) {
-        match core::mem::take(&mut self.phase) {
-            Phase::Ignore => return,
-            Phase::Keys => self.command_start(ctx),
-            Phase::Payload => {}
-        }
-        self.command_finish(ctx);
+        self.end(ctx);
+        self.drop_string(ctx);
     }
 
     fn cancel(&mut self, ctx: &mut dyn Context) {
-        // a cancelled string ends the upload it belongs to, and any other;
-        // a request out is dropped with no reply to the program
-        self.phase = Phase::Ignore;
-        self.target = Target::None;
-        self.release(ctx);
+        // a chunk cut short ends its upload, whose data it can no longer
+        // complete, with no answer
+        self.drop_string(ctx);
+        // a request the host abandons is answered by nobody
+        self.drop_request(ctx);
     }
 
     fn decoded(&mut self, ctx: &mut dyn Context, answer: Reply) {
@@ -1352,16 +1268,14 @@ impl Handler for Kitty {
     }
 
     fn reset(&mut self, ctx: &mut dyn Context) {
-        self.release(ctx);
+        self.withdraw(ctx);
+        self.drop_request(ctx);
         *self = Self::default();
     }
 
-    fn upload_open(&self) -> bool {
-        self.upload.mode != Mode::None
-    }
-
-    fn interrupt(&mut self, ctx: &mut dyn Context) {
-        abort(&mut self.upload.mode, ctx);
+    fn withdraw(&mut self, ctx: &mut dyn Context) {
+        self.drop_string(ctx);
+        self.drop_uploads(ctx);
     }
 
     fn clone_box(&self) -> Box<dyn Handler> {

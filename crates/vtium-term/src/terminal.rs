@@ -384,12 +384,13 @@ impl Terminal {
         core::mem::take(&mut self.state.out)
     }
 
-    /// The session whose output the terminal takes ended: an upload in
-    /// chunks a picture handler holds open is dropped, so the next
-    /// session's first picture command starts fresh.
+    /// The session on this terminal ended. Each picture handler drops what
+    /// it holds open between its strings, such as a kitty upload in chunks,
+    /// with no answer, so the next session starts with none open
+    /// (ADR-1100, D16).
     pub fn session_ended(&mut self) {
         #[cfg(feature = "images")]
-        self.state.images_interrupt();
+        self.state.images_withdraw();
     }
 
     /// The selection a program set with OSC 52 since the last call, decoded,
@@ -1006,8 +1007,6 @@ impl State {
 
 impl Consumer for State {
     fn print(&mut self, c: char) {
-        #[cfg(feature = "images")]
-        self.image_other_output();
         let eight_bit = self.input_mode == InputMode::EightBit;
         if let Some(c) = self.charsets.map(c, eight_bit) {
             self.screen.print(c);
@@ -1017,10 +1016,6 @@ impl Consumer for State {
     fn execute(&mut self, control: u8) {
         // an 8-bit ST runs here after the string it ends, and is no other
         // output between two image strings
-        #[cfg(feature = "images")]
-        if control != 0x9c {
-            self.image_other_output();
-        }
         // Text after a control starts a cell of its own.
         if control != 0 {
             self.screen.break_cluster();
@@ -1052,10 +1047,6 @@ impl Consumer for State {
 
     fn esc_dispatch(&mut self, intermediates: Intermediates, final_byte: u8) {
         // so does the `\` of `ESC \`
-        #[cfg(feature = "images")]
-        if !(intermediates.as_bytes().is_empty() && final_byte == b'\\') {
-            self.image_other_output();
-        }
         // SCS for a 94-character set: ESC (, ), * or + designates G0 to G3.
         let slot = match intermediates.as_bytes() {
             [] => return self.esc_plain(final_byte),
@@ -1076,8 +1067,6 @@ impl Consumer for State {
     }
 
     fn csi_dispatch(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
-        #[cfg(feature = "images")]
-        self.image_other_output();
         // Only SGR and DECCARA read sub-parameters; any other sequence
         // carrying them does nothing.
         let reads_subparams = matches!(
@@ -1149,8 +1138,6 @@ impl Consumer for State {
 
     /// A truncated string is dropped whole, as vtium-parse's README asks.
     fn osc_end(&mut self, data: &[u8], truncated: bool, end: StringEnd) {
-        #[cfg(feature = "images")]
-        self.image_other_output();
         if !end.is_complete() || truncated {
             #[cfg(feature = "images")]
             self.image_osc_dropped(data);
@@ -1176,8 +1163,6 @@ impl Consumer for State {
     }
 
     fn dcs_hook(&mut self, params: &Params, intermediates: Intermediates, final_byte: u8) {
-        #[cfg(feature = "images")]
-        self.image_other_output();
         #[cfg(feature = "images")]
         if self.image_dcs_hook(params, intermediates, final_byte) {
             self.dcs = Dcs::Image;
@@ -1282,8 +1267,6 @@ impl Consumer for State {
     }
 
     fn xtgettcap(&mut self, payload: Option<&[u8]>) {
-        #[cfg(feature = "images")]
-        self.image_other_output();
         let reply = self.host.termcap.answer(payload);
         self.reply(Query::Xtgettcap, &reply);
     }

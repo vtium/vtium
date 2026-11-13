@@ -145,22 +145,7 @@ impl Error {
     }
 }
 
-/// What a command does to an upload in chunks that is open when it
-/// arrives ([`Command::within_upload`]).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Within {
-    /// It is the upload's next chunk: the handler reads only its `m` and
-    /// `q`, fails the upload when one of its keys cannot be read, and
-    /// decodes its payload into the upload.
-    Continues,
-    /// It ends the upload, which gives back what it holds, and then runs.
-    Ends,
-    /// It runs on its own and leaves the upload open; an animation control
-    /// acts on the image the upload loads.
-    Beside,
-}
-
-/// What a command is answered: OK, or an error.
+/// What a command is answered: OK, or its error.
 pub(super) type Answer = Result<(), Error>;
 
 /// The bit of the set of keys seen for key letter `key`.
@@ -190,6 +175,9 @@ pub(super) struct Command {
     pub(super) compression: u8,
     /// `d`: what a delete chooses.
     pub(super) delete: u8,
+    /// `e`: the action a feature query asks about, or 0 when `e` is not
+    /// one letter (ADR-1100, D14).
+    pub(super) ask: u8,
     /// `q`: which replies are left out.
     pub(super) quiet: u32,
     /// `f`: the format: 8 or 16 palette indices, 24 RGB, 32 RGBA or 100
@@ -245,6 +233,7 @@ impl Default for Command {
             medium: b'd',
             compression: 0,
             delete: b'a',
+            ask: 0,
             quiet: 0,
             format: 32,
             width: 0,
@@ -347,6 +336,12 @@ impl Command {
             b't' => return letter.map(|c| self.medium = c).is_some(),
             b'o' => return letter.map(|c| self.compression = c).is_some(),
             b'd' => return letter.map(|c| self.delete = c).is_some(),
+            // any value makes a feature query; one that names no action
+            // is answered as an action vtium does not know
+            b'e' => {
+                self.ask = letter.unwrap_or(0);
+                return true;
+            }
             b'z' => return signed(value).map(|v| self.z = v).is_some(),
             b'H' => return signed(value).map(|v| self.offset_cols = v).is_some(),
             b'V' => return signed(value).map(|v| self.offset_rows = v).is_some(),
@@ -382,6 +377,18 @@ impl Command {
     /// `a=t`, `a=T`, `a=q` and `a=f` carry data.
     pub(super) fn transmits(&self) -> bool {
         matches!(self.action, b't' | b'T' | b'q' | b'f')
+    }
+
+    /// The command carries `e`, which makes a query a feature query and
+    /// any other action a refusal (ADR-1100, D14).
+    pub(super) fn asks(&self) -> bool {
+        self.seen & bit(b'e') != 0
+    }
+
+    /// A direct transmission: `a=t`, `a=T` or `a=f`, or no `a`, with no
+    /// `t` or `t=d` (ADR-1100, D16).
+    pub(super) fn direct(&self) -> bool {
+        matches!(self.action, b't' | b'T' | b'f') && self.medium == b'd'
     }
 
     /// An `a=q` without `i`, with or without `I`: it reads nothing and is
@@ -489,30 +496,6 @@ impl Command {
             return Some("a kitty picture's box passes BOX_CELLS_MAX");
         }
         None
-    }
-
-    /// What this command does to the upload in chunks begun by `first`,
-    /// which is open when it arrives, as kitty 0.49.2 takes it but for one
-    /// rule. A transmission or a frame sent directly, with no `t` or `t=d`,
-    /// is the upload's next chunk: the handler reads only its `m` and `q`,
-    /// and fails the upload when one of its keys cannot be read. One from
-    /// a file, a temporary file or shared memory, and a delete, end the
-    /// upload; a put, a composition and an animation control run beside
-    /// it. The one rule that is vtium's: a transmission or frame that names
-    /// another image by `i` or `I` than `first` named, other than 0, ends
-    /// the upload too, so an upload a program left unfinished cannot take
-    /// the next program's picture; kitty loads it into the open upload. The
-    /// spec asks a later chunk to carry only `m` and `q`, and `a=f` too for a
-    /// frame, and asks a delete to end the upload.
-    pub(super) fn within_upload(&self, first: &Self) -> Within {
-        // `i=0` and `I=0` name no image, as kitty reads them
-        let same_image = (self.seen & bit(b'i') == 0 || self.id == 0 || self.id == first.id)
-            && (self.seen & bit(b'I') == 0 || self.number == 0 || self.number == first.number);
-        match self.action {
-            b't' | b'T' | b'q' | b'f' if self.medium == b'd' && same_image => Within::Continues,
-            b't' | b'T' | b'q' | b'f' | b'd' => Within::Ends,
-            _ => Within::Beside,
-        }
     }
 
     /// The pixels the raw picture holds.

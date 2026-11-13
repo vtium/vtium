@@ -329,87 +329,133 @@ fn a_picture_past_vtiums_bounds_is_noted() {
     );
 }
 
-/// The first chunk of an upload of kitty image 5, 2 by 2 pixels of blue
-/// RGB, placed with `a=T` at the cursor, which stays where it is.
-const FIRST: &[u8] = b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x1b\\";
-/// Its last chunk.
-const LAST: &[u8] = b"\x1b_Gm=0;AAD/AAD/\x1b\\";
+/// Opens an upload of image 1, a 2×1 RGB picture, in its first chunk.
+const OPEN1: &[u8] = b"\x1b_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\x1b\\";
+/// The upload's last chunk.
+const LAST1: &[u8] = b"\x1b_Gm=0;AP8A\x1b\\";
+/// A put of image 1 that leaves the cursor where it is.
+const PUT1: &[u8] = b"\x1b_Ga=p,i=1,C=1\x1b\\";
+const OK1: &[u8] = b"\x1b_Gi=1;OK\x1b\\";
+const NOENT1: &[u8] =
+    b"\x1b_Gi=1;ENOENT:Put command refers to non-existent image with id: 1 and number: 0\x1b\\";
 
-/// The upload's first chunk, then `between`, then its last chunk: whether
-/// the picture was placed, and whether the store holds any bytes.
-fn upload_around(t: &mut Terminal, between: &mut dyn FnMut(&mut Terminal)) -> (usize, u64) {
-    t.input(FIRST);
-    between(t);
-    t.input(LAST);
-    (t.screen().placements().len(), t.screen().images().bytes())
+/// The replies after `OPEN1`, then `between`, then `LAST1` and `PUT1`.
+fn around(t: &mut Terminal, between: &[u8]) -> Vec<u8> {
+    t.input(OPEN1);
+    t.input(between);
+    t.input(LAST1);
+    t.input(PUT1);
+    t.take_replies()
 }
 
-// Two chunks back to back draw, as kitty-doom sends them; anything else
-// that arrives between two chunks ends the upload, whose last chunk is then
-// a command of its own, a transmission without s and v, refused unanswered.
+// ADR-1100 D16: text, controls, CSI, OSC, DCS and an APC string that is
+// not a kitty command leave an open upload as it was; DECRQSS is answered
+// in its place among the upload's replies.
 // covers: image.kitty
 #[test]
-fn output_between_chunks_ends_an_upload_and_the_next_command_starts_fresh() {
+fn output_between_chunks_leaves_the_upload_open() {
     let mut t = term(12, 4);
-    assert_eq!(upload_around(&mut t, &mut |_| {}).0, 1, "no gap: drawn");
-    let between: [&[u8]; 11] = [
-        b"x",
-        b"\r\n",
-        b"\x07",
-        b"\x1b[H",
-        b"\x1b7",
-        b"\x1b]0;title\x1b\\",
-        b"\x1bP$qm\x1b\\",
-        b"\x1bP+q544e\x1b\\",
-        b"\x1b_Xother\x1b\\",
-        // an APC string whose first character is past ASCII, which the
-        // parser hands over a character at a time, and an empty one
-        "\x1b_\u{e9}t\x1b\\".as_bytes(),
-        b"\x1b_\x1b\\",
-    ];
-    for bytes in between {
-        let mut t = term(12, 4);
-        let got = upload_around(&mut t, &mut |t| {
-            t.input(bytes);
-        });
-        assert_eq!(got, (0, 0), "{bytes:?} between the chunks");
-        t.input(b"\x1b_Ga=T,f=24,s=2,v=2,i=6,C=1;AAD/AAD/AAD/AAD/\x1b\\");
-        assert_eq!(
-            t.screen().placements().len(),
-            1,
-            "{bytes:?}: the next upload is fresh"
-        );
-    }
+    let between = b"hello\x1b[3;3H\x1b[31mX\x1b[m\x1b]2;title\x07\x1b_Xjunk\x1b\\\x1b[!p";
+    assert_eq!(around(&mut t, between), [OK1, OK1].concat());
+    let mut t = term(12, 4);
+    let replies = around(&mut t, b"\x1bP$qm\x1b\\");
+    assert!(replies.ends_with(&[OK1, OK1].concat()), "{replies:?}");
+    assert!(replies.starts_with(b"\x1bP1$r"), "DECRQSS answers first");
 }
 
+// ADR-1100 D16: a sixel between kitty chunks draws as always and leaves
+// the kitty upload open.
 // covers: image.kitty
 #[test]
-fn ris_ends_an_upload() {
+fn a_sixel_between_chunks_leaves_the_upload_open() {
     let mut t = term(12, 4);
-    let got = upload_around(&mut t, &mut |t| {
-        t.input(b"\x1bc");
+    t.set_image_switches(Switches {
+        sixel: true,
+        kitty: true,
+        iterm2: false,
     });
-    assert_eq!(got, (0, 0));
+    t.set_image_handler(
+        ImageString::Sixel,
+        Some(Box::new(vtium_term::images::Sixel::default())),
+    );
+    let sixel = b"\x1bP0;0;0q\"1;1;1;1#0;2;100;0;0#0~\x1b\\";
+    assert_eq!(around(&mut t, sixel), [OK1, OK1].concat());
+    assert_eq!(t.screen().placements().len(), 2, "the sixel and image 1");
 }
 
+// ADR-1100 D16: RIS ends the open upload with no answer, and the session's
+// end drops it silently; either way its reservation goes back.
 // covers: image.kitty
 #[test]
-fn the_session_ending_ends_an_upload() {
+fn ris_and_the_sessions_end_drop_the_upload() {
     let mut t = term(12, 4);
-    let got = upload_around(&mut t, &mut Terminal::session_ended);
-    assert_eq!(got, (0, 0));
+    assert_eq!(around(&mut t, b"\x1bc"), NOENT1);
+    let mut t = term(12, 4);
+    t.input(OPEN1);
+    assert_eq!(t.screen().images().bytes(), 8 + 512);
+    t.session_ended();
+    assert_eq!(t.screen().images().bytes(), 0);
+    t.input(LAST1);
+    t.input(PUT1);
+    assert_eq!(t.take_replies(), NOENT1);
 }
 
-// With 8-bit controls, a program may end each chunk with the 8-bit ST,
-// 0x9C, which the terminal also runs as a control after the string: it is
-// no other output, and the upload goes on.
+// ADR-1100 D16: ED 2 and the clear of entering the alternate screen leave
+// an open upload alone, and an a=T upload places after the clear.
 // covers: image.kitty
 #[test]
-fn an_8_bit_st_ending_each_chunk_leaves_the_upload_open() {
+fn a_clear_leaves_the_upload_open() {
     let mut t = term(12, 4);
-    // DECSCL: level 2, with 8-bit controls
-    t.input(b"\x1b[62;0\"p");
-    t.input(b"\x1b_Ga=T,f=24,s=2,v=2,i=5,C=1,q=2,m=1;AAD/AAD/\x9c");
-    t.input(b"\x1b_Gm=0;AAD/AAD/\x9c");
-    assert_eq!(t.screen().placements().len(), 1);
+    assert_eq!(around(&mut t, b"\x1b[2J"), [OK1, OK1].concat());
+    let mut t = term(12, 4);
+    t.input(b"\x1b_Ga=T,f=24,s=2,v=1,i=1,c=4,r=2,C=1,m=1;/wAA\x1b\\");
+    t.input(b"\x1b[2J");
+    t.input(LAST1);
+    assert_eq!(t.take_replies(), OK1);
+    assert_eq!(boxes(&t), [(0, 0)]);
+}
+
+// ADR-1100 D16: each screen holds its own upload; a trip to the alternate
+// screen and back leaves the main screen's open, and its last chunk sent
+// on the alternate screen is a command of its own there.
+// covers: image.kitty
+#[test]
+fn each_screen_holds_its_own_upload() {
+    let mut t = term(12, 4);
+    assert_eq!(
+        around(&mut t, b"\x1b[?1049h\x1b[?1049l"),
+        [OK1, OK1].concat()
+    );
+    let mut t = term(12, 4);
+    t.input(OPEN1);
+    t.input(b"\x1b[?1049h");
+    t.input(LAST1);
+    t.input(PUT1);
+    t.input(b"\x1b[?1049l");
+    t.input(PUT1);
+    assert_eq!(t.take_replies(), [NOENT1, NOENT1].concat());
+}
+
+// ADR-1100 D6: while kitty graphics is not offered, the start of an APC
+// string drops an upload left open, so it holds no budget.
+// covers: image.kitty
+#[test]
+fn kitty_switched_off_drops_the_upload_at_the_next_apc() {
+    let mut t = term(12, 4);
+    t.input(OPEN1);
+    t.set_image_switches(Switches {
+        sixel: false,
+        kitty: false,
+        iterm2: false,
+    });
+    t.input(b"\x1b_Xjunk\x1b\\");
+    assert_eq!(t.screen().images().bytes(), 0);
+    t.set_image_switches(Switches {
+        sixel: false,
+        kitty: true,
+        iterm2: false,
+    });
+    t.input(LAST1);
+    t.input(PUT1);
+    assert_eq!(t.take_replies(), NOENT1);
 }
