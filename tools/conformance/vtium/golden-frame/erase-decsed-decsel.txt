@@ -1,0 +1,68 @@
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 42
+size 6x3
+cursor 6,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 18
+frame-cursor 5,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |aaPPaa|
+cells 0 2-3 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 protect
+row 1 |bbbbbb|
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 70
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 4
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |  PP|
+cells 0 2-3 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 protect
+row 1 |bbbbbb|
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 92
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 16
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |  PP|
+cells 0 2-3 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 protect
+row 1 ||
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 143
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 18
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |  PP|
+cells 0 2-3 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 protect
+row 1 ||
+row 2 ||

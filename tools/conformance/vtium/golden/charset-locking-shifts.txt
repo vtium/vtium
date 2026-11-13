@@ -1,0 +1,15 @@
+test state margins 0-5 0-29
+test state tabs 0,8,16,24
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+size 30x6
+cursor 3,2
+flags AUTO_WRAP
+row 0 |┌└─lmqlmq|
+row 1 |¡àì¡àìàìíàì¤|
+row 2 | ÿĀ|
+row 3 ||
+row 4 ||
+row 5 ||
