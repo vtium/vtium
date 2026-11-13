@@ -71,7 +71,7 @@ The loader follows kbd's description of the format in Andries Brouwer's "The PSF
 
 - **Box drawing, block elements, Braille, the sextants, the octants and the rest of Symbols for Legacy Computing's block shapes are sprites** (vtium/vtium#27). vtium-font draws them to fill the cell at every cell size. The Legacy Computing shapes follow the Unicode 18.0 code charts:
   - U+1CEA0-U+1CEAF, the one quarter blocks: the Symbols for Legacy Computing Supplement chart, <https://www.unicode.org/charts/PDF/U1CC00.pdf>.
-  - U+1FB3C-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF: the Symbols for Legacy Computing chart, <https://www.unicode.org/charts/PDF/U1FB00.pdf>. These are the smooth mosaics, triangles, eighth, third and quarter blocks (U+1FB82-U+1FB85 and U+1FBE4-U+1FBE7 among them), shades, fills, light diagonals and circles.
+  - U+1FB3C-U+1FB92, U+1FB94-U+1FBAF, U+1FBBD-U+1FBBF and U+1FBCE-U+1FBEF: the Symbols for Legacy Computing chart, <https://www.unicode.org/charts/PDF/U1FB00.pdf>. These are the smooth mosaics, triangles, eighth, third and quarter blocks (U+1FB82-U+1FB85 and U+1FBE4-U+1FBE7 among them), shades, fills, light diagonals and circles. U+1FB93 is unassigned in Unicode, so it has no sprite (`src/sprite/spans.rs`, and `UNASSIGNED` in `tests/legacy.rs`).
 
   The block's pictographs stay with the face. They are these:
 
