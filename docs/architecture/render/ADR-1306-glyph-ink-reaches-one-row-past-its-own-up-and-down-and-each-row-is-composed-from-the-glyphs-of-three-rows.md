@@ -83,6 +83,18 @@ considered:
   - operator: aaronsb
     said: "[Let a fallback joining-script letter use the reach instead of shrink-to-fit?] Use the reach (Rec.)"
     via: AskUserQuestion, 2026-11-06; the option label is the steering session's wording
+  - operator: aaronsb
+    said: "e2, a color emoji in one cell: when a color emoji must draw in a single cell (8×16 in the pictures), vtium scales it to 10×10 by nearest neighbour, centred, and lets it overflow 1 px into each neighbouring cell, drawn on top. n5, a bitmap glyph in a narrower cell: when a built-in bitmap glyph is wider than its cell (for example Unifont's 16-column wide glyphs in tiny5's 6×9 cell), vtium squeezes it to 8 columns by OR pooling (a column of the result is inked where any source column it covers is inked), and lets it overflow 1 px into each neighbour through the overhang ADR-1302 D6 already describes. Rows are still cut to the cell's height."
+    via: the maintainer, on the Wide Glyph Fit page (round 2), 2026-11-13, relayed by the team lead; the wording is the team lead's
+    paraphrase: true
+  - operator: aaronsb
+    said: "The emoji's edge follows the normal drawing order (ADR-1302 D7), with no exception."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "A glyph exactly twice its cells' width squeezes 2:1 inside its cells (OR pooling, no overhang); any other glyph wider than its cells squeezes to the cells' width plus 2 pixels as written."
+    via: the maintainer, in the steering session, after the Wide Glyph Fit page round 3 pictures, 2026-11-13
+    paraphrase: true
 observable:
   - "Tier 2's `overflow-accents` screen shows À, É, Î, Ő, Ű and Ộ whole, their accents drawn over the background of the row above, beside a row of `gjpqy___` whose underscores and descenders stay whole in their own row"
   - "Tier 2's `emoji-spaced-12` and `emoji-spaced-30` screens show the first line's `ÀÉÎ` with whole accents"
@@ -198,6 +210,8 @@ The words used below: a glyph's **reach** is the block of cells its ink may draw
 
 > Note 2026-11-06: the maintainer decided that a glyph from a bitmap source after the first may reach the row above or the row below, within the same one-row reach as an outline glyph (the maintainer, 2026-11-06). The helper places such a glyph so that its font's baseline meets the first source's baseline (ADR-1200 D17), and the ink that then passes the cell's top or bottom goes to the glyph's ink box, which the renderer draws into the row above or below as it draws an outline glyph's. unifont's ẳ behind Terminus is such a glyph: it rises 2 font rows onto Terminus's baseline, and the top of its hook draws in the row above. The second bullet's list of glyphs that stay inside their cells still holds for every other bitmap glyph: the first source's glyphs, and a later source's glyphs whose ink fits the cell once raised.
 
+> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, let two more kinds of glyph reach 1 pixel into the cells beside them: a color emoji that must draw in one cell, and a bitmap glyph wider than its cells, squeezed, unless it is exactly twice their width. Neither reaches up or down. The emoji's square is never taller than the text band, and the squeezed glyph's rows are cut to its cell.
+
 ### D2: the baseline, the marks, and a letter's own ink
 
 This decision amends ADR-1302 D3.
@@ -238,6 +252,9 @@ The renderer still composes one row of cells at a time in the row scratch, and c
 - **Where ink from two rows meets** (the maintainer, 2026-11-06), as a descender from the row above and an accent from the row below can in a tight cell, the row below's ink lies over the row above's, as a later line of text lies over an earlier one; ink from the pixel's own row lies over both, and the cell's own glyph on top. Only the color at a pixel where they meet depends on this order: ink of one color combines to the same coverage in either order.
 - **Steps 2 to 7 form the pixel's text layer,** premultiplied, which goes over the background in one step, as ADR-1302 D7 has it.
 - **A cell that no glyph's ink reaches from another cell draws exactly as today.** Each cell keeps one byte saying how far its glyph sends ink into the cells around it (D5, D12), so the renderer finds the cells that receive ink by reading their neighbours' bytes, and every other cell costs that test alone. A screen drawn in bitmap fonts with no italic, or in printable ASCII, has no such cell.
+
+> Note 2026-11-13: ADR-1302 D5 and D14, decided by the maintainer on 2026-11-13, add two cases. A bitmap glyph wider than its cells, and not exactly twice their width, is squeezed and reaches 1 pixel into each neighbour, so a screen drawn in bitmap fonts has cells that receive ink where such a glyph shows. A color emoji drawn in one cell reaches 1 pixel into each neighbour, and its edge takes step 5 like any other ink beside a cell.
+
 - **The row scratch does not grow:** it still holds one row of cells at the display's width, 87,424 bytes at 1,366 pixels across and 16-pixel rows, at most 1 MiB, and a taller row is still composed in bands of pixel lines. A box from the row above or below is read for the pixel lines of this row it covers.
 - **The cost on the minspec build** (vtium's smallest default build) is bounded: one more byte per cell, 8,160 bytes at 1366x768 in 8x16 cells; a test of that byte per drawn cell; and, for a cell that receives ink, at most one more glyph blend for each neighbour the reach allows, eight at the bound of one cell (D12), each the same blend its own glyph takes. The built-in fonts are bitmap fonts, so a console that uses only them pays the byte and the test and draws the same pixels. `crates/vtium-render/tests/figures.rs` measures the frame in both cases and `crates/vtium-render/tests/memory.rs` pins the byte.
 - **vtium does not move rows already drawn when the screen scrolls.** The renderer draws every row whose content changed again, and D5 draws again each row beside it whose received ink changed, at a scroll region's top and bottom margins and at the screen's edges as anywhere else. If a later decision moves rows already drawn, by a copy within the display's buffer or on the GPU, it draws again each row whose row above or row below is not the one it was beside before the move: at a scroll region's margins, the region's first and last rows and the rows just outside them, and at the screen's top and bottom, the row beside the one that scrolled away or arrived.
