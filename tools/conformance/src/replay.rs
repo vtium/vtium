@@ -318,6 +318,8 @@ impl<'a> Replay<'a> {
                 unicode,
                 mods,
                 event,
+                unshifted,
+                base,
             } => {
                 let unicode = unicode.and_then(char::from_u32);
                 let event = match event {
@@ -327,6 +329,8 @@ impl<'a> Replay<'a> {
                 };
                 t.key(&Key {
                     event,
+                    unshifted,
+                    base: base.and_then(char::from_u32),
                     ..Key::press(sym, ascii, Mods::from_bits(mods), unicode)
                 });
             }
