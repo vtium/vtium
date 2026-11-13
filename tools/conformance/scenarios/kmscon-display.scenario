@@ -1,0 +1,36 @@
+# setBackground and setForeground, kmscon's private OSC strings with no
+# number: while the host turns display operations on, each reaches the
+# host, which takes it once. The input call returns after each one, so a
+# setBackground and a setForeground in one write each reach the host, in
+# order, and the text after them is written. Only the two exact strings
+# are requests. While display operations are off, both are ignored
+# (ADR-1000, "Replies and policy"; INTERFACE-vtium.md, Display operations).
+# spec: ADR-1000 osc.kmscon-display
+# capability: kmscon-display
+size 10 4
+send "\e]setBackground\e\\"
+cmd display-request
+check
+want test display-request none
+cmd display-ops;on=1
+send "\e]setBackground\a"
+cmd display-request
+cmd display-request
+send "\e]setForeground\e\\"
+cmd display-request
+send "\e]setBackground\a\e]setForeground\aok"
+cmd display-request
+send "\e]setbackground\a\e]setForeground;1\a\e]0;setBackground\a"
+cmd display-request
+cmd display-ops;on=0
+send "\e]setBackground\a"
+cmd display-request
+check
+want test display-request background
+want test display-request none
+want test display-request foreground
+want test display-request foreground
+want test display-request none
+want test display-request none
+want row 0 |ok|
+reply ""

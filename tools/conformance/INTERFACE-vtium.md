@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.9 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.10 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -428,16 +428,55 @@ row 2 ||
 row 3 ||
 ```
 
+## Display operations
+
+A program hands the display to a graphical program with setBackground, and takes it back with setForeground (`osc.kmscon-display` in ADR-1000). These are kmscon's private OSC strings, `OSC setBackground ST` and `OSC setForeground ST`, with no number. The terminal takes each only while the host turns display operations on, as vtium's `allow-display-ops` key does, and keeps the request until the host takes it. The input call returns after each request, so a host that takes the request at each return takes each one in order. The reference host starts with display operations off and takes a request only when asked, with the `display-request` command, so of two requests in one write it keeps the later. It acts on none.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `display-ops` | `on`: flag, default 1 | `display-ops` | Turns setBackground and setForeground on (1) or off (0), as the host's `allow-display-ops` does. Turning them off drops a request the host has not taken. |
+| `display-request` | none | `display-ops` | Takes the display request as a host does, and prints `test display-request background` or `test display-request foreground` for the last setBackground or setForeground since the previous `display-request`, or `test display-request none` when neither came. |
+
+| Feature | What declaring it means |
+|---|---|
+| `display-ops` | `display-ops` and `display-request`. |
+
+A worked example: setBackground while display operations are off, then setBackground and setForeground in one write once they are on, of which the reference host keeps the later.
+
+```example display-ops
+size 10 4
+needs display-ops
+send "\e]setBackground\e\\"
+cmd display-request
+cmd display-ops;on=1
+send "\e]setBackground\a\e]setForeground\a"
+cmd display-request
+cmd display-request
+```
+
+```output display-ops
+test display-request none
+test display-request foreground
+test display-request none
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state and the font and text area requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.9
+interface 1.10
 view display
 feature clipboard
 feature attrs-renditions
@@ -453,6 +492,7 @@ feature key-events
 feature key-forms
 feature font-ops
 feature window-ops
+feature display-ops
 command clipboard clipboard
 command select selection
 command copy selection
@@ -466,6 +506,8 @@ command font-name font-ops
 command font-request font-ops
 command window-ops window-ops
 command grid-request window-ops
+command display-ops display-ops
+command display-request display-ops
 ```
 
 ```grammar
@@ -493,6 +535,7 @@ line test * test state pen{RATTR}
 line test * test state colors fg={RGB} bg={RGB} cursor=(?:{RGB}|default)
 line test * test font-request (?:none|[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,63})
 line test * test grid-request (?:none|(?:[1-9][0-9]*|keep|display) (?:[1-9][0-9]*|keep|display))
+line test * test display-request (?:none|background|foreground)
 define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:)*(?: bell)?
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}
