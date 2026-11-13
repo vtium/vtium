@@ -1239,44 +1239,63 @@ mod tests {
         );
     }
 
-    /// `glyph`, drawn for a font of `from`'s cell, placed in `cell` as the
-    /// helper's engine places a bitmap source: scaled by the largest whole
-    /// factor that fits, centred across and on the cell's bottom rows.
-    fn placed(glyph: &Glyph, from: Cell, cell: Cell) -> Drawn {
+    /// `glyph`, drawn for a later bitmap source of `from`'s cell whose
+    /// baseline is row `own` of that cell, placed in `cell` as the helper's
+    /// engine places it (ADR-1200 D17, the note of 2026-11-06): scaled by
+    /// the largest whole factor that fits, centred across, and with its
+    /// baseline on row `base`, the first source's baseline. Rows that land
+    /// above or below the cell are cut, as the engine moves them to the
+    /// glyph's ink box. `None` when `from`'s cell does not fit in `cell`,
+    /// since the engine then gives no glyph from that source.
+    fn placed(glyph: &Glyph, from: Cell, cell: Cell, (base, own): (u32, u32)) -> Option<Drawn> {
         let cells = glyph.width() / from.width;
         let scale = (cell.width / from.width).min(cell.height / from.height);
+        if scale == 0 {
+            return None;
+        }
         let (w, h) = (cell.width * cells, cell.height);
         let x0 = (w - glyph.width() * scale) / 2;
-        let y0 = h - glyph.height() * scale;
+        let y0 = i64::from(base) - i64::from(own * scale);
         let mut px = vec![0u8; (w * h) as usize];
         for y in 0..glyph.height() * scale {
+            let Some(row) = u32::try_from(y0 + i64::from(y)).ok().filter(|&r| r < h) else {
+                continue;
+            };
             for x in 0..glyph.width() * scale {
                 let src = ((y / scale) * glyph.width() + x / scale) as usize;
-                px[((y0 + y) * w + x0 + x) as usize] = glyph.pixels()[src];
+                px[(row * w + x0 + x) as usize] = glyph.pixels()[src];
             }
         }
-        (w, h, px)
+        Some((w, h, px))
     }
 
-    // ADR-1301 D2, ADR-1200 D1: the engine's glyphs for a PSF test font
-    // and a built-in after it are, codepoint by codepoint, the PSF's own
-    // glyph where the font has one, and otherwise the built-in's, placed
-    // on the cell's bottom rows. The oracle reads the PSF and the
-    // built-in set directly, apart from the engine.
+    // ADR-1301 D2, ADR-1200 D1 and D17: the engine's glyphs for a PSF test
+    // font and a built-in after it are, codepoint by codepoint, the PSF's
+    // own glyph where the font has one, and otherwise the built-in's,
+    // standing on the PSF's baseline. The oracle reads the PSF, the
+    // built-in set and the baseline its strike states directly, apart from
+    // the engine. Two of the pairs give the fill a cell other than its own
+    // (vtium/vtium#159): Unscii-8's 8×8 glyphs stand on the baseline of
+    // the 8×16 font, rows above its bottom, and unifont's 8×16 cell does
+    // not fit the 8×8 font's, so unifont gives that font nothing.
     #[test]
     fn a_psf_test_font_with_a_fill_draws_the_font_then_the_built_in() {
         for (font, fill) in [
             (TestFont::Small8x8, "unscii-8"),
             (TestFont::Small8x16, "unifont"),
+            (TestFont::Small8x16, "unscii-8"),
+            (TestFont::Small8x8, "unifont"),
         ] {
             let bytes = font.bytes().unwrap();
             let psf = Psf::parse(&bytes).unwrap();
             let cell = psf.cell();
             let builtin = vtium_font::set::builtin(fill).unwrap();
             let from = *builtin.cells().first().unwrap();
+            let own = builtin.strikes().next().unwrap().baseline;
             let fill_face = SetFace::new(builtin, from.height).unwrap();
             let set = Arc::new(Set::from_bytes(font.generate(Some(fill)).unwrap()).unwrap());
             let face = SetFace::new(set, cell.height).unwrap();
+            let fits = from.width <= cell.width && from.height <= cell.height;
             let (mut from_font, mut from_fill) = (0, 0);
             for c in (0..=0x10_ffff).filter_map(char::from_u32) {
                 let want: Option<Drawn> = if let Some(i) = psf.glyph_index(c) {
@@ -1284,9 +1303,10 @@ mod tests {
                     let g = psf.render(i, FontStyle::default()).unwrap();
                     Some((g.width(), g.height(), g.pixels().to_vec()))
                 } else if fill_face.has_glyph(c) {
-                    from_fill += 1;
                     let g = fill_face.draw_unscaled(&[c], FontStyle::default()).unwrap();
-                    Some(placed(&g, from, cell))
+                    let placed = placed(&g, from, cell, (psf.baseline(), own));
+                    from_fill += usize::from(placed.is_some());
+                    placed
                 } else {
                     None
                 };
@@ -1297,8 +1317,8 @@ mod tests {
                 assert!(got == want, "{font:?} with {fill}: {c:?}");
             }
             assert!(
-                from_font > 0 && from_fill > 0,
-                "{font:?}: {from_font} {from_fill}"
+                from_font > 0 && (from_fill > 0) == fits,
+                "{font:?} with {fill}: {from_font} {from_fill}"
             );
         }
     }
