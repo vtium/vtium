@@ -7,10 +7,14 @@
 
 use vtium_parse::Params;
 
+mod legacy;
+
 use super::State;
 use super::input::{Key, KeyEvent, key_char, sym};
 use super::reply::Query;
 use crate::bounds::{KEYBOARD_FLAGS_MAX, KEYS_HELD_MAX};
+pub(super) use legacy::legacy_release;
+use legacy::{legacy_code, legacy_csi_u};
 
 /// Flag 1, disambiguate escape codes.
 const DISAMBIGUATE: u8 = 1;
@@ -340,6 +344,11 @@ fn kind(keysym: u32) -> Option<Kind> {
 /// text.
 const LOCKS: u8 = 64 | 128;
 const SHIFT: u8 = 1;
+const ALT: u8 = 2;
+const CTRL: u8 = 4;
+/// Super, Hyper and Meta, which no table of the legacy section has a
+/// column for.
+const SUPER_HYPER_META: u8 = 8 | 16 | 32;
 
 /// The event type a key's escape code carries, as "Event types" numbers
 /// them: a press 1, a repeat 2 and a release 3. A press is the default,
@@ -482,6 +491,16 @@ fn text_code(unshifted: u32, ch: char) -> u32 {
     }
 }
 
+/// The code of a key that makes text: 0 for a text event whose keysym is
+/// 0, NoSymbol, since the host reported no key, and else [`text_code`]
+/// (the specification's "Text as code points").
+fn key_code(keysym: u32, unshifted: u32, ch: char) -> u32 {
+    if keysym == 0 {
+        return 0;
+    }
+    text_code(unshifted, ch)
+}
+
 /// The character a key that makes text made, after Shift, or `None` for a
 /// key that makes none.
 fn made_char(key: &Key, keysym: u32) -> Option<char> {
@@ -500,10 +519,10 @@ fn made_char(key: &Key, keysym: u32) -> Option<char> {
 ///   "Report event types" says. Under flag 8 every key with a number gets
 ///   one.
 /// - Without them, a key gets its release where "Legacy key event
-///   encoding" gives it an escape code with a modifiers field, and a key
-///   that makes text gets one too, as the maintainer decided on
-///   2026-11-13.
-pub(super) fn owes_release(key: &Key, keysym: u32, flags: u8) -> bool {
+///   encoding" gives it an escape code with a modifiers field, apart from
+///   Enter, Tab and Backspace, and a key that makes text gets one too, as
+///   the maintainer decided on 2026-11-13.
+pub(super) fn owes_release(key: &Key, keysym: u32, unshifted: u32, flags: u8) -> bool {
     if flags & EVENT_TYPES == 0 {
         return false;
     }
@@ -519,7 +538,13 @@ pub(super) fn owes_release(key: &Key, keysym: u32, flags: u8) -> bool {
             None => makes_text() && (all || !plain),
         };
     }
-    if legacy_code(keysym).is_some() {
+    if legacy_code(keysym, key.mods.kitty() & !LOCKS).is_some() {
+        return true;
+    }
+    if let Some(Kind::Legacy(_)) = kind(keysym) {
+        return false;
+    }
+    if legacy_csi_u(key, keysym, unshifted).is_some() {
         return true;
     }
     match kind(keysym) {
@@ -527,24 +552,6 @@ pub(super) fn owes_release(key: &Key, keysym: u32, flags: u8) -> bool {
         None => plain && makes_text(),
         _ => false,
     }
-}
-
-/// A release the program is owed under flags without flag 1 or flag 8, in
-/// the legacy form: the key's code from [`legacy_code`], or for a key that
-/// makes text `CSI code u`, both with the legacy encoding's modifiers,
-/// which leave out the locks. A keypad key that makes text is its
-/// equivalent non-keypad key, as "Legacy key event encoding" says.
-pub(super) fn legacy_release(key: &Key, keysym: u32, unshifted: u32) -> Option<Vec<u8>> {
-    let mods = key.mods.kitty() & !LOCKS;
-    if let Some((code, _)) = legacy_code(keysym) {
-        return Some(functional(code, mods, Event::Release));
-    }
-    let code = match kind(keysym) {
-        Some(Kind::KeypadText(ch, _)) => u32::from(ch),
-        None => text_code(unshifted, made_char(key, keysym)?),
-        _ => return None,
-    };
-    Some(csi(code, mods, Event::Release, b'u'))
 }
 
 impl State {
@@ -643,7 +650,7 @@ impl State {
                 if !all && plain && event != Event::Release {
                     return text(ch);
                 }
-                let code = text_code(unshifted, made);
+                let code = key_code(keysym, unshifted, made);
                 let mut escape = Escape::new(code, mods, event, b'u');
                 if flags & ALTERNATES != 0 {
                     let shifted = keysym_char(key.shifted).unwrap_or(made);
@@ -663,61 +670,6 @@ impl State {
 /// Without either, a key keeps the specification's legacy encoding.
 pub(super) fn disambiguates(flags: u8) -> bool {
     flags & (DISAMBIGUATE | ALL_KEYS) != 0
-}
-
-/// A key's form in "Legacy key event encoding", where that form is an
-/// escape code with a modifiers field, and whether the form is the key's
-/// press as well. The cursor, editing and function keys keep the press
-/// xterm's encoding gives them, so only their repeat and release take the
-/// form here, in the forms of "Functional key definitions". The keypad's
-/// cursor and editing keys are reported as their equivalent non-keypad
-/// keys, as the section says of every keypad key. Menu is the section's
-/// `CSI 29 ~`. A key the section does not describe and the table numbers
-/// from 57344, such as F13 to F35, is sent in the standard `CSI number u`
-/// encoding, its press included.
-fn legacy_code(keysym: u32) -> Option<(Code, bool)> {
-    use Code::{Letter, Tilde, U};
-    let main = match keysym {
-        sym::KP_LEFT => Letter(b'D'),
-        sym::KP_RIGHT => Letter(b'C'),
-        sym::KP_UP => Letter(b'A'),
-        sym::KP_DOWN => Letter(b'B'),
-        sym::KP_HOME => Letter(b'H'),
-        sym::KP_END => Letter(b'F'),
-        sym::KP_BEGIN => Letter(b'E'),
-        sym::KP_PAGE_UP => Tilde(5),
-        sym::KP_PAGE_DOWN => Tilde(6),
-        sym::KP_INSERT => Tilde(2),
-        sym::KP_DELETE => Tilde(3),
-        sym::MENU => return Some((Tilde(29), true)),
-        // The keypad's Enter is Enter, whose legacy byte is CR.
-        sym::KP_ENTER => return None,
-        _ => {
-            return match kind(keysym)? {
-                Kind::Functional(code @ (Tilde(_) | Letter(_))) => Some((code, false)),
-                Kind::Functional(U(n)) if n >= PRIVATE_USE => Some((U(n), true)),
-                _ => None,
-            };
-        }
-    };
-    Some((main, false))
-}
-
-/// A press's or a repeat's escape code under flags that are not 0 and
-/// include neither flag 1 nor flag 8, where the legacy encoding decides
-/// the key: the forms [`legacy_code`] gives, with the legacy encoding's
-/// modifiers, which leave out the locks, and under flag 2 a repeat's event
-/// type. `None` leaves the key to xterm's encoding: a press of a key whose
-/// press is xterm's, and every key the legacy section sends as text or as
-/// legacy bytes, whose repeat is a press. [`legacy_release`] writes a
-/// release.
-pub(super) fn legacy_event(key: &Key, keysym: u32, flags: u8) -> Option<Vec<u8>> {
-    let event = Event::of(key, flags)?;
-    let (code, own_press) = legacy_code(keysym)?;
-    if event == Event::Press && !own_press {
-        return None;
-    }
-    Some(functional(code, key.mods.kitty() & !LOCKS, event))
 }
 
 #[cfg(test)]

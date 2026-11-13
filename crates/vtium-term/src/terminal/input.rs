@@ -3,7 +3,7 @@
 //! a key while the kitty keyboard protocol's flags are not 0, that
 //! protocol's (`kitty_keyboard.rs`).
 
-use super::kitty_keyboard::{disambiguates, legacy_event, legacy_release, owes_release};
+use super::kitty_keyboard::{disambiguates, legacy_release, owes_release};
 use super::modes::{MouseEncoding, MouseTracking};
 use super::{State, Terminal};
 use vtium_parse::InputMode;
@@ -654,14 +654,16 @@ impl Terminal {
     /// kitty keyboard protocol's flags in force on the screen shown are
     /// not 0, that protocol decides the bytes (ADR-1005, D6). Under its
     /// flag 1 they are the protocol's escape codes. Without flag 1 a key
-    /// keeps the legacy encoding, xterm's without modifyOtherKeys, and
-    /// flag 2 adds a repeat's and a release's escape code to the keys whose
-    /// legacy encoding is one. While the flags are 0, a press or a repeat
-    /// sends xterm's encoding, with modifyOtherKeys at the level the
-    /// program set, and a release sends nothing. In the legacy encoding Alt
-    /// acts where xterm lets it, as modes 1034 and 1036 say. Left and Right
-    /// swap as [`arrow_keysym`](Self::arrow_keysym) says. Returns whether
-    /// anything was sent.
+    /// follows the protocol's legacy section, which leaves the cursor,
+    /// editing and function keys' presses and the keypad to xterm's
+    /// encoding without modifyOtherKeys, and flag 2 adds a repeat's and a
+    /// release's escape code to the keys whose legacy form is one. While
+    /// the flags are 0, a press or a repeat sends xterm's encoding, with
+    /// modifyOtherKeys at the level the program set, and a release sends
+    /// nothing. In xterm's encoding Alt acts where xterm lets it, as modes
+    /// 1034 and 1036 say. Left and Right swap as
+    /// [`arrow_keysym`](Self::arrow_keysym) says. Returns whether anything
+    /// was sent.
     pub fn key(&mut self, key: &Key) -> bool {
         let keysym = self.arrow_keysym(key.keysym);
         let unshifted = self.arrow_keysym(key.unshifted);
@@ -670,7 +672,7 @@ impl Terminal {
         }
         let flags = self.state.keyboard.flags(self.state.screen.alternate());
         if key.event == KeyEvent::Press {
-            let owed = owes_release(key, keysym, flags).then_some(flags);
+            let owed = owes_release(key, keysym, unshifted, flags).then_some(flags);
             self.state.keyboard.pressed(key.keysym, owed);
         }
         if disambiguates(flags) {
@@ -680,17 +682,19 @@ impl Terminal {
             self.send(&bytes);
             return true;
         }
-        if flags != 0
-            && let Some(bytes) = legacy_event(key, keysym, flags)
-        {
-            self.send(&bytes);
-            return true;
-        }
         let ascii = self.arrow_keysym(key.ascii);
         let mods = key.mods;
         // Ctrl reads the ASCII layout's keysym, so Ctrl+C works whatever
         // layout is active.
         let sym = if ascii == 0 { keysym } else { ascii };
+        if flags != 0
+            && let Some(bytes) = self
+                .state
+                .legacy_key_bytes(key, keysym, unshifted, sym, flags)
+        {
+            self.send(&bytes);
+            return true;
+        }
         let modify_other = flags == 0;
         let Some((bytes, alt_acts)) =
             self.state

@@ -542,8 +542,8 @@ fn flag_2_alone_reports_events_for_the_legacy_escape_codes() {
         ["\x1b[A", "\x1b[1;1:2A", "\x1b[1;1:3A"]
     );
     assert_eq!(
-        three(&mut t, key(F3, Mods::SHIFT)),
-        ["\x1b[1;2R", "\x1b[13;2:2~", "\x1b[13;2:3~"]
+        three(&mut t, key(F5, Mods::SHIFT)),
+        ["\x1b[15;2~", "\x1b[15;2:2~", "\x1b[15;2:3~"]
     );
     assert_eq!(
         three(&mut t, key(DELETE, none)),
@@ -930,4 +930,223 @@ fn flag_2_alone_reports_the_release_of_a_text_key() {
         ..shift_a
     };
     assert_eq!(press(&mut t, released), "\x1b[97;1:3u");
+}
+
+/// A text key as a host with the unshifted key reports it: `keysym` made
+/// with `mods` held, `unshifted` at the key's first level, and the
+/// character `c`.
+fn text_key(keysym: u32, unshifted: u32, mods: Mods, c: char) -> Key {
+    Key {
+        unshifted,
+        ..Key::press(keysym, keysym, mods, Some(c))
+    }
+}
+
+// "Legacy text keys": the legacy section gives bytes to a text key with
+// Shift, Alt, Ctrl, Shift+Alt and Ctrl+Alt. "Any other combination of
+// modifiers with these keys is output as the appropriate CSI u escape
+// code", so Ctrl+Shift is `CSI code ; 6 u`, the code the unshifted key, as
+// the section's table of example encodings gives for i, 3 and ;. Under flag
+// 2 such a press reports events, so its repeat and release carry their
+// event types (ADR-1005, D6 and D7).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_ctrl_shift_with_a_text_key_as_csi_u() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let ctrl_shift = mods(&[Mods::CTRL, Mods::SHIFT]);
+    let i = text_key(0x49, 0x69, ctrl_shift, 'I');
+    assert_eq!(press(&mut t, i), "\x1b[105;6u");
+    let three_key = text_key(0x23, 0x33, ctrl_shift, '#');
+    assert_eq!(press(&mut t, three_key), "\x1b[51;6u");
+    let semicolon = text_key(0x3a, 0x3b, ctrl_shift, ':');
+    assert_eq!(press(&mut t, semicolon), "\x1b[59;6u");
+    assert_eq!(
+        three(&mut t, i),
+        ["\x1b[105;6u", "\x1b[105;6:2u", "\x1b[105;6:3u"]
+    );
+    // the five combinations the section encodes keep their bytes
+    assert_eq!(press(&mut t, text_key(0x69, 0x69, Mods::CTRL, 'i')), "\t");
+    let ctrl_alt = mods(&[Mods::CTRL, Mods::ALT]);
+    assert_eq!(
+        press(&mut t, text_key(0x33, 0x33, ctrl_alt, '3')),
+        "\x1b\x1b"
+    );
+    let shift_alt = mods(&[Mods::SHIFT, Mods::ALT]);
+    assert_eq!(press(&mut t, text_key(0x3a, 0x3b, shift_alt, ':')), "\x1b:");
+}
+
+// "Legacy text keys": "Any other combination of modifiers with these keys
+// is output as the appropriate CSI u escape code". Super, Hyper or Meta
+// with a text key, and Ctrl, Alt and Shift together, are such
+// combinations ("Modifiers": super 8, hyper 16, meta 32).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_super_and_ctrl_alt_shift_with_a_text_key_as_csi_u() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    assert_eq!(char_key(&mut t, 'a', Mods::LOGO), "\x1b[97;9u");
+    assert_eq!(char_key(&mut t, 'a', Mods::HYPER), "\x1b[97;17u");
+    assert_eq!(char_key(&mut t, 'a', Mods::META), "\x1b[97;33u");
+    let all = mods(&[Mods::SHIFT, Mods::CTRL, Mods::ALT]);
+    assert_eq!(char_key(&mut t, 'A', all), "\x1b[97;8u");
+    // the locks are left out, as the legacy encoding leaves them out
+    let super_caps = mods(&[Mods::LOGO, Mods::LOCK]);
+    assert_eq!(char_key(&mut t, 'A', super_caps), "\x1b[97;9u");
+    // the space is in the table of C0 controls, not the text keys'
+    assert_eq!(char_key(&mut t, ' ', Mods::LOGO), "\x1b[32;9u");
+}
+
+// "Legacy key event encoding": the table of C0 controls has no column
+// with Super, and "Any key events not described in this section are sent
+// using the standard CSI u encoding", so Super with Enter or Escape is
+// `CSI 13 ; 9 u` or `CSI 27 ; 9 u`, the numbers from "Functional key
+// definitions". Ctrl, Alt and Shift together are no column of the table
+// either.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_super_with_enter_and_escape_as_csi_u() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    assert_eq!(sym(&mut t, RETURN, Mods::LOGO), "\x1b[13;9u");
+    assert_eq!(sym(&mut t, ESCAPE, Mods::LOGO), "\x1b[27;9u");
+    assert_eq!(sym(&mut t, TAB, Mods::LOGO), "\x1b[9;9u");
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::LOGO), "\x1b[127;9u");
+    let all = mods(&[Mods::SHIFT, Mods::CTRL, Mods::ALT]);
+    assert_eq!(sym(&mut t, RETURN, all), "\x1b[13;8u");
+    assert_eq!(sym(&mut t, ISO_LEFT_TAB, all), "\x1b[9;8u");
+    // the columns the table has keep their bytes
+    let ctrl_shift = mods(&[Mods::CTRL, Mods::SHIFT]);
+    assert_eq!(sym(&mut t, RETURN, ctrl_shift), "\r");
+    assert_eq!(sym(&mut t, ESCAPE, Mods::ALT), "\x1b\x1b");
+    assert_eq!(char_key(&mut t, ' ', ctrl_shift), "\0");
+}
+
+// "Legacy ctrl mapping of ASCII keys": "Any ASCII keys not in the table
+// must be left untouched by ctrl". The table has no `, so Ctrl+` sends a
+// backtick.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_leaves_a_key_outside_the_ctrl_table_untouched() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    assert_eq!(char_key(&mut t, '`', Mods::CTRL), "`");
+    assert_eq!(char_key(&mut t, '-', Mods::CTRL), "-");
+    // the keys the table lists
+    assert_eq!(char_key(&mut t, '2', Mods::CTRL), "\0");
+    assert_eq!(char_key(&mut t, '8', Mods::CTRL), "\x7f");
+    assert_eq!(char_key(&mut t, '/', Mods::CTRL), "\x1f");
+    // at flags 0, xterm's Ctrl+` is NUL
+    t.input(b"\x1b[=0u");
+    assert_eq!(char_key(&mut t, '`', Mods::CTRL), "\0");
+}
+
+// "Legacy key event encoding", the table of C0 controls: Tab with Shift
+// is `CSI Z`, and with Alt and Shift `ESC CSI Z`.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_alt_shift_tab_as_esc_csi_z() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let shift_alt = mods(&[Mods::SHIFT, Mods::ALT]);
+    assert_eq!(sym(&mut t, ISO_LEFT_TAB, shift_alt), "\x1b\x1b[Z");
+    assert_eq!(sym(&mut t, ISO_LEFT_TAB, Mods::SHIFT), "\x1b[Z");
+    let ctrl_alt = mods(&[Mods::CTRL, Mods::ALT]);
+    assert_eq!(sym(&mut t, TAB, ctrl_alt), "\x1b\t");
+}
+
+// "Legacy key event encoding", the table of C0 controls: Backspace sends
+// 0x7f and Ctrl+Backspace 0x8, and "Backspace and ctrl+Backspace are
+// swapped in some terminals". Backspace and Ctrl+Backspace always send the
+// two different bytes: Ctrl+Backspace sends the byte the host's Backspace
+// setting does not choose for Backspace (ADR-1005, D6).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_swaps_backspace_and_ctrl_backspace() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let ctrl_alt = mods(&[Mods::CTRL, Mods::ALT]);
+    let ctrl_shift = mods(&[Mods::CTRL, Mods::SHIFT]);
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::empty()), "\x08");
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x7f");
+    assert_eq!(sym(&mut t, BACKSPACE, ctrl_alt), "\x1b\x7f");
+    assert_eq!(sym(&mut t, BACKSPACE, ctrl_shift), "\x7f");
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::ALT), "\x1b\x08");
+    t.set_backspace_sends_delete(true);
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::empty()), "\x7f");
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::CTRL), "\x08");
+    assert_eq!(sym(&mut t, BACKSPACE, ctrl_alt), "\x1b\x08");
+    assert_eq!(sym(&mut t, BACKSPACE, Mods::ALT), "\x1b\x7f");
+}
+
+// "Functional key definitions": F3 is `CSI 13 ~`, because `CSI R` "was
+// removed" as it conflicts with the cursor position report. So under flag
+// 2 a modified F3's press is `CSI 13 ; modifiers ~`, as its repeat and
+// release are, and not the legacy table's `CSI 1 ; modifiers R` (the
+// maintainer's decision of 2026-11-13, ADR-1005). F3 with no modifier
+// keeps the legacy table's `SS3 R`.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_a_modified_f3_in_its_tilde_form() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let key = |m: Mods| Key::press(F3, 0, m, None);
+    assert_eq!(
+        three(&mut t, key(Mods::SHIFT)),
+        ["\x1b[13;2~", "\x1b[13;2:2~", "\x1b[13;2:3~"]
+    );
+    assert_eq!(
+        press(&mut t, key(mods(&[Mods::CTRL, Mods::LOCK]))),
+        "\x1b[13;5~"
+    );
+    assert_eq!(press(&mut t, key(Mods::empty())), "\x1bOR");
+    // at flags 0 it is xterm's again
+    t.input(b"\x1b[=0u");
+    assert_eq!(press(&mut t, key(Mods::SHIFT)), "\x1b[1;2R");
+}
+
+// "Text as code points": "if the terminal emulator receives no key
+// information, the key number 0 must be used". A text event whose keysym
+// is 0, NoSymbol, is `CSI 0 ; ; text u` under flags 24. A key with a
+// keysym and no unshifted key still has its code, the character it made.
+// covers: input.kitty-keyboard
+#[test]
+fn a_text_event_with_no_keysym_is_sent_with_the_key_number_0() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>24u");
+    let text = Key::press(0, 0, Mods::empty(), Some('\u{e5}'));
+    assert_eq!(press(&mut t, text), "\x1b[0;;229u");
+    let shift_a = Key::press(0x41, 0x41, Mods::SHIFT, Some('A'));
+    assert_eq!(press(&mut t, shift_a), "\x1b[97;2;65u");
+}
+
+// "Report event types": "The Enter, Tab and Backspace keys will not have
+// release events unless Report all keys as escape codes is also set".
+// Under flag 2 alone they send no release even when a modifier makes
+// their press an escape code. Escape and a text key with Super get theirs
+// (ADR-1005, D7).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_gives_enter_tab_and_backspace_no_release() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let key = |s: u32| Key::press(s, 0, Mods::LOGO, None);
+    assert_eq!(
+        three(&mut t, key(RETURN)),
+        ["\x1b[13;9u", "\x1b[13;9:2u", ""]
+    );
+    assert_eq!(three(&mut t, key(TAB)), ["\x1b[9;9u", "\x1b[9;9:2u", ""]);
+    assert_eq!(
+        three(&mut t, key(BACKSPACE)),
+        ["\x1b[127;9u", "\x1b[127;9:2u", ""]
+    );
+    assert_eq!(
+        three(&mut t, key(ESCAPE)),
+        ["\x1b[27;9u", "\x1b[27;9:2u", "\x1b[27;9:3u"]
+    );
+    let super_a = Key::press(0x61, 0x61, Mods::LOGO, Some('a'));
+    assert_eq!(
+        three(&mut t, super_a),
+        ["\x1b[97;9u", "\x1b[97;9:2u", "\x1b[97;9:3u"]
+    );
 }
