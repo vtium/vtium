@@ -1,6 +1,6 @@
 # Coverage
 
-<!-- generated from capabilities.list and ADR-1000's tables; VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage rewrites it -->
+<!-- generated from capabilities.list and ADR-1000's tables; docs/scripts/coverage --update rewrites it, by running VTIUM_CONFORMANCE_BLESS=1 cargo test -p vtium-conformance coverage -->
 
 Each capability the capability scenarios judge, the ADR-1000 rows its scenario covers, the tests that guard those rows, and the gap: the issue that owes a missing capability, or a row no test guards yet. The capability scenarios themselves run through `conformance probes` (README.md).
 
