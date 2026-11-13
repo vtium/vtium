@@ -552,8 +552,10 @@ fn flag_2_alone_reports_events_for_the_legacy_escape_codes() {
     assert_eq!(three(&mut t, key(ESCAPE, none)), ["\x1b", "\x1b", ""]);
     let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('a'));
     assert_eq!(three(&mut t, ctrl_a), ["\x01", "\x01", ""]);
+    // a key that makes text sends its text, and its release as an escape
+    // code (ADR-1005, the maintainer's decision of 2026-11-13)
     let a = Key::press(0x61, 0x61, none, Some('a'));
-    assert_eq!(three(&mut t, a), ["a", "a", ""]);
+    assert_eq!(three(&mut t, a), ["a", "a", "\x1b[97;1:3u"]);
     // the cursor key mode still chooses SS3 for a press
     t.input(b"\x1b[?1h");
     assert_eq!(
@@ -582,6 +584,21 @@ fn a_push_of_5_reports_the_shifted_and_base_layout_keys() {
         char_key(&mut t, 'A', mods(&[Mods::SHIFT, Mods::ALT])),
         "\x1b[97:65;4u"
     );
+    // a shifted key equal to the code is left out
+    assert_eq!(char_key(&mut t, ' ', shift_ctrl), "\x1b[32;6u");
+    // with Caps Lock on, Shift makes a, and the host's shifted key, the
+    // key's keysym at its Shift level, is A
+    let caps_shift_a = Key {
+        unshifted: 0x61,
+        shifted: 0x41,
+        ..Key::press(
+            0x61,
+            0x61,
+            mods(&[Mods::LOCK, Mods::SHIFT, Mods::CTRL]),
+            Some('a'),
+        )
+    };
+    assert_eq!(press(&mut t, caps_shift_a), "\x1b[97:65;70u");
     // Caps Lock without Shift reports no shifted key
     assert_eq!(
         char_key(&mut t, 'A', mods(&[Mods::LOCK, Mods::CTRL])),
@@ -665,6 +682,10 @@ fn a_push_of_9_reports_every_key_as_an_escape_code() {
     assert_eq!(sym(&mut t, CAPS_LOCK, Mods::LOCK), "\x1b[57358;65u");
     assert_eq!(sym(&mut t, 0xff7f, Mods::NUM), "\x1b[57360;129u");
     assert_eq!(sym(&mut t, 0xfe03, none), "\x1b[57453u");
+    assert_eq!(sym(&mut t, 0xffe7, Mods::META), "\x1b[57446;33u");
+    assert_eq!(sym(&mut t, 0xffe8, Mods::META), "\x1b[57452;33u");
+    assert_eq!(sym(&mut t, 0xffed, Mods::HYPER), "\x1b[57445;17u");
+    assert_eq!(sym(&mut t, 0xffee, Mods::HYPER), "\x1b[57451;17u");
     let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
     assert_eq!(press(&mut t, kp_1), "\x1b[57400;129u");
     let es = Key::press(CYRILLIC_ES, 0x63, none, Some('\u{441}'));
@@ -716,6 +737,7 @@ fn a_push_of_11_reports_the_release_of_every_key() {
         "\x1b[57441;1:3u"
     );
     let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(press(&mut t, kp_1), "\x1b[57400;129u");
     assert_eq!(
         press(&mut t, event(kp_1, KeyEvent::Release)),
         "\x1b[57400;129:3u"
@@ -809,10 +831,11 @@ fn flag_2_alone_reports_f13_and_the_keypad_keys_events() {
         three(&mut t, key(0xff9f, Mods::CTRL)),
         ["\x1b[3;5~", "\x1b[3;5:2~", "\x1b[3;5:3~"]
     );
-    // the keypad's Enter and text keys are Enter and text: no release
+    // the keypad's Enter is Enter, with no release, and its 1 is the text
+    // key 1, whose release leaves out the locks as the legacy encoding does
     assert_eq!(three(&mut t, key(KP_ENTER, none)), ["\r", "\r", ""]);
     let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
-    assert_eq!(three(&mut t, kp_1), ["1", "1", ""]);
+    assert_eq!(three(&mut t, kp_1), ["1", "1", "\x1b[49;1:3u"]);
     // without flag 2 the press alone, and at flags 0 F13 is xterm's again
     t.input(b"\x1b[=4u");
     assert_eq!(
@@ -821,4 +844,90 @@ fn flag_2_alone_reports_f13_and_the_keypad_keys_events() {
     );
     t.input(b"\x1b[=0u");
     assert_eq!(three(&mut t, key(F13, none)), ["\x1b[25~", "\x1b[25~", ""]);
+}
+
+// ADR-1005 D7, and the maintainer's decision of 2026-11-13: whether a key
+// gets a release follows from its press. A key pressed while flag 2 was in
+// force, whose press was an escape code, gets a release as an escape code,
+// with the code its press used and the modifiers held at the release,
+// whatever the flags are then. A key pressed while flag 2 was not in force
+// gets none. "Report event types": a key whose press sent its text under
+// flag 1 gets no release, nor do Enter, Tab and Backspace without flag 8.
+// covers: input.kitty-keyboard
+#[test]
+fn a_release_follows_from_its_press() {
+    let none = Mods::empty();
+    let a = Key::press(0x61, 0x61, none, Some('a'));
+    let release = |k: Key| event(k, KeyEvent::Release);
+    // Ctrl+a, with Ctrl let go first
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>3u");
+    let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('a'));
+    assert_eq!(press(&mut t, ctrl_a), "\x1b[97;5u");
+    assert_eq!(press(&mut t, release(a)), "\x1b[97;1:3u");
+    // a press that sent its text, and a release with no press
+    assert_eq!(press(&mut t, a), "a");
+    assert_eq!(press(&mut t, release(a)), "");
+    assert_eq!(press(&mut t, release(ctrl_a)), "", "released once");
+    // pressed under flags 3, released at flags 0
+    let up = Key::press(UP, 0, none, None);
+    assert_eq!(press(&mut t, up), "\x1b[A");
+    t.input(b"\x1b[<u");
+    assert_eq!(press(&mut t, release(up)), "\x1b[1;1:3A");
+    // pressed at flags 0, released under flags 3
+    assert_eq!(press(&mut t, ctrl_a), "\x01");
+    t.input(b"\x1b[>3u");
+    assert_eq!(press(&mut t, release(ctrl_a)), "");
+    // F13 pressed at flags 0, released under flag 2 alone
+    let f13 = Key::press(F13, 0, none, None);
+    t.input(b"\x1b[=0u");
+    assert_eq!(press(&mut t, f13), "\x1b[25~");
+    t.input(b"\x1b[=2u");
+    assert_eq!(press(&mut t, release(f13)), "");
+    // a pressed under flags 11, released under flags 3
+    t.input(b"\x1b[=11u");
+    assert_eq!(press(&mut t, a), "\x1b[97u");
+    t.input(b"\x1b[=3u");
+    assert_eq!(press(&mut t, release(a)), "\x1b[97;1:3u");
+    // Ctrl+Enter under flags 3 sends no release
+    let ctrl_enter = Key::press(RETURN, 0, Mods::CTRL, None);
+    assert_eq!(press(&mut t, ctrl_enter), "\x1b[13;5u");
+    assert_eq!(press(&mut t, release(ctrl_enter)), "");
+    // RIS forgets the keys held
+    assert_eq!(press(&mut t, ctrl_a), "\x1b[97;5u");
+    t.input(b"\x1bc\x1b[>3u");
+    assert_eq!(press(&mut t, release(ctrl_a)), "");
+}
+
+// ADR-1005, the maintainer's decision of 2026-11-13: under flag 2 without
+// flag 1 or flag 8, a key that makes text sends its text on a press and a
+// repeat, and its release as `CSI code u` with the release's event type.
+// The legacy encoding leaves out the locks. A key that makes no text, such
+// as Escape or Ctrl+a, keeps its legacy bytes and gets no release.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_reports_the_release_of_a_text_key() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let shift_a = Key {
+        unshifted: 0x61,
+        ..Key::press(0x41, 0x61, Mods::SHIFT, Some('A'))
+    };
+    assert_eq!(three(&mut t, shift_a), ["A", "A", "\x1b[97;2:3u"]);
+    let caps_a = Key::press(0x41, 0x61, Mods::LOCK, Some('A'));
+    assert_eq!(three(&mut t, caps_a), ["A", "A", "\x1b[97;1:3u"]);
+    let es = Key::press(CYRILLIC_ES, 0x63, Mods::empty(), Some('\u{441}'));
+    assert_eq!(three(&mut t, es), ["\u{441}", "\u{441}", "\x1b[1089;1:3u"]);
+    let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('a'));
+    assert_eq!(three(&mut t, ctrl_a), ["\x01", "\x01", ""]);
+    let esc = Key::press(ESCAPE, 0, Mods::empty(), None);
+    assert_eq!(three(&mut t, esc), ["\x1b", "\x1b", ""]);
+    // Shift let go before the key: the release carries the modifiers then
+    assert_eq!(press(&mut t, shift_a), "A");
+    let released = Key {
+        event: KeyEvent::Release,
+        mods: Mods::empty(),
+        ..shift_a
+    };
+    assert_eq!(press(&mut t, released), "\x1b[97;1:3u");
 }
