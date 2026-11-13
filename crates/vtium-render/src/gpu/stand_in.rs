@@ -33,6 +33,7 @@ pub enum Call {
     FreeTexture,
     CreateFrame(Size),
     ImportBuffer(Size),
+    CreateBuffer(Size),
     FreeTarget,
     /// A program compiled, with its fragment shader's text.
     Compile(String),
@@ -59,6 +60,7 @@ pub enum Op {
     CreateTexture,
     CreateFrame,
     ImportBuffer,
+    CreateBuffer,
     Compile,
     Wait,
 }
@@ -405,8 +407,15 @@ impl Gl for StandIn {
 
     fn import_buffer(&mut self, buffer: &Size) -> Result<DrawTarget, Error> {
         let name = self.make(Op::ImportBuffer);
-        let t = self.ledger.import_buffer(*buffer, || name)?;
+        let t = self.ledger.buffer(*buffer, || name)?;
         self.calls.push(Call::ImportBuffer(*buffer));
+        Ok(t)
+    }
+
+    fn create_buffer(&mut self, size: Size) -> Result<DrawTarget, Error> {
+        let name = self.make(Op::CreateBuffer);
+        let t = self.ledger.buffer(size, || name)?;
+        self.calls.push(Call::CreateBuffer(size));
         Ok(t)
     }
 

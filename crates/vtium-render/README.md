@@ -243,7 +243,7 @@ The `gpu` feature adds the GPU path's frame. The feature is off by default. The 
 vtium-render forbids unsafe code, so it never calls GL itself. It draws through the `Gl` trait, which speaks the renderer's terms. The trait offers these things:
 
 - textures of a stated format and size, filled a rectangle at a time;
-- the upright frame and an imported display buffer, as targets to draw into;
+- the upright frame, an imported display buffer, and a buffer in GL's memory that a head reads each frame back from, as targets to draw into;
 - programs compiled from vtium-render's own shader source, with named inputs;
 - a batch of quads drawn through a program;
 - a frame's end, which gives a fence that the render thread waits on before the display shows the buffer;
@@ -255,7 +255,7 @@ The binary implements the trait with an adapter over vtium-platform's safe GL ty
 Every handle that the trait gives out is an owned value that names the context that made it. A handle is a texture, a target, a program or a fence. A handle cannot be copied, and freeing it consumes it. Each implementation keeps a `Ledger` of its context's live handles. The implementation passes every call through the ledger before the call reaches GL. This is the one list of what the ledger refuses:
 
 - a handle another context made, or one that was freed, and a fence already waited on;
-- a texture or upright frame past the GPU's largest texture or viewport, and a display buffer past its largest renderbuffer or viewport;
+- a texture or upright frame past the GPU's largest texture or viewport, and a display buffer or a buffer in GL's memory past its largest renderbuffer or viewport;
 - an upload outside its texture, short of its bytes, or with rows a part of a pixel apart;
 - a program that lists an input twice;
 - a program whose shaders declare no uniform of the input's name and type, or declare it as an array;
@@ -275,7 +275,7 @@ A frame that drew ends with `Gl::submit` and `Gl::wait`. `Gl::submit` gives a fe
 
 `StandIn` is the tests' GL. It keeps a ledger as the adapter does, so it refuses every call that the list above names. It records the calls that pass. It keeps what each texture is filled with. It draws the clears, and the quads of the cell program, into the upright frames that it made. It draws them through `src/gpu/model.rs`, a model of the cell shader. The model reads the quads, the textures and the uniforms as the shader reads them, and it does each blend with `src/blend.rs`. `StandIn` draws no other program's pixels. So present, the pictures, the arrow, and a text layer over a picture draw nothing there.
 
-A test reads an upright frame with `StandIn::frame_pixels`. A test can give `StandIn` smaller limits, to drive a frame past the largest texture. A test can raise a GL error that the next check reports. A test can make the next texture, frame, import, compile or wait fail, with a kind that it chooses (`StandIn::fail_next`). It can also make one fail a number of calls later (`StandIn::fail_after`), as a driver would. Tier 2 judges the GPU path's pixels on a real GL, Mesa's llvmpipe. Its `@gpu` cases draw each screen through `Renderer::draw_gpu` and the binary's adapter, `vtium::gpu::PlatformGl`. They compare the result with the CPU path's drawing of the same screen (`tools/tier2/README.md`).
+A test reads an upright frame with `StandIn::frame_pixels`. A test can give `StandIn` smaller limits, to drive a frame past the largest texture. A test can raise a GL error that the next check reports. A test can make the next texture, frame, import, buffer, compile or wait fail, with a kind that it chooses (`StandIn::fail_next`). It can also make one fail a number of calls later (`StandIn::fail_after`), as a driver would. Tier 2 judges the GPU path's pixels on a real GL, Mesa's llvmpipe. Its `@gpu` cases draw each screen through `Renderer::draw_gpu` and the binary's adapter, `vtium::gpu::PlatformGl`. They compare the result with the CPU path's drawing of the same screen (`tools/tier2/README.md`).
 
 `Renderer::draw_gpu` draws a frame on the GPU path. The renderer decides what the frame draws through the same front end as `Renderer::draw`. The front end decides where the grid sits, which cells changed, and how each one looks, its cursor, blink and decorations included. It also decides which parts of the border are stale, and where the pointer is. Only the back end differs. The CPU path composes each row's cell jobs in the row scratch, and writes them into the display's buffer. The GPU path turns each job into one quad through the cell shader. It turns the border's stale parts, less the grid, into clears.
 

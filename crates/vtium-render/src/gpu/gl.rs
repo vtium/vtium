@@ -91,7 +91,7 @@ pub struct Limits {
     /// The largest side of a texture, `GL_MAX_TEXTURE_SIZE`.
     pub texture: u32,
     /// The largest side of a renderbuffer, `GL_MAX_RENDERBUFFER_SIZE`,
-    /// which bounds an imported display buffer.
+    /// which bounds an imported display buffer and a buffer in GL's memory.
     pub renderbuffer: u32,
     /// The largest viewport, `GL_MAX_VIEWPORT_DIMS`, which bounds every
     /// target the renderer draws into.
@@ -114,10 +114,10 @@ impl Limits {
             && (1..=self.viewport.height).contains(&size.height)
     }
 
-    /// Whether the GPU can draw into a display buffer of `size`: within the
-    /// largest renderbuffer and the largest viewport. A display whose
-    /// buffer does not fit draws on the CPU path while its mode lasts
-    /// (ADR-1303 D9).
+    /// Whether the GPU can draw into a display buffer of `size`, or a buffer
+    /// in GL's memory: within the largest renderbuffer and the largest
+    /// viewport. A display whose buffer does not fit draws on the CPU path
+    /// while its size lasts (ADR-1303 D9).
     pub fn fits_buffer(&self, size: Size) -> bool {
         (1..=self.renderbuffer).contains(&size.width)
             && (1..=self.renderbuffer).contains(&size.height)
@@ -143,7 +143,8 @@ pub(super) struct Handle {
 pub struct Texture(pub(super) Handle);
 
 /// Something the renderer draws into: the upright frame, which holds its
-/// own texture, or a display buffer the context imported.
+/// own texture, a display buffer the context imported, or a buffer in GL's
+/// memory that the frame is read back from.
 #[derive(Debug, PartialEq, Eq)]
 pub struct DrawTarget {
     pub(super) handle: Handle,
@@ -158,7 +159,7 @@ impl DrawTarget {
     }
 
     /// The texture it draws into, for the upright frame, which a later pass
-    /// reads; `None` for a display buffer.
+    /// reads; `None` for a display buffer or a buffer in GL's memory.
     pub fn texture(&self) -> Option<&Texture> {
         self.texture.as_ref()
     }
@@ -395,6 +396,15 @@ pub trait Gl {
     /// A target that draws into the display buffer `buffer`, which must fit
     /// the largest renderbuffer and viewport.
     fn import_buffer(&mut self, buffer: &Self::Buffer) -> Result<DrawTarget, Error>;
+
+    /// Makes a buffer of `size` in GL's memory, its contents undefined: a
+    /// target that no pass samples, which [`Gl::read`] copies to memory. A
+    /// head draws each frame into one for the staging copy, and reads it
+    /// back into a display buffer the context does not import (ADR-1303
+    /// D9, ADR-1401 D2). It must fit the largest renderbuffer and viewport,
+    /// as a display buffer must, and the largest texture does not bound
+    /// it. A call that fails leaves nothing made.
+    fn create_buffer(&mut self, size: Size) -> Result<DrawTarget, Error>;
 
     /// Frees `target`, and the upright frame's texture with it.
     fn free_target(&mut self, target: DrawTarget) -> Result<(), Error>;
