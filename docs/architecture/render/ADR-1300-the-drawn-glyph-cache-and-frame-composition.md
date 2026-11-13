@@ -147,7 +147,9 @@ A third format is reserved (added 2026-10-26, the operator's agreement): a per-c
 - **The C reference:** bbulk held every glyph 8-bit at its drawn size, in one LRU of both formats. gltex had pools by format and width.
 - **vtium:** both paths keep gltex's four pools, masks and color glyphs, 1 or 2 cells wide, each with an LRU, a glyph count and a byte ceiling (D4). The color pools exist only while a color face is loaded. A mask whose every pixel is 0 or 255 is stored at 1 bit a pixel; any other mask stays 8-bit. A bitmap font's glyph (PSF, unifont) is stored at the font's own size, bold included, and scaled by its whole factor while drawn, each source pixel a square. A stored glyph is its ink box: its own 1 or 2 cells, or, for a glyph whose ink passes them, the columns its ink covers, at most one cell more on each side, over the cell's full height (ADR-1302 D6).
 - **Why:** bitmap glyphs have no partial pixels, and anti-aliased glyphs have 7-24% (measured), so the 1-bit test keeps exactly what is lossless. A pool's freed slot always fits the next glyph of its pool, and the same layout serves both paths.
-- **Cost or saving:** an 8x16 mask is 16 bytes at 1 bit against 128 at 8; at scale 2 a stored glyph stays 16 bytes where the C reference held 512. A full minspec cache of a bitmap font holds 0.50 MiB of pixels against the C reference's 3.98 MiB, and 32 times less at scale 2 (Memory). Drawing a full frame costs about the same: at 8x16, 0.334 ms at 1 bit against 0.329 ms at 8 bits; an 8x16 font at scale 2, 0.264 ms scaled while drawing against 0.266 ms stored at 16x32 (all measured). A font drawn 16x32 at its own size is the slow case, 0.329 ms at 1 bit against 0.266 ms at 8 bits (measured). The costs are a 1-bit loop, a scaling loop, one scan of each new mask, and vtium-font handing the renderer a bitmap glyph at scale 1 with its scale.
+- **Cost or saving:** an 8x16 mask is 16 bytes at 1 bit against 128 at 8; at scale 2 a stored glyph stays 16 bytes where the C reference held 512. A full minspec cache of a bitmap font holds 0.50 MiB of pixels against the C reference's 3.98 MiB, and about 13 times less at scale 2 (Memory). Drawing a full frame costs about the same: at 8x16, 0.334 ms at 1 bit against 0.329 ms at 8 bits; an 8x16 font at scale 2, 0.264 ms scaled while drawing against 0.266 ms stored at 16x32 (all measured). A font drawn 16x32 at its own size is the slow case, 0.329 ms at 1 bit against 0.266 ms at 8 bits (measured). The costs are a 1-bit loop, a scaling loop, one scan of each new mask, and vtium-font handing the renderer a bitmap glyph at scale 1 with its scale.
+
+> Edited 2026-11-13: ADR-1302 D14, decided by the maintainer on 2026-11-13, squeezes a bitmap glyph wider than its cells in the screen's pixels. A glyph squeezed at a whole scale is therefore held at its drawn size, not at scale 1. The Memory table's fill draws ideographs into one cell, so its figures at scale 2 rise. The sentence read: "and 32 times less at scale 2 (Memory)."
 - **Pixels:** none change. vtium-font scales a bitmap glyph by repeating each pixel into a square after bold, which is what drawing does; a mask stored at 1 bit reads back as the same 0 and 255.
 
 > Edited 2026-11-01: glyph ink reaches one cell past its own on each side (ADR-1302, accepted 2026-11-01), so a stored glyph is its ink box (ADR-1302 D6). D2 said nothing of a glyph's box; the earlier text is in git at 1d51e46.
@@ -223,10 +225,12 @@ Computed for 1366x768 in 8x16 cells, the pixels each cache can hold at its budge
 |---|---|---|---|
 | Glyphs held | 16,320 | 16,320 narrow, 8,160 wide | 32,640 narrow, 16,320 wide |
 | A bitmap font | 3.98 MiB | 0.50 MiB | 1.00 MiB |
-| A bitmap font at scale 2, in 16x32 cells, a quarter the glyphs | 3.98 MiB | 0.12 MiB | 0.25 MiB |
+| A bitmap font at scale 2, in 16x32 cells, a quarter the glyphs | 3.98 MiB | 0.31 MiB | 0.62 MiB |
 | An anti-aliased font | 3.98 MiB | 3.98 MiB | 7.97 MiB |
 
 Each entry's key, links and slot add about 24 bytes (estimate). The row scratch is 87,424 bytes. `crates/vtium-render/tests/memory.rs` computes these from the structures and pins them, as ADR-1001's test does; tier 3 measures the real figures from the first working build.
+
+> Edited 2026-11-13: ADR-1302 D14, decided by the maintainer on 2026-11-13, squeezes a bitmap glyph wider than its cells in the screen's pixels, so a glyph squeezed at a whole scale is held at its drawn size, not at scale 1. The table's fill at scale 2 draws ideographs into one cell each, a squeeze, and its figures rise. The row read: "0.12 MiB | 0.25 MiB", that is 130,560 and 261,120 bytes; it is now 326,400 and 652,800 bytes. A bitmap glyph that fits its cells is still held at scale 1.
 
 ## Verification
 
