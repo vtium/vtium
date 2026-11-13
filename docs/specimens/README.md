@@ -8,11 +8,11 @@ vtium's test card, drawn by vtium's renderer in memory for each display profile,
 | [320x240](320x240/) | 24-bit color | 8×8 | 40×30 | `unscii-8` | 7 | accepted | [<img src="320x240/collage.png" width="160">](320x240/collage.png) |
 | [320x240-tiny5](320x240-tiny5/) | 24-bit color | 6×9 | 53×26 | `tiny5` | 12 | accepted | [<img src="320x240-tiny5/collage.png" width="160">](320x240-tiny5/collage.png) |
 | [480x320](480x320/) | 24-bit color | 8×8 | 60×40 | `unscii-8` | 6 | accepted | [<img src="480x320/collage.png" width="160">](480x320/collage.png) |
-| [640x480](640x480/) | 24-bit color | 8×16 | 80×30 | `unifont` | 4 | accepted | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
-| [800x480](800x480/) | 24-bit color | 8×16 | 100×30 | `unifont` | 4 | accepted | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
-| [1366x768](1366x768/) | 24-bit color | 8×16 | 170×48 | `unifont` | 3 | accepted | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
-| [1920x1080](1920x1080/) | 24-bit color | 11×24 | 174×45 | `desktop` | 3 | accepted | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
-| [2560x1440](2560x1440/) | 24-bit color | 14×32 | 182×45 | `desktop` | 3 | accepted | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
+| [640x480](640x480/) | 24-bit color | 8×16 | 80×30 | `unifont` | 4 | provisional | [<img src="640x480/collage.png" width="160">](640x480/collage.png) |
+| [800x480](800x480/) | 24-bit color | 8×16 | 100×30 | `unifont` | 4 | provisional | [<img src="800x480/collage.png" width="160">](800x480/collage.png) |
+| [1366x768](1366x768/) | 24-bit color | 8×16 | 170×48 | `unifont` | 3 | provisional | [<img src="1366x768/collage.png" width="160">](1366x768/collage.png) |
+| [1920x1080](1920x1080/) | 24-bit color | 11×24 | 174×45 | `desktop` | 3 | provisional | [<img src="1920x1080/collage.png" width="160">](1920x1080/collage.png) |
+| [2560x1440](2560x1440/) | 24-bit color | 14×32 | 182×45 | `desktop` | 3 | provisional | [<img src="2560x1440/collage.png" width="160">](2560x1440/collage.png) |
 
 `320x240-tiny5` shows an example font set, `tiny5`, the smallest font. vtium does not use it by default. vtium's own choice at 320×240 is the profile `320x240`.
 

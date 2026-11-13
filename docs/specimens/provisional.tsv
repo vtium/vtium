@@ -2,3 +2,8 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+640x480	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): each glyph the built-in unifont draws 16 pixels wide in a one-cell cluster is squeezed into that cell, two columns into one, in place of its middle 8 columns: the Devanagari, Bengali and Ethiopic lines of the scripts screen, the face and the plane beside the cell size, and a few symbols; not reviewed yet
+800x480	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14), as 640x480: unifont's 16-pixel glyphs in a one-cell cluster are squeezed into that cell; not reviewed yet
+1366x768	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14), as 640x480: unifont's 16-pixel glyphs in a one-cell cluster are squeezed into that cell; not reviewed yet
+1920x1080	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): the glyphs the built-in unifont draws for the outline font set, 16 pixels wide at its own size, in a one-cell cluster are squeezed into that cell, in place of their middle; not reviewed yet
+2560x1440	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14), as 1920x1080: unifont's wide glyphs in a one-cell cluster are squeezed into that cell; not reviewed yet
