@@ -140,6 +140,11 @@ considered:
     via: the steering session, 2026-11-13, adding to the decision on reviewing tier 1 goldens
     paraphrase: true
     covers: [the behaviour tier's review]
+  - operator: aaronsb
+    said: "The drift review's cadence is accepted as proposed: once per release candidate, in V3, over the behaviour goldens accepted or changed without the maintainer since the previous release's tag. The independent expectation is kept as the lean said: the author commits it as the case's provisional golden, with the case on the provisional list, before running vtium on it, so a disagreement shows as a diff in the next golden-only commit. The maintainer's answers to step 3 questions are kept in the record that governs the area, through adr consider. A new case that matches its expectation still gets the fresh reviewer's citation check. While a step 3 question is open, a new case stays provisional and a change that makes an accepted golden fail does not merge; provisional cases waiting for the maintainer may accumulate between reviews, and the maintainer accepts that."
+    via: the steering session's question on 2026-11-13, on the two-tier review amendment
+    paraphrase: true
+    covers: [the behaviour tier's review]
 observable:
   - "`docs/scripts/fork-refs` exits 0 on the tree after the sweep, and exits 1 naming the file and line when a planted line in a crate README says `the C reference`"
   - "Every case is judged by one golden in one directory per tier: tools/conformance/expected.tsv, tools/tier2/departures.tsv, tools/tier3/departures.tsv and tools/tier3/c-goldens/ are gone, and `make conformance`, `make tier2` and `make tier3` pass"
@@ -303,7 +308,7 @@ The 34 screens tier 2 still owes land before v0.1.0-alpha.6 as vtium's goldens, 
 
 ### D10: goldens are reviewed in two tiers
 
-> Added 2026-11-13 by the maintainer's decisions (the twenty-fifth and twenty-sixth `considered` entries).
+> Added 2026-11-13 by the maintainer's decisions (the twenty-fifth, twenty-sixth and twenty-seventh `considered` entries).
 
 vtium's goldens fall into two tiers, and each tier has its own review. In both tiers, the author of a change never accepts its own golden.
 
@@ -315,11 +320,13 @@ Behaviour goldens judge what vtium does with bytes and keys: the text on the scr
 - The case cites the specification statement it tests, in a `# spec:` line.
 - The case's expected result was written independently of vtium, before anyone saw vtium's output for it. Either the author wrote it from the specification, or it comes from an outside reference, such as another implementation's recorded output.
 
+The author commits the expectation as the case's provisional golden, with the case on the provisional list, before running vtium on the case. Git then shows that the expectation came first. Where vtium disagrees, the difference shows as a diff in the next commit that changes goldens.
+
 Each comparison of such a case climbs a ladder of three steps. The ladder covers every failing comparison, not only a new golden. A regression, where an accepted golden now fails, climbs it too.
 
 1. **The binary comparison.** The tool compares vtium's output with the case's golden. For a new case, the tool compares the output with the independent expectation. A match needs no one to judge it.
 2. **A fresh reviewer.** A fresh reviewer is an agent that did not write the change. It gets every mismatch: a regression, or a new case whose expectation and vtium's output differ. The reviewer reads the cited specification statement and the maintainer's recorded decisions, and settles the obvious cases. A case is obvious when a specification statement or a recorded decision addresses the case directly and leaves one reading. Either vtium is wrong, and the mismatch is a defect to fix while the golden stays. Or the golden or the expectation is wrong. Then it changes in a commit that changes only goldens and names the statement that settles it.
-3. **The maintainer.** The maintainer gets each case the reviewer cannot settle. Such a case has more than one defensible reading, or no statement addresses it, or its reading would change a recorded decision. Each comes as a short question. The question quotes the specification, gives the readings, and says which reading vtium follows. The maintainer's answer decides. Until the maintainer answers, a new case stays provisional, and a change that makes an accepted golden fail does not merge.
+3. **The maintainer.** The maintainer gets each case the reviewer cannot settle. Such a case has more than one defensible reading, or no statement addresses it, or its reading would change a recorded decision. Each comes as a short question. The question quotes the specification, gives the readings, and says which reading vtium follows. The maintainer's answer decides. The steering session records the answer with `adr consider` in the record that governs the area. A later step 2 reviewer reads it there as a recorded decision. Until the maintainer answers, a new case stays provisional, and a change that makes an accepted golden fail does not merge. Provisional cases that wait for the maintainer may build up between reviews, and the maintainer accepts that.
 
 The author of a change never acts as the step 2 reviewer of its own change. An author whose change makes a comparison fail either fixes vtium or reports the case for step 2, and leaves the golden as it is.
 
@@ -329,7 +336,7 @@ An opaque `.bin` case converts to a readable case when the readable case produce
 
 At intervals, the maintainer looks over the behaviour tier as a whole. This review catches drift that agreement case by case cannot see. For example, many small readings, each accepted on its own, can add up to a direction the maintainer did not choose.
 
-The cadence of the drift review is a proposal, which the maintainer settles when reading this record. The proposal: the drift review runs once per release candidate, as part of the maintainer's V3 look before the tag (ADR-1505). It covers each behaviour golden that changed without the maintainer since the previous release's tag. Those are the new cases a reviewer's check accepted, and the goldens a step 2 reviewer changed. The steering session finds them in the golden-only commits, because each commit names its cases. The steering session shows each case with its specification quote, its picture from `make tier1-shots` and its `make tier1-play` command.
+The drift review runs once per release candidate, as part of the maintainer's V3 look before the tag (ADR-1505). It covers each behaviour golden that changed without the maintainer since the previous release's tag. Those are the new cases a reviewer's check accepted, and the goldens a step 2 reviewer changed. The steering session finds them in the golden-only commits, because each commit names its cases. The steering session shows each case with its specification quote, its picture from `make tier1-shots` and its `make tier1-play` command.
 
 ## Consequences
 
@@ -382,8 +389,8 @@ The cadence of the drift review is a proposal, which the maintainer settles when
 
 1. **A private directory under version control.** Closed at the revisit (D6). The maintainer chose to treat `kmscon` as an external reference and to drop the rule to design from the C reference (the twenty-first `considered` entry). That leaves no working rules about the forks to keep privately, so no private directory is needed. The maintainer confirmed that the question closes (the twenty-third `considered` entry).
 
-2. **Where a behaviour case's independent expectation is kept.** Added 2026-11-13 with D10. D10 requires that the expectation exists before anyone sees vtium's output, and that the acceptance commit names where the expectation came from. It does not yet say where the expectation lives in the tree, so that a reviewer can see from git that it came first. The lean: the author commits the expectation as the case's golden, with the case on the provisional list, before running vtium on the case. The first run of `make conformance` then shows whether vtium agrees.
-3. **Where the maintainer's answers to step 3 questions are kept.** Added 2026-11-13 with D10. A step 2 reviewer reads the maintainer's recorded decisions, so each answer has to be findable by a later reviewer. The lean: the steering session writes each answer into the record that governs the area, or into the note of the case's ADR-1000 row.
+2. **Where a behaviour case's independent expectation is kept.** Closed 2026-11-13. The maintainer chose the lean (the twenty-seventh `considered` entry): the author commits the expectation as the case's provisional golden before running vtium on the case. D10 states it.
+3. **Where the maintainer's answers to step 3 questions are kept.** Closed 2026-11-13. The maintainer chose the record that governs the area, through `adr consider` (the twenty-seventh `considered` entry). D10 states it.
 
 The maintainer answered the record's other questions on 2026-11-04 (the `considered` entries), and the decision above carries each answer.
 
