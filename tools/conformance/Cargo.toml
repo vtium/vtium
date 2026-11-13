@@ -17,6 +17,9 @@ workspace = true
 
 [dependencies]
 vtium-term.workspace = true
+# with images, the pixels the renderer draws for each placed picture, which
+# the live path sends at their display size
+vtium-render = { workspace = true, optional = true }
 # the replay interface's grammar and the probes' patterns are regular
 # expressions, with no backreference or lookaround
 regex = { version = "1.12", default-features = false, features = ["std", "unicode"] }
@@ -33,7 +36,7 @@ record = ["dep:vtium-platform", "dep:rustix"]
 # placement and image lines, and the fixture host. make conformance builds
 # it; opt-in, so a workspace build without features keeps vtium-term
 # without images
-images = ["vtium-term/images"]
+images = ["vtium-term/images", "dep:vtium-render", "vtium-render/images"]
 # vtium-replay with right-to-left text (ADR-1004): the display view, which
 # prints each row in the order it is drawn. make conformance builds it;
 # opt-in, so a workspace build without features keeps vtium-term without

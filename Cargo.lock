@@ -899,6 +899,7 @@ dependencies = [
  "rustix",
  "vtium",
  "vtium-platform",
+ "vtium-render",
  "vtium-term",
 ]
 

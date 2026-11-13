@@ -34,7 +34,7 @@ fn screens(set: &str, name: &str) -> Vec<Screen> {
 
 // iTerm2 pictures over text, sixels between margins, kitty relative
 // placements, a picture taller than the screen, pictures drawn at other
-// sizes, SGR's attributes, clusters written under each width method,
+// sizes, a sixel made in cells of 6x13 and drawn in cells of 8x16, SGR's attributes, clusters written under each width method,
 // and a wrapped right-to-left paragraph: each block the live path writes
 // reads back as the picture
 #[test]
@@ -45,6 +45,7 @@ fn each_screen_the_live_path_writes_reads_back_as_the_picture_of_its_block() {
         ("vtium", "kit-relative"),
         ("vtium", "kit-g14-tall-cursor"),
         ("corpus", "kit-place-size"),
+        ("corpus", "six-cursor-xterm"),
         ("corpus", "sgr-basic"),
         ("corpus", "width-methods"),
         ("vtium", "bidi-08-wrap"),

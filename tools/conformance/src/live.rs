@@ -25,9 +25,11 @@
 //!   bidirectional mode (BDSM reset), with each mirrored character written
 //!   as its mirror.
 //! - With images, each picture the frame places is sent through the kitty
-//!   graphics protocol: its pixels, the visible part as the source
-//!   rectangle, its place by cell and pixel offset, and its layer as a z
-//!   index.
+//!   graphics protocol as the renderer draws it: the part drawn, with the
+//!   pixels the renderer draws there, scaled and cut already, at its place
+//!   by cell and pixel offset, and its layer as a z index. A picture made
+//!   in another cell, or drawn at another size, then reads back at its own
+//!   size with the renderer's pixels.
 //! - The cursor goes to its cell in its shape, blink and color, shown or
 //!   hidden as the replay's cursor is.
 
@@ -228,95 +230,59 @@ fn text(cell: &FrameCell<'_>, out: &mut String) {
     out.push_str(&all);
 }
 
-/// Sends each picture `frame` places through the kitty graphics protocol:
-/// each image once, then each placement over it.
+/// Sends each picture `frame` places through the kitty graphics protocol,
+/// as the renderer draws it on a display of the reference host's cells:
+/// the part drawn, at its place by cell and pixel offset, with the pixels
+/// the renderer draws there ([`vtium_render::placed_picture`]), scaled and
+/// cut already, so the reading terminal draws them at their own size; and
+/// its layer as a z index.
 #[cfg(feature = "images")]
 fn pictures(frame: &vtium_term::Frame<'_>, out: &mut Vec<u8>) {
     use vtium_term::images::Layer;
-    let mut sent: Vec<vtium_term::images::ImageKey> = Vec::new();
+    let (cx, cy) = (CELL.0, CELL.1);
+    let grid = (
+        u32::try_from(frame.cols())
+            .unwrap_or(u32::MAX)
+            .saturating_mul(cx),
+        u32::try_from(frame.rows())
+            .unwrap_or(u32::MAX)
+            .saturating_mul(cy),
+    );
     for (n, p) in frame.placements().iter().enumerate() {
-        let id = match sent.iter().position(|k| *k == p.image) {
-            Some(i) => i + 1,
-            None => {
-                sent.push(p.image);
-                let id = sent.len();
-                transmit(id, p, out);
-                id
-            }
-        };
-        let (cw, ch) = (p.cell_width.max(1), p.cell_height.max(1));
-        let scale = |v: i64, from: u32, to: u32| v * i64::from(to) / i64::from(from);
-        let (cx, cy) = (i64::from(CELL.0), i64::from(CELL.1));
-        // the visible part's top left and size on a display of 8x16 cells
-        let px = scale(
-            i64::from(p.col) * i64::from(cw) + i64::from(p.x),
-            cw,
-            CELL.0,
-        );
-        let mut py = scale(p.row * i64::from(ch) + i64::from(p.y), ch, CELL.1);
-        let w = scale(i64::from(p.width), cw, CELL.0);
-        let mut h = scale(i64::from(p.height), ch, CELL.1);
-        let (mut src_y, mut src_h) = (i64::from(p.src_y), i64::from(p.src_height));
-        // the part above the view is cut, as the display cuts it
-        if py < 0 && h > 0 {
-            let cut = (-py).min(h);
-            let src_cut = cut * src_h / h;
-            (src_y, src_h) = (src_y + src_cut, src_h - src_cut);
-            (py, h) = (0, h - cut);
-        }
-        if px < 0 || w <= 0 || h <= 0 || src_h <= 0 {
+        let Some(drawn) = vtium_render::placed_picture(p, CELL, grid) else {
             continue;
-        }
-        let (c0, r0) = (px / cx, py / cy);
-        let (ox, oy) = (px % cx, py % cy);
+        };
+        let (Ok(x), Ok(y)) = (u32::try_from(drawn.x), u32::try_from(drawn.y)) else {
+            continue;
+        };
+        let id = n + 1;
+        transmit(id, (drawn.width, drawn.height), &drawn.pixels, out);
         let z = match p.layer {
             Layer::AboveText => p.z.max(0),
             Layer::BelowText => p.z.clamp(-1_073_741_824, -1),
             Layer::BelowBackground => p.z.min(-1_073_741_825),
         };
         let mut cmd = String::from("\x1b8");
-        down(&mut cmd, usize::try_from(r0).unwrap_or(0));
-        if c0 > 0 {
-            let _ = write!(cmd, "\x1b[{c0}C");
+        down(&mut cmd, usize::try_from(y / cy).unwrap_or(0));
+        if x / cx > 0 {
+            let _ = write!(cmd, "\x1b[{}C", x / cx);
         }
         let _ = write!(
             cmd,
-            "\x1b_Ga=p,q=2,C=1,i={id},p={},x={},y={src_y},w={},h={src_h},X={ox},Y={oy},z={z}",
-            n + 1,
-            p.src_x,
-            p.src_width,
+            "\x1b_Ga=p,q=2,C=1,i={id},p={id},X={},Y={},z={z}\x1b\\",
+            x % cx,
+            y % cy
         );
-        // a part drawn at another size than its pixels' is sized in whole
-        // cells: both sides when both are whole, one side when the other
-        // follows in proportion, and else the cells the part covers
-        let src_w = i64::from(p.src_width);
-        if src_w != w || src_h != h {
-            let (whole_w, whole_h) = (w % cx == 0, h % cy == 0);
-            if whole_w && whole_h {
-                let _ = write!(cmd, ",c={},r={}", w / cx, h / cy);
-            } else if whole_w && (src_h * w + src_w / 2) / src_w.max(1) == h {
-                let _ = write!(cmd, ",c={}", w / cx);
-            } else if whole_h && (src_w * h + src_h / 2) / src_h == w {
-                let _ = write!(cmd, ",r={}", h / cy);
-            } else {
-                let _ = write!(
-                    cmd,
-                    ",c={},r={}",
-                    (ox + w + cx - 1) / cx,
-                    (oy + h + cy - 1) / cy
-                );
-            }
-        }
-        cmd.push_str("\x1b\\");
         out.extend_from_slice(cmd.as_bytes());
     }
 }
 
-/// Sends `p`'s image as image `id`, its pixels as straight RGBA in chunks.
+/// Sends `pixels`, premultiplied ARGB, `width` by `height`, as image `id`,
+/// in straight RGBA in chunks.
 #[cfg(feature = "images")]
-fn transmit(id: usize, p: &vtium_term::images::FramePlacement, out: &mut Vec<u8>) {
-    let mut rgba = Vec::with_capacity(p.pixels.as_slice().len() * 4);
-    for &px in p.pixels.as_slice() {
+fn transmit(id: usize, (width, height): (u32, u32), pixels: &[u32], out: &mut Vec<u8>) {
+    let mut rgba = Vec::with_capacity(pixels.len() * 4);
+    for &px in pixels {
         let a = px >> 24;
         let un = |c: u32| -> u8 {
             (c * 255 + a / 2)
@@ -336,10 +302,7 @@ fn transmit(id: usize, p: &vtium_term::images::FramePlacement, out: &mut Vec<u8>
     for (k, chunk) in chunks.iter().enumerate() {
         let more = u8::from(k + 1 < chunks.len());
         let head = if k == 0 {
-            format!(
-                "\x1b_Ga=t,q=2,f=32,i={id},s={},v={},m={more};",
-                p.image_width, p.image_height
-            )
+            format!("\x1b_Ga=t,q=2,f=32,i={id},s={width},v={height},m={more};")
         } else {
             format!("\x1b_Gm={more};")
         };
