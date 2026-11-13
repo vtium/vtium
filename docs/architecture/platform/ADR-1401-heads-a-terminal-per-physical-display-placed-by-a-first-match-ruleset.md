@@ -1116,13 +1116,15 @@ A machine with no configuration at all:
 | untrusted, or not readable as a file | the shipped default | `vtium.conf not used: running the built-in configuration.` |
 | valid | the file | nothing |
 | valid and declaring nothing, under open | the shipped default | nothing |
-| valid, with rules and no head, under open | the file's rules, and the display guard lights the boot display for the default head (D9) | nothing |
+| valid, with rules and no head, under open | the file's rules, with no head: each display that no rule turns off shows its own notice (D3) | nothing |
 | valid and declaring no head, under closed | nothing: every display dark, "loaded but off" | nothing |
 | partly broken, under open | the surviving heads and rules, then the shipped rules' tail | `vtium.conf has errors: running the parts without errors.` |
 | partly broken, under closed | the surviving heads and rules | `vtium.conf has errors: running the parts without errors.` |
 | broken, under open | the shipped default | `vtium.conf not used: running the built-in configuration.` |
 | broken, under closed | nothing | the panic screen, on the boot display |
 | with a policy line vtium cannot read, whatever else it holds | nothing: it is closed and broken | the panic screen, on the boot display |
+
+> Edited 2026-11-13: the maintainer's decision of 2026-11-13 in D3 made the table decide for a valid file on every machine, with or without kernel VTs, so the display guard acts only for a file with errors. The row for a valid file with rules and no head under open read: "the file's rules, and the display guard lights the boot display for the default head (D9)". On a VT, vtium already ran no default head for such a file, as D3's table of 2026-11-10 says.
 
 - **What to do next.** Each notice opens with its console line, worded exactly as the table words it, since the observables and `outcomes.tsv` quote it. The notice adds a second sentence that says what to do next, as the panic screen's last line does: after `vtium.conf not used: running the built-in configuration.` and after `vtium.conf has errors: running the parts without errors.` it reads `To see why, run vtium check-config /etc/vtium/vtium.conf.`. The notice on a display that no path catches names the terminal and the VT that the display is configured for, or says that it is configured for no terminal, as D3 words it. The second sentences live in the notice catalog, and the wording here is illustrative.
 
