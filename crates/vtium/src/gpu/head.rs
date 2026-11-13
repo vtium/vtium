@@ -204,11 +204,13 @@ impl HeadGpu {
     /// each display makes them again and draws whole.
     pub fn release(&mut self) {
         self.give_back();
+        // The counts go out before the release does: a test that sees the
+        // release then reads the counts it left, never the ones before it.
+        self.count();
         if let Some(test) = &self.test {
             test.releases
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         }
-        self.count();
     }
 
     /// Each display gives back its textures and frames and keeps its
