@@ -26,7 +26,7 @@ The tests behind the first two commands fail when a committed page differs from 
 
 ## A new page
 
-Every new page needs a place in `zensical.toml`. Give the page an entry in the menu, `nav`, or a pattern in `not_in_nav` when another page links it instead. `cargo test -p vtium-site` fails on a page that has neither. `make docs` builds the site in strict mode, so it fails on a broken link or anchor.
+Every new page needs a place in `zensical.toml`. Give the page an entry in the menu, `nav`, or a pattern in `not_in_nav` when another page links the new page instead. `cargo test -p vtium-site` fails on a page that has neither. `make docs` builds the site in strict mode, so it fails on a broken link or anchor.
 
 Run `docs/scripts/prose --table` on each page you change, before and after you edit the page. The script lists each sentence over 30 words and each page whose sentences average over 20.
 
@@ -41,6 +41,6 @@ A page whose sentences rest on the code can have a claim file too, such as `conc
 
 ## When the code changes
 
-Run `docs/scripts/claims`. The script names each claim file and row whose file is gone, or whose symbol is no longer defined there. In the same change, update the page or the figure that row describes, and update the row too. When a figure changes, render the figure again and check it at its natural size.
+Run `docs/scripts/claims`. The script names each claim file and row whose file is gone, or whose symbol is no longer defined there. In the same change, update the page or the figure that row describes, and update the row too. When a figure changes, render the figure again and check the figure at its natural size.
 
 A claim file names a symbol, never a line number. The symbol is a `fn`, a type, a `const` or a `mod`. The symbol can also be a key of the key table, written as `key NAME`, or a unit file's directive. `docs/scripts/claims --help` lists what each kind of symbol must match.
