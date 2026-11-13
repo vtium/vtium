@@ -1,0 +1,9 @@
+# m=1 on a transmission from a file opens no upload.
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "What ends an upload early"
+# covers: image.kitty
+# fixture: a regular file holding one white RGB pixel, ff ff ff; L3RtcC93aGl0ZQ== stands for its path in base64
+size 20 10
+send "\e_Ga=t,t=f,f=24,s=1,v=1,i=3,m=1;L3RtcC93aGl0ZQ==\e\\"
+send "\e_Gm=0;\e\\"
+send "\e_Ga=p,i=3,C=1\e\\"

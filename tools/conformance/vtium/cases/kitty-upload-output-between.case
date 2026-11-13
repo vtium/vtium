@@ -1,0 +1,9 @@
+# Text, CSI, OSC, DECSTR and another APC between chunks leave the upload open.
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "What leaves an upload open"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "hello\e[3;3H\e[31mX\e[m\e]2;title\a\e_Xjunk\e\\\e[!p"
+send "\e_Gm=0;AP8A\e\\"
+send "\e_Ga=p,i=1,C=1\e\\"

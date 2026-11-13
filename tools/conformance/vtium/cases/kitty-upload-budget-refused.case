@@ -1,0 +1,11 @@
+# A replacement whose reservation fits the budget alone but not beside the old image is refused at its first chunk, and the old image stays.
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "The reservation, and the old image under the same id"
+# covers: image.kitty
+# budget: the reference host's 320,000,000 bytes, which no replay command changes. The new upload reserves 8012 x 9985 x 4 + 512 = 319,999,792 bytes;
+# beside the old 1x1 image's 516 bytes it needs 320,000,308. Assumes the reference host's max-graphic-size admits sides of 8012 and 9985.
+size 20 10
+send "\e_Ga=t,f=24,s=1,v=1,i=1;AAD/\e\\"
+send "\e_Ga=t,f=24,s=8012,v=9985,i=1,m=1;/wAA\e\\"
+send "\e_Gm=0;AP8A\e\\"
+send "\e_Ga=p,i=1,C=1\e\\"

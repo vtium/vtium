@@ -1,0 +1,14 @@
+size 20x10
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5f47693d34302c653d642c643d5a2c7a3d333b4f4b1b5c1b5f47693d34312c653d643b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||

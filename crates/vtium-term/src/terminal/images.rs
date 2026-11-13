@@ -149,9 +149,6 @@ pub(super) struct Router {
     running: Option<ImageString>,
     /// An APC string whose first byte has not come.
     apc_open: bool,
-    /// A handler holds an upload in chunks open between its strings, which
-    /// output of any other kind ends.
-    upload_open: bool,
     switches: Switches,
     limits: Limits,
     /// The color register count XTSMGRAPHICS set, for the next sixel.
@@ -173,7 +170,6 @@ impl Default for Router {
             active: None,
             running: None,
             apc_open: false,
-            upload_open: false,
             switches: Switches {
                 sixel: false,
                 kitty: false,
@@ -196,7 +192,6 @@ impl fmt::Debug for Router {
             .field("iterm2", &self.iterm2.is_some())
             .field("active", &self.active)
             .field("running", &self.running)
-            .field("upload_open", &self.upload_open)
             .field("switches", &self.switches)
             .field("limits", &self.limits)
             .field("registers", &self.registers)
@@ -222,7 +217,6 @@ impl PartialEq for Router {
             && self.active == other.active
             && self.running == other.running
             && self.apc_open == other.apc_open
-            && self.upload_open == other.upload_open
             && self.switches == other.switches
             && self.limits == other.limits
             && self.registers == other.registers
@@ -239,13 +233,6 @@ impl Router {
             ImageString::Kitty => &mut self.kitty,
             ImageString::Iterm2 => &mut self.iterm2,
         }
-    }
-
-    /// Reads again whether a handler holds an upload in chunks open.
-    fn note_uploads(&mut self) {
-        self.upload_open = [&self.sixel, &self.kitty, &self.iterm2]
-            .into_iter()
-            .any(|h| h.as_ref().is_some_and(|h| h.upload_open()));
     }
 
     fn on(&self, which: ImageString) -> bool {
@@ -382,31 +369,13 @@ impl State {
         }
         self.images.running = outer;
         *self.images.slot(which) = Some(handler);
-        self.images.note_uploads();
     }
 
-    /// Output other than an image string arrived: text, a control, or
-    /// another escape sequence. While a handler holds an upload in chunks
-    /// open, it ends the upload. The spec asks a program to send nothing
-    /// else between the chunks of one upload, and vtium holds it to that,
-    /// so a program that dies mid-upload leaves no picture open to swallow
-    /// the next program's first picture command (kitty keeps the upload
-    /// open).
-    #[inline]
-    pub(super) fn image_other_output(&mut self) {
-        if self.images.upload_open {
-            self.images_interrupt();
-        }
-    }
-
-    /// Each handler that holds an upload in chunks open drops it.
-    pub(super) fn images_interrupt(&mut self) {
+    /// Each handler drops what it holds open between its strings, such
+    /// as a kitty upload in chunks, with no answer: the session ended.
+    pub(super) fn images_withdraw(&mut self) {
         for which in [ImageString::Sixel, ImageString::Kitty, ImageString::Iterm2] {
-            self.with_handler(which, |h, ctx| {
-                if h.upload_open() {
-                    h.interrupt(ctx);
-                }
-            });
+            self.with_handler(which, |h, ctx| h.withdraw(ctx));
         }
     }
 
@@ -543,13 +512,16 @@ impl State {
     }
 
     /// An APC string starts. While kitty graphics is not offered, the kitty
-    /// handler is cancelled, so an upload in chunks that kitty was switched
-    /// off during gives back what it holds.
+    /// handler is cancelled and withdrawn, so an upload in chunks left open
+    /// when kitty was switched off gives back what it holds (ADR-1100, D6).
     pub(super) fn image_apc_start(&mut self) {
         self.images.active = None;
         self.images.apc_open = true;
         if !self.image_offered(ImageString::Kitty) {
-            self.with_handler(ImageString::Kitty, |h, ctx| h.cancel(ctx));
+            self.with_handler(ImageString::Kitty, |h, ctx| {
+                h.cancel(ctx);
+                h.withdraw(ctx);
+            });
         }
     }
 
@@ -559,7 +531,6 @@ impl State {
         if core::mem::take(&mut self.images.apc_open) {
             let kitty = matches!(data, Chunk::Bytes([b'G', ..]));
             if !kitty {
-                self.image_other_output();
                 return;
             }
             if !self.image_offered(ImageString::Kitty) {
@@ -590,7 +561,6 @@ impl State {
         };
         self.images.apc_open = false;
         if first != b'G' {
-            self.image_other_output();
             return run.len();
         }
         if !self.image_offered(ImageString::Kitty) {
@@ -606,9 +576,7 @@ impl State {
 
     pub(super) fn image_apc_end(&mut self, end: StringEnd) {
         // an APC string with no data at all is no kitty string
-        if core::mem::take(&mut self.images.apc_open) {
-            self.image_other_output();
-        }
+        self.images.apc_open = false;
         self.image_end(end);
     }
 
@@ -652,15 +620,18 @@ impl State {
 
 impl Terminal {
     /// Installs the handler the router sends `which` to, or removes it.
-    /// The outgoing handler is cancelled first, so it gives back what it
-    /// reserved, and a string it was being fed ends.
+    /// The outgoing handler is cancelled and withdrawn first: a string it
+    /// was being fed ends, an upload in chunks it holds open is dropped,
+    /// and it gives back everything it reserved.
     pub fn set_image_handler(&mut self, which: ImageString, handler: Option<Box<dyn Handler>>) {
-        self.state.with_handler(which, |h, ctx| h.cancel(ctx));
+        self.state.with_handler(which, |h, ctx| {
+            h.cancel(ctx);
+            h.withdraw(ctx);
+        });
         if self.state.images.active == Some(which) {
             self.state.images.active = None;
         }
         *self.state.images.slot(which) = handler;
-        self.state.images.note_uploads();
     }
 
     /// The handler the router sends `which` to, if one is installed.
@@ -676,8 +647,10 @@ impl Terminal {
     /// Turns the image protocols on or off: an off protocol's strings are
     /// ignored as every string vtium does not take is. A protocol turned
     /// off has its handler cancelled at once, so a string it was being fed
-    /// ends and an upload in chunks gives back what it holds; sixel's is
-    /// reset too, dropping the registers the pictures share.
+    /// ends. Sixel's handler is reset too, dropping the registers the
+    /// pictures share. A kitty upload in chunks left open gives back what
+    /// it holds at the next APC string, which withdraws the kitty handler
+    /// while kitty graphics is not offered (ADR-1100, D6).
     pub fn set_image_switches(&mut self, switches: Switches) {
         let old = self.state.images.switches;
         self.state.images.switches = switches;
@@ -1187,27 +1160,6 @@ mod tests {
     }
 
     #[test]
-    fn kitty_switched_off_mid_upload_gives_its_reservation_back_at_the_next_apc() {
-        let mut t = Terminal::new(8, 4, 16);
-        t.screen_mut().set_image_limit(1 << 20);
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: true,
-            iterm2: false,
-        });
-        t.set_image_handler(ImageString::Kitty, Some(Box::new(Holding::default())));
-        let _ = t.input(b"\x1b_Gx\x1b\\");
-        assert_eq!(t.screen().images().bytes(), 4096);
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: false,
-            iterm2: false,
-        });
-        let _ = t.input(b"\x1b_Gm=0;AAAA\x1b\\");
-        assert_eq!(t.screen().images().bytes(), 0);
-    }
-
-    #[test]
     fn an_edit_reports_a_placements_box_and_the_bytes_reserved() {
         // 16 by 48 pixels in 8 by 16 cells: 2 columns, 3 rows
         let mut t = probed_with(
@@ -1329,53 +1281,6 @@ mod tests {
         let _ = t.input(b"\x1b\\");
         assert_eq!(probe(&t).placed, None, "the string ended cancelled");
         assert_eq!(t.screen().images().image_count(), 0);
-    }
-
-    /// A terminal with kitty graphics on and a holding handler for it, its
-    /// upload's 4096 bytes reserved.
-    fn uploading() -> Terminal {
-        let mut t = Terminal::new(8, 4, 16);
-        t.screen_mut().set_image_limit(1 << 20);
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: true,
-            iterm2: false,
-        });
-        t.set_image_handler(ImageString::Kitty, Some(Box::new(Holding::default())));
-        let _ = t.input(b"\x1b_Gx\x1b\\");
-        assert_eq!(t.screen().images().bytes(), 4096);
-        t
-    }
-
-    #[test]
-    fn an_apc_that_is_not_kitty_leaves_an_upload_alone() {
-        let mut t = uploading();
-        let _ = t.input(b"\x1b_x\x1b\\");
-        assert_eq!(t.screen().images().bytes(), 4096);
-    }
-
-    #[test]
-    fn switching_kitty_off_cancels_an_upload_at_once() {
-        let mut t = uploading();
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: false,
-            iterm2: false,
-        });
-        assert_eq!(t.screen().images().bytes(), 0);
-        // switching another protocol off cancels nothing of kitty's
-        let mut t = uploading();
-        t.set_image_switches(Switches {
-            sixel: true,
-            kitty: true,
-            iterm2: false,
-        });
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: true,
-            iterm2: false,
-        });
-        assert_eq!(t.screen().images().bytes(), 4096);
     }
 
     #[test]

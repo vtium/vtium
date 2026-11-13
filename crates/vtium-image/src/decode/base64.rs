@@ -106,6 +106,18 @@ impl Base64 {
         }
     }
 
+    /// One kitty chunk's payload ended: the sextets held decode as
+    /// unpadded base64, two to one byte and three to two, and one alone
+    /// decodes to nothing, with no error (ADR-1100, D16).
+    pub(crate) fn end_unpadded(&mut self, sink: &mut impl Sink) {
+        if self.held == 1 {
+            self.held = 0;
+            self.acc = 0;
+            return;
+        }
+        self.flush(sink);
+    }
+
     /// The payload ended, or a pad came: the sextets held decode to what
     /// they hold, and one alone is an error.
     pub(crate) fn flush(&mut self, sink: &mut impl Sink) {

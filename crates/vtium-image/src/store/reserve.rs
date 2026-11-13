@@ -65,6 +65,36 @@ impl Store {
         bytes: u64,
         screens: Screens<'_>,
     ) -> Result<Reservation, Refusal> {
+        self.reserve_as(protocol, id, bytes, true, screens)
+    }
+
+    /// Reserves `bytes` for a kitty upload in chunks of id `id` in the
+    /// buffer in use, beside the image of that id there, which stays
+    /// counted and held until the reservation is used or given back. The
+    /// budget then holds both the old image and the whole upload, so
+    /// keeping the old image while the upload is open never takes the store
+    /// past the budget. A request that cannot fit beside it evicts nothing
+    /// and is refused, and the old image stays (ADR-1100, D16).
+    pub fn reserve_beside(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        bytes: u64,
+        screens: Screens<'_>,
+    ) -> Result<Reservation, Refusal> {
+        self.reserve_as(protocol, id, bytes, false, screens)
+    }
+
+    /// [`reserve`](Self::reserve), with the old image's bytes counted
+    /// toward the new one when `credit` is set, and beside it otherwise.
+    fn reserve_as(
+        &mut self,
+        protocol: Protocol,
+        id: u32,
+        bytes: u64,
+        credit: bool,
+        screens: Screens<'_>,
+    ) -> Result<Reservation, Refusal> {
         let b = self.active();
         let old = if rules(protocol).ids && id != 0 {
             let count = self.buffers.get(b).map_or(0, |buf| buf.images.len());
@@ -75,7 +105,12 @@ impl Store {
         };
         self.hold(b, old, true);
         self.settle(screens);
-        match self.reserve_bytes(bytes, old.map(|o| (b, o)), screens) {
+        let reserved = if credit {
+            self.reserve_bytes(bytes, old.map(|o| (b, o)), screens)
+        } else {
+            self.reserve_bytes_beside(bytes, old.map(|o| (b, o)), screens)
+        };
+        match reserved {
             Ok(added) => Ok(self.grant(added, old, b)),
             Err(why) => {
                 self.hold(b, old, false);

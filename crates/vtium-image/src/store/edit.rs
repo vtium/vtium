@@ -58,6 +58,14 @@ impl<'a> Edit<'a> {
         self.store.reserve(protocol, id, bytes, self.screens)
     }
 
+    /// Reserves `bytes` for a kitty upload in chunks of id `id`, beside the
+    /// image of that id, which stays counted and held. See
+    /// [`Store::reserve_beside`].
+    pub fn reserve_beside(&mut self, id: u32, bytes: u64) -> Result<Reservation, Refusal> {
+        self.store
+            .reserve_beside(Protocol::KITTY, id, bytes, self.screens)
+    }
+
     /// Reserves `more` as a buffered payload grows.
     pub fn grow(&mut self, reservation: &mut Reservation, more: u64) -> Result<(), Refusal> {
         self.store.grow(reservation, more, self.screens)

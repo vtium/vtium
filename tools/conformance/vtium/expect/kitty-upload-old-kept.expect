@@ -1,0 +1,16 @@
+# Sealed expectation for kitty-upload-old-kept.case, written from upload-rules.md before any implementation.
+# Replies are exact. A '# expected in the dump' line says in words what the frame view must show.
+> size 20 10
+> send "\e_Ga=t,f=24,s=1,v=1,i=1;AAD/\e\\"
+< reply "\e_Gi=1;OK\e\\"
+> send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+> send "\e_Ga=p,i=1,C=1\e\\"
+< reply "\e_Gi=1;OK\e\\"
+> dump frame
+# expected in the dump: image 1 is 1x1 and placed once
+> send "\e_Gm=0;AP8A\e\\"
+< reply "\e_Gi=1;OK\e\\"
+> dump frame
+# expected in the dump: image 1 is 2x1, with no placement
+> send "\e_Ga=p,i=1,C=1\e\\"
+< reply "\e_Gi=1;OK\e\\"

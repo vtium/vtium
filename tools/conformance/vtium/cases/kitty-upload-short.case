@@ -1,0 +1,7 @@
+# The data check counts every chunk's bytes.
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "One answer for an upload"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=3,v=1,i=1,m=1;/wAA\e\\"
+send "\e_Gm=0;AP8A\e\\"

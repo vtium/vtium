@@ -1,0 +1,7 @@
+# The payload is ignored and nothing is stored.
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "A feature query transmits no image data, any payload is ignored, and it has no effect on images or on any chunked transmission in progress."
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=47,e=t,f=24,s=1,v=1;AAAA\e\\"
+send "\e_Ga=p,i=47,C=1\e\\"
