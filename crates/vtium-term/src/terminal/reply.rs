@@ -866,7 +866,7 @@ mod tests {
                 Query::WindowSize => (b"\x1b[14t", b"\x1b[4;80;80t"),
                 Query::Title => (b"\x1b[21t", b"\x1b]l\x1b\\"),
                 Query::ModifyOtherKeys => (b"\x1b[?4m", b"\x1b[>4;0m"),
-                Query::KeyboardFlags => (b"\x1b[>31u\x1b[?u", b"\x1b[?3u"),
+                Query::KeyboardFlags => (b"\x1b[>63u\x1b[?u", b"\x1b[?31u"),
                 Query::TextArea => (b"\x1b[?2048h", b"\x1b[48;5;10;80;80t"),
                 Query::Visibility => (b"\x1b[?998n", b"\x1b[?999;1n"),
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),

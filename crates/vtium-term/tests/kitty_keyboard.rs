@@ -1,7 +1,8 @@
 //! The kitty keyboard protocol (ADR-1005): the flag stacks a program
 //! pushes, pops, sets and queries, one for each screen, what resets them,
-//! and the bytes a key sends under flag 1, disambiguate escape codes, and
-//! flag 2, report event types.
+//! and the bytes a key sends under each of the five flags: 1, disambiguate
+//! escape codes; 2, report event types; 4, report alternate keys; 8,
+//! report all keys as escape codes; and 16, report associated text.
 //!
 //! Each expected sequence follows the specification, "Comprehensive
 //! keyboard handling in terminals"
@@ -227,22 +228,23 @@ fn a_push_of_1_sends_the_functional_keys_in_the_specifications_forms() {
 }
 
 // "Progressive enhancement" and "Detection of support for this protocol":
-// `CSI ? u` reports the flags in force, and vtium keeps only the flags it
-// implements, 1 and 2, so after a push of 31 it reports 3 (ADR-1005, D3
-// and D5). `CSI = flags ; mode u` sets exactly, sets bits or clears bits.
+// `CSI ? u` reports the flags in force, and vtium keeps only the five
+// flags the specification documents, 1 to 16, so after a push of 63 it
+// reports 31 (ADR-1005, D3 and D5). `CSI = flags ; mode u` sets exactly,
+// sets bits or clears bits.
 // covers: input.kitty-keyboard
 #[test]
 fn the_query_reports_only_the_flags_vtium_implements() {
     let mut t = term(80, 4, b"");
     assert_eq!(flags(&mut t), "\x1b[?0u");
-    t.input(b"\x1b[>31u");
-    assert_eq!(flags(&mut t), "\x1b[?3u");
+    t.input(b"\x1b[>63u");
+    assert_eq!(flags(&mut t), "\x1b[?31u");
     t.input(b"\x1b[=0u");
     assert_eq!(flags(&mut t), "\x1b[?0u");
-    t.input(b"\x1b[=31;2u");
-    assert_eq!(flags(&mut t), "\x1b[?3u");
+    t.input(b"\x1b[=255;2u");
+    assert_eq!(flags(&mut t), "\x1b[?31u");
     t.input(b"\x1b[=1;3u");
-    assert_eq!(flags(&mut t), "\x1b[?2u");
+    assert_eq!(flags(&mut t), "\x1b[?30u");
     t.input(b"\x1b[=1;1u");
     assert_eq!(flags(&mut t), "\x1b[?1u");
     t.input(b"\x1b[=0;4u");
@@ -558,4 +560,265 @@ fn flag_2_alone_reports_events_for_the_legacy_escape_codes() {
         three(&mut t, key(UP, none)),
         ["\x1bOA", "\x1b[1;1:2A", "\x1b[1;1:3A"]
     );
+}
+
+// "Report alternate keys" and "Key codes": under flags 5 a key sent as an
+// escape code carries the shifted key after its code and a colon, only
+// while Shift is held, and the base layout key after a second colon, only
+// where it differs from the code; with a base layout key and no shifted
+// key the shifted key's sub-field is empty. A key that sends text, and a
+// key the table of functional keys numbers, carries neither. Under flag 4
+// alone a key that would send text or its legacy bytes still does.
+// covers: input.kitty-keyboard
+#[test]
+fn a_push_of_5_reports_the_shifted_and_base_layout_keys() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>5u");
+    assert_eq!(flags(&mut t), "\x1b[?5u");
+    let shift_ctrl = mods(&[Mods::SHIFT, Mods::CTRL]);
+    assert_eq!(char_key(&mut t, 'a', Mods::CTRL), "\x1b[97;5u");
+    assert_eq!(char_key(&mut t, 'A', shift_ctrl), "\x1b[97:65;6u");
+    assert_eq!(
+        char_key(&mut t, 'A', mods(&[Mods::SHIFT, Mods::ALT])),
+        "\x1b[97:65;4u"
+    );
+    // Caps Lock without Shift reports no shifted key
+    assert_eq!(
+        char_key(&mut t, 'A', mods(&[Mods::LOCK, Mods::CTRL])),
+        "\x1b[97;69u"
+    );
+    // Ctrl+Shift+1 on a US layout: the unshifted key 1 is the code, and !
+    // the shifted key
+    let bang = Key {
+        unshifted: u32::from(b'1'),
+        base: Some('1'),
+        ..Key::press(u32::from(b'!'), 0x21, shift_ctrl, Some('!'))
+    };
+    assert_eq!(press(&mut t, bang), "\x1b[49:33;6u");
+    // Ctrl+С and Ctrl+Shift+С on a Russian layout: the base layout key c
+    let es = Key {
+        unshifted: CYRILLIC_ES,
+        base: Some('c'),
+        ..Key::press(CYRILLIC_ES, 0x63, Mods::CTRL, Some('\u{441}'))
+    };
+    assert_eq!(press(&mut t, es), "\x1b[1089::99;5u");
+    let shift_es = Key {
+        unshifted: CYRILLIC_ES,
+        base: Some('c'),
+        ..Key::press(0x6f3, 0x43, shift_ctrl, Some('\u{421}'))
+    };
+    assert_eq!(press(&mut t, shift_es), "\x1b[1089:1057:99;6u");
+    // a base layout key equal to the code is left out
+    let ctrl_a = Key {
+        unshifted: 0x61,
+        base: Some('a'),
+        ..Key::press(0x61, 0x61, Mods::CTRL, Some('a'))
+    };
+    assert_eq!(press(&mut t, ctrl_a), "\x1b[97;5u");
+    // keys that send text, and the functional keys, carry no alternates
+    let plain_es = Key {
+        unshifted: CYRILLIC_ES,
+        base: Some('c'),
+        ..Key::press(CYRILLIC_ES, 0x63, Mods::empty(), Some('\u{441}'))
+    };
+    assert_eq!(press(&mut t, plain_es), "\u{441}");
+    assert_eq!(sym(&mut t, UP, Mods::SHIFT), "\x1b[1;2A");
+    assert_eq!(sym(&mut t, ESCAPE, Mods::SHIFT), "\x1b[27;2u");
+    // flag 4 alone changes no key: a pure enhancement to escape codes that
+    // other flags make
+    t.input(b"\x1b[=4u");
+    assert_eq!(flags(&mut t), "\x1b[?4u");
+    assert_eq!(char_key(&mut t, 'a', Mods::CTRL), "\x01");
+    assert_eq!(sym(&mut t, ESCAPE, Mods::empty()), "\x1b");
+    assert_eq!(sym(&mut t, UP, Mods::SHIFT), "\x1b[1;2A");
+}
+
+// "Report all keys as escape codes": under flags 9 every key is an escape
+// code and no text is sent. A text key is `CSI code u`, with the locks
+// among its modifiers; Enter, Tab and Backspace are `CSI 13 u`, `CSI 9 u`
+// and `CSI 127 u`; a modifier key reports its own number from the table
+// of functional keys, with its own bit set as its press leaves it
+// ("Modifiers"); the keypad's text keys are their own numbers. Flag 8
+// implies disambiguation, so under flag 8 alone Escape is `CSI 27 u`.
+// covers: input.kitty-keyboard
+#[test]
+fn a_push_of_9_reports_every_key_as_an_escape_code() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>9u");
+    assert_eq!(flags(&mut t), "\x1b[?9u");
+    let none = Mods::empty();
+    assert_eq!(char_key(&mut t, 'a', none), "\x1b[97u");
+    assert_eq!(char_key(&mut t, 'A', Mods::SHIFT), "\x1b[97;2u");
+    assert_eq!(char_key(&mut t, 'A', Mods::LOCK), "\x1b[97;65u");
+    assert_eq!(char_key(&mut t, 'a', Mods::NUM), "\x1b[97;129u");
+    assert_eq!(char_key(&mut t, ' ', none), "\x1b[32u");
+    assert_eq!(sym(&mut t, RETURN, none), "\x1b[13u");
+    assert_eq!(sym(&mut t, TAB, none), "\x1b[9u");
+    assert_eq!(sym(&mut t, ISO_LEFT_TAB, Mods::SHIFT), "\x1b[9;2u");
+    assert_eq!(sym(&mut t, BACKSPACE, none), "\x1b[127u");
+    assert_eq!(sym(&mut t, ESCAPE, none), "\x1b[27u");
+    assert_eq!(sym(&mut t, UP, none), "\x1b[A");
+    assert_eq!(sym(&mut t, SHIFT_L, Mods::SHIFT), "\x1b[57441;2u");
+    assert_eq!(sym(&mut t, 0xffe4, Mods::CTRL), "\x1b[57448;5u");
+    assert_eq!(sym(&mut t, 0xffe9, Mods::ALT), "\x1b[57443;3u");
+    assert_eq!(sym(&mut t, 0xffeb, Mods::LOGO), "\x1b[57444;9u");
+    assert_eq!(sym(&mut t, CAPS_LOCK, Mods::LOCK), "\x1b[57358;65u");
+    assert_eq!(sym(&mut t, 0xff7f, Mods::NUM), "\x1b[57360;129u");
+    assert_eq!(sym(&mut t, 0xfe03, none), "\x1b[57453u");
+    let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(press(&mut t, kp_1), "\x1b[57400;129u");
+    let es = Key::press(CYRILLIC_ES, 0x63, none, Some('\u{441}'));
+    assert_eq!(press(&mut t, es), "\x1b[1089u");
+    // flag 8 alone disambiguates too
+    t.input(b"\x1b[=8u");
+    assert_eq!(flags(&mut t), "\x1b[?8u");
+    assert_eq!(sym(&mut t, ESCAPE, none), "\x1b[27u");
+    assert_eq!(char_key(&mut t, 'a', Mods::CTRL), "\x1b[97;5u");
+    assert_eq!(char_key(&mut t, 'a', none), "\x1b[97u");
+    // RIS ends it, as the reset key does
+    t.input(b"\x1bc");
+    assert_eq!(sym(&mut t, RETURN, none), "\r");
+    assert_eq!(char_key(&mut t, 'a', none), "a");
+}
+
+// "Report all keys as escape codes" and "Report event types": under
+// flags 11 every key reports its repeat and its release, a text key,
+// Enter, Tab, Backspace and a modifier key among them. A modifier key's
+// release carries the modifiers after it, so Shift's release has the
+// modifiers field 1.
+// covers: input.kitty-keyboard
+#[test]
+fn a_push_of_11_reports_the_release_of_every_key() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>11u");
+    let none = Mods::empty();
+    let key = |s: u32, m: Mods| Key::press(s, 0, m, None);
+    let a = Key::press(0x61, 0x61, none, Some('a'));
+    assert_eq!(
+        three(&mut t, a),
+        ["\x1b[97u", "\x1b[97;1:2u", "\x1b[97;1:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(RETURN, none)),
+        ["\x1b[13u", "\x1b[13;1:2u", "\x1b[13;1:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(TAB, none)),
+        ["\x1b[9u", "\x1b[9;1:2u", "\x1b[9;1:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(BACKSPACE, none)),
+        ["\x1b[127u", "\x1b[127;1:2u", "\x1b[127;1:3u"]
+    );
+    assert_eq!(sym(&mut t, SHIFT_L, Mods::SHIFT), "\x1b[57441;2u");
+    assert_eq!(
+        press(&mut t, event(key(SHIFT_L, none), KeyEvent::Release)),
+        "\x1b[57441;1:3u"
+    );
+    let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(
+        press(&mut t, event(kp_1, KeyEvent::Release)),
+        "\x1b[57400;129:3u"
+    );
+}
+
+// "Report associated text" and "Text as code points": under flags 25 a
+// key that makes text carries the text's code points in a third field,
+// after an empty modifiers field where no modifier is held. A key held
+// with Ctrl, Alt or another modifier but Shift and the locks makes no
+// text, and the text never holds a control character. A release carries
+// no text, and a repeat carries it as a press does. Flag 16 without flag
+// 8 adds no text, since the specification leaves it undefined there.
+// covers: input.kitty-keyboard
+#[test]
+fn a_push_of_25_reports_the_text_inside_the_code() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>25u");
+    assert_eq!(flags(&mut t), "\x1b[?25u");
+    let none = Mods::empty();
+    assert_eq!(char_key(&mut t, 'a', none), "\x1b[97;;97u");
+    assert_eq!(char_key(&mut t, 'A', Mods::SHIFT), "\x1b[97;2;65u");
+    assert_eq!(char_key(&mut t, 'A', Mods::LOCK), "\x1b[97;65;65u");
+    let ctrl_a = Key::press(0x61, 0x61, Mods::CTRL, Some('\x01'));
+    assert_eq!(press(&mut t, ctrl_a), "\x1b[97;5u");
+    assert_eq!(char_key(&mut t, 'a', Mods::ALT), "\x1b[97;3u");
+    let es = Key::press(CYRILLIC_ES, 0x63, none, Some('\u{441}'));
+    assert_eq!(press(&mut t, es), "\x1b[1089;;1089u");
+    let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(press(&mut t, kp_1), "\x1b[57400;129;49u");
+    assert_eq!(sym(&mut t, RETURN, none), "\x1b[13u");
+    assert_eq!(sym(&mut t, ESCAPE, none), "\x1b[27u");
+    t.input(b"\x1b[=27u");
+    let a = Key::press(0x61, 0x61, none, Some('a'));
+    assert_eq!(
+        three(&mut t, a),
+        ["\x1b[97;;97u", "\x1b[97;1:2;97u", "\x1b[97;1:3u"]
+    );
+    // with flag 4 the alternates come before the text
+    t.input(b"\x1b[=29u");
+    let shift_a = Key {
+        unshifted: 0x61,
+        base: Some('a'),
+        ..Key::press(0x41, 0x61, Mods::SHIFT, Some('A'))
+    };
+    assert_eq!(press(&mut t, shift_a), "\x1b[97:65;2;65u");
+    // flag 16 without flag 8 adds nothing
+    t.input(b"\x1b[=17u");
+    assert_eq!(char_key(&mut t, 'a', none), "a");
+    assert_eq!(char_key(&mut t, 'a', Mods::ALT), "\x1b[97;3u");
+}
+
+// "Legacy key event encoding": under flag 2 without flag 1, a key the
+// legacy section does not describe, F13 to F35 and the other keys the
+// table of functional keys numbers from 57344, is sent in the standard
+// `CSI number u` encoding, with its repeat and release; Menu is the
+// legacy table's `CSI 29 ~`. A keypad key is reported as its equivalent
+// non-keypad key, so the keypad's End sends End's release.
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_reports_f13_and_the_keypad_keys_events() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let none = Mods::empty();
+    let key = |s: u32, m: Mods| Key::press(s, 0, m, None);
+    assert_eq!(
+        three(&mut t, key(F13, none)),
+        ["\x1b[57376u", "\x1b[57376;1:2u", "\x1b[57376;1:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(0xffe0, Mods::SHIFT)),
+        ["\x1b[57398;2u", "\x1b[57398;2:2u", "\x1b[57398;2:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(AUDIO_PLAY, none)),
+        ["\x1b[57428u", "\x1b[57428;1:2u", "\x1b[57428;1:3u"]
+    );
+    assert_eq!(
+        three(&mut t, key(MENU, none)),
+        ["\x1b[29~", "\x1b[29;1:2~", "\x1b[29;1:3~"]
+    );
+    assert_eq!(
+        three(&mut t, key(KP_END, none)),
+        ["\x1b[F", "\x1b[1;1:2F", "\x1b[1;1:3F"]
+    );
+    assert_eq!(
+        three(&mut t, key(KP_BEGIN, none)),
+        ["\x1b[E", "\x1b[1;1:2E", "\x1b[1;1:3E"]
+    );
+    assert_eq!(
+        three(&mut t, key(0xff9f, Mods::CTRL)),
+        ["\x1b[3;5~", "\x1b[3;5:2~", "\x1b[3;5:3~"]
+    );
+    // the keypad's Enter and text keys are Enter and text: no release
+    assert_eq!(three(&mut t, key(KP_ENTER, none)), ["\r", "\r", ""]);
+    let kp_1 = Key::press(KP_1, 0, Mods::NUM, Some('1'));
+    assert_eq!(three(&mut t, kp_1), ["1", "1", ""]);
+    // without flag 2 the press alone, and at flags 0 F13 is xterm's again
+    t.input(b"\x1b[=4u");
+    assert_eq!(
+        three(&mut t, key(F13, none)),
+        ["\x1b[57376u", "\x1b[57376u", ""]
+    );
+    t.input(b"\x1b[=0u");
+    assert_eq!(three(&mut t, key(F13, none)), ["\x1b[25~", "\x1b[25~", ""]);
 }
