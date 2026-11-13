@@ -1,6 +1,6 @@
 # conformance
 
-Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.8: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, plays every behaviour scenario through it and judges each against its transcript, and plays every capability scenario through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
+Tier 1 for vtium. `vtium-replay` meets the replay interface, interface 1.9: `corpus/INTERFACE.md`, interface 1.0, with vtium's additions in `INTERFACE-vtium.md`, over `vtium-parse` and `vtium-term`. `conformance` replays every case of the corpus through it and judges each against its golden, plays every behaviour scenario through it and judges each against its transcript, and plays every capability scenario through it, each judged by vtium's capability list. The goldens are the judge: every difference from a golden fails, unless the provisional list names the case.
 
 The corpus, its goldens, the interface and the scenarios are kept here (The copies). The tools that make and check them are written here in Rust: the generator of the synthetic cases, the recorder of the programs' cases, and the interface check. Nothing here reads another repository or runs code from outside the tree.
 
@@ -117,7 +117,7 @@ The reader holds these rules beyond the record:
 
 The transcript masks the frame view's counts whatever a scenario's `needs` line says, which holds while vtium-replay declares no `damage-exact`. A scenario that needs exact counts will need them unmasked once an implementation declares it.
 
-Alternate scroll (mode 1007), one of the first scenarios the gap-check named, cannot be written over interface 1.8, because it is the host's call, which no test command makes. The keypad under NumLock (mode 1035), which the gap-check also named, can be written since interface 1.4, whose `key` command takes NumLock as `mods=num`.
+Alternate scroll (mode 1007), one of the first scenarios the gap-check named, cannot be written over interface 1.9, because it is the host's call, which no test command makes. The keypad under NumLock (mode 1035), which the gap-check also named, can be written since interface 1.4, whose `key` command takes NumLock as `mods=num`.
 
 `docs/scripts/coverage` reads a scenario's `# covers:` line and names the scenario's file in each row's `tests` column, but not while `scenarios/provisional.tsv` lists the scenario, since a provisional transcript judges nothing. It refuses the line in a capability scenario, whose rows `capabilities.list` names.
 
