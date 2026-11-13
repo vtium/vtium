@@ -61,6 +61,35 @@ fn each_screen_the_live_path_writes_reads_back_as_the_picture_of_its_block() {
     }
 }
 
+// the live play of a case stops at every checkpoint, prog-vim's among
+// them, and writes each block's screen in the replay's order: the screens
+// that, read back through a terminal, draw each block's picture
+#[test]
+fn the_live_play_writes_every_blocks_screen_in_order_and_waits_after_each() {
+    for (set, name) in [("corpus", "prog-vim"), ("vtium", "iterm2-place")] {
+        let corpus = Corpus::open(&root().join(CONFORMANCE).join(set)).unwrap();
+        let case = corpus.cases.iter().find(|c| c.name == name).unwrap();
+        let screens = screens(set, name);
+        let mut out = Vec::new();
+        let mut waits = 0;
+        let done = vtium_tier1_shots::play::case(&corpus, case, set, &mut out, &mut || {
+            waits += 1;
+            vtium_conformance::scenario::play::Step::Next
+        })
+        .unwrap();
+        assert!(done);
+        assert_eq!(waits, screens.len(), "{name}: a wait after each screen");
+        let mut at = 0;
+        for (k, screen) in screens.iter().enumerate() {
+            // the screen's picture is what its bytes read back as
+            assert!(screen.picture.as_ref().ok() == screen.live_picture().ok().as_ref());
+            at = find(&out, &screen.live, at)
+                .unwrap_or_else(|| panic!("{name}: screen {} is not where it follows", k + 1))
+                + screen.live.len();
+        }
+    }
+}
+
 /// What the pty gives back: every byte the player wrote, and whether it
 /// has exited.
 #[derive(Default)]

@@ -74,7 +74,7 @@ The tool checks each output against its golden as `conformance run` does, after 
 
 Each picture has a live path. `make tier1-play CASE=NAME` plays a case in the terminal it runs in, one screen at a time, and `make tier1-play SCENARIO=NAME` plays a scenario. The player waits for a key after each screen, and q stops it. Inside a vtium console, vtium draws each screen itself, its kitty, sixel and iTerm2 pictures included.
 
-The picture and the live play come from one replay of the same input, split at the same cuts. At each block, the replay hands its terminal to both paths. The picture path draws the terminal, and the live path (`src/live.rs`) writes bytes that make another terminal show the same screen. A case plays every block in order, and its last screen is the case's picture. A scenario plays through `conformance scenarios --play`'s player, which draws each dump through the live path.
+The picture and the live play come from one replay of the same input, split at the same cuts. At each block, the replay hands its terminal to both paths. The picture path draws the terminal, and the live path (`src/live.rs`) writes bytes that make another terminal show the same screen. A case stops at every checkpoint, as `prog-vim` stops at each of its screens, and its last screen is the case's picture. A scenario plays through `conformance scenarios --play`'s player, which draws each dump through the live path.
 
 The live path does not send the case's own stream. A test command, an answer of the fixture host or a picture made in another cell has no sequence that a terminal reads. So the live path describes the screen the replay left:
 
@@ -105,7 +105,8 @@ The output goes to `OUT`, `target/tier1-shots/` by default. `OUT` must be new, e
 | `provisional` | The reason the provisional list gives, or `null` for a reviewed golden. |
 | `matches` | Whether the output equals every golden that judges the picture. |
 | `error` | Why a replay or a drawing stopped, or `null`. |
-| `live` | The live path: `command`, the `make tier1-play` command that plays the case or the scenario; `matches`, whether the live path's bytes for this screen draw this picture; and `file`, the live path's drawing when it differs, or `null`. |
+| `play` | The exact command that plays the picture's case or scenario live, as `make tier1-play CASE=NAME` or `make tier1-play SCENARIO=NAME`. |
+| `live` | `matches`, whether the live path's bytes for this screen draw this picture, and `file`, the live path's drawing when it differs, or `null`. |
 | `goldens` | One object for each golden: `view` (`screen`, `frame`, `display` or `transcript`), `path` (from the repository's root), `matches`, and `differs`, the lines that differ. Each line has `side` (`golden` or `output`), `line` (its number on its side) and `text` (the line as its file holds it). |
 
 ## The copies

@@ -170,9 +170,9 @@ pub fn json(shots: &[Shot]) -> String {
             "      \"error\": {},\n",
             optional(s.error.as_deref())
         ));
+        out.push_str(&format!("      \"play\": {},\n", string(&s.live.command)));
         out.push_str(&format!(
-            "      \"live\": {{\"command\": {}, \"matches\": {}, \"file\": {}}},\n",
-            string(&s.live.command),
+            "      \"live\": {{\"matches\": {}, \"file\": {}}},\n",
             s.live.matches,
             if s.live.matches {
                 "null".to_owned()
@@ -324,7 +324,8 @@ mod tests {
       "provisional": "#32: \"frames\"; not reviewed yet",
       "matches": false,
       "error": null,
-      "live": {"command": "make tier1-play CASE=kit-anim", "matches": true, "file": null},
+      "play": "make tier1-play CASE=kit-anim",
+      "live": {"matches": true, "file": null},
       "goldens": [
         {"view": "screen", "path": "tools/conformance/vtium/golden/kit-anim.txt", "matches": true, "differs": []},
         {"view": "frame", "path": "tools/conformance/vtium/golden-frame/kit-anim.txt", "matches": false, "differs": [
@@ -343,7 +344,8 @@ mod tests {
       "provisional": null,
       "matches": true,
       "error": null,
-      "live": {"command": "make tier1-play SCENARIO=key-function", "matches": false, "file": "scenarios/key-function-02.live.png"},
+      "play": "make tier1-play SCENARIO=key-function",
+      "live": {"matches": false, "file": "scenarios/key-function-02.live.png"},
       "goldens": [
         {"view": "transcript", "path": "tools/conformance/scenarios/key-function.transcript", "matches": true, "differs": []}
       ]
