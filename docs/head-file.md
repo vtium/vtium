@@ -106,7 +106,7 @@ check-config exits 1 on an error or a warning about the file itself. These are:
 - a `consoles` value past its cap, and
 - an installed file that fails the ownership check.
 
-Other findings are notes, and check-config exits 0 for them. A head that no rule names is a note. So is everything that depends on the devices present: a rule that matches none of them, a head that only one keyboard reaches, what the policy did with the devices that no rule names, and every right that a file takes away. A head whose `vt` names only VTs on which vtium is not enabled, at boot or when you switch there, is a note too. That note gives the command that enables vtium on one of them, such as `sudo vtium console enable --direct 12`. With `--no-devices`, check-config says that it did not check the heads' VTs.
+Other findings are notes, and check-config exits 0 for them. A head that no rule names is a note. So is everything that depends on the devices present. That covers a rule that matches none of them and a head that only one keyboard reaches. It also covers what the policy did with the devices that no rule names, and every right that a file takes away. A head whose `vt` names only VTs on which vtium is not enabled, at boot or when you switch there, is a note too. That note gives the command that enables vtium on one of them, such as `sudo vtium console enable --direct 12`. With `--no-devices`, check-config says that it did not check the heads' VTs.
 
 Each head's consoles run the head's `login` command as root. When the head has no `login`, they run the `login` at vtium.conf's top level. A kiosk program drops its privileges itself, or is started through a tool that does. vtium never reads `kmscon`'s own file, `/etc/kmscon/kmscon.conf`.
 
@@ -180,7 +180,7 @@ The panic screen means that vtium has started correctly but can serve nothing. T
 - `More errors: N`, when there are more
 - a last line that gives the next step
 
-Where the screen has room, vtium also shows a drawing of Tux, the Linux penguin, panicked inside a computer monitor: to the left of the lines on a screen 80 columns wide, or a smaller drawing above them on a screen 40 columns wide. On a screen too small for the drawing, the lines show alone. The lines never make room for the drawing, and the drawing says nothing that the lines do not.
+Where the screen has room, vtium also shows a drawing of Tux, the Linux penguin, panicked inside a computer monitor. On a screen 80 columns wide, the drawing sits to the left of the lines. On a screen 40 columns wide, a smaller drawing sits above them. On a screen too small for the drawing, the lines show alone. The lines never make room for the drawing, and the drawing says nothing that the lines do not.
 
 The screen stays for as long as vtium runs. `check-config` rebuilds the full report from the file itself. You can run it over ssh, or from a live USB with the disk mounted.
 

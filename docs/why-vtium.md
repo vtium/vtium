@@ -47,7 +47,7 @@ The table lists the other ways to get a terminal on a Linux console without a di
 
 Sources, one per row:
 
-- The kernel's VT console: [`console_codes(4)`](https://man7.org/linux/man-pages/man4/console_codes.4.html), from man-pages 6.19; kbd's [`setfont(8)`](https://man7.org/linux/man-pages/man8/setfont.8.html), from kbd's repository as of 2026-08-04; [the fbcon documentation](https://docs.kernel.org/fb/fbcon.html); and [the commit that removed fbcon's soft scrollback](https://github.com/torvalds/linux/commit/50145474f6ef4a9c19205b173da6264a644c7489), first in Linux 5.9.
+- The kernel's VT console: [`console_codes(4)`](https://man7.org/linux/man-pages/man4/console_codes.4.html), from man-pages 6.19, and kbd's [`setfont(8)`](https://man7.org/linux/man-pages/man8/setfont.8.html), from kbd's repository as of 2026-08-04. The row also rests on [the fbcon documentation](https://docs.kernel.org/fb/fbcon.html) and on [the commit that removed fbcon's soft scrollback](https://github.com/torvalds/linux/commit/50145474f6ef4a9c19205b173da6264a644c7489), first in Linux 5.9.
 - `kmscon/kmscon` and `kmscon/libtsm`: their READMEs and release notes for `kmscon` 10.0.0 to 10.1.0 and `libtsm` 4.8.0, and `kmscon`'s open feature request for sixel, its issue 138.
 - fbterm: [its archived project page](https://code.google.com/archive/p/fbterm/), whose news dates release 1.7 to 2010-10-06, and the man page in its 1.7 source.
 - yaft: [its repository](https://github.com/uobikiemukot/yaft), README and tags.
