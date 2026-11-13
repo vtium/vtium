@@ -731,6 +731,16 @@ const PANIC_DESC: &str = "vtium's panic screen (ADR-1401 D7): the sections of a 
 
 const PANIC_SMALL_DESC: &str = "vtium's panic screen (ADR-1401 D7) on minspec's 320x240 display floor, in unifont as 40 by 15 cells, too small for the whole report. Correct: the box keeps the report's first two lines, `vtium: config invalid, policy closed: input off` and that the errors in /etc/vtium/vtium.conf leave no head that can run, and its last, that nothing on this console takes input and to run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media for the full report, each wrapped at a space; between them, the file's first error, on line 4, then `More errors: 3`, which counts the two errors the screen has no room for and the one past the three it lists, so no error goes uncounted and no line is cut; below the box, the screen's background and nothing else.";
 
+const PANIC_800X480_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on 800x480 as 100 by 30 cells of unifont's 8x16: the sections of a closed vtium.conf have four errors and no head survives them, so vtium runs nothing and shows this on the boot display for as long as it runs, with no session behind it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen; in its top left, the maintainer's drawing of a panicked Tux in a monitor, 32 columns by 20 rows of 7-bit ASCII in the box's dark text color; two empty columns, then, each on a line of its own and wrapped at a space in the remaining 64 columns, `vtium.conf has errors and counts as closed: all input is off.`; that the errors in /etc/vtium/vtium.conf leave no head that can run; the file's first three errors, on lines 4, 5 and 7, each starting with the file and its line; `More errors: 1`; and last, that this console takes no input and to run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media for the full report; the box as tall as the drawing; below the box, the screen's background and nothing else.";
+
+const PANIC_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on an 80x25 screen of unifont's 8x16 cells, 640x400: the panic-800x480 screen's report, three errors listed and `More errors: 1`, with the maintainer's drawing of a panicked Tux in a monitor beside it. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen; in its top left, the drawing in 7-bit ASCII, 32 columns by 20 rows, in the box's dark text color: sparks `\\|/` and `-o-` at the top corners, the monitor with Tux inside it, eyes `o_O` and an open mouth, arms raised, and a keyboard below; two empty columns, then the report's text, left-aligned in the remaining 44 columns from the box's first row, every line whole, each wrapped at a space; the box as tall as the taller of the drawing and the text; below the box, the screen's background and nothing else.";
+
+const PANIC_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build without image support, on a 40x25 screen of unifont's 8x16 cells, 320x400, for a closed vtium.conf with one error. Correct: one pale red box with a dark red edge across the top; at its top, centered, the small drawing, 21 columns by 10 rows of 7-bit ASCII: the monitor cropped from the full drawing, Tux inside it with eyes `o_O`, no sparks and no keyboard; an empty row; then the report from the box's left: `vtium.conf has errors and counts as closed: all input is off.`, that no head can run because of the errors in /etc/vtium/vtium.conf, the file's one error on line 4, and the next step naming vtium check-config, every line whole, each wrapped at a space; below the box, the screen's background and nothing else.";
+
+const PANIC_IMAGES_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-640x400 screen: the maintainer's 80x80 sprite of a panicked Tux in a monitor in place of the drawing in text, each of its pixels a sharp 3x3 square, 240x240, in its six colors: black, white, gray, beak orange, mouth dark red and tongue pink. Correct: the sprite's black square at the box's top left, inside the edge and the inset; its 30 by 15 cells, then two empty columns, then the report's text, every line whole, in the remaining 46 columns; the box as tall as the taller of the text and the sprite; below the box, the screen's background and nothing else.";
+
+const PANIC_IMAGES_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-one-320x400 screen: the sprite in place of the small drawing, each of its pixels a sharp 2x2 square, 160x160, centered across the box at its top in the 20 by 10 cells it takes; an empty row; then the report with its one error, every line whole; below the box, the screen's background and nothing else.";
+
 const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): the heads of a closed vtium.conf have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/vtium.conf sends to a head; below the box, the screen's background and nothing else.";
 
 const ALONE_PARTLY_DESC: &str = "vtium's notice of partly broken sections of vtium.conf, alone on the boot display (ADR-1401 D7, D9, ADR-1403 D3): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; below the box, the screen's background and nothing else.";
@@ -2197,7 +2207,7 @@ const BASE: &[Case] = &[
         OSD_MINIMAL_NOTICE,
     ),
     small("notices-four-800x480", NOTICES_FOUR_DESC, shown(FOUR)),
-    alone_small("panic-800x480", PANIC_DESC, notices::panic_screen),
+    alone_small("panic-800x480", PANIC_800X480_DESC, notices::panic_screen),
     alone_small(
         "notice-alone-no-display-800x480",
         ALONE_NO_DISPLAY_DESC,
@@ -2296,6 +2306,42 @@ const BASE: &[Case] = &[
         screen: Screen {
             alone: Some(notices::panic_screen),
             ..Screen::new("panic-320x240", PANIC_SMALL_DESC, BLANK, 40, 15)
+        },
+    },
+    Case {
+        screen: Screen {
+            alone: Some(notices::panic_screen),
+            ..Screen::new("panic-640x400", PANIC_80X25_DESC, BLANK, 80, 25)
+        },
+    },
+    Case {
+        screen: Screen {
+            alone: Some(notices::panic_one_screen),
+            ..Screen::new("panic-one-320x400", PANIC_40X25_DESC, BLANK, 40, 25)
+        },
+    },
+    Case {
+        screen: Screen {
+            alone: Some(notices::panic_images_screen),
+            ..Screen::new(
+                "panic-images-640x400",
+                PANIC_IMAGES_80X25_DESC,
+                BLANK,
+                80,
+                25,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            alone: Some(notices::panic_images_one_screen),
+            ..Screen::new(
+                "panic-images-one-320x400",
+                PANIC_IMAGES_40X25_DESC,
+                BLANK,
+                40,
+                25,
+            )
         },
     },
     scheme(

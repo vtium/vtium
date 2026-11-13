@@ -180,6 +180,8 @@ The panic screen means that vtium has started correctly but can serve nothing. T
 - `More errors: N`, when there are more
 - a last line that gives the next step
 
+Where the screen has room, vtium also shows a drawing of Tux, the Linux penguin, panicked inside a computer monitor: to the left of the lines on a screen 80 columns wide, or a smaller drawing above them on a screen 40 columns wide. On a screen too small for the drawing, the lines show alone. The lines never make room for the drawing, and the drawing says nothing that the lines do not.
+
 The screen stays for as long as vtium runs. `check-config` rebuilds the full report from the file itself. You can run it over ssh, or from a live USB with the disk mounted.
 
 That failure is final by design. vtium keeps no copy of the file and no last-known-good version of it. So check a closed file before you rely on it, with `vtium check-config FILE` or `vtium config check FILE`. A trial that applies a candidate and reverts it unless you confirm it is not built yet. See [the issue that tracks it](https://github.com/vtium/vtium/issues/331).
