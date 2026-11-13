@@ -447,9 +447,11 @@ impl<F: Face> Font<F> {
     /// draws nothing for, because it lacks the first character or holds no
     /// glyph for the cluster, otherwise draws as the font's missing glyph:
     /// the [`Missing`] glyph, whose last fallback is U+25A1, else `?`, else
-    /// the face's last resort. A glyph of another width is centred and cut
-    /// to the cells. `None` only for an empty cluster or a face that can
-    /// draw nothing.
+    /// the face's last resort. A glyph narrower than its cells is centred
+    /// in them. A wider mask is squeezed sideways into them, in the face's
+    /// own pixels, so no ink is cut, and a wider color glyph is cut evenly
+    /// (ADR-1302 D14, D5).
+    /// `None` only for an empty cluster or a face that can draw nothing.
     pub fn drawn(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
@@ -471,7 +473,11 @@ impl<F: Face> Font<F> {
                 (g, true)
             }
         };
-        Some(Drawn::new(glyph.fit(w, width)?, 1, missing))
+        Some(Drawn::new(
+            glyph.fit(w, width, self.face.scale())?,
+            1,
+            missing,
+        ))
     }
 
     /// [`Font::drawn`] in `variant`. A superscript or subscript glyph is
@@ -495,7 +501,7 @@ impl<F: Face> Font<F> {
             match self.face.script(cluster, variant) {
                 ScriptFrom::Made(glyph) => {
                     let w = self.face.cell().width.saturating_mul(width.cells());
-                    return Some(Drawn::new(glyph.fit(w, width)?, 1, false));
+                    return Some(Drawn::new(glyph.fit(w, width, 1)?, 1, false));
                 }
                 ScriptFrom::Builtins => {
                     let builtins = Font {
@@ -519,7 +525,7 @@ impl<F: Face> Font<F> {
         }
         if let Some((small, _)) = self.smaller(cluster, variant.style) {
             let placed = small.placed(script, (w, cell.height), band)?;
-            return Some(Drawn::new(placed.fit(w, width)?, 1, false));
+            return Some(Drawn::new(placed.fit(w, width, 1)?, 1, false));
         }
         let style = variant.style;
         let draw = |chars: &[char]| -> Option<(Glyph, Origin)> {
@@ -553,7 +559,7 @@ impl<F: Face> Font<F> {
             }
         };
         let small = glyph.scripted(script, &origin, band)?;
-        Some(Drawn::new(small.fit(w, width)?, 1, missing))
+        Some(Drawn::new(small.fit(w, width, 1)?, 1, missing))
     }
 
     /// The glyph for `cluster` in `style` from a smaller size of the face's
@@ -658,7 +664,7 @@ impl<F: Face> Font<F> {
         };
         let (sw, sh) = (w.checked_div(j)?, cell.height.checked_div(j)?);
         let placed = one.placed(variant.script, (sw, sh), small)?;
-        Some(Drawn::new(placed.fit(sw, width)?, j, false))
+        Some(Drawn::new(placed.fit(sw, width, 1)?, j, false))
     }
 
     /// [`Font::drawn`] for a renderer that stores bitmap glyphs small: the
@@ -690,7 +696,7 @@ impl<F: Face> Font<F> {
             .or_else(|| self.face.last_resort_unscaled(style));
         match glyph {
             Some(g) if w.abs_diff(g.width()) % 2 == 0 => {
-                Some(Drawn::new(g.fit(w, width)?, scale, missing))
+                Some(Drawn::new(g.fit(w, width, 1)?, scale, missing))
             }
             _ => drawn(),
         }

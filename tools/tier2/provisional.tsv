@@ -1,3 +1,7 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+vs16-unifont	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): the plain and VS15 hearts, which unifont draws 16 pixels wide, squeezed into their one cell, two columns into one, in place of their middle 8 columns; 38 pixels move; not reviewed yet
+vs16-wcwidth	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): all four hearts, each in one cell by wcwidth, squeezed into it, two columns into one, in place of their middle 8 columns; 76 pixels move; not reviewed yet
+emoji-unifont	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): the VS15 heart and the heart with no selector, each in one cell, squeezed into it, two columns into one, in place of their middle 8 columns; 38 pixels move; not reviewed yet
+vitrified-640x480	#245: redrawn for the maintainer's decision of 2026-11-13 (ADR-1302 D14): the snowman, which the built-in unifont draws 16 pixels wide for the font set, squeezed into its one cell, two columns into one, in place of its middle 8 columns; 50 pixels move; not reviewed yet
