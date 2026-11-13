@@ -12,7 +12,7 @@
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
 
@@ -24,6 +24,7 @@ use crate::input::{InputConfig, InputEvent, Mods, RawEvent};
 use crate::ioctl::{EV_KEY, LED_CAPSL};
 use crate::logind::classify;
 use crate::logind::localed::{Bus, layout_from};
+use crate::scratch::Scratch;
 
 mod peer;
 
@@ -252,11 +253,9 @@ us\t\t\tus\tpc105+inet\t-\t\tterminate:ctrl_alt_bksp\t\t\t\ten-US,en
 ";
 
 /// A root of its own for one test, with the table and, when given,
-/// `vconsole` as etc/vconsole.conf.
-fn root(name: &str, vconsole: Option<&str>) -> PathBuf {
-    let root =
-        std::env::temp_dir().join(format!("vtium-layout-follow-{}-{name}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&root);
+/// `vconsole` as etc/vconsole.conf. The test removes it when it ends.
+fn root(name: &str, vconsole: Option<&str>) -> Scratch {
+    let root = Scratch::new(&format!("layout-follow-{name}"));
     write(&root, "usr/share/systemd/kbd-model-map", TABLE);
     if let Some(text) = vconsole {
         write(&root, "etc/vconsole.conf", text);
@@ -363,13 +362,14 @@ struct Rig {
     follow: LayoutFollow<StandInSignals>,
     input: Input<Nodes>,
     nodes: Nodes,
-    root: PathBuf,
+    root: Scratch,
 }
 
 impl Rig {
     /// vtium started with `own` from vtium.conf on the system under `root`,
-    /// with localed holding the US layout.
-    fn new(own: KeymapConfig, root: PathBuf) -> Rig {
+    /// with localed holding the US layout. The rig holds `root` until the
+    /// test ends.
+    fn new(own: KeymapConfig, root: Scratch) -> Rig {
         let world = world();
         let system = system::find(
             &root,
@@ -507,9 +507,11 @@ fn vtium_confs_keys_still_win_after_a_change() {
 // covers: platform.system-layout-follow
 #[test]
 fn a_change_in_vconsole_conf_wins_over_localed() {
-    let root = root("vconsole", Some("KEYMAP=us\n"));
-    let mut rig = Rig::new(KeymapConfig::default(), root.clone());
-    write(&root, "etc/vconsole.conf", "KEYMAP=de-latin1\n");
+    let mut rig = Rig::new(
+        KeymapConfig::default(),
+        root("vconsole", Some("KEYMAP=us\n")),
+    );
+    write(&rig.root, "etc/vconsole.conf", "KEYMAP=de-latin1\n");
     rig.world
         .borrow_mut()
         .localed_sets(&[("VConsoleKeymap", "de-latin1"), ("X11Layout", "fr")]);
@@ -659,21 +661,21 @@ fn only_a_keymap_file_that_compiled_stops_the_follow() {
         keymap_file: Some(root.join("missing.xkb")),
         ..KeymapConfig::default()
     };
-    let mut rig = Rig::new(missing, root.clone());
+    let mut rig = Rig::new(missing, root);
     rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
     assert!(rig.dispatch(), "the system's layout");
     assert_eq!(rig.key_y(), [[Z], [Z]]);
 
     write(
-        &root,
+        &rig.root,
         "keymap.xkb",
         include_str!("../../input/fallback.xkb"),
     );
     let file = KeymapConfig {
-        keymap_file: Some(root.join("keymap.xkb")),
+        keymap_file: Some(rig.root.join("keymap.xkb")),
         ..KeymapConfig::default()
     };
-    let mut rig = Rig::new(file, root);
+    let mut rig = Rig::new(file, rig.root);
     rig.world.borrow_mut().localed_sets(&[("X11Layout", "de")]);
     assert!(!rig.dispatch(), "the keymap file stays");
     assert_eq!(rig.asked(), Vec::<String>::new());

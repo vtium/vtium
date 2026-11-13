@@ -52,6 +52,8 @@ pub mod painter;
 pub mod pointer;
 pub mod power;
 pub mod respawn;
+#[cfg(test)]
+mod scratch;
 pub mod start;
 pub mod survive;
 pub mod sync;

@@ -197,6 +197,7 @@ impl fmt::Display for EdidId {
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     /// A base block from maker `AAA`, product 1 and serial number
     /// `number`, stating `cm`, with `descriptors` at the descriptors'
@@ -363,15 +364,13 @@ mod tests {
     }
 
     /// A stand-in card directory in sysfs for `test`, holding `edids` by
-    /// connector directory.
-    fn sysfs(test: &str, edids: &[(&str, Vec<u8>)]) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("vtium-edid-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    /// connector directory. The test removes it when it ends.
+    fn sysfs(test: &str, edids: &[(&str, Vec<u8>)]) -> Scratch {
+        let dir = Scratch::new(&format!("edid-{test}"));
         for (conn, bytes) in edids {
             std::fs::create_dir_all(dir.join(conn)).unwrap();
             std::fs::write(dir.join(conn).join("edid"), bytes).unwrap();
         }
-        std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
@@ -392,7 +391,6 @@ mod tests {
             read("DP-1"),
             read("eDP-1"),
         );
-        let _ = std::fs::remove_dir_all(&dir);
         let at = |mm, n: &str| Some((Some(mm), format!("AAA:0x0001:{n}")));
         assert_eq!(hdmi, at((600, 340), "0x00000001"));
         assert_eq!(hdmi11, at((300, 170), "0x00000002"));

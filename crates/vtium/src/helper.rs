@@ -2038,6 +2038,7 @@ pub(crate) fn stand_in_shell() -> &'static Path {
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
     use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
     use vtium_font::{Face, Style, Width};
 
@@ -2561,14 +2562,12 @@ mod tests {
 
     #[test]
     fn a_frit_is_read_with_the_name_of_its_file() {
-        let dir = std::env::temp_dir().join(format!("vtium-helper-read-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("helper-read");
         let path = dir.join("ter-v16n.vtfrit");
         std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
         let trust = crate::font::trust().below(&dir);
         let read = FritText::read(&path, &trust);
         let gone = FritText::read(&dir.join("gone.vtfrit"), &trust);
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             read,
             Ok(FritText {
@@ -3980,11 +3979,9 @@ mod tests {
     }
 
     /// A directory of its own for a test of the helper's program, empty.
-    fn program_dir(name: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("vtium-program-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    /// The test removes it when it ends.
+    fn program_dir(name: &str) -> Scratch {
+        Scratch::new(&format!("program-{name}"))
     }
 
     /// A copy of `from` at `to`, with `mode`. `cp` writes it, so this
@@ -4102,7 +4099,6 @@ mod tests {
                 )
             );
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // a package upgrade renames a new program into place; a console that
@@ -4119,7 +4115,6 @@ mod tests {
         let out = launcher.process().output().unwrap();
         assert!(out.status.success(), "{out:?}");
         assert_eq!(String::from_utf8_lossy(&out.stdout), "the old one\n");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // the opened program reaches no program vtium starts: not the helper
@@ -4174,7 +4169,6 @@ mod tests {
         );
         assert!(!listed.contains(&name), "{listed}");
         drop(launcher);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // font-helper names the program, its default the one vtium is built
@@ -4222,7 +4216,6 @@ mod tests {
                     "{} reports no failed exec to the process that starts a program: skipped",
                     qemu.unwrap_or_default().display()
                 );
-                let _ = std::fs::remove_dir_all(&dir);
                 return;
             }
         };
@@ -4247,7 +4240,6 @@ mod tests {
             )
         );
         assert!(helper.running.is_none(), "nothing started");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

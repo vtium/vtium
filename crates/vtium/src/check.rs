@@ -864,6 +864,7 @@ mod tests {
 
     use super::*;
     use crate::config;
+    use crate::scratch::Scratch;
 
     /// What [`notes`] says for `args`, less the notes that begin with
     /// `left_out`, which other tests judge.
@@ -1128,8 +1129,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_frit_font_name_names_is_checked() {
-        let dir = std::env::temp_dir().join(format!("vtium-check-frit-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("check-frit");
         std::fs::write(
             dir.join("small.vtfrit"),
             "source=builtin:unifont\ncell=8x12\n",
@@ -1159,7 +1159,6 @@ mod tests {
             frit(&config("ter-v16n"), &dir, &trust).is_empty(),
             "no frit"
         );
-        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     // ADR-1401 D10, ADR-1403 D3: check-config reads the frit font-name
@@ -1173,8 +1172,7 @@ mod tests {
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_frit_the_ownership_check_refuses_is_reported() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
-        let dir = std::env::temp_dir().join(format!("vtium-check-trust-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = Scratch::new("check-trust");
         let open = dir.join("open");
         std::fs::create_dir_all(&open).unwrap();
         let mode = |path: &Path, mode: u32| {
@@ -1210,7 +1208,6 @@ mod tests {
             frit(&config("g"), &dir, &mine),
             frit(&config("t"), &open, &mine),
         ];
-        std::fs::remove_dir_all(&dir).unwrap();
         let refused = |name: &str, file: &Path, failed: &Path, mode: &str| {
             let (file, failed) = (file.display(), failed.display());
             format!(
@@ -1354,9 +1351,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn an_image_helper_the_root_start_refuses_is_noted() {
-        let dir = std::env::temp_dir().join(format!("vtium-check-image-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("check-image");
         let program = dir.join("vtium-image");
         std::fs::write(&program, "").unwrap();
         let owner = std::fs::metadata(&program)
@@ -1377,7 +1372,6 @@ mod tests {
                 )
             );
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // check-config run as another account notes a helper the root start
@@ -1385,9 +1379,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_helper_the_root_start_refuses_is_noted() {
-        let dir = std::env::temp_dir().join(format!("vtium-check-helper-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("check-helper");
         let program = dir.join("vtium-config");
         std::fs::write(&program, "").unwrap();
         // owned by the test's account, as a build is
@@ -1415,7 +1407,6 @@ mod tests {
                 "{other}"
             );
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // font-frits names the directory check-config finds a profile's frit in
@@ -1431,20 +1422,19 @@ mod tests {
         assert_eq!(Host::system(&loaded.config).frits, Path::new(font::FRITS));
     }
 
-    /// A head file in a fixture directory of its own, the trust that
-    /// reads it as the start reads root's files, and the directory.
+    /// A fixture directory of its own, which the test removes when it
+    /// ends, a head file in it, and the trust that reads the file as the
+    /// start reads root's files.
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
-    fn heads_fixture(name: &str, text: &str, mode: u32) -> (std::path::PathBuf, Trust) {
+    fn heads_fixture(name: &str, text: &str, mode: u32) -> (Scratch, PathBuf, Trust) {
         use std::os::unix::fs::PermissionsExt;
-        let dir =
-            std::env::temp_dir().join(format!("vtium-check-heads-{name}-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new(&format!("check-heads-{name}"));
         std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
         let file = dir.join("heads.conf");
         std::fs::write(&file, text).unwrap();
         std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).unwrap();
         let trust = Trust::owner(rustix::process::geteuid().as_raw()).below(&dir);
-        (file, trust)
+        (dir, file, trust)
     }
 
     /// vtium.conf's caps with `head_cap` and the default total, and frits
@@ -1469,9 +1459,8 @@ mod tests {
     }
 
     fn checked(name: &str, text: &str, udev: bool) -> (HeadCheck, String) {
-        let (file, trust) = heads_fixture(name, text, 0o644);
+        let (_dir, file, trust) = heads_fixture(name, text, 0o644);
         let out = conf_file(&file, false, &trust, &machine(udev), &caps(4));
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         (out, file.display().to_string())
     }
 
@@ -1654,7 +1643,7 @@ mod tests {
     // covers: platform.heads.rules
     #[test]
     fn a_line_that_is_not_utf8_drops_only_its_rule() {
-        let (file, trust) = heads_fixture("bytes", "", 0o644);
+        let (_dir, file, trust) = heads_fixture("bytes", "", 0o644);
         std::fs::write(
             &file,
             b"version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput name:\xff -> a\n",
@@ -1662,7 +1651,6 @@ mod tests {
         .ok();
         let f = file.display().to_string();
         let out = conf_file(&file, false, &trust, &machine(true), &caps(4));
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         assert_eq!(
             out.counted,
             [
@@ -1701,14 +1689,13 @@ mod tests {
         ] {
             let text =
                 format!("version = 1\n[head a]\nconsoles = {consoles}\n[rules]\ndisplay * -> a\n");
-            let (file, trust) = heads_fixture(&format!("cap-{consoles}-{cap}"), &text, 0o644);
+            let (_dir, file, trust) = heads_fixture(&format!("cap-{consoles}-{cap}"), &text, 0o644);
             let f = file.display().to_string();
             let settings = Settings {
                 total: 64,
                 ..caps(cap)
             };
             let out = conf_file(&file, false, &trust, &machine(true), &settings);
-            std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
             let want: Vec<String> = want.iter().map(|w| format!("{f}:3: {w}")).collect();
             assert_eq!(out.counted, want, "consoles {consoles}, cap {cap}");
         }
@@ -1756,7 +1743,7 @@ mod tests {
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_look_naming_a_missing_frit_counts_against_the_file() {
         let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
-        let (file, trust) = heads_fixture("frit", text, 0o644);
+        let (_dir, file, trust) = heads_fixture("frit", text, 0o644);
         let f = file.display().to_string();
         let frits = file.parent().unwrap().join("frits");
         std::fs::create_dir_all(&frits).unwrap();
@@ -1768,7 +1755,6 @@ mod tests {
         let missing = conf_file(&file, false, &trust, &machine(true), &settings);
         std::fs::write(frits.join("desk.vtfrit"), "source=builtin:unifont\n").unwrap();
         let installed = conf_file(&file, false, &trust, &machine(true), &settings);
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
         let dir = frits.display();
         assert_eq!(
             missing.counted,
@@ -1789,7 +1775,7 @@ mod tests {
     fn a_looks_frit_the_ownership_check_refuses_is_reported() {
         use std::os::unix::fs::{MetadataExt, PermissionsExt};
         let text = "version = 1\n[look big]\nfont-name = g\n[look small]\nfont-name = t\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\n";
-        let (file, trust) = heads_fixture("look-trust", text, 0o644);
+        let (_dir, file, trust) = heads_fixture("look-trust", text, 0o644);
         let f = file.display().to_string();
         let frits = file.parent().unwrap().join("frits");
         std::fs::create_dir_all(&frits).unwrap();
@@ -1806,7 +1792,6 @@ mod tests {
             ..caps(4)
         };
         let out = conf_file(&file, false, &trust, &machine(true), &settings);
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
         let (g, t) = (frits.join("g.vtfrit"), frits.join("t.vtfrit"));
         let refused: Vec<&String> = out
             .counted
@@ -1916,7 +1901,7 @@ mod tests {
     /// outcome and the policy, without the path before them: a note on a
     /// line starts with the line.
     fn remarked(name: &str, text: &str, devices: &[Identity]) -> (Vec<String>, Vec<String>) {
-        let (file, trust) = heads_fixture(name, text, 0o644);
+        let (_dir, file, trust) = heads_fixture(name, text, 0o644);
         let f = format!("{}:", file.display());
         let m = Machine {
             udev_daemon: true,
@@ -1924,7 +1909,6 @@ mod tests {
             vts: VtsEnabled::FileAlone,
         };
         let out = conf_file(&file, false, &trust, &m, &caps(4));
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         let bare = |n: &String| {
             let n = n.strip_prefix(&f).unwrap_or(n);
             n.strip_prefix(' ').unwrap_or(n).to_owned()
@@ -2336,7 +2320,7 @@ mod tests {
     #[test]
     fn ownership_counts_for_the_installed_file_and_is_a_note_for_a_candidate() {
         let text = "version = 1\n[head desk]\n[rules]\ndisplay * -> desk\ninput * -> desc\n";
-        let (file, trust) = heads_fixture("owner", text, 0o666);
+        let (_dir, file, trust) = heads_fixture("owner", text, 0o666);
         let f = file.display().to_string();
         // ADR-1403 D3: the refusal names the path, its mode and the
         // command that mends it
@@ -2374,7 +2358,6 @@ mod tests {
                 ),
             ]
         );
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
     }
 
     // ADR-1401 D7, D9: what depends on the devices present names each
@@ -2440,8 +2423,7 @@ mod tests {
         let mode = |p: &Path, m: u32| {
             std::fs::set_permissions(p, std::fs::Permissions::from_mode(m)).unwrap()
         };
-        let (file, trust) = heads_fixture("denied", "version = 1\n", 0o000);
-        let dir = file.parent().unwrap().to_path_buf();
+        let (dir, file, trust) = heads_fixture("denied", "version = 1\n", 0o000);
         let denied = HeadCheck {
             counted: vec![format!(
                 "{}: permission denied: only root can check this file",
@@ -2468,16 +2450,13 @@ mod tests {
             "its directory"
         );
         mode(&dir, 0o700);
-        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn a_udev_daemon_runs_where_its_control_socket_is_present() {
-        let (file, _) = heads_fixture("udev-control", "", 0o644);
+        let (_dir, file, _) = heads_fixture("udev-control", "", 0o644);
         assert!(udev_daemon_runs(&file));
         assert!(!udev_daemon_runs(&file.with_file_name("absent")));
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     /// The subcommand on the command line `args` and a host of fixtures.
@@ -2503,14 +2482,13 @@ mod tests {
 
     /// `text`'s notes against a machine whose VTs are `vts`.
     fn vt_notes(name: &str, text: &str, vts: VtsEnabled) -> (HeadCheck, String) {
-        let (file, trust) = heads_fixture(name, text, 0o644);
+        let (_dir, file, trust) = heads_fixture(name, text, 0o644);
         let machine = Machine {
             udev_daemon: true,
             devices: None,
             vts,
         };
         let out = conf_file(&file, false, &trust, &machine, &caps(4));
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         (out, file.display().to_string())
     }
 
@@ -2597,7 +2575,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn check_config_reads_the_systemd_links_of_its_host() {
-        let (file, _) = heads_fixture("vt-host", &two_heads_on("12"), 0o644);
+        let (_dir, file, _) = heads_fixture("vt-host", &two_heads_on("12"), 0o644);
         let f = file.display().to_string();
         let root = file.with_file_name("root");
         std::fs::create_dir_all(root.join("run/systemd/system")).unwrap();
@@ -2637,7 +2615,6 @@ mod tests {
             "{:#?}",
             out.stdout
         );
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // ADR-1005 D10: a vtium.conf written for an earlier release binds its
@@ -2645,9 +2622,8 @@ mod tests {
     // output, where it does not count, so the file passes, and so does
     // vtium-config's install of it.
     #[test]
-    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn an_old_key_binding_name_is_a_note_and_the_check_passes() {
-        let (file, _) = heads_fixture(
+        let (_dir, file, _) = heads_fixture(
             "renamed",
             "grab-paste=<Alt>p\ngrab-reboot=<Ctrl><Alt>Delete\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\ninput path:pci-0000:00:14.0-usb-0:1 -> a\n",
             0o644,
@@ -2676,7 +2652,6 @@ mod tests {
             );
             assert!(out.stdout.contains(&note), "{note}: {:?}", out.stdout);
         }
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // the installed head file is the host's, read as the start reads it,
@@ -2684,7 +2659,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_installed_head_file_and_the_udev_socket_are_the_hosts() {
-        let (file, _) = heads_fixture(
+        let (_dir, file, _) = heads_fixture(
             "host",
             "version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput path:pci-0000:00:14.0-usb-0:1 -> a\n",
             0o644,
@@ -2750,7 +2725,6 @@ mod tests {
                     "absent.conf: There is no vtium.conf here, so vtium starts with its built-in configuration and shows no notice."
                 ))
         );
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // ADR-1401 D7: the installed file named on the command line, by its
@@ -2760,7 +2734,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_installed_file_named_as_the_candidate_is_checked_as_installed() {
-        let (file, _) = heads_fixture(
+        let (_dir, file, _) = heads_fixture(
             "same",
             "version = 1\n[head a]\n[rules]\ndisplay * -> a\n",
             0o644,
@@ -2788,7 +2762,6 @@ mod tests {
                 "{named:?}"
             );
         }
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // heads.md: each file docs/heads holds checks with exit status 0, the
@@ -2798,7 +2771,7 @@ mod tests {
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn each_documented_head_file_checks_with_exit_0() {
         let docs = Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/../../docs/heads"));
-        let (anchor, _) = heads_fixture("docs", "", 0o644);
+        let (_dir, anchor, _) = heads_fixture("docs", "", 0o644);
         let frits = anchor.with_file_name("frits");
         std::fs::create_dir_all(&frits).unwrap();
         let host = Host {
@@ -2848,7 +2821,6 @@ mod tests {
             };
             assert_eq!((out.status, out.stderr), want, "{f:?}");
         }
-        std::fs::remove_dir_all(anchor.parent().unwrap()).ok();
     }
 
     /// Roots under which nothing is listed.
@@ -2995,7 +2967,7 @@ mod tests {
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn the_devices_present_give_hardware_findings_outside_the_status() {
-        let (file, _) = heads_fixture(
+        let (_dir, file, _) = heads_fixture(
             "devices",
             "version = 1\n[head desk]\n[head panel]\n[rules]\n\
              display * -> desk\n\
@@ -3032,7 +3004,6 @@ mod tests {
                 &format!("{f}: {UNSET}"),
             ]
         );
-        std::fs::remove_dir_all(file.parent().unwrap()).ok();
     }
 
     // a rule noted as matching nothing here for want of a udev daemon, or
@@ -3044,7 +3015,7 @@ mod tests {
                     display connector-path:mst:63-1 -> desk\n\
                     input path:pci-0000:15:00.0-usb-0:3.3 -> desk\n\
                     input class:joystick -> desk\n";
-        let (file, trust) = heads_fixture("once", text, 0o644);
+        let (_dir, file, trust) = heads_fixture("once", text, 0o644);
         let f = file.display().to_string();
         let machine = Machine {
             udev_daemon: false,
@@ -3052,7 +3023,6 @@ mod tests {
             vts: VtsEnabled::FileAlone,
         };
         let out = conf_file(&file, false, &trust, &machine, &caps(4));
-        std::fs::remove_dir_all(file.parent().unwrap_or(&file)).ok();
         assert_eq!(
             out.notes,
             [

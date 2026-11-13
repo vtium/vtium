@@ -11,7 +11,6 @@
 use std::ffi::{CStr, c_char, c_int, c_void};
 use std::os::fd::{BorrowedFd, IntoRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
-use std::path::Path;
 use std::ptr;
 
 use super::*;
@@ -388,10 +387,10 @@ fn the_follow_takes_localeds_layout_over_a_real_connection() {
         destination: Some(c":1.100"),
         ..localeds()
     });
-    let moved = follow.dispatch_in(Path::new(&root), german, Some(&mut input));
+    let moved = follow.dispatch_in(&root, german, Some(&mut input));
     assert!(matches!(moved, Ok(false)), "{moved:?}");
     localed.send(&localeds());
-    let moved = follow.dispatch_in(Path::new(&root), german, Some(&mut input));
+    let moved = follow.dispatch_in(&root, german, Some(&mut input));
     assert!(matches!(moved, Ok(true)), "{moved:?}");
     assert_eq!(
         key_y(&mut input, &nodes),

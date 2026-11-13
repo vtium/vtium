@@ -59,6 +59,8 @@ pub mod outline;
 pub mod preview;
 pub mod report;
 pub mod resample;
+#[cfg(test)]
+mod scratch;
 pub mod serve;
 pub mod shaping;
 pub mod sources;

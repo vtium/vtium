@@ -1421,6 +1421,7 @@ fn paint(
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     /// A pipe whose reader is gone.
     struct Closed;
@@ -1773,8 +1774,7 @@ mod tests {
     // covers: sgr.script
     #[test]
     fn the_script_line_draws_the_glyphs_the_engine_made() {
-        let dir = std::env::temp_dir().join(format!("vtium-script-line-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("a directory");
+        let dir = Scratch::new("script-line");
         let (big, small) = (dir.join("big.psf"), dir.join("small.psf"));
         std::fs::write(&big, psf2(16, 0)).expect("a font");
         std::fs::write(&small, psf2(8, 101)).expect("a font");
@@ -1788,7 +1788,6 @@ mod tests {
         };
         let engine = crate::serve::Engine::load(&frit, &crate::serve::Paths::default(), None)
             .expect("the frit loads");
-        let _ = std::fs::remove_dir_all(&dir);
         let cell = Cell {
             width: 8,
             height: 16,

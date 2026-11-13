@@ -338,6 +338,7 @@ mod tests {
 
     use super::*;
     use crate::app::tests::{Still, no_fonts, shown};
+    use crate::scratch::Scratch;
     use crate::survive::hold;
 
     /// A session an earlier vtium started and let go of at its exit: its
@@ -520,9 +521,7 @@ mod tests {
     // still holds its master for the next vtium.
     #[test]
     fn a_held_session_outlives_the_vtium_that_started_it() {
-        let dir = std::env::temp_dir().join(format!("vtium-app-survive-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("app-survive");
         let path = hold::socket_path(&dir);
         let listener = rustix::net::socket_with(
             rustix::net::AddressFamily::UNIX,
@@ -560,15 +559,18 @@ mod tests {
         drop(next);
         assert!(holder.join().unwrap().is_ok());
         end(leader);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A holder serving on a socket in a directory of its own, and that
-    /// directory.
-    fn holder(name: &str) -> (PathBuf, std::thread::JoinHandle<std::io::Result<()>>) {
-        let dir = std::env::temp_dir().join(format!("vtium-app-{name}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    /// A holder serving on a socket in a directory of its own: the
+    /// directory, the socket's path and the holder's thread.
+    fn holder(
+        name: &str,
+    ) -> (
+        Scratch,
+        PathBuf,
+        std::thread::JoinHandle<std::io::Result<()>>,
+    ) {
+        let dir = Scratch::new(&format!("app-{name}"));
         let path = hold::socket_path(&dir);
         let listener = rustix::net::socket_with(
             rustix::net::AddressFamily::UNIX,
@@ -579,7 +581,7 @@ mod tests {
         .unwrap();
         rustix::net::bind(&listener, &rustix::net::SocketAddrUnix::new(&path).unwrap()).unwrap();
         rustix::net::listen(&listener, 4).unwrap();
-        (path, std::thread::spawn(move || hold::serve(listener)))
+        (dir, path, std::thread::spawn(move || hold::serve(listener)))
     }
 
     // The maintainer's answer of 2026-11-06 (ADR-1401 D13): a head with
@@ -627,7 +629,7 @@ mod tests {
         let (first, master) = left_running("while read a; do :; done");
         let (second, again) = left_running("while read a; do :; done");
         let held = master.try_clone().unwrap();
-        let (path, holder) = holder("duplicate");
+        let (_dir, path, holder) = holder("duplicate");
         let client = hold::Client::connect(&path).unwrap();
         let name = Name::new("console", 1).encode();
         let (mut lp, mut app) = seat(&[], FRESH, |app| {

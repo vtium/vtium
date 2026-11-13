@@ -5111,6 +5111,7 @@ mod tests {
     use vtium_platform::event_loop::Loop;
 
     use super::*;
+    use crate::scratch::Scratch;
 
     /// A device in memory with the displays `ids`, in the order it lists
     /// them, each 320x160 and named for the rules by its connector on the
@@ -5432,12 +5433,10 @@ mod tests {
     // head's cell alone.
     #[test]
     fn a_frit_a_head_left_keeps_the_cells_of_the_heads_still_drawing_it() {
-        let dir = std::env::temp_dir().join(format!("vtium-app-left-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("app-left");
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
@@ -5472,8 +5471,6 @@ mod tests {
         app.switch_font(0, "unifont");
         assert_eq!(app.heads.first().and_then(Head::frit), None);
         assert_eq!(asked(&app), [(16, 32)], "b's cell alone");
-        drop(app);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1302 D13: one cell size can carry two bands on two heads. Here
@@ -5483,12 +5480,10 @@ mod tests {
     // The helper is asked for each, and each keeps glyphs of its own.
     #[test]
     fn one_cell_size_with_two_bands_is_asked_for_twice() {
-        let dir = std::env::temp_dir().join(format!("vtium-app-bands-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = Scratch::new("app-bands");
         std::fs::write(dir.join("t.vtfrit"), "source=builtin:unifont\ncell=8x20\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
@@ -5516,8 +5511,6 @@ mod tests {
             .unwrap_or_default();
         asked.sort_unstable();
         assert_eq!(asked, [(8, 20, 0, 0), (8, 20, 2, 2)]);
-        drop(app);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1401 D3: vtium.conf's `mouse` off drops the pointer rules from
@@ -6223,15 +6216,14 @@ mod tests {
     /// bitmap frit `t` and `b` the bitmap frit `u`. Their helpers never
     /// answer, so each frit's cell query at the start has no answer in
     /// time, and each head still wants its frit's cell.
-    /// The seat is shown, and the frit's directory kept for the test.
-    fn late_seat(test: &str) -> (Loop<App>, App, PathBuf) {
-        let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+    /// The seat is shown, and the frits' directory kept for the test,
+    /// which removes it when the test ends.
+    fn late_seat(test: &str) -> (Loop<App>, App, Scratch) {
+        let dir = Scratch::new(&format!("app-{test}"));
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").unwrap();
         std::fs::write(dir.join("u.vtfrit"), "source=kbd:y\n").unwrap();
         let fonts = font::Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             trust: font::trust().below(&dir),
             helper: Some(helper::Command {
                 program: helper::stand_in_shell().to_path_buf(),
@@ -6262,12 +6254,10 @@ mod tests {
     fn a_late_outline_cell_is_drawn_at_its_own_width() {
         for (width, height) in [(18, 40), (42, 40), (13, 32)] {
             let test = format!("late-outline-{width}x{height}");
-            let dir = std::env::temp_dir().join(format!("vtium-app-{test}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
+            let dir = Scratch::new(&format!("app-{test}"));
             std::fs::write(dir.join("t.vtfrit"), "source=outline:/nonexistent/t.ttf\n").unwrap();
             let fonts = font::Sources {
-                frits: dir.clone(),
+                frits: dir.to_path_buf(),
                 trust: font::trust().below(&dir),
                 helper: Some(helper::Command {
                     program: helper::stand_in_shell().to_path_buf(),
@@ -6316,7 +6306,6 @@ mod tests {
             let columns = usize::try_from(320 / width).unwrap();
             let rows = usize::try_from(160 / height).unwrap();
             assert_eq!(head.grid(), (columns, rows), "{width}x{height}: the grid");
-            let _ = std::fs::remove_dir_all(&dir);
         }
     }
 
@@ -6332,7 +6321,7 @@ mod tests {
     // rebuilt no view leaves the view drawing the old width.
     #[test]
     fn a_late_cell_lays_out_only_the_heads_that_take_it() {
-        let (_lp, mut app, dir) = late_seat("late-heads");
+        let (_lp, mut app, _dir) = late_seat("late-heads");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let known = app.frits.get("t").map(|f| f.own.clone()).unwrap();
         assert!(
@@ -6374,7 +6363,6 @@ mod tests {
         let columns = usize::try_from(320 / own.width).unwrap();
         assert_eq!(*a_columns, columns, "a's grid takes the late cell");
         assert_eq!(after.get(1).unwrap(), b_before, "b is not laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: a late answer takes the place of a missing answer
@@ -6386,7 +6374,7 @@ mod tests {
     // refusal in time stays too; a late refusal fills a missing answer.
     #[test]
     fn a_late_cell_answer_fills_only_a_missing_answer() {
-        let (_lp, mut app, dir) = late_seat("late-missing");
+        let (_lp, mut app, _dir) = late_seat("late-missing");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let cell = |w, h| vtium_font::Cell {
             width: w,
@@ -6416,7 +6404,6 @@ mod tests {
         assert_eq!(known.get(&(at + 1)), Some(&refused));
         assert_eq!(known.get(&(at + 2)), Some(&late_refusal));
         assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: a bitmap frit's answer holds at every height, so a
@@ -6427,7 +6414,7 @@ mod tests {
     // cell first, finds.
     #[test]
     fn a_late_bitmap_cell_yields_to_a_refusal_in_time_at_any_height() {
-        let (_lp, mut app, dir) = late_seat("late-refused");
+        let (_lp, mut app, _dir) = late_seat("late-refused");
         let at = app.heads.first().map(|h| h.font_size).unwrap();
         let refused = Err(helper::NoCell {
             why: "no such font".to_owned(),
@@ -6461,7 +6448,6 @@ mod tests {
         assert_eq!(frit.answer_at(at, false), Some(refused.clone()));
         assert_eq!(frit.answer_at(at + 3, false), Some(refused));
         assert!(app.heads.iter().all(|h| h.refont), "nothing is laid out");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     // ADR-1200 D17: the answers, and not the frit's text, say which kind a
@@ -6473,7 +6459,7 @@ mod tests {
     // at the other height.
     #[test]
     fn an_outline_answer_holds_at_its_height_alone_whatever_the_text_guesses() {
-        let (_lp, mut app, dir) = late_seat("late-kind");
+        let (_lp, mut app, _dir) = late_seat("late-kind");
         let at = 16;
         let outline = Ok(helper::OwnCell::Outline(vtium_font::Cell {
             width: 9,
@@ -6504,7 +6490,6 @@ mod tests {
             );
             assert_eq!(frit.answer_at(20, false), Some(failed));
         }
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// A seat on one display under `render-timer=value`, shown at the

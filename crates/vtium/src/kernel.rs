@@ -415,17 +415,15 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
+    use crate::scratch::Scratch;
 
     fn args(words: &[&str]) -> Vec<OsString> {
         words.iter().map(OsString::from).collect()
     }
 
-    /// A directory of the test's own.
-    fn scratch(test: &str) -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("vtium-kernel-{test}-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
+    /// A directory of the test's own, removed when the test ends.
+    fn scratch(test: &str) -> Scratch {
+        Scratch::new(&format!("kernel-{test}"))
     }
 
     // ADR-1401 D9: `vtium.enable=0` turns vtium off; the last one on the

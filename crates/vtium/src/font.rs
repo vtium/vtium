@@ -1153,6 +1153,7 @@ pub fn zoom(rungs: &[Rung], size: u32, dir: Zoom) -> Option<u32> {
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
@@ -2087,8 +2088,7 @@ mod tests {
     #[test]
     fn a_frit_is_read_only_when_the_ownership_check_trusts_it() {
         use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir().join(format!("vtium-font-trust-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+        let dir = Scratch::new("font-trust");
         let open = dir.join("open");
         std::fs::create_dir_all(&open).expect("the directories");
         let mode = |path: &Path, mode: u32| {
@@ -2132,7 +2132,6 @@ mod tests {
             by_osc_50(&dir, "g"),
             by_osc_50(&open, "t"),
         ];
-        let _ = std::fs::remove_dir_all(&dir);
         let read = Ok("source=kbd:x\n".to_owned());
         let refused = |name: &str, file: &Path, failed: &Path, mode: &str| {
             Err(format!(
@@ -2163,11 +2162,10 @@ mod tests {
     // any other name, a path included, is refused
     #[test]
     fn by_name_finds_a_frit_made_on_the_fly_after_the_frits_directory() {
-        let dir = std::env::temp_dir().join(format!("vtium-font-by-name-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("the directory");
+        let dir = Scratch::new("font-by-name");
         std::fs::write(dir.join("t.vtfrit"), "source=kbd:x\n").expect("the frit");
         let sources = Sources {
-            frits: dir.clone(),
+            frits: dir.to_path_buf(),
             trust: trust().below(&dir),
             ..Sources::default()
         };
@@ -2194,7 +2192,6 @@ mod tests {
             found("unifont", Some(&made("unifont"))),
             found("/etc/passwd", None),
         ];
-        let _ = std::fs::remove_dir_all(&dir);
         assert_eq!(
             results,
             [

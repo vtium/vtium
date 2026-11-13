@@ -15,9 +15,9 @@ At some sizes a line holds the digest of a sprite's earlier shape, which vtium n
 
 ## Changing a digest
 
-A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, each test checks every line before it fails, writes every line of its kind as vtium draws it to a file, and fails with the number of lines that differ and that file's path:
+A changed digest is a change to what vtium draws, so it is a golden change. When vtium draws other pixels, each test checks every line before it fails, and fails with the number of lines that differ. It writes every line of its kind as vtium draws it to a file, and the failure names that file:
 
-- The sprite test in `src/deco.rs` (`cargo test -p vtium-render --all-features --lib every_sprite_matches`) writes every `deco` line to `vtium-render-digests-<pid>/deco.tsv` in the system's temporary directory, where `<pid>` is the test's process id. A line at a size where vtium draws a redrawn shape keeps its digest as it is.
+- The sprite test in `src/deco.rs` (`VTIUM_DECO_DIGESTS=deco.tsv cargo test -p vtium-render --all-features --lib every_sprite_matches`) writes every `deco` line to the file that `VTIUM_DECO_DIGESTS` names, when a digest differs. Without the variable the test writes nothing. A line at a size where vtium draws a redrawn shape keeps its digest as it is.
 - `tests/digests.rs` (`cargo test -p vtium-render --all-features --test digests`) writes every `screen` line to `digests/screens.tsv` in the test's scratch directory (`CARGO_TARGET_TMPDIR`, under the target directory). A dashed screen's line covers the screen with the earlier dash over columns 1 to 6 of each 8-pixel cell, which is the dash the stored digest covers.
 
 A deliberate change copies those lines over the ones in `cells.tsv` in a golden commit of its own, which lists each line that moved and why, and the maintainer reviews it.

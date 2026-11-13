@@ -73,6 +73,8 @@ mod outcome;
 mod parse;
 mod place;
 mod route;
+#[cfg(test)]
+mod scratch;
 mod split;
 mod write;
 
