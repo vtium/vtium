@@ -1,0 +1,39 @@
+# The kitty keyboard protocol's flag 8, report all keys as escape codes,
+# pushed without flag 1. Flag 8 disambiguates every key by itself, so
+# Escape, Alt+A, Up and F1 take their flag 1 forms. A key that makes
+# text sends an escape code and no text: Space, Shift+A, Shift+1, A with
+# Caps Lock, é and Cyrillic es. Shift+A and Shift+1 carry the unshifted
+# key's code. The keypad's 1 and Enter are sent with their own numbers,
+# and Shift+Enter is CSI 13 ; 2 u. Each modifier key pressed alone is
+# reported with its own number and with its own bit set. A pop puts 0
+# in force, and A sends its text again.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report all keys as escape codes, Key codes, Modifiers, Functional key definitions; ADR-1005 D13 slice 3
+# covers: input.kitty-keyboard
+size 20 2
+needs key-forms
+send "\e[>8u"
+key Escape
+key a mods=alt
+key Up
+key F1
+key space
+key space mods=ctrl
+key A mods=shift
+cmd key;sym=21;ascii=21;unicode=21;unshifted=31;base=31;mods=1
+key A mods=lock
+key eacute
+key Cyrillic_es
+key KP_1 mods=num char="1"
+key KP_Enter
+key Return mods=shift
+key Shift_R mods=shift
+key Control_L mods=ctrl
+key Alt_L mods=alt
+key Super_R mods=logo
+key 0xffed mods=hyper
+key Meta_L mods=meta
+key Num_Lock mods=num
+key 0xfe03
+key 0xfe11
+send "\e[<u"
+key A mods=shift

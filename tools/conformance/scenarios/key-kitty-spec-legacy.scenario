@@ -1,0 +1,80 @@
+# The kitty keyboard protocol's legacy section, which decides each key
+# while the flags in force hold neither flag 1 nor flag 8. Under flag 2
+# this scenario presses keys only. The text keys i, 3 and ; follow the
+# section's table of example encodings, and Ctrl with Shift, Super, or
+# Ctrl, Alt and Shift together give CSI u. Ctrl maps the keys of the
+# section's ctrl table, and leaves other ASCII keys as they are. Enter,
+# Escape, Backspace, Tab and Space follow the section's table of C0
+# controls, with Backspace's bytes swapped because vtium's Backspace
+# sends 0x08. The functional keys drop Caps Lock and NumLock, and use
+# SS3 in cursor key mode only when no modifier is held.
+# spec: kitty's Comprehensive keyboard handling in terminals: Legacy key event encoding, Legacy functional keys, Legacy text keys, Legacy ctrl mapping of ASCII keys, Bugs in fixterms; ADR-1005 D6
+# covers: input.kitty-keyboard
+size 20 2
+needs key-forms
+send "\e[>2u"
+key i
+key I mods=shift
+key i mods=alt
+key i mods=ctrl
+key I mods=shift+alt
+key i mods=ctrl+alt
+cmd key;sym=49;ascii=49;unicode=49;unshifted=69;base=69;mods=5
+key 3 mods=ctrl
+key 3 mods=ctrl+alt
+cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=1
+cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=9
+cmd key;sym=23;ascii=23;unicode=23;unshifted=33;base=33;mods=5
+key semicolon mods=ctrl
+key semicolon mods=alt
+cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=9
+cmd key;sym=3a;ascii=3a;unicode=3a;unshifted=3b;base=3b;mods=5
+key a mods=logo
+key A mods=shift+ctrl+alt
+key 2 mods=ctrl
+key 4 mods=ctrl
+key 5 mods=ctrl
+key 6 mods=ctrl
+key 7 mods=ctrl
+key 8 mods=ctrl
+key 9 mods=ctrl
+key 0 mods=ctrl
+key slash mods=ctrl
+key bracketright mods=ctrl
+key backslash mods=ctrl
+key minus mods=ctrl
+key equal mods=ctrl
+key apostrophe mods=ctrl
+key comma mods=ctrl
+key period mods=ctrl
+key grave mods=ctrl
+key Return mods=ctrl
+key Return mods=alt
+key Return mods=logo
+key Escape mods=ctrl
+key Escape mods=alt
+key Escape mods=logo
+key BackSpace
+key BackSpace mods=shift
+key BackSpace mods=alt
+key BackSpace mods=ctrl
+key Tab mods=alt
+key Tab mods=ctrl+alt
+key ISO_Left_Tab mods=shift
+key ISO_Left_Tab mods=shift+ctrl
+key ISO_Left_Tab mods=shift+alt
+key space mods=shift
+key space mods=ctrl
+key space mods=alt
+key space mods=ctrl+alt
+key Up mods=num
+key Up mods=ctrl+num
+key F5 mods=lock
+key End
+key F4
+send "\e[?1h"
+key Home
+key Home mods=shift
+key F1
+key F1 mods=ctrl
+key F3 mods=shift
