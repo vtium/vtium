@@ -103,6 +103,14 @@ considered:
   - operator: aaronsb
     said: "Greeter (Recommended)"
     via: the question tool in the steering session, 2026-11-11, card 1b question Q16, on the logind class of vtium's own PAM session in seat mode
+  - operator: aaronsb
+    said: "A root broker and a drawer without root, in both modes (the research's design A) [D4]. In direct mode the broker serves the devices as a seat manager would; under logind or seatd the seat manager serves them, and the broker keeps only login, the helpers, the power keys and reaping. The drawer speaks one device protocol in both modes, and the broker takes login's command line from its own trusted configuration, never from the drawer."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Plan for one drawing process per session, over one drawer for all sessions, so that a compromised session's process cannot reach another session's terminal, such as a root shell or a password typed at a login prompt [D4, one process for each session]."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
 observable:
   - "The login child's `/proc/<pid>/fd` holds 0, 1 and 2 only, after exec"
   - "The helper's `/proc/<pid>/status` shows the session's uid and `NoNewPrivs: 1`, and at a root login prompt with no logind no helper runs as root"
@@ -119,19 +127,23 @@ related: []
 
 ## Summary
 
-- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback. The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls that the image helper's issue does not yet list, and the shared-memory unlink consequence.
-- **Trades away:** A defect in the code that reads the pty stream runs as root, as it did in the C reference. The unit uses none of systemd's sandboxing.
-- **One-way?** No. A privilege split stays open (Alternatives), and nothing here forecloses it.
+- **Decided:** vtium carries the C reference's security model forward as its logic flow, not its C. The main process holds root for life, launched by a plain unit, an init script or by hand, and forks the login child as root to run `/bin/login`; nothing else drops. Image media are read and decoded in a helper process following the C reference's flow, as the session's user and never as root by fallback. The units keep getty's ordering and TTY settings, as the C reference's did, and set no hardening directive, since the login session would inherit it. They differ from the C reference's units in one place: under a closed head-file policy, the getty fallback skips the getty (ADR-1401 D9). logind and libseat are an optional layer, each a Cargo feature, and vtium runs without them as the C reference did. vtium departs only where the C reference had a listed defect or gap: a test of the login child's descriptors, the helper controls that the image helper's issue does not yet list, and the shared-memory unlink consequence. D4 replaces root for life with a split. A small root broker keeps the jobs that need root, and the processes that read the sessions' output and draw run without root, one for each session in the end. Until D4's first slice is built, vtium runs as D1 says.
+- **Trades away:** A defect in the code that reads the pty stream runs as root, as it did in the C reference, until D4's first slice is built. The unit uses none of systemd's sandboxing. Under D4, the broker and its protocol are new privilege code, and each VT switch costs a round trip between two processes.
+- **One-way?** No. D4 is built in slices, and the first slice is shaped so that the later ones do not undo it.
 - **Probes:**
   - *Confident (as the C reference):* vtium runs as root and installs the same kind of unit as the C reference, and changes only where the C reference had a known gap.
   - *Not confident (root's images):* when root logs in on a vtium console on a system running logind, image files root's programs name are still read as root, as the C reference allowed, until the image helper's issue says otherwise.
-- **Inversion:** Between "port the C reference's C" and "design a novel privilege model" (a root parent with an unprivileged terminal process, a sandboxed unit). The answer is neither: the C reference's logic flow, in idiomatic Rust, with fixes only where the C reference's own trackers listed a defect or gap.
+- **Inversion:** Between "port the C reference's C" and "design a novel privilege model" (a root parent with an unprivileged terminal process, a sandboxed unit). The answer is neither: the C reference's logic flow, in idiomatic Rust, with fixes only where the C reference's own trackers listed a defect or gap. Since 2026-11-13 the answer moves to the second end in one part: D4 separates a root parent from the processes that read output. The unit still sets no sandboxing directive.
+
+> Edited 2026-11-13: the maintainer decided the privilege split of D4 (`considered`, 2026-11-13). The Summary did not name D4. "Trades away" ended at "The unit uses none of systemd's sandboxing.", "One-way?" read "No. A privilege split stays open (Alternatives), and nothing here forecloses it.", and the inversion ended at "listed a defect or gap."
 
 ## Context
 
 The C reference ran as root for life, and SECURITY.md states the same for vtium today. Only its image helper changed identity. The fork's commits built the helper's protections in an order: who the helper runs as, then the host's distrust of the helper, then the path rules, then the pre-login and root cases. Its units carried no hardening.
 
 vtium runs where there may be no systemd, logind, udev daemon or seat daemon, launched by a plain unit, an init script or by hand. The C reference already ran that way: its minimal build linked none of them but libudev, and its default build linked sd-login only when images were built and the library was present.
+
+On 2026-11-13 the kernel check that D1 asked for was made, against the source of Linux 7.2.14. It read the check the kernel makes for each operation that vtium needs root for. Some checks look at the calling process on every call, so a process without root cannot make that call with a descriptor that root passed it. Other checks happen only when a file is opened, so a process without root can use a descriptor that a root process opened and passed on. D1's table now gives the result, and D4's split is built on it.
 
 ## Decision
 
@@ -175,17 +187,36 @@ The units and the sysusers file are installed files, never a layer: a hand launc
 
 ### D1: who holds root, and for how long
 
-The main process holds root for life, as the C reference's did. It forks the login child as root, made a session leader with the pty as its controlling terminal, to run `/bin/login -p` with the environment reset; nothing else drops privilege. Root is what these need, from the C reference's code, the kernel's checks being external and not re-verified:
+The main process holds root for life, as the C reference's did. It forks the login child as root, made a session leader with the pty as its controlling terminal, to run `/bin/login -p` with the environment reset; nothing else drops privilege. D4 replaces this with a split, built in slices. Until D4's first slice is built, this paragraph describes vtium.
 
-The kernel conditions named in this table (the tty's owner or `CAP_SYS_TTY_CONFIG`, DRM master and `CAP_SYS_ADMIN`, evdev access) are from the C reference's comments and general knowledge, not re-verified against the kernel source; the advisor's review flagged them. They are checked against the kernel before any privilege split is designed.
+The table lists each operation that needs root, or that needs a file only root may open, with the check the kernel makes for it. Each check was read in the source of Linux 7.2.14 (the note below the table). A check *at open* happens once, when the file is opened. After that, any process that holds the descriptor can use the file, including a process without root that received the descriptor over a Unix socket. A check *on each call* looks at the process that makes the call, every time, so a passed descriptor does not carry it. File modes are the development machine's.
 
-| Operation | Window | Under libseat |
-|---|---|---|
-| Starting `/bin/login` on a pty as root | each new session | still root |
-| Starting the helper as the session's user | each helper start | still root |
-| Opening the VT, and the VT and keyboard ioctls, which need the tty's owner or `CAP_SYS_TTY_CONFIG` | start to exit, and each VT switch | the seat does it |
-| Opening DRM cards and taking DRM master, which needs `CAP_SYS_ADMIN` unless the file held master before | start, each hotplug, each VT switch | the seat does it |
-| Opening evdev nodes | start, each hotplug | the seat does it |
+| Operation | The kernel's check | Can a process without root use a descriptor root passed it? | When it repeats | In seat mode |
+|---|---|---|---|---|
+| Opening the VT (`Tty::open`), and finding a free VT through `/dev/tty0` (`Tty::find`) | At open. `/dev/ttyN` is `root:tty 0600`, and `/dev/tty0` is `0620`. `VT_OPENQRY` has no check of its own. | Yes | At start | vtium still opens its VT. |
+| `VT_SETMODE`, `VT_RELDISP`, `VT_ACTIVATE`, `KDSETMODE` and `KDSKBMODE` (`vt/kernel.rs` in vtium-platform) | On each call. The VT must be the caller's controlling terminal, or the caller must have `CAP_SYS_TTY_CONFIG` (`vt_ioctl` in `drivers/tty/vt/vt_ioctl.c`). Who owns the tty's file does not matter. | No | `VT_RELDISP` at each release and acquire, `VT_ACTIVATE` at each switch key, and the others at start, at each retake and at exit | vtium still calls `KDSETMODE` and `KDSKBMODE` at each enable and disable (`tty_graphics` and `tty_text` in `seat.rs`), and `VT_ACTIVATE` when its VT is not shown (`activate` in `seat.rs`). |
+| The VT calls that only read (`VT_GETSTATE`, `KDGKBMODE`, `VT_GETMODE`), termios, `tcflush` and the bell | None beyond the open file | Yes | Each turn | The same |
+| The switch signals | The kernel sends them, as privileged, to the process that called `VT_SETMODE`, whatever its user | Not a descriptor | Each switch | The seat manager receives them. |
+| Opening a DRM card (`Vt::open_device`, and the driver probe in `udev.rs`) | At open. Cards are `root:video 0660`, with an ACL for the active user. | Yes | At start and at each hotplug | The seat manager opens it. |
+| Setting and dropping DRM master (`set_master` and `drop_master` in `display/card.rs`, called from `try_wake` and `release_master` in `display/drm2d.rs`) | On each call. The caller needs `CAP_SYS_ADMIN`, unless the file has been master and the process id recorded on the file is the caller's (`drm_master_check_perm` in `drivers/gpu/drm/drm_auth.c`). The recorded id stops moving once the file first becomes master. | No, for a file that a root process opened or made master | At each acquire and release, and at each retry of a wake-up | The seat manager does it. |
+| KMS calls: atomic commits, page flips and `SETCRTC` (`display/card.rs`) | On the file, not the caller: the file must hold master (`drm_ioctl_permit` in `drivers/gpu/drm/drm_ioctl.c`). Dumb buffers and `ADDFB2` need no master. | Yes, while the file holds master | Each frame | The same |
+| The GPU's render node, and fbdev's mode and blank calls | At open. `renderD*` is `0666`, and fbdev is `root:video 0660`. | Yes | At start | The same |
+| Opening the input devices (`Evdev::open`) | At open. The devices are `root:input 0660`, and no evdev call checks its caller. `EVIOCREVOKE` revokes the file description, so every copy of the descriptor stops working. | Yes | At start, at each hotplug, and at each acquire: `Input::sleep` closes every device and `Input::wake_up` opens them again | The seat manager opens and revokes them. |
+| Listening to udev's events | Any process may listen. | Not needed | — | The same |
+| Making a session's pty (`Pty::start`) | No privilege. `/dev/ptmx` is `0666`, the pty's slave belongs to the user who made the pty, and `TIOCSCTTY` needs only a session leader. | Yes | Each session | The same |
+| Running `/bin/login` (`child.rs`) | `login` is not setuid. It calls `setgroups`, `setuid`, `fchown` and `vhangup`, which need `CAP_SETGID`, `CAP_SETUID` and `CAP_SYS_TTY_CONFIG` among root's capabilities. | No. The process that runs `login` must hold root when it does. | Each session | Still root |
+| Signalling and reaping a session's processes (`pidfd_send_signal` in `pty.rs`, and `waitid`) | On each call. The caller needs the same user as the target, or `CAP_KILL` (`kill_ok_by_cred` in `kernel/signal.c`). A pidfd gives no extra right, and only the parent can wait for a child. | No | At each session's end and hang-up | Still root |
+| Starting a helper as another user (`child` and `drop_bounding_set` in `image_helper/start.rs`, and `nobody` in `helper.rs`) | `CAP_SETUID` and `CAP_SETGID`, and `CAP_SETPCAP` to drop the bounding set | Not a descriptor | Each helper start | Still root |
+| `key-reboot` and `key-power-off` (`power.rs` in vtium-platform) | Signalling PID 1 needs root's user id or `CAP_KILL`, and `reboot(2)` needs `CAP_SYS_BOOT`. | No | Each press | Still root |
+| `key-suspend` without logind (`suspend` in `power.rs`) | At open. `/sys/power/state` is `0644` and root's. | A descriptor root opened would do. | Each press | logind's `Suspend`, which polkit decides |
+| Keeping the pty masters through a restart (`survive.rs` and `survive/notify.rs`) | Not a kernel check. systemd takes `FDSTORE` messages only from the unit's main process (`NotifyAccess=main`), and the holder's socket under `/run/vtium` is root's. | Not a descriptor | Each session's start and end | The same |
+| A systemd scope for each login (`logind/scope.rs`) | Not a kernel check. polkit decides `StartTransientUnit`, and lets root pass. | Not a descriptor | Each login | Seat mode only |
+| vtium's run directory, `/run/vtium/<tty>/`, with its state file, its control socket and the closed marker beside it (ADR-1401 D10) | At open. root owns the directory, mode `0755`. | A descriptor root opened would do. | At start, and at each change of state | The same |
+| Reading the kernel's messages from `/dev/kmsg` (`System::open` in `kernel.rs`) | Not read in the check. D4 lists it among the checks the build makes first. | Not known | At start | The same |
+
+Two rows decide the shape of any split. A VT call that changes the VT checks its caller each time, so a process without root cannot make it with a passed descriptor. DRM master checks its caller too, and its exception for a process without root does not follow a descriptor that root opened. Master belongs to the file description, though, and not to a process. When a root process sets or drops master on its own copy of a card's descriptor, every copy of that file gains or loses master with it. A process without root then draws through its own copy while the file holds master. The comment above `drm_master_check_perm` names this as the way logind passes descriptors. The kernel does not drop master at a VT switch: the holder drops it, or master goes when the last copy of the file closes.
+
+> Edited 2026-11-13: the kernel check this decision asked for is made. A research pass read each condition in the source of Linux 7.2.14, the stable tree as git.kernel.org serves it, and the table now gives what it found. The check corrected seven things. First, the VT calls check whether the VT is the caller's controlling terminal, not who owns the tty; the earlier phrase came from a kernel comment that says "owner of the tty". Second, DRM master's exception for a file that was master also needs the caller to be the process recorded on the file, so the exception does not follow a passed descriptor. Third, in seat mode vtium still opens its VT and makes VT calls itself, so the seat does not do all of it. Fourth, the input devices open again at each VT acquire, not only at start and at hotplug. Fifth, in direct mode the cards stay open across a VT switch, and what repeats is setting and dropping master. Sixth, making the pty needs no privilege, and `login` needs root when it runs. Seventh, the table lacked the power keys, signalling and reaping a session, the store of pty masters, the scope for each login, and the opens of `/dev/tty0` and of a card in the driver probe. The rows for the run directory and for `/dev/kmsg` are added beside them, and the check did not read `/dev/kmsg`. The section read "Root is what these need, from the C reference's code, the kernel's checks being external and not re-verified". A paragraph followed, saying that the conditions came from the C reference's comments and general knowledge, and that they are checked before any privilege split is designed. The table had five rows, under the headings "Operation", "Window" and "Under libseat". The earlier text is in git at 9e91f218.
 
 ### D2: the helper and its sandbox
 
@@ -259,6 +290,134 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 
 > Edited 2026-10-31: slice S6 of the head-file wiring work sends the getty fallback through `kmsconvt-getty@%i`, which starts `getty@%i` unless the closed marker exists (ADR-1401 D9), a departure from the C reference's unit. The bullet read: "`Conflicts=getty@%i` and `OnFailure=getty@%i`;", and the Summary read: "The units match the C reference's: getty parity and no hardening directives".
 
+### D4: a root broker, and drawing without root
+
+vtium splits into a broker that keeps root and processes that draw without it (the maintainer, 2026-11-13, `considered`). The broker is a small process that does only the jobs that D1's table shows need root. The code that reads the sessions' output, keeps their terminals and draws them runs as an account without root. The split serves direct mode and seat mode (D3). It is built in slices, listed below. In its final shape, each session's output is read by a process of its own.
+
+This decision uses four names. The *broker* is the root process. The *drawer* is everything else that vtium does today: the heads, the input, the terminals and the drawing. In the final shape the drawer is two kinds of process. The *compositor* is one process that shows the heads on the displays. A *session process* reads one console's output and keeps that console's terminal. A session is what runs on one console: its pty, its `login` or its command, and the programs started from it (ADR-1401 D1).
+
+#### What the broker does
+
+In direct mode, the broker serves the devices the way a seat manager does:
+
+- **It owns the VT.** It opens the VT and calls `VT_SETMODE`, so the kernel sends it the switch signals. It sets `KDSETMODE` and `KDSKBMODE` at start, at each retake and at exit. It calls `VT_RELDISP` and `VT_ACTIVATE` when the drawer asks.
+- **It opens the devices.** It opens the cards, the fbdev devices and the input devices, and it passes each descriptor to the drawer. It opens only a device node of those kinds that belongs to its seat, whatever path the drawer names. It keeps its own copy of each descriptor.
+- **It hands the devices over at each switch.** At a release it tells the drawer, waits for the drawer's answer within a bound, drops master on each card, revokes each input device and acknowledges the release. A drawer that does not answer within the bound loses the devices all the same, so a hung drawer cannot keep the VT. At an acquire it sets master on each card again, opens each input device anew and passes the new descriptors, since a revoked descriptor never works again.
+- **It makes each session's pty and starts `login` on it.** The drawer asks for a console's session by its head's name and its console's id. The broker makes the pty, starts `login` or the head's command on the pty's slave, and passes the pty's master to the drawer. The broker takes the command line from its own reading of vtium.conf, under ADR-1401 D10's ownership check, and never from the drawer.
+- **It keeps the pty masters through a restart.** The broker is the unit's main process, so it sends the copies to systemd's store, or to the holder where systemd is absent (ADR-1401 D13).
+- **It starts the helpers.** The drawer asks for a console's image helper, or for the font helper. The broker chooses the user by D2's rules and by ADR-1200 D15 itself, and passes the helper's socket to the drawer. The drawer never names a user id.
+- **It runs the power keys.** It reboots, powers off or suspends the machine when the drawer asks, for a key that vtium.conf binds.
+- **It reaps every process it starts.** It signals a session to hang up when the drawer closes a console, and it reports each exit to the drawer.
+- **It makes vtium's run directory,** `/run/vtium/<tty>/` (ADR-1401 D10), and passes the drawer the descriptors of what the drawer writes there. It opens `/dev/kmsg` and passes that descriptor too, if the check the build makes first shows a descriptor is enough.
+- **It restores the VT when the drawer dies** (below).
+
+In seat mode, the seat manager serves the cards, the input devices and the switch signals, through libseat. The broker keeps the jobs that start and end processes: `login`, the helpers, the power keys, reaping, the store of pty masters, the scope for each login and the run directory. Open questions 2 and 3 ask how the drawer gets a session that the seat manager serves, and who makes the VT calls that `seat.rs` makes today.
+
+#### The device protocol
+
+The broker and the drawer talk over one Unix socket of type `SOCK_SEQPACKET`, made with `socketpair` before the drawer starts. Each message has a fixed size, and the broker checks every field before it acts. Descriptors travel with the message as `SCM_RIGHTS`.
+
+- The drawer sends: open a device by its path, close a device, the release is done, switch to VT *n*, open a console's session, close it, start a helper, run a power key, and ready.
+- The broker sends: a device's descriptor, release the devices, the devices are back with new input descriptors, a console's pty master, a helper's socket, a process's exit, and stop.
+
+The drawer speaks one device protocol in both modes. Its code reaches the devices through one interface with two backends: the broker's in direct mode, and libseat's in seat mode. `LibseatVt` in vtium-platform already takes its devices as passed descriptors with enable and disable messages, so it is the model for the broker's backend.
+
+#### One process for each session
+
+The maintainer chose one process for each session over one drawer for all of them (`considered`, 2026-11-13). The reason is that a session process that crafted output has taken over must not reach another session's terminal, such as a root shell or a password typed at a login prompt. A head shares its displays among its consoles, and every head shares the keyboards, so the split divides the drawer itself, not only its privilege:
+
+- **A session process** holds its console's pty master. It parses the console's output, keeps the console's terminal (the screen, the scrollback, the modes and the keyboard flags) and answers the console's replies under the reply rule. It keeps the console's picture store and talks to the console's image helper. It turns each key it receives into the bytes its terminal's modes ask for. It holds nothing of another console.
+- **The compositor** holds the heads: the displays, the input devices and the keymaps, which console each key goes to, the chords, the notices and the on-screen display, the selection, the fonts and the font helper, the glyph caches, and each head's render thread and GPU path.
+
+What crosses from a session process to the compositor:
+
+- the screen as a frame shows it, which is what `Snapshot` in `crates/vtium/src/term.rs` holds today: the visible lines with their styles, links and clusters, the damage, the palette, the cursor, reverse video, the selection, the hovered link, the pictures' placements and the order of each right-to-left row;
+- when to present, under mode 2026 and coalescing;
+- each picture's pixels, as a sealed memfd that the compositor maps read-only;
+- the requests that the head or vtium answers: the bell, an OSC 52 selection, an OSC 50 font, an XTWINOPS 8 grid and the blank sequences;
+- a link's address or the selected text, when the compositor asks to copy it.
+
+What crosses from the compositor to a session process: each key after the keymap, with its text, its modifiers and whether it is pressed, repeated or released; pointer events, in cells and in pixels; pasted text; focus; whether the console is shown; the console's grid and cell size; scrolling of the view; and a request to copy.
+
+The compositor checks each message from a session process the way the main process checks a helper's glyphs and pictures today (D2, ADR-1200 D15). Each line fits the grid the compositor set, each cluster and each address stays within its bound, each picture's size and seals are checked before it is mapped, and each id is one the compositor knows. The code that reads these messages runs under fuzzing, as the output parser does. The screen messages are much narrower than the byte stream a program prints, so a defect that a session can reach in the compositor is less likely than one in the parser.
+
+`Snapshot` shows that the boundary already exists in the code. It is owned, and the head's render thread reads it while the session runs on, so the screen already reaches the drawing as a value and not as shared state.
+
+The broker starts each session process, with the same setup as a helper (D2): no capabilities, `PR_SET_NO_NEW_PRIVS`, a seccomp filter and a landlock domain of its own, and not dumpable. It passes the process the console's pty master and the process's end of a socket to the compositor. A session process cannot open another console's pty. The broker makes every pty, so each pty's slave belongs to root until `login` gives the slave to the user who logs in. Open question 1 asks which account the session processes run as.
+
+#### What the drawer can no longer do
+
+- open or read a file as root;
+- signal a process, other than through the broker's jobs;
+- change the VT's mode or keyboard mode, or switch the VT, except by asking the broker;
+- read input after its VT is released, because the broker revokes the input devices;
+- keep DRM master after a release, because the broker drops it;
+- choose a user id, or a command that runs as root.
+
+A session process also cannot reach another console's pty, screen or pictures.
+
+#### When the drawer dies
+
+The broker sees the drawer's socket close or the drawer's exit. It then sets the VT back to text mode with `KDSETMODE`, sets `VT_AUTO` with `VT_SETMODE` and puts back the keyboard mode it saved at start. It drops master on each card and revokes each input device. The broker has to do this itself. The kernel's own reset of a VT (`reset_vc` in `vt_ioctl.c`) sets text mode and `VT_AUTO`, but it leaves the keyboard mode as it was. Today vtium's panic hook (`crates/vtium/src/hook.rs`) restores the VT, and a crash that kills the process outright skips the hook. Under the split, the broker restores the VT after any end of the drawer. Open question 4 asks what the broker does next.
+
+When the broker dies, the drawer loses its socket and exits. The broker's own panic hook restores the VT, as vtium's does today.
+
+When a session process dies, only its console loses its screen and scrollback. The broker still holds the pty's master. Open question 5 asks what happens to the session.
+
+#### The limits that remain
+
+- Until session processes exist, the drawer holds every session's pty master. A drawer that crafted output has taken over can type into a root shell on another console, and it can read a password typed at a login prompt. Until then the split protects the machine from the parser, and it does not protect one session from another.
+- The compositor receives every key and shows every screen. A defect that a session process can reach through the screen messages reaches every session.
+- The broker runs as root and reads the drawer's messages, so a defect there runs as root. The broker stays small, its messages have a fixed size, and the code that reads them runs under fuzzing.
+- `login`, the helpers' change of user, the power keys and reaping still need root.
+- A drawer that crafted output has taken over can ask for anything the broker offers. It can switch VTs, open and close consoles within the caps, start helpers, and run the power keys that vtium.conf binds, which reboot or power off the machine. Anyone at a keyboard that reaches the console can do these already.
+- Every session can put text into the selection, and the user may paste that text into another session, as `clipboard-write` allows today. Open question 6 asks whether the selection stays shared.
+- The unit still sets no sandboxing directive, because the login session would inherit it (D3).
+
+#### The checks the build makes first
+
+The kernel check could not settle these. The first slice checks each one before it builds on it, in the tier 3 virtual machine where a check needs a VT or a card:
+
+1. What logind does to the VT when a session takes control of it: whether `TakeControl` changes the VT's owner, and whether logind sets `K_OFF` or `KD_GRAPHICS`.
+2. What seatd does to the VT.
+3. How libseat's built-in backend keeps its privilege.
+4. Whether util-linux's `login` refuses to run without root, from its source.
+5. polkit's default answers for `StartTransientUnit`, and for logind's power methods, when a system account calls them.
+6. Whether a greeter session of a system account can call `TakeControl`.
+7. Whether a process without root can read `/dev/kmsg` through a descriptor that root opened, under `kernel.dmesg_restrict=1`.
+8. Whether processes of one account are kept apart: that a process that is not dumpable cannot be traced, have its `/proc/<pid>/fd` read or a descriptor taken with `pidfd_getfd` by another process of its account, and that landlock's scopes keep signals inside a domain.
+9. That the drawer draws through its copy of a card's descriptor, with dumb buffers and page flips, after the broker sets master on the broker's copy.
+
+#### The slices
+
+1. **The broker in direct mode.** The broker does every job listed above, and one drawer holds every head and every console, as vtium does today. Tests show that the drawer's `/proc/<pid>/status` names an account other than root with no capabilities, that a VT switch drops master and revokes the input devices, and that a SIGKILL of the drawer leaves the VT in text mode with its keyboard mode restored.
+2. **Seat mode.** The drawer takes its devices from the seat manager, and the broker keeps the jobs that start and end processes, by the answers to open questions 2 and 3.
+3. **A process for each session.** The drawer splits into the compositor and one session process for each console, over the messages above.
+
+The first slice is shaped so that the third does not undo it:
+
+- From the first slice on, the broker makes every pty and names it by its console. The third slice changes only which process receives the master.
+- From the first slice on, the broker starts every process vtium runs. A session process is one more kind it starts, with the setup it already gives a helper.
+- Inside the first slice's drawer, the code that becomes a session process (the terminal, the pty and the picture store) and the code that becomes the compositor (the heads, the views and the painter) talk only through the values that the third slice sends over a socket: `Snapshot` and the requests one way, the input and the console's size the other.
+- The broker never reads the screen, so the third slice adds no root code beyond starting session processes.
+
+#### What the other records change when the slices land
+
+- ADR-1401 D2 says that a display is a head inside vtium's one process, never a second process. That stays true of the compositor. Once the third slice lands, each console's session runs in a process of its own.
+- ADR-1401 D10 says that a crash a program provokes with crafted output ends every session. Once the third slice lands, such a crash ends that console's session process, unless it reaches the compositor.
+- ADR-1401 D13: the broker keeps the store of pty masters, as the unit's main process.
+- ADR-1101 and ADR-1200 D15: the broker starts each helper, at the drawer's request.
+- `docs/concepts/security.md` and SECURITY.md change as each slice lands.
+
+#### Open questions
+
+1. **Which account each process runs as.** (a) One system account for the compositor, and one shared by every session process, each session process not dumpable and in a landlock domain of its own. (b) A user id for each session process, from a range the broker reserves. (c) A session process runs as the user who logged in on its console. The lean is (a). A process that is not dumpable cannot be traced by another process of its account (ptrace(2), "Ptrace access mode checking"), and landlock limits tracing between domains from Linux 5.13 and signals from Linux 6.12 (the kernel's landlock documentation; check 8 confirms both). Option (b) needs a reserved range of user ids, which a machine without systemd's sysusers has no standard way to make. Option (c) has no user before login, and it gives a defect the user's files.
+2. **How the drawer gets a session the seat manager serves.** (a) The broker opens a greeter session through PAM for the drawer's account and starts the drawer in it, as display managers start their greeters. (b) The unit keeps its root session, the broker takes the seat through libseat, and the broker passes the devices to the drawer over the direct mode protocol. The lean is (a), because it is what the maintainer described: the seat manager serves the devices and the broker keeps the process jobs. logind lets only the session's own user or root call `TakeControl` (org.freedesktop.login1(5), systemd 262), so the session must be the drawer's. Option (b) keeps libseat and D-Bus in the root process. Check 6 decides whether (a) works.
+3. **Who makes the VT calls in seat mode.** (a) The drawer asks the broker for `KDSETMODE`, `KDSKBMODE` and `VT_ACTIVATE`, as in direct mode. (b) The drawer makes the VT its controlling terminal with `setsid` and `TIOCSCTTY`, as Xorg does when it runs without root. (c) Nobody makes them, if the seat manager already does. The lean is (a) until checks 1 and 2 show that (c) holds. The VT calls need the controlling terminal or `CAP_SYS_TTY_CONFIG` (D1's table). Option (b) splits the VT's jobs between two processes, and the broker still restores the VT after a crash.
+4. **What the broker does after the drawer dies.** (a) It restores the VT and exits with a failure, so ADR-1401 D9 and D13 decide what follows, as they do today. (b) It starts a new drawer itself. The lean is (a). D9's getty fallback and D13's store already decide what a failure does under each policy, and (b) would add a restart policy, and a loop counter, to the root process.
+5. **What happens to a session when its session process dies.** (a) The broker starts a new session process on the same pty master. That process shows an empty screen and sends a resize, as D13's recovery does, and the console's respawn count bounds how often this happens. (b) The broker hangs the session up. The lean is (a). It keeps the user's programs running, as a restart of vtium does today (ADR-1401 D13 items 4 and 5). The respawn count stops a program whose output crashes its session process again and again (`respawn` in `crates/vtium/src/head/console.rs`).
+6. **Whether the selection stays shared.** (a) One selection for the whole of vtium, as today. (b) One selection for each head. (c) One for each console. The lean is (a). A program can write the selection but never read it (security.md), and its text reaches another session only when the user pastes it there. Option (c) stops copying from one console to another.
+
 ### What the stream reaches beyond the screen
 
 | Channel | What it reaches | Control | Issue |
@@ -289,20 +448,28 @@ vtium's units match the C reference's, with getty parity and no hardening direct
 - Every layer runs from a plain unit, an init script or a hand launch; systemd, logind and libseat add to it and never gate it.
 - The login session is the one getty gives: sudo, root's console, the user's home and `/tmp` behave as under getty.
 - The minspec build links no libsystemd and no libseat.
+- Under D4, a defect in the parser, the screen or the renderer no longer runs as root, from the first slice on. From the third slice on, it reaches only its own console's session.
+- Under D4, the broker restores the VT after any end of the drawer, including a SIGKILL that today skips the panic hook.
 
 ### Negative
 
-- A defect in the parser, screen, renderer or input path runs as root.
+- Until D4's first slice is built, a defect in the parser, screen, renderer or input path runs as root.
 - systemd's sandboxing goes unused.
 - A root console login on a system without logind gets no file media, as in the C reference.
+- D4 adds privilege code: the broker, and the protocol it reads from the drawer. Each VT switch costs a round trip between the broker and the drawer.
+- D4's third slice adds a process and a socket for each console, and the screen crosses between processes for each frame.
 
 ### Neutral
 
-- SECURITY.md's scope, "vtium runs as root on a virtual console", stays true.
+- SECURITY.md's scope, "vtium runs as root on a virtual console", stays true until D4's first slice is built.
+
+> Edited 2026-11-13: D4 adds the split's consequences. The first Negative bullet read "A defect in the parser, screen, renderer or input path runs as root.", and the Neutral bullet ended at "stays true".
 
 ## Alternatives Considered
 
-- **A privilege split in one binary:** a root parent that keeps the login spawn, the VT, DRM master and the helper's identity switch, passing descriptors to an unprivileged terminal process, as OpenSSH separates privilege. Not adopted: the operator chose the C reference's flow over building something novel before its architecture is understood. Reopened when a defect in the code that reads the stream is shown to run code as root, or when the operator asks for it.
-- **Unprivileged only through a seat.** Not adopted: it needs a seat daemon, and `/bin/login` still needs root.
+- **A privilege split in one binary:** a root parent that keeps the login spawn, the VT, DRM master and the helper's identity switch, passing descriptors to an unprivileged terminal process, as OpenSSH separates privilege. Not adopted: the operator chose the C reference's flow over building something novel before its architecture is understood. Reopened when a defect in the code that reads the stream is shown to run code as root, or when the operator asks for it. *Adopted 2026-11-13 as D4,* when the maintainer asked for it, with one drawing process for each session in the end.
+- **One drawer for every session.** Not adopted (the maintainer, 2026-11-13): a drawer that crafted output has taken over would hold every session's pty master, a root shell's and a login prompt's included. It remains D4's first two slices on the way to a process for each session.
+- **The drawer holds the VT as its controlling terminal**, so that it makes the VT calls without a capability, as Xorg does when it runs without root. Not adopted for direct mode: the drawer still cannot set or drop DRM master on a card that another process opened, or that it opened while a desktop held master, so the broker must handle master anyway. The broker also still needs `CAP_SYS_TTY_CONFIG` to put back the keyboard mode after a crash. It stays an option for seat mode's VT calls (D4, open question 3).
+- **Unprivileged only through a seat.** Not adopted: it needs a seat daemon, and `/bin/login` still needs root. The kernel check of 2026-11-13 adds that `login`, the helpers, the power keys and reaping need a root process in seat mode too, and that direct mode, the default install, would keep root for life.
 - **Unit sandboxing, `ProtectSystem=strict` and `NoNewPrivileges` among it.** Rejected: the login session inherits it (D3).
 - **Reading logind's state under `/run/systemd` in place of sd-login.** Rejected: systemd does not document those files as an interface (external, not re-verified).
