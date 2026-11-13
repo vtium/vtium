@@ -56,7 +56,12 @@ impl Host {
             next_line: 100,
             cols: 12,
             cursor: (0, 0),
-            margins: Margins { top: 0, bottom: 3 },
+            margins: Margins {
+                top: 0,
+                bottom: 3,
+                left: 0,
+                right: 11,
+            },
             helper: true,
             requests: Vec::new(),
             notes: Vec::new(),
@@ -168,8 +173,11 @@ impl Context for Host {
     }
 
     fn index(&mut self, n: usize) {
+        // as the screen's move_down: the region scrolls at the bottom
+        // margin only while the cursor is between the left and right margins
+        let scrolls = self.margins.holds_column(self.cursor.0);
         for _ in 0..n {
-            if self.cursor.1 == self.margins.bottom {
+            if self.cursor.1 == self.margins.bottom && scrolls {
                 self.scroll_one();
             } else {
                 self.cursor.1 = (self.cursor.1 + 1).min(self.screen.len() - 1);

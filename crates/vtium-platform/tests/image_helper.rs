@@ -930,7 +930,12 @@ impl vtium_image::Context for Console {
     fn move_cursor(&mut self, _: usize, _: usize) {}
 
     fn margins(&self) -> vtium_image::Margins {
-        vtium_image::Margins { top: 0, bottom: 3 }
+        vtium_image::Margins {
+            top: 0,
+            bottom: 3,
+            left: 0,
+            right: 11,
+        }
     }
 
     fn index(&mut self, _: usize) {}

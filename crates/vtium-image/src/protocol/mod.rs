@@ -30,11 +30,13 @@ pub(crate) fn chunk_work(data: Chunk<'_>) -> u64 {
 /// scroll region scrolls up first, as far as the region allows, so a
 /// picture that fits the region moves whole; then it is placed, and the
 /// cursor goes down a row fewer than the picture's rows, as that many line
-/// feeds do, so an index covers what the region could not. The cursor ends
-/// on the row holding the picture's last pixel row: at the picture's left
-/// column, or with `cursor_right` in the column after its right edge, at
-/// most the last column. A placement the store refuses drops the image.
-/// Returns whether the picture was placed.
+/// feeds do, so an index covers what the region could not. Both scroll the
+/// region only while the cursor's column is between the left and right
+/// margins, as a line feed does (D6). The cursor ends on the row holding
+/// the picture's last pixel row: at the picture's left column, or with
+/// `cursor_right` in the column after its right edge, at most the column
+/// CUF stops at. A placement the store refuses drops the image. Returns
+/// whether the picture was placed.
 pub(crate) fn place_scrolling(
     ctx: &mut dyn Context,
     image: ImageKey,
@@ -51,7 +53,7 @@ pub(crate) fn place_scrolling(
     // the region scrolls first, as far as it can, so a picture that fits
     // it moves whole; index covers the rest
     let m = ctx.margins();
-    if (m.top..=m.bottom).contains(&y) {
+    if (m.top..=m.bottom).contains(&y) && m.holds_column(x) {
         let room = m.bottom.saturating_sub(y);
         if down > room {
             let s = down.saturating_sub(room).min(y.saturating_sub(m.top));
@@ -79,12 +81,10 @@ pub(crate) fn place_scrolling(
     ctx.index(down);
     let (_, row) = ctx.cursor();
     let box_cols = usize::try_from(box_cols).unwrap_or(usize::MAX);
-    let col = if !cursor_right {
-        x
-    } else if box_cols < cols.saturating_sub(x) {
-        x.saturating_add(box_cols)
+    let col = if cursor_right {
+        x.saturating_add(box_cols).min(m.right_stop(x, cols))
     } else {
-        cols.saturating_sub(1)
+        x
     };
     ctx.move_cursor(col, row);
     true

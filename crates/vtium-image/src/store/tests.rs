@@ -502,6 +502,64 @@ fn a_region_scroll_splits_a_sixel_and_leaves_a_kitty_across_an_edge() {
     );
 }
 
+// ADR-1100 D6: between left and right margins the lines stay, and the
+// rectangle of rows 1 to 4 and columns 4 to 9 scrolls up one. A sixel
+// across the left margin keeps its column outside and moves the rest; a
+// kitty placement wholly inside moves; one across the top edge or the right
+// edge stays; and a sixel right of the rectangle is not touched.
+// covers: image.pipeline
+#[test]
+fn a_scroll_between_left_and_right_margins_moves_the_rectangle() {
+    let f = Fake::new(6);
+    let mut s = store(1 << 30);
+    let across_left = add(&mut s, &f, Protocol::SIXEL, 24, 32, 0);
+    let six_inside = add(&mut s, &f, Protocol::SIXEL, 16, 32, 0);
+    let kit_inside = add(&mut s, &f, Protocol::KITTY, 8, 16, 1);
+    let kit_top = add(&mut s, &f, Protocol::KITTY, 8, 32, 2);
+    let kit_right = add(&mut s, &f, Protocol::KITTY, 16, 16, 3);
+    let outside = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
+    put(&mut s, &f, across_left, 3, 2);
+    put(&mut s, &f, six_inside, 8, 3);
+    put(&mut s, &f, kit_inside, 6, 4);
+    put(&mut s, &f, kit_top, 7, 0);
+    put(&mut s, &f, kit_right, 9, 1);
+    put(&mut s, &f, outside, 12, 2);
+    s.scroll_in((1, 4), (4, 9), 1, true, f.rows());
+    s.scroll_done(f.rows());
+    let mut got = shown(&s, &f);
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            (0, 7, 1, 2, kit_top),
+            (1, 4, 2, 2, across_left),
+            (1, 9, 2, 1, kit_right),
+            (2, 3, 1, 2, across_left),
+            (2, 8, 2, 2, six_inside),
+            (2, 12, 1, 1, outside),
+            (3, 6, 1, 1, kit_inside),
+        ]
+    );
+    // a scroll down by two: the band's bottom clips the lower sixel and
+    // takes the kitty placement inside whole, and the pieces outside the
+    // rectangle and the kitty placements across its edges stay
+    s.scroll_in((1, 4), (4, 9), 2, false, f.rows());
+    s.scroll_done(f.rows());
+    let mut got = shown(&s, &f);
+    got.sort();
+    assert_eq!(
+        got,
+        [
+            (0, 7, 1, 2, kit_top),
+            (1, 9, 2, 1, kit_right),
+            (2, 3, 1, 2, across_left),
+            (2, 12, 1, 1, outside),
+            (3, 4, 2, 2, across_left),
+            (4, 8, 2, 1, six_inside),
+        ]
+    );
+}
+
 #[test]
 fn a_line_dropped_from_the_scrollback_clips_its_placements() {
     let f = Fake::new(4);

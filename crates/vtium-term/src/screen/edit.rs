@@ -566,8 +566,10 @@ impl Screen {
     /// `top` to the bottom margin `n` rows up, or down, as xterm's
     /// `scrollInMargins` does: the cells leaving the rows go, and blank
     /// cells come in at the other end. A wide character across a margin
-    /// in any of the rows goes whole first, and a picture over the cells
-    /// that move loses them, since a picture moves only with whole lines.
+    /// in any of the rows goes whole first. The pictures over the rectangle
+    /// move with it as their rules say (ADR-1100, D6): the part of a sixel
+    /// inside it moves, and a kitty placement moves only when it lies
+    /// wholly inside it.
     fn scroll_in_margins(&mut self, top: usize, n: usize, up: bool) {
         self.segment = None;
         let bottom = self.bottom;
@@ -579,10 +581,10 @@ impl Screen {
         }
         let cols = left..right.saturating_add(1);
         for y in top..=bottom {
-            self.images_cut(y, left, right);
             self.split_wide(y, left);
             self.split_wide(y, cols.end);
         }
+        let took = self.images_scroll_in((top, bottom), (left, right), n, up);
         let kept = height.saturating_sub(n);
         for i in 0..kept {
             let (from, to) = if up {
@@ -606,6 +608,7 @@ impl Screen {
             };
             self.erase_cells(y, cols.clone());
         }
+        self.images_scrolled(took);
         self.end_partial_wraps(top, bottom, left, right);
     }
 

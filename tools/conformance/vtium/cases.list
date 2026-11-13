@@ -20,6 +20,10 @@ iterm2-bound 12 4
 iterm2-loops 12 6
 iterm2-frames-max 12 4
 kit-png-frames 12 4
+sixel-margins 12 6
+sixel-margins-cursor 12 6
+kit-margins 12 6
+iterm2-margins 12 6
 bidi-01-mixed 30 4
 bidi-02-all-arabic 30 4
 bidi-03-all-hebrew 30 4
