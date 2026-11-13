@@ -56,6 +56,10 @@ considered:
   - operator: aaronsb
     said: "agree"
     via: the steering session, 2026-11-07, asking whether ADR-1000's row text.vitrify becomes refused, because ADR-1200 has vtium generate every glyph at run time and build no glyph set ahead of time
+  - operator: aaronsb
+    said: "After the fast wake-up retries run out, vtium keeps retrying once a second for as long as its VT is the one shown. A key press, a pointer action or a hotplug still tries again at once. A VT release stops the slow retries too, and a VT acquire starts the fast retries again."
+    via: the steering session's question on 2026-11-13
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -173,6 +177,9 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
 - **Bidirectional modes** follow ADR-1004: BDSM, 1243, 2500 and 2501 are supported and DCSM is ignored and permanently set, each only in a build with the `bidi` feature, which the minspec build leaves out. DECRLM and DECRLCM are refused, since SCP and BDSM replace them.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
+- **The wake-up retry keeps going while vtium's VT is shown.** vtium may fail to take its displays back while its VT is shown, as while another program holds DRM master. vtium then tries again every 50 ms for about 2 seconds. After that, vtium tries again once a second for as long as its VT is shown. A key press, a pointer action or a hotplug still tries again at once. A VT release stops the tries, and a VT acquire starts the fast tries again. So a display with no keyboard, such as a kiosk's, lights within about a second of the other program letting go of the card.
+
+> Edited 2026-11-13: the maintainer decided that vtium keeps trying to wake its displays after the fast tries run out, and the last bullet above is new. Before, the record did not describe the wake-up retry. After about 2 seconds of tries, only the next key press, pointer action or hotplug tried again, so a display that nobody touched stayed dark. The edit of 2026-11-06 above calls the hand-back's wake-up retry built, in the words "the display hand-back, whose wake-up retry is built". The retry it meant is the fast one.
 
 ### The terminfo entry and TERM
 
