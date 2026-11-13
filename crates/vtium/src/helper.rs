@@ -170,7 +170,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ7";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ8";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -219,6 +219,7 @@ const ASK: u32 = 6;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
 const OWN_CELL: u32 = 4;
+const COVERAGE: u32 = 8;
 const FRAME_GLYPHS: u32 = 1;
 const FRAME_DONE: u32 = 2;
 const FRAME_FAILED: u32 = 3;
@@ -229,7 +230,9 @@ const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
 const FRAME_WARNING: u32 = 9;
 const FRAME_OUTLINE_CELL: u32 = 10;
+const FRAME_DRAWS_NOTHING: u32 = 12;
 const FRAME_SANDBOX: u32 = 14;
+const FRAME_COVERAGE: u32 = 15;
 /// The bits of a [`FRAME_SANDBOX`]: the helper's landlock domain, its
 /// fallback filter and its socket filter are in force.
 const SANDBOX_DOMAIN: u32 = 1;
@@ -677,6 +680,12 @@ enum Event {
     /// The parts of the helper's sandbox in force, as [`FRAME_SANDBOX`]'s
     /// bits.
     Sandbox(u32),
+    /// A coverage query's answer: the letters asked that the frit covers,
+    /// and an installed font that covers the most of the rest, empty when
+    /// none does.
+    Coverage(Vec<u32>, String),
+    /// The frit draws nothing, a coverage query's answer: why.
+    DrawsNothing(String),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -781,7 +790,8 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_FILLED | FRAME_STOPPED => 16,
         FRAME_OWN_CELL | FRAME_OUTLINE_CELL => 8,
         FRAME_SANDBOX => 4,
-        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
+        FRAME_COVERAGE => FRAME_BYTES_MAX,
+        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING | FRAME_DRAWS_NOTHING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
@@ -869,8 +879,36 @@ fn frame(r: &mut impl Read) -> Option<Event> {
             Some(parts) => Event::Sandbox(parts),
             _ => Event::Malformed("a sandbox report without its parts".to_owned()),
         },
+        FRAME_COVERAGE => coverage_answer(&payload),
+        FRAME_DRAWS_NOTHING => Event::DrawsNothing(String::from_utf8_lossy(&payload).into_owned()),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
+}
+
+/// A coverage query's answer, [`FRAME_COVERAGE`]'s payload: the count and
+/// each codepoint the frit covers, each a scalar value, then a family name
+/// in UTF-8.
+fn coverage_answer(payload: &[u8]) -> Event {
+    let word = |i: usize| -> Option<u32> {
+        let at = i.checked_mul(4)?;
+        Some(u32::from_le_bytes(
+            payload.get(at..at.checked_add(4)?)?.try_into().ok()?,
+        ))
+    };
+    let Some(n) = word(0).and_then(|n| usize::try_from(n).ok()) else {
+        return Event::Malformed("a coverage answer without its count".to_owned());
+    };
+    let covered: Option<Vec<u32>> = (1..=n)
+        .map(|i| word(i).filter(|&c| char::from_u32(c).is_some()))
+        .collect();
+    let rest = n
+        .checked_add(1)
+        .and_then(|k| k.checked_mul(4))
+        .and_then(|at| payload.get(at..));
+    match (covered, rest.map(std::str::from_utf8)) {
+        (Some(covered), Some(Ok(font))) => Event::Coverage(covered, font.to_owned()),
+        _ => Event::Malformed("a coverage answer cut short or not UTF-8".to_owned()),
+    }
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
@@ -1375,6 +1413,72 @@ impl Helper {
         }
     }
 
+    /// Which of `letters` the frit covers, and the family of an installed
+    /// font that covers the most of the rest, `None` when none does: the
+    /// helper's answer to a coverage query (ADR-1401 D7). The console
+    /// parses no font, so the helper reads the frit's sources and the
+    /// installed fonts. The error is why there is no answer: the helper
+    /// cannot start, refuses the frit, ends first, or gives no answer in
+    /// `wait`. `clock` tells the time as the wait goes on. `vtium
+    /// check-config` asks it, with no other request in flight.
+    pub fn coverage(
+        &mut self,
+        letters: &[u32],
+        wait: Duration,
+        clock: &dyn Fn() -> Instant,
+    ) -> Result<(Vec<u32>, Option<String>), String> {
+        let now = clock();
+        let query = Cell {
+            width: 0,
+            height: 0,
+        };
+        if self.failed.is_none() {
+            self.send(
+                (COVERAGE, SpacedCell::plain(query), Variant::default()),
+                (letters, &[]),
+                &[],
+                now,
+            );
+        }
+        if let Some(why) = &self.failed {
+            return Err(why.clone());
+        }
+        let end = after(now, wait);
+        loop {
+            let left = end.saturating_duration_since(clock());
+            let event = self
+                .running
+                .as_ref()
+                .ok_or_else(|| "the helper is not running".to_owned())?
+                .events
+                .recv_timeout(left);
+            return match event {
+                Ok(Event::Coverage(covered, font)) => {
+                    Ok((covered, Some(font).filter(|f| !f.is_empty())))
+                }
+                Ok(Event::DrawsNothing(why)) => Err(why.trim().to_owned()),
+                Ok(Event::Warning(why)) => {
+                    self.warn(why.trim());
+                    continue;
+                }
+                Ok(Event::Sandbox(parts)) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
+                Ok(Event::Failed(why)) => Err(failure(&why)),
+                Ok(Event::Malformed(why)) => Err(format!("the helper's answer was refused: {why}")),
+                Ok(other) => {
+                    self.early.push_back(other);
+                    continue;
+                }
+                Err(_) => Err(format!(
+                    "the helper gave no answer in {} ms",
+                    wait.as_millis()
+                )),
+            };
+        }
+    }
+
     /// The answers to cell queries that came after their wait, since the
     /// last call, each with the height its query asked at, in the order
     /// they came (ADR-1200 D17, the maintainer, 2026-11-03).
@@ -1650,6 +1754,9 @@ impl Helper {
                 Event::Sandbox(parts) => {
                     self.sandboxed(parts);
                     continue;
+                }
+                Event::Coverage(..) | Event::DrawsNothing(_) => {
+                    Err("the helper answered a coverage query not made".to_owned())
                 }
                 Event::Failed(why) => Err(failure(&why)),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
@@ -2327,7 +2434,7 @@ mod tests {
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ7".to_vec();
+        let mut want = b"VTVSREQ8".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");

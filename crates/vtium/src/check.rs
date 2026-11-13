@@ -385,6 +385,12 @@ pub struct Outcome {
 
 /// The subcommand on `loaded` and the machine `host`.
 pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
+    outcome_with(loaded, host, None)
+}
+
+/// [`outcome`], asking the glyph helper through `squeeze` which letters of
+/// the locale's script each look's font set covers (ADR-1401 D7).
+fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> Outcome {
     let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
         return Outcome {
@@ -407,7 +413,10 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         devices: (!loaded.no_devices).then_some(devices.as_slice()),
         vts,
     };
-    let settings = Settings::of(&loaded.config, &host.frits, host.frit_trust.clone());
+    let settings = Settings {
+        squeeze,
+        ..Settings::of(&loaded.config, &host.frits, host.frit_trust.clone())
+    };
     // a candidate that is the installed file is checked as the start
     // reads it, ownership and all
     let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
@@ -443,9 +452,31 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
 }
 
 /// The subcommand as the binary runs it on the machine's own files: it
-/// prints [`outcome`] and returns the exit status.
-pub fn main(loaded: &Loaded) -> u8 {
-    let out = outcome(loaded, &Host::system(&loaded.config));
+/// prints [`outcome`] and returns the exit status. It asks the glyph
+/// helper which letters of the locale's script each look's font set
+/// covers, waiting by `clock`.
+pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
+    let env: Vec<_> = std::env::vars_os().collect();
+    let locale = crate::app::locale(&env);
+    let ask = |frit: &helper::FritText, letters: &[u32]| {
+        let launcher = helper::Launcher::configured(&loaded.config)?;
+        let mut helper = helper::Helper::new(
+            launcher,
+            std::sync::Arc::new(|| {}),
+            clock(),
+            frit.clone(),
+            None,
+            crate::deferred::Shared::default(),
+            0,
+        );
+        let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
+        helper.coverage(letters, wait, clock)
+    };
+    let squeeze = Squeeze {
+        locale: &locale,
+        ask: &ask,
+    };
+    let out = outcome_with(loaded, &Host::system(&loaded.config), Some(squeeze));
     for line in &out.stderr {
         eprintln!("{line}");
     }
@@ -490,6 +521,32 @@ pub struct Settings<'a> {
     /// The ownership check a frit is read under: the one the start makes
     /// for the account the check runs as ([`font::trust`]).
     pub trust: Trust,
+    /// How the check asks the glyph helper which letters of the locale's
+    /// script a look's font set covers, for the warning on a font set
+    /// that leaves them to the squeeze (ADR-1401 D7); `None` asks nothing.
+    pub squeeze: Option<Squeeze<'a>>,
+}
+
+/// The question the check asks the glyph helper of a font set: which of
+/// these letters it covers, and which installed font covers the rest
+/// ([`helper::Helper::coverage`]).
+pub type AskCoverage<'a> =
+    &'a dyn Fn(&helper::FritText, &[u32]) -> Result<(Vec<u32>, Option<String>), String>;
+
+/// The system's locale, and how the check asks the glyph helper about a
+/// font set's letters.
+#[derive(Clone, Copy)]
+pub struct Squeeze<'a> {
+    pub locale: &'a str,
+    pub ask: AskCoverage<'a>,
+}
+
+impl std::fmt::Debug for Squeeze<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Squeeze")
+            .field("locale", &self.locale)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Settings<'_> {
@@ -509,6 +566,7 @@ impl Settings<'_> {
             total: number(&keys::CONSOLES_MAX, vtium_settings::CONSOLES_TOTAL_DEFAULT),
             frits,
             trust,
+            squeeze: None,
         }
     }
 }
@@ -657,7 +715,16 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             continue;
         };
         let line = Some(named.line);
-        match judge(&file, &settings.trust) {
+        let judged = judge(&file, &settings.trust);
+        // a font set the account reads is checked for the locale's script
+        if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
+            let said = settings
+                .squeeze
+                .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
+            out.notes
+                .extend(said.map(|said| at(path, line, said).to_string()));
+        }
+        match judged {
             Judged::Read => {}
             Judged::Refused(why) => {
                 let said =
@@ -671,6 +738,44 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             }
         }
     }
+}
+
+/// The note on a look, `look`, whose font set `name` at `file` leaves
+/// letters of the system locale's script to the squeeze (ADR-1401 D7,
+/// ADR-1302 D14): the letters the built-in fonts draw squeezed in the
+/// font set's cell, of those the font set does not cover, as the glyph
+/// helper answers. The note names an installed font that covers them where
+/// the helper finds one. `None` when the locale's script is not in the
+/// table, when the built-in fonts squeeze none of its letters, when the
+/// font set covers every such letter, or when the helper cannot answer.
+fn squeeze_note(
+    look: &str,
+    name: &str,
+    file: &Path,
+    settings: &Settings,
+    sq: Squeeze<'_>,
+) -> Option<String> {
+    let script = vtium_font::letters::script_of(sq.locale)?;
+    let frit = helper::FritText::read(file, &settings.trust).ok()?;
+    let cell = font::frit_cell(&frit.text)
+        .ok()
+        .flatten()
+        .unwrap_or(vtium_font::Cell {
+            width: 8,
+            height: 16,
+        });
+    let squeezed: Vec<u32> = vtium_font::letters::letters(script)
+        .into_iter()
+        .filter(|&c| font::builtin_squeezes(c, cell, sq.locale))
+        .map(u32::from)
+        .collect();
+    if squeezed.is_empty() {
+        return None;
+    }
+    let (covered, installed) = (sq.ask)(&frit, &squeezed).ok()?;
+    let left = squeezed.iter().filter(|c| !covered.contains(c)).count();
+    (left > 0)
+        .then(|| check_config::squeezed_script(look, name, (script, left), installed.as_deref()))
 }
 
 /// What survives of the file, which a start `runs`: its warnings, counted,
@@ -1445,6 +1550,7 @@ mod tests {
             total: vtium_settings::CONSOLES_TOTAL_DEFAULT,
             frits: Path::new("/nonexistent/vtium/frits"),
             trust: font::trust(),
+            squeeze: None,
         }
     }
 
@@ -1734,6 +1840,86 @@ mod tests {
             )
         };
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
+    }
+
+    // ADR-1401 D7, ADR-1302 D14: a look whose font set leaves letters of
+    // the locale's script to the squeeze is noted, outside the exit
+    // status, naming the look, the font set, the script, how many letters
+    // and the installed font the glyph helper names. The stand-in answers
+    // as the helper does: it refuses a frit it cannot read, covers what
+    // the frit's sources hold, and names the font that covers the rest.
+    // GNU Unifont, the built-in font at 8x16, draws Devanagari 16 pixels
+    // wide, so it squeezes them. A font set that covers the locale's
+    // script takes no note, and neither does the C locale
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_font_set_that_leaves_the_locales_script_to_the_squeeze_is_noted() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, trust) = heads_fixture("squeeze", text, 0o644);
+        let f = file.display().to_string();
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::write(frits.join("desk.vtfrit"), "source=font:Latin Only\n").unwrap();
+        let ask = |frit: &helper::FritText, letters: &[u32]| {
+            if frit.name != "desk" {
+                return Err("no such font set".to_owned());
+            }
+            // a font set covers every letter of the script its one source
+            // is named for
+            let covers = |script: &str| {
+                let all = vtium_font::letters::letters(script);
+                frit.text.contains(script).then_some(all)
+            };
+            let held: Vec<char> = ["Latin", "Devanagari"]
+                .into_iter()
+                .filter_map(covers)
+                .flatten()
+                .collect();
+            let covered = letters
+                .iter()
+                .copied()
+                .filter(|&c| char::from_u32(c).is_some_and(|c| held.contains(&c)))
+                .collect();
+            Ok((covered, Some("Noto Sans Devanagari".to_owned())))
+        };
+        let check = |locale: &str| {
+            let settings = Settings {
+                frits: &frits,
+                trust: font::trust().below(file.parent().unwrap()),
+                squeeze: Some(Squeeze { locale, ask: &ask }),
+                ..caps(4)
+            };
+            conf_file(&file, false, &trust, &machine(true), &settings)
+        };
+        let left = vtium_font::letters::letters("Devanagari")
+            .into_iter()
+            .filter(|&c| {
+                font::builtin_squeezes(
+                    c,
+                    vtium_font::Cell {
+                        width: 8,
+                        height: 16,
+                    },
+                    "hi_IN",
+                )
+            })
+            .count();
+        assert!(left > 50, "{left}");
+        let out = check("hi_IN.UTF-8");
+        assert!(out.counted.is_empty(), "{:?}", out.counted);
+        let want = format!(
+            "{f}:3: Look \"big\": the font set desk has no glyph for {left} letters of the Devanagari script, which the system's locale uses. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. The installed font Noto Sans Devanagari covers them; add it to the font set with a source=font:Noto Sans Devanagari line."
+        );
+        assert!(out.notes.contains(&want), "{:#?}", out.notes);
+        let squeezed = |out: &HeadCheck| out.notes.iter().any(|n| n.contains("squeezed"));
+        assert!(!squeezed(&check("en_US.UTF-8")));
+        assert!(!squeezed(&check("C")));
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            "source=font:Noto Sans Devanagari\n",
+        )
+        .unwrap();
+        assert!(!squeezed(&check("hi_IN.UTF-8")));
     }
 
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not

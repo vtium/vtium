@@ -78,6 +78,7 @@ mod glyph;
 mod gzip;
 mod hex;
 pub mod italic;
+pub mod letters;
 mod policy;
 #[cfg(feature = "psf")]
 mod psf;

@@ -480,6 +480,28 @@ fn builtin_strike(name: Option<&'static str>, cell: Cell, locale: &str) -> (&'st
     (name.unwrap_or_else(|| builtin_name(height, locale)), height)
 }
 
+/// Whether a built-in glyph `drawn` pixels wide, in a cluster of
+/// `cells` cells of `cell`, is squeezed to fit them, the last step of the
+/// fallback (ADR-1302 D14): when it is exactly twice their width, or
+/// wider than them and 2 pixels more.
+pub fn squeezed(drawn: u32, cell: Cell, cells: u32) -> bool {
+    let w = cell.width.saturating_mul(cells);
+    drawn == w.saturating_mul(2) || drawn > w.saturating_add(2)
+}
+
+/// Whether the built-in fonts, drawing in `cell` under `locale`, squeeze
+/// `c` to fit its cells ([`squeezed`]); false where they lack it.
+pub fn builtin_squeezes(c: char, cell: Cell, locale: &str) -> bool {
+    let Some(face) = builtin_in(None, cell, locale) else {
+        return false;
+    };
+    let cells = u32::from(vtium_term::cluster_width(&[c]).max(1));
+    face.has_glyph(c)
+        && face
+            .draw(&[c], vtium_font::Style::default())
+            .is_some_and(|g| squeezed(g.width(), cell, cells))
+}
+
 /// The built-in face that draws in `cell`: the strike
 /// [`builtin_strike`] chooses, at its height.
 fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<DisplayFace> {
@@ -1155,6 +1177,33 @@ mod tests {
     use super::*;
     use crate::scratch::Scratch;
     use vtium_font::Width;
+
+    // ADR-1302 D14: a glyph is squeezed when it is exactly twice its
+    // cells' width, or wider than them and 2 pixels more; the built-in
+    // GNU Unifont squeezes its 16-pixel Devanagari into one 8x16 cell,
+    // and neither a Latin letter nor, in tiny5's 6x9 cell, Unscii-8's
+    #[test]
+    fn a_built_in_glyph_is_squeezed_past_its_cells_and_two_pixels() {
+        let c816 = Cell {
+            width: 8,
+            height: 16,
+        };
+        assert!(squeezed(16, c816, 1));
+        assert!(squeezed(11, c816, 1));
+        assert!(!squeezed(10, c816, 1));
+        assert!(!squeezed(9, c816, 1));
+        assert!(!squeezed(8, c816, 1));
+        assert!(!squeezed(16, c816, 2));
+        assert!(squeezed(32, c816, 2));
+        assert!(builtin_squeezes('\u{915}', c816, "hi_IN"));
+        assert!(!builtin_squeezes('A', c816, "hi_IN"));
+        assert!(!builtin_squeezes('\u{4e00}', c816, "zh_CN"));
+        let tiny5 = Cell {
+            width: 6,
+            height: 9,
+        };
+        assert!(!builtin_squeezes('A', tiny5, "C"));
+    }
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();

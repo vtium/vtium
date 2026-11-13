@@ -459,6 +459,47 @@ fn find_outline_family_capped(
     Ok(first)
 }
 
+/// The family of an installed outline font under `dirs` that covers the
+/// most of `letters`, which the font set leaves to the squeeze (ADR-1401
+/// D7): a face's first family name, among its Regular faces first. A face
+/// covers a letter its character map gives a glyph for. The search opens
+/// at most [`FAMILY_FILES_MAX`] files, in the order of
+/// [`find_outline_family`], and a file holds at most
+/// [`OUTLINE_BYTES_MAX`] bytes; files past either bound are left out.
+/// `None` when no face covers any of `letters`.
+pub fn font_covering(letters: &[char], dirs: &[PathBuf]) -> Option<String> {
+    if letters.is_empty() {
+        return None;
+    }
+    let files = outline_files(dirs).ok()?;
+    let mut best: Option<(usize, bool, String)> = None;
+    for (_, path) in files.iter().take(FAMILY_FILES_MAX) {
+        let Ok(data) = read_bounded(path, OUTLINE_BYTES_MAX) else {
+            continue;
+        };
+        let Ok(faces) = crate::names::faces(data.as_slice()) else {
+            continue;
+        };
+        for face in faces {
+            let Some(font) = swash::FontRef::from_index(&data, face.index as usize) else {
+                continue;
+            };
+            let Some(family) = face.families.first() else {
+                continue;
+            };
+            let map = font.charmap();
+            let covered = letters.iter().filter(|&&c| map.map(c) != 0).count();
+            let better = best
+                .as_ref()
+                .is_none_or(|(n, regular, _)| (covered, face.regular) > (*n, *regular));
+            if covered > 0 && better {
+                best = Some((covered, face.regular, family.clone()));
+            }
+        }
+    }
+    best.map(|(_, _, family)| family)
+}
+
 /// Every TrueType or OpenType file or collection under `dirs`, with the
 /// place of its directory in `dirs`, in that order and then by path.
 fn outline_files(dirs: &[PathBuf]) -> Result<Vec<(usize, PathBuf)>, String> {

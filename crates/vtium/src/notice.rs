@@ -393,6 +393,28 @@ and changes nothing.\n";
         )
     }
 
+    /// A look whose font set, `frit`, leaves `left` letters of `script`,
+    /// the script of the system's locale, to the squeeze, the last step
+    /// of the fallback (ADR-1401 D7, ADR-1302 D14), and an installed font
+    /// that covers them, `font`, when one does.
+    pub fn squeezed_script(
+        look: &str,
+        frit: &str,
+        (script, left): (&str, usize),
+        font: Option<&str>,
+    ) -> String {
+        let letters = if left == 1 { "letter" } else { "letters" };
+        let fix = match font {
+            Some(font) => format!(
+                "The installed font {font} covers them; add it to the font set with a source=font:{font} line."
+            ),
+            None => "No installed font covers them; install a font for this script and add it to the font set.".to_owned(),
+        };
+        format!(
+            "Look {look:?}: the font set {frit} has no glyph for {left} {letters} of the {script} script, which the system's locale uses. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. {fix}"
+        )
+    }
+
     /// A look whose `font-name` names a frit, at `path`, that a start as
     /// root does not read, `reason`, though the account the check runs as
     /// reads it.

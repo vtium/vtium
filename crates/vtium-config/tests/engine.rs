@@ -933,6 +933,31 @@ fn a_color_glyph_in_one_cell_is_a_square_two_pixels_wider() {
     assert!(colors.len() <= 3, "{colors:?}");
 }
 
+// ADR-1401 D7: a coverage query's two answers. The font set's coverage
+// holds the letters its sources draw, and the installed font that covers
+// the most of the letters it lacks is named by its family: Test Color
+// holds U+2764 and U+231A, which Test Text holds too, and no font holds
+// U+10FFFD
+#[test]
+fn a_coverage_query_names_the_installed_font_that_covers_the_most() {
+    let w = World::new("coverage");
+    text_and_color(&w);
+    let engine = w.engine("source=font:Test Text\n").expect("the frit loads");
+    assert!(engine.coverage().binary_search(&0x2764).is_ok());
+    assert!(engine.coverage().binary_search(&0x10fffd).is_err());
+    let dirs = [w.path("fonts")];
+    let found = vtium_config::sources::font_covering(&['\u{2764}', '\u{231a}'], &dirs);
+    assert!(
+        matches!(found.as_deref(), Some("Test Color" | "Test Text")),
+        "{found:?}"
+    );
+    assert_eq!(
+        vtium_config::sources::font_covering(&['\u{10fffd}'], &dirs),
+        None
+    );
+    assert_eq!(vtium_config::sources::font_covering(&[], &dirs), None);
+}
+
 // ADR-1200 D21, UTS #51 ED-8: U+FE0E asks for the text presentation, so the
 // heart with U+FE0E keeps the frit's order, and the text source draws it
 #[test]
