@@ -87,11 +87,16 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # GPU path, which draws the CPU path's bytes, so 2d-1280x800's goldens judge
 # it exactly (ADR-1303 D1, D11). two-cards-mirror-hotplug draws the same
 # screens as two-cards-mirror, and its second card is a bochs-display in place
-# of a virtio-gpu card, so two-cards-mirror's goldens judge it.
+# of a virtio-gpu card, so two-cards-mirror's goldens judge it. A variant on a
+# machine without kernel VTs draws the screens of the variant on a VT whose
+# machine, configuration and head file it runs, since vtium.conf decides what
+# each display shows in the same way with or without VTs (ADR-1401 D3, D9),
+# so that variant's goldens judge it.
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
               "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min",
               "seat-seatd-wait": "2d-potato-min",
-              "two-cards-mirror-hotplug": "two-cards-mirror"}
+              "two-cards-mirror-hotplug": "two-cards-mirror",
+              "novt-closed-broken": "heads-closed-broken", "novt-open": "2d-640x480-psf16"}
 
 
 # The screens whose golden depends on a feature of the tree's console, by

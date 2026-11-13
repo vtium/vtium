@@ -4676,6 +4676,180 @@ esac
         self.assertEqual(t3_scenario.resident({}, [])["first_screen"], None)
 
 
+class NovtTest(unittest.TestCase):
+    """The head variants on a machine without kernel VTs (t3_heads.py): the
+    stock guest, with /dev/tty0 hidden from vtium alone by guest/t3-novt.
+    Their machines, cases and goldens, the disc and the guest's drop-in, and
+    the no-vt and display-off checks' verdicts both ways. Tier 3's own runs
+    of these variants test the script: it needs root, which makes the node
+    /dev/ptmx."""
+
+    CASES = {"novt-closed-unmatched": ["no-vt", "display-off"],
+             "novt-closed-broken": ["panic", "no-vt"],
+             "novt-open": ["cjk", "no-vt"]}
+    # The variant on a VT whose head file, policy and configuration each
+    # variant without VTs runs, by variant.
+    ON_A_VT = {"novt-closed-unmatched": "heads-closed-unmatched",
+               "novt-closed-broken": "heads-closed-broken",
+               "novt-open": "2d-640x480-psf16"}
+
+    def test_variants(self):
+        self.assertEqual(t3_scenario.NOVT_VARIANTS, list(self.CASES))
+        for name, want in self.CASES.items():
+            with self.subTest(name):
+                v = t3_scenario.VARIANTS[name]
+                on_vt = t3_scenario.VARIANTS[self.ON_A_VT[name]]
+                self.assertEqual(t3_scenario.variant_cases(name), want)
+                self.assertIs(v["novt"], True)
+                self.assertIs(v["agent"], True)
+                self.assertIs(v["vt_switch"], False)
+                self.assertEqual((v["cpus"], v["memory_mb"]), (1, 512))
+                self.assertNotIn(name, t3_scenario.DEFAULT_VARIANTS)
+                self.assertIn(name, t3_scenario.golden_cases())
+                # the machine and the configuration of the variant on a VT;
+                # the id that names the card to QMP draws nothing
+                for key in ("conf", "frits", "fonts", "images"):
+                    self.assertEqual(v.get(key), on_vt.get(key), key)
+                self.assertEqual(v["device"].replace("id=video0,", ""),
+                                 on_vt["device"].replace("id=video0,", ""))
+                with open(t3_heads.head_file(v)) as f:
+                    self.assertRegex(f.read(), r"(?m)^policy = %s\b" % v["policy"])
+        # the closed variants run the head files of their variants on a VT
+        for name in ("novt-closed-unmatched", "novt-closed-broken"):
+            v = t3_scenario.VARIANTS[name]
+            on_vt = t3_scenario.VARIANTS[self.ON_A_VT[name]]
+            self.assertEqual((v["heads"], v["policy"]), (on_vt["heads"], "closed"))
+        unmatched = t3_scenario.VARIANTS["novt-closed-unmatched"]
+        self.assertIsNone(unmatched["renderer"])
+        self.assertIs(unmatched["login"], False)
+        self.assertEqual(unmatched["off"], t3_scenario.VARIANTS["heads-closed-unmatched"]["off"])
+        broken = t3_scenario.VARIANTS["novt-closed-broken"]
+        self.assertEqual((broken["first"], broken["login"]), ("panic", False))
+        opened = t3_scenario.VARIANTS["novt-open"]
+        self.assertEqual((opened["heads"], opened["policy"]), ("docs/heads/default.conf", "open"))
+        self.assertEqual(opened["renderer"], "cpu")
+
+    def test_goldens(self):
+        # The screens a variant without VTs draws are judged by the goldens
+        # of the variant on a VT that draws the same screen, and its checks
+        # by no golden.
+        self.assertEqual(t3_evaluate.golden_for("novt-closed-broken", "panic")[0],
+                         os.path.join(t3_evaluate.GOLDEN, "heads-closed-broken", "panic.png"))
+        self.assertEqual(t3_evaluate.golden_for("novt-closed-broken", "panic",
+                                                features=["images"])[0],
+                         os.path.join(t3_evaluate.GOLDEN, "heads-closed-broken",
+                                      "panic+images.png"))
+        self.assertEqual(t3_evaluate.golden_for("novt-open", "cjk")[0],
+                         os.path.join(t3_evaluate.GOLDEN, "2d-640x480-psf16", "cjk.png"))
+        for case in ("no-vt", "display-off"):
+            self.assertEqual(t3_evaluate.golden_for("novt-closed-unmatched", case), (None, None))
+        self.assertFalse(os.path.exists(os.path.join(t3_evaluate.GOLDEN,
+                                                     "novt-closed-unmatched")))
+
+    def test_shown(self):
+        # The line the driver waits for after its switch to tty2: on a VT,
+        # the VT vtium uses; without VTs, the display vtium set up, or none
+        # where vtium sets up no display.
+        self.assertEqual(t3_scenario.shown_of("heads-closed-broken"), "vt: using tty /dev/tty2")
+        self.assertEqual(t3_scenario.shown_of("sysvinit-640x480"), "text renderer [")
+        self.assertEqual(t3_scenario.shown_of("novt-closed-broken"), "text renderer [")
+        self.assertEqual(t3_scenario.shown_of("novt-open"), "text renderer [")
+        self.assertIsNone(t3_scenario.shown_of("novt-closed-unmatched"))
+
+    def test_disc_and_drop_in(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        tree = os.path.join(d.name, "tree")
+        write_tree(tree, ImplementationTest.TREE)
+        impl = t3_impl.tree(tree, os.path.join(d.name, "out", "tree.tar"))
+        impl["fonts"] = os.path.join(d.name, "fonts")
+        os.makedirs(impl["fonts"])
+        disc = os.path.join(d.name, "disc")
+        script = os.path.join(t3_common.GUEST, "t3-novt")
+        with mock.patch.object(t3_scenario, "make_iso"):
+            t3_scenario.build_disc("novt-closed-unmatched", d.name, impl)
+            with open(os.path.join(disc, "t3-novt"), "rb") as f, open(script, "rb") as g:
+                self.assertEqual(f.read(), g.read())
+            t3_scenario.build_disc("heads-closed-unmatched", d.name, impl)
+            self.assertNotIn("t3-novt", os.listdir(disc))
+        # The drop-in starts vtium through the script with none of the
+        # unit's options: --vt=%I names the VT, and --no-switchvt waits for
+        # the VT to be shown, which nothing does to a fake VT. It keeps the
+        # journal's name for vtium's lines, which the driver reads them by.
+        with open(os.path.join(t3_common.ROOT, "crates", "vtium", "install",
+                               "vtium@.service")) as f:
+            start = re.findall(r"(?m)^ExecStart=(.*)$", f.read())
+        self.assertEqual(start, ["/usr/bin/vtium --vt=%I --no-switchvt"])
+        with open(os.path.join(t3_common.GUEST, "setup")) as f:
+            setup = f.read()
+        self.assertIn("printf '[Service]\\nExecStart=\\nExecStart=/usr/local/sbin/t3-novt "
+                      "/usr/bin/vtium\\nSyslogIdentifier=vtium\\n'", setup)
+        self.assertIn('install -m755 "$disc"/t3-novt /usr/local/sbin/t3-novt', setup)
+
+    def test_parse_state(self):
+        st = t3_heads.parse_state(agent_state() + ["tty0 yes no"])
+        self.assertEqual(st["tty0"], ("yes", "no"))
+        self.assertIsNone(t3_heads.parse_state(agent_state())["tty0"])
+
+    SERIAL = ("[   12.301] vtium[512]: log: vtium Revision abc\n"
+              "[   12.302] vtium[512]: vt: no VTs: using a fake VT\n")
+
+    def test_no_vt_is_judged_both_ways(self):
+        good = t3_heads.parse_state(agent_state(pid=(512, 3.0)) + ["tty0 yes no"])
+        self.assertIsNone(t3_heads.judge_no_vt(good, self.SERIAL))
+        wrong = {
+            "no reading": (agent_state(pid=(512, 3.0)), self.SERIAL,
+                           "the agent gave no reading of /dev/tty0"),
+            "no tty0 in the guest": (agent_state(pid=(512, 3.0)) + ["tty0 no no"], self.SERIAL,
+                                     "the guest has no /dev/tty0"),
+            "not hidden": (agent_state(pid=(512, 3.0)) + ["tty0 yes yes"], self.SERIAL,
+                           "the /dev that vtium sees holds tty0"),
+            "not running": (agent_state(pid=None) + ["tty0 yes none"], self.SERIAL,
+                            "vtium does not run on tty2"),
+            "no fake VT": (agent_state(pid=(512, 3.0)) + ["tty0 yes no"],
+                           self.SERIAL.splitlines(True)[0],
+                           "vtium on tty2 (PID 512) did not log"),
+            "another's fake VT": (agent_state(pid=(513, 3.0)) + ["tty0 yes no"], self.SERIAL,
+                                  "vtium on tty2 (PID 513) did not log"),
+            "a kernel VT": (agent_state(pid=(512, 3.0)) + ["tty0 yes no"],
+                            self.SERIAL + "[   14.1] vtium[530]: vt: using tty /dev/tty3\n",
+                            "a vtium used a kernel VT"),
+        }
+        for name, (lines, serial, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_no_vt(t3_heads.parse_state(lines), serial)
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+
+    OFF = ("[    7.4157] vtium[769]: display Virtual-1 at 640x480\n"
+           "[    7.4182] vtium[769]: display Virtual-1 stays off: no rule in vtium.conf matches "
+           "it; add the rule `display connector:pci-0000:00:01.0/Virtual-1 -> desk` to give it "
+           "a head\n"
+           "[    7.4208] vtium[769]: setting DPMS of Virtual-1 to Off\n")
+
+    def test_display_off_is_judged_both_ways(self):
+        self.assertIsNone(t3_heads.judge_display_off(self.OFF, "Virtual-1"))
+        lines = self.OFF.splitlines(True)
+        wrong = {
+            "no off line": (lines[0] + lines[2], "vtium did not log 'display Virtual-1 stays off"),
+            "no power state": ("".join(lines[:2]), "vtium did not leave the output of Virtual-1 "
+                                                   "off: it set no power state"),
+            "on again": (self.OFF + "[    7.43] vtium[769]: setting DPMS of Virtual-1 to On\n",
+                         "vtium did not leave the output of Virtual-1 off: Off, On"),
+            "drawn": (self.OFF + "[    7.46] vtium[769]: Display Virtual-1 with backend [drm2d] "
+                                 "text renderer [cpu], cell size 8x16\n",
+                      "vtium set up Virtual-1 for drawing"),
+        }
+        for name, (serial, why) in wrong.items():
+            with self.subTest(name):
+                got = t3_heads.judge_display_off(serial, "Virtual-1")
+                self.assertIsNotNone(got)
+                self.assertTrue(got.startswith(why), got)
+        # another display's lines say nothing of this one
+        self.assertTrue(t3_heads.judge_display_off(self.OFF.replace("Virtual-1", "Virtual-2"),
+                                                   "Virtual-1").startswith("vtium did not log"))
+
+
 def sixel_pixels(data):
     """The pixels a sixel string sets, {(x, y): (r, g, b) percentages}: a
     reader of the plain forms t3_pictures.py writes, `#N;2;r;g;b` color

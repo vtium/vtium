@@ -12,8 +12,9 @@
 #                    on tty2, the logins, the VT shown, the PS/2 keyboard's
 #                    and the USB controller's interrupts, the keyboards the
 #                    guest lists, the key presses the second keyboard sent
-#                    once watched, and the PID and age of vtium on tty2, one
-#                    line each
+#                    once watched, the PID and age of vtium on tty2, and
+#                    whether /dev/tty0 exists in the guest and in the /dev
+#                    that vtium on tty2 sees, one line each
 #   watch            counts the key presses of the keyboard in the USB hub's
 #                    port 3.3, the kiosk's second keyboard, read from its own
 #                    evdev node, until it is pulled out
@@ -167,6 +168,22 @@ state() {
     done
     [ -e "$keys" ] && echo "keys $(cat "$keys")"
     vtium_age
+    tty0
+}
+
+# Whether /dev/tty0 exists in the guest, and whether it exists in the /dev
+# that vtium on tty2 sees, its unit's main process: yes, no, or none when
+# the unit runs nothing. vtium's root under /proc shows the mounts of
+# vtium's own mount namespace, so this reading sees what guest/t3-novt
+# hides from vtium (the no-vt check, t3_heads.py).
+tty0() {
+    local pid guest=no seen=none
+    [ ! -e /dev/tty0 ] || guest=yes
+    pid=$(systemctl show -P MainPID "${units[0]}")
+    if [ "${pid:-0}" != 0 ]; then
+        if [ -e "/proc/$pid/root/dev/tty0" ]; then seen=yes; else seen=no; fi
+    fi
+    echo "tty0 $guest $seen"
 }
 
 # Fails vtium on tty2 past its unit's start limit: sends SIGKILL to each new
