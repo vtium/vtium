@@ -1,0 +1,46 @@
+checkpoint 296
+size 12x4
+cursor 0,2
+flags AUTO_WRAP
+reply 1b5f47693d343239343936373239352c703d343239343936373239353b4f4b1b5c1b5f47693d353b4f4b1b5c1b5f47693d353b4f4b1b5c1b5f47693d393b4f4b1b5c1b5f47693d383b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 2 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 1 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 3 row 1 col 2 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 4 row 2 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 3 opaque
+placement 5 row 2 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 4 opaque
+placement 6 row 0 col 4 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 5 opaque
+image 0 1x1 digest 16c70cdb
+image 1 1x1 digest a41e77bd
+image 2 1x1 digest e3160fb1
+image 3 1x1 digest c51eabb0
+image 4 1x1 digest 8c1719bc
+image 5 1x1 digest c68e2893
+checkpoint 442
+size 12x4
+cursor 2,3
+flags AUTO_WRAP
+reply 1b5f47693d352c493d353b45494e56414c3a4d757374206e6f74207370656369667920626f746820696d61676520696420616e6420696d616765206e756d6265721b5c1b5f47693d352c493d353b45494e56414c3a696e76616c696420617267756d656e741b5c1b5f47693d312c493d32303b4f4b1b5c1b5f47693d312c493d32302c703d313b4f4b1b5c1b5f47693d312c493d32302c703d323b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 2 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 2 row 3 col 2 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 3 row 1 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 3 opaque
+placement 4 row 1 col 2 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 3 opaque
+placement 5 row 2 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 4 opaque
+placement 6 row 2 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 5 opaque
+placement 7 row 0 col 4 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 6 opaque
+image 0 1x1 digest 16c70cdb
+image 1 1x1 digest a41e77bd
+image 2 1x1 digest 16c70cdb
+image 3 1x1 digest e3160fb1
+image 4 1x1 digest c51eabb0
+image 5 1x1 digest 8c1719bc
+image 6 1x1 digest c68e2893

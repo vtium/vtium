@@ -1,0 +1,37 @@
+size 16x8
+cursor 2,7
+flags AUTO_WRAP
+row 0 ||
+row 1 |􎻮̅̅̎􎻮̅̍̎  􎻮̅̅􎻮̅̍  􎻮̅􎻮􎻮|
+attr 1 0-1 fg=#00d787
+attr 1 4-5 fg=#000102
+attr 1 8-10 fg=#00d787
+row 2 |􎻮̍̅̎􎻮̍̍̎  􎻮̍̅􎻮̍̍  􎻮̍􎻮􎻮|
+attr 2 0-1 fg=#00d787
+attr 2 4-5 fg=#000102
+attr 2 8-10 fg=#00d787
+row 3 ||
+row 4 |􎻮̅̅􎻮̅̍  􎻮̅̅􎻮̅̍􎻮̅̎􎻮̅̐|
+attr 4 0-1 fg=7 ul=1
+attr 4 4-7 fg=7 ul=2
+row 5 |􎻮̍̅􎻮̍̍  􎻮̍̅􎻮̍̍􎻮̍̎􎻮̍̐|
+attr 5 0-1 fg=7 ul=1
+attr 5 4-7 fg=7 ul=2
+row 6 ||
+row 7 |􎻮̅̅􎻮|
+attr 7 0-1 fg=7
+placement 0 row 4 col 0 box 2x1 at 0,0 size 16x16 src 0,0 2x2 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 5 col 0 box 2x1 at 0,0 size 16x16 src 0,2 2x2 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 2 row 4 col 4 box 4x1 at 8,0 size 16x16 src 0,0 2x2 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 3 row 5 col 4 box 4x1 at 8,0 size 16x16 src 0,2 2x2 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 4 row 7 col 0 box 2x1 at 8,0 size 8x16 src 0,0 1x2 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 5 row 1 col 8 box 3x1 at 0,8 size 24x8 src 0,0 6x2 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 6 row 2 col 8 box 3x1 at 0,0 size 24x8 src 0,2 6x2 cell 8x16 z 0 above-text kitty image 1 opaque
+placement 7 row 1 col 4 box 2x1 at 0,0 size 16x16 src 0,0 2x2 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 8 row 2 col 4 box 2x1 at 0,0 size 16x16 src 0,2 2x2 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 9 row 1 col 0 box 2x1 at 0,0 size 16x16 src 0,0 2x2 cell 8x16 z 0 above-text kitty image 3 opaque
+placement 10 row 2 col 0 box 2x1 at 0,0 size 16x16 src 0,2 2x2 cell 8x16 z 0 above-text kitty image 3 opaque
+image 0 2x4 digest 79a67bd5
+image 1 6x4 digest 8dd083f5
+image 2 2x4 digest 9e023d1d
+image 3 2x4 digest 210d71c1
