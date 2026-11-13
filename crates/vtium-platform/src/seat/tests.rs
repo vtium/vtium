@@ -27,7 +27,7 @@ use crate::input::fake::{self, FakeDevice, Node, Nodes};
 use crate::input::{DeviceId, Input, InputConfig, InputEvent, Keymap, RawEvent};
 use crate::input::{KeyEvent, Mods};
 use crate::ioctl::EV_KEY;
-use crate::vt::fake::{Call, FakeConsole};
+use crate::vt::fake::{Call, FakeConsole, ShownWatch};
 use crate::vt::{DisplayMode, KbMode, Switch, Vt, VtEvent};
 
 type Seated = LibseatVt<StandIn, FakeConsole>;
@@ -60,6 +60,21 @@ fn tries(seat: usize, device: usize) -> Tries {
         seat,
         device,
     }
+}
+
+/// Tries an hour apart: no retry timer fires while a test runs, so
+/// whatever opens in the test opens on an event.
+fn untimed(seat: usize, device: usize) -> Tries {
+    Tries {
+        every: Duration::from_secs(3600),
+        seat,
+        device,
+    }
+}
+
+/// One turn of the loop, which serves what is ready and waits for nothing.
+fn turn(lp: &mut Loop<Data>, data: &mut Data) {
+    ok(lp.dispatch(Some(Duration::ZERO), data), "dispatch");
 }
 
 fn ok<T>(r: io::Result<T>, what: &str) -> T {
@@ -197,9 +212,9 @@ fn a_busy_seat_is_retried_from_the_loop_which_serves_a_timer_and_sigterm_meanwhi
     assert_eq!(vt(&mut data).seat(), "seat0");
 }
 
-/// A device the seat manager answers `ENODEV` and then `EBUSY` for waits,
-/// with the loop serving a timer meanwhile, and is named settled once it
-/// opens; the owner's second ask then gets it.
+/// A device the seat manager answers `EBUSY` for twice waits, with the
+/// loop serving a timer meanwhile, and is named settled once it opens; the
+/// owner's second ask then gets it.
 // covers: platform.libseat
 #[test]
 fn a_device_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
@@ -208,7 +223,7 @@ fn a_device_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
         .0
         .borrow_mut()
         .device_answers
-        .insert(PathBuf::from(CARD), [Errno::NODEV, Errno::BUSY].into());
+        .insert(PathBuf::from(CARD), [Errno::BUSY, Errno::BUSY].into());
     let (mut lp, mut data) = start(&server, None, tries(50, 20));
     run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
     let first = vt(&mut data).open_device(Path::new(CARD));
@@ -247,6 +262,35 @@ fn a_device_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
         server.0.borrow().devices.is_empty(),
         "closed through the seat manager"
     );
+}
+
+/// A device the seat manager answers `ENODEV` or `EACCES` for fails at the
+/// owner's ask, with no retry. A card the kernel is still adding answers
+/// `ENODEV`, and the device monitor reports a card only at the event that
+/// finds it open (udev.rs), so `ENODEV` from the seat manager means the
+/// device is gone. Neither seatd nor logind answers `EACCES` for a while
+/// and then opens: both open the node as root.
+#[test]
+fn a_device_the_seat_manager_answers_enodev_or_eacces_for_fails_at_the_ask() {
+    for errno in [Errno::NODEV, Errno::ACCESS] {
+        let server = StandIn::new();
+        server
+            .0
+            .borrow_mut()
+            .device_answers
+            .insert(PathBuf::from(CARD), [errno].into());
+        let (mut lp, mut data) = start(&server, None, untimed(50, 20));
+        run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+        let e = vt(&mut data).open_device(Path::new(CARD)).err();
+        assert_eq!(
+            e.and_then(|e| e.raw_os_error()),
+            Some(errno.raw_os_error()),
+            "{errno:?}"
+        );
+        assert_eq!(device_opens(&server, CARD), 1, "{errno:?}");
+        assert!(!vt(&mut data).armed, "{errno:?}: no retry timer");
+        assert!(vt(&mut data).settled().is_empty(), "{errno:?}");
+    }
 }
 
 /// A device asked for before the seat is enabled is not asked of the seat
@@ -354,6 +398,7 @@ fn with_seatd_a_vt_not_shown_is_shown_before_the_seat_opens() {
     let server = StandIn::new();
     server.0.borrow_mut().seatd = true;
     let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
     let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), tries(50, 20));
     ok(
         lp.dispatch(Some(Duration::from_millis(20)), &mut data),
@@ -370,6 +415,59 @@ fn with_seatd_a_vt_not_shown_is_shown_before_the_seat_opens() {
     assert_eq!(console.modes().2, KbMode::Off);
 }
 
+/// With seatd listening, vtium learns that its VT is shown from tty0's
+/// `active`, which the kernel notifies at each switch. The seat opens at
+/// the loop's turn that reads the notification, with no timer: the tries
+/// are an hour apart. A switch to another VT keeps vtium waiting, and once
+/// the seat is open vtium stops watching.
+#[test]
+fn with_seatd_the_seat_opens_at_the_turn_that_reads_its_vt_shown() {
+    let server = StandIn::new();
+    server.0.borrow_mut().seatd = true;
+    let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
+    let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), untimed(50, 20));
+    turn(&mut lp, &mut data);
+    turn(&mut lp, &mut data);
+    assert_eq!(opens(&server), 0, "no open while VT 1 is shown");
+    assert_eq!(console.0.borrow().shown_reads, 1, "read once at the start");
+    console.show(4);
+    turn(&mut lp, &mut data);
+    assert_eq!(opens(&server), 0, "no open while VT 4 is shown");
+    console.show(3);
+    turn(&mut lp, &mut data);
+    assert_eq!(opens(&server), 1, "opened at the turn that read VT 3");
+    assert!(vt(&mut data).is_active());
+    let events: Vec<VtEvent> = vt(&mut data).events().collect();
+    assert_eq!(events, [VtEvent::Acquired]);
+    let reads = console.0.borrow().shown_reads;
+    console.show(1);
+    turn(&mut lp, &mut data);
+    assert_eq!(console.0.borrow().shown_reads, reads, "no watch once open");
+}
+
+/// With seatd listening and its VT not shown, a vtium that cannot watch
+/// tty0's `active` cannot learn when its VT is shown. It logs an error and
+/// hangs up, which ends it, and never opens the seat on another VT.
+#[test]
+fn with_seatd_a_vt_shown_that_cannot_be_watched_hangs_up() {
+    for watch in [
+        ShownWatch::Absent,
+        ShownWatch::Missing,
+        ShownWatch::Unpollable,
+    ] {
+        let server = StandIn::new();
+        server.0.borrow_mut().seatd = true;
+        let console = FakeConsole::new(3, 1, KbMode::Unicode);
+        console.0.borrow_mut().shown_watch = watch;
+        let (mut lp, mut data) = start(&server, Some((console, 3)), untimed(50, 20));
+        turn(&mut lp, &mut data);
+        let events: Vec<VtEvent> = vt(&mut data).events().collect();
+        assert_eq!(events, [VtEvent::Hangup], "{watch:?}");
+        assert_eq!(opens(&server), 0, "{watch:?}");
+    }
+}
+
 /// At exit the seat goes back only from a switch vtium asked for. One
 /// that waited for its VT, as under `--no-switchvt`, asks the seat manager
 /// for no session, so the VT shown stays shown; one that asked for its VT
@@ -379,6 +477,7 @@ fn leaving_goes_back_only_from_a_switch_vtium_asked_for() {
     let server = StandIn::new();
     server.0.borrow_mut().seatd = true;
     let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
     let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), tries(50, 20));
     assert_eq!(ok(vt(&mut data).wait(), "wait"), Switch::Pending);
     console.show(3);
@@ -389,6 +488,7 @@ fn leaving_goes_back_only_from_a_switch_vtium_asked_for() {
     let server = StandIn::new();
     server.0.borrow_mut().seatd = true;
     let console = FakeConsole::new(3, 1, KbMode::Unicode);
+    console.0.borrow_mut().shown_watch = ShownWatch::Notifying;
     let (mut lp, mut data) = start(&server, Some((console.clone(), 3)), tries(50, 20));
     assert_eq!(ok(vt(&mut data).activate(), "activate"), Switch::Pending);
     console.run_worker();
@@ -809,7 +909,7 @@ fn a_keyboard_opened_through_the_seat_types_as_one_opened_directly() {
     assert_eq!(type_a(&mut input, &node, id), expected);
 }
 
-/// A keyboard the seat manager answers `ENODEV` and then `EBUSY` for waits,
+/// A keyboard the seat manager answers `EBUSY` for twice waits,
 /// with the loop serving a timer of the test's own meanwhile, and opens
 /// from the input's retry timer.
 // covers: platform.libseat
@@ -820,7 +920,7 @@ fn a_keyboard_the_seat_manager_is_not_ready_for_is_retried_from_the_loop() {
         .0
         .borrow_mut()
         .device_answers
-        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV, Errno::BUSY].into());
+        .insert(PathBuf::from(KEYBOARD), [Errno::BUSY, Errno::BUSY].into());
     let (mut lp, mut data) = start(&server, None, tries(50, 20));
     run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
     let (mut input, node) = keyboard_input(&mut data, true);
@@ -871,7 +971,7 @@ fn a_keyboard_refused_past_its_tries_is_dropped() {
         .0
         .borrow_mut()
         .device_answers
-        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV; 10].into());
+        .insert(PathBuf::from(KEYBOARD), [Errno::BUSY; 10].into());
     let (mut lp, mut data) = start(&server, None, tries(50, 3));
     run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
     let (mut input, _node) = keyboard_input(&mut data, true);
@@ -886,6 +986,28 @@ fn a_keyboard_refused_past_its_tries_is_dropped() {
             .is_some_and(|i| i.find(Path::new(KEYBOARD)).is_none())
     });
     assert_eq!(device_opens(&server, KEYBOARD), 3);
+    assert!(seat_devices(&server).is_empty());
+}
+
+/// A keyboard the seat manager answers `ENODEV` for is dropped at the add,
+/// with no retry: `ENODEV` from the seat manager means the device is gone.
+#[test]
+fn a_keyboard_the_seat_manager_answers_enodev_for_is_dropped_at_the_add() {
+    let server = StandIn::new();
+    server
+        .0
+        .borrow_mut()
+        .device_answers
+        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV].into());
+    let (mut lp, mut data) = start(&server, None, untimed(50, 20));
+    run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
+    let (mut input, _node) = keyboard_input(&mut data, true);
+    input.insert(&lp.handle(), |d: &mut Data| d.input.as_mut());
+    input.wake_up();
+    let kept = input.add(Path::new(KEYBOARD));
+    assert!(kept.is_none_or(|id| !input.waiting(id)), "no retry waits");
+    assert!(input.find(Path::new(KEYBOARD)).is_none());
+    assert_eq!(device_opens(&server, KEYBOARD), 1);
     assert!(seat_devices(&server).is_empty());
 }
 
@@ -970,7 +1092,7 @@ fn a_keyboard_unplugged_during_a_retry_leaves_no_tries_to_the_next_at_its_node()
         .0
         .borrow_mut()
         .device_answers
-        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV].into());
+        .insert(PathBuf::from(KEYBOARD), [Errno::BUSY].into());
     let (mut lp, mut data) = start(&server, None, tries(50, 3));
     run_until(&mut lp, &mut data, |d, _| vt(d).is_active());
     let (mut input, _node) = keyboard_input(&mut data, true);
@@ -987,7 +1109,7 @@ fn a_keyboard_unplugged_during_a_retry_leaves_no_tries_to_the_next_at_its_node()
         .0
         .borrow_mut()
         .device_answers
-        .insert(PathBuf::from(KEYBOARD), [Errno::NODEV, Errno::BUSY].into());
+        .insert(PathBuf::from(KEYBOARD), [Errno::BUSY, Errno::BUSY].into());
     let id = input
         .add(Path::new(KEYBOARD))
         .unwrap_or_else(|| panic!("the new keyboard is kept while it waits"));
