@@ -3045,6 +3045,7 @@ use vtium_testfont::ttf;
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
     use std::time::Instant;
     use vtium_font::Face;
     use vtium_font::set::{Set, SetFace};
@@ -3052,30 +3053,8 @@ mod tests {
     /// A directory of a test's own, `vtium-serve-<name>-<pid>` in the
     /// temporary directory, removed when the test ends, whether it passes
     /// or fails.
-    struct Scratch(PathBuf);
-
-    impl Scratch {
-        fn new(name: &str) -> Scratch {
-            let dir =
-                std::env::temp_dir().join(format!("vtium-serve-{name}-{}", std::process::id()));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
-            Scratch(dir)
-        }
-    }
-
-    impl std::ops::Deref for Scratch {
-        type Target = Path;
-
-        fn deref(&self) -> &Path {
-            &self.0
-        }
-    }
-
-    impl Drop for Scratch {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_dir_all(&self.0);
-        }
+    fn scratch(name: &str) -> Scratch {
+        Scratch::new(&format!("serve-{name}"))
     }
 
     /// Each frame in `bytes`, a glyph frame's payload without the band in
@@ -3528,7 +3507,7 @@ mod tests {
     // a bdf: source is parsed where the other fonts are, not as it is read
     #[test]
     fn a_bdf_source_is_parsed_when_the_frit_loads() {
-        let dir = Scratch::new("bdf");
+        let dir = scratch("bdf");
         let (good, bad) = (dir.join("good.bdf"), dir.join("bad.bdf"));
         std::fs::write(&good, crate::bdf::tests::bdf("")).unwrap();
         std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
@@ -3551,7 +3530,7 @@ mod tests {
     // out quietly, as a frit names fonts a machine may not install
     #[test]
     fn a_source_refused_is_a_warning_and_a_missing_one_is_not() {
-        let dir = Scratch::new("refused");
+        let dir = scratch("refused");
         let bad = dir.join("bad.bdf");
         std::fs::write(&bad, "STARTFONT 2.1\nCHARS 1\n").unwrap();
         let text = format!(
@@ -3582,7 +3561,7 @@ mod tests {
     // warning that names its window, the 16 MiB limit and what to do
     #[test]
     fn a_zstd_font_with_too_large_a_window_warns_how_to_fix_it() {
-        let dir = Scratch::new("window");
+        let dir = scratch("window");
         let wide = dir.join("wide.bdf.zst");
         let bdf = crate::bdf::tests::bdf("");
         std::fs::write(
@@ -3620,7 +3599,7 @@ mod tests {
     // into the codepoint's and the cluster's, each sent, and ends
     #[test]
     fn an_oversize_set_of_a_codepoint_and_clusters_is_cut_and_ends() {
-        let dir = Scratch::new("cut");
+        let dir = scratch("cut");
         let font = dir.join("shaping.ttf");
         std::fs::write(&font, super::ttf::test_shaping().build()).unwrap();
         let engine = Engine::load(
@@ -3677,7 +3656,7 @@ mod tests {
     // (issue 272, ADR-1302 D6)
     #[test]
     fn a_bitmap_font_scaled_33_times_is_answered_whole() {
-        let dir = Scratch::new("huge");
+        let dir = scratch("huge");
         let path = dir.join("8x16.psf");
         let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
         std::fs::write(&path, font).unwrap();
@@ -3727,7 +3706,7 @@ mod tests {
     // alone
     #[test]
     fn a_batch_of_large_glyphs_is_drawn_a_frame_at_a_time() {
-        let dir = Scratch::new("batch");
+        let dir = scratch("batch");
         let path = dir.join("8x16.psf");
         let font = crate::decode::tests::psf2(8, 16, 3, Some(&[(1, 'A'), (2, 'B')]));
         std::fs::write(&path, font).unwrap();
@@ -3775,7 +3754,7 @@ mod tests {
     /// The frit `t` whose sources are `sources`, each a PSF2 font written
     /// to a file of its own as `(width, height)`, or a source's spelling.
     fn psf_frit(name: &str, sources: &[Result<(u32, u32), &str>]) -> (FritText, Scratch) {
-        let dir = Scratch::new(name);
+        let dir = scratch(name);
         let mut text = String::new();
         for (i, source) in sources.iter().enumerate() {
             match source {
@@ -3854,7 +3833,7 @@ mod tests {
         text: &str,
         fonts: &[Result<super::ttf::Font, &str>],
     ) -> (FritText, Scratch) {
-        let dir = Scratch::new(name);
+        let dir = scratch(name);
         let mut text = text.to_owned();
         for (i, font) in fonts.iter().enumerate() {
             match font {
@@ -4800,7 +4779,7 @@ mod tests {
     fn the_helpers_landlock_domain_refuses_writes_and_the_network() {
         use std::os::linux::net::SocketAddrExt;
         use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
-        let dir = Scratch::new("landlock");
+        let dir = scratch("landlock");
         let existing = dir.join("existing");
         std::fs::write(&existing, b"font").unwrap();
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -4855,7 +4834,7 @@ mod tests {
     #[test]
     fn the_helpers_socket_filter_refuses_every_new_socket() {
         use std::os::unix::net::{UnixDatagram, UnixStream};
-        let dir = Scratch::new("sockets");
+        let dir = scratch("sockets");
         // qemu-user implements no seccomp, since a filter would bind qemu
         // itself, so there the test cannot judge the filter, and it skips
         // and says so

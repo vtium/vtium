@@ -703,6 +703,7 @@ pub fn load(env: &dyn Fn(&str) -> Option<String>) -> (Palette, Option<String>) {
 )]
 mod tests {
     use super::*;
+    use crate::scratch::Scratch;
 
     #[test]
     fn the_file_sets_each_role_and_the_rest_keep_the_console_set() {
@@ -956,8 +957,7 @@ mod tests {
 
     #[test]
     fn the_first_run_writes_the_file_once_where_xdg_says() {
-        let root = std::env::temp_dir().join(format!("vtium-config-colors-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&root);
+        let root = Scratch::new("config-colors");
         let xdg = root.join("config");
         let env = |name: &str| match name {
             "XDG_CONFIG_HOME" => Some(xdg.display().to_string()),
@@ -1006,7 +1006,6 @@ mod tests {
         assert!(note.is_some_and(|n| n.starts_with("Wrote the color sets")));
         let text = std::fs::read_to_string(&file).expect("the file");
         assert_eq!(text, format!("draft = north\n\n{}", template()));
-        let _ = std::fs::remove_dir_all(&root);
         // with no HOME and no XDG_CONFIG_HOME there is no file to read
         assert_eq!(load(&|_: &str| None), (Palette::console(), None));
     }
