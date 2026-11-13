@@ -66,6 +66,27 @@ pub struct Live {
     pub matches: bool,
 }
 
+/// The fonts a picture's text is drawn in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Typeface {
+    /// The console's built-in face, GNU Unifont in 8×16 cells, as the
+    /// console draws with no font set.
+    Unifont,
+    /// Tier 2's scripts font set, for a screen that shows Arabic: Iosevka
+    /// Term in its own cell at 40 pixels, with Noto Sans Arabic behind it.
+    Scripts,
+}
+
+impl Typeface {
+    /// The name the manifest gives it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Typeface::Unifont => "unifont",
+            Typeface::Scripts => "tier2-scripts",
+        }
+    }
+}
+
 /// One picture and what judged it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Shot {
@@ -74,6 +95,11 @@ pub struct Shot {
     pub dump: Option<Dump>,
     pub width: u32,
     pub height: u32,
+    /// The fonts the picture is drawn in.
+    pub typeface: Typeface,
+    /// The size in pixels of one character cell of the picture; `(0, 0)`
+    /// when there is no picture.
+    pub cell: (u32, u32),
     /// The reason the provisional list gives, when it names the case or
     /// the scenario: its golden then judges nothing in `conformance run`.
     pub provisional: Option<String>,
@@ -137,9 +163,9 @@ fn optional(text: Option<&str>) -> String {
     text.map_or_else(|| "null".to_owned(), string)
 }
 
-/// The manifest of `shots`, `manifest.json`: the cell size the pictures
-/// are drawn in, and each picture in order. The same shots give the same
-/// bytes.
+/// The manifest of `shots`, `manifest.json`: the cell size and the font
+/// a picture that shows no Arabic is drawn in, and each picture in order,
+/// with its own cell and font. The same shots give the same bytes.
 pub fn json(shots: &[Shot]) -> String {
     let mut out = String::from("{\n  \"cell\": [8, 16],\n  \"font\": \"unifont\",\n");
     out.push_str("  \"pictures\": [");
@@ -161,6 +187,8 @@ pub fn json(shots: &[Shot]) -> String {
         }
         out.push_str(&format!("      \"width\": {},\n", s.width));
         out.push_str(&format!("      \"height\": {},\n", s.height));
+        out.push_str(&format!("      \"cell\": [{}, {}],\n", s.cell.0, s.cell.1));
+        out.push_str(&format!("      \"font\": {},\n", string(s.typeface.name())));
         out.push_str(&format!(
             "      \"provisional\": {},\n",
             optional(s.provisional.as_deref())
@@ -252,6 +280,8 @@ mod tests {
                 dump: None,
                 width: 96,
                 height: 64,
+                typeface: Typeface::Unifont,
+                cell: (8, 16),
                 provisional: Some("#32: \"frames\"; not reviewed yet".to_owned()),
                 goldens: vec![
                     Judged {
@@ -291,8 +321,10 @@ mod tests {
                     command: "dump screen".to_owned(),
                     line: 9,
                 }),
-                width: 80,
-                height: 32,
+                width: 480,
+                height: 80,
+                typeface: Typeface::Scripts,
+                cell: (16, 40),
                 provisional: None,
                 goldens: vec![Judged {
                     view: "transcript".to_owned(),
@@ -321,6 +353,8 @@ mod tests {
       "dump": null,
       "width": 96,
       "height": 64,
+      "cell": [8, 16],
+      "font": "unifont",
       "provisional": "#32: \"frames\"; not reviewed yet",
       "matches": false,
       "error": null,
@@ -339,8 +373,10 @@ mod tests {
       "group": "scenarios",
       "name": "key-function",
       "dump": {"number": 2, "of": 3, "command": "dump screen", "line": 9},
-      "width": 80,
-      "height": 32,
+      "width": 480,
+      "height": 80,
+      "cell": [16, 40],
+      "font": "tier2-scripts",
       "provisional": null,
       "matches": true,
       "error": null,

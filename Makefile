@@ -689,13 +689,14 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 # cases, and every behaviour scenario, through vtium-replay's code, checks
 # each against its goldens, and draws the terminal through vtium's renderer
 # into PNGs with a manifest (tools/conformance/README.md, "Tier 1's
-# pictures"). OUT must be new, empty or an earlier run's output.
+# pictures"). A screen that shows Arabic draws in tier 2's scripts font
+# set, which make tier2-fonts fetches. OUT must be new, empty or an earlier run's output.
 # tier1-play is each picture's live path: it plays one case or scenario in
 # this terminal from the same replay, one screen at a time, so a vtium
 # console draws each screen itself.
 TIER1_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tier1-shots)
 .PHONY: tier1-shots tier1-play
-tier1-shots: ## Draw every tier 1 golden as a PNG through vtium's renderer in unifont, with manifest.json, into OUT=DIR (default target/tier1-shots)
+tier1-shots: ## Draw every tier 1 golden as a PNG through vtium's renderer in unifont, and Arabic in tier 2's scripts fonts, with manifest.json, into OUT=DIR (default target/tier1-shots)
 	cargo build --release -p vtium-tier1-shots --features draw --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier1-shots $(TIER1_SHOTS)
 

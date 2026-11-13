@@ -7,7 +7,9 @@
 //! and of vtium's own cases through vtium-replay's code, with its test
 //! commands and the fixture host, and checks the replay's output against
 //! the case's goldens. It then draws the terminal the replay leaves, text
-//! and pictures, in unifont at 8×16. For each behaviour scenario it draws
+//! and pictures, through the console's built-in face, unifont at 8×16. A
+//! screen that shows Arabic draws in tier 2's scripts font set instead,
+//! so its letters join ([`shoot`]). For each behaviour scenario it draws
 //! each screen the scenario dumps, in order, and checks the scenario's
 //! transcript. A picture whose output differs from its golden is still
 //! drawn, and the manifest and the report list the lines that differ.

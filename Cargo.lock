@@ -1050,8 +1050,11 @@ dependencies = [
 name = "vtium-tier1-shots"
 version = "0.1.0-alpha.7"
 dependencies = [
+ "vtium",
  "vtium-conformance",
+ "vtium-font",
  "vtium-platform",
+ "vtium-render",
  "vtium-specimens",
  "vtium-term",
  "vtium-tier2",
