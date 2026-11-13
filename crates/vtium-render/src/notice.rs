@@ -259,65 +259,64 @@ impl Drawing {
 }
 
 /// A picture of a few colors that vtium carries in its own code, such as
-/// the panic screen's Tux: palette indices, with no compressed format to
-/// decode.
+/// the panic screen's Tux: its RGB samples, uncompressed, each pixel drawn
+/// as the entry of its palette that it matches.
 #[cfg(feature = "images")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Sprite {
     width: u32,
     height: u32,
     palette: &'static [Rgb],
-    rows: &'static [u8],
+    samples: &'static [u8],
 }
 
 #[cfg(feature = "images")]
 impl Sprite {
-    /// A sprite `width` by `height` pixels of `rows`: row by row, each
-    /// pixel an ASCII digit that names its entry in `palette`, and each row
-    /// ended by a newline.
+    /// A sprite `width` by `height` pixels of `samples`: row by row, three
+    /// bytes a pixel, red, green and blue, as a binary PPM holds them past
+    /// its header. Each pixel draws as the entry of `palette` it matches.
     pub const fn new(
         width: u32,
         height: u32,
         palette: &'static [Rgb],
-        rows: &'static [u8],
+        samples: &'static [u8],
     ) -> Sprite {
         Sprite {
             width,
             height,
             palette,
-            rows,
+            samples,
         }
     }
 
-    /// The color of the pixel at `x`, `y`: `None` past the sprite's edge,
-    /// and for a byte that names no entry of its palette.
-    pub fn get(&self, x: u32, y: u32) -> Option<Rgb> {
+    /// The entry of the palette that the pixel at `x`, `y` matches: `None`
+    /// past the sprite's edge or its samples' end, and for a color that is
+    /// no entry of its palette.
+    pub fn entry(&self, x: u32, y: u32) -> Option<usize> {
         if x >= self.width || y >= self.height {
             return None;
         }
         let at = u64::from(y)
-            .checked_mul(u64::from(self.width).checked_add(1)?)?
-            .checked_add(u64::from(x))?;
-        let digit = self.rows.get(usize::try_from(at).ok()?)?;
-        let entry = usize::from(digit.checked_sub(b'0')?);
-        self.palette.get(entry).copied()
+            .checked_mul(u64::from(self.width))?
+            .checked_add(u64::from(x))?
+            .checked_mul(3)?;
+        let at = usize::try_from(at).ok()?;
+        let rgb = self.samples.get(at..at.checked_add(3)?)?;
+        self.palette.iter().position(|c| [c.r, c.g, c.b] == rgb)
     }
 
-    /// Whether every pixel names an entry of the palette and every row
-    /// ends where its width says.
+    /// The color of the pixel at `x`, `y`: its entry of the palette, as
+    /// [`Sprite::entry`] finds it.
+    pub fn get(&self, x: u32, y: u32) -> Option<Rgb> {
+        self.palette.get(self.entry(x, y)?).copied()
+    }
+
+    /// Whether the samples hold exactly the sprite's pixels and every
+    /// pixel matches an entry of the palette.
     pub fn is_whole(&self) -> bool {
-        let row = usize::try_from(self.width).unwrap_or(usize::MAX);
-        let rows = usize::try_from(self.height).unwrap_or(usize::MAX);
-        let lines: Vec<&[u8]> = self.rows.split(|&b| b == b'\n').collect();
-        lines.len() == rows.saturating_add(1)
-            && lines.last().is_some_and(|l| l.is_empty())
-            && lines.iter().take(rows).all(|l| {
-                l.len() == row
-                    && l.iter().all(|&b| {
-                        b.checked_sub(b'0')
-                            .is_some_and(|e| usize::from(e) < self.palette.len())
-                    })
-            })
+        let pixels = u64::from(self.width).saturating_mul(u64::from(self.height));
+        u64::try_from(self.samples.len()).ok() == Some(pixels.saturating_mul(3))
+            && (0..self.height).all(|y| (0..self.width).all(|x| self.entry(x, y).is_some()))
     }
 }
 
@@ -1491,18 +1490,17 @@ mod tests {
         );
     }
 
-    /// A stand-in sprite 80 by 80 in two colors: its top left pixel and
-    /// every pixel on its diagonal 1, red, and the rest 0, blue.
+    /// A stand-in sprite 80 by 80 in two colors: every pixel on its
+    /// diagonal red, and the rest blue.
     #[cfg(feature = "images")]
     fn sprite() -> Sprite {
         static PALETTE: [Rgb; 2] = [Rgb::new(0, 0, 0xff), Rgb::new(0xff, 0, 0)];
-        let rows: String = (0..80)
-            .map(|y| {
-                let row: String = (0..80).map(|x| if x == y { '1' } else { '0' }).collect();
-                format!("{row}\n")
+        let samples: Vec<u8> = (0..80)
+            .flat_map(|y| {
+                (0..80).flat_map(move |x| if x == y { [0xff, 0, 0] } else { [0, 0, 0xff] })
             })
             .collect();
-        Sprite::new(80, 80, &PALETTE, String::leak(rows).as_bytes())
+        Sprite::new(80, 80, &PALETTE, samples.leak())
     }
 
     // ADR-1401 D7: a build with image support draws the sprite in the
@@ -1595,21 +1593,24 @@ mod tests {
         );
     }
 
-    // a sprite whose rows are cut short, or whose digit names no entry of
-    // its palette, draws nothing there and is not whole
+    // a sprite whose samples end early, or whose pixel matches no entry
+    // of its palette, draws nothing there and is not whole
     #[cfg(feature = "images")]
     #[test]
     fn a_sprite_draws_only_what_its_palette_names() {
         static PALETTE: [Rgb; 1] = [Rgb::new(1, 2, 3)];
-        let short = Sprite::new(2, 2, &PALETTE, b"00\n0");
+        let short = Sprite::new(2, 2, &PALETTE, &[1, 2, 3, 1, 2, 3, 1, 2, 3, 1, 2]);
         assert!(!short.is_whole());
         assert_eq!(short.get(1, 0), Some(Rgb::new(1, 2, 3)));
+        assert_eq!(short.get(0, 1), Some(Rgb::new(1, 2, 3)));
         assert_eq!(short.get(1, 1), None);
         assert_eq!(short.get(2, 0), None);
-        let unnamed = Sprite::new(2, 1, &PALETTE, b"01\n");
+        let unnamed = Sprite::new(2, 1, &PALETTE, &[1, 2, 3, 1, 2, 4]);
         assert!(!unnamed.is_whole());
+        assert_eq!(unnamed.entry(0, 0), Some(0));
         assert_eq!(unnamed.get(1, 0), None);
-        assert!(Sprite::new(2, 1, &PALETTE, b"00\n").is_whole());
+        assert!(Sprite::new(2, 1, &PALETTE, &[1, 2, 3, 1, 2, 3]).is_whole());
+        assert!(!Sprite::new(2, 1, &PALETTE, &[1, 2, 3, 1, 2, 3, 1, 2, 3]).is_whole());
     }
 
     // ADR-1401 D7: the notice draws the drawing's characters in its font,

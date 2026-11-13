@@ -123,13 +123,13 @@ pub fn panic_one_screen() -> Result<Notice, String> {
 /// The panic screen in a build with image support, which draws the sprite
 /// in the place of the drawing in text.
 pub fn panic_images_screen() -> Result<Notice, String> {
-    panic_shown(BROKEN_CLOSED, sprite_drawing())
+    panic_shown(BROKEN_CLOSED, sprite_drawing()?)
 }
 
 /// The panic screen of a closed vtium.conf with one error, in a build with
 /// image support.
 pub fn panic_images_one_screen() -> Result<Notice, String> {
-    panic_shown(ONE_ERROR_CLOSED, sprite_drawing())
+    panic_shown(ONE_ERROR_CLOSED, sprite_drawing()?)
 }
 
 /// The drawing a build without image support shows (ADR-1401 D7).
@@ -139,14 +139,15 @@ fn text_drawing() -> vtium_render::Drawing {
 
 /// The drawing a build with image support shows (ADR-1401 D7): tier 2
 /// builds vtium without the feature, so it names the sprite itself.
-fn sprite_drawing() -> vtium_render::Drawing {
-    use notice::penguin::{PALETTE, SPRITE, SPRITE_SIZE};
-    text_drawing().with_sprite(vtium_render::Sprite::new(
+fn sprite_drawing() -> Result<vtium_render::Drawing, String> {
+    use notice::penguin::{PALETTE, SPRITE_SIZE, samples};
+    let samples = samples().ok_or("the sprite's PPM has another header")?;
+    Ok(text_drawing().with_sprite(vtium_render::Sprite::new(
         SPRITE_SIZE.0,
         SPRITE_SIZE.1,
         &PALETTE,
-        SPRITE,
-    ))
+        samples,
+    )))
 }
 
 /// The panic screen of the vtium.conf `file`, showing `drawing`.

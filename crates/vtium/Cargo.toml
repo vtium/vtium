@@ -76,7 +76,3 @@ vtium-config = { path = "../vtium-config" }
 # The stand-in programs the tests write and copy, put in place so that
 # the kernel never refuses to run one as busy.
 vtium-testscript = { path = "../../tools/testscript" }
-# The PNG the panic screen's sprite comes from, which `tests/panic_sprite.rs`
-# reads to check the sprite's palette indices pixel for pixel. The image
-# helper links the same version; vtium itself decodes no PNG.
-png = "=0.18.1"

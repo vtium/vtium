@@ -8,10 +8,12 @@
 //! monitor cropped from it, 21 columns by 10 rows. A build with image
 //! support draws the maintainer's 80x80 sprite in their place. vtium's
 //! root process decodes no compressed image, so the sprite is compiled in
-//! as palette indices, [`SPRITE`], and a palette of six colors,
-//! [`PALETTE`]. `tests/panic_sprite.rs` checks each pixel of the indices
-//! against the maintainer's PNG, `art/panic-penguin-80x80-oO.png`, which
-//! no build reads, and writes the indices the PNG gives when they differ.
+//! as a binary PPM, [`PPM`]: a short header, then its RGB samples,
+//! uncompressed. When the notice draws the sprite, it matches each
+//! pixel's color to its entry in [`PALETTE`], six colors.
+//! `tests/panic_sprite.rs` checks that the PPM is 80x80, that every pixel
+//! is one of the palette's colors, and that the palette has no entry the
+//! sprite does not use.
 
 use vtium_term::Rgb;
 
@@ -25,7 +27,7 @@ pub const SMALL: &str = include_str!("../../art/panic-penguin-aaron-small.txt");
 /// The sprite's width and height in pixels.
 pub const SPRITE_SIZE: (u32, u32) = (80, 80);
 
-/// The sprite's colors, in the order its indices name them: black, white,
+/// The sprite's colors, the six its pixels match, in this order: black, white,
 /// gray, beak orange, mouth dark red and tongue pink.
 pub static PALETTE: [Rgb; 6] = [
     Rgb::new(0, 0, 0),
@@ -36,25 +38,41 @@ pub static PALETTE: [Rgb; 6] = [
     Rgb::new(240, 120, 150),
 ];
 
-/// The sprite, row by row: each pixel an ASCII digit naming its entry in
-/// [`PALETTE`], and each row ended by a newline.
-pub static SPRITE: &[u8] = include_bytes!("../../art/panic-penguin-80x80-oO-indices.txt");
+/// The sprite as a binary PPM (P6): [`PPM_HEADER`], then its pixels row
+/// by row, three bytes each, red, green and blue.
+pub static PPM: &[u8] = include_bytes!("../../art/panic-penguin-80x80-oO.ppm");
+
+/// The header [`PPM`] begins with: P6, 80 by 80 pixels, samples up to 255.
+pub const PPM_HEADER: &[u8] = b"P6\n80 80\n255\n";
+
+/// The sprite's RGB samples, [`PPM`] past its header: `None` for a PPM
+/// that does not begin with [`PPM_HEADER`].
+pub fn samples() -> Option<&'static [u8]> {
+    PPM.strip_prefix(PPM_HEADER)
+}
 
 /// The drawing this build shows on the panic screen: the ASCII drawing,
 /// and in a build with image support the sprite in its place.
 pub fn drawing() -> vtium_render::Drawing {
     let drawing = vtium_render::Drawing::text(FULL, SMALL);
     #[cfg(feature = "images")]
-    let drawing = drawing.with_sprite(vtium_render::Sprite::new(
-        SPRITE_SIZE.0,
-        SPRITE_SIZE.1,
-        &PALETTE,
-        SPRITE,
-    ));
+    let drawing = match samples() {
+        Some(samples) => drawing.with_sprite(vtium_render::Sprite::new(
+            SPRITE_SIZE.0,
+            SPRITE_SIZE.1,
+            &PALETTE,
+            samples,
+        )),
+        None => drawing,
+    };
     drawing
 }
 
 #[cfg(test)]
+#[cfg_attr(
+    feature = "images",
+    expect(clippy::expect_used, reason = "a test fails by panicking")
+)]
 mod tests {
     use super::*;
 
@@ -98,18 +116,11 @@ mod tests {
         assert_eq!(found, Some((2, 6)));
     }
 
-    // the sprite's indices are 80 rows of 80, each naming an entry of the
-    // six-color palette
+    // the PPM begins with the header the drawing strips, and holds 80 by
+    // 80 pixels of three samples each past it
     #[test]
-    fn the_sprite_is_80_by_80_palette_indices() {
-        assert_eq!(SPRITE.len(), 80 * 81);
-        let rows: Vec<&[u8]> = SPRITE.split(|&b| b == b'\n').collect();
-        assert_eq!(rows.len(), 81, "80 rows, each ended by a newline");
-        assert!(
-            rows.iter()
-                .take(80)
-                .all(|r| r.len() == 80 && r.iter().all(|b| (b'0'..b'6').contains(b)))
-        );
+    fn the_sprite_is_an_80_by_80_ppm() {
+        assert_eq!(samples().map(<[u8]>::len), Some(80 * 80 * 3));
     }
 
     // ADR-1401 D7: the panic screen carries the drawing this build shows,
@@ -122,7 +133,8 @@ mod tests {
         let text = vtium_render::Drawing::text(FULL, SMALL);
         #[cfg(feature = "images")]
         let want = {
-            let sprite = vtium_render::Sprite::new(80, 80, &PALETTE, SPRITE);
+            let sprite =
+                vtium_render::Sprite::new(80, 80, &PALETTE, samples().expect("the samples"));
             assert!(sprite.is_whole());
             assert_eq!(sprite.get(0, 0), Some(Rgb::new(0, 0, 0)));
             text.with_sprite(sprite)
