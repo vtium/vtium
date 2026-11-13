@@ -62,6 +62,8 @@ To see why, run `vtium check-config /etc/vtium/vtium.conf`. Fix the file, then r
 
 ### vtium.conf has errors and counts as closed: all input is off.
 
+![vtium's panic screen on the boot display, 800×480 pixels. A pale red box across the top of an otherwise black screen holds the report: "vtium.conf has errors and counts as closed: all input is off." and "No head can run because of the errors in /etc/vtium/vtium.conf, listed below." Then three errors, each starting with the file and its line: line 4 has no key named "focs", line 5's head section cannot set `font-size`, and line 7's rule sends devices to head "kisok", which the file does not declare. Then "More errors: 1", and last, "This console takes no input. For the full report, run vtium check-config /etc/vtium/vtium.conf over ssh or from other boot media."](../figures/concepts-panic.png)
+
 This is the panic screen. vtium shows it when the file is closed and its errors leave no head that can run. A file is closed when it says `policy = closed`. A file is also closed when vtium cannot read one of its policy lines, such as `policy = opne`. See [Invalid files](../head-file.md#invalid-files) for the lines that count as policy lines.
 
 vtium then runs nothing. It turns on the boot display and shows this screen there for as long as it runs. The screen lists the file's first three errors, each with its line, and it counts the rest. No keyboard types into anything. vtium does not open the keyboards at all, so no key switches to another VT either.
