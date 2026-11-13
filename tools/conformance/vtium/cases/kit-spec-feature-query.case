@@ -1,0 +1,27 @@
+# A program's detection of kitty graphics: a plain query, then feature
+# queries with the e key, then DA1. Every graphics reply arrives before
+# the DA1 reply. The spec says that a feature query in the middle of a
+# chunked upload leaves the upload to finish.
+#
+# References: ADR-1100 D13 and D14.
+# spec: kitty graphics protocol, "Querying support and available transmission mediums" and "Querying support for protocol features"
+# covers: image.kitty
+size 12 2
+
+# The spec's detection sequence: a query, two feature queries and DA1.
+send "\e_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\e\\"
+send "\e_Ga=q,i=32,e=T,U=1\e\\"
+send "\e_Ga=q,i=33,e=f\e\\"
+send "\e[c"
+dump
+
+# The spec's two worked feature queries.
+send "\e_Ga=q,i=34,e=T,U=1,C=1\e\\"
+send "\e_Ga=q,i=35,e=f,r=1,X=1\e\\"
+dump
+
+# A chunked upload of image 40, two pixels of RGB, with a feature query
+# between its chunks. The spec says the upload then finishes and is placed.
+send "\e_Ga=T,f=24,s=2,v=1,i=40,C=1,m=1;AAD/\e\\"
+send "\e_Ga=q,i=41,e=T\e\\"
+send "\e_Gm=0;/wAA\e\\"

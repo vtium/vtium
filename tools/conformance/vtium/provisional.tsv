@@ -91,3 +91,12 @@ wide-edges	an imported scenario, judged by Unicode UAX #11 (East Asian width); A
 alt-1047-1048	an imported scenario, judged by ctlseqs, DECSET 47, 1047 and 1048; not reviewed yet
 alt-bce	an imported scenario, judged by ctlseqs, DECSET 47 and 1049; terminfo(5), bce; not reviewed yet
 alt-cursor-origin	an imported scenario, judged by ctlseqs, DECSET 1048 and 1049; the VT510 manual, DECSC and DECRC; not reviewed yet
+kit-spec-indexed	derived from the kitty graphics protocol's published specification, "Indexed color data", and ADR-1100 D15; not reviewed yet
+kit-spec-feature-query	derived from the kitty graphics protocol's published specification, "Querying support for protocol features"; not reviewed yet
+kit-spec-placeholder-ids	derived from the kitty graphics protocol's published specification, "Unicode placeholders", and ADR-1100 D13; not reviewed yet
+kit-spec-placeholder-deletes	derived from the kitty graphics protocol's published specification, "Unicode placeholders" and "Deleting images"; not reviewed yet
+kit-spec-relative-virtual	derived from the kitty graphics protocol's published specification, "Relative placements", and ADR-1100 D13; not reviewed yet
+kit-spec-ids	derived from the kitty graphics protocol's published specification, "Display images on screen" and "Requesting image ids from the terminal"; not reviewed yet
+kit-spec-anim-numbers	derived from the kitty graphics protocol's published specification, "Animation", and ADR-1102; not reviewed yet
+kit-spec-transient	derived from the kitty graphics protocol's published specification, "Usage hints", and ADR-1100 D5; not reviewed yet
+kit-spec-refusals	derived from the kitty graphics protocol's published specification, "Transferring pixel data" and "Suppressing responses from the terminal", and ADR-1100 D15; not reviewed yet
