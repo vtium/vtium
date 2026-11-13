@@ -35,13 +35,14 @@ pub(crate) struct VtHeads {
 
 impl VtHeads {
     /// The heads of `rules` that the vtium on VT `vt` builds: the default
-    /// head alone where the policy table gives the built-in default
-    /// ([`Config::uses_builtin_on`]), and else the heads that run on `vt`,
+    /// head alone where the policy table gives the built-in default, or
+    /// where what survives of an open file with errors runs no head on `vt`
+    /// ([`Config::default_head_on`]), and else the heads that run on `vt`,
     /// none on a VT where no head of the file runs. With no VT every head
     /// runs.
     pub(crate) fn new(rules: &Config, vt: Option<u16>) -> VtHeads {
         let (file, default) = match vt {
-            Some(vt) if rules.uses_builtin_on(vt) => (Vec::new(), true),
+            Some(vt) if rules.default_head_on(vt) => (Vec::new(), true),
             Some(vt) => (rules.heads_on_vt(vt), false),
             None => {
                 let every = (0..rules.heads.len()).collect::<Vec<_>>();

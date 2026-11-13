@@ -1,0 +1,12 @@
+#!/bin/sh
+# PID 1 on the guest's busybox boot: grub's t3-busybox entry starts this
+# script with init=. busybox init reads only /etc/inittab, which holds
+# sysvinit's lines, so the script binds busybox init's own inittab over that
+# file first. The root filesystem is still read-only here, which a bind
+# mount does not need to write. Then the script becomes busybox init, and
+# busybox keeps PID 1.
+if ! /bin/busybox mount -n -o bind /etc/inittab.busybox /etc/inittab; then
+    echo "t3-busybox-init: cannot bind /etc/inittab.busybox over /etc/inittab" >&2
+    exit 1
+fi
+exec /bin/busybox init

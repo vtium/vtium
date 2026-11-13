@@ -1,26 +1,14 @@
 # Deployment and start-up
 
-The figure follows vtium from the package that installs it to the user's session.
+The figure below follows vtium from the package that installs it to your session. The color of each box says who takes that step. On the right, the figure shows what happens when vtium fails.
 
-```mermaid
-flowchart LR
-    PKG["a distribution<br>package installs<br>vtium"] --> INIT["init or logind<br>starts vtium<br>on a VT"]
-    INIT --> TAKE["vtium takes<br>the VT, the display<br>and the input"]
-    TAKE --> PTY["vtium starts<br>login in a pty"]
-    PTY --> USE["the user's<br>session"]
-    classDef step fill:#2d7d9a,color:#ffffff,stroke:#94a3b8
-    classDef core fill:#7c3aed,color:#ffffff,stroke:#94a3b8
-    classDef user fill:#475569,color:#ffffff,stroke:#94a3b8
-    class PKG,INIT,PTY step
-    class TAKE core
-    class USE user
-```
+![vtium from the package to your session, as a column of steps. A distribution package installs vtium's programs, its units, its terminfo entry and an example vtium.conf, and its install script gives vtium every free VT. systemd starts vtium at boot on each VT that vtium has. logind starts vtium when you switch to one of those VTs and no vtium runs there. On another init system, an inittab line or a supervisor starts vtium. Then four steps run inside vtium, as root. vtium reads vtium.conf, and if it cannot use all of the file, it runs what it can and shows a notice. vtium opens its VT and tells systemd that it is ready. vtium takes over the VT's switches, and systemd starts a display manager only after this. vtium opens the keyboards and pointers, only those a rule names under the closed policy, and waits for its VT to be shown. vtium takes the display, and waits for a display for up to display-wait. Once a display is set up, vtium starts login in a pty. login shows its prompt, then starts your shell, and vtium starts login again when it exits. On the right, vtium exits with status 1, for example under the open policy when no display appears in time, or when sessions end too fast. Under the open policy, vtium-getty@ then starts a getty on the VT, so you get a login prompt. Under the closed policy, no getty starts, and systemd starts vtium again, at most 5 starts in 10 s.](../figures/concepts-start-up-path.svg)
 
 ## Deployment
 
 A distribution package installs vtium's programs, its service unit, its terminfo entry, and its example configuration. Where the package ships frits (font set files), it installs those too. Nothing is built at install time. The console generates a frit's glyphs while it runs.
 
-On a machine that runs systemd, vtium's service unit takes the place of getty. getty is the program that shows the login prompt on a VT. When you enable vtium's unit, logind starts vtium on each VT where it would have started a getty.
+On a machine that runs systemd, vtium's service unit takes the place of getty. getty is the program that shows the login prompt on a VT. `vtium console enable` gives VTs to vtium's unit, and the package's install script runs that command for every free VT. systemd then starts vtium at boot on each of those VTs. logind starts vtium again when you switch to one of them and no vtium runs there.
 
 Sometimes vtium cannot start, for example because no display appears. Then vtium exits with a failure, and the unit starts getty on that VT instead. That way, a user is never left at a dead screen.
 

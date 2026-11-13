@@ -10,6 +10,16 @@ through the seat as 2d-potato-min does, and are judged by its goldens
 shows that the seat opened, that each keyboard opened through the seat
 manager, and that vtium never fell back to the kernel's VT.
 
+The variant seat-seatd-wait also runs the two waits of a vtium that opens
+the seat through seatd. Its check `seat-shown` starts vtium on tty4 while
+tty2 is shown, and passes once that vtium opens the seat at the switch to
+tty4, which tty0's `active` attribute reports, and draws its login prompt.
+Its check `seat-busy` has another seatd client hold the seat on tty8 and
+starts vtium there. The agent ends the client once seatd has refused vtium
+three times. The check passes when vtium had not opened the seat by then,
+logs that the seat was busy, opens it after the client ends, and draws its
+login prompt.
+
 The panic variant crashes the guest's kernel with `echo c >
 /proc/sysrq-trigger`, through the agent (guest/t3-agent), while vtium shows
 its login prompt. Its check `kernel-panic` keeps the screen that the panic leaves
@@ -26,6 +36,7 @@ captured at the count's first value (first_count).
 """
 
 import os
+import re
 import time
 
 from t3_qemu import not_blank, wait_stable
@@ -74,6 +85,15 @@ CHECKS = {
                   "each of VTs 2 to 6 in turn, and each VT's own vtium, started at boot while "
                   "its VT was not shown, sets up the display and draws a screen that is not "
                   "blank. The log gives each vtium's resident memory.",
+    "seat-shown": "vtium built with libseat on seatd, started on tty4 while tty2 is shown, "
+                  "then shown with Ctrl+Alt+F4. Correct: the vtium on tty4 logs that it waits "
+                  "for its VT to be shown, logs that VT 4 is shown and opens the seat at the "
+                  "switch, which tty0's active attribute reports, and draws its login prompt.",
+    "seat-busy": "vtium built with libseat on seatd, started on tty8 while another seatd client "
+                 "holds the seat there. Correct: seatd refuses that vtium three times while the "
+                 "client holds the seat, and the vtium has not opened the seat by then; the "
+                 "vtium logs that the seat is busy, opens it once the client has ended, without "
+                 "a restart, and draws its login prompt.",
     "kernel-panic": "The display after echo c > /proc/sysrq-trigger, while vtium shows its login "
              "prompt on tty2. It judges nothing of the picture: the capture is the evidence "
              "of what a person sees at a kernel panic while vtium holds the VT. Correct: the "
@@ -109,6 +129,14 @@ SEAT_OPEN = "seat: the seat seat0 is open"
 SEAT_DIRECT = ("seat: vtium is in no logind session of its own, so it takes the seat from "
                "seatd alone, and never from logind")
 SEAT_KERNEL = "seat: no seat manager answered"
+# seat.rs's lines while vtium waits for its VT to be shown, at the switch
+# that shows it, and while another client holds the seat.
+SEAT_WAITS = "seat: seatd listens: the seat opens once the VT is shown"
+SEAT_SHOWN = "seat: VT %d is shown, so vtium opens the seat now"
+SEAT_BUSY = "seat: the seat is busy, waiting for its previous client to let it go"
+# The prefix systemd gives each line of vtium's on the console, which names
+# its PID.
+VTIUM_PID = re.compile(r"vtium\[(\d+)\]: ")
 INPUT_USED = "input: using /dev/input/"
 INPUT_THROUGH = "through the seat manager"
 
@@ -133,6 +161,135 @@ def seat_verdict(serial):
     if direct:
         return "these devices did not open through the seat manager: %s" % ", ".join(direct)
     return None
+
+
+def vtium_line(text, message, pid=None):
+    """The first line of the console log `text` in which a vtium, or the
+    vtium of PID `pid`, logs `message`, as (line, PID), or None."""
+    for line in text.splitlines():
+        m = VTIUM_PID.search(line)
+        if m and message in line[m.end():] and pid in (None, int(m.group(1))):
+            return line.strip(), int(m.group(1))
+    return None
+
+
+def open_log(vm):
+    """`vm`'s console log so far, as bytes."""
+    with open(vm.serial, "rb") as f:
+        return f.read()
+
+
+def log_size(vm):
+    """The bytes of `vm`'s console log so far, from which a wait reads."""
+    return len(open_log(vm))
+
+
+def wait_vtium_line(vm, message, since, timeout, pid=None):
+    """The first whole line after byte `since` of `vm`'s console log in which
+    a vtium, or the vtium of PID `pid`, logs `message`, as (line, PID).
+    Raises RuntimeError when none comes within `timeout` seconds."""
+    deadline = time.time() + timeout
+    while True:
+        data = open_log(vm)[since:]
+        found = vtium_line(data[:data.rfind(b"\n") + 1].decode(errors="replace"), message, pid)
+        if found:
+            return found
+        if vm.proc.poll() is not None or time.time() > deadline:
+            who = "vtium" if pid is None else "vtium %d" % pid
+            raise RuntimeError("%s never logged %r within %d s" % (who, message, timeout))
+        time.sleep(0.2)
+
+
+def check_seat_shown(v, vm, work, caps, errors, log):
+    """The seat-shown check (CHECKS): vtium started on tty4 while tty2 is
+    shown waits for its VT, and opens the seat at the switch to tty4."""
+    case = "seat-shown"
+    try:
+        since = log_size(vm)
+        log("%s: %s" % (case, "; ".join(vm.ask("seat-wait"))))
+        _, pid = wait_vtium_line(vm, SEAT_WAITS, since, 60)
+        log("%s: vtium %d waits for VT 4 to be shown" % (case, pid))
+        vm.keys("ctrl", "alt", "f4")
+        wait_vtium_line(vm, SEAT_SHOWN % 4, since, 60, pid)
+        wait_vtium_line(vm, SEAT_OPEN, since, 60, pid)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    except RuntimeError as e:
+        errors[case] = str(e)
+        return
+    log("%s: vtium %d opened the seat at the switch to VT 4" % (case, pid))
+    caps[case] = path
+
+
+# How many times seatd must refuse vtium while the client holds the seat,
+# vtium's first open and two of its retries, before the agent ends the
+# client (guest/t3-agent, seat-hold).
+HOLD_REFUSALS = 3
+
+
+def parse_hold(answer):
+    """The agent's answer to `seat-hold` as a dict: "held" and "released"
+    the client's PID, "refusals" the refusals seatd logged while the client
+    held the seat, "vtium" vtium's PID, "opened" whether vtium logged the
+    seat open by then, "restarts" its unit's restarts, and "refused" the
+    agent's reason when it held nothing."""
+    out = {}
+    for line in answer:
+        word, _, rest = line.partition(" ")
+        if word == "refused:":
+            out["refused"] = rest
+        elif word in ("held", "released", "refusals", "vtium", "restarts") and rest.isdigit():
+            out[word] = int(rest)
+        elif word == "opened":
+            out["opened"] = rest == "yes"
+    return out
+
+
+def hold_verdict(hold):
+    """Why the seat-busy check fails on the agent's parsed answer, or None:
+    the client held the seat while seatd refused vtium HOLD_REFUSALS times,
+    vtium had not opened the seat by then, the client was ended, and
+    vtium's unit never restarted, so one vtium waited through the hold."""
+    if "refused" in hold:
+        return "no client held the seat: %s" % hold["refused"]
+    if hold.get("refusals", 0) < HOLD_REFUSALS:
+        return "seatd refused vtium %d times while the client held the seat, not %d" % (
+            hold.get("refusals", 0), HOLD_REFUSALS)
+    if hold.get("opened", True):
+        return "vtium opened the seat while another client held it"
+    if "released" not in hold:
+        return "the agent did not end the client that held the seat"
+    if not hold.get("vtium"):
+        return "vtium's unit on tty8 runs no process"
+    if hold.get("restarts", 1):
+        return "vtium's unit on tty8 restarted %s times" % hold.get("restarts")
+    return None
+
+
+def check_seat_busy(v, vm, work, caps, errors, log):
+    """The seat-busy check (CHECKS): another seatd client holds the seat on
+    tty8 while vtium starts there. The agent ends the client once seatd has
+    refused vtium HOLD_REFUSALS times, in the guest, so the driver's timing
+    plays no part. vtium must then open the seat."""
+    case = "seat-busy"
+    try:
+        since = log_size(vm)
+        answer = vm.ask("seat-hold", timeout=60)
+        log("%s: %s" % (case, "; ".join(answer)))
+        hold = parse_hold(answer)
+        why = hold_verdict(hold)
+        if why:
+            raise RuntimeError(why)
+        pid = hold["vtium"]
+        wait_vtium_line(vm, SEAT_BUSY, since, 60, pid)
+        wait_vtium_line(vm, SEAT_OPEN, since, 30, pid)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
+    except RuntimeError as e:
+        errors[case] = str(e)
+        return
+    log("%s: vtium %d opened the seat once the other client ended" % (case, pid))
+    caps[case] = path
 
 
 def check_seat(v, vm, work, caps, errors, log):

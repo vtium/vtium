@@ -58,7 +58,7 @@ vtium checks each display, keyboard and pointer against the rules from the top, 
 
 The file's policy, `open` or `closed`, decides what vtium does with any device the rules do not mention. Under `policy = closed`, vtium ignores any input device that no rule names. It also isolates every head unless the file says otherwise. An isolated head keeps its keyboards to itself: their VT-switch keys reach its session as plain keys, and no roaming keyboard types into it. The closed policy is the setup a kiosk needs. Under `policy = open`, a keyboard that no rule names types into the active head, and vtium guards against locking every keyboard out. [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies.
 
-`vtium check-config FILE` checks a vtium.conf before you install it. It uses the same parser and rules that vtium uses when it starts. It refuses a file that leaves no keyboard able to reach a display. [heads.md](heads.md) gives the sections for each setup: the default, two heads with their own keyboards, a kiosk, a kiosk with an operator's head, one person at each head, and everything off. [head-file.md](head-file.md) is the reference for the sections.
+`vtium check-config FILE` checks a vtium.conf before you install it. It uses the same parser and rules that vtium uses when it starts. It refuses a file that leaves no keyboard able to reach a display. [heads.md](heads.md) gives the sections for each setup. The setups are the default, two heads with their own keyboards, a kiosk, a kiosk with an operator's head, one person at each head, and everything off. [head-file.md](head-file.md) is the reference for the sections.
 
 ## Input
 

@@ -692,8 +692,18 @@ impl App {
 
     /// Shows vtium's notice `text` on every head, before its login, until
     /// a key reaches the head or for [`crate::head::NOTICE_SHOWN`]
-    /// (ADR-1401 D7).
+    /// (ADR-1401 D7). On a VT where no head runs, `text` shows instead
+    /// under each display's own notice (D3), until vtium parks that
+    /// display, so the person at the keyboard still reads it.
     pub fn notice(&mut self, text: &str) {
+        if self.heads().is_empty() {
+            for n in self.notices.values() {
+                if let Some(head) = self.heads.get_mut(n.head) {
+                    head.add_notice(text);
+                }
+            }
+            return;
+        }
         for head in self.heads.iter_mut().filter(|h| !h.notice_only) {
             head.add_notice(text);
         }
@@ -2264,6 +2274,11 @@ impl App {
         };
         n.parked = true;
         n.due = None;
+        // The notices that [`App::notice`] added under the display's own
+        // go with the display.
+        if let Some(head) = self.heads.get_mut(n.head) {
+            head.set_notice(&n.text);
+        }
         self.wanted.borrow_mut().remove(key);
         let Some(video) = self.videos.get_mut(&view.0) else {
             return;

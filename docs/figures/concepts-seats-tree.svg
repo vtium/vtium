@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="656" viewBox="0 0 960 656" font-family="DejaVu Sans Mono, monospace">
+<title>Who opens the screen and the keyboards, and what your login gets, by build and by machine</title>
+<rect width="960" height="656" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- column headings -->
+<text x="316" y="36" font-size="13" text-anchor="middle" fill="#1f2933">how vtium is built</text>
+<text x="538" y="36" font-size="13" text-anchor="middle" fill="#1f2933">init and seat manager</text>
+<text x="806" y="36" font-size="13" text-anchor="middle" fill="#1f2933">what your login gets</text>
+<!-- the same everywhere -->
+<rect x="16" y="250" width="176" height="112" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="104" y="278" font-size="12" text-anchor="middle" fill="#1f2933">vtium runs on a</text>
+<text x="104" y="294" font-size="12" text-anchor="middle" fill="#1f2933">VT in place of</text>
+<text x="104" y="310" font-size="12" text-anchor="middle" fill="#1f2933">getty, and</text>
+<text x="104" y="326" font-size="12" text-anchor="middle" fill="#1f2933">/bin/login logs</text>
+<text x="104" y="342" font-size="12" text-anchor="middle" fill="#1f2933">you in</text>
+<path d="M 192 306 L 208 306 L 208 158 L 222 158" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 208 306 L 208 454 L 222 454" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- the two builds -->
+<rect x="224" y="116" width="184" height="84" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="316" y="138" font-size="13" text-anchor="middle" fill="#1f2933">the default build</text>
+<text x="316" y="158" font-size="12" text-anchor="middle" fill="#1f2933">vtium opens the</text>
+<text x="316" y="174" font-size="12" text-anchor="middle" fill="#1f2933">screen and the</text>
+<text x="316" y="190" font-size="12" text-anchor="middle" fill="#1f2933">keyboards itself</text>
+<rect x="224" y="392" width="184" height="124" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="316" y="412" font-size="13" text-anchor="middle" fill="#1f2933">the build with</text>
+<text x="316" y="430" font-size="13" text-anchor="middle" fill="#1f2933">libseat and logind</text>
+<text x="316" y="452" font-size="12" text-anchor="middle" fill="#1f2933">the vtium package;</text>
+<text x="316" y="468" font-size="12" text-anchor="middle" fill="#1f2933">it asks a seat</text>
+<text x="316" y="484" font-size="12" text-anchor="middle" fill="#1f2933">manager for its</text>
+<text x="316" y="500" font-size="12" text-anchor="middle" fill="#1f2933">devices first</text>
+<path d="M 408 158 L 424 158 L 424 86 L 438 86" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 158 L 438 158" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 158 L 424 158 L 424 230 L 438 230" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 454 L 424 454 L 424 350 L 438 350" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 454 L 424 454 L 424 458 L 438 458" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 454 L 424 454 L 424 530 L 438 530" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 408 454 L 424 454 L 424 602 L 438 602" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- the init system and the seat manager -->
+<rect x="440" y="56" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="91" font-size="13" text-anchor="middle" fill="#1f2933">systemd and logind</text>
+<rect x="440" y="128" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="163" font-size="13" text-anchor="middle" fill="#1f2933">elogind</text>
+<rect x="440" y="200" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="226" font-size="13" text-anchor="middle" fill="#1f2933">seatd, or no seat</text>
+<text x="538" y="244" font-size="13" text-anchor="middle" fill="#1f2933">manager</text>
+<rect x="440" y="284" width="196" height="132" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="330" font-size="13" text-anchor="middle" fill="#1f2933">systemd and logind</text>
+<text x="538" y="352" font-size="12" text-anchor="middle" fill="#1f2933">you choose a mode</text>
+<text x="538" y="368" font-size="12" text-anchor="middle" fill="#1f2933">for each VT</text>
+<rect x="440" y="428" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="463" font-size="13" text-anchor="middle" fill="#1f2933">elogind</text>
+<rect x="440" y="500" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="535" font-size="13" text-anchor="middle" fill="#1f2933">seatd</text>
+<rect x="440" y="572" width="196" height="60" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="538" y="607" font-size="13" text-anchor="middle" fill="#1f2933">no seat manager</text>
+<path d="M 636 86 L 666 86" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 158 L 666 158" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 230 L 666 230" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 458 L 666 458" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 530 L 666 530" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 602 L 666 602" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 636 350 L 650 350 L 650 314 L 666 314" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<path d="M 650 350 L 650 386 L 666 386" fill="none" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<!-- what your login gets -->
+<rect x="668" y="56" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="82" font-size="12" text-anchor="middle" fill="#1f2933">your login is the seat's active</text>
+<text x="806" y="98" font-size="12" text-anchor="middle" fill="#1f2933">session while its VT is shown</text>
+<rect x="668" y="128" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="154" font-size="12" text-anchor="middle" fill="#1f2933">the same, through elogind;</text>
+<text x="806" y="170" font-size="12" text-anchor="middle" fill="#1f2933">untested</text>
+<rect x="668" y="200" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="226" font-size="12" text-anchor="middle" fill="#1f2933">no login session: your Unix</text>
+<text x="806" y="242" font-size="12" text-anchor="middle" fill="#1f2933">groups give you your devices</text>
+<rect x="668" y="284" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="302" font-size="12" text-anchor="middle" fill="#1f2933">direct mode, the advice: your</text>
+<text x="806" y="318" font-size="12" text-anchor="middle" fill="#1f2933">login is the seat's active</text>
+<text x="806" y="334" font-size="12" text-anchor="middle" fill="#1f2933">session while its VT is shown</text>
+<rect x="668" y="356" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="374" font-size="12" text-anchor="middle" fill="#1f2933">seat mode: vtium's own session</text>
+<text x="806" y="390" font-size="12" text-anchor="middle" fill="#1f2933">holds the seat, and your login</text>
+<text x="806" y="406" font-size="12" text-anchor="middle" fill="#1f2933">gets a session with no seat</text>
+<rect x="668" y="428" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="446" font-size="12" text-anchor="middle" fill="#1f2933">as in direct mode: your login is</text>
+<text x="806" y="462" font-size="12" text-anchor="middle" fill="#1f2933">the seat's active session;</text>
+<text x="806" y="478" font-size="12" text-anchor="middle" fill="#1f2933">untested</text>
+<rect x="668" y="500" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="518" font-size="12" text-anchor="middle" fill="#1f2933">vtium takes the screen and the</text>
+<text x="806" y="534" font-size="12" text-anchor="middle" fill="#1f2933">keyboards from seatd; your login</text>
+<text x="806" y="550" font-size="12" text-anchor="middle" fill="#1f2933">gets no session</text>
+<rect x="668" y="572" width="276" height="60" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="806" y="590" font-size="12" text-anchor="middle" fill="#1f2933">as the default build: vtium</text>
+<text x="806" y="606" font-size="12" text-anchor="middle" fill="#1f2933">opens its devices itself; your</text>
+<text x="806" y="622" font-size="12" text-anchor="middle" fill="#1f2933">login gets no session</text>
+</svg>

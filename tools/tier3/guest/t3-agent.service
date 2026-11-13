@@ -4,3 +4,6 @@ After=tier3-install.service
 
 [Service]
 ExecStart=/usr/local/sbin/t3-agent
+# The agent's own log lines, such as the VT switches of the display-away
+# check, also go to the serial console, stamped as vtium's lines are.
+StandardOutput=journal+console

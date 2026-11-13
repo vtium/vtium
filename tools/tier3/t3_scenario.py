@@ -309,10 +309,16 @@ VARIANTS.update({
     "seat-logind": dict(SEAT, seat="logind", mode="seat", agent=True,
                         checks=["seat", "login-session"]),
     "direct-logind": dict(SEAT, checks=["direct"]),
+    # The two waits of a vtium that opens the seat through seatd
+    # (t3_seat.CHECKS "seat-shown" and "seat-busy"), after seat-seatd's
+    # screens and its seat check.
+    "seat-seatd-wait": dict(SEAT, seat="seatd", agent=True,
+                            checks=["seat", "seat-shown", "seat-busy"]),
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
-SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "panic-sysrq", "kmsg-notice"]
+SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
+                 "kmsg-notice"]
 
 # boot-claim checks that vtium console enable --direct --all starts vtium at
 # boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
@@ -367,6 +373,17 @@ VARIANTS.update({
 })
 SYSVINIT_VARIANTS = ["sysvinit-640x480", "sysvinit-two-vts", "sysvinit-no-udev", "sysvinit-reboot",
                      "sysvinit-restart", "sysvinit-power-off"]
+
+# The guest without systemd booted with busybox init as PID 1 ("init":
+# "busybox"): grub's second entry, t3-busybox, which the grub.cfg on the
+# variant's disc picks (guest-sysvinit/grub-busybox.cfg). busybox init
+# neither catches nor blocks SIGRTMIN+4, so busybox-power-off judges
+# docs/systemd.md's case for such an init: vtium warns at its start, sends
+# the signal on key-power-off, the kernel drops it, and the guest stays up
+# (t3_power.STAYS_UP).
+VARIANTS["busybox-power-off"] = dict(POWER, guest="sysvinit", init="busybox",
+                                     power=["power-off-busybox"])
+SYSVINIT_VARIANTS.append("busybox-power-off")
 
 # Displays and keyboards beyond one of each (t3_devices), on the minspec
 # machine at 640x480 in the 8x16 test font, judged by vtium's own goldens,
@@ -475,7 +492,12 @@ VARIANTS["showcase-1920x1080"] = {
 # heads-partly-open is the open control of the closed variants' fallback:
 # there the getty does start. The two without a display device ("device":
 # None) wait for vtium on tty2 with no screen to capture, one under each
-# policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf). The kiosk
+# policy, at a display-wait of 5 s (guest/vtium-nodisplay.conf).
+# heads-open-away is the open one at a display-wait of 15 s
+# (guest/vtium-nodisplay-away.conf), whose agent takes vtium's VT away
+# before the wait runs out and gives it back (t3_heads CHECKS
+# "display-away"): with no display, vtium's first frame never comes, so
+# the switch always falls before it. The kiosk
 # switches no VT ("vt_switch": False): its claimed keyboard's VT keys reach
 # its session, and the kiosk check presses them itself. heads-policy-typo's
 # file holds a policy line vtium cannot read ("policy_line"), which makes
@@ -522,6 +544,8 @@ VARIANTS.update({
                                    failures=["kill"]),
     "heads-open-nodisplay": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
                                  checks=["display-exit"]),
+    "heads-open-away": dict(NO_DISPLAY, heads="docs/heads/default.conf", policy="open",
+                            conf="vtium-nodisplay-away.conf", checks=["display-away"]),
     "heads-survive": dict(HEAD_VARIANT, heads="tools/tier3/guest/heads/survive.conf",
                           policy="closed", vt_switch=False, checks=["session-survives"]),
 })
@@ -542,7 +566,8 @@ VARIANTS["seat-logind-two"] = dict(VARIANTS["seat-logind-survive"],
 SEAT_VARIANTS += ["seat-logind-survive", "seat-logind-two"]
 HEAD_VARIANTS = ["heads-two-heads", "heads-partly-open", "heads-closed-broken",
                  "heads-policy-typo", "heads-closed-unmatched", "heads-off", "heads-kiosk",
-                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-survive"]
+                 "heads-closed-nodisplay", "heads-open-nodisplay", "heads-open-away",
+                 "heads-survive"]
 
 # Each guest's base image, the make target that provisions it, the console
 # lines its boot ends with before the driver presses Ctrl+Alt+F2, and the
@@ -778,8 +803,9 @@ def check_guest(variant, installed):
     guest `variant` names: a variant whose console is built with images
     needs the image helper installed and its account made, or removed in
     one whose pre-login account is nobody (IMAGE_HELPER);
-    under sysvinit, PID 1 must be init, systemd's /run/systemd/system must
-    be absent, and a udev daemon must run, or none in a variant without
+    on the guest without systemd, PID 1 must be the init the variant boots,
+    sysvinit's init or busybox, systemd's /run/systemd/system must be
+    absent, and a udev daemon must run, or none in a variant without
     udev."""
     v = VARIANTS[variant]
     if "images" in v.get("tree_features", ()):
@@ -792,11 +818,14 @@ def check_guest(variant, installed):
                                                    else ""))
     if v.get("guest") != "sysvinit":
         return
-    if installed.get("init", "").split()[:1] != ["init"] or installed.get("systemd") != "no":
+    init, comm = {"sysvinit": ("sysvinit", "init"),
+                  "busybox": ("busybox init", "busybox")}[v.get("init", "sysvinit")]
+    if installed.get("init", "").split()[:1] != [comm] or installed.get("systemd") != "no":
         raise RuntimeError("the guest's PID 1 is %r and systemd's directory %s; the variant "
-                           "runs sysvinit" % (installed.get("init"),
-                                              "exists" if installed.get("systemd") == "yes"
-                                              else "is not reported"))
+                           "runs %s" % (installed.get("init"),
+                                        {"yes": "exists", "no": "is absent"}.get(
+                                            installed.get("systemd"), "is not reported"),
+                                        init))
     udev = installed.get("udev")
     if udev is None or (udev == "none") == v.get("udev", True):
         raise RuntimeError("the guest's udev daemon is %r; the variant runs %s" % (
@@ -815,7 +844,10 @@ def build_disc(variant, work, impl):
     `helper-held` file if its helper never answers, a `pointer` file if it
     reads the cursor plane, the showcase's fonts in showcase-fonts and its
     pictures and palettes in screens/showcase (t3_showcase) if it draws the
-    showcase, a `no-udev` file if it runs without a udev daemon, the test pictures
+    showcase, a `no-udev` file if it runs without a udev daemon, the
+    grub.cfg that picks the busybox boot if it boots busybox init, a
+    `trace-pid1-signals` file if a case judges the kernel's trace of the
+    signals sent to PID 1 (t3_power), the test pictures
     (t3_pictures) in screens/pictures if it draws them, a `two-vts` file
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
@@ -841,12 +873,17 @@ def build_disc(variant, work, impl):
     if VARIANTS[variant].get("guest") == "sysvinit":
         shutil.copy(os.path.join(GUEST_SYSVINIT, "setup"), disc)
         shutil.copy(os.path.join(GUEST_SYSVINIT, "t3-console"), disc)
+        if VARIANTS[variant].get("init") == "busybox":
+            shutil.copy(os.path.join(GUEST_SYSVINIT, "grub-busybox.cfg"),
+                        os.path.join(disc, "grub.cfg"))
     else:
         shutil.copy(os.path.join(GUEST, "setup"), disc)
     if not VARIANTS[variant].get("udev", True):
         open(os.path.join(disc, "no-udev"), "w").close()
     if VARIANTS[variant].get("two_vts"):
         open(os.path.join(disc, "two-vts"), "w").close()
+    if any(t3_power.EXPECT[case].get("dropped") for case in VARIANTS[variant].get("power", ())):
+        open(os.path.join(disc, "trace-pid1-signals"), "w").close()
     if "sysctl" in VARIANTS[variant]:
         with open(os.path.join(disc, "sysctl.conf"), "w") as f:
             f.write(VARIANTS[variant]["sysctl"])
@@ -1205,21 +1242,7 @@ def draw_screens(variant, vm, work, prompt, caps, errors, log, phase):
     v = VARIANTS[variant]
     outputs = v.get("outputs", [])
     tmp = os.path.join(work, "wait.ppm")
-    vm.type("tester\n")
-    # The user name echoes; then login asks for the password.
-    wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
-    vm.type("tester\n")
-    try:
-        line = vm.wait_event("T3-LOGIN", timeout=20)
-    except RuntimeError:
-        # PAM discards typed-ahead input when it turns echo off for the
-        # password, so a password typed before the prompt is lost. Typing
-        # it again is harmless otherwise: the shell runs it as a command,
-        # and every screen clears before it draws.
-        log("no login yet; typing the password again")
-        vm.type("tester\n")
-        line = vm.wait_event("T3-LOGIN", timeout=60)
-    check_login(line)
+    log_in(vm, tmp, prompt, log)
     last = wait_stable(vm, tmp)
     # The capture before each output's next, which that one must differ from.
     lasts = {o["suffix"]: wait_stable(vm, tmp, output=t3_devices.capture(o)) for o in outputs}
@@ -1594,12 +1617,36 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "display-unplug": check_display_unplug,
               "display-replug": check_display_replug,
               "seat": t3_seat.check_seat,
+              "seat-shown": t3_seat.check_seat_shown,
+              "seat-busy": t3_seat.check_seat_busy,
               "direct": t3_seat.check_direct,
               "seat-cgroup": t3_seat.check_cgroup,
               "boot-claim": t3_seat.check_boot_claim,
               "login-session": t3_seat.check_login_session,
               "two-logins": t3_seat.check_two_logins,
               **t3_heads.CHECK_RUNS}
+
+
+def log_in(vm, tmp, prompt, log):
+    """Log in as tester at the console's login `prompt`, the screen shown,
+    capturing to `tmp`; returns the guest's T3-LOGIN line once check_login
+    has passed it."""
+    vm.type("tester\n")
+    # The user name echoes; then login asks for the password.
+    wait_stable(vm, tmp, want=lambda img: img.data != prompt.data)
+    vm.type("tester\n")
+    try:
+        line = vm.wait_event("T3-LOGIN", timeout=20)
+    except RuntimeError:
+        # PAM discards typed-ahead input when it turns echo off for the
+        # password, so a password typed before the prompt is lost. Typing
+        # it again is harmless otherwise: the shell runs it as a command,
+        # and every screen clears before it draws.
+        log("no login yet; typing the password again")
+        vm.type("tester\n")
+        line = vm.wait_event("T3-LOGIN", timeout=60)
+    check_login(line)
+    return line
 
 
 def check_login(line):
@@ -1680,16 +1727,26 @@ def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
     suspend; it is kept when the console log after the key, and QEMU's
     SHUTDOWN event for a case that ends the VM, pass t3_power.verdict, and
     `errors` gets the reason otherwise; `notes` gets a known failure's
-    note. A case that ends the VM is last; a case that fails leaves the
-    next to run."""
+    note. A case the guest stays up after (t3_power.STAYS_UP) waits for
+    the guest's lines after the key, then logs in on vtium's console; when
+    the verdict passes, a login that failed is the case's error. A case
+    that ends the VM is last; a case that fails leaves the next to run."""
     for case in cases:
         path = os.path.join(work, case + ".ppm")
         try:
-            wait_stable(vm, path, want=not_blank)
+            prompt = wait_stable(vm, path, want=not_blank)
             with open(vm.serial, "rb") as f:
                 since = len(f.read())
             vm.keys(*t3_power.CHORDS[case])
-            if case in t3_power.SUSPENDS:
+            stayed = None
+            if case in t3_power.STAYS_UP:
+                try:
+                    for marker in t3_power.STAYS_UP[case]:
+                        vm.wait_serial(marker, timeout=60, since=since)
+                    log_in(vm, os.path.join(work, "wait.ppm"), prompt, log)
+                except RuntimeError as e:
+                    stayed = e
+            elif case in t3_power.SUSPENDS:
                 vm.wait_status("suspended", timeout=POWER_TIMEOUT)
                 log("the guest is suspended; waking it")
                 vm.cmd("system_wakeup")
@@ -1699,13 +1756,17 @@ def press_power_keys(vm, cases, work, caps, errors, notes, log, phase):
                 # Drawn again after the wake-up: a blank screen fails the case.
                 wait_stable(vm, path, settle=2.0, timeout=60, want=not_blank)
             shutdown = None
-            if case not in t3_power.SUSPENDS:
+            if case in t3_power.STAYS_UP:
+                shutdown = vm.shutdown_so_far()
+            elif case not in t3_power.SUSPENDS:
                 exited = vm.wait_exit(POWER_TIMEOUT) is not None
                 shutdown = vm.shutdown_reason() if exited else "none: still running"
             with open(vm.serial, "rb") as f:
                 why, note = t3_power.verdict(case, f.read(), since, shutdown)
             if why:
                 raise RuntimeError(why)
+            if stayed:
+                raise stayed
             caps[case] = path
             if note:
                 notes[case] = note

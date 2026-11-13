@@ -14,8 +14,8 @@ average is over 20 words. It ends with a line of totals.
 
 By default it only reports and exits 0. With --check it exits 1 when any
 sentence is over 30 words, any page's average is over 20 words, or an entry
-in the allow list is wrong, so that it can become a gate. It exits 2 when it
-finds no page to read, so a wrong root never passes.
+in the allow list is wrong. AGENTS.md's gate line runs it with --check. It
+exits 2 when it finds no page to read, so a wrong root never passes.
 
 --table also prints one row for each page: its average, its longest
 sentence, its number of sentences, and how many are over 30 words. Run it on
@@ -34,9 +34,17 @@ The pages it reads:
 
 What counts as prose:
     Paragraphs and list items. It passes over YAML frontmatter, fenced code
-    blocks, HTML comments, headings, tables, quotes, HTML blocks, rules and
-    link definitions. Each list item is a unit of its own, so a sentence
-    never runs from one item into the next.
+    blocks, indented code blocks, HTML comments, headings, tables, quotes,
+    HTML blocks, rules and link definitions. Each list item is a unit of its
+    own, so a sentence never runs from one item into the next.
+
+    It reads indented code the way CommonMark does. A list item's text
+    starts at a column, its content column, and text indented to that
+    column after a blank line is still the item's prose. A block indented
+    four columns past that column is code, or four columns past the margin
+    outside a list. A tab moves to the next multiple of four columns. A
+    line that continues a paragraph is prose however far it is indented,
+    because an indented code block cannot interrupt a paragraph.
 
 How it splits and counts:
     A sentence ends at `.`, `!` or `?`, after any closing quote or bracket,
@@ -81,12 +89,15 @@ ALLOW = "docs/scripts/prose-allow.tsv"
 PAGE = re.compile(r"^(?:README\.md|docs/[^/]+\.md|docs/concepts/[^/]+\.md|crates/[^/]+/README\.md)$")
 GENERATED = re.compile(r"^\s*(?:<!--\s*)?Generated from\b")
 
-FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
-HEADING = re.compile(r"^\s*#{1,6}(?:\s|$)")
-RULE = re.compile(r"^\s*([-*_])(?:\s*\1){2,}\s*$")
-HTML_BLOCK = re.compile(r"^\s*</?[A-Za-z!]")
-LINK_DEF = re.compile(r"^\s*\[[^\]]+\]:\s")
-ITEM = re.compile(r"^\s*(?:[-*+]|\d+[.)])\s+(.*)$")
+# These match a line's text after its indent, which units() measures first.
+FENCE = re.compile(r"^(`{3,}|~{3,})")
+HEADING = re.compile(r"^#{1,6}(?:\s|$)")
+RULE = re.compile(r"^([-*_])(?:\s*\1){2,}\s*$")
+HTML_BLOCK = re.compile(r"^</?[A-Za-z!]")
+LINK_DEF = re.compile(r"^\[[^\]]+\]:\s")
+ITEM = re.compile(r"^([-*+]|\d{1,9}[.)])([ \t]+)(.*)$")
+# A line indented this many columns past its container's text is code.
+CODE_INDENT = 4
 
 CODE = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
 IMAGE = re.compile(r"!\[[^\]]*\](?:\([^)]*\)|\[[^\]]*\])")
@@ -133,8 +144,35 @@ def generated(text):
     return any(GENERATED.match(line) for line in text.split("\n")[:5])
 
 
+def indent(text, column=0):
+    """The column where TEXT's first character after its indent lands, and that text.
+
+    COLUMN is where TEXT starts. A tab moves to the next multiple of four
+    columns, as CommonMark reads it."""
+    for at, char in enumerate(text):
+        if char == " ":
+            column += 1
+        elif char == "\t":
+            column += 4 - column % 4
+        else:
+            return column, text[at:]
+    return column, ""
+
+
+def starts_block(text):
+    """Whether TEXT, a line after its indent, starts a block that ends a paragraph."""
+    return bool(FENCE.match(text) or HEADING.match(text) or text.startswith(("|", ">")) or RULE.match(text)
+                or HTML_BLOCK.match(text) or LINK_DEF.match(text) or ITEM.match(text))
+
+
 def units(text):
-    """Yield each paragraph and list item as a list of (line number, line)."""
+    """Yield each paragraph and list item as a list of (line number, line).
+
+    ITEMS holds the content column of each open list item, innermost last.
+    The innermost one is the base, and the base is 0 outside a list. When no
+    paragraph is open, a line indented less than an item's content column
+    ends that item. "What counts as prose" in the module docstring
+    gives the rules this follows."""
     # An HTML comment goes, and keeps its line breaks so the numbers hold.
     text = re.sub(r"<!--.*?-->", lambda m: "\n" * m.group(0).count("\n"), text, flags=re.S)
     lines = text.split("\n")
@@ -146,33 +184,57 @@ def units(text):
                 break
     unit = []
     fence = None
+    items = []
     for number, line in enumerate(lines[start:], start + 1):
         if fence:
             stripped = line.strip()
             if stripped.startswith(fence) and stripped.strip(fence[0]) == "":
                 fence = None
             continue
-        m = FENCE.match(line)
-        if m:
+        column, rest = indent(line)
+        rest = rest.rstrip()
+        if not rest:
             if unit:
                 yield unit
             unit = []
+            continue
+        if unit:
+            # A paragraph goes on through any line that starts no block. A
+            # line indented past the base by CODE_INDENT or more starts none.
+            base = items[-1] if items else 0
+            if column >= base + CODE_INDENT or not starts_block(rest):
+                unit.append((number, rest))
+                continue
+            yield unit
+            unit = []
+        while items and column < items[-1]:
+            items.pop()
+        base = items[-1] if items else 0
+        if column >= base + CODE_INDENT:
+            continue
+        m = FENCE.match(rest)
+        if m:
             fence = m.group(1)
             continue
-        stripped = line.strip()
-        if not stripped or HEADING.match(line) or stripped.startswith(("|", ">")) or RULE.match(line) \
-                or HTML_BLOCK.match(line) or LINK_DEF.match(line):
-            if unit:
-                yield unit
-            unit = []
+        if HEADING.match(rest) or rest.startswith(("|", ">")) or RULE.match(rest) \
+                or HTML_BLOCK.match(rest) or LINK_DEF.match(rest):
             continue
-        m = ITEM.match(line)
+        m = ITEM.match(rest)
         if m:
-            if unit:
-                yield unit
-            unit = [(number, m.group(1))]
+            marker, gap, body = m.groups()
+            after, _ = indent(gap, column + len(marker))
+            if not body or after - (column + len(marker)) > CODE_INDENT:
+                # An item whose text is indented five columns or more past
+                # its marker starts with indented code, and its content
+                # column is one past the marker.
+                items.append(column + len(marker) + 1)
+                if body:
+                    continue
+            else:
+                items.append(after)
+            unit = [(number, body)]
             continue
-        unit.append((number, stripped))
+        unit = [(number, rest)]
     if unit:
         yield unit
 
