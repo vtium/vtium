@@ -1159,17 +1159,13 @@ class VtiumGoldenTest(unittest.TestCase):
         # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
         # minimal variants recaptured with ADR-1302 D4's italic bands of
         # 2026-11-07 (vtium/vtium#273) on 2026-11-08, and card 1b's
-        # kernel-message golden on 2026-11-11. The list in the tree holds the
-        # four panic goldens the maintainer's drawing of Tux moved or added
-        # (ADR-1401 D7), one for each build, and the img-delete golden that
-        # kitty 0.50.0's replies moved (ADR-1100 D15), until the maintainer
-        # reviews them; a golden it names must be one a case draws.
+        # kernel-message golden on 2026-11-11, and the four panic goldens of
+        # the maintainer's drawing of Tux (ADR-1401 D7) and the img-delete
+        # golden of kitty 0.50.0's replies (ADR-1100 D15) on 2026-11-13. The
+        # list in the tree is empty; a golden it names must be one a case
+        # draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), ["heads-closed-broken/panic",
-                                        "heads-closed-broken/panic+images",
-                                        "heads-policy-typo/policy-panic",
-                                        "heads-policy-typo/policy-panic+images",
-                                        "images-640x480/img-delete"])
+        self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
