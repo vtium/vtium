@@ -21,7 +21,7 @@
 use core::fmt::Write as _;
 use std::collections::BTreeMap;
 
-use crate::bounds::BOX_CELLS_MAX;
+use crate::bounds::{BOX_CELLS_MAX, KITTY_REPLY_MAX};
 use crate::handler::{Context, ReplyKind};
 
 use super::command::{Command, graphic, number, signed};
@@ -214,5 +214,9 @@ pub(super) fn answer(ctx: &mut dyn Context, cmd: &Command, keys: &[u8]) {
         }
     }
     text.push_str(";OK\x1b\\");
+    debug_assert!(
+        u64::try_from(text.len()).is_ok_and(|n| n <= KITTY_REPLY_MAX),
+        "a feature query's answer passes KITTY_REPLY_MAX"
+    );
     ctx.reply(ReplyKind::KittyGraphics, text.as_bytes());
 }

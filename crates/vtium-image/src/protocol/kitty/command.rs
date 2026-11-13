@@ -3,7 +3,7 @@
 
 use core::fmt::Write as _;
 
-use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX};
+use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, KITTY_REPLY_MAX};
 use crate::handler::{Cause, Context, ReplyKind};
 use crate::image::ImageKey;
 use crate::store::Store;
@@ -586,5 +586,9 @@ pub(super) fn reply(ctx: &mut dyn Context, cmd: &Command, id: u32, answer: Answe
         Err(e) => e.write_to(&mut text),
     }
     text.push_str("\x1b\\");
+    debug_assert!(
+        u64::try_from(text.len()).is_ok_and(|n| n <= KITTY_REPLY_MAX),
+        "a kitty answer passes KITTY_REPLY_MAX"
+    );
     ctx.reply(ReplyKind::KittyGraphics, text.as_bytes());
 }

@@ -459,3 +459,20 @@ fn kitty_switched_off_drops_the_upload_at_the_next_apc() {
     t.input(PUT1);
     assert_eq!(t.take_replies(), NOENT1);
 }
+
+// ADR-1100 D16: replacing the kitty handler drops the upload the outgoing
+// handler holds open, so its reservation and its hold on an old image go
+// back, and RIS later finds the budget's ledger empty.
+// covers: image.kitty
+#[test]
+fn replacing_the_handler_drops_its_open_upload() {
+    let mut t = term(12, 4);
+    t.input(OPEN1);
+    assert_eq!(t.screen().images().bytes(), 8 + 512);
+    t.set_image_handler(ImageString::Kitty, Some(Box::new(Kitty::default())));
+    assert_eq!(t.screen().images().bytes(), 0);
+    t.input(b"\x1bc");
+    t.input(LAST1);
+    t.input(PUT1);
+    assert_eq!(t.take_replies(), NOENT1);
+}

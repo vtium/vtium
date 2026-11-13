@@ -2507,3 +2507,102 @@ fn a_names_unpadded_last_group_decodes_with_it() {
     let request = h.requests.pop().unwrap();
     assert_eq!(request.medium, Medium::File(b"/tmp/white".to_vec()));
 }
+
+// The longest error answer fits KITTY_REPLY_MAX: every error the closed
+// set holds, with its numbers at their widest, after the widest keys an
+// answer names, i, I, p and r.
+// covers: image.kitty
+#[test]
+fn the_longest_error_answer_fits_the_answer_bound() {
+    use super::command::{Command, Error, reply};
+    let big = u32::MAX;
+    let errors = [
+        Error::NotFound,
+        Error::PutNotFound {
+            id: big,
+            number: big,
+        },
+        Error::AnimNotFound {
+            id: big,
+            number: big,
+        },
+        Error::NoDestFrame {
+            frame: big,
+            id: big,
+        },
+        Error::NoBaseFrame { frame: big },
+        Error::BadFile,
+        Error::NoSpace,
+        Error::NoParentImage { parent: big },
+        Error::NoParentPlacement {
+            parent: big,
+            placement: big,
+        },
+        Error::SelfParent,
+        Error::Cycle,
+        Error::TooDeep,
+        Error::VirtualParent,
+        Error::BothIds,
+        Error::UnknownFormat { format: big },
+        Error::TooLarge { max: big },
+        Error::NoData {
+            got: u64::MAX,
+            want: u64::MAX,
+        },
+        Error::ZeroSize,
+        Error::IndexedFrame,
+        Error::IndexedComposition,
+        Error::InflateSize,
+        Error::ComposeOverlap,
+        Error::ComposeDestOut,
+        Error::Invalid,
+    ];
+    // a new error fails to build here until the list above names it
+    let _named = |e: Error| match e {
+        Error::NotFound
+        | Error::PutNotFound { .. }
+        | Error::AnimNotFound { .. }
+        | Error::NoDestFrame { .. }
+        | Error::NoBaseFrame { .. }
+        | Error::BadFile
+        | Error::NoSpace
+        | Error::NoParentImage { .. }
+        | Error::NoParentPlacement { .. }
+        | Error::SelfParent
+        | Error::Cycle
+        | Error::TooDeep
+        | Error::VirtualParent
+        | Error::BothIds
+        | Error::UnknownFormat { .. }
+        | Error::TooLarge { .. }
+        | Error::NoData { .. }
+        | Error::ZeroSize
+        | Error::IndexedFrame
+        | Error::IndexedComposition
+        | Error::InflateSize
+        | Error::ComposeOverlap
+        | Error::ComposeDestOut
+        | Error::Invalid => (),
+    };
+    // a frame of a missing image names the r it gave
+    let cmd = Command {
+        action: b'f',
+        id: big,
+        number: big,
+        placement: big,
+        rows: big,
+        ..Command::default()
+    };
+    let mut longest = 0;
+    for e in errors {
+        let mut h = Host::new();
+        reply(&mut h, &cmd, big, Err(e));
+        let answer = h.take();
+        assert!(answer.contains(",r="), "{answer:?}");
+        longest = longest.max(answer.len());
+    }
+    assert!(
+        u64::try_from(longest).unwrap() <= crate::KITTY_REPLY_MAX,
+        "{longest} bytes"
+    );
+}

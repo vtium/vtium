@@ -171,6 +171,14 @@ const ITERM2_PARTS: Bound = Bound {
     cite: "ADR-1103, D1",
 };
 
+const KITTY_REPLY: Bound = Bound {
+    name: "KITTY_REPLY_MAX",
+    value: 320,
+    what: "Bytes of one kitty graphics answer, `ESC _ G` to `ESC \\`, which holds only fixed messages and numbers vtium re-encodes. The longest answer is 255 bytes, a feature query's about `T` with every key at its widest value; the longest error answer is 182 bytes",
+    past: "No answer reaches it; the crate's tests build the longest feature query answer and the longest error answer and check that each fits",
+    cite: "ADR-1100, D16: an upload gets at most one answer, no longer than a named bound",
+};
+
 /// Every bound, in the README's order.
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const BOUNDS: &[Bound] = &[
@@ -193,6 +201,7 @@ pub(crate) const BOUNDS: &[Bound] = &[
     FRAME_CHARGE,
     ITERM2_FILE,
     ITERM2_PARTS,
+    KITTY_REPLY,
 ];
 
 /// Images one buffer holds.
@@ -233,6 +242,8 @@ pub const FRAME_OVERHEAD: u64 = FRAME_CHARGE.value;
 pub const ITERM2_FILE_MAX: u64 = ITERM2_FILE.value;
 /// `FilePart=` strings an iTerm2 transfer takes.
 pub const ITERM2_PARTS_MAX: u64 = ITERM2_PARTS.value;
+/// Bytes of one kitty graphics answer.
+pub const KITTY_REPLY_MAX: u64 = KITTY_REPLY.value;
 
 /// The budget `image-storage-limit = auto` gives a console whose head has
 /// displays of the sizes `displays` lists, in pixels: [`AUTO_FRAMES`]

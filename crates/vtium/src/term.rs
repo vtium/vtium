@@ -2387,6 +2387,27 @@ mod tests {
         assert_eq!(video.swaps, [1]);
     }
 
+    // ADR-1100 D16: when the console's session ends, its open uploads are
+    // dropped silently, so the child's exit gives back an upload it left
+    // open and the next session's first chunk-like command is its own.
+    // covers: image.kitty
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_childs_exit_drops_a_kitty_upload_it_left_open() {
+        use std::os::unix::process::ExitStatusExt as _;
+        let (mut term, _view) = view();
+        offer_pictures(&mut term);
+        term.terminal
+            .input(b"\x1b_Ga=T,f=24,s=2,v=1,i=1,m=1;/wAA\x1b\\");
+        assert_eq!(term.terminal.screen().images().bytes(), 8 + 512);
+        Consumer::exited(&mut term, ExitStatus::from_raw(0));
+        assert_eq!(term.terminal.screen().images().bytes(), 0);
+        term.terminal.input(b"\x1b_Gm=0;AP8A\x1b\\");
+        assert!(term.terminal.screen().placements().is_empty());
+        assert_eq!(term.terminal.screen().images().bytes(), 0);
+        assert_eq!(term.terminal.take_replies(), b"");
+    }
+
     // ADR-1102 D3: the snapshot carries the frame the animation clock
     // chose, so the display draws that frame's pixels: a picture of one
     // cell whose root frame is red and whose frame 2 is green shows red,

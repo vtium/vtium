@@ -139,3 +139,39 @@ fn e_on_an_action_other_than_a_query_is_refused_and_does_nothing() {
     send(&mut k, &mut h, "m=0;AP8A");
     assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
 }
+
+// The widest answer a feature query can get fits KITTY_REPLY_MAX: e=T
+// reports the most keys, each at its widest value vtium takes, with the
+// largest cell and max-graphic-size vtium allows.
+// covers: image.kitty-feature-query
+#[test]
+fn the_widest_feature_query_answer_fits_the_answer_bound() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    h.store.set_cell(1024, 1024).unwrap();
+    h.limits.graphic = (65_535, 65_535);
+    let big = u32::MAX;
+    let low = i32::MIN;
+    send(
+        &mut k,
+        &mut h,
+        &format!(
+            "a=q,i={big},e=T,f=100,t=f,o=z,s=65535,v=65535,S={big},O={big},N=1,\
+             x={big},y={big},w={big},h={big},X=1023,Y=1023,c=10000,r=10000,C=1,U=1,\
+             z={low},P={big},Q={big},H={low},V={low},p={big}"
+        ),
+    );
+    let answer = h.take();
+    // every key is reported, so no answer of e=T is longer
+    for key in [
+        "N", "O", "S", "X", "Y", "f", "o", "s", "t", "v", "x", "y", "w", "h", "c", "r", "C", "U",
+        "z", "P", "Q", "H", "V", "p",
+    ] {
+        assert!(answer.contains(&format!(",{key}=")), "{key} in {answer:?}");
+    }
+    assert!(answer.ends_with(";OK\x1b\\"), "{answer:?}");
+    assert!(
+        u64::try_from(answer.len()).unwrap() <= crate::KITTY_REPLY_MAX,
+        "{} bytes",
+        answer.len()
+    );
+}

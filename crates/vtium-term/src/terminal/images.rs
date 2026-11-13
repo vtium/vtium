@@ -620,10 +620,14 @@ impl State {
 
 impl Terminal {
     /// Installs the handler the router sends `which` to, or removes it.
-    /// The outgoing handler is cancelled first, so it gives back what it
-    /// reserved, and a string it was being fed ends.
+    /// The outgoing handler is cancelled and withdrawn first: a string it
+    /// was being fed ends, an upload in chunks it holds open is dropped,
+    /// and it gives back everything it reserved.
     pub fn set_image_handler(&mut self, which: ImageString, handler: Option<Box<dyn Handler>>) {
-        self.state.with_handler(which, |h, ctx| h.cancel(ctx));
+        self.state.with_handler(which, |h, ctx| {
+            h.cancel(ctx);
+            h.withdraw(ctx);
+        });
         if self.state.images.active == Some(which) {
             self.state.images.active = None;
         }
@@ -643,8 +647,10 @@ impl Terminal {
     /// Turns the image protocols on or off: an off protocol's strings are
     /// ignored as every string vtium does not take is. A protocol turned
     /// off has its handler cancelled at once, so a string it was being fed
-    /// ends and an upload in chunks gives back what it holds; sixel's is
-    /// reset too, dropping the registers the pictures share.
+    /// ends. Sixel's handler is reset too, dropping the registers the
+    /// pictures share. A kitty upload in chunks left open gives back what
+    /// it holds at the next APC string, which withdraws the kitty handler
+    /// while kitty graphics is not offered (ADR-1100, D6).
     pub fn set_image_switches(&mut self, switches: Switches) {
         let old = self.state.images.switches;
         self.state.images.switches = switches;
