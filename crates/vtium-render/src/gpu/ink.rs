@@ -132,14 +132,17 @@ impl InkGrid {
 
     /// Names the glyph of the cell at `col`, `row` as a source of ink this
     /// frame: its glyph's slot among the boxes and the color of its ink in
-    /// a cell no mark covers. Its reach and span follow from
-    /// [`InkGrid::settle`], once the frame has read every cell's reach.
-    pub(crate) fn name(&mut self, (col, row): (usize, usize), slot: u32, color: Rgb) {
+    /// a cell no mark covers, or, for a color emoji drawn in one cell
+    /// (`rgba`), a 1 in the color texel's alpha byte, so the shader takes
+    /// its ink from the color boxes in its own colors (ADR-1302 D5). Its
+    /// reach and span follow from [`InkGrid::settle`], once the frame has
+    /// read every cell's reach.
+    pub(crate) fn name(&mut self, (col, row): (usize, usize), slot: u32, color: Rgb, rgba: bool) {
         let Some(i) = self.index(col, row) else {
             return;
         };
         let [lo, hi] = u16::try_from(slot).unwrap_or(u16::MAX).to_le_bytes();
-        let entry = [0, 0, lo, hi, color.r, color.g, color.b, 0];
+        let entry = [0, 0, lo, hi, color.r, color.g, color.b, u8::from(rgba)];
         if let Some(e) = self.entries.get_mut(i)
             && *e != entry
         {

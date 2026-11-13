@@ -26,7 +26,11 @@
 //! samples every neighbour's glyph from it: when the texture is full, a
 //! texture with twice its rows takes its place, filled again from the
 //! glyphs the boxes keep, until it reaches the largest side. A glyph the
-//! boxes have no room for then is drawn cut at its cells.
+//! boxes have no room for then is drawn cut at its cells. A color emoji
+//! drawn in one cell, whose 1-pixel edge reaches each neighbour (ADR-1302
+//! D5), takes a box too: its alpha in the boxes' texture, which says where
+//! it holds ink, and its premultiplied RGBA in the color boxes, a texture
+//! of the same slots that the boxes take only once such a glyph comes.
 //!
 //! A pool hands out its lowest free slot, so its glyphs gather in its first
 //! textures, and gives back its last texture once no glyph has held a slot
@@ -69,6 +73,8 @@ pub(crate) struct Slot {
     /// How far the glyph's ink reaches past its cells: none outside the
     /// boxes.
     reach: Reach,
+    /// A color glyph, which among the boxes lies in the color boxes too.
+    color: bool,
 }
 
 impl Held for Slot {
@@ -195,6 +201,10 @@ struct Boxes {
     rows: u32,
     /// The texture, by its index in [`Glyphs::texture`].
     texture: Option<usize>,
+    /// The color boxes' texture, [`Format::Rgba8`], of the same slots, by
+    /// its index in [`Glyphs::texture`], once a color glyph has taken a
+    /// box.
+    color: Option<usize>,
     /// Slots handed out so far, each below this index.
     next: u32,
     /// Slots no glyph holds, the lowest handed out first.
@@ -230,6 +240,7 @@ impl Boxes {
             cols: side.checked_div(slot.width).unwrap_or(0),
             rows: 0,
             texture: None,
+            color: None,
             next: 0,
             free: BTreeSet::new(),
             held: Vec::new(),
@@ -279,6 +290,46 @@ impl Boxes {
                 stored.mask_line(mx.saturating_neg(), i64::from(line).saturating_sub(my), row);
             }
         }
+    }
+
+    /// A color `stored`'s premultiplied RGBA across a slot, as
+    /// [`Boxes::draw`] lays its coverage, into `out`, four bytes a pixel,
+    /// lines `stride` bytes apart from `at`.
+    fn draw_rgba(&self, stored: &Stored, out: &mut [u8], (x, y): (u32, u32), stride: usize) {
+        let w = usize::try_from(self.slot.width).unwrap_or(0);
+        let (mx, my) = (i64::from(self.margin.0), i64::from(self.margin.1));
+        let x = usize::try_from(x).unwrap_or(0).saturating_mul(4);
+        let mut line = vec![0u32; w];
+        for row in 0..self.slot.height {
+            let at = usize::try_from(y.saturating_add(row))
+                .unwrap_or(0)
+                .saturating_mul(stride)
+                .saturating_add(x);
+            stored.argb_line(
+                mx.saturating_neg(),
+                i64::from(row).saturating_sub(my),
+                &mut line,
+            );
+            if let Some(out) = out.get_mut(at..at.saturating_add(w.saturating_mul(4))) {
+                for (px, &argb) in out.as_chunks_mut::<4>().0.iter_mut().zip(&line) {
+                    px.copy_from_slice(&rgba(argb));
+                }
+            }
+        }
+    }
+
+    /// The color boxes' pixels at `size`, every color glyph the boxes keep
+    /// drawn in its slot.
+    fn color_pixels(&self, size: Size) -> Vec<u8> {
+        let stride = usize::try_from(size.width).unwrap_or(0).saturating_mul(4);
+        let mut pixels =
+            vec![0u8; stride.saturating_mul(usize::try_from(size.height).unwrap_or(0))];
+        for (i, kept) in (0u32..).zip(&self.kept) {
+            if let Some((stored, _)) = kept.as_ref().filter(|(s, _)| s.is_rgba()) {
+                self.draw_rgba(stored, &mut pixels, self.at(i), stride);
+            }
+        }
+        pixels
     }
 
     /// Whether no glyph holds a slot.
@@ -483,12 +534,13 @@ impl Glyphs {
         self.sprite_columns
     }
 
-    /// The boxes' texture, by its index, once a glyph has taken a box, and
-    /// a box slot's width and height and the slots across the texture, as
-    /// the cell shader's `box_slot` takes them.
-    pub(crate) fn boxes(&self) -> (Option<usize>, [u32; 3]) {
+    /// The boxes' texture, by its index, once a glyph has taken a box; the
+    /// color boxes' texture, once a color glyph has; and a box slot's width
+    /// and height and the slots across the texture, as the cell shader's
+    /// `box_slot` takes them.
+    pub(crate) fn boxes(&self) -> (Option<usize>, Option<usize>, [u32; 3]) {
         let b = &self.boxes;
-        (b.texture, [b.slot.width, b.slot.height, b.cols])
+        (b.texture, b.color, [b.slot.width, b.slot.height, b.cols])
     }
 
     /// Fills the ink grid's texture where its entries changed, a call or
@@ -567,15 +619,18 @@ impl Glyphs {
             (b.next, b.rows, b.empty_since) = (0, 0, None);
             b.free.clear();
             b.kept.clear();
-            if let Some(t) = b
-                .texture
-                .take()
-                .and_then(|i| self.textures.get_mut(i))
-                .and_then(Option::take)
-            {
-                self.bytes = self.bytes.saturating_sub(texture_bytes(Format::R8, size));
-                self.uploads = self.uploads.saturating_add(1);
-                gl.free_texture(t)?;
+            for (texture, format) in [
+                (b.texture.take(), Format::R8),
+                (b.color.take(), Format::Rgba8),
+            ] {
+                if let Some(t) = texture
+                    .and_then(|i| self.textures.get_mut(i))
+                    .and_then(Option::take)
+                {
+                    self.bytes = self.bytes.saturating_sub(texture_bytes(format, size));
+                    self.uploads = self.uploads.saturating_add(1);
+                    gl.free_texture(t)?;
+                }
             }
         }
         for p in &mut self.pools {
@@ -691,6 +746,7 @@ impl Glyphs {
             index,
             bytes,
             reach: Reach::NONE,
+            color: false,
         };
         if let Err(e) = self.fill(gl, slot, &stored) {
             if let Some(p) = self.pools.get_mut(pool) {
@@ -723,9 +779,10 @@ impl Glyphs {
         (stored, missing): (Stored, bool),
     ) -> Result<Result<Place, Stored>, Error> {
         let reach = stored.reach();
-        if reach.is_none() || stored.is_rgba() {
+        if reach.is_none() {
             return Ok(Err(stored));
         }
+        let color = stored.is_rgba();
         let bytes = self.boxes.bytes();
         let kept = self.cache.room(pool, bytes);
         self.reclaim();
@@ -756,6 +813,7 @@ impl Glyphs {
             index,
             bytes,
             reach,
+            color,
         };
         if kept {
             self.cache.keep((text, width, style), pool, slot, missing);
@@ -826,10 +884,10 @@ impl Glyphs {
             let b = &self.boxes;
             let (x, y) = b.at(s.index);
             return Some(Place {
-                texture: b.texture?,
+                texture: if s.color { b.color? } else { b.texture? },
                 x: x.saturating_add(b.margin.0),
                 y: y.saturating_add(b.margin.1),
-                color: false,
+                color: s.color,
                 boxed: Some((s.index, s.reach)),
             });
         }
@@ -877,6 +935,7 @@ impl Glyphs {
             return Ok(None);
         }
         let (old, new) = (b.size(b.rows), b.size(rows));
+        let old_size = old;
         let grown = texture_bytes(Format::R8, new).saturating_sub(texture_bytes(Format::R8, old));
         if self.bytes.saturating_add(grown) > self.ceiling {
             return Ok(None);
@@ -919,6 +978,23 @@ impl Glyphs {
             self.uploads = self.uploads.saturating_add(1);
             gl.free_texture(old)?;
         }
+        if let Some(at) = b.color {
+            // the color boxes grow with the boxes, slot for slot
+            let grown = texture_bytes(Format::Rgba8, new)
+                .saturating_sub(texture_bytes(Format::Rgba8, old_size));
+            let texture = gl.create_texture(Format::Rgba8, new)?;
+            let stride = usize::try_from(new.width).unwrap_or(0).saturating_mul(4);
+            if let Err(e) = gl.fill_texture(&texture, new.rect(), &b.color_pixels(new), stride) {
+                let _ = gl.free_texture(texture);
+                return Err(e);
+            }
+            self.uploads = self.uploads.saturating_add(2);
+            self.bytes = self.bytes.saturating_add(grown);
+            if let Some(old) = self.textures.get_mut(at).and_then(|t| t.replace(texture)) {
+                self.uploads = self.uploads.saturating_add(1);
+                gl.free_texture(old)?;
+            }
+        }
         b.rows = rows;
         let i = b.next;
         b.next = b.next.saturating_add(1);
@@ -955,7 +1031,59 @@ impl Glyphs {
             height: b.slot.height,
         };
         gl.fill_texture(texture, rect, &pixels, stride)?;
-        Ok(BoxLines::new(&pixels, b.slot, self.cell))
+        let lines = BoxLines::new(&pixels, b.slot, self.cell);
+        if stored.is_rgba() {
+            self.fill_color_box(gl, rect, stored)?;
+        }
+        Ok(lines)
+    }
+
+    /// Fills the color boxes' slot at `rect` from the color glyph
+    /// `stored`, the color boxes' texture made first when no color glyph
+    /// has taken a box yet, at the boxes' size.
+    fn fill_color_box<G: Gl>(
+        &mut self,
+        gl: &mut G,
+        rect: Rect,
+        stored: &Stored,
+    ) -> Result<(), Error> {
+        let b = &self.boxes;
+        if b.color.is_none() {
+            let size = b.size(b.rows);
+            let bytes = texture_bytes(Format::Rgba8, size);
+            if self.bytes.saturating_add(bytes) > self.ceiling {
+                return Err(Error::new(
+                    ErrorKind::Limit,
+                    "the color boxes would take the glyph textures past their ceiling",
+                ));
+            }
+            let texture = gl.create_texture(Format::Rgba8, size)?;
+            self.uploads = self.uploads.saturating_add(1);
+            self.bytes = self.bytes.saturating_add(bytes);
+            let at = match self.textures.iter().position(Option::is_none) {
+                Some(at) => at,
+                None => {
+                    self.textures.push(None);
+                    self.textures.len().saturating_sub(1)
+                }
+            };
+            if let Some(t) = self.textures.get_mut(at) {
+                *t = Some(texture);
+            }
+            self.boxes.color = Some(at);
+        }
+        let b = &self.boxes;
+        let texture = b
+            .color
+            .and_then(|i| self.textures.get(i))
+            .and_then(Option::as_ref)
+            .ok_or_else(|| Error::new(ErrorKind::Misuse, "no texture of color boxes"))?;
+        let stride = usize::try_from(b.slot.width).unwrap_or(0).saturating_mul(4);
+        let mut pixels =
+            vec![0u8; stride.saturating_mul(usize::try_from(b.slot.height).unwrap_or(0))];
+        b.draw_rgba(stored, &mut pixels, (0, 0), stride);
+        self.uploads = self.uploads.saturating_add(1);
+        gl.fill_texture(texture, rect, &pixels, stride)
     }
 
     /// A slot of pool `pool` no glyph holds: the lowest free one, the next

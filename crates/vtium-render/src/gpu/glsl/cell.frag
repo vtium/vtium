@@ -65,10 +65,15 @@ uniform ivec4 box_slot;
 // the ink grid: each cell takes texels() texels, one above the other; for
 // the cell at column k and row r, with t texels a cell, the texel at k, tr
 // holds its reach byte, its span and its slot's number, low byte first,
-// the texel at k, tr + 1 its ink's color, and the texels from k, tr + 2 on
+// the texel at k, tr + 1 its ink's color, and in its alpha byte 1 for a
+// color emoji drawn in one cell (ADR-1302 D5), and the texels from k, tr + 2 on
 // a bit for each display line through it, 32 to a texel, the first line
 // in the lowest bit of the red channel
 uniform highp sampler2D ink;
+// the color boxes: a color emoji's premultiplied RGBA in the boxes' slots,
+// which its edge in a neighbour's cell takes, in its own colors inside a
+// mark too (ADR-1302 D5, D8)
+uniform highp sampler2D color_boxes;
 #endif
 #ifdef OVER
 // the pixels beneath, copied, and x, y: the target's pixel the copy's
@@ -191,8 +196,13 @@ vec4 take(vec4 p, int k, int r, Job job, ivec2 at, int gap) {
         return p;
     }
     ivec2 from = ivec2(slot % box_slot.z * box_slot.x, slot / box_slot.z * box_slot.y);
+    vec4 own = floor(texelFetch(ink, ivec2(k, r * stride + 1), 0) * 255.0 + 0.5);
+    if (own.a != 0.0) {
+        vec4 s = floor(texelFetch(color_boxes, from + t, 0) * 255.0 + 0.5);
+        return s.a == 0.0 ? p : over(p, s);
+    }
     float a = byte(texelFetch(boxes, from + t, 0).r);
-    vec3 c = job.marked ? job.fg : floor(texelFetch(ink, ivec2(k, r * stride + 1), 0).rgb * 255.0 + 0.5);
+    vec3 c = job.marked ? job.fg : own.rgb;
     return tint_over(p, a, c);
 }
 
