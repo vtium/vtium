@@ -6,18 +6,20 @@
 //! left. The fallback unit, `vtium-getty@.service`, skips the getty
 //! while the file exists, so a hangup, a session that cannot spawn or a
 //! panic under closed leave the VT with no login. vtium never reads the
-//! file.
+//! file. With `vtium.enable=0` on the kernel command line, vtium marks the
+//! VT by the policy it reads from vtium.conf before it exits, so the key
+//! never hands a closed VT to a login prompt either
+//! ([`crate::kernel::off_at_start`]).
 //!
 //! vtium writes it before it opens its loop or its VT, so a failure at
 //! either still leaves it, and a failure before vtium has read the head
 //! file leaves an earlier closed run's marker of this boot where it is.
 //!
-//! The VT's run directory, `/run/vtium/ttyN/`, will be the unit's
-//! `RuntimeDirectory=vtium/%i` (ADR-1401 D10, not built yet). systemd
-//! removes only that innermost directory when vtium stops, before the
-//! fallback unit checks its condition, so the marker sits one level up, in
-//! `/run/vtium/`. `/run` is cleared at every boot, so a marker never
-//! outlives the boot that wrote it.
+//! vtium makes the VT's run directory, `/run/vtium/ttyN/`, itself
+//! (ADR-1401 D10), and the marker sits one level up, in `/run/vtium/`,
+//! beside it and never in it, where the fallback unit's condition looks.
+//! `/run` is cleared at every boot, so a marker never outlives the boot
+//! that wrote it.
 
 use std::io;
 use std::path::{Path, PathBuf};

@@ -94,8 +94,13 @@ fn main() -> ExitCode {
     {
         return ExitCode::from(u8::try_from(status).unwrap_or(1));
     }
-    // Before vtium.conf, the VT and any card (ADR-1401 D9).
-    if let Some(status) = vtium::kernel::off_at_start(&args, Path::new(vtium::kernel::CMDLINE)) {
+    // Before vtium reads vtium.conf whole, and before the VT and any card
+    // (ADR-1401 D9).
+    if let Some(status) = vtium::kernel::off_at_start(
+        &args,
+        Path::new(vtium::kernel::CMDLINE),
+        Path::new(vtium::getty::DIR),
+    ) {
         return ExitCode::from(status);
     }
     let loaded = config::load(&args, &mut config::read_file);
