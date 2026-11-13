@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="380" viewBox="0 0 900 380" font-family="DejaVu Sans Mono, monospace">
+<title>One head on two displays, beside two heads on two displays</title>
+<rect width="900" height="380" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- one head, mirrored -->
+<rect x="16" y="16" width="424" height="324" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="32" y="40" font-size="14" fill="#1f2933">one head on two displays</text>
+<rect x="160" y="56" width="136" height="36" rx="8" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="228" y="79" font-size="13" text-anchor="middle" fill="#1f2933">head desk</text>
+<line x1="208" y1="92" x2="104" y2="146" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="248" y1="92" x2="284" y2="126" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="40" y="148" width="100" height="60" rx="3" fill="#1f2933" stroke="#9aa5b1" stroke-width="1"/>
+<text x="90" y="183" font-size="12" text-anchor="middle" fill="#ffffff">100×30</text>
+<text x="90" y="226" font-size="12" text-anchor="middle" fill="#1f2933">800×480</text>
+<text x="90" y="242" font-size="12" text-anchor="middle" fill="#1f2933">panel</text>
+<rect x="168" y="128" width="240" height="135" rx="3" fill="#1f2933" stroke="#9aa5b1" stroke-width="1"/>
+<text x="288" y="205" font-size="32" text-anchor="middle" fill="#ffffff">100×30</text>
+<text x="288" y="281" font-size="12" text-anchor="middle" fill="#1f2933">1920×1080 monitor</text>
+<text x="228" y="308" font-size="12" text-anchor="middle" fill="#1f2933">one grid, sized for the smaller display;</text>
+<text x="228" y="324" font-size="12" text-anchor="middle" fill="#1f2933">the larger one draws bigger characters</text>
+<!-- two heads -->
+<rect x="460" y="16" width="424" height="324" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<text x="476" y="40" font-size="14" fill="#1f2933">two heads on two displays</text>
+<rect x="476" y="56" width="128" height="36" rx="8" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="540" y="79" font-size="13" text-anchor="middle" fill="#1f2933">head panel</text>
+<rect x="664" y="56" width="128" height="36" rx="8" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<text x="728" y="79" font-size="13" text-anchor="middle" fill="#1f2933">head desk</text>
+<line x1="536" y1="92" x2="536" y2="146" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<line x1="728" y1="92" x2="728" y2="126" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<rect x="486" y="148" width="100" height="60" rx="3" fill="#1f2933" stroke="#9aa5b1" stroke-width="1"/>
+<text x="536" y="183" font-size="12" text-anchor="middle" fill="#ffffff">100×30</text>
+<text x="536" y="226" font-size="12" text-anchor="middle" fill="#1f2933">800×480</text>
+<text x="536" y="242" font-size="12" text-anchor="middle" fill="#1f2933">panel</text>
+<rect x="612" y="128" width="240" height="135" rx="3" fill="#1f2933" stroke="#9aa5b1" stroke-width="1"/>
+<text x="732" y="200" font-size="12" text-anchor="middle" fill="#ffffff">240×67</text>
+<text x="732" y="281" font-size="12" text-anchor="middle" fill="#1f2933">1920×1080 monitor</text>
+<text x="672" y="308" font-size="12" text-anchor="middle" fill="#1f2933">each head has a grid sized for its</text>
+<text x="672" y="324" font-size="12" text-anchor="middle" fill="#1f2933">own display, and its own sessions</text>
+<!-- note -->
+<text x="24" y="366" font-size="12" fill="#1f2933">Each screen shows its head's grid in columns×rows of character cells, for an 8×16 font.</text>
+</svg>

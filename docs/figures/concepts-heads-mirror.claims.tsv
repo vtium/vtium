@@ -1,0 +1,7 @@
+# Claims of concepts-heads-mirror.svg in docs/concepts/heads.md.
+element	file	symbol
+one head on two displays: one grid, sized for the smaller display	crates/vtium/src/layout.rs	layout
+the larger display draws bigger characters	crates/vtium/src/layout.rs	Layout
+grids for an 8×16 font: 800×480 holds 100×30, 1920×1080 holds 240×67	crates/vtium/src/layout.rs	layout
+two heads on two displays: each head has its own grid and its own sessions	crates/vtium/src/head.rs	Head
+a rule sends each display to its head	crates/vtium/src/head.rs	place_display
