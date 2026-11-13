@@ -6,3 +6,5 @@ small-640x480-1bit	#273: the italic word `ital` in the 8x16 PSF1 test font redra
 vitrified-640x480	#273: the italic word `ital` in the 8x16 PSF1 test font, drawn by vtium-config's engine, redrawn with ADR-1302 D4's bands of 2026-11-07, its last five rows standing together; not reviewed yet
 bidi-title	#389: al-i'lan's lam-alefs, drawn by Noto Sans Arabic as two glyphs, against the right edge of their two cells, and ain in its initial form meeting the final lam-alef; not reviewed yet
 bidi-title-1bit	#389: the bidi-title screen on a 1-bit display; not reviewed yet
+scripts-arabic	#389: Arabic in Iosevka Term's 16x40 cell with ADR-1302 D2 as amended on 2026-11-12, no joining letter widened and a tatweel toward the letter each joins; not reviewed yet
+scripts-indic	#261: Hindi and Bengali in Iosevka Term's 16x40 cell, each cluster and letter wider than its cell squeezed to it at full height (ADR-1307); not reviewed yet
