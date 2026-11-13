@@ -2059,3 +2059,249 @@ fn the_base_layout_table_follows_the_kernels_key_names() {
         }
     }
 }
+
+// The real layouts of xkeyboard-config, compiled once by `make keymaps`
+// and committed unchanged (tests/keymaps/README.md). A test that needs one
+// fails when the file is missing or does not compile: include_str! fails
+// the build, and `with_layout` panics.
+const US: &str = include_str!("../../tests/keymaps/us.xkb");
+const RU: &str = include_str!("../../tests/keymaps/ru.xkb");
+const DE: &str = include_str!("../../tests/keymaps/de.xkb");
+const FR: &str = include_str!("../../tests/keymaps/fr.xkb");
+
+// More of evdev's key codes, `linux/input-event-codes.h`.
+const KEY_Y: u16 = 21;
+const KEY_GRAVE: u16 = 41;
+const KEY_RIGHTALT: u16 = 100;
+
+/// The input awake with one keyboard at /dev/input/event0, under the
+/// layout `text`, a committed fixture, with the compose table `compose`.
+fn with_layout(
+    name: &str,
+    text: &str,
+    compose: &[u8],
+) -> (Input<Nodes>, Rc<RefCell<Node>>, super::DeviceId) {
+    let mut keymap =
+        Keymap::from_text(text).unwrap_or_else(|| panic!("the fixture {name}.xkb compiles"));
+    if !compose.is_empty() {
+        keymap.set_compose_table(compose, "C");
+    }
+    let nodes = Nodes::default();
+    let node = nodes.add("/dev/input/event0", fake::keyboard());
+    let mut input = Input::new(nodes, keymap, InputConfig::default());
+    input.wake_up();
+    let id = input
+        .add(Path::new("/dev/input/event0"))
+        .unwrap_or_else(|| panic!("the keyboard is taken"));
+    (input, node, id)
+}
+
+/// Each press's keysym, unshifted key, shifted key and base layout key.
+fn all_forms(input: &mut Input<Nodes>) -> Vec<(u32, u32, u32, Option<char>)> {
+    keys(input)
+        .iter()
+        .map(|k| {
+            let sym = k.keysyms.first().copied().unwrap_or(0);
+            (sym, k.unshifted, k.shifted, k.base)
+        })
+        .collect()
+}
+
+/// `code` tapped alone, then with Shift, then once Caps Lock is on, and
+/// Caps Lock turned off again: the key's three presses.
+fn tap_shift_caps(code: u16) -> Vec<RawEvent> {
+    vec![
+        press(code),
+        release(code),
+        press(KEY_LEFTSHIFT),
+        press(code),
+        release(code),
+        release(KEY_LEFTSHIFT),
+        press(KEY_CAPSLOCK),
+        release(KEY_CAPSLOCK),
+        press(code),
+        release(code),
+        press(KEY_CAPSLOCK),
+        release(KEY_CAPSLOCK),
+    ]
+}
+
+/// The presses of `tap_shift_caps`, the modifier keys' left out.
+fn of_key(
+    forms: &[(u32, u32, u32, Option<char>)],
+    keysym_of: &[u32],
+) -> Vec<(u32, u32, u32, Option<char>)> {
+    forms
+        .iter()
+        .filter(|f| keysym_of.contains(&f.0))
+        .copied()
+        .collect()
+}
+
+// ADR-1005 D9, on xkeyboard-config's Russian layout: the key at US `c`
+// makes с, Shift С, and with Caps Lock С. Its unshifted key is с, given
+// as the Unicode keysym of U+0441; its shifted key С, U+0421; and its base
+// layout key, the key on the US PC-101 layout, c. The kitty keyboard
+// protocol's "Key codes" defines all three.
+// covers: input.kitty-keyboard
+#[test]
+fn the_russian_layout_reports_each_keys_forms() {
+    let (mut input, node, id) = with_layout("ru", RU, b"");
+    feed(&mut input, &node, id, &tap_shift_caps(KEY_C));
+    let es = of_key(
+        &all_forms(&mut input),
+        &[keysyms::KEY_Cyrillic_es, keysyms::KEY_Cyrillic_ES],
+    );
+    let forms = (0x0100_0441, 0x0100_0421, Some('c'));
+    assert_eq!(
+        es,
+        [
+            (keysyms::KEY_Cyrillic_es, forms.0, forms.1, forms.2),
+            (keysyms::KEY_Cyrillic_ES, forms.0, forms.1, forms.2),
+            (keysyms::KEY_Cyrillic_ES, forms.0, forms.1, forms.2),
+        ]
+    );
+}
+
+// ADR-1005 D9, on xkeyboard-config's German layout, QWERTZ: the key at US
+// `y` makes z, so its unshifted key is z and its base layout key y. AltGr
+// (the right Alt, ISO_Level3_Shift) with the key at US `q` makes @, which a
+// modifier the kitty keyboard protocol cannot encode chose, so the key
+// reports no unshifted key and no shifted key. The dead circumflex reports
+// nothing until compose ends its sequence, and the composed ê then reports
+// the forms of the key that ended it, e.
+// covers: input.kitty-keyboard
+#[test]
+fn the_german_layout_reports_each_keys_forms() {
+    let compose = b"<dead_circumflex> <e> : \"\xc3\xaa\" ecircumflex\n";
+    let (mut input, node, id) = with_layout("de", DE, compose);
+    feed(&mut input, &node, id, &tap_shift_caps(KEY_Y));
+    let z = of_key(&all_forms(&mut input), &[keysyms::KEY_z, keysyms::KEY_Z]);
+    assert_eq!(
+        z,
+        [
+            (keysyms::KEY_z, keysyms::KEY_z, keysyms::KEY_Z, Some('y')),
+            (keysyms::KEY_Z, keysyms::KEY_z, keysyms::KEY_Z, Some('y')),
+            (keysyms::KEY_Z, keysyms::KEY_z, keysyms::KEY_Z, Some('y')),
+        ]
+    );
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[
+            press(KEY_RIGHTALT),
+            press(KEY_Q),
+            release(KEY_Q),
+            release(KEY_RIGHTALT),
+        ],
+    );
+    let at = of_key(&all_forms(&mut input), &[keysyms::KEY_at]);
+    assert_eq!(
+        at,
+        [(
+            keysyms::KEY_at,
+            keysyms::KEY_NoSymbol,
+            keysyms::KEY_NoSymbol,
+            Some('q')
+        )]
+    );
+    feed(
+        &mut input,
+        &node,
+        id,
+        &[press(KEY_GRAVE), release(KEY_GRAVE)],
+    );
+    assert_eq!(all_forms(&mut input), [], "the dead key reports nothing");
+    feed(&mut input, &node, id, &[press(KEY_E), release(KEY_E)]);
+    assert_eq!(
+        all_forms(&mut input),
+        [(
+            keysyms::KEY_ecircumflex,
+            keysyms::KEY_e,
+            keysyms::KEY_E,
+            Some('e')
+        )]
+    );
+}
+
+// ADR-1005 D9, on xkeyboard-config's French AZERTY layout: the key at US
+// `1` makes & with no modifier and 1 with Shift, so its unshifted key is
+// &, its shifted key 1 and its base layout key 1. Caps Lock leaves it &.
+// The key at US `q` makes a, with the base layout key q.
+// covers: input.kitty-keyboard
+#[test]
+fn the_french_azerty_layout_reports_each_keys_forms() {
+    let (mut input, node, id) = with_layout("fr", FR, b"");
+    feed(&mut input, &node, id, &tap_shift_caps(KEY_1));
+    let one = of_key(
+        &all_forms(&mut input),
+        &[keysyms::KEY_ampersand, keysyms::KEY_1],
+    );
+    let forms = (keysyms::KEY_ampersand, keysyms::KEY_1, Some('1'));
+    assert_eq!(
+        one,
+        [
+            (keysyms::KEY_ampersand, forms.0, forms.1, forms.2),
+            (keysyms::KEY_1, forms.0, forms.1, forms.2),
+            (keysyms::KEY_ampersand, forms.0, forms.1, forms.2),
+        ],
+        "Caps Lock leaves the number row's symbols in this layout"
+    );
+    feed(&mut input, &node, id, &[press(KEY_Q), release(KEY_Q)]);
+    assert_eq!(
+        all_forms(&mut input),
+        [(keysyms::KEY_a, keysyms::KEY_a, keysyms::KEY_A, Some('q'))]
+    );
+}
+
+// The control: on xkeyboard-config's US layout every key's base layout key
+// is its own unshifted character, and the same keys report the US forms.
+// covers: input.kitty-keyboard
+#[test]
+fn the_us_layout_reports_each_keys_forms() {
+    let (mut input, node, id) = with_layout("us", US, b"");
+    for (code, lower, upper, base) in [
+        (KEY_C, keysyms::KEY_c, keysyms::KEY_C, 'c'),
+        (KEY_Y, keysyms::KEY_y, keysyms::KEY_Y, 'y'),
+        (KEY_Q, keysyms::KEY_q, keysyms::KEY_Q, 'q'),
+    ] {
+        feed(&mut input, &node, id, &tap_shift_caps(code));
+        assert_eq!(
+            of_key(&all_forms(&mut input), &[lower, upper]),
+            [
+                (lower, lower, upper, Some(base)),
+                (upper, lower, upper, Some(base)),
+                (upper, lower, upper, Some(base)),
+            ],
+            "{base}"
+        );
+    }
+    feed(&mut input, &node, id, &tap_shift_caps(KEY_1));
+    assert_eq!(
+        of_key(
+            &all_forms(&mut input),
+            &[keysyms::KEY_1, keysyms::KEY_exclam]
+        ),
+        [
+            (
+                keysyms::KEY_1,
+                keysyms::KEY_1,
+                keysyms::KEY_exclam,
+                Some('1')
+            ),
+            (
+                keysyms::KEY_exclam,
+                keysyms::KEY_1,
+                keysyms::KEY_exclam,
+                Some('1')
+            ),
+            (
+                keysyms::KEY_1,
+                keysyms::KEY_1,
+                keysyms::KEY_exclam,
+                Some('1')
+            ),
+        ]
+    );
+}

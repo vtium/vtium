@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use xkbcommon::xkb::{self, Keycode, Keysym, compose, keysyms};
 
-use super::{KeyEvent, Mods};
+use super::{InputEvent, KeyEvent, Mods};
 use crate::ioctl::{LED_CAPSL, LED_NUML, LED_SCROLLL};
 
 /// evdev's key codes start 8 below xkb's.
@@ -193,7 +193,32 @@ impl Keymap {
         }
     }
 
-    /// A compose table from `text`, for `locale`.
+    /// The events a keyboard with this keymap reports for `keys`, each an
+    /// evdev key code pressed (`true`) or released (`false`), in order,
+    /// from a fresh keyboard state with no lock on: each press as
+    /// [`InputEvent::Key`] and each release as [`InputEvent::Release`], as
+    /// [`super::Input`] drains them from such a keyboard, with no repeat.
+    /// A press that goes into a compose sequence reports nothing, as from a
+    /// keyboard. vtium's tests drive the binary and vtium-term with real
+    /// layouts through it (ADR-1005).
+    pub fn key_events(&self, keys: &[(u16, bool)]) -> Vec<InputEvent> {
+        let mut keyboard = Keyboard::new(self);
+        let mut events = Vec::with_capacity(keys.len());
+        for &(code, pressed) in keys {
+            let state = if pressed {
+                KeyState::Pressed
+            } else {
+                KeyState::Released
+            };
+            let out = keyboard.process(state, code);
+            events.extend(out.release.map(InputEvent::Release));
+            events.extend(out.key.map(InputEvent::Key));
+        }
+        events
+    }
+
+    /// A compose table from `text`, for `locale`, which the tests and
+    /// [`Self::with_compose_table`] set.
     pub(crate) fn set_compose_table(&mut self, text: &[u8], locale: &str) {
         if locale.contains('\0') {
             return;
@@ -206,6 +231,16 @@ impl Keymap {
             compose::COMPILE_NO_FLAGS,
         )
         .ok();
+    }
+
+    /// This keymap with the compose table `text`, a table in the text
+    /// format of Compose(5), for `locale`; with no table where `text` does
+    /// not compile. vtium's tests compose dead keys with a table of their
+    /// own, so that a test does not depend on the machine's locale.
+    #[must_use]
+    pub fn with_compose_table(mut self, text: &[u8], locale: &str) -> Keymap {
+        self.set_compose_table(text, locale);
+        self
     }
 
     /// A keymap compiled from `text`, with no compose table.
