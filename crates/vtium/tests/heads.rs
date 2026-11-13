@@ -6935,33 +6935,71 @@ fn a_looks_frit_others_can_change_draws_the_built_in_font_with_one_line() {
     assert_eq!(about(&returned), [line], "{returned:?}");
 }
 
+/// The OSC 50 reply that console 2 of head small shows, once it shows one.
+/// The tty echoes the reply, so it appears on the console's screen.
+fn second_consoles_reply(app: &App) -> Option<String> {
+    console_lines(app, "small", "^[]50;")
+        .get(1)
+        .cloned()
+        .flatten()
+}
+
 /// vtium/vtium#384, ADR-1200 D5: the font is the head's, so every console
 /// of the head reports the font on screen. Console 1 switches the head to
-/// frit b while console 2, hidden, has asked which font is in use; shown,
-/// console 2 is answered b, not the font the head started in.
+/// frit b. Only after that switch does console 2, which is hidden, ask
+/// which font is in use: it waits for the file `go`, which the test writes
+/// once the head draws b. vtium answers a hidden console's query at once,
+/// so console 2 is answered b while it is still hidden, not the font the
+/// head started in.
 #[test]
 fn a_hidden_consoles_query_names_the_font_another_console_switched_to() {
     let (dir, fonts) = reset_fixture("reset-hidden-query", "font-name=a\nfont-size=0\n");
+    let script = format!(
+        "d={d}; n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
+         if [ $n = 1 ]; then printf '\\033]50;b\\007'; \
+         else while [ ! -e $d/go ]; do sleep 0.02; done; printf '\\033]50;?\\007'; fi; \
+         while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done",
+        d = dir.display()
+    );
+    let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, &script);
+    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
+    std::fs::write(dir.join("go"), "").expect("the go mark");
+    assert!(
+        s.until(BOUND, |a| second_consoles_reply(a).is_some()),
+        "{:?}",
+        s.app.head("small").map(Head::consoles_text)
+    );
+    assert_eq!(
+        s.app.head("small").map(Head::shown_console),
+        Some(0),
+        "console 2 hidden"
+    );
+    assert_eq!(second_consoles_reply(&s.app).as_deref(), Some("^[]50;b^G"));
+}
+
+/// vtium/vtium#384, ADR-1200 D5: a head opens its second console after it
+/// has laid out its first display in frit a, and nothing switches the
+/// font. Console 2, hidden, asks which font is in use and is answered a,
+/// the font on screen, not an empty name.
+#[test]
+fn a_console_opened_after_the_font_is_laid_out_names_the_font() {
+    let (dir, fonts) = reset_fixture("reset-later-console", "font-name=a\nfont-size=0\n");
     let script = "n=$VTIUM_CONSOLE; echo \"size:$(stty size)\"; \
-         if [ $n = 1 ]; then printf '\\033]50;b\\007'; else printf '\\033]50;?\\007'; fi; \
+         if [ $n = 2 ]; then printf '\\033]50;?\\007'; fi; \
          while read a; do [ \"$a\" = q ] && exit; echo \"got:$a\"; done";
     let (mut s, _) = seat_running(&dir, &small_consoles(2), fonts, script);
-    assert!(s.until(BOUND, |a| a.font_name() == "b"), "switched to b");
-    press_chord(&mut s, KBD_SMALL, RIGHT);
-    let replied = |a: &App| head_shows(a, "small", "]50;");
     assert!(
-        s.until(BOUND, replied),
+        s.until(BOUND, |a| second_consoles_reply(a).is_some()),
         "{:?}",
-        s.app.head("small").map(Head::screen_text)
+        s.app.head("small").map(Head::consoles_text)
     );
-    let text = s
-        .app
-        .head("small")
-        .map(Head::screen_text)
-        .unwrap_or_default();
-    let replies: Vec<&String> = text.iter().filter(|l| l.contains("]50;")).collect();
-    assert_eq!(replies.len(), 1, "{text:?}");
-    assert!(replies[0].ends_with("]50;b^G"), "{replies:?}");
+    assert_eq!(s.app.font_name(), "a");
+    assert_eq!(
+        s.app.head("small").map(Head::shown_console),
+        Some(0),
+        "console 2 hidden"
+    );
+    assert_eq!(second_consoles_reply(&s.app).as_deref(), Some("^[]50;a^G"));
 }
 
 /// vtium/vtium#384, ADR-1200 D5: a head whose display has gone keeps its

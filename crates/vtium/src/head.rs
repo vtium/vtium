@@ -247,6 +247,10 @@ pub struct Head {
     /// while the head draws another font, so that OSC 50 switches back to
     /// it by the name its query reported (D5).
     pub(crate) made: Option<crate::helper::FritText>,
+    /// The name of the font on screen, as [`Head::name_font`] last gave
+    /// it to the head's consoles; `None` until the head first lays out its
+    /// font. A console the head opens later takes it too.
+    named: Option<String>,
     /// The font changed: every display's renderer is rebuilt.
     pub(crate) refont: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
@@ -325,6 +329,14 @@ pub(crate) fn terminal(
     #[cfg(not(feature = "images"))]
     let _ = pictures;
     Term::new(terminal, sync, Blink::configured(config), clock)
+}
+
+/// Gives `terminal` the font `name` that its OSC 50 query reports, or no
+/// name where `name` is not one OSC 50 takes.
+fn name_terminal(terminal: &mut Terminal, name: &str) {
+    if !terminal.set_font_name(name) {
+        terminal.clear_font_name();
+    }
 }
 
 /// The scrollback memory each console takes (ADR-1401 D10): `sb-memory`,
@@ -495,6 +507,7 @@ impl Head {
             cell: CELL,
             font: None,
             made: None,
+            named: None,
             refont: false,
             font_refused: 0,
             switched: None,
@@ -883,6 +896,29 @@ impl Head {
             asked: None,
             ..self.fit()
         }
+    }
+
+    /// A new console `id` of the head, on the terminal `term`, at a
+    /// [`Head::fresh_fit`]. Its terminal names the font on screen, as
+    /// every other console of the head does, so its first OSC 50 query
+    /// reports that font even when it comes before the font next changes.
+    pub(crate) fn fresh_console(&self, id: u64, mut term: Term) -> Console {
+        if let Some(name) = &self.named {
+            name_terminal(&mut term.terminal, name);
+        }
+        Console::new(id, term, self.fresh_fit())
+    }
+
+    /// Names the font `name` that the head draws on every one of its
+    /// consoles, the hidden ones too, since the font is the head's, and on
+    /// each console it opens later. OSC 50's query reports the font by a
+    /// name OSC 50 takes, or by no name, as for a font file's path or a
+    /// family, and never by the name of a font no longer shown.
+    pub(crate) fn name_font(&mut self, name: &str) {
+        for console in self.consoles_mut() {
+            name_terminal(&mut console.term.terminal, name);
+        }
+        self.named = Some(name.to_owned());
     }
 
     /// The next console's id.

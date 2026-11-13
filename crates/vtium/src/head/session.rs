@@ -181,7 +181,7 @@ impl Head {
     pub(crate) fn open_wanted(&mut self, mut term: impl FnMut() -> Term) {
         while self.console_count() < self.wanted {
             let id = self.next_id();
-            let console = Console::new(id, term(), self.fresh_fit());
+            let console = self.fresh_console(id, term());
             self.hidden.push(console);
         }
     }
@@ -215,7 +215,7 @@ impl Head {
                 left.push(id);
                 continue;
             }
-            let console = Console::new(id, term(), self.fresh_fit());
+            let console = self.fresh_console(id, term());
             self.hidden.push(console);
             self.next_id = self.next_id.max(id.saturating_add(1));
         }
@@ -258,7 +258,7 @@ impl Head {
     /// [`Head::show`] shows it.
     pub(crate) fn open_console(&mut self, term: Term, since: Duration) -> (u64, usize) {
         let id = self.next_id();
-        let mut console = Console::new(id, term, self.fresh_fit());
+        let mut console = self.fresh_console(id, term);
         console.respawn = Some(Respawn::new(since));
         self.hidden.insert(self.at.min(self.hidden.len()), console);
         (id, self.at.saturating_add(1))
