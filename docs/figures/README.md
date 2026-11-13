@@ -4,7 +4,7 @@ The figures of vtium's documentation pages outside the decision records, which k
 
 | Path | What it is | How it is made |
 |---|---|---|
-| `concepts-pieces.svg` | [concepts/suite.md](../concepts/suite.md): vtium's suite, which pieces run as root, which as nobody and which as the user, the pty between vtium and the session, the font helper that vtium starts and talks to over two pipes, and the one sudo of each install of vtium.conf or a frit | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
+| `concepts-pieces.svg` | [concepts/suite.md](../concepts/suite.md): vtium's suite, which pieces run as root, which as nobody and which as the user, the pty between vtium and the session, the two helpers that vtium starts, the font helper over two pipes and the image helper over a socket pair, and the one sudo of each install of vtium.conf or a frit | Written by hand; `rsvg-convert concepts-pieces.svg -o OUT.png` renders it to check |
 | `concepts-vt-handover.svg` | [concepts/start-up.md](../concepts/start-up.md): who holds the display and the input across a VT switch away and back | Written by hand; `rsvg-convert concepts-vt-handover.svg -o OUT.png` renders it to check |
 | `why-vtium-boot.svg` | [why-vtium.md](../why-vtium.md): where vtium sits in a Linux machine's boot, beside the kernel's console alone, with the getty fallback | Written by hand; `rsvg-convert why-vtium-boot.svg -o OUT.png` renders it to check |
 | `why-vtium-spectrum.svg` | [why-vtium.md](../why-vtium.md): the displays vtium's test card is drawn at, from 320x240 to 2560x1440, to scale, with each one's cells, grid and measured memory | Written by hand; `rsvg-convert why-vtium-spectrum.svg -o OUT.png` renders it to check |
