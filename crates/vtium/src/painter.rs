@@ -801,8 +801,9 @@ mod tests {
     use crate::term::{Prepared, Term, View};
     use crate::video::Video;
 
-    /// A display in memory, of the size it holds.
-    struct Small(Arc<Mutex<Vec<u8>>>, (u32, u32));
+    /// A display in memory, of the size it holds, which lends its one
+    /// buffer as that many frames old.
+    struct Small(Arc<Mutex<Vec<u8>>>, (u32, u32), u32);
 
     impl Video for Small {
         fn backend(&self) -> &'static str {
@@ -829,7 +830,7 @@ mod tests {
                 id,
                 self.1,
                 self.1.0.saturating_mul(4),
-                0,
+                self.2,
                 memory,
             ))
         }
@@ -873,31 +874,16 @@ mod tests {
     /// `n` jobs, a display of `size` each, every one running `hook` before
     /// it composes.
     fn jobs_at(n: u32, size: (u32, u32), hook: &DrawHook) -> Vec<Job> {
-        jobs_showing(n, size, (4, 1), b"", hook).0
-    }
-
-    /// `n` jobs, a display of `size` each, every one running `hook` before
-    /// it composes, of a terminal of `grid` columns and rows that took
-    /// `output`; and the buffer every display draws into.
-    fn jobs_showing(
-        n: u32,
-        size: (u32, u32),
-        grid: (usize, usize),
-        output: &[u8],
-        hook: &DrawHook,
-    ) -> (Vec<Job>, Arc<Mutex<Vec<u8>>>) {
         let mut term = Term::new(
-            Terminal::new(grid.0, grid.1, 0),
+            Terminal::new(4, 1, 0),
             Sync::new(Duration::ZERO, 0),
             Blink::new(false),
             Rc::new(Instant::now),
         );
-        assert_eq!(term.parse(output, &mut |_| {}), output.len());
         let bytes = usize::try_from(size.0.saturating_mul(size.1).saturating_mul(4)).unwrap();
-        let buffer = Arc::new(Mutex::new(vec![0; bytes]));
-        let mut video = Small(Arc::clone(&buffer), size);
+        let mut video = Small(Arc::new(Mutex::new(vec![0; bytes])), size, 0);
         let mut snapshot = None;
-        let jobs = (0..n)
+        (0..n)
             .map(|i| {
                 let face: crate::font::DisplayFace = Box::new(Unifont::new(16));
                 let mut view = View::new(
@@ -923,8 +909,90 @@ mod tests {
                     Prepared::Later | Prepared::Nothing => panic!("a job"),
                 }
             })
-            .collect();
-        (jobs, buffer)
+            .collect()
+    }
+
+    /// One display's terminal, view and buffer, kept from frame to frame,
+    /// so each frame is drawn by the renderer the frame before gave back,
+    /// as the loop draws a display.
+    #[cfg(feature = "gpu")]
+    struct Shown {
+        term: Term,
+        view: View,
+        video: Small,
+        key: (PathBuf, DisplayId),
+    }
+
+    #[cfg(feature = "gpu")]
+    impl Shown {
+        /// Display `id` of `size`, showing a terminal of `grid` columns and
+        /// rows.
+        fn new(id: DisplayId, size: (u32, u32), grid: (usize, usize)) -> Shown {
+            let bytes = usize::try_from(size.0.saturating_mul(size.1).saturating_mul(4)).unwrap();
+            let face: crate::font::DisplayFace = Box::new(Unifont::new(16));
+            Shown {
+                term: Term::new(
+                    Terminal::new(grid.0, grid.1, 0),
+                    Sync::new(Duration::ZERO, 0),
+                    Blink::new(false),
+                    Rc::new(Instant::now),
+                ),
+                view: View::new(id, Font::new(face), size, None, Config::default(), false),
+                video: Small(Arc::new(Mutex::new(vec![0; bytes])), size, 0),
+                key: (PathBuf::from("/dev/test"), id),
+            }
+        }
+
+        /// The terminal takes `output`, and the job draws the screen into
+        /// the display's buffer, lent as `age` frames old.
+        fn job(&mut self, output: &[u8], age: u32) -> Job {
+            assert_eq!(self.term.parse(output, &mut |_| {}), output.len());
+            self.video.2 = age;
+            let hook: DrawHook = Arc::new(|| {});
+            match self.view.prepare(
+                &self.key,
+                &mut self.term,
+                &mut None,
+                &mut self.video,
+                &DrawState::default(),
+                Some(&hook),
+                &Instant::now,
+            ) {
+                Prepared::Job(job) => *job,
+                Prepared::Later | Prepared::Nothing => panic!("a job"),
+            }
+        }
+
+        /// The view takes back the drawing of the frame `composed`.
+        fn back(&mut self, composed: Composed) {
+            self.view.present(
+                composed,
+                &mut self.term,
+                &mut self.video,
+                true,
+                &Instant::now,
+            );
+        }
+
+        /// The display's buffer.
+        fn pixels(&self) -> Vec<u8> {
+            self.video.0.lock().unwrap().clone()
+        }
+    }
+
+    /// What display 0 of `size` and `grid` shows on a head on the CPU path
+    /// after a frame of each of `frames`: the output the terminal takes,
+    /// and the age its buffer is lent at.
+    #[cfg(feature = "gpu")]
+    fn on_the_cpu_path(size: (u32, u32), grid: (usize, usize), frames: &[(&[u8], u32)]) -> Vec<u8> {
+        let mut painter = Painter::start("test", None, || {}).unwrap();
+        assert_eq!(set_up(&mut painter), Path::Cpu);
+        let mut shown = Shown::new(DisplayId(0), size, grid);
+        for &(output, age) in frames {
+            let c = one(&mut painter, shown.job(output, age));
+            shown.back(c);
+        }
+        shown.pixels()
     }
 
     /// The path the head draws on, once the loop has taken the render
@@ -1442,28 +1510,40 @@ mod tests {
     // frame its displays hold, as at a VT release, and keeps its programs,
     // so it holds no GPU memory but its programs while the CPU path draws.
     // Once the display that held it leaves, the next frame makes them again
-    // with no display set up anew, and draws on the GPU path
+    // with no display set up anew, and draws on the GPU path: display 0's
+    // buffer then holds byte for byte what the CPU path draws there over
+    // the same frames
     #[cfg(feature = "gpu")]
     #[test]
     fn a_head_held_on_the_cpu_path_holds_no_textures() {
+        let (size, grid) = ((96, 16), (12, 1));
+        let frames: [(&[u8], u32); 3] = [
+            (b"\x1b[31mthe se\x1b[42mams", 0),
+            (b"\x1b[0m held", 1),
+            (b"\x1b[7m back", 1),
+        ];
         let gpu = Arc::new(TestGpu::default());
         let mut painter =
             Painter::start("test", Some(GpuSource::Test(Arc::clone(&gpu))), || {}).unwrap();
         assert_eq!(set_up(&mut painter), Path::Gpu);
-        rounds(&mut painter, 1, 1);
+        let mut zero = Shown::new(DisplayId(0), size, grid);
+        let first = one(&mut painter, zero.job(frames[0].0, frames[0].1));
+        assert!(first.failed_gpu.is_none() && first.refused_gpu.is_none());
+        zero.back(first);
+        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "drawn on the GPU path");
         let (textures, targets, programs) = *gpu.live.lock().unwrap();
         assert!(
             textures > 0 && targets > 0 && programs > 0,
             "drawn on the GPU"
         );
         gpu.refuse_set_up.lock().unwrap().insert(DisplayId(1));
-        let frames = rounds(&mut painter, 2, 2);
-        let refused: Vec<DisplayId> = frames
-            .iter()
-            .filter(|c| c.refused_gpu.is_some())
-            .map(|c| c.key.1)
-            .collect();
-        assert_eq!(refused, [DisplayId(1)], "held once, by display 1");
+        let hook: DrawHook = Arc::new(|| {});
+        let refused = one(&mut painter, jobs_at(2, (32, 16), &hook).remove(1));
+        assert!(refused.refused_gpu.is_some(), "held by display 1");
+        let held = one(&mut painter, zero.job(frames[1].0, frames[1].1));
+        assert!(held.refused_gpu.is_none() && held.failed_gpu.is_none());
+        zero.back(held);
+        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "held on the CPU path");
         assert_eq!(
             *gpu.live.lock().unwrap(),
             (0, 0, programs),
@@ -1475,8 +1555,19 @@ mod tests {
             "display 0's pipeline kept"
         );
         painter.forget((PathBuf::from("/dev/test"), DisplayId(1)));
-        let back = rounds(&mut painter, 1, 1);
-        assert!(back.iter().all(|c| c.back_on_gpu), "back on the GPU path");
+        let back = one(&mut painter, zero.job(frames[2].0, frames[2].1));
+        assert!(
+            back.back_on_gpu && back.failed_gpu.is_none() && back.refused_gpu.is_none(),
+            "back on the GPU path: {:?} {:?}",
+            back.failed_gpu,
+            back.refused_gpu
+        );
+        zero.back(back);
+        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 2, "drawn on the GPU path");
+        assert!(
+            zero.pixels() == on_the_cpu_path(size, grid, &frames),
+            "the first frame back is the CPU path's"
+        );
         assert_eq!(
             *gpu.live.lock().unwrap(),
             (textures, targets, programs),
@@ -1490,44 +1581,55 @@ mod tests {
     // within its largest renderbuffer, draws on the GPU path, its upright
     // frame in tiles and its frame in a buffer in GL's memory, with no
     // refusal; what it draws into the display's buffer is byte for byte
-    // what the CPU path draws there. Text crosses the seam at 64 pixels
+    // what the CPU path draws there, in a whole frame and in a frame whose
+    // buffer is one frame old. Text crosses the seam at 64 pixels
     #[cfg(feature = "gpu")]
     #[test]
     fn a_display_past_the_gpus_largest_texture_draws_on_the_gpu_path_as_the_cpu_path_does() {
+        let (size, grid) = ((96, 16), (12, 1));
         let gpu = Arc::new(TestGpu::default());
         *gpu.largest_texture.lock().unwrap() = Some(64);
-        let hook: DrawHook = Arc::new(|| {});
-        let mut shown = Vec::new();
-        for (source, path) in [
+        let mut heads = [
             (None, Path::Cpu),
             (Some(GpuSource::Test(Arc::clone(&gpu))), Path::Gpu),
-        ] {
+        ]
+        .map(|(source, path)| {
             let mut painter = Painter::start("test", source, || {}).unwrap();
             assert_eq!(set_up(&mut painter), path);
-            let (mut jobs, buffer) = jobs_showing(
-                1,
-                (96, 16),
-                (12, 1),
-                b"\x1b[31mthe se\x1b[42mams\x1b[7m ok",
-                &hook,
+            (painter, Shown::new(DisplayId(0), size, grid), path)
+        });
+        let frames: [(&[u8], u32); 2] = [
+            (b"\x1b[31mthe se\x1b[42mams\x1b[7m ok", 0),
+            (b"\r\x1b[27;34mand ag\x1b[43main", 1),
+        ];
+        for (n, &(output, age)) in frames.iter().enumerate() {
+            for (painter, shown, path) in &mut heads {
+                let c = one(painter, shown.job(output, age));
+                assert!(
+                    c.refused_gpu.is_none() && c.failed_gpu.is_none() && c.left_gpu.is_none(),
+                    "{path:?}: {:?} {:?} {:?}",
+                    c.refused_gpu,
+                    c.failed_gpu,
+                    c.left_gpu
+                );
+                shown.back(c);
+            }
+            assert_eq!(
+                gpu.drawn.load(Ordering::SeqCst),
+                n + 1,
+                "drawn on the GPU path"
             );
-            let c = one(&mut painter, jobs.remove(0));
+            let [(_, on_cpu, _), (_, on_gpu, _)] = &heads;
+            let (on_cpu, on_gpu) = (on_cpu.pixels(), on_gpu.pixels());
             assert!(
-                c.refused_gpu.is_none() && c.failed_gpu.is_none() && c.left_gpu.is_none(),
-                "{path:?}: {:?} {:?} {:?}",
-                c.refused_gpu,
-                c.failed_gpu,
-                c.left_gpu
+                on_cpu.chunks(4).any(|p| on_cpu.get(..4) != Some(p)),
+                "the frame shows more than one color"
             );
-            shown.push(buffer.lock().unwrap().clone());
+            assert!(
+                on_cpu == on_gpu,
+                "frame {n}, at age {age}: the GPU path's frame is the CPU path's"
+            );
         }
-        assert_eq!(gpu.drawn.load(Ordering::SeqCst), 1, "drawn on the GPU path");
-        let [on_cpu, on_gpu] = <[Vec<u8>; 2]>::try_from(shown).unwrap();
-        assert!(
-            on_cpu.chunks(4).any(|p| on_cpu.get(..4) != Some(p)),
-            "the frame shows more than one color"
-        );
-        assert!(on_cpu == on_gpu, "the GPU path's frame is the CPU path's");
     }
 
     // A head on the CPU path sends nothing at a release: it holds no GPU
