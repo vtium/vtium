@@ -58,6 +58,7 @@ key BackSpace
 key BackSpace mods=shift
 key BackSpace mods=alt
 key BackSpace mods=ctrl
+key BackSpace mods=ctrl+alt
 key Tab mods=alt
 key Tab mods=ctrl+alt
 key ISO_Left_Tab mods=shift
