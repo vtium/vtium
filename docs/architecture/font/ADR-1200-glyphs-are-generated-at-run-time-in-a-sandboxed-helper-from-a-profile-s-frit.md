@@ -339,6 +339,10 @@ considered:
     said: "Proper glyphs first; the squeeze is a crisp best effort, the last step of the fallback. The fallback order: first the font set's own glyph; then, for a character whose Emoji_Presentation is No (such as ❤), the text-presentation glyph a font provides; then a built-in glyph that fits the cell; and only then the squeeze. n5, a bitmap glyph in a narrower cell: when a built-in bitmap glyph is wider than its cell (for example Unifont's 16-column wide glyphs in tiny5's 6×9 cell), vtium squeezes it to 8 columns by OR pooling (a column of the result is inked where any source column it covers is inked), and lets it overflow 1 px into each neighbour through the overhang ADR-1302 D6 already describes. Rows are still cut to the cell's height."
     via: the maintainer, on the Wide Glyph Fit page (round 2), 2026-11-13, relayed by the team lead; the wording is the team lead's
     paraphrase: true
+  - operator: aaronsb
+    said: "Accepted: a text glyph wins over the font set's own color glyph in one cell."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
