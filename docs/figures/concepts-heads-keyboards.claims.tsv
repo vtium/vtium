@@ -1,0 +1,12 @@
+# Claims of concepts-heads-keyboards.svg in docs/concepts/heads.md.
+element	file	symbol
+roaming keyboard: no head owns it, and it types into the active head	crates/vtium/src/head/route.rs	head_of
+a keyboard that a rule sends to a head types into that head	crates/vtium/src/head/route.rs	head_of
+it keeps typing into panel when the active head moves	crates/vtium/src/app.rs	App::move_focus
+Ctrl-Super-Up or Down moves the active head	crates/vtium/src/head/chord.rs	HeadChord::NextHead
+Ctrl-Super-Up	crates/vtium-settings/src/keys.rs	key key-focus-next
+Ctrl-Super-Down	crates/vtium-settings/src/keys.rs	key key-focus-previous
+head kiosk: isolated = yes	crates/vtium-settings/src/place.rs	Config::isolated
+isolated: never the active head	crates/vtium/src/head/vt.rs	VtHeads::isolated
+isolated: its VT keys reach the session as plain keys and switch no VT	crates/vtium/src/head/route.rs	Routes::vt_keys
+the mark, filled on the active head and hollow on the others	crates/vtium-render/src/notice.rs	Mark

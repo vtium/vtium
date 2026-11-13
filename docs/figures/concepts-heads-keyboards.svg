@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="864" height="452" viewBox="0 0 864 452" font-family="DejaVu Sans Mono, monospace">
+<title>Which head each keyboard types into</title>
+<rect width="864" height="452" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<!-- the keyboards -->
+<rect x="24" y="64" width="216" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
+<text x="132" y="84" font-size="13" text-anchor="middle" fill="#1f2933">roaming keyboard</text>
+<text x="132" y="102" font-size="12" text-anchor="middle" fill="#1f2933">no head owns it</text>
+<rect x="24" y="196" width="216" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="132" y="216" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="132" y="234" font-size="12" text-anchor="middle" fill="#1f2933">a rule sends it to panel</text>
+<rect x="24" y="328" width="216" height="48" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="132" y="348" font-size="13" text-anchor="middle" fill="#1f2933">keyboard</text>
+<text x="132" y="366" font-size="12" text-anchor="middle" fill="#1f2933">a rule sends it to kiosk</text>
+<!-- where each types -->
+<line x1="240" y1="88" x2="558" y2="88" stroke="#1f2933" stroke-width="1.5" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+<text x="400" y="78" font-size="12" text-anchor="middle" fill="#1f2933">types into the active head</text>
+<line x1="240" y1="220" x2="558" y2="220" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="400" y="244" font-size="12" text-anchor="middle" fill="#1f2933">keeps typing into panel</text>
+<text x="400" y="260" font-size="12" text-anchor="middle" fill="#1f2933">when the active head moves</text>
+<line x1="240" y1="352" x2="558" y2="352" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
+<text x="400" y="376" font-size="12" text-anchor="middle" fill="#1f2933">its VT keys, such as Ctrl-Alt-F3,</text>
+<text x="400" y="392" font-size="12" text-anchor="middle" fill="#1f2933">reach kiosk's session as plain</text>
+<text x="400" y="408" font-size="12" text-anchor="middle" fill="#1f2933">keys and switch no VT</text>
+<!-- the heads -->
+<rect x="560" y="48" width="280" height="80" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<circle cx="822" cy="66" r="6" fill="#1f2933"/>
+<text x="700" y="80" font-size="14" text-anchor="middle" fill="#1f2933">head desk</text>
+<text x="700" y="102" font-size="12" text-anchor="middle" fill="#1f2933">the active head</text>
+<line x1="672" y1="130" x2="672" y2="174" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+<text x="684" y="148" font-size="12" fill="#1f2933">Ctrl-Super-Up or Down</text>
+<text x="684" y="164" font-size="12" fill="#1f2933">moves the active head</text>
+<rect x="560" y="176" width="280" height="80" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<circle cx="822" cy="194" r="5.25" fill="#ffffff" stroke="#1f2933" stroke-width="1.5"/>
+<text x="700" y="208" font-size="14" text-anchor="middle" fill="#1f2933">head panel</text>
+<text x="700" y="230" font-size="12" text-anchor="middle" fill="#1f2933">can become the active head</text>
+<rect x="560" y="304" width="280" height="96" rx="10" fill="#ffffff" stroke="#2f6fb0" stroke-width="2"/>
+<circle cx="822" cy="322" r="5.25" fill="#ffffff" stroke="#1f2933" stroke-width="1.5"/>
+<text x="700" y="336" font-size="14" text-anchor="middle" fill="#1f2933">head kiosk</text>
+<text x="700" y="358" font-size="12" text-anchor="middle" fill="#1f2933">isolated = yes: it is never</text>
+<text x="700" y="374" font-size="12" text-anchor="middle" fill="#1f2933">the active head, so no</text>
+<text x="700" y="390" font-size="12" text-anchor="middle" fill="#1f2933">roaming keyboard reaches it</text>
+<!-- note -->
+<circle cx="30" cy="439" r="5" fill="#1f2933"/>
+<text x="44" y="443" font-size="12" fill="#1f2933">filled on the active head, and hollow on the others: the mark each head shows after the active head moves</text>
+</svg>
