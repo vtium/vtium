@@ -104,6 +104,18 @@ impl PlatformGl {
     /// than the GPU's largest texture, which no GPU at hand reports. The
     /// ledger then refuses a larger texture before it reaches GL, as the
     /// context's own limit is refused (ADR-1303 D3, D9).
+    ///
+    /// The limit holds every texture, not only the upright frame's tiles:
+    /// the glyph pools, the decoration sprites and the ink textures too. At
+    /// a small `side` a frame can differ from the CPU path, or fail, because
+    /// one of those no longer fits, and the tiling is not the cause. A
+    /// review saw a frame differ at 90 pixels on an 84x50 display, and the
+    /// decoration sprites of an 8x16 cell need 64 pixels. OpenGL ES 3.0
+    /// guarantees a largest texture of at least 2048 pixels, so no
+    /// conformant GPU reaches these sizes. A test that holds the limit
+    /// small enough to tile a small display checks that the frame it draws
+    /// still matches the CPU path, as this module's test of a display past
+    /// the largest texture does at 64.
     pub(crate) fn with_largest_texture(gl: platform::Context, side: u32) -> PlatformGl {
         let l = gl.limits();
         let limits = Limits {
