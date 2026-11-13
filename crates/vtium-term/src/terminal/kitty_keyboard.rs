@@ -14,6 +14,7 @@ use super::input::{Key, KeyEvent, key_char, sym};
 use super::reply::Query;
 use crate::bounds::{KEYBOARD_FLAGS_MAX, KEYS_HELD_MAX};
 pub(super) use legacy::legacy_release;
+pub(super) use legacy::main_key;
 use legacy::{legacy_code, legacy_csi_u};
 
 /// Flag 1, disambiguate escape codes.
@@ -283,9 +284,9 @@ fn kind(keysym: u32) -> Option<Kind> {
         // F1, F2 and F4 are letters; F3's `CSI R` would read as a cursor
         // position report, so it is `CSI 13 ~`. PF1 to PF4 are F1 to F4.
         sym::F1 | sym::KP_F1 => f(Letter(b'P')),
-        0xffbf | 0xff92 => f(Letter(b'Q')),
-        0xffc0 | 0xff93 => f(Tilde(13)),
-        0xffc1 | sym::KP_F4 => f(Letter(b'S')),
+        sym::F2 | sym::KP_F2 => f(Letter(b'Q')),
+        sym::F3 | sym::KP_F3 => f(Tilde(13)),
+        sym::F4 | sym::KP_F4 => f(Letter(b'S')),
         0xffc2..=0xffc9 => {
             const CODES: [u32; 8] = [15, 17, 18, 19, 20, 21, 23, 24];
             let i = usize::try_from(keysym.saturating_sub(0xffc2)).ok()?;
@@ -491,16 +492,6 @@ fn text_code(unshifted: u32, ch: char) -> u32 {
     }
 }
 
-/// The code of a key that makes text: 0 for a text event whose keysym is
-/// 0, NoSymbol, since the host reported no key, and else [`text_code`]
-/// (the specification's "Text as code points").
-fn key_code(keysym: u32, unshifted: u32, ch: char) -> u32 {
-    if keysym == 0 {
-        return 0;
-    }
-    text_code(unshifted, ch)
-}
-
 /// The character a key that makes text made, after Shift, or `None` for a
 /// key that makes none.
 fn made_char(key: &Key, keysym: u32) -> Option<char> {
@@ -528,16 +519,17 @@ pub(super) fn owes_release(key: &Key, keysym: u32, unshifted: u32, flags: u8) ->
     }
     let all = flags & ALL_KEYS != 0;
     let plain = key.mods.kitty() & !LOCKS & !SHIFT == 0;
-    let makes_text = || made_char(key, keysym).is_some();
     if disambiguates(flags) {
         return match kind(keysym) {
             Some(Kind::Modifier(number)) => all && number.is_some(),
             Some(Kind::Legacy(_)) => all,
             Some(Kind::Functional(_)) => true,
             Some(Kind::KeypadText(..)) => all || !plain,
-            None => makes_text() && (all || !plain),
+            None => made_char(key, keysym).is_some() && (all || !plain),
         };
     }
+    // The legacy section reports a keypad key as its equivalent key.
+    let keysym = main_key(keysym);
     if legacy_code(keysym, key.mods.kitty() & !LOCKS).is_some() {
         return true;
     }
@@ -547,11 +539,7 @@ pub(super) fn owes_release(key: &Key, keysym: u32, unshifted: u32, flags: u8) ->
     if legacy_csi_u(key, keysym, unshifted).is_some() {
         return true;
     }
-    match kind(keysym) {
-        Some(Kind::KeypadText(..)) => plain,
-        None => plain && makes_text(),
-        _ => false,
-    }
+    kind(keysym).is_none() && plain && made_char(key, keysym).is_some()
 }
 
 impl State {
@@ -589,7 +577,8 @@ impl State {
     /// - Under flags 8 and 16, report associated text, a key that makes
     ///   text carries it in a third field, on a press and a repeat. A key
     ///   makes text while only Shift and the locks are held, and the text
-    ///   never holds a control character ("Text as code points").
+    ///   never holds a control character ("Text as code points"). A text
+    ///   event with keysym 0 then has the code 0, on its release too.
     ///
     /// DECCKM, the keypad modes, modifyOtherKeys and modes 1034, 1035
     /// and 1036 are not consulted (ADR-1005, D6).
@@ -614,11 +603,10 @@ impl State {
             self.push_char(ch, &mut out);
             Some(out)
         };
-        // The text flag 16 puts inside the code, under flag 8.
-        let associated = |ch: char| {
-            (all && flags & TEXT != 0 && plain && event != Event::Release && !ch.is_control())
-                .then_some(ch)
-        };
+        // Whether flag 16 puts the key's text inside the code, under flag
+        // 8. A release carries no text, but its code follows the press's.
+        let carries_text = |ch: char| all && flags & TEXT != 0 && plain && !ch.is_control();
+        let associated = |ch: char| (carries_text(ch) && event != Event::Release).then_some(ch);
         match kind(keysym) {
             Some(Kind::Modifier(number)) if all => Some(csi(number?, mods, event, b'u')),
             Some(Kind::Modifier(_)) => None,
@@ -650,7 +638,14 @@ impl State {
                 if !all && plain && event != Event::Release {
                     return text(ch);
                 }
-                let code = key_code(keysym, unshifted, made);
+                // A text event whose keysym is 0, NoSymbol, has no key, so
+                // its code is 0 where the text field carries the text ("Text
+                // as code points"). Elsewhere the code keeps the character.
+                let code = if keysym == 0 && carries_text(ch) {
+                    0
+                } else {
+                    text_code(unshifted, made)
+                };
                 let mut escape = Escape::new(code, mods, event, b'u');
                 if flags & ALTERNATES != 0 {
                     let shifted = keysym_char(key.shifted).unwrap_or(made);

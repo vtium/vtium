@@ -1120,6 +1120,96 @@ fn a_text_event_with_no_keysym_is_sent_with_the_key_number_0() {
     assert_eq!(press(&mut t, shift_a), "\x1b[97;2;65u");
 }
 
+// "Text as code points": the key number 0 marks a text event whose text
+// the code carries. Without flag 16, or without flag 8, nothing carries
+// the text, so a text event with keysym 0 keeps its character's code.
+// Under flags 26 its release carries 0, as its press did.
+// covers: input.kitty-keyboard
+#[test]
+fn a_text_event_with_no_keysym_keeps_its_code_where_no_text_field_carries_it() {
+    let text = Key::press(0, 0, Mods::empty(), Some('\u{e5}'));
+    let ctrl_text = Key::press(0, 0, Mods::CTRL, Some('\u{e5}'));
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>8u");
+    assert_eq!(press(&mut t, text), "\x1b[229u");
+    t.input(b"\x1b[=1u");
+    assert_eq!(press(&mut t, ctrl_text), "\x1b[229;5u");
+    t.input(b"\x1b[=2u");
+    assert_eq!(three(&mut t, text), ["\u{e5}", "\u{e5}", "\x1b[229;1:3u"]);
+    t.input(b"\x1b[=26u");
+    assert_eq!(
+        three(&mut t, text),
+        ["\x1b[0;;229u", "\x1b[0;1:2;229u", "\x1b[0;1:3u"]
+    );
+}
+
+const KP_TAB: u32 = 0xff89;
+const KP_SPACE: u32 = 0xff80;
+const KP_LEFT: u32 = 0xff96;
+const KP_DIVIDE: u32 = 0xffaf;
+const KP_F1: u32 = 0xff91;
+const KP_F3: u32 = 0xff93;
+
+// "Legacy key event encoding": "All keypad keys are reported as their
+// equivalent non-keypad keys". Under flag 2 alone the keypad's text keys
+// follow "Legacy text keys" as the main keys do, the keypad's Enter, Tab
+// and space follow the table of C0 controls, and its cursor keys are the
+// main cursor keys, which DECCKM still changes. DECKPAM is not consulted
+// (ADR-1005, D6).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_reports_keypad_keys_as_their_equivalent_keys() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let kp = |s: u32, m: Mods, c: Option<char>| Key::press(s, 0, m, c);
+    let alt_num = mods(&[Mods::ALT, Mods::NUM]);
+    assert_eq!(press(&mut t, kp(KP_1, alt_num, Some('1'))), "\x1b1");
+    assert_eq!(press(&mut t, kp(KP_ENTER, Mods::ALT, None)), "\x1b\r");
+    assert_eq!(press(&mut t, kp(KP_ENTER, Mods::LOGO, None)), "\x1b[13;9u");
+    assert_eq!(press(&mut t, kp(KP_TAB, Mods::LOGO, None)), "\x1b[9;9u");
+    assert_eq!(press(&mut t, kp(KP_SPACE, Mods::LOGO, None)), "\x1b[32;9u");
+    assert_eq!(press(&mut t, kp(KP_DIVIDE, Mods::CTRL, Some('/'))), "\x1f");
+    let super_1 = kp(KP_1, mods(&[Mods::LOGO, Mods::NUM]), Some('1'));
+    assert_eq!(
+        three(&mut t, super_1),
+        ["\x1b[49;9u", "\x1b[49;9:2u", "\x1b[49;9:3u"]
+    );
+    // DECKPAM changes nothing
+    t.input(b"\x1b=");
+    assert_eq!(press(&mut t, kp(KP_ENTER, Mods::empty(), None)), "\r");
+    assert_eq!(press(&mut t, kp(KP_1, Mods::ALT, Some('1'))), "\x1b1");
+    assert_eq!(press(&mut t, kp(KP_ADD, Mods::CTRL, Some('+'))), "+");
+    assert_eq!(press(&mut t, kp(KP_LEFT, Mods::empty(), None)), "\x1b[D");
+    // DECCKM still does
+    t.input(b"\x1b[?1h");
+    assert_eq!(press(&mut t, kp(KP_LEFT, Mods::empty(), None)), "\x1bOD");
+    // at flags 0 DECKPAM is xterm's again
+    t.input(b"\x1b[=0u");
+    assert_eq!(press(&mut t, kp(KP_ENTER, Mods::empty(), None)), "\x1bOM");
+}
+
+// "Legacy key event encoding": PF1 to PF4 are the keypad's F1 to F4, and a
+// keypad key is reported as its equivalent non-keypad key. So under flag 2
+// Shift+PF3 is F3's `CSI 13 ; 2 ~` on its press, repeat and release, as
+// Shift+F3 is (ADR-1005, D6).
+// covers: input.kitty-keyboard
+#[test]
+fn flag_2_alone_sends_pf1_to_pf4_as_f1_to_f4() {
+    let mut t = term(80, 4, b"");
+    t.input(b"\x1b[>2u");
+    let key = |s: u32| Key::press(s, 0, Mods::SHIFT, None);
+    assert_eq!(
+        three(&mut t, key(KP_F3)),
+        ["\x1b[13;2~", "\x1b[13;2:2~", "\x1b[13;2:3~"]
+    );
+    assert_eq!(
+        three(&mut t, key(KP_F1)),
+        ["\x1b[1;2P", "\x1b[1;2:2P", "\x1b[1;2:3P"]
+    );
+    assert_eq!(sym(&mut t, KP_F1, Mods::empty()), "\x1bOP");
+    assert_eq!(press(&mut t, key(F1)), "\x1b[1;2P");
+}
+
 // "Report event types": "The Enter, Tab and Backspace keys will not have
 // release events unless Report all keys as escape codes is also set".
 // Under flag 2 alone they send no release even when a modifier makes
