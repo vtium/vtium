@@ -7,6 +7,8 @@
 # reported as their equivalent non-keypad keys, so the keypad's End sends
 # End's repeat and release. The keypad's Enter is Enter, which sends no
 # release. Once the flags are 0, F13 sends its xterm bytes again.
+# Each release follows a press of its key with the same modifiers, since
+# vtium sends a release only for a press it sent while flag 2 was in force.
 # spec: kitty's Comprehensive keyboard handling in terminals: Legacy key event encoding, Report event types, Functional key definitions; ADR-1005 D6 and D13 slice 3
 # covers: input.kitty-keyboard
 size 20 2
@@ -14,11 +16,13 @@ send "\e[>2u"
 cmd key;sym=ffca
 cmd key;sym=ffca;event=repeat
 cmd key;sym=ffca;event=release
+cmd key;sym=ffe0;mods=1
 cmd key;sym=ffe0;mods=1;event=release
 cmd key;sym=ff67
 cmd key;sym=ff67;event=release
 cmd key;sym=ff9c
 cmd key;sym=ff9c;event=release
+cmd key;sym=ff9f;mods=4
 cmd key;sym=ff9f;mods=4;event=release
 cmd key;sym=ff8d
 cmd key;sym=ff8d;event=release
