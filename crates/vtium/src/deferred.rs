@@ -1535,7 +1535,7 @@ impl Face for DeferredFace {
             return None;
         }
         let glyph = self.built_in(c, style)?;
-        let text = color && vtium_term::cluster_width(&[c]) == 1;
+        let text = color && presents_as_text(c);
         (glyph.format() == Format::Mask && (text || glyph.width() <= width)).then_some(glyph)
     }
 
@@ -1663,6 +1663,25 @@ impl Face for Builtins<'_> {
     }
 }
 
+/// Whether the single character `c` presents as text and takes one cell,
+/// so that the built-in font's text glyph comes before a color glyph drawn
+/// in one cell (ADR-1302 D14, step 2).
+///
+/// ADR-1302 D14 and the glyph helper read the character's
+/// Emoji_Presentation, which must be No, and its width, which must be one
+/// cell. The console reads only the width. vtium-term gives two cells to
+/// every character whose Emoji_Presentation is Yes, so a character of one
+/// cell always has Emoji_Presentation No, and the two rules give the same
+/// answer for every character that takes a cell. The console reads the
+/// width because it already carries vtium-term's width table. The helper's
+/// table of Emoji_Presentation lives in vtium-config, and linking that
+/// crate would bring the whole glyph helper into the console. The test
+/// `presents_as_text_agrees_with_the_helper` checks every character, at
+/// the Unicode version each crate carries.
+fn presents_as_text(c: char) -> bool {
+    vtium_term::cluster_width(&[c]) == 1
+}
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -1681,6 +1700,30 @@ mod tests {
         width: 8,
         height: 16,
     };
+
+    // ADR-1302 D14 step 2: the console's rule for a character that
+    // presents as text, one cell wide, gives the helper's answer,
+    // Emoji_Presentation No and not wide, for every character that takes
+    // a cell
+    #[test]
+    fn presents_as_text_agrees_with_the_helper() {
+        let mut checked = 0u32;
+        for c in (0..=0x10_ffff).filter_map(char::from_u32) {
+            if vtium_term::cluster_width(&[c]) == 0 {
+                continue;
+            }
+            let key = [u32::from(c)];
+            let helper = !vtium_config::shaping::emoji_by_default(key[0])
+                && !vtium_config::shaping::wide(&key);
+            assert_eq!(presents_as_text(c), helper, "U+{:04X}", key[0]);
+            checked += 1;
+        }
+        assert!(checked > 1_000_000, "{checked} characters checked");
+        // the heart presents as text, the grinning face as emoji
+        assert!(presents_as_text('\u{2764}'));
+        assert!(!presents_as_text('\u{1f600}'));
+        assert!(vtium_config::shaping::emoji_by_default(0x1f600));
+    }
 
     /// A set at `cell` whose every glyph in `chars` is solid.
     pub(crate) fn solid(cell: Cell, chars: &[char]) -> Arc<Set> {
