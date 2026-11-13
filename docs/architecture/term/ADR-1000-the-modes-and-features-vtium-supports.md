@@ -64,6 +64,26 @@ considered:
     said: "vtium honors the Linux console's cursor blink interval, CSI 16 ; n ], so its row in the features table is planned"
     via: the steering session's question on 2026-11-13, on an outside scenario survey
     paraphrase: true
+  - operator: aaronsb
+    said: "The configuration key is `allow-display-ops`, on by default, beside allow-font-ops and allow-window-ops."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Only a console a head is showing may send setBackground."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Per port, in steps. Step one: setBackground gives up the whole cards the sending head draws on, so every existing program works; other heads on those cards pause. Step two: a vtium socket, named in each session's environment, hands a DRM lease of only the sending head's connectors (with a CRTC and planes) to a program that asks; vtium keeps its own drawing and its hotplug paths off leased objects, and revokes the lease at setForeground. Later, as a separate experiment: vtium answers as a seat manager (the seatd protocol), so an unmodified libseat program receives a lease."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Under a seat manager (logind or seatd), only the lease path acts. vtium ignores a plain setBackground there, logs that it did, and sends no focus report. The whole-card hand-over happens only on the kernel's VT."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Focus reports go out at the hand-over and also at a VT switch (focus out when vtium's VT is released, in when it is acquired), in the same work."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
 status: accepted
 date: 2026-10-26
 deciders:
@@ -181,7 +201,9 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **A paste never carries its own end marker:** vtium filters every paste, bracketed or not, as xterm's paste filtering does with `allowPasteControls` false: each C0 control but HT, LF and CR, DEL, and each C1 control, a code point in UTF-8, becomes a space.
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
-- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved.
+- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display to a graphical program and take it back. No DEC or ECMA specification defines them. vtium reads them behind the key `allow-display-ops`, on by default, as the C reference behaved. The key sits beside `allow-font-ops` and `allow-window-ops`. Only a console that a head shows may send setBackground. On the kernel's VT, setBackground gives up every card the sending head draws on, and other heads on those cards pause (ADR-1401 D16). Under a seat manager, logind or seatd, vtium ignores setBackground, logs that it did, and sends no focus report. A program there takes a head's displays through a DRM lease that it asks vtium for on a socket (ADR-1404). The lease works on the kernel's VT too. A shown console whose head can no longer draw gets a focus-out (1004) at the hand-over and a focus-in when the hand-over ends. Each shown console that has the focus gets the same at a VT release and acquire (ADR-1401 D5).
+
+> Edited 2026-11-13: the maintainer named the key, chose which console may send setBackground, chose what a hand-over gives up on the kernel's VT and under a seat manager, and added the focus reports at a VT switch (`considered`, 2026-11-13). The bullet ended: "vtium keeps them behind a configuration key, on by default, as the C reference behaved."
 - **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
 - **Bidirectional modes** follow ADR-1004: BDSM, 1243, 2500 and 2501 are supported and DCSM is ignored and permanently set, each only in a build with the `bidi` feature, which the minspec build leaves out. DECRLM and DECRLCM are refused, since SCP and BDSM replace them.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
