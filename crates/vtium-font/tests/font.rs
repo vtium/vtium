@@ -478,6 +478,39 @@ fn a_glyph_at_a_whole_scale_is_squeezed_in_screen_pixels() {
     assert_eq!(inked_columns(&in16, 16), [14]);
 }
 
+// covers: text.overhang
+// ADR-1302 D14, D4: an italic Devanagari letter from GNU Unifont, 16
+// pixels wide and slanted, so its top leans past its 16th column, keeps
+// that lean when it is squeezed 2:1 into one 8-pixel cell: its lean
+// squeezes with its columns and reaches past the cell's right edge, so
+// none of its ink is cut
+#[cfg(feature = "unifont")]
+#[test]
+fn an_italic_unifont_letter_squeezed_into_one_cell_keeps_its_lean() {
+    let font = Font::new(vtium_font::Unifont::new(16));
+    let italic = Style {
+        italic: true,
+        ..plain()
+    };
+    let past = |g: &Glyph, edge: u32| -> usize {
+        let ink = g.ink().expect("an ink box");
+        let w = ink.width() as usize;
+        let from = (i64::from(edge) - i64::from(ink.left())) as usize;
+        (from..w)
+            .filter(|&x| ink.pixels().chunks_exact(w).any(|r| r[x] > 0))
+            .count()
+    };
+    let wide = font
+        .glyph(&['\u{915}'], Width::Wide, italic)
+        .expect("drawn");
+    assert_eq!(past(&wide, 16), 2, "the lean past 16 columns");
+    let narrow = font
+        .glyph(&['\u{915}'], Width::Narrow, italic)
+        .expect("drawn");
+    assert_eq!(narrow.width(), 8);
+    assert_eq!(past(&narrow, 8), 1, "the lean, squeezed, past the cell");
+}
+
 #[cfg(feature = "unifont")]
 #[test]
 fn a_unifont_glyph_is_handed_over_at_scale_1() {
