@@ -22,7 +22,7 @@ Line spacing is a percentage of the text's height. vtium adds half of it above e
 
 The extra rows are room for the script's marks. A mark may reach into them, so it stays clear of the letters in the next row. Box drawing still stretches over the whole taller row, so the lines of a box still join.
 
-The `indic` set renders some scripts poorly for now. Tamil, Malayalam and Sinhala come out smaller than the text, and Kannada shows its conjuncts as separate letters. See [the shaping issue](https://github.com/vtium/vtium/issues/144) for the work that fixes this.
+With the `indic` set, a syllable with a spacing vowel sign or a joined conjunct takes two character cells, so it draws at full size. You can set `cluster-width = single` for programs that count one cell. vtium shapes each syllable once across its cells, so Kannada and other conjuncts form as the font draws them. See [the shaping issue](https://github.com/vtium/vtium/issues/144) for details.
 
 ## Chinese, Japanese and Korean
 
