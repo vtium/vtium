@@ -19,6 +19,14 @@ considered:
   - operator: aaronsb
     said: "as for indic choices, I lean b as well. I don't know much about ra and ka and other indic script but it looks cmore correct without me understanding how it joins"
     via: the maintainer, in the steering session, 2026-11-13, after the Indic Choices page showed Kannada conjuncts split and joined at 1:1
+  - operator: aaronsb
+    said: "Split under the cursor"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1203's cursor probe
+    covers: [cursor]
+  - operator: aaronsb
+    said: "All virama scripts"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1203's scripts probe
+    covers: [scripts]
 status: proposed
 date: 2026-11-13
 deciders:
