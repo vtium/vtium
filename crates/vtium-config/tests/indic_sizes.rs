@@ -486,7 +486,8 @@ mod pictures {
     }
 }
 
-/// What a line holds: each cluster's text and the cells it takes.
+/// What a line holds: each cluster's text and the cells the terminal gives
+/// it (ADR-1006 D1).
 fn line_cells(text: &str) -> Vec<(Vec<u32>, u32)> {
     let mut t = vtium_term::Terminal::new(120, 2, 0);
     let _ = t.input(text.as_bytes());
@@ -494,9 +495,14 @@ fn line_cells(text: &str) -> Vec<(Vec<u32>, u32)> {
     let line = screen.line(0).expect("a row");
     let mut out = Vec::new();
     for &c in line.cells() {
+        let cells = if c.width() == vtium_term::Width::Wide {
+            2
+        } else {
+            1
+        };
         match line.glyph(c) {
-            vtium_term::Glyph::Char(ch) => out.push((vec![u32::from(ch)], 1)),
-            vtium_term::Glyph::Cluster(s) => out.push((s.chars().map(u32::from).collect(), 1)),
+            vtium_term::Glyph::Char(ch) => out.push((vec![u32::from(ch)], cells)),
+            vtium_term::Glyph::Cluster(s) => out.push((s.chars().map(u32::from).collect(), cells)),
             vtium_term::Glyph::Empty => {}
         }
     }
