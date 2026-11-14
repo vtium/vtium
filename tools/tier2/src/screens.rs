@@ -2825,7 +2825,7 @@ const BASE: &[Case] = &[
         )
     }),
     Case {
-        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (64, 2)),
+        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (72, 2)),
     },
     Case {
         screen: scripts(
@@ -2924,7 +2924,7 @@ const SCRIPTS_INDIC: &[u8] = concat!(
 )
 .as_bytes();
 
-const SCRIPTS_INDIC_DESC: &str = "The first sentence of the Universal Declaration of Human Rights in Hindi and in Bengali, as the showcase's scripts scene writes them, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Devanagari and Noto Sans Bengali behind it, 64 by 2 cells.";
+const SCRIPTS_INDIC_DESC: &str = "The first sentence of the Universal Declaration of Human Rights in Hindi and in Bengali, as the showcase's scripts scene writes them, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Devanagari and Noto Sans Bengali behind it, 72 by 2 cells, so the Hindi line's 70 cells under ADR-1006's cluster widths fit on one row.";
 
 /// The `scripts-arabic` screen: two right-to-left paragraphs, set by SCP
 /// 2: the first sentence of the Universal Declaration of Human Rights in
