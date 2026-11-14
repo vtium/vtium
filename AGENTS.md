@@ -210,6 +210,7 @@ Every commit to vtium is signed with the maintainer's SSH key, from 2026-11-10 o
 - When a commit fails because the signing key is not loaded, the agent stops and reports the failure. The maintainer loads the key with `ssh-add`.
 - An agent never turns signing off with `-c commit.gpgsign=false` or `--no-gpg-sign`, and never skips the hooks with `--no-verify`.
 - The pre-push hook in `tools/git-hooks/` refuses a push that carries an unsigned commit made after signing began. `git config core.hooksPath tools/git-hooks` turns the hook on. A commit made before that date passes unchecked, and its history stays as it was.
+- A release tag is signed with the maintainer's PGP key, not the SSH key. The Arch recipes in vtium/vtium-arch check each release tag with makepkg, and makepkg accepts only a PGP signature by a key in the recipe's `keys/pgp/` folder. Create the tag with `git -c gpg.format=openpgp tag -a -s -u BA464FC9847A832A -m "VTium <version>" v<version> <commit>`, and check it with `git -c gpg.format=openpgp tag -v v<version>` before you push it. The PGP key asks for its passphrase through gpg's pinentry, so the maintainer runs the command when the steering session cannot. The 0.1.0-alpha.8 tag was first signed with the SSH key, and the Arch recipes' checks failed until the maintainer signed it again with the PGP key.
 
 ## Where to look
 
