@@ -2853,6 +2853,15 @@ const BASE: &[Case] = &[
             6,
         ),
     },
+    Case {
+        screen: shipped(5, "frit-cjk-jp", FRIT_CJK_JP_DESC, FRIT_CJK_JP, 6),
+    },
+    Case {
+        screen: shipped(6, "frit-cjk-tc", FRIT_CJK_TC_DESC, FRIT_CJK_TC, 6),
+    },
+    Case {
+        screen: shipped(7, "frit-cjk-kr", FRIT_CJK_KR_DESC, FRIT_CJK_KR, 6),
+    },
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's
@@ -3022,3 +3031,60 @@ const FRIT_VIETNAMESE: &[u8] = concat!(
 .as_bytes();
 
 const FRIT_VIETNAMESE_DESC: &str = "The shipped font set vietnamese at 32 pixels of text, with its 25 per cent of line spacing, 48 by 6 cells: the start of Article 1 of the Universal Declaration of Human Rights in Vietnamese, lowercase letters with descenders and with marks below, then capitals whose vowel mark and tone mark stack above the line under that row, inside a box of light lines whose left side joins from row to row, and below the box Ấ and ộ written first as one precomposed character each and then as a letter and its two combining marks, which draw alike.";
+
+/// The Han characters whose forms differ by region, which each CJK
+/// `frit-` screen draws first, so the screens show the same characters in
+/// each region's forms.
+macro_rules! regional_han {
+    () => {
+        "│ 直 骨 刃 写 角 次 化 今 令 器\r\n"
+    };
+}
+
+/// The `frit-cjk-jp` screen: the Han characters whose forms differ by
+/// region, Japanese with kana and full-width punctuation, the start of
+/// Article 1 of the Declaration in Japanese, and Latin letters with
+/// descenders beside Han, inside a box of light lines.
+const FRIT_CJK_JP: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 日本語：ひらがな、カタカナ、漢字。\r\n",
+    "│ すべての人間は、生まれながらにして自由であり\r\n",
+    "│ gjpqy ÁÉ 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_JP_DESC: &str = "The shipped font set cjk-jp at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK JP's Japanese forms, then Japanese with hiragana, katakana and full-width punctuation set low in its cells, the start of Article 1 of the Universal Declaration of Human Rights in Japanese, and Latin letters with descenders and accented capitals from Noto Sans Mono beside two Han characters on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-cjk-tc` screen: the Han characters whose forms differ by
+/// region, Traditional Chinese with bopomofo and full-width punctuation,
+/// the start of Article 1 of the Declaration in Traditional Chinese, and
+/// Latin letters with descenders beside Han, inside a box of light lines.
+const FRIT_CJK_TC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 繁體中文：注音符號 ㄅㄆㄇㄈ，標點。\r\n",
+    "│ 人人生而自由，在尊嚴和權利上一律平等。\r\n",
+    "│ gjpqy ÁÉ 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_TC_DESC: &str = "The shipped font set cjk-tc at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK TC's Taiwanese forms, then Traditional Chinese with bopomofo and full-width punctuation centred in its cells, the start of Article 1 of the Universal Declaration of Human Rights in Traditional Chinese, and Latin letters with descenders and accented capitals from Noto Sans Mono beside two Han characters on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-cjk-kr` screen: the Han characters whose forms differ by
+/// region, Korean with Hangul and its letters, the start of Article 1 of
+/// the Declaration in Korean, and Latin letters with descenders beside
+/// Hangul and Han, inside a box of light lines.
+const FRIT_CJK_KR: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 한국어: 한글 ㄱㄴㄷ ㅏㅑㅓ 漢字\r\n",
+    "│ 모든 인간은 태어날 때부터 자유로우며\r\n",
+    "│ gjpqy ÁÉ 한글 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_KR_DESC: &str = "The shipped font set cjk-kr at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK KR's Korean forms, then Korean in Hangul syllables, Hangul letters and Han, the start of Article 1 of the Universal Declaration of Human Rights in Korean, and Latin letters with descenders and accented capitals from Noto Sans Mono beside Hangul and Han on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
