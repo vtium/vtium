@@ -49,10 +49,11 @@ use crate::arrow::Arrow;
 use crate::blend::pixel;
 use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
-use crate::deco::Line;
+use crate::deco::{LINES, Line};
 use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
+use crate::renderer::double::Piece;
 use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
@@ -1846,6 +1847,13 @@ impl<G: Gl> Back for GpuBack<'_, G> {
 impl<G: Gl> GpuBack<'_, G> {
     /// Pushes the quads of the jobs of grid row `row`.
     fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
+        // a line of double size draws the doubled sprites
+        if compose.jobs.iter().any(|j| !j.piece.is_whole())
+            && let Err(e) = self.glyphs.double_sprites(self.gl)
+        {
+            self.error = Some(e);
+            return;
+        }
         for (j, job) in compose.jobs.iter().enumerate() {
             let place = match job.text {
                 Some((start, len, width, style)) => {
@@ -1853,7 +1861,10 @@ impl<G: Gl> GpuBack<'_, G> {
                         .text
                         .get(start..start.saturating_add(len))
                         .unwrap_or_default();
-                    match self.glyphs.glyph(self.gl, font, text, width, style) {
+                    match self
+                        .glyphs
+                        .glyph(self.gl, font, (text, width, style), job.piece)
+                    {
                         Ok(p) => p,
                         Err(e) => {
                             self.error = Some(e);
@@ -1909,7 +1920,8 @@ impl<G: Gl> GpuBack<'_, G> {
                 .text
                 .get(start..start.saturating_add(len))
                 .unwrap_or_default();
-            let Some(place) = self.glyphs.glyph(self.gl, font, text, width, style)? else {
+            let key = (text, width, style);
+            let Some(place) = self.glyphs.glyph(self.gl, font, key, Piece::WHOLE)? else {
                 continue;
             };
             let Some((slot, _)) = place.boxed else {
@@ -1962,7 +1974,12 @@ pub(crate) fn cell_quad(
     };
     // a line's place among the sprites, every script's set in turn
     // (ADR-1202 D8)
-    let sprite = |line: Line| u32::try_from(line.index()).map_or(0, |n| n.saturating_add(1));
+    // and on a line of double size, among the doubled piece's set
+    let set = job.piece.sprite_set().saturating_mul(LINES);
+    let sprite = |line: Line| {
+        let k = set.saturating_add(line.index());
+        u32::try_from(k).map_or(0, |n| n.saturating_add(1))
+    };
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
     Quad {
         dst: [i(r.x), i(r.y), i(r.w), i(r.h)],

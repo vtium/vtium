@@ -6,6 +6,7 @@ vtium-render is vtium's renderer. It takes in frames from `vtium-term`, and it p
 |---|---|
 | `src/lib.rs` | The crate's documentation, its determinism lints and its public names. |
 | `src/renderer.rs` | `Renderer`: the grid's place on the display, the cell jobs, the cursor and the pointer, and the CPU path's back end. `Config`, `DrawState`, `Drawn` and `Stats`. |
+| `src/renderer/double.rs` | Double-width and double-height lines: the pieces that a doubled glyph and its decorations are cut into, and the one place where a glyph drawn at double size will take the doubled pixels' place. |
 | `src/renderer/gpu.rs` | With `gpu`: `Renderer::draw_gpu`, the renderer's frame on the GPU path, and what the GPU path keeps of a renderer's state. |
 | `src/arrow.rs` | `Arrow`, the pointer's image, and the target that blends the pointer over what is written beneath it. |
 | `src/damage.rs` | What each buffer lacks, cell by cell, and the damage rectangles. |
@@ -230,6 +231,24 @@ The `images` feature draws a frame's image placements (ADR-1100 D4, D5, D9; vtiu
   A picture replaced every frame, as a video player sends it, pays that cost every frame. A full-screen picture at its own size takes 0.58 ms a frame at 1366×768, and 13.7 ms at 7680×2160 unturned. On a display turned a quarter, it takes 2.0 and 46.8 ms. A picture scaled to twice its size takes 6.7 ms and 136 ms, or 7.4 and 153 ms turned. The command is `cargo test --release -p vtium-render --features images --test picture_figures -- --ignored --nocapture`. For a picture replaced every frame, the command takes `--test picture_video` instead.
 
 Tests: `tests/pictures.rs`, `tests/picture_frames.rs`, `tests/picture_goldens.rs`, and the tests of the scaler, the cache and the frame-alone scaling in `src/picture/`.
+
+### Double-width and double-height lines
+
+A program can set a line to double width (DECDWL, `ESC # 6`) or to double height (DECDHL), with `ESC # 3` on the pair's top line and `ESC # 4` on its bottom line. `ESC # 5` (DECSWL) sets a line back to the normal size. vtium-term records each line's size, and the renderer draws it.
+
+On a double-width line, each glyph is twice as wide and as tall as at the normal size. On a double-height line, each glyph is twice as wide and twice as tall. The top line of the pair shows the glyph's upper half, and the bottom line shows its lower half. A line of double size shows the cells of its left half, since its right half lies past the grid's edge.
+
+The renderer doubles each pixel of the glyph, as the DEC terminals did with their character ROM. That is the final look for a bitmap font. For an outline font, the font helper will render each glyph at true double size, so that its strokes stay sharp. `piece_glyph` in `src/renderer/double.rs` is the one place where that glyph will take the doubled pixels' place. The VT100's dot stretching, which lengthened each lit dot on a CRT, is not part of the text renderer.
+
+The renderer draws a line of double size as cells of the normal size. Each character cell becomes two display cells, and a wide character becomes four. Each display cell draws one piece of the doubled glyph. A piece is one cell of the doubled glyph, from its upper or lower half on a double-height line. So every piece is the size of a narrow glyph. The glyph cache keys a piece on its text, width, variant and piece. The GPU path keeps a piece in a one-cell slot, and the cell shader draws it as any narrow glyph. So the CPU path and the GPU path draw the same bytes.
+
+The decorations are doubled the same way. The decoration sprites hold six more sets: the left and right piece of each sprite on a double-width line, and on each half of a double-height pair. On a double-height pair, an underline is twice as thick and lies on the bottom line, and the overline lies on the top line. The GPU path's sprite texture takes the doubled sets the first time a line of double size draws. So a screen with no such line uploads only the normal sprites.
+
+The cursor, the selection, colors and reverse video are set for each cell, so they cover both display cells of a doubled cell. A block cursor covers both of them. An underline cursor is twice as wide, and a bar cursor twice as thick.
+
+A line of double size keeps its glyphs' ink in their cells. It sends no ink to its neighbours, and it receives none from them. The renderer draws the whole line again whenever a buffer lacks any of its cells. The renderer counts stamps in the grid's columns, which on such a line are not the display's columns, so drawing the whole line gives each buffer what it lacks. A line whose size changes draws again whole, and so do the cells that its glyphs' old ink reached. A frame with no line of double size does one size comparison for each row.
+
+Tests: `tests/line_size.rs` and `tests/gpu_line_size.rs`, `each_piece_of_a_doubled_glyph_is_a_glyph_of_its_own` in `src/cache.rs`, and the unit tests in `src/renderer/double.rs`. Tier 2's `lines-` screens draw each size in unifont and in the outline test font set.
 
 ### Right-to-left text
 

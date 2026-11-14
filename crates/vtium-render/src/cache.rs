@@ -1,8 +1,9 @@
 //! The drawn-glyph cache (ADR-1300 D1 to D4).
 //!
 //! A glyph is cached under its text (the cluster's codepoints), its
-//! variant (bold, italic, and superscript or subscript) and its width in
-//! cells, so the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
+//! variant (bold, italic, and superscript or subscript), its width in
+//! cells and its piece: the glyph itself, or one cell of it doubled for a
+//! line of double size (`crate::renderer::double`). So the same text in the same variant is drawn by the font once however often the screen re-creates it. Glyphs
 //! live in four pools, masks and color glyphs each one or two cells wide,
 //! and each pool has its own least-recently-used order, a glyph count and a
 //! byte ceiling. Recency is the drawn frame. A glyph that would evict one
@@ -27,6 +28,7 @@ use vtium_font::{Drawn, Face, Font, Script, Variant, Width};
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
 use crate::reach::Reach;
+use crate::renderer::double::{self, Piece};
 use crate::stored::Stored;
 use crate::target::Orientation;
 
@@ -196,6 +198,7 @@ struct Entry<T> {
     text: Text,
     variant: Variant,
     wide: bool,
+    piece: Piece,
     hash: u64,
     glyph: T,
     /// Whether the font drew it as its missing glyph, which any arrival
@@ -228,11 +231,11 @@ const EMPTY_POOL: Pool = Pool {
 };
 
 /// Each codepoint folded in with one multiply by the golden ratio's
-/// 64-bit constant, after the variant's flags; the high half folded into
-/// the low bits a slot is chosen by.
-fn hash(text: &[char], variant: Variant, wide: bool) -> u64 {
+/// 64-bit constant, after the variant's flags, the width and the piece;
+/// the high half folded into the low bits a slot is chosen by.
+fn hash(text: &[char], variant: Variant, wide: bool, piece: Piece) -> u64 {
     const K: u64 = 0x9e37_79b9_7f4a_7c15;
-    let flags = flags(variant) | u64::from(wide) << 4;
+    let flags = flags(variant) | u64::from(wide) << 4 | piece.bits() << 5;
     let h = text.iter().fold(flags, |h, &c| {
         (h.rotate_left(21) ^ u64::from(u32::from(c))).wrapping_mul(K)
     });
@@ -248,13 +251,14 @@ pub struct CacheCounts {
     pub uncached: u32,
 }
 
-/// A glyph the font drew nothing for: its text, variant and width.
+/// A glyph the font drew nothing for: its text, variant, width and piece.
 #[derive(Debug)]
 struct Failed {
     hash: u64,
     text: Text,
     variant: Variant,
     wide: bool,
+    piece: Piece,
 }
 
 /// The drawn glyphs a renderer keeps: their pixels on the CPU path, their
@@ -405,38 +409,50 @@ impl<T: Held> GlyphCache<T> {
     }
 
     #[cfg(feature = "gpu")]
-    /// The cached glyph for `text` in `variant`, `width` cells wide, marked
-    /// used by this frame.
-    pub(crate) fn lookup(&mut self, text: &[char], width: Width, variant: Variant) -> Option<&T> {
+    /// The cached piece `piece` of the glyph for `text` in `variant`,
+    /// `width` cells wide, marked used by this frame.
+    pub(crate) fn lookup(
+        &mut self,
+        (text, width, variant): (&[char], Width, Variant),
+        piece: Piece,
+    ) -> Option<&T> {
         let wide = width == Width::Wide;
-        let i = self.find(hash(text, variant, wide), text, variant, wide)?;
+        let i = self.find(
+            hash(text, variant, wide, piece),
+            (text, variant, wide, piece),
+        )?;
         self.touch(i);
         self.entry(i).map(|e| &e.glyph)
     }
 
-    /// The glyph for `text` from the font, as the cache stores it: at the
-    /// font's own size and at 1 bit where [`Storage`] allows, with a color
-    /// glyph's stand-in where the display needs one, and whether it is the
-    /// font's missing glyph. `None` when the font draws nothing, which is
-    /// remembered, so the font is not asked again until
+    /// The piece `piece` of the glyph for `text` from the font, as the
+    /// cache stores it: at the font's own size and at 1 bit where
+    /// [`Storage`] allows, with a color glyph's stand-in where the display
+    /// needs one, and whether it is the font's missing glyph. A doubled
+    /// piece is one cell, cut from the glyph that
+    /// [`double::piece_glyph`] gives. `None` when the font draws nothing,
+    /// which is remembered, so the font is not asked again until
     /// [`GlyphCache::forget`] runs, and counted with the missing glyphs
     /// ([`GlyphCache::take_missing`]).
     pub(crate) fn draw<F: Face>(
         &mut self,
         font: &Font<F>,
-        text: &[char],
-        width: Width,
-        variant: Variant,
+        (text, width, variant): (&[char], Width, Variant),
+        piece: Piece,
     ) -> Option<(Stored, bool)> {
         let wide = width == Width::Wide;
-        let h = hash(text, variant, wide);
+        let h = hash(text, variant, wide, piece);
         let at = usize::try_from(h.checked_rem(FAILED_GLYPHS as u64).unwrap_or(0)).unwrap_or(0);
         let known = self
             .failed
             .get(at)
             .and_then(Option::as_ref)
             .is_some_and(|f| {
-                f.hash == h && f.variant == variant && f.wide == wide && f.text.chars() == text
+                f.hash == h
+                    && f.variant == variant
+                    && f.wide == wide
+                    && f.piece == piece
+                    && f.text.chars() == text
             });
         if known {
             return None;
@@ -462,6 +478,7 @@ impl<T: Held> GlyphCache<T> {
                     text: Text::of(text),
                     variant,
                     wide,
+                    piece,
                 });
             }
             // the whole fallback chain drew nothing, and an arrival may give
@@ -481,6 +498,11 @@ impl<T: Held> GlyphCache<T> {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
         };
+        let (glyph, scale) = if piece.is_whole() {
+            (glyph, scale)
+        } else {
+            double::piece_glyph(font, (text, width, variant), (&glyph, scale), piece)?
+        };
         let stored = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
         Some((stored, missing))
     }
@@ -498,7 +520,18 @@ impl<T: Held> GlyphCache<T> {
     /// until the next, and counts it.
     pub(crate) fn keep(
         &mut self,
-        (text, width, variant): (&[char], Width, Variant),
+        key: (&[char], Width, Variant),
+        pool: usize,
+        glyph: T,
+        missing: bool,
+    ) -> Option<&T> {
+        self.keep_piece((key, Piece::WHOLE), pool, glyph, missing)
+    }
+
+    /// [`GlyphCache::keep`] for the piece `piece` of the glyph.
+    pub(crate) fn keep_piece(
+        &mut self,
+        ((text, width, variant), piece): ((&[char], Width, Variant), Piece),
         pool: usize,
         glyph: T,
         missing: bool,
@@ -513,7 +546,8 @@ impl<T: Held> GlyphCache<T> {
             text: Text::of(text),
             variant,
             wide,
-            hash: hash(text, variant, wide),
+            piece,
+            hash: hash(text, variant, wide, piece),
             glyph,
             missing,
             pool,
@@ -561,7 +595,11 @@ impl<T: Held> GlyphCache<T> {
         usize::try_from(hash & 0xffff_ffff).unwrap_or(0) & self.mask()
     }
 
-    fn find(&self, h: u64, text: &[char], variant: Variant, wide: bool) -> Option<u32> {
+    fn find(
+        &self,
+        h: u64,
+        (text, variant, wide, piece): (&[char], Variant, bool, Piece),
+    ) -> Option<u32> {
         let mut at = self.home(h);
         loop {
             let i = *self.slots.get(at)?;
@@ -569,7 +607,8 @@ impl<T: Held> GlyphCache<T> {
                 return None;
             }
             let e = self.entry(i)?;
-            if e.hash == h && e.variant == variant && e.wide == wide && e.text.chars() == text {
+            let same = e.variant == variant && e.wide == wide && e.piece == piece;
+            if e.hash == h && same && e.text.chars() == text {
                 return Some(i);
             }
             at = at.wrapping_add(1) & self.mask();
@@ -771,14 +810,31 @@ impl GlyphCache<Stored> {
         width: Width,
         variant: Variant,
     ) -> Option<&Stored> {
+        self.get_piece(font, (text, width, variant), Piece::WHOLE)
+    }
+
+    /// The piece `piece` of the glyph for `text` in `variant`, `width`
+    /// cells wide, as [`GlyphCache::get`] gives the glyph. A doubled piece
+    /// is one cell, so it goes to a one-cell pool whatever the glyph's
+    /// width.
+    pub(crate) fn get_piece<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        key: (&[char], Width, Variant),
+        piece: Piece,
+    ) -> Option<&Stored> {
+        let (text, width, variant) = key;
         let wide = width == Width::Wide;
-        if let Some(i) = self.find(hash(text, variant, wide), text, variant, wide) {
+        if let Some(i) = self.find(
+            hash(text, variant, wide, piece),
+            (text, variant, wide, piece),
+        ) {
             self.touch(i);
             return self.entry(i).map(|e| &e.glyph);
         }
-        let (glyph, missing) = self.draw(font, text, width, variant)?;
-        let pool = pool_of(glyph.is_rgba(), wide);
-        self.keep((text, width, variant), pool, glyph, missing)
+        let (glyph, missing) = self.draw(font, key, piece)?;
+        let pool = pool_of(glyph.is_rgba(), wide && piece.is_whole());
+        self.keep_piece((key, piece), pool, glyph, missing)
     }
 
     /// How far the glyph for `text` in `variant`, `width` cells wide, reaches
@@ -857,6 +913,36 @@ mod tests {
                 .is_some()
         );
         assert_eq!(c.take_counts().misses, 3);
+    }
+
+    // A line of double size draws each piece of a doubled glyph as a glyph
+    // of its own: one cell of the glyph with each pixel doubled, drawn by
+    // the font once. The test font's `a` is the byte 0x61 in every row,
+    // 01100001, so its left piece is 0110 doubled and its right piece 0001
+    // doubled.
+    // covers: text.line-size
+    #[test]
+    fn each_piece_of_a_doubled_glyph_is_a_glyph_of_its_own() {
+        use vtium_term::LineSize;
+        let f = font();
+        let mut c = GlyphCache::new(Budgets::glyphs(8), Storage::default(), Orientation::Normal);
+        let key = (&['a'][..], Width::Narrow, Variant::default());
+        let line = |c: &mut GlyphCache, piece: Piece| {
+            let mut out = [0u8; 8];
+            c.get_piece(&f, key, piece)
+                .unwrap()
+                .mask_line(0, 0, &mut out);
+            out.map(|a| u8::from(a == 255))
+        };
+        let left = Piece::of(LineSize::DoubleWidth, 0);
+        let right = Piece::of(LineSize::DoubleWidth, 1);
+        assert_eq!(line(&mut c, Piece::WHOLE), [0, 1, 1, 0, 0, 0, 0, 1]);
+        assert_eq!(line(&mut c, left), [0, 0, 1, 1, 1, 1, 0, 0]);
+        assert_eq!(line(&mut c, right), [0, 0, 0, 0, 0, 0, 1, 1]);
+        assert_eq!(c.take_counts().misses, 3, "each piece drawn by the font");
+        assert_eq!(line(&mut c, right), [0, 0, 0, 0, 0, 0, 1, 1]);
+        assert_eq!(line(&mut c, left), [0, 0, 1, 1, 1, 1, 0, 0]);
+        assert_eq!(c.take_counts().misses, 0, "each piece cached");
     }
 
     // covers: sgr.script

@@ -18,6 +18,7 @@ use crate::cache::GlyphCache;
 use crate::deco::{Line, Sprites};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, Pictures, Under, over_px, tint};
+use crate::renderer::double::Piece;
 use crate::stored::{Pens, Rows, Stored};
 use crate::target::Target;
 
@@ -75,6 +76,9 @@ pub(crate) struct Job {
     pub(crate) text: Option<(usize, usize, FontWidth, Variant)>,
     /// A color glyph draws as its silhouette, for a 1-bit display.
     pub(crate) silhouette: bool,
+    /// The piece of its glyph and decorations it draws: the whole glyph,
+    /// or one cell of them doubled on a line of double size.
+    pub(crate) piece: Piece,
     /// The cell's background and mark, which decide how pictures over it
     /// draw.
     #[cfg(feature = "images")]
@@ -376,7 +380,7 @@ fn glyph<'c, F: Face>(
 ) -> Option<&'c Stored> {
     let (start, len, width, style) = job.text?;
     let chars = text.get(start..start.saturating_add(len))?;
-    cache.get(font, chars, width, style)
+    cache.get_piece(font, (chars, width, style), job.piece)
 }
 
 /// The ink `job` receives from the glyphs of `sources`, in their order,
@@ -510,7 +514,9 @@ fn cell_line(
     prem.fill(0);
     let tiles = job.tiles.get(..job.ncells).unwrap_or_default();
     let deco = |line: Line, c: Rgb, prem: &mut [u32], cov: &mut [u8]| {
-        let Some(s) = sprites.get(line) else { return };
+        let Some(s) = sprites.piece(line, job.piece) else {
+            return;
+        };
         for t in tiles {
             s.mask_line(x0.saturating_sub(t.x), y.saturating_sub(t.y), cov);
             for (p, &a) in prem.iter_mut().zip(cov.iter()) {
@@ -714,7 +720,9 @@ fn deco_over(
     prem: &mut [u32],
     cov: &mut [u8],
 ) {
-    let Some(s) = sprites.get(line) else { return };
+    let Some(s) = sprites.piece(line, job.piece) else {
+        return;
+    };
     for t in job.tiles.get(..job.ncells).unwrap_or_default() {
         s.mask_line(job.r.x.saturating_sub(t.x), y.saturating_sub(t.y), cov);
         for (p, &a) in prem.iter_mut().zip(cov.iter()) {

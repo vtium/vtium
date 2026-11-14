@@ -2871,6 +2871,78 @@ const BASE: &[Case] = &[
     Case {
         screen: shipped(7, "frit-cjk-kr", FRIT_CJK_KR_DESC, FRIT_CJK_KR, 6),
     },
+    // the line size screens (DECDWL, DECDHL, DECSWL), each in unifont, a
+    // bitmap font whose glyphs double each pixel, and in the outline test
+    // font set
+    Case {
+        screen: Screen::new("lines-dwl-unifont", LINES_DWL_DESC, LINES_DWL, 32, 4),
+    },
+    Case {
+        screen: outline("lines-dwl", LINES_DWL_DESC, LINES_DWL, 32, 4),
+    },
+    Case {
+        screen: Screen::new("lines-dhl-unifont", LINES_DHL_DESC, LINES_DHL, 24, 4),
+    },
+    Case {
+        screen: outline("lines-dhl", LINES_DHL_DESC, LINES_DHL, 24, 4),
+    },
+    Case {
+        screen: Screen::new("lines-deco-unifont", LINES_DECO_DESC, LINES_DECO, 48, 4),
+    },
+    Case {
+        screen: outline("lines-deco", LINES_DECO_DESC, LINES_DECO, 48, 4),
+    },
+    Case {
+        screen: Screen {
+            selection: Some(((4, 0), (6, 2))),
+            ..Screen::new("lines-mixed-unifont", LINES_MIXED_DESC, LINES_MIXED, 26, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            selection: Some(((4, 0), (6, 2))),
+            ..outline("lines-mixed", LINES_MIXED_DESC, LINES_MIXED, 26, 6)
+        },
+    },
+    lines_cursor(
+        ("lines-cursor-dwl-unifont", LINES_CURSOR_DWL_DESC),
+        LINES_CURSOR_DWL,
+        b"\x1b[1;5H\x1b[2 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dwl", LINES_CURSOR_DWL_DESC),
+        LINES_CURSOR_DWL,
+        b"\x1b[1;5H\x1b[2 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-top-unifont", LINES_CURSOR_DHL_TOP_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[1;5H\x1b[6 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-top", LINES_CURSOR_DHL_TOP_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[1;5H\x1b[6 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
+    lines_cursor(
+        (
+            "lines-cursor-dhl-bottom-unifont",
+            LINES_CURSOR_DHL_BOTTOM_DESC,
+        ),
+        LINES_CURSOR_DHL,
+        b"\x1b[2;5H\x1b[4 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-bottom", LINES_CURSOR_DHL_BOTTOM_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[2;5H\x1b[4 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's
@@ -3111,3 +3183,103 @@ const FRIT_CJK_KR: &[u8] = concat!(
 .as_bytes();
 
 const FRIT_CJK_KR_DESC: &str = "The shipped font set cjk-kr at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK KR's Korean forms, then Korean in Hangul syllables, Hangul letters and Han, the start of Article 1 of the Universal Declaration of Human Rights in Korean, and Latin letters with descenders and accented capitals from Noto Sans Mono beside Hangul and Han on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `lines-dwl` screens: a line of the normal size, two double-width
+/// lines (DECDWL, `ESC # 6`), one of them with colors, reverse video and
+/// a wide character, then a line of the normal size again.
+const LINES_DWL: &[u8] = concat!(
+    "A normal line, for its size\r\n",
+    "\x1b#6Double wide AaGg\r\n",
+    "\x1b#6\x1b[31mred\x1b[0m \x1b[30;42mgreen\x1b[0m \x1b[7mrev\x1b[0m 中\r\n",
+    "A normal line again",
+)
+.as_bytes();
+
+const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 32 by 4 cells. The second line reads Double wide AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
+
+/// The `lines-dhl` screens: two double-height pairs (DECDHL, `ESC # 3`
+/// on the top line and `ESC # 4` on the bottom line), the second with
+/// colors and a wide character.
+const LINES_DHL: &[u8] = concat!(
+    "\x1b#3Tall AaGg\r\n",
+    "\x1b#4Tall AaGg\r\n",
+    "\x1b#3\x1b[33mGold\x1b[0m \x1b[37;44m中\x1b[0m\r\n",
+    "\x1b#4\x1b[33mGold\x1b[0m \x1b[37;44m中\x1b[0m",
+)
+.as_bytes();
+
+const LINES_DHL_DESC: &str = "Two double-height pairs (DECDHL), 24 by 4 cells: each top line set by ESC # 3 and each bottom line by ESC # 4, with the same text on both lines of a pair. The first pair reads Tall AaGg. The second reads Gold in yellow and the wide character 中 in white on blue. Correct: each character twice as wide and twice as tall as at the normal size, each pixel of its glyph doubled both ways, its upper half on the top line and its lower half on the bottom line, joining with no gap or overlap; the wide character across four cells of each line; the blue background covering both lines of its cells.";
+
+/// The `lines-deco` screens: each underline style, strike-through and
+/// overline on a line of the normal size, a double-width line and a
+/// double-height pair.
+macro_rules! lines_deco_text {
+    () => {
+        "\x1b[4mund\x1b[4:2mdbl\x1b[4:3mcur\x1b[4:4mdot\x1b[4:5mdsh\x1b[0m \x1b[9mstr\x1b[0m \x1b[53mov\x1b[0m"
+    };
+}
+
+const LINES_DECO: &[u8] = concat!(
+    lines_deco_text!(),
+    "\r\n\x1b#6",
+    lines_deco_text!(),
+    "\r\n\x1b#3",
+    lines_deco_text!(),
+    "\r\n\x1b#4",
+    lines_deco_text!(),
+)
+.as_bytes();
+
+const LINES_DECO_DESC: &str = "The decorations on lines of double size, 48 by 4 cells: each line holds und with a single underline, dbl with a double underline, cur with a curly one, dot with a dotted one, dsh with a dashed one, str with a strike-through, and ov with an overline. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on the double-width line each line twice as long and as thick as on the normal line, each dot, dash and wave twice as long; on the double-height pair each line also twice as thick, the underlines on the bottom line, the overline on the top line, and the strike-through where the doubled glyph's middle lies, each in the same place against its doubled letters as on the normal line.";
+
+/// The `lines-mixed` screens: every size on one screen, and a selection
+/// across lines of three sizes.
+const LINES_MIXED: &[u8] = concat!(
+    "Normal size: AaGg 0123\r\n",
+    "\x1b#6Double width\r\n",
+    "\x1b#3Double height\r\n",
+    "\x1b#4Double height\r\n",
+    "\x1b#6\x1b#5Set back to normal\r\n",
+    "Normal size: AaGg 0123",
+)
+.as_bytes();
+
+const LINES_MIXED_DESC: &str = "Every line size on one screen, 26 by 6 cells, with a selection from the fifth cell of the first line to the seventh cell of the third. The lines are a normal line, a double-width line, a double-height pair, a line set to double width and then back to the normal size by ESC # 5 (DECSWL), and a normal line. Correct: each line at its own size, each character on the double-size lines twice as wide; the double-height pair joined into one tall line; the line set back drawn at the normal size; the selection's colors on the cells it holds, each double-size cell across both of its display cells.";
+
+/// The `lines-cursor-` screens: a cursor on a line of each size.
+const LINES_CURSOR_DWL: &[u8] = b"\x1b#6Cursor\r\nnormal size";
+const LINES_CURSOR_DHL: &[u8] = b"\x1b#3Cursor\r\n\x1b#4Cursor";
+
+const LINES_CURSOR_DWL_DESC: &str = "A block cursor on a double-width line, 16 by 2 cells: the first line reads Cursor at double width with the cursor on its o, and the second line reads normal size at the normal size. Correct: the block covers both display cells of the o, twice as wide as a cell of the normal line, with the o inside it in the background's color.";
+
+const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the top line. Correct: the bar twice as thick as at the normal size, at the left edge of the o's cell on the top line only, where the bar cursor draws in place of the letter as on a line of the normal size; the o's lower half on the bottom line.";
+
+const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the bottom line. Correct: the underline twice as wide and twice as thick as at the normal size, along the bottom of the o's cell on the bottom line only, under the o's lower half.";
+
+/// A line size screen of 16 by 2 cells in `font`, whose cursor `tail`
+/// shapes and places after the bytes, drawn in the cursor's on phase.
+const fn lines_cursor(
+    (name, desc): (&'static str, &'static str),
+    bytes: &'static [u8],
+    tail: &'static [u8],
+    font: FontKind,
+) -> Case {
+    Case {
+        screen: Screen {
+            font,
+            tail,
+            phase: crate::draw::Phase {
+                cursor_on: true,
+                blink_hidden: false,
+                rapid_hidden: false,
+            },
+            ..Screen::new(name, desc, bytes, 16, 2)
+        },
+    }
+}
+
+/// The outline test font set's font, for the line size screens.
+const LINES_OUTLINE: FontKind = FontKind::Outline {
+    color: true,
+    spacing: None,
+};
