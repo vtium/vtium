@@ -26,6 +26,10 @@ const FONT: &str = concat!(
 
 /// The fastest of `runs` runs of `f`, which leaves out the runs another
 /// process on the machine slowed.
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the measurement times the drawing"
+)]
 fn fastest(runs: usize, mut f: impl FnMut()) -> Duration {
     (0..runs)
         .map(|_| {
