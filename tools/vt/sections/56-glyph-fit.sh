@@ -1,8 +1,8 @@
 #!/bin/bash
-# look-for: Default fit: each Powerline separator runs the whole row, added
-# look-for: rows included, so its segment joins it; box lines join from row
-# look-for: to row; icons, letters and marks keep the text's size. Natural:
-# look-for: separators and box lines keep the text's height, with gaps.
+# look-for: Default fit: each Powerline separator runs the whole row, so its
+# look-for: segment joins it; box lines join from row to row; icons, letters
+# look-for: and marks keep the text's size. Natural: separators and box
+# look-for: lines stay the text's height, with gaps, as fit=natural means.
 # wrong-looks-like: A separator shorter than its colored segment, a gap in
 # wrong-looks-like: the box lines under the default fit, an icon off the
 # wrong-looks-like: row's middle, or a mark away from its letter.
