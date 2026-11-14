@@ -88,6 +88,7 @@ pub mod set;
 mod sha256;
 pub mod spacing;
 pub mod sprite;
+pub mod syllable;
 #[cfg(feature = "unifont")]
 mod unifont;
 

@@ -1273,6 +1273,10 @@ impl Head {
             shown.clusters.sort_unstable();
             shown.clusters.dedup();
         }
+        let rule = self.console.term.terminal.screen().cluster_width();
+        for shown in &mut all {
+            shown.cluster_width = rule;
+        }
         all
     }
 
@@ -1295,6 +1299,12 @@ impl Head {
         let mut all = vec![Shown::default()];
         crate::deferred::read_shown(&frame, &mut all);
         crate::deferred::settle(&mut all);
+        // the helper places the clusters in the cells this terminal gives
+        // them (ADR-1006 D8)
+        let rule = self.console.term.terminal.screen().cluster_width();
+        for shown in &mut all {
+            shown.cluster_width = rule;
+        }
         all
     }
 
@@ -2177,6 +2187,34 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // ADR-1006 D8: what a head shows carries its terminal's cluster width,
+    // so the helper places each cluster in the cells the terminal gives it
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn what_a_head_shows_carries_its_cluster_width() {
+        for (text, want) in [
+            ("", vtium_term::ClusterWidth::Double),
+            ("cluster-width = single\n", vtium_term::ClusterWidth::Single),
+        ] {
+            let config = crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == std::path::Path::new("/etc/vtium/vtium.conf"))
+                    .then(|| text.as_bytes().to_vec()))
+            })
+            .config;
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            head.console.term.terminal.input("\x1b[1mक्ष".as_bytes());
+            let shown = head.visible();
+            assert!(shown.len() >= 2, "{shown:?}");
+            assert!(shown.iter().all(|s| s.cluster_width == want), "{text:?}");
+        }
     }
 
     // ADR-1401 D7, D9: the screen the display guard lights for a notice

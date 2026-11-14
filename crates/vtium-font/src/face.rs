@@ -128,6 +128,15 @@ pub trait Face {
     /// character.
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph>;
 
+    /// [`Face::draw`] for a cluster the terminal gives `cells` cells, 1 or
+    /// 2. A face that builds a cluster from its characters' glyphs may lay
+    /// them out across those cells (ADR-1302 D14); the default draws the
+    /// cluster as [`Face::draw`] does, whatever its cells.
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        let _ = cells;
+        self.draw(cluster, style)
+    }
+
     /// The glyph drawn when the face lacks the character, U+25A1 and `?`.
     fn last_resort(&self, _style: Style) -> Option<Glyph> {
         None
@@ -247,6 +256,15 @@ pub trait Face {
     ) -> Option<Glyph> {
         None
     }
+
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant`, which it draws without building it from parts: the
+    /// renderer draws a syllable joined across its clusters only while the
+    /// face holds every piece of it (ADR-1203 D4, [`crate::syllable`]).
+    /// The default, for a face that shapes nothing across clusters, is no.
+    fn holds(&self, _cluster: &[char], _variant: Variant) -> bool {
+        false
+    }
 }
 
 /// Where a face's superscript or subscript glyph comes from
@@ -285,6 +303,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
+    }
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        (**self).draw_cells(cluster, style, cells)
     }
     fn last_resort(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort(style)
@@ -327,6 +348,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn fallback(&self, cluster: &[char], style: Style, width: u32, color: bool) -> Option<Glyph> {
         (**self).fallback(cluster, style, width, color)
+    }
+    fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        (**self).holds(cluster, variant)
     }
 }
 
@@ -427,6 +451,12 @@ impl<F: Face> Font<F> {
         }
     }
 
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant` ([`Face::holds`]).
+    pub fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        self.face.holds(cluster, variant)
+    }
+
     /// Whether `c` draws as itself: a sprite always does.
     pub fn has_glyph(&self, c: char) -> bool {
         self.draws_sprite(c) || self.face.has_glyph(c)
@@ -484,7 +514,9 @@ impl<F: Face> Font<F> {
                 return Some(Drawn::new(s.with_cells(width), 1, false));
             }
         }
-        let (glyph, missing) = match self.own(cluster, style, Face::draw) {
+        let cells = width.cells();
+        let own = |f: &F, c: &[char], s: Style| f.draw_cells(c, s, cells);
+        let (glyph, missing) = match self.own(cluster, style, own) {
             Some(g) => (g, false),
             None => {
                 let g = self
@@ -565,7 +597,7 @@ impl<F: Face> Font<F> {
             let drawn = style.without(origin.synth);
             let glyph = match chars {
                 [] => self.face.last_resort(drawn),
-                _ => self.face.draw(chars, drawn),
+                _ => self.face.draw_cells(chars, drawn, width.cells()),
             };
             Some((glyph?, origin))
         };

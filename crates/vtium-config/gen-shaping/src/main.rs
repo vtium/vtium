@@ -10,7 +10,7 @@ const VERSION: &str = "18.0.0";
 
 /// The UCD files read, by base name, with their SHA-256 and the path under
 /// `https://www.unicode.org/Public/18.0.0/` they come from.
-const FILES: [(&str, &str, &str); 6] = [
+const FILES: [(&str, &str, &str); 9] = [
     (
         "emoji-sequences.txt",
         "emoji/",
@@ -40,6 +40,21 @@ const FILES: [(&str, &str, &str); 6] = [
         "emoji-data.txt",
         "ucd/emoji/",
         "80d00f8e616a0ef27fd6b8de3b758c06383b5d917e2977709578e68baf733bf1",
+    ),
+    (
+        "IndicSyllabicCategory.txt",
+        "ucd/",
+        "a2b3aacf6b3e7bad4ca351ef985d9543825e20280ff280c25f646d9bc4ce304c",
+    ),
+    (
+        "ScriptExtensions.txt",
+        "ucd/",
+        "5c9d34a922f687726f2a8bcf57d49f905987e51f1b21b58c95a00fbe255cec23",
+    ),
+    (
+        "PropertyValueAliases.txt",
+        "ucd/",
+        "06c4c8eaf7b0bf34abe73b113da1215bd784ac254d4c223600b90267caa4bbbd",
     ),
 ];
 
@@ -204,6 +219,20 @@ fn run(ucd: &Path, cldr: &Path) -> Result<(), String> {
         let text = read_cldr(cldr, language, pin)?;
         exemplars.push((language, exemplar_ranges(&text).map_err(|e| format!("{language}.xml: {e}"))?));
     }
+    let syllabic = syllabic(
+        &read("IndicSyllabicCategory.txt")?,
+        &read("ScriptExtensions.txt")?,
+        &read("PropertyValueAliases.txt")?,
+        &scripts,
+    )?;
+    let syllable_path = root.join("../vtium-font/src/syllable/data.rs");
+    std::fs::write(&syllable_path, syllable_rs(&syllabic))
+        .map_err(|e| format!("{}: {e}", syllable_path.display()))?;
+    println!(
+        "../vtium-font/src/syllable/data.rs: Unicode {VERSION}, {} ranges of linkers and followers, {} sets of scripts",
+        syllabic.ranges.len(),
+        syllabic.sets.len()
+    );
     let letters_path = root.join("../vtium-font/src/letters/data.rs");
     std::fs::write(&letters_path, letters_rs(&exemplars))
         .map_err(|e| format!("{}: {e}", letters_path.display()))?;
@@ -679,6 +708,151 @@ fn scripts_ranges(
             (name, ranges)
         })
         .collect()
+}
+
+/// The Indic_Syllabic_Category values that ADR-1203 D1 reads, by the
+/// number `syllable_rs` writes for each: the linkers, Virama (1),
+/// Invisible_Stacker (2) and Consonant_With_Stacker (3), and the
+/// followers, Consonant (4) and Vowel_Independent (5).
+const SYLLABIC_CATEGORIES: [(&str, u8); 5] = [
+    ("Virama", 1),
+    ("Invisible_Stacker", 2),
+    ("Consonant_With_Stacker", 3),
+    ("Consonant", 4),
+    ("Vowel_Independent", 5),
+];
+
+/// The characters ADR-1203 D1 joins syllables by, with their scripts.
+struct Syllabic {
+    /// Each run of characters of one category and one set of scripts:
+    /// first, last, the category's number and the set's index in `sets`.
+    ranges: Vec<(u32, u32, u8, u16)>,
+    /// Each set of scripts, each script by its number among the scripts
+    /// the sets name, in the order of their short names, sorted.
+    sets: Vec<Vec<u8>>,
+}
+
+/// The linkers and followers of ADR-1203 D1 from IndicSyllabicCategory.txt,
+/// each with its Script_Extensions: the scripts ScriptExtensions.txt lists
+/// for it, else its one script from Scripts.txt, by the short name
+/// PropertyValueAliases.txt gives that script.
+fn syllabic(
+    isc: &str,
+    scx: &str,
+    aliases: &str,
+    scripts: &BTreeMap<u32, String>,
+) -> Result<Syllabic, String> {
+    let mut short: BTreeMap<&str, &str> = BTreeMap::new();
+    for f in fields(aliases) {
+        if let (Some(&"sc"), Some(abbr), Some(long)) = (f.first(), f.get(1), f.get(2)) {
+            short.insert(long, abbr);
+        }
+    }
+    let mut extensions: BTreeMap<u32, Vec<String>> = BTreeMap::new();
+    for f in fields(scx) {
+        let (Some(r), Some(names)) = (f.first(), f.get(1)) else {
+            return Err(format!("a line of fewer than two fields: {f:?}"));
+        };
+        let (a, b) = range(r)?;
+        let names: Vec<String> = names.split_whitespace().map(str::to_owned).collect();
+        for c in a..=b {
+            extensions.insert(c, names.clone());
+        }
+    }
+    let mut chars: BTreeMap<u32, (u8, Vec<String>)> = BTreeMap::new();
+    for f in fields(isc) {
+        let (Some(r), Some(value)) = (f.first(), f.get(1)) else {
+            return Err(format!("a line of fewer than two fields: {f:?}"));
+        };
+        let Some(&(_, category)) = SYLLABIC_CATEGORIES.iter().find(|(v, _)| v == value) else {
+            continue;
+        };
+        let (a, b) = range(r)?;
+        for c in a..=b {
+            let set = match extensions.get(&c) {
+                Some(names) => names.clone(),
+                None => {
+                    let long = scripts
+                        .get(&c)
+                        .ok_or_else(|| format!("U+{c:04X}: no script in Scripts.txt"))?;
+                    let abbr = short
+                        .get(long.as_str())
+                        .ok_or_else(|| format!("{long}: no short name"))?;
+                    vec![(*abbr).to_owned()]
+                }
+            };
+            chars.insert(c, (category, set));
+        }
+    }
+    let mut names: Vec<String> = chars.values().flat_map(|(_, s)| s.iter().cloned()).collect();
+    names.sort();
+    names.dedup();
+    if names.len() > usize::from(u8::MAX) {
+        return Err(format!("{} scripts, more than a u8 numbers", names.len()));
+    }
+    let mut sets: Vec<Vec<u8>> = Vec::new();
+    let mut ranges: Vec<(u32, u32, u8, u16)> = Vec::new();
+    for (c, (category, set)) in chars {
+        let mut ids: Vec<u8> = set
+            .iter()
+            .filter_map(|n| names.iter().position(|m| m == n))
+            .filter_map(|i| u8::try_from(i).ok())
+            .collect();
+        ids.sort_unstable();
+        ids.dedup();
+        let index = match sets.iter().position(|s| *s == ids) {
+            Some(i) => i,
+            None => {
+                sets.push(ids);
+                sets.len() - 1
+            }
+        };
+        let index = u16::try_from(index).map_err(|_| "more than 65535 sets of scripts")?;
+        match ranges.last_mut() {
+            Some(r) if r.1 + 1 == c && r.2 == category && r.3 == index => r.1 = c,
+            _ => ranges.push((c, c, category, index)),
+        }
+    }
+    Ok(Syllabic { ranges, sets })
+}
+
+/// vtium-font's `src/syllable/data.rs`: the linkers and followers of
+/// ADR-1203 D1 and the sets of scripts they belong to.
+fn syllable_rs(s: &Syllabic) -> String {
+    let mut out = format!(
+        "// Generated by crates/vtium-config/gen-shaping from the Unicode Character\n\
+         // Database {VERSION}. Do not edit; rerun the generator.\n//\n\
+         // The Unicode data it comes from is under this licence:\n//\n{}\n",
+        commented(LICENSE)
+    );
+    let _ = write!(
+        out,
+        "/// The version of the Unicode Character Database the tables come from.\n\
+         pub const VERSION: &str = \"{VERSION}\";\n\n\
+         /// The characters that link a syllable's clusters and that follow a\n\
+         /// link (IndicSyllabicCategory.txt), as sorted ranges of one category\n\
+         /// and one set of scripts each: the first and last character, the\n\
+         /// category, 1 Virama, 2 Invisible_Stacker, 3 Consonant_With_Stacker,\n\
+         /// 4 Consonant or 5 Vowel_Independent, and the index in [`SETS`] of\n\
+         /// the characters' Script_Extensions (ScriptExtensions.txt, else the\n\
+         /// one script Scripts.txt gives).\n\
+         pub const SYLLABIC: &[(u32, u32, u8, u16)] = &[\n"
+    );
+    for (a, b, category, set) in &s.ranges {
+        let _ = writeln!(out, "    (0x{a:x}, 0x{b:x}, {category}, {set}),");
+    }
+    out.push_str(
+        "];\n\n/// Each set of scripts that [`SYLLABIC`] names, each script by its\n\
+         /// number among the scripts these tables name, in the order of their\n\
+         /// short names (PropertyValueAliases.txt), sorted.\n\
+         pub const SETS: &[&[u8]] = &[\n",
+    );
+    for set in &s.sets {
+        let items: Vec<String> = set.iter().map(u8::to_string).collect();
+        let _ = writeln!(out, "    &[{}],", items.join(", "));
+    }
+    out.push_str("];\n");
+    out
 }
 
 /// `text` as `//` comment lines.

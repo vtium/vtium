@@ -83,8 +83,13 @@ const KEYCAP: u32 = 0x20e3;
 /// letter, such as a fatha, are not letters here ([`mark_side`]). Else an
 /// emoji sequence when Unicode lists it as one or it holds U+200D, U+FE0F,
 /// a regional indicator, an emoji modifier, a tag or the keycap mark; else
-/// a letter and its marks.
+/// a letter and its marks. A syllable's piece is judged as a letter and
+/// its marks, by the syllable's whole text (ADR-1203 D3), whatever joiner
+/// follows its virama.
 pub fn kind(key: &[u32]) -> Kind {
+    if vtium_font::syllable::piece_of(key).is_some() {
+        return Kind::Marks;
+    }
     let letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
     let joiner = key.contains(&ZWJ) || letters.clone().count() > 1;
     if joiner && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {
@@ -184,13 +189,25 @@ pub fn asks_for_emoji(key: &[u32]) -> bool {
     first.is_some_and(emoji_by_default) || (key.len() > 1 && kind(key) == Kind::Emoji)
 }
 
-/// Whether the terminal gives the character or cluster `key` two cells:
-/// vtium-term's rule for the width it stores (ADR-1200 D21), East_Asian_Width
-/// W or F, Emoji_Presentation=Yes, or an emoji-style base with U+FE0F. The
-/// helper places a glyph in those cells whatever its advance.
+/// Whether the terminal gives the character or cluster `key` two cells
+/// under `cluster-width = double`, the default: [`cells`] with that rule.
 pub fn wide(key: &[u32]) -> bool {
+    cells(key, vtium_term::ClusterWidth::Double) == 2
+}
+
+/// The cells the terminal gives the character or cluster `key` under
+/// `rule`, 1 or 2: vtium-term's rule for the width it stores (ADR-1200
+/// D21, ADR-1006 D1), East_Asian_Width W or F, Emoji_Presentation=Yes, an
+/// emoji-style base with U+FE0F, and under `double` a cluster with a
+/// spacing mark or a virama conjunct. The helper places a glyph in those
+/// cells whatever its advance.
+pub fn cells(key: &[u32], rule: vtium_term::ClusterWidth) -> u32 {
     let chars: Vec<char> = key.iter().filter_map(|&c| char::from_u32(c)).collect();
-    vtium_term::cluster_width(&chars) == 2
+    if vtium_term::cluster_width_with(&chars, rule) == 2 {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether `part` is `key` with one or more of its marks left out and

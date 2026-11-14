@@ -130,6 +130,9 @@ pub(crate) struct Cells {
     /// is drawn whole.
     held: Option<u64>,
     damage: Vec<Rect>,
+    /// The piece of a joined syllable each cell drew, if any (ADR-1203).
+    #[cfg(feature = "bidi")]
+    pieces: Vec<Option<vtium_font::syllable::Piece>>,
 }
 
 impl Cells {
@@ -159,6 +162,11 @@ impl Cells {
         self.row_stamps.resize(rows, self.serial);
         self.row_reaching.clear();
         self.row_reaching.resize(rows, 0);
+        #[cfg(feature = "bidi")]
+        {
+            self.pieces.clear();
+            self.pieces.resize(cols.saturating_mul(rows), None);
+        }
         self.border = self.serial;
         self.border_areas.clear();
     }
@@ -178,6 +186,20 @@ impl Cells {
     pub(crate) fn get(&self, col: usize, row: usize) -> Option<&CellState> {
         let i = self.index(col, row)?;
         self.states.get(i)
+    }
+
+    /// The piece of a joined syllable the cell at `col`, `row` draws,
+    /// which `piece` replaces; returns the old (ADR-1203 D4).
+    #[cfg(feature = "bidi")]
+    pub(crate) fn replace_piece(
+        &mut self,
+        col: usize,
+        row: usize,
+        piece: Option<vtium_font::syllable::Piece>,
+    ) -> Option<vtium_font::syllable::Piece> {
+        let i = self.index(col, row);
+        i.and_then(|i| self.pieces.get_mut(i))
+            .and_then(|p| core::mem::replace(p, piece))
     }
 
     /// The grid's columns and rows.

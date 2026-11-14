@@ -38,3 +38,7 @@ miniz_oxide = "0.8.9"
 # the message bars' screen: the console's overlay, through the overlay
 # screens and notice words tier 2 draws
 vtium-tier2 = { path = "../tier2" }
+
+[dev-dependencies]
+# an outline font of known glyphs, as vtium-config's tests write theirs
+vtium-testfont = { path = "../testfont" }

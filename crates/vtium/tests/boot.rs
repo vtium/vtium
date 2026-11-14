@@ -6369,7 +6369,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ8")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQ9")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -6513,10 +6513,10 @@ fn italic_and_bold_text_is_asked_for_in_its_style() {
         Memory::default(),
         fonts.clone(),
     );
-    // the style, the script, the reserved capabilities, a codepoint count
-    // of 1, then the codepoint
+    // the style, the script, the cluster width, double, the reserved
+    // capabilities, a codepoint count of 1, then the codepoint
     let ask = |style: u32, script: u32, c: char| -> Vec<u8> {
-        [style, script, 0, 1, u32::from(c)]
+        [style, script, 0, 0, 1, u32::from(c)]
             .iter()
             .flat_map(|w| w.to_le_bytes())
             .collect()
@@ -7300,16 +7300,17 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .collect()
     };
     // the cell, the rows line spacing adds, the style, regular, the
-    // script, normal, the reserved capabilities, then the codepoints, the
-    // clusters and the held ranges, each counted
+    // script, normal, the cluster width, double, the reserved
+    // capabilities, then the codepoints, the clusters and the held ranges,
+    // each counted
     assert_eq!(words(&rest[8..], 2), [0, 0], "no line spacing");
     assert_eq!(
-        words(&rest[16..], 3),
-        [0, 0, 0],
-        "regular, normal, and no capabilities"
+        words(&rest[16..], 4),
+        [0, 0, 0, 0],
+        "regular, normal, double, and no capabilities"
     );
-    let codepoints = words(&rest[28..], 1)[0] as usize;
-    let mut rest = &rest[32 + 4 * codepoints..];
+    let codepoints = words(&rest[32..], 1)[0] as usize;
+    let mut rest = &rest[36 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

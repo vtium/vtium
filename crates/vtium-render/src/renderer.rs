@@ -18,7 +18,11 @@ use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
 use crate::reach::{Bound, Reach};
+#[cfg(feature = "bidi")]
+use crate::syllable::Syllable;
 use crate::target::{Orientation, Rect, Target};
+#[cfg(feature = "bidi")]
+use vtium_font::syllable::Piece;
 
 #[cfg(feature = "gpu")]
 mod gpu;
@@ -670,6 +674,61 @@ fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<us
         crate::joined::Span::Pair => Some(2),
         crate::joined::Span::Tail => Some(0),
         crate::joined::Span::One => None,
+    }
+}
+
+/// The syllable `fc` at `col`, `row` belongs to when it draws joined
+/// (ADR-1203 D4), and the piece the cell draws: not while the cursor
+/// stands on any of its cells, while its cells differ in color, style or
+/// script, or while the link overlay covers one of them, and only while
+/// `font` holds every piece. `out` is scratch.
+#[cfg(feature = "bidi")]
+fn joined_syllable<F: Face>(
+    font: &Font<F>,
+    p: &Pass<'_, '_>,
+    (col, row): (usize, usize),
+    fc: &FrameCell<'_>,
+    out: &mut Vec<char>,
+) -> Option<(Syllable, Piece)> {
+    let (s, index) = Syllable::find(p.frame, (col, row), fc)?;
+    let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
+    if !s.joined(row, p.held, covered) {
+        return None;
+    }
+    let variant = s.variant();
+    let mut own = None;
+    for i in 0..s.len() {
+        out.clear();
+        let piece = s.key(i, out)?;
+        if !font.holds(out, variant) {
+            return None;
+        }
+        if i == index {
+            own = Some(piece);
+        }
+    }
+    own.map(|piece| (s, piece))
+}
+
+/// Appends to `out` the text the cell `fc` at `col`, `row` draws: its
+/// piece's key where its syllable draws joined (ADR-1203 D3), else its
+/// text as [`crate::joined::drawn`] gives it, its joining sides and
+/// mirroring, a lam-alef ligature's two letters, or nothing for the lam
+/// (ADR-1004 D6, D7).
+#[cfg(feature = "bidi")]
+fn drawn_text<F: Face>(
+    font: &Font<F>,
+    p: &Pass<'_, '_>,
+    at: (usize, usize),
+    fc: &FrameCell<'_>,
+    out: &mut Vec<char>,
+) {
+    let mut scratch = Vec::new();
+    match joined_syllable(font, p, at, fc, &mut scratch) {
+        Some((s, piece)) => piece.key(s.text(), out),
+        None => {
+            crate::joined::drawn(p.frame, at, fc, p.held, out);
+        }
     }
 }
 
@@ -1328,6 +1387,22 @@ impl<F: Face> Renderer<F> {
                 changed |= t.replace_span(0) != 0;
             }
         }
+        // a syllable drawn joined draws again whole when any of its cells
+        // changes, and a cell draws again when it joins a syllable, leaves
+        // one, or takes another piece (ADR-1203 D4)
+        #[cfg(feature = "bidi")]
+        {
+            let mut scratch = core::mem::take(&mut self.chars);
+            let joined = joined_syllable(&self.font, p, (col, row), fc, &mut scratch);
+            self.chars = scratch;
+            let piece = joined.as_ref().map(|(_, piece)| *piece);
+            changed |= self.cells.replace_piece(col, row, piece) != piece;
+            if let Some((s, _)) = joined {
+                changed |= s
+                    .cols()
+                    .any(|c| c != col && p.cell(row, c).is_some_and(|m| m.changed));
+            }
+        }
         // the cursor's look and the blink phase change this cell alone
         let ink_changed = changed;
         let Some(s) = self.cells.get_mut(col, row) else {
@@ -1409,7 +1484,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "bidi")]
         let reach = {
             self.chars.clear();
-            crate::joined::drawn(p.frame, at, fc, p.held, &mut self.chars);
+            drawn_text(&self.font, p, at, fc, &mut self.chars);
             if self.chars.is_empty() {
                 return Reach::NONE;
             }
@@ -1512,7 +1587,7 @@ impl<F: Face> Renderer<F> {
         #[cfg(feature = "bidi")]
         {
             drawn.clear();
-            crate::joined::drawn(p.frame, (col, row), fc, p.held, &mut drawn);
+            drawn_text(&self.font, p, (col, row), fc, &mut drawn);
         }
         self.push_jobs(
             &p.g,
@@ -2076,7 +2151,7 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "bidi")]
             {
                 drawn.clear();
-                crate::joined::drawn(p.frame, (here, row), &fc, p.held, &mut drawn);
+                drawn_text(&self.font, p, (here, row), &fc, &mut drawn);
             }
             self.push_jobs(
                 g,

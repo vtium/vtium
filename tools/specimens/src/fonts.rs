@@ -171,7 +171,7 @@ pub fn tiny5(
 /// source gives nothing, or fails as it draws, is refused: the glyphs of
 /// only some of the frit's sources are not the profile's. A style none of
 /// whose clusters the frit draws gives no set.
-fn generate(
+pub(crate) fn generate(
     name: &str,
     text: &str,
     fonts: &Path,
@@ -214,6 +214,8 @@ fn generate(
                 cell,
                 set,
                 clusters: whole,
+                frit: (name.to_owned(), text.to_owned()),
+                codepoints: engine.coverage().to_vec(),
             })
         })
         .collect()

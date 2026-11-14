@@ -752,6 +752,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
 /// known.
 fn outline(font: Vec<u8>, family: &str) -> Input {
     Input::Outline(OutlineRequest {
+        cluster_width: Default::default(),
         font: font.into(),
         family: family.to_owned(),
         cells: Vec::new(),

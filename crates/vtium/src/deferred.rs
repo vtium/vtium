@@ -113,6 +113,10 @@ pub type Text = Vec<char>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {
     pub variant: Variant,
+    /// The cells the display's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the helper places
+    /// the clusters in.
+    pub cluster_width: vtium_term::ClusterWidth,
     pub chars: Vec<char>,
     pub clusters: Vec<Text>,
 }
@@ -125,24 +129,47 @@ pub struct Shown {
 /// what a right-to-left row draws ([`vtium_render::joined`]): each joined
 /// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
 /// and the presentation form each key draws where no font holds the joined
-/// form (ADR-1004 D6, D7). A variant `all` lacks is added after the others.
+/// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
+/// too, piece by piece, in the variant of its first cell
+/// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
+/// cells' colors, which only decide whether it draws joined. A variant
+/// `all` lacks is added after the others.
 /// A build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_render::joined;
+    use vtium_render::syllable::Syllable;
     use vtium_term::Glyph;
-    let mut drawn = Vec::new();
-    for row in 0..frame.rows() {
-        for (col, cell) in frame.cells(row).enumerate() {
-            let variant = variant_of(cell.attrs);
-            if !all.iter().any(|s| s.variant == variant) {
+    let shown_in = |all: &mut Vec<Shown>, variant: Variant| -> usize {
+        match all.iter().position(|s| s.variant == variant) {
+            Some(i) => i,
+            None => {
                 all.push(Shown {
                     variant,
                     ..Shown::default()
                 });
+                all.len().saturating_sub(1)
             }
-            let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
+        }
+    };
+    let mut drawn = Vec::new();
+    for row in 0..frame.rows() {
+        for (col, cell) in frame.cells(row).enumerate() {
+            // a syllable's pieces, once, from its first cell
+            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell) {
+                let i = shown_in(all, s.variant());
+                if let Some(shown) = all.get_mut(i) {
+                    for index in 0..s.len() {
+                        let mut key = Vec::new();
+                        if s.key(index, &mut key).is_some() {
+                            shown.clusters.push(key);
+                        }
+                    }
+                }
+            }
+            let i = shown_in(all, variant_of(cell.attrs));
+            let Some(shown) = all.get_mut(i) else {
                 continue;
             };
             match cell.glyph {
@@ -530,6 +557,58 @@ fn ink_columns(g: &Glyph) -> Option<(i64, i64)> {
     let first = (0..g.width()).find(|&x| inked(x))?;
     let last = (0..g.width()).rev().find(|&x| inked(x))?;
     Some((i64::from(first), i64::from(last)))
+}
+
+/// What [`DeferredFace::part`] draws for one piece of a cluster.
+enum Drawn {
+    /// A glyph the piece comes as whole.
+    Whole(Glyph),
+    /// The piece's letter and its spacing marks.
+    Parts(Part),
+}
+
+/// A letter with its nonspacing marks over it, and its spacing marks, each
+/// with whether its body stands before the letter.
+struct Part {
+    letter: Glyph,
+    spacing: Vec<(Glyph, bool)>,
+}
+
+/// Where `cluster` is cut before a letter that follows a linker, a virama
+/// or a stacker with only U+200D after it: the index of that letter, if
+/// any.
+fn after_linker(cluster: &[char]) -> Option<usize> {
+    cluster.iter().enumerate().skip(1).find_map(|(i, &c)| {
+        let linked = cluster
+            .get(..i)?
+            .iter()
+            .rev()
+            .find(|&&b| b != '\u{200d}')
+            .is_some_and(|&b| vtium_font::syllable::is_linker(b));
+        (linked && !is_mark(c) && !is_ignorable(c)).then_some(i)
+    })
+}
+
+/// `slots` side by side, each glyph whole in the cells it spans, as one
+/// glyph two cells wide or more; the one glyph itself when there is one.
+fn in_cells(slots: &[Glyph]) -> Option<Glyph> {
+    match slots {
+        [] => None,
+        [one] => Some(one.clone()),
+        _ => {
+            let width = slots
+                .iter()
+                .try_fold(0u32, |w, g| w.checked_add(g.width()))?;
+            let height = slots.iter().map(Glyph::height).max()?;
+            let mut layers = Layers::new(width, height, Width::Wide)?;
+            let mut x = 0i64;
+            for g in slots {
+                layers.lay(g, x);
+                x = x.checked_add(i64::from(g.width()))?;
+            }
+            layers.glyph()
+        }
+    }
 }
 
 /// `letter` with each of `marks` standing beside it (ADR-1302 D14): a
@@ -1163,19 +1242,36 @@ impl DeferredFace {
     /// built from its parts ([`DeferredFace::unshaped`]), each part from the
     /// store in the variant or else from the built-in font.
     fn draw_in(&self, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        self.draw_across(cluster, variant, 1)
+    }
+
+    /// [`DeferredFace::draw_in`] for a cluster the terminal gives `cells`
+    /// cells: a cluster drawn from its characters' glyphs lays them out
+    /// across those cells ([`DeferredFace::unshaped_across`]).
+    fn draw_across(&self, cluster: &[char], variant: Variant, cells: u32) -> Option<Glyph> {
         match cluster {
             [] => None,
             &[c] => self.single(c, variant),
             _ => {
                 let held = lock(&self.generated).draw(self.at(), cluster, variant);
+                // a syllable's piece is the helper's or nothing: the
+                // renderer draws its clusters on their own while the store
+                // lacks it (ADR-1203 D4). Only the console's syllable
+                // finder makes a piece's key, and no cell's own cluster is
+                // one ([`vtium_font::syllable`])
+                #[cfg(feature = "bidi")]
+                if vtium_font::syllable::piece_of_chars(cluster).is_some() {
+                    return held;
+                }
                 #[cfg(feature = "bidi")]
                 if let Some(key) = joined::Key::of(cluster) {
                     return held.or_else(|| self.joined(&key, variant));
                 }
                 #[cfg(feature = "bidi")]
-                return held.or_else(|| self.unshaped(Sides::default(), cluster, variant));
+                return held
+                    .or_else(|| self.unshaped_across(Sides::default(), cluster, variant, cells));
                 #[cfg(not(feature = "bidi"))]
-                held.or_else(|| self.unshaped(cluster, variant))
+                held.or_else(|| self.unshaped_across(cluster, variant, cells))
             }
         }
     }
@@ -1243,24 +1339,141 @@ impl DeferredFace {
     /// part of its key ([`DeferredFace::held_part`]) or its joined form
     /// ([`DeferredFace::letter`]), and no NFC form, which would draw it
     /// unjoined. A build without the bidi feature joins nothing.
-    fn unshaped(
+    #[cfg(feature = "bidi")]
+    fn unshaped(&self, sides: Sides, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        self.unshaped_across(sides, cluster, variant, 1)
+    }
+
+    /// [`DeferredFace::unshaped`] for a cluster the terminal gives `cells`
+    /// cells. A bitmap font draws Indic scripts on a best-effort basis
+    /// (ADR-1203, ADR-1302 D14): each character's own glyph is shown. The
+    /// letters after a linker, a virama or a stacker, are drawn after the
+    /// letter before them, each with its own marks, as the pieces of the
+    /// conjunct the font has no glyph for. A spacing mark whose body stands
+    /// before its letter, as the vowel sign i's does, stands before the
+    /// whole cluster. In a cluster of two cells or more, each piece takes a
+    /// whole cell of its own, in order: each spacing mark that stands
+    /// before its letter, then each letter with its nonspacing marks over
+    /// it and its other spacing marks after it; [`vtium_font::Font`] then
+    /// fits the run to the cells. In one cell they stand side by side by
+    /// their ink.
+    fn unshaped_across(
         &self,
         #[cfg(feature = "bidi")] sides: Sides,
         cluster: &[char],
         variant: Variant,
+        cells: u32,
     ) -> Option<Glyph> {
+        // the cluster cut before each letter that follows a linker
+        let mut segments: Vec<&[char]> = Vec::new();
+        let mut rest = cluster;
+        while let Some(i) = after_linker(rest) {
+            let (head, tail) = rest.split_at_checked(i)?;
+            segments.push(head);
+            rest = tail;
+        }
+        segments.push(rest);
+        let one = segments.len() == 1;
+        let mut parts: Vec<Part> = Vec::new();
+        for (k, segment) in segments.into_iter().enumerate() {
+            #[cfg(feature = "bidi")]
+            let sides = if k == 0 { sides } else { Sides::default() };
+            #[cfg(not(feature = "bidi"))]
+            let _ = k;
+            match self.part(
+                #[cfg(feature = "bidi")]
+                sides,
+                segment,
+                variant,
+            )? {
+                Drawn::Whole(glyph) if one => return Some(glyph),
+                Drawn::Whole(letter) => parts.push(Part {
+                    letter,
+                    spacing: Vec::new(),
+                }),
+                Drawn::Parts(part) => parts.push(part),
+            }
+        }
+        if cells >= 2 {
+            // each piece in a cell of its own, the marks that stand before
+            // their letters first
+            let mut slots: Vec<Glyph> = Vec::new();
+            for part in &parts {
+                slots.extend(
+                    part.spacing
+                        .iter()
+                        .filter(|(_, b)| *b)
+                        .map(|(g, _)| g.clone()),
+                );
+            }
+            for part in parts {
+                slots.push(part.letter);
+                slots.extend(
+                    part.spacing
+                        .into_iter()
+                        .filter(|(_, b)| !*b)
+                        .map(|(g, _)| g),
+                );
+            }
+            return in_cells(&slots);
+        }
+        let mut parts = parts.into_iter();
+        let Part {
+            mut letter,
+            spacing,
+        } = parts.next()?;
+        let mut stand: Vec<(Glyph, bool)> = Vec::new();
+        for (mark, before) in spacing {
+            if drawn_beside(&letter, &mark, before) {
+                letter = overstrike(&letter, std::slice::from_ref(&mark))?;
+            } else {
+                stand.push((mark, before));
+            }
+        }
+        for Part {
+            letter: mut next,
+            spacing,
+        } in parts
+        {
+            let mut after: Vec<(Glyph, bool)> = Vec::new();
+            for (mark, before) in spacing {
+                if drawn_beside(&next, &mark, before) {
+                    next = overstrike(&next, std::slice::from_ref(&mark))?;
+                } else if before {
+                    stand.push((mark, true));
+                } else {
+                    after.push((mark, false));
+                }
+            }
+            stand.push((next, false));
+            stand.extend(after);
+        }
+        beside(letter, &stand)
+    }
+
+    /// One piece of a cluster drawn from its characters' glyphs: a letter
+    /// and the marks after it, with no linker between them
+    /// ([`DeferredFace::unshaped_across`]). The store's glyph for the whole
+    /// piece or its NFC form, or a color letter, comes whole; else the
+    /// letter with its nonspacing marks over it, and its spacing marks.
+    fn part(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        cluster: &[char],
+        variant: Variant,
+    ) -> Option<Drawn> {
         #[cfg(not(feature = "bidi"))]
         if let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.at(), &[c], variant)
         {
-            return Some(g);
+            return Some(Drawn::Whole(g));
         }
         #[cfg(feature = "bidi")]
         if sides.none()
             && let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.at(), &[c], variant)
         {
-            return Some(g);
+            return Some(Drawn::Whole(g));
         }
         let (&base, rest) = cluster.split_first()?;
         let marks: Vec<char> = rest
@@ -1279,7 +1492,7 @@ impl DeferredFace {
             None => (self.letter(sides, base, variant)?, marks),
         };
         if glyph.format() != Format::Mask {
-            return Some(glyph);
+            return Some(Drawn::Whole(glyph));
         }
         let mask = |c| {
             self.single(c, variant)
@@ -1301,16 +1514,8 @@ impl DeferredFace {
                 }
             }
         }
-        let mut letter = overstrike(&glyph, &over)?;
-        let mut stand: Vec<(Glyph, bool)> = Vec::new();
-        for (mark, before) in spacing {
-            if drawn_beside(&letter, &mark, before) {
-                letter = overstrike(&letter, std::slice::from_ref(&mark))?;
-            } else {
-                stand.push((mark, before));
-            }
-        }
-        beside(letter, &stand)
+        let letter = overstrike(&glyph, &over)?;
+        Some(Drawn::Parts(Part { letter, spacing }))
     }
 
     /// `base`'s own glyph joined on `sides`: the base's glyph where it
@@ -1457,6 +1662,17 @@ impl Face for DeferredFace {
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.draw_in(cluster, style.into())
+    }
+
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        self.draw_across(cluster, style.into(), cells)
+    }
+
+    /// Whether the store holds the glyph the helper made for the whole of
+    /// `cluster` in `variant`, as it makes each piece of a syllable
+    /// (ADR-1203 D3).
+    fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        lock(&self.generated).held(self.at(), variant, cluster)
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -1781,6 +1997,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
@@ -1976,6 +2193,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2026,6 +2244,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2802,6 +3021,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: Variant::default(),
                 chars: vec!['o'],
                 clusters: Vec::new(),
@@ -3207,6 +3427,116 @@ mod tests {
             "........", "........",
         ];
         assert_eq!(picture(&both), want);
+    }
+
+    // ADR-1203 and ADR-1302 D14, best effort for a bitmap font: in a
+    // cluster of two cells, ka takes its first cell and the vowel sign
+    // aa's own glyph its second; the vowel sign i, whose body stands before
+    // its letter, takes the first cell and ka the second. In one cell they
+    // still stand side by side
+    #[test]
+    fn a_spacing_mark_takes_the_second_cell_of_a_two_cell_cluster() {
+        let i_rows: [&str; 13] = [
+            "........", "........", "........", "...##...", "...#....", "...#....", "...#....",
+            "...#....", "...#....", "...#....", "...#....", "...#....", "...#....",
+        ];
+        let f = face_with(&[(KA, &KA_ROWS), (AA, &AA_ROWS), (I, &i_rows)]);
+        let ka = picture(&f.draw(&[KA], Style::default()).unwrap());
+        let aa = picture(&f.draw(&[AA], Style::default()).unwrap());
+        let i = picture(&f.draw(&[I], Style::default()).unwrap());
+        let halves = |g: &Glyph| -> (Vec<String>, Vec<String>) {
+            let rows = picture(g);
+            (
+                rows.iter().map(|r| r[..8].to_owned()).collect(),
+                rows.iter().map(|r| r[8..].to_owned()).collect(),
+            )
+        };
+        let both = f.draw_cells(&[KA, AA], Style::default(), 2).unwrap();
+        assert_eq!((both.width(), both.cells()), (16, Width::Wide));
+        assert_eq!(halves(&both), (ka.clone(), aa));
+        let both = f.draw_cells(&[KA, I], Style::default(), 2).unwrap();
+        assert_eq!(halves(&both), (i, ka));
+        let one = f.draw_cells(&[KA, AA], Style::default(), 1).unwrap();
+        assert_eq!(one.cells(), Width::Narrow);
+    }
+
+    // ADR-1203, best effort for a bitmap font: a conjunct the font has no
+    // glyph for shows as its pieces. In ka, virama, ssa with the vowel
+    // sign e, a cluster of two cells, ka with the virama takes the first
+    // cell and ssa with the vowel sign e over it the second, where ssa and
+    // e were left out
+    #[test]
+    fn a_conjunct_shows_as_its_pieces_in_a_bitmap_font() {
+        const SSA: char = '\u{937}';
+        const VIRAMA: char = '\u{94d}';
+        const E: char = '\u{947}';
+        let ssa_rows: [&str; 13] = [
+            "........", "........", "........", "######..", "#....#..", "#....#..", "#.####..",
+            "#....#..", "#....#..", "#....#..", "#....#..", "#....#..", "#....#..",
+        ];
+        let virama_rows: [&str; 16] = [
+            "........", "........", "........", "........", "........", "........", "........",
+            "........", "........", "........", "........", "........", "........", "....#...",
+            ".....#..", "........",
+        ];
+        let e_rows: [&str; 3] = ["..###...", "....#...", "........"];
+        let f = face_with(&[
+            (KA, &KA_ROWS),
+            (SSA, &ssa_rows),
+            (VIRAMA, &virama_rows),
+            (E, &e_rows),
+        ]);
+        let both = f
+            .draw_cells(&[KA, VIRAMA, SSA, E], Style::default(), 2)
+            .unwrap();
+        assert_eq!(both.width(), 16);
+        let rows = picture(&both);
+        let right: Vec<String> = rows.iter().map(|r| r[8..].to_owned()).collect();
+        let left: Vec<String> = rows.iter().map(|r| r[..8].to_owned()).collect();
+        assert_eq!(&right[3..13], &ssa_rows[3..13], "ssa in the second cell");
+        assert_eq!(
+            &right[..2],
+            ["..###...", "....#..."],
+            "the vowel sign e over ssa"
+        );
+        assert_eq!(
+            &left[13..15],
+            ["....#...", ".....#.."],
+            "the virama under ka"
+        );
+        assert!(left[3].starts_with("#####"), "ka in the first cell");
+    }
+
+    // ADR-1203, best effort for a bitmap font: the vowel sign i, whose body
+    // stands before its letter, stands before the whole conjunct. In ka,
+    // virama, ssa and i across two cells it takes the first piece, then ka
+    // with the virama, then ssa, where it stood beside ssa
+    #[test]
+    fn a_pre_base_vowel_sign_stands_before_the_whole_conjunct() {
+        const SSA: char = '\u{937}';
+        const VIRAMA: char = '\u{94d}';
+        let ssa_rows: [&str; 13] = [
+            "........", "........", "........", "######..", "#....#..", "#....#..", "#.####..",
+            "#....#..", "#....#..", "#....#..", "#....#..", "#....#..", "#....#..",
+        ];
+        let i_rows: [&str; 13] = [
+            "........", "........", "........", "...##...", "...#....", "...#....", "...#....",
+            "...#....", "...#....", "...#....", "...#....", "...#....", "...#....",
+        ];
+        let f = face_with(&[(KA, &KA_ROWS), (SSA, &ssa_rows), (I, &i_rows)]);
+        let i = picture(&f.draw(&[I], Style::default()).unwrap());
+        let ssa = picture(&f.draw(&[SSA], Style::default()).unwrap());
+        let all = f
+            .draw_cells(&[KA, VIRAMA, SSA, I], Style::default(), 2)
+            .unwrap();
+        let rows = picture(&all);
+        let w = rows[0].len();
+        let cols = |a: usize, b: usize| -> Vec<String> {
+            rows.iter().map(|r| r[a..b].to_owned()).collect()
+        };
+        assert_eq!(cols(0, 8), i, "the vowel sign i first");
+        assert!(cols(8, w - 8)[3].contains("#####"), "ka between");
+        assert_eq!(cols(w - 8, w), ssa, "ssa last, alone");
     }
 
     // #235: a spacing mark whose body stands before its letter, as the
@@ -3767,6 +4097,7 @@ mod tests {
             1 << 20,
         );
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],
@@ -3813,5 +4144,121 @@ mod tests {
         assert!(lock(&generated).holds(SpacedCell::plain(other)));
         lock(&generated).retain(&[AT]);
         assert!(!lock(&generated).holds(SpacedCell::plain(other)));
+    }
+
+    // ADR-1203 D3: a row of Kannada asks the helper for each piece of the
+    // syllable ka, virama, ra, in the variant of its first cell, beside
+    // each cluster on its own; with the cursor on it, too, since the
+    // cursor only decides how it draws
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_syllable_is_asked_for_piece_by_piece() {
+        use vtium_font::syllable::Piece;
+        for bytes in ["\x1b[1mಕ್ರ", "\x1b[1mಕ್ರ\x1b[1;2H"] {
+            let mut t = vtium_term::Terminal::new(8, 1, 0);
+            t.input(bytes.as_bytes());
+            let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+            let mut all = vec![Shown::default()];
+            read_shown(&frame, &mut all);
+            settle(&mut all);
+            let bold = all.iter().find(|s| s.variant.style.bold).unwrap();
+            let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+            for start in [0, 1] {
+                let mut key = Vec::new();
+                Piece::new(start, 1, 2).unwrap().key(&text, &mut key);
+                assert!(
+                    bold.clusters.contains(&key),
+                    "{bytes:?}: {key:?} in {bold:?}"
+                );
+                assert!(
+                    !bold.chars.contains(key.last().unwrap()),
+                    "the mark is no character"
+                );
+                assert!(!bold.chars.contains(&'\u{1f}'), "nor the separator");
+            }
+            assert!(
+                bold.clusters.contains(&text[..2].to_vec()),
+                "ka with its virama"
+            );
+            assert!(bold.chars.contains(&'\u{cb0}'), "ra on its own");
+        }
+    }
+
+    // ADR-1203 D3: only the console's syllable finder names a piece. A
+    // program's own cluster that ends with a piece's mark is ordinary text:
+    // rule GB9b of UAX #29 keeps two Arabic number signs, U+0600, and the
+    // mark of the first piece of two cells in one cluster, and the console
+    // asks the helper for it as a cluster and draws it from its characters
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_programs_cluster_is_no_piece() {
+        use vtium_font::syllable::{Piece, piece_of_chars};
+        let mark = Piece::new(0, 1, 2).unwrap().mark();
+        let cluster = ['\u{600}', '\u{600}', mark];
+        let mut t = vtium_term::Terminal::new(8, 1, 0);
+        t.input(cluster.iter().collect::<String>().as_bytes());
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let text: String = cluster.iter().collect();
+        assert_eq!(
+            frame.cell(0, 0).unwrap().glyph,
+            vtium_term::Glyph::Cluster(&text),
+            "one cluster"
+        );
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all);
+        settle(&mut all);
+        let asked: Vec<&Text> = all.iter().flat_map(|s| &s.clusters).collect();
+        assert!(asked.contains(&&cluster.to_vec()), "{asked:?}");
+        assert!(
+            asked.iter().all(|k| piece_of_chars(k).is_none()),
+            "no piece: {asked:?}"
+        );
+        let generated = Shared::default();
+        let f = face(&generated);
+        let drawn = f.draw_cells(&cluster, Style::default(), 1).unwrap();
+        assert_eq!(
+            Some(drawn),
+            f.draw(&cluster[..2], Style::default()),
+            "the number signs, drawn from their characters"
+        );
+    }
+
+    // ADR-1203 D4: the console's face holds a syllable's piece once the
+    // helper's set brings it, and draws nothing for a piece it lacks, so
+    // the renderer draws the clusters on their own meanwhile
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_piece_is_held_or_drawn_as_nothing() {
+        use vtium_font::syllable::Piece;
+        let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+        let mut held = Vec::new();
+        Piece::new(0, 1, 2).unwrap().key(&text, &mut held);
+        let mut lacked = Vec::new();
+        Piece::new(1, 1, 2).unwrap().key(&text, &mut lacked);
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let g = s.glyph(Width::Narrow, vec![7; (CELL.width * CELL.height) as usize]);
+        s.cluster(&held, g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let generated = Shared::default();
+        {
+            let mut store = lock(&generated);
+            let fresh = store.fresh((AT, Variant::default()), set, &[], 1).unwrap();
+            store.add(fresh);
+        }
+        let f = face(&generated);
+        assert!(f.holds(&held, Variant::default()));
+        assert!(!f.holds(&lacked, Variant::default()));
+        let bold = Variant {
+            style: Style {
+                bold: true,
+                italic: false,
+            },
+            ..Variant::default()
+        };
+        assert!(!f.holds(&held, bold), "held in its own variant alone");
+        let drawn = f.draw(&held, Style::default()).unwrap();
+        assert!(drawn.pixels().iter().all(|&p| p == 7));
+        assert!(f.draw(&lacked, Style::default()).is_none());
     }
 }

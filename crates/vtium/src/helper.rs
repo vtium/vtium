@@ -86,6 +86,7 @@ use std::process::{Child, Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use vtium_term::ClusterWidth;
 
 use rustix::fs::{FileType, Mode, OFlags};
 use rustix::process::{
@@ -170,7 +171,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ8";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -538,7 +539,7 @@ impl FritText {
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
-    (kind, cell, band, variant): (u32, Cell, Band, Variant),
+    (kind, cell, band, variant, rule): (u32, Cell, Band, Variant, ClusterWidth),
     (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
@@ -563,6 +564,13 @@ fn encode(
             Script::Baseline => 0,
             Script::Super => 1,
             Script::Sub => 2,
+        },
+    );
+    put32(
+        &mut out,
+        match rule {
+            ClusterWidth::Double => 0,
+            ClusterWidth::Single => 1,
         },
     );
     put32(&mut out, 0);
@@ -1099,6 +1107,10 @@ impl CellState {
 struct Ask {
     at: SpacedCell,
     variant: Variant,
+    /// The cells the terminal gives a cluster with a spacing mark or a
+    /// virama conjunct, which the helper places the clusters in (ADR-1006
+    /// D8).
+    cluster_width: ClusterWidth,
     want: BTreeSet<u32>,
     clusters: BTreeSet<Text>,
     sent: Instant,
@@ -1245,7 +1257,7 @@ impl Helper {
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
         self.send(
-            (FILL, at, Variant::default()),
+            (FILL, at, Variant::default(), ClusterWidth::Double),
             (&codepoints, &[]),
             &held,
             now,
@@ -1306,11 +1318,17 @@ impl Helper {
         self.asks.push_back(Ask {
             at,
             variant,
+            cluster_width: shown.cluster_width,
             want,
             clusters,
             sent: now,
         });
-        self.send((ASK, at, variant), (&codepoints, &texts), &[], now);
+        self.send(
+            (ASK, at, variant, shown.cluster_width),
+            (&codepoints, &texts),
+            &[],
+            now,
+        );
     }
 
     /// The cell the frit's first source gives at `height`, the height the
@@ -1338,7 +1356,12 @@ impl Helper {
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
             self.send(
-                (OWN_CELL, SpacedCell::plain(query), Variant::default()),
+                (
+                    OWN_CELL,
+                    SpacedCell::plain(query),
+                    Variant::default(),
+                    ClusterWidth::Double,
+                ),
                 (&[], &[]),
                 &[],
                 now,
@@ -1434,7 +1457,12 @@ impl Helper {
         };
         if self.failed.is_none() {
             self.send(
-                (COVERAGE, SpacedCell::plain(query), Variant::default()),
+                (
+                    COVERAGE,
+                    SpacedCell::plain(query),
+                    Variant::default(),
+                    ClusterWidth::Double,
+                ),
                 (letters, &[]),
                 &[],
                 now,
@@ -1510,7 +1538,12 @@ impl Helper {
     /// Tells the helper to stop the fill at `at`, and drops its fill frames
     /// until the helper says it took the stop.
     fn stop_fill(&mut self, at: SpacedCell, now: Instant) {
-        self.send((STOP, at, Variant::default()), (&[], &[]), &[], now);
+        self.send(
+            (STOP, at, Variant::default(), ClusterWidth::Double),
+            (&[], &[]),
+            &[],
+            now,
+        );
         if self.running.is_some() {
             self.stopped.push(at);
         }
@@ -1521,7 +1554,7 @@ impl Helper {
     /// running.
     fn send(
         &mut self,
-        what: (u32, SpacedCell, Variant),
+        what: (u32, SpacedCell, Variant, ClusterWidth),
         named: (&[u32], &[Text]),
         held: &[(u32, u32)],
         now: Instant,
@@ -1532,11 +1565,11 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let (kind, at, variant) = what;
+        let (kind, at, variant, rule) = what;
         let bytes = encode(
             &self.frit,
             self.console.as_ref(),
-            (kind, at.cell, at.band, variant),
+            (kind, at.cell, at.band, variant, rule),
             named,
             held,
         );
@@ -1683,17 +1716,20 @@ impl Helper {
             self.restarts
         );
         self.due = None;
-        let asks: Vec<(SpacedCell, Variant, Vec<u32>, Vec<Text>)> = self
+        // each waiting ask's cell, variant, cluster width and what it named
+        type Resend = (SpacedCell, Variant, ClusterWidth, Vec<u32>, Vec<Text>);
+        let asks: Vec<Resend> = self
             .asks
             .iter_mut()
             .map(|a| {
                 a.sent = now;
                 let want = a.want.iter().copied().collect();
-                (a.at, a.variant, want, a.clusters.iter().cloned().collect())
+                let clusters = a.clusters.iter().cloned().collect();
+                (a.at, a.variant, a.cluster_width, want, clusters)
             })
             .collect();
-        for (at, variant, want, clusters) in asks {
-            self.send((ASK, at, variant), (&want, &clusters), &[], now);
+        for (at, variant, rule, want, clusters) in asks {
+            self.send((ASK, at, variant, rule), (&want, &clusters), &[], now);
         }
         let fills: Vec<SpacedCell> = self
             .cells
@@ -1707,7 +1743,12 @@ impl Helper {
             };
             state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
-            self.send((FILL, at, Variant::default()), (&first, &[]), &held, now);
+            self.send(
+                (FILL, at, Variant::default(), ClusterWidth::Double),
+                (&first, &[]),
+                &held,
+                now,
+            );
         }
     }
 
@@ -2388,6 +2429,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
@@ -2432,22 +2474,28 @@ mod tests {
         let bytes = encode(
             &frit("x=y\n"),
             None,
-            (ASK, CELL, Band { above: 2, below: 1 }, both.into()),
+            (
+                ASK,
+                CELL,
+                Band { above: 2, below: 1 },
+                both.into(),
+                ClusterWidth::Single,
+            ),
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ8".to_vec();
+        let mut want = b"VTVSREQ9".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
         want.extend_from_slice(&4u32.to_le_bytes());
         want.extend_from_slice(b"x=y\n");
         // the cell, the rows line spacing adds above and below it, the
-        // style, bold 1 and italic 2, the script, normal 0, the reserved
-        // capabilities, the codepoint, the cluster of two, the held range,
-        // no console font
+        // style, bold 1 and italic 2, the script, normal 0, the cluster
+        // width, single 1, the reserved capabilities, the codepoint, the
+        // cluster of two, the held range, no console font
         for v in [
-            8u32, 16, 2, 1, 3, 0, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
+            8u32, 16, 2, 1, 3, 0, 1, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
         ] {
             want.extend_from_slice(&v.to_le_bytes());
         }
@@ -2481,7 +2529,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into()),
+            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         );
@@ -2494,6 +2542,7 @@ mod tests {
         let mut s = StandIn::new("italic", &script, &fixture);
         let now = t0();
         let italic = Shown {
+            cluster_width: Default::default(),
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2529,7 +2578,7 @@ mod tests {
         let one = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into()),
+            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         )
@@ -2545,6 +2594,7 @@ mod tests {
         std::fs::write(s.dir.join("answer.b"), second).unwrap();
         let now = t0();
         let italic = Shown {
+            cluster_width: Default::default(),
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2596,6 +2646,7 @@ mod tests {
                 s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
+                    cluster_width: Default::default(),
                     variant: style.into(),
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2642,7 +2693,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, SUPER),
+            (ASK, CELL, Band::NONE, SUPER, ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         );
@@ -2660,6 +2711,7 @@ mod tests {
         let mut s = StandIn::new("superscript", &script, &fixture);
         let now = t0();
         let sup = Shown {
+            cluster_width: Default::default(),
             variant: SUPER,
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2724,6 +2776,7 @@ mod tests {
                 s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
+                    cluster_width: Default::default(),
                     variant,
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2794,6 +2847,7 @@ mod tests {
         chars.sort_unstable();
         chars.dedup();
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars,
             clusters: clusters.iter().map(|k| k.to_vec()).collect(),
@@ -2810,6 +2864,7 @@ mod tests {
         let mut s = StandIn::new("cluster", ANSWERS, &fixture);
         let now = t0();
         let only_clusters = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
@@ -3070,6 +3125,7 @@ mod tests {
         );
         let long = vec!['e'; vtium_font::CLUSTER_SCALARS_MAX as usize + 1];
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![long, vec!['e']],
@@ -3095,6 +3151,7 @@ mod tests {
         };
         for i in 0..1000 {
             let shown = Shown {
+                cluster_width: Default::default(),
                 variant: Variant::default(),
                 chars: Vec::new(),
                 clusters: (0..10).map(|j| cluster(i, j)).collect(),
@@ -3117,6 +3174,7 @@ mod tests {
         };
         let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
@@ -3736,7 +3794,13 @@ mod tests {
         encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (kind, CELL, Band::NONE, Variant::default()),
+            (
+                kind,
+                CELL,
+                Band::NONE,
+                Variant::default(),
+                ClusterWidth::Double,
+            ),
             (&[], &[]),
             &[],
         )
@@ -3803,7 +3867,7 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, band, Variant::default()),
+            (STOP, CELL, band, Variant::default(), ClusterWidth::Double),
             (&[], &[]),
             &[],
         );
@@ -3831,7 +3895,13 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, Band::NONE, Variant::default()),
+            (
+                STOP,
+                CELL,
+                Band::NONE,
+                Variant::default(),
+                ClusterWidth::Double,
+            ),
             (&[], &[]),
             &[],
         );
