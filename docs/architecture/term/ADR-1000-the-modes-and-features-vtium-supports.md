@@ -87,6 +87,9 @@ considered:
   - operator: aaronsb
     said: "Gate leases on a prototype, file it as lower priority; we have a functional system now and leases would complicate the work"
     via: the maintainer, in the steering session, 2026-11-13
+  - operator: aaronsb
+    said: "Supported"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, asked whether osc.kmscon-display and platform.hand-back move from partial to supported once the focus reports are built
 status: accepted
 date: 2026-10-26
 deciders:
