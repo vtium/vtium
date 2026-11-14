@@ -559,6 +559,28 @@ fn ink_columns(g: &Glyph) -> Option<(i64, i64)> {
     Some((i64::from(first), i64::from(last)))
 }
 
+/// `slots` side by side, each glyph whole in the cells it spans, as one
+/// glyph two cells wide or more; the one glyph itself when there is one.
+fn in_cells(slots: &[Glyph]) -> Option<Glyph> {
+    match slots {
+        [] => None,
+        [one] => Some(one.clone()),
+        _ => {
+            let width = slots
+                .iter()
+                .try_fold(0u32, |w, g| w.checked_add(g.width()))?;
+            let height = slots.iter().map(Glyph::height).max()?;
+            let mut layers = Layers::new(width, height, Width::Wide)?;
+            let mut x = 0i64;
+            for g in slots {
+                layers.lay(g, x);
+                x = x.checked_add(i64::from(g.width()))?;
+            }
+            layers.glyph()
+        }
+    }
+}
+
 /// `letter` with each of `marks` standing beside it (ADR-1302 D14): a
 /// mark after the letter has its first column of ink in the column after
 /// the last ink so far, and a mark before it, which the flag says, its
@@ -1190,6 +1212,13 @@ impl DeferredFace {
     /// built from its parts ([`DeferredFace::unshaped`]), each part from the
     /// store in the variant or else from the built-in font.
     fn draw_in(&self, cluster: &[char], variant: Variant) -> Option<Glyph> {
+        self.draw_across(cluster, variant, 1)
+    }
+
+    /// [`DeferredFace::draw_in`] for a cluster the terminal gives `cells`
+    /// cells: a cluster drawn from its characters' glyphs lays them out
+    /// across those cells ([`DeferredFace::unshaped_across`]).
+    fn draw_across(&self, cluster: &[char], variant: Variant, cells: u32) -> Option<Glyph> {
         match cluster {
             [] => None,
             &[c] => self.single(c, variant),
@@ -1207,9 +1236,10 @@ impl DeferredFace {
                     return held.or_else(|| self.joined(&key, variant));
                 }
                 #[cfg(feature = "bidi")]
-                return held.or_else(|| self.unshaped(Sides::default(), cluster, variant));
+                return held
+                    .or_else(|| self.unshaped_across(Sides::default(), cluster, variant, cells));
                 #[cfg(not(feature = "bidi"))]
-                held.or_else(|| self.unshaped(cluster, variant))
+                held.or_else(|| self.unshaped_across(cluster, variant, cells))
             }
         }
     }
@@ -1283,6 +1313,57 @@ impl DeferredFace {
         cluster: &[char],
         variant: Variant,
     ) -> Option<Glyph> {
+        self.unshaped_across(
+            #[cfg(feature = "bidi")]
+            sides,
+            cluster,
+            variant,
+            1,
+        )
+    }
+
+    /// [`DeferredFace::unshaped`] for a cluster the terminal gives `cells`
+    /// cells. A bitmap font draws Indic scripts on a best-effort basis
+    /// (ADR-1203, ADR-1302 D14): each character's own glyph is shown. The
+    /// letters after a linker, a virama or a stacker, are drawn after the
+    /// letter before them, each with its own marks, as the pieces of the
+    /// conjunct the font has no glyph for. In a cluster of two cells or
+    /// more, each piece takes a whole cell of its own, in order: a spacing
+    /// mark whose body stands before its letter, the letter with its
+    /// nonspacing marks over it, each spacing mark after it, and each
+    /// letter after a linker; [`vtium_font::Font`] then fits the run to
+    /// the cells. In one cell they stand side by side by their ink.
+    fn unshaped_across(
+        &self,
+        #[cfg(feature = "bidi")] sides: Sides,
+        cluster: &[char],
+        variant: Variant,
+        cells: u32,
+    ) -> Option<Glyph> {
+        // the letters after the first linker, drawn as a piece of their own
+        let split = cluster.iter().enumerate().skip(1).find_map(|(i, &c)| {
+            let before = cluster.get(..i)?;
+            let linked = before
+                .iter()
+                .rev()
+                .find(|&&b| b != '\u{200d}')
+                .is_some_and(|&b| vtium_font::syllable::is_linker(b));
+            (linked && !is_mark(c) && !is_ignorable(c)).then_some(i)
+        });
+        let (cluster, tail) = match split {
+            Some(i) => (cluster.get(..i)?, cluster.get(i..)),
+            None => (cluster, None),
+        };
+        let tail = match tail {
+            Some(t) => Some(self.unshaped_across(
+                #[cfg(feature = "bidi")]
+                Sides::default(),
+                t,
+                variant,
+                1,
+            )?),
+            None => None,
+        };
         #[cfg(not(feature = "bidi"))]
         if let Some(c) = precomposed(cluster)
             && let Some(g) = lock(&self.generated).draw(self.at(), &[c], variant)
@@ -1336,6 +1417,15 @@ impl DeferredFace {
             }
         }
         let mut letter = overstrike(&glyph, &over)?;
+        if cells >= 2 {
+            // each piece in a cell of its own
+            let mut slots: Vec<Glyph> = Vec::new();
+            slots.extend(spacing.iter().filter(|(_, b)| *b).map(|(g, _)| g.clone()));
+            slots.push(letter);
+            slots.extend(spacing.iter().filter(|(_, b)| !*b).map(|(g, _)| g.clone()));
+            slots.extend(tail);
+            return in_cells(&slots);
+        }
         let mut stand: Vec<(Glyph, bool)> = Vec::new();
         for (mark, before) in spacing {
             if drawn_beside(&letter, &mark, before) {
@@ -1344,6 +1434,7 @@ impl DeferredFace {
                 stand.push((mark, before));
             }
         }
+        stand.extend(tail.map(|t| (t, false)));
         beside(letter, &stand)
     }
 
@@ -1491,6 +1582,10 @@ impl Face for DeferredFace {
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.draw_in(cluster, style.into())
+    }
+
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        self.draw_across(cluster, style.into(), cells)
     }
 
     /// Whether the store holds the glyph the helper made for the whole of
@@ -3252,6 +3347,84 @@ mod tests {
             "........", "........",
         ];
         assert_eq!(picture(&both), want);
+    }
+
+    // ADR-1203 and ADR-1302 D14, best effort for a bitmap font: in a
+    // cluster of two cells, ka takes its first cell and the vowel sign
+    // aa's own glyph its second; the vowel sign i, whose body stands before
+    // its letter, takes the first cell and ka the second. In one cell they
+    // still stand side by side
+    #[test]
+    fn a_spacing_mark_takes_the_second_cell_of_a_two_cell_cluster() {
+        let i_rows: [&str; 13] = [
+            "........", "........", "........", "...##...", "...#....", "...#....", "...#....",
+            "...#....", "...#....", "...#....", "...#....", "...#....", "...#....",
+        ];
+        let f = face_with(&[(KA, &KA_ROWS), (AA, &AA_ROWS), (I, &i_rows)]);
+        let ka = picture(&f.draw(&[KA], Style::default()).unwrap());
+        let aa = picture(&f.draw(&[AA], Style::default()).unwrap());
+        let i = picture(&f.draw(&[I], Style::default()).unwrap());
+        let halves = |g: &Glyph| -> (Vec<String>, Vec<String>) {
+            let rows = picture(g);
+            (
+                rows.iter().map(|r| r[..8].to_owned()).collect(),
+                rows.iter().map(|r| r[8..].to_owned()).collect(),
+            )
+        };
+        let both = f.draw_cells(&[KA, AA], Style::default(), 2).unwrap();
+        assert_eq!((both.width(), both.cells()), (16, Width::Wide));
+        assert_eq!(halves(&both), (ka.clone(), aa));
+        let both = f.draw_cells(&[KA, I], Style::default(), 2).unwrap();
+        assert_eq!(halves(&both), (i, ka));
+        let one = f.draw_cells(&[KA, AA], Style::default(), 1).unwrap();
+        assert_eq!(one.cells(), Width::Narrow);
+    }
+
+    // ADR-1203, best effort for a bitmap font: a conjunct the font has no
+    // glyph for shows as its pieces. In ka, virama, ssa with the vowel
+    // sign e, a cluster of two cells, ka with the virama takes the first
+    // cell and ssa with the vowel sign e over it the second, where ssa and
+    // e were left out
+    #[test]
+    fn a_conjunct_shows_as_its_pieces_in_a_bitmap_font() {
+        const SSA: char = '\u{937}';
+        const VIRAMA: char = '\u{94d}';
+        const E: char = '\u{947}';
+        let ssa_rows: [&str; 13] = [
+            "........", "........", "........", "######..", "#....#..", "#....#..", "#.####..",
+            "#....#..", "#....#..", "#....#..", "#....#..", "#....#..", "#....#..",
+        ];
+        let virama_rows: [&str; 16] = [
+            "........", "........", "........", "........", "........", "........", "........",
+            "........", "........", "........", "........", "........", "........", "....#...",
+            ".....#..", "........",
+        ];
+        let e_rows: [&str; 3] = ["..###...", "....#...", "........"];
+        let f = face_with(&[
+            (KA, &KA_ROWS),
+            (SSA, &ssa_rows),
+            (VIRAMA, &virama_rows),
+            (E, &e_rows),
+        ]);
+        let both = f
+            .draw_cells(&[KA, VIRAMA, SSA, E], Style::default(), 2)
+            .unwrap();
+        assert_eq!(both.width(), 16);
+        let rows = picture(&both);
+        let right: Vec<String> = rows.iter().map(|r| r[8..].to_owned()).collect();
+        let left: Vec<String> = rows.iter().map(|r| r[..8].to_owned()).collect();
+        assert_eq!(&right[3..13], &ssa_rows[3..13], "ssa in the second cell");
+        assert_eq!(
+            &right[..2],
+            ["..###...", "....#..."],
+            "the vowel sign e over ssa"
+        );
+        assert_eq!(
+            &left[13..15],
+            ["....#...", ".....#.."],
+            "the virama under ka"
+        );
+        assert!(left[3].starts_with("#####"), "ka in the first cell");
     }
 
     // #235: a spacing mark whose body stands before its letter, as the

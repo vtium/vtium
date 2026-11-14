@@ -157,9 +157,12 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<CardFace>, Stri
 /// The face a profile draws through, as the console's store answers for
 /// a frit (ADR-1200 D22): a cluster of more than one character from the
 /// glyph the helper drew for it whole, where it drew one in the cell's
-/// style, and everything else from the set of single characters, a
-/// cluster the helper drew nothing for as its first character. A built-in
-/// set has no clusters.
+/// style, and everything else from the set of single characters. A cluster
+/// the helper drew nothing for is drawn by the console's own face from its
+/// characters' glyphs ([`vtium::deferred::DeferredFace`]): a letter with
+/// its marks over it and its spacing marks beside it (ADR-1302 D14), and a
+/// joined Arabic letter by the presentation form of its joined form
+/// (ADR-1004 D6). A built-in set has no clusters.
 #[derive(Clone, Debug)]
 pub struct CardFace {
     base: SetFace,
@@ -167,25 +170,17 @@ pub struct CardFace {
 }
 
 impl CardFace {
-    /// What a joined Arabic letter's key draws from the set of single
-    /// characters when the helper drew nothing whole for it, as the
-    /// console draws it (ADR-1004 D6): the presentation form of its joined
-    /// form, where the set holds that, else its letter. Any other cluster
-    /// is drawn as it is. A lam-alef ligature the set holds neither whole
-    /// nor as its presentation form draws its lam, where the console draws
-    /// lam and alef side by side.
-    fn unjoined(&self, cluster: &[char]) -> Vec<char> {
-        const ZWJ: char = '\u{200d}';
-        if let Some(form) = vtium::deferred::presentation(cluster)
-            && self.base.has_glyph(form)
-        {
-            return vec![form];
-        }
-        let keyed = cluster.first() == Some(&ZWJ) || cluster.last() == Some(&ZWJ);
-        if keyed || vtium::deferred::presentation(cluster).is_some() {
-            return cluster.iter().copied().filter(|&c| c != ZWJ).collect();
-        }
-        cluster.to_vec()
+    /// `cluster`'s glyph as the console draws a cluster the helper drew
+    /// nothing whole for: through its own face, over a store that holds
+    /// nothing, with the set of single characters as its built-in font.
+    fn parts(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        let face = vtium::deferred::DeferredFace::new(
+            Box::new(self.base.clone()),
+            self.base.cell(),
+            self.base.size_step(),
+            vtium::deferred::Shared::default(),
+        );
+        face.draw_cells(cluster, style, cells)
     }
 
     /// The glyph the helper drew whole for `cluster` in `style`, if any.
@@ -222,8 +217,16 @@ impl Face for CardFace {
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        self.whole(cluster, style)
-            .or_else(|| self.base.draw(&self.unjoined(cluster), style))
+        self.draw_cells(cluster, style, 1)
+    }
+
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        match cluster {
+            [_] | [] => self.base.draw(cluster, style),
+            _ => self
+                .whole(cluster, style)
+                .or_else(|| self.parts(cluster, style, cells)),
+        }
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -245,8 +248,12 @@ impl Face for CardFace {
     // the helper draws a frit's glyphs at the profile's cell, at scale 1,
     // so a cluster's glyph is already unscaled
     fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        self.whole(cluster, style)
-            .or_else(|| self.base.draw_unscaled(&self.unjoined(cluster), style))
+        match cluster {
+            [_] | [] => self.base.draw_unscaled(cluster, style),
+            _ => self
+                .whole(cluster, style)
+                .or_else(|| self.parts(cluster, style, 1)),
+        }
     }
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {

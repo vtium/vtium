@@ -127,17 +127,23 @@ pub fn joins(left: &[char], right: &[char]) -> bool {
     follows && share(a, b)
 }
 
+/// Whether `c` is a linker: a character whose Indic_Syllabic_Category is
+/// Virama, Invisible_Stacker or Consonant_With_Stacker, which joins the
+/// consonant after it into a conjunct.
+pub fn is_linker(c: char) -> bool {
+    syllabic(c).is_some_and(|(cat, _)| {
+        matches!(
+            cat,
+            Category::Virama | Category::InvisibleStacker | Category::ConsonantWithStacker
+        )
+    })
+}
+
 /// Whether `c` may end a cluster that joins the next: a linker or U+200D.
 /// A cluster whose last character is neither joins nothing after it, so a
 /// caller can pass over it without reading its neighbour.
 pub fn may_link(c: char) -> bool {
-    c == ZWJ
-        || syllabic(c).is_some_and(|(cat, _)| {
-            matches!(
-                cat,
-                Category::Virama | Category::InvisibleStacker | Category::ConsonantWithStacker
-            )
-        })
+    c == ZWJ || is_linker(c)
 }
 
 /// Whether `c` may start a cluster that joins the one before it: a
