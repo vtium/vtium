@@ -24,7 +24,7 @@ use core::ops::Range;
 
 use crate::cell::{Cell, StyleIndex, Width};
 use crate::damage::{Age, Damage};
-use crate::line::{Glyph, Line, LinkId};
+use crate::line::{Glyph, Line, LineSize, LinkId};
 #[cfg(feature = "bidi")]
 use crate::order::Order;
 use crate::palette::{Palette, Special};
@@ -62,6 +62,17 @@ pub struct Cursor {
     /// cursor stands at its cell's right side (ADR-1004 D9).
     #[cfg(feature = "bidi")]
     pub rtl: bool,
+}
+
+/// Where the cursor draws on the display ([`Frame::cursor_extent`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CursorExtent {
+    /// How many display cells the cursor covers across: the width of the
+    /// character it stands on, doubled on a line of double size.
+    pub cells: usize,
+    /// The frame rows the cursor covers: its own row, or both rows of a
+    /// pair of double-height lines.
+    pub rows: Range<usize>,
 }
 
 /// The row that shows the hovered link's URI while Ctrl is held
@@ -305,6 +316,65 @@ impl<'a> Frame<'a> {
     /// The line drawn at `row`, for its flags and identity.
     pub fn line(&self, row: usize) -> Option<&'a Line> {
         self.lines.get(row).copied()
+    }
+
+    /// The size `row` draws at: its line's size, or the normal size on the
+    /// overlay row, which draws the hovered link's URI over the row at the
+    /// normal size. A row outside the frame draws at the normal size.
+    pub fn size(&self, row: usize) -> LineSize {
+        if self.overlay.is_some_and(|o| o.row == row) {
+            return LineSize::Single;
+        }
+        self.line(row)
+            .map_or(LineSize::Single, |l| l.flags().size())
+    }
+
+    /// The other row of the pair of double-height lines that `row` belongs
+    /// to. A top line (ESC # 3) pairs with the row directly below it when
+    /// that row is a bottom line (ESC # 4), and a bottom line pairs with
+    /// the row directly above it when that row is a top line. A top or
+    /// bottom line with no such partner, a line of any other size, and a
+    /// row whose partner the frame does not show belong to no pair.
+    pub fn pair_row(&self, row: usize) -> Option<usize> {
+        match self.size(row) {
+            LineSize::DoubleHeightTop => {
+                let below = row.checked_add(1)?;
+                (self.size(below) == LineSize::DoubleHeightBottom).then_some(below)
+            }
+            LineSize::DoubleHeightBottom => {
+                let above = row.checked_sub(1)?;
+                (self.size(above) == LineSize::DoubleHeightTop).then_some(above)
+            }
+            LineSize::Single | LineSize::DoubleWidth => None,
+        }
+    }
+
+    /// Where the cursor draws when it stands on a character of `row` that
+    /// takes `cells` of the line's columns: 1, or 2 for a wide character.
+    /// The cursor scales with the glyph. On a line of double size it covers
+    /// twice as many display cells, so a bar or an underline is twice as
+    /// thick. On a pair of double-height lines it covers both rows of the
+    /// pair, whichever of them it stands on: a block covers both halves of
+    /// the character, a bar runs down both rows, and an underline lies
+    /// under the bottom row. On a top or bottom line with no partner it
+    /// covers its own row. The terminal's cursor stays on its own row, and
+    /// only the drawing spans the pair. A ligature or a joined syllable
+    /// does not widen the cursor, so `cells` is the width of the cell the
+    /// cursor stands on, never the width of the run it belongs to.
+    ///
+    /// References:
+    /// - ADR-1308, "The cursor on a scaled glyph scales with the glyph":
+    ///   the extent on double-width lines and on double-height pairs.
+    pub fn cursor_extent(&self, row: usize, cells: usize) -> CursorExtent {
+        let scale = if self.size(row).is_double() { 2 } else { 1 };
+        let rows = match self.pair_row(row) {
+            Some(other) => row.min(other)..row.max(other).saturating_add(1),
+            None => row..row.saturating_add(1),
+        };
+        CursorExtent {
+            cells: cells.saturating_mul(scale),
+            rows,
+        }
     }
 
     /// Whether any cell of `row` changed for this display.
@@ -1119,5 +1189,99 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Lines of the given sizes, one per row, four columns wide.
+    fn sized(sizes: &[LineSize]) -> Vec<Line> {
+        sizes
+            .iter()
+            .map(|&size| {
+                let mut line = Line::new(LineId::new(1), 4);
+                line.flags_mut().set_size(size);
+                line
+            })
+            .collect()
+    }
+
+    /// The cursor's extent on `row` of a frame of `lines`, with the
+    /// overlay row at `overlay` if any, for a character `cells` wide: the
+    /// display cells across and the rows.
+    fn extent(
+        lines: &[Line],
+        overlay: Option<usize>,
+        row: usize,
+        cells: usize,
+    ) -> (usize, Range<usize>) {
+        let damage = Damage::new(4, lines.len());
+        let palette = palette();
+        let frame = Frame::new(
+            lines.iter().collect(),
+            &damage,
+            &palette,
+            Age::NEVER,
+            Cursor::default(),
+            false,
+        )
+        .with_hover(None, overlay.map(|r| (r, "u")));
+        let e = frame.cursor_extent(row, cells);
+        (e.cells, e.rows)
+    }
+
+    #[test]
+    fn the_cursor_covers_its_own_cells_on_a_single_line() {
+        use LineSize::Single;
+        let lines = sized(&[Single, Single]);
+        assert_eq!(extent(&lines, None, 1, 1), (1, 1..2));
+        assert_eq!(extent(&lines, None, 0, 2), (2, 0..1));
+    }
+
+    #[test]
+    fn the_cursor_doubles_its_width_on_a_double_width_line() {
+        let lines = sized(&[LineSize::DoubleWidth, LineSize::DoubleHeightBottom]);
+        assert_eq!(extent(&lines, None, 0, 1), (2, 0..1));
+        assert_eq!(extent(&lines, None, 0, 2), (4, 0..1));
+    }
+
+    #[test]
+    fn the_cursor_covers_both_rows_of_a_double_height_pair() {
+        use LineSize::{DoubleHeightBottom, DoubleHeightTop, Single};
+        let lines = sized(&[Single, DoubleHeightTop, DoubleHeightBottom, Single]);
+        for row in [1, 2] {
+            assert_eq!(extent(&lines, None, row, 1), (2, 1..3), "row {row}");
+        }
+        assert_eq!(extent(&lines, None, 2, 2), (4, 1..3));
+    }
+
+    #[test]
+    fn a_double_height_line_with_no_partner_covers_its_own_row() {
+        use LineSize::{DoubleHeightBottom, DoubleHeightTop, DoubleWidth};
+        // Rows 2 and 3 are the only pair. Row 0 is a bottom line at the
+        // frame's first row, row 1 is a top line above another top line,
+        // row 4 is a bottom line below another bottom line, row 6 is a
+        // bottom line below a double-width line, and row 7 is a top line
+        // at the frame's last row. None of them has a partner.
+        let lines = sized(&[
+            DoubleHeightBottom,
+            DoubleHeightTop,
+            DoubleHeightTop,
+            DoubleHeightBottom,
+            DoubleHeightBottom,
+            DoubleWidth,
+            DoubleHeightBottom,
+            DoubleHeightTop,
+        ]);
+        for row in [0, 1, 4, 6, 7] {
+            assert_eq!(extent(&lines, None, row, 1), (2, row..row + 1), "row {row}");
+        }
+        assert_eq!(extent(&lines, None, 2, 1), (2, 2..4));
+        assert_eq!(extent(&lines, None, 3, 1), (2, 2..4));
+    }
+
+    #[test]
+    fn the_overlay_row_draws_at_the_normal_size_and_pairs_with_nothing() {
+        use LineSize::{DoubleHeightBottom, DoubleHeightTop};
+        let lines = sized(&[DoubleHeightTop, DoubleHeightBottom]);
+        assert_eq!(extent(&lines, Some(1), 0, 1), (2, 0..1));
+        assert_eq!(extent(&lines, Some(1), 1, 1), (1, 1..2));
     }
 }
