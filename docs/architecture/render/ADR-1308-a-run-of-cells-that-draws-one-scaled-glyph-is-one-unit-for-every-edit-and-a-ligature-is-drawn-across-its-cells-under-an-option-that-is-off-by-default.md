@@ -65,6 +65,10 @@ considered:
     said: "Whole character: the cursor covers the whole wide character from its left cell, whichever half it stands on."
     via: the steering session's question on 2026-11-14, after the tier 1 review of the cursor cases
     paraphrase: true
+  - operator: aaronsb
+    said: "Same rule as the cursor: whole doubled character on a pair, pair text copied once, mouse at half-width columns."
+    via: the steering session's question on 2026-11-14, on selection on double-size lines
+    paraphrase: true
 status: proposed
 date: 2026-11-14
 deciders:
@@ -113,6 +117,9 @@ A run is a block of cells that draws one piece of text as a whole.
 - **A ligature** is a drawing only (D8). The terminal keeps each of its characters in a cell of its own, and every edit acts on those cells as on any others.
 - **A double-size line is not a run.** Each character on it is one cell, which the renderer draws at twice the width, and on a double-height line at twice the height, split across the line and the next. The VT510's rules for the cursor's position, the margins and the editing controls apply to it, as the work on double-size lines builds them. This record adds only how the cursor is drawn there, in the next bullet. D7 says how a double-size line meets a sized run.
 - **The cursor on a scaled glyph scales with the glyph.** On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only. A sized run follows the same rule at its own scale (D6). When the cursor stands on either cell of a wide character, vtium draws the cursor over the whole character, starting at its left cell, on a line of any size.
+- **Selection on a double-size line follows the cursor's rule.** On a double-height pair, a selection that covers a character on either line of the pair highlights both halves of that doubled character. Copying a selection that covers both lines of a pair gives the pair's text once, from its top line. On a double-width line, the highlight covers both display cells of each character. The pointer maps a click or a drag on a double-size line to that line's own columns, which are half the screen's. This is the rule D6 gives a sized run: the whole unit is selected, and its text is copied once.
+
+> Edited 2026-11-14: the maintainer's answer on selection on double-size lines (`considered`). The bullet on selection is new: the record said nothing of how a selection, a copy or the pointer treats a double-size line.
 
 > Edited 2026-11-14: the maintainer's answer after the tier 1 review of the cursor cases (`considered`). The bullet ended at "A sized run follows the same rule at its own scale (D6).", and it did not say where the cursor draws when it stands on the right half of a wide character.
 
