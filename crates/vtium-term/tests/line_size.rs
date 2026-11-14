@@ -90,8 +90,10 @@ fn the_cursor_keeps_its_column_or_moves_to_the_lines_last_one() {
 // VT100 User Guide, DECDWL: "The use of double-width characters reduces
 // the number of characters per line by half". Printing wraps after the
 // line's last column, half the screen's width, and the pending wrap stands
-// on that column, so CPR reports it as column 5 of 10. The line does not
-// rewrap at a resize, so it is not marked as continuing.
+// on that column, so CPR reports it as column 5 of 10. The line is marked
+// as continuing on the next row, as a line of the normal size is, so
+// reverse wraparound goes back across the wrap. A resize still does not
+// rewrap it, because reflow rewraps only lines of the normal size.
 // covers: text.line-size
 #[test]
 fn printing_on_a_double_size_line_wraps_at_half_the_width() {
@@ -103,7 +105,7 @@ fn printing_on_a_double_size_line_wraps_at_half_the_width() {
     assert_eq!(rows(t.screen())[..2], ["abcde", "fg"]);
     assert_eq!(t.screen().cursor(), (2, 1));
     assert!(
-        !t.screen()
+        t.screen()
             .line(0)
             .unwrap()
             .flags()
@@ -113,6 +115,20 @@ fn printing_on_a_double_size_line_wraps_at_half_the_width() {
     let t = term(10, 3, b"\x1b#6abcd\xe4\xb8\x80");
     assert_eq!(rows(t.screen())[..2], ["abcd", "\u{4e00}"]);
     assert_eq!(t.screen().cursor(), (2, 1));
+}
+
+// ctlseqs, DECSET 45, reverse wraparound, as ADR-1000's DEC-45 row states
+// it: while DECAWM is set, BS and CUB go on from the first column to the
+// last column of the row above when printing wrapped from that row. On a
+// line of double size that column is the line's own last one, column 5 of
+// 10 (VT100 User Guide, DECDWL and DECDHL: half as many characters).
+// covers: text.line-size, DEC-45
+#[test]
+fn reverse_wraparound_goes_back_to_a_double_size_lines_last_column() {
+    let mut t = term(10, 4, b"\x1b[?45h\x1b#6abcdefg\x08\x08\x08");
+    assert_eq!(t.screen().cursor(), (4, 0));
+    t.input(b"\x1b[3;1H\x1b#3hijklmn\x1b[4;1H\x1b[3D");
+    assert_eq!(t.screen().cursor(), (2, 2));
 }
 
 // VT510 manual, DECAWM: with autowrap off, "characters received when the

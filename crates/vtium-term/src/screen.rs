@@ -1083,9 +1083,19 @@ impl Screen {
     /// a row the row above did not wrap into, and of the screen's first
     /// row. A cursor left of the left margin takes the first column for
     /// it, as xterm's `CursorBack` does. Printing marks a row wrapped only
-    /// where it wraps from the screen's last column to the next row's
-    /// first (`print.rs`), so inside narrower margins the cursor stops at
-    /// the left margin.
+    /// where it wraps from the row's last column to the next row's first
+    /// (`print.rs`), so inside narrower margins the cursor stops at the
+    /// left margin. A line of double size holds half the screen's columns,
+    /// so a row above of double size takes the cursor to its own last
+    /// column.
+    ///
+    /// References:
+    /// - ctlseqs, DECSET 45, "Reverse-wraparound mode (XTREVWRAP)", as
+    ///   ADR-1000's DEC-45 row states it: while DECAWM is set, BS and CUB
+    ///   go on from the first column to the last column of the row above
+    ///   when printing wrapped from that row.
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: a line of double
+    ///   size holds half as many characters.
     pub fn move_left_reverse_wrap(&mut self, n: usize) {
         if n == 0 {
             return;
@@ -1113,7 +1123,7 @@ impl Screen {
                 break;
             }
             y = y.saturating_sub(1);
-            x = self.right;
+            x = self.right.min(self.line_last(y));
             left = left.saturating_sub(1);
         }
         self.move_cursor(x, y);
