@@ -81,6 +81,9 @@ considered:
     via: "the maintainer, 2026-11-02, in the steering session, after the measurement on the Ryzen 9 9950X3D, relayed by the team lead in its brief for the helper's review fixes"
     paraphrase: true
     covers: [stream variants]
+  - operator: aaronsb
+    said: "Keep it as safety"
+    via: the maintainer, through the steering session's question tool, 2026-11-14, asked whether vtium keeps refusing a t=t picture file outside the temporary folders as a safety departure while vtium can run as root, to be revisited after the privilege split
 status: accepted
 date: 2026-11-01
 deciders:
