@@ -1,0 +1,6 @@
+# Sealed expectation for kit-spec-no-id-order.case, written from the kitty graphics protocol's text and ADR-1100 D4 before vtium ran the case.
+# Replies are exact. A '# expected in the dump' line says in words what the dump must show.
+< reply "\e_Gi=5;OK\e\\"
+# the pictures with no id are not answered, since they name no image
+< reply "\e_Gi=3;OK\e\\"
+# expected in the dump: four placements at row 0 col 0, listed from the bottom as the green picture, the white picture, image i=3 (blue), image i=5 (red)

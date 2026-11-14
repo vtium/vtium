@@ -1,0 +1,9 @@
+# Sealed expectation for kit-spec-indexed-recolor.case, written from the kitty graphics protocol's "Indexed color data" and ADR-1100 D15 before vtium ran the case.
+# Replies are exact. A '# expected in the dump' line says in words what each dump must show.
+< reply "\e_Gi=1;OK\e\\"
+< reply "\e_Gi=2;OK\e\\"
+# expected in the dump: image 0 (i=1) opaque, image 1 (i=2) not opaque; call their digests A and B.
+< reply "\e_Gi=3;OK\e\\"
+< reply "\e_Gi=4;OK\e\\"
+# expected in the dump: image 0's digest equals image 2's (i=3), and image 1's equals image 3's (i=4); image 0's digest is no longer A, and image 1's is no longer B.
+# expected in the dump: image 0's digest is A again and image 1's is B again; images 2 and 3 now have the digests A and B too.

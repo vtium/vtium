@@ -1,0 +1,17 @@
+# A kitty picture sent without an id has the id 0, and between two kitty
+# pictures at the same z the lower id draws below. So a picture sent with
+# neither i nor I draws below every kitty picture with an id, whichever
+# arrived first, and two pictures with no id keep their order of arrival.
+# Image i=5 (red) arrives first, then a green picture with no id, then
+# image i=3 (blue), then a white picture with no id, all at the top left
+# at z 0. From the bottom, the frame draws green, white, blue, red.
+#
+# References: ADR-1100 D4.
+# spec: kitty graphics protocol, "Display images on screen": "an image that does not have an id (i.e. has id=0)"; "Controlling displayed image layout": "If two images with the same z-index overlap then the image with the lower id is considered to have the lower z-index"
+# covers: image.kitty
+size 12 4
+send "\e_Ga=T,i=5,f=24,s=1,v=1,C=1;/wAA\e\\"
+send "\e_Ga=T,f=24,s=1,v=1,C=1;AP8A\e\\"
+send "\e_Ga=T,i=3,f=24,s=1,v=1,C=1;AAD/\e\\"
+send "\e_Ga=T,f=24,s=1,v=1,C=1;////\e\\"
+dump

@@ -1,0 +1,22 @@
+# Kitty's palette formats, f=8 and f=16, come through every transmission
+# medium and with zlib compression, as any format does. Images 1 and 2 are
+# sent directly, f=8 and f=16, and are the reference. The same indices then
+# come from a file (images 3 and 4), a temporary file (image 5), shared
+# memory (image 6) and zlib sent directly (images 7 and 8). Each answers OK
+# and shows the same pixels as the reference of its format. The fixture
+# host returns the indices as the image helper does, unconverted.
+#
+# References: ADR-1100 D15; ADR-1101 D7.
+# spec: kitty graphics protocol, "Compression": "You can specify compression for any format"
+# covers: image.kitty
+# fixture: idx8 holds the f=8 indices 01 f8 f9, idx16 the f=16 indices and alphas 01 80 f8 ff f9 00; tty-graphics-protocol-idx8 and shm-idx8 hold the f=8 indices; direct-1.bytes and direct-2.bytes hold what the two zlib payloads inflate to
+size 12 4
+send "\e_Ga=T,i=1,f=8,s=3,v=1,C=1;Afj5\e\\"
+send "\e[1;4H\e_Ga=T,i=2,f=16,s=3,v=1,C=1;AYD4//kA\e\\"
+send "\e[2;1H\e_Ga=T,i=3,f=8,s=3,v=1,t=f,C=1;L3RtcC9pZHg4\e\\"
+send "\e[2;4H\e_Ga=T,i=4,f=16,s=3,v=1,t=f,C=1;L3RtcC9pZHgxNg==\e\\"
+send "\e[3;1H\e_Ga=T,i=5,f=8,s=3,v=1,t=t,C=1;L3RtcC90dHktZ3JhcGhpY3MtcHJvdG9jb2wtaWR4OA==\e\\"
+send "\e[3;4H\e_Ga=T,i=6,f=8,s=3,v=1,t=s,C=1;c2htLWlkeDg=\e\\"
+send "\e[4;1H\e_Ga=T,i=7,f=8,s=3,v=1,o=z,C=1;eJxj/PETAALvAfM=\e\\"
+send "\e[4;4H\e_Ga=T,i=8,f=16,s=3,v=1,o=z,C=1;eJxjbPjx/ycDAAtbA3I=\e\\"
+dump
