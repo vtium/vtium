@@ -2835,6 +2835,24 @@ const BASE: &[Case] = &[
             (64, 2),
         ),
     },
+    Case {
+        screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
+    },
+    Case {
+        screen: shipped(1, "frit-hebrew", FRIT_HEBREW_DESC, FRIT_HEBREW, 4),
+    },
+    Case {
+        screen: shipped(3, "frit-thai-lao", FRIT_THAI_LAO_DESC, FRIT_THAI_LAO, 6),
+    },
+    Case {
+        screen: shipped(
+            4,
+            "frit-vietnamese",
+            FRIT_VIETNAMESE_DESC,
+            FRIT_VIETNAMESE,
+            6,
+        ),
+    },
 ];
 
 /// Three rows of text, which the `osd` screen draws the render timer's
@@ -2852,7 +2870,9 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[];
+pub const WAITING: &[Case] = &[Case {
+    screen: shipped(2, "frit-indic", FRIT_INDIC_DESC, FRIT_INDIC, 12),
+}];
 
 /// The scripts screens' one drawing, at 40 pixels, in Iosevka Term's
 /// 16x40 cell.
@@ -2901,3 +2921,104 @@ const SCRIPTS_ARABIC: &[u8] = concat!(
 .as_bytes();
 
 const SCRIPTS_ARABIC_DESC: &str = "Two right-to-left paragraphs, set by SCP 2, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Arabic behind it, 64 by 2 cells: the first sentence of the Universal Declaration of Human Rights in Arabic, as the showcase's scripts scene writes it, and Article 1 of the Declaration named by its Arabic title, with the Latin UDHR in brackets and the numbers 1 and 1948.";
+
+/// The `frit-` screens' one drawing, at 32 pixels of text, which each font
+/// set's own line spacing makes taller.
+const AT_SHIPPED: [Take; 1] = [Take::at(crate::fonts::SHIPPED_HEIGHT)];
+
+/// A screen 48 cells wide and `rows` high drawn in the shipped font set
+/// `crate::fonts::SHIPPED_FRITS[frit]` ([`InkFonts::Shipped`]), as it
+/// ships, at 32 pixels of text.
+const fn shipped(
+    frit: usize,
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    rows: usize,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_SHIPPED,
+            spacing: None,
+            fonts: InkFonts::Shipped(crate::fonts::SHIPPED_FRITS[frit]),
+        },
+        ..Screen::new(name, desc, bytes, 48, rows)
+    }
+}
+
+/// The `frit-arabic` screen: Arabic with every mark written, then Persian
+/// and Urdu words with the letters those languages add, each line inside
+/// a box of light lines that join from row to row.
+const FRIT_ARABIC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ يُولَدُ جَمِيعُ النَّاسِ أَحْرَارًا مُتَسَاوِينَ فِي الْكَرَامَةِ\r\n",
+    "│ فارسی: پدر، چای، ژاله، گل\r\n",
+    "│ اردو: ٹوپی، ڈاک، پڑھنا، ہے\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_ARABIC_DESC: &str = "The shipped font set arabic at 32 pixels of text, with its 30 per cent of line spacing, 48 by 5 cells: the start of Article 1 of the Universal Declaration of Human Rights in Arabic with every vowel mark, shadda and tanween written, then Persian words with pe, che, zhe and gaf, and Urdu words with tte, ddal, rre, do-chashmi he and bari ye, each line in left-to-right paragraphs inside a box of light lines whose left side joins from row to row through the added rows.";
+
+/// The `frit-hebrew` screen: the first verse of Genesis with its vowel
+/// points and cantillation marks, and the start of Article 1 of the
+/// Declaration with its vowel points, inside a box of light lines.
+const FRIT_HEBREW: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃\r\n",
+    "│ כָּל בְּנֵי הָאָדָם נוֹלְדוּ בְּנֵי חוֹרִין\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_HEBREW_DESC: &str = "The shipped font set hebrew at 32 pixels of text, with its 10 per cent of line spacing, 48 by 4 cells: the first verse of Genesis with its vowel points and its cantillation marks above and below the letters, and the start of Article 1 of the Universal Declaration of Human Rights with its vowel points, each in a left-to-right paragraph inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-indic` screen: a line in each script the font set names, with
+/// vowel signs, reph and conjuncts, inside a box of light lines.
+const FRIT_INDIC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ हिन्दी: धर्म कार्य क्षत्रिय शुद्ध कि की कु कू कृ\r\n",
+    "│ বাংলা: কর্ম ক্ষমা স্ত্রী কু কূ\r\n",
+    "│ ਪੰਜਾਬੀ: ਗੁਰਮੁਖੀ ਪ੍ਰੇਮ\r\n",
+    "│ ગુજરાતી: ધર્મ ક્ષમા\r\n",
+    "│ ଓଡ଼ିଆ: କର୍ମ କ୍ଷମା\r\n",
+    "│ தமிழ்: க்ஷ கொ கை கூ\r\n",
+    "│ తెలుగు: క్ష్మ స్త్రీ కృ\r\n",
+    "│ ಕನ್ನಡ: ಕ್ಷ್ಮ ಸ್ತ್ರೀ ಕೃ\r\n",
+    "│ മലയാളം: ക്ഷ്മ സ്ത്രീ\r\n",
+    "│ සිංහල: භාෂාව ලංකා\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_INDIC_DESC: &str = "The shipped font set indic at 32 pixels of text, with its 40 per cent of line spacing, 48 by 12 cells: a line in each script the set names, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam and Sinhala, each naming its language and then words with vowel signs above and below, reph and conjuncts, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-thai-lao` screen: Thai and Lao with vowels and tone marks
+/// stacked above and below, inside a box of light lines.
+const FRIT_THAI_LAO: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ ภาษาไทย: ผู้ใหญ่ กี่ ปู่ น้ำ ฎุ ฏู\r\n",
+    "│ มนุษย์ทั้งหลายเกิดมามีอิสระและเสมอภาคกัน\r\n",
+    "│ ພາສາລາວ: ກີ່ ຜູ້ ນ້ຳ\r\n",
+    "│ ມະນຸດທັງຫຼາຍເກີດມາມີສິດເສລີພາບ\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_THAI_LAO_DESC: &str = "The shipped font set thai-lao at 32 pixels of text, with its 25 per cent of line spacing, 48 by 6 cells: Thai words with a vowel and a tone mark stacked over one consonant and vowels under consonants that have a tail below, the start of Article 1 of the Universal Declaration of Human Rights in Thai, then Lao words with stacked marks and the start of the same article in Lao, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-vietnamese` screen: a Vietnamese sentence, then lowercase
+/// letters with descenders over capitals whose two marks stand above the
+/// line, inside a box of light lines, and under the box two letters
+/// precomposed and then decomposed.
+const FRIT_VIETNAMESE: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ Tất cả mọi người sinh ra đều được tự do\r\n",
+    "│ gjpqy ặ ộ ỵ ỹ ợ ự\r\n",
+    "│ ẤẦẨẪẬ ẮẰẲẴẶ ẾỀỂỄỆ ỐỒỔỖỘ ỚỜỞỠỢ ỨỪỬỮỰ\r\n",
+    "└──────────────────────────────────────────────\r\n",
+    "  Ấ ộ  A\u{302}\u{301} o\u{323}\u{302}",
+)
+.as_bytes();
+
+const FRIT_VIETNAMESE_DESC: &str = "The shipped font set vietnamese at 32 pixels of text, with its 25 per cent of line spacing, 48 by 6 cells: the start of Article 1 of the Universal Declaration of Human Rights in Vietnamese, lowercase letters with descenders and with marks below, then capitals whose vowel mark and tone mark stack above the line under that row, inside a box of light lines whose left side joins from row to row, and below the box Ấ and ộ written first as one precomposed character each and then as a letter and its two combining marks, which draw alike.";

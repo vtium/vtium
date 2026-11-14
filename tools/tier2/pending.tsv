@@ -2,3 +2,4 @@
 # owes the screen, and why. The run reports each row as a pending case. A
 # row that a screen draws, or whose golden goldens/ holds, is refused. A
 # screen that takes one up adds its golden, and the row goes.
+frit-indic	vtium/vtium#144	the shipped font set indic draws Tamil, Malayalam and Sinhala clusters smaller than the text and Kannada conjuncts as separate letters with a visible virama, which the helper's shaping of syllabic scripts owes
