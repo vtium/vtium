@@ -45,6 +45,7 @@
 use vtium_font::{Decorations, Script};
 use vtium_term::UnderlineStyle;
 
+use crate::renderer::double::{self, Piece, SPRITE_SETS};
 use crate::stored::Stored;
 use crate::target::Orientation;
 use crate::trig;
@@ -302,7 +303,6 @@ pub(crate) struct Line {
 pub(crate) const SCRIPTS: [Script; 3] = [Script::Baseline, Script::Super, Script::Sub];
 
 /// How many sprites the sets hold together.
-#[cfg(feature = "gpu")]
 pub(crate) const LINES: usize = SCRIPTS.len() * Kind::ALL.len();
 
 impl Line {
@@ -329,7 +329,10 @@ impl Line {
 }
 
 /// Every decoration for one cell, in each script's set of lines, turned
-/// to the display's orientation.
+/// to the display's orientation. After the normal sprites come the
+/// pieces that a line of double size draws: each sprite doubled, cut into
+/// its left and right cells, on a double-width line and in each half of a
+/// double-height line (`crate::renderer::double`).
 #[derive(Debug)]
 pub(crate) struct Sprites {
     sprites: Vec<Stored>,
@@ -346,17 +349,47 @@ impl Sprites {
         bits: bool,
         one_bit: bool,
     ) -> Sprites {
-        let sprites = Line::all()
+        let drawn: Vec<Vec<u8>> = Line::all()
             .map(|line| {
                 let m = sets.get(line.set()).unwrap_or(&sets[0]);
-                Stored::mask(&draw_at(line.kind, w, h, m, one_bit), w, h, o, bits)
+                draw_at(line.kind, w, h, m, one_bit)
+            })
+            .collect();
+        let sprites = (0..SPRITE_SETS)
+            .flat_map(|set| {
+                drawn.iter().map(move |mask| {
+                    if set == 0 {
+                        Stored::mask(mask, w, h, o, bits)
+                    } else {
+                        let piece = Piece::of_sprite_set(set);
+                        Stored::mask(&double::cut(mask, (w, h, 1), 1, piece), w, h, o, bits)
+                    }
+                })
             })
             .collect();
         Sprites { sprites }
     }
 
+    /// The sprite of `line` at the normal size.
+    #[cfg(feature = "gpu")]
     pub(crate) fn get(&self, line: Line) -> Option<&Stored> {
         self.sprites.get(line.index())
+    }
+
+    /// The sprite of `line` that a cell drawing the piece `piece` of its
+    /// glyph draws: the normal sprite for the whole glyph, or the doubled
+    /// sprite's piece on a line of double size.
+    pub(crate) fn piece(&self, line: Line, piece: Piece) -> Option<&Stored> {
+        let at = piece.sprite_set().saturating_mul(LINES);
+        self.sprites.get(at.saturating_add(line.index()))
+    }
+
+    /// Every sprite in the order of their indices: the normal ones, then
+    /// each doubled set ([`Sprites::piece`]). The GPU path's sprite texture
+    /// holds them all once a line of double size draws.
+    #[cfg(feature = "gpu")]
+    pub(crate) fn all(&self) -> impl Iterator<Item = &Stored> {
+        self.sprites.iter()
     }
 }
 

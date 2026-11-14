@@ -4,7 +4,9 @@
 use std::time::{Duration, Instant};
 
 use vtium_font::{Decorations, Face, Font, Script, Style, Variant, Width as FontWidth};
-use vtium_term::{Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, Palette, Rgb, Width, dim};
+use vtium_term::{
+    Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, LineSize, Palette, Rgb, Width, dim,
+};
 
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
@@ -24,6 +26,7 @@ use crate::target::{Orientation, Rect, Target};
 #[cfg(feature = "bidi")]
 use vtium_font::syllable::Piece;
 
+pub(crate) mod double;
 #[cfg(feature = "gpu")]
 mod gpu;
 mod testing;
@@ -373,6 +376,17 @@ impl<'f> Pass<'_, 'f> {
         Some(self.link_row.map_or(fc, |o| o.cell(col, row, fc)))
     }
 
+    /// The size `row` draws at: its line's, or the normal size under the
+    /// overlay row, which draws over the row at the normal size.
+    fn size(&self, row: usize) -> LineSize {
+        if self.link_row.is_some_and(|o| o.row() == row) {
+            return LineSize::Single;
+        }
+        self.frame
+            .line(row)
+            .map_or(LineSize::Single, |l| l.flags().size())
+    }
+
     /// The cells of `row` as drawn, left to right, the overlay row's where
     /// it covers them ([`Frame::cells`]).
     fn cells(&self, row: usize) -> impl Iterator<Item = FrameCell<'f>> + '_ {
@@ -560,6 +574,12 @@ pub struct Renderer<F> {
     drawn: Vec<char>,
     /// The blocks of cells the reach of the row being scanned stamped.
     reached: Vec<crate::reach::Block>,
+    /// The size each row of the grid last drew at (DECDWL, DECDHL and
+    /// DECSWL). A row whose size changes draws again whole.
+    sizes: Vec<LineSize>,
+    /// The cells of the double-size row being drawn that draw, each with
+    /// the cells it draws over.
+    doubled: Vec<(usize, usize)>,
     arrow: Arrow,
     /// The pointer's image upright, which the GPU path draws.
     upright_arrow: Arrow,
@@ -820,6 +840,8 @@ impl<F: Face> Renderer<F> {
             #[cfg(feature = "bidi")]
             drawn: Vec::new(),
             reached: Vec::new(),
+            sizes: Vec::new(),
+            doubled: Vec::new(),
             arrow,
             upright_arrow,
             pointer: None,
@@ -1121,6 +1143,7 @@ impl<F: Face> Renderer<F> {
         let grid = self.layout.grid_for(frame);
         if self.grid != Some(grid) || self.background != Some(state.background) {
             self.cells.reset(grid.cols, grid.rows);
+            self.sizes.clear();
             self.grid = Some(grid);
             self.background = Some(state.background);
             self.cursor_at = None;
@@ -1306,6 +1329,7 @@ impl<F: Face> Renderer<F> {
             plain: core::cell::OnceCell::new(),
             link_row,
         };
+        self.resize_rows(&pass);
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
         for row in 0..g.rows {
@@ -1325,6 +1349,33 @@ impl<F: Face> Renderer<F> {
             }
         }
         (drawn, scanned)
+    }
+
+    /// Stamps every cell of each row whose size changed since the last
+    /// frame, so each buffer draws the row again whole, and forgets the
+    /// reach of its cells, which stamps the neighbours their ink reached.
+    /// A row of double size keeps no reach: its glyphs' ink stays in their
+    /// cells. A frame whose rows keep their sizes does one comparison for
+    /// each row.
+    fn resize_rows(&mut self, p: &Pass<'_, '_>) {
+        let (cols, rows) = (p.g.cols, p.g.rows);
+        self.sizes.resize(rows, LineSize::Single);
+        for row in 0..rows {
+            let size = p.size(row);
+            let Some(last) = self.sizes.get_mut(row) else {
+                break;
+            };
+            if core::mem::replace(last, size) == size {
+                continue;
+            }
+            for col in 0..cols {
+                self.cells.stamp(col, row);
+                self.reach_to(col, row, 1, (true, Reach::NONE));
+            }
+        }
+        // every row is scanned after this, so the stamps alone draw the
+        // cells the forgotten reaches covered
+        self.reached.clear();
     }
 
     /// Whether `row` shows a glyph that changed since the last frame
@@ -1516,6 +1567,12 @@ impl<F: Face> Renderer<F> {
     /// second pass over each of those rows, so a screen whose ink stays in
     /// its cells is scanned and drawn in one pass, as before.
     fn draw_row<B: Back>(&mut self, p: &Pass<'_, '_>, row: usize, back: &mut B) -> u32 {
+        match self.sizes.get(row) {
+            Some(&size) if size != LineSize::Single => {
+                return self.draw_doubled_row(p, (row, size), back);
+            }
+            _ => {}
+        }
         let g = &p.g;
         self.compose.jobs.clear();
         self.compose.text.clear();
@@ -1545,8 +1602,16 @@ impl<F: Face> Renderer<F> {
             count = count.saturating_add(self.push_block(p, row, (b.c0, b.c1)));
         }
         self.finish_row(p, row, back);
-        // and the rows above it, already drawn, top to bottom
+        // and the rows above it, already drawn, top to bottom; a row of
+        // double size receives no ink, so it is not drawn again
         for above in row.saturating_sub(usize::from(self.bound.rows))..row {
+            if self
+                .sizes
+                .get(above)
+                .is_some_and(|&s| s != LineSize::Single)
+            {
+                continue;
+            }
             let mut first = true;
             for b in reached.iter().filter(|b| meets(b, above)) {
                 if core::mem::take(&mut first) {
@@ -1579,9 +1644,22 @@ impl<F: Face> Renderer<F> {
         if !self.cells.stale_cells(col, row, ncells) {
             return 0;
         }
+        let new = self.cells.mark_drawn(col, row, ncells);
+        self.push_cell_jobs(p, (col, row), fc, ncells);
+        u32::from(new)
+    }
+
+    /// Pushes the jobs of the cell `fc` at `col`, `row`, drawing over
+    /// `ncells` cells.
+    fn push_cell_jobs(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (col, row): (usize, usize),
+        fc: &FrameCell<'_>,
+        ncells: usize,
+    ) {
         let is_cursor = p.at == Some((col, row));
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
-        let new = self.cells.mark_drawn(col, row, ncells);
         #[cfg(feature = "bidi")]
         let mut drawn = core::mem::take(&mut self.drawn);
         #[cfg(feature = "bidi")]
@@ -1603,7 +1681,6 @@ impl<F: Face> Renderer<F> {
         {
             self.drawn = drawn;
         }
-        u32::from(new)
     }
 
     /// Pushes the jobs of the cells of `row` from column `c0` to `c1` that
@@ -1654,6 +1731,97 @@ impl<F: Face> Renderer<F> {
             col = lead.saturating_add(n);
         }
         count
+    }
+
+    /// Scans and draws `row`, a row of double size `size`: each of its
+    /// cells draws across two cells of the display, and a wide character
+    /// across four. Returns how many cells it drew.
+    ///
+    /// The row is drawn whole whenever the buffer lacks any of its cells.
+    /// The cells' own stamps, the pointer's and the pictures' count in the
+    /// grid's columns, which on this row are not the display's, so drawing
+    /// the whole row gives every buffer what it lacks without mapping one
+    /// onto the other. Its glyphs keep their ink in their cells, so the
+    /// row sends no ink to its neighbours and receives none from them. Only
+    /// the cells whose left half lies in the grid draw; the rest of the
+    /// line lies past the grid's right edge.
+    fn draw_doubled_row<B: Back>(
+        &mut self,
+        p: &Pass<'_, '_>,
+        (row, size): (usize, LineSize),
+        back: &mut B,
+    ) -> u32 {
+        let g = &p.g;
+        let mut doubled = core::mem::take(&mut self.doubled);
+        doubled.clear();
+        let mut before = None;
+        for (here, fc) in p.cells(row).take(g.cols).enumerate() {
+            let ncells = span(fc.width, before, || next_width(p, row, here, g.cols));
+            #[cfg(feature = "bidi")]
+            let ncells = paired(p, (here, row), &fc).unwrap_or(ncells);
+            before = Some(fc.width);
+            // the row keeps no reach, so the scan reads none
+            if self.scan_cell(p, (here, row), &fc, (ncells, false), back)
+                && here.saturating_mul(2) < g.cols
+            {
+                doubled.push((here, ncells));
+            }
+        }
+        let mut count = 0u32;
+        if self.cells.stale_cells(0, row, g.cols) {
+            self.compose.jobs.clear();
+            self.compose.text.clear();
+            self.compose.sources.clear();
+            self.compose.received.clear();
+            for &(col, ncells) in &doubled {
+                let Some(fc) = p.cell(row, col) else { continue };
+                let new = self.cells.mark_drawn(col, row, ncells);
+                count = count.saturating_add(u32::from(new));
+                self.push_cell_jobs(p, (col, row), &fc, ncells);
+            }
+            // the display cells of the cells past the middle of the line
+            // are drawn by the cells before it
+            self.cells.mark_drawn(0, row, g.cols);
+            self.double_jobs(g, row, size);
+            #[cfg(feature = "images")]
+            {
+                self.compose.pictures.row = row;
+            }
+            back.row(&mut self.compose, &self.font, self.layout.strip(), row);
+        }
+        self.doubled = doubled;
+        count
+    }
+
+    /// Turns the jobs of `row`, pushed in the grid's columns, into the jobs
+    /// of its doubled cells: one job for each display cell, each drawing
+    /// its column's piece of the doubled glyph and decorations
+    /// ([`double`]). A job's colors, text and lines carry over, so the
+    /// cursor, the selection, colors and decorations follow the line's
+    /// size. Display cells past the grid's right edge are cut.
+    fn double_jobs(&mut self, g: &Grid, row: usize, size: LineSize) {
+        let jobs = core::mem::take(&mut self.compose.jobs);
+        let l = &self.layout;
+        for job in &jobs {
+            let first = job.posx.saturating_mul(2);
+            for column in 0..job.ncells.saturating_mul(2) {
+                let col = first.saturating_add(column);
+                if col >= g.cols {
+                    break;
+                }
+                let r = l.cells_area(g, col, row, 1);
+                self.compose.jobs.push(Job {
+                    posx: col,
+                    ncells: 1,
+                    r,
+                    g: r,
+                    tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
+                    piece: double::Piece::of(size, column),
+                    ..*job
+                });
+            }
+        }
+        self.compose.jobs.sort_unstable_by_key(|j| j.posx);
     }
 
     /// Draws the row's jobs: the cells between its layered jobs join them,
@@ -2109,6 +2277,7 @@ impl<F: Face> Renderer<F> {
             over: paint.over.map(|(k, c)| (k, ink.fg(c))),
             text: paint.text,
             silhouette: depth == Depth::One,
+            piece: double::Piece::WHOLE,
             #[cfg(feature = "images")]
             under: Under::default(),
         }
