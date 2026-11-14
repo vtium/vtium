@@ -1,9 +1,9 @@
 # On a double-width line a wide character takes two of the line's
 # columns and four display cells. The cursor covers all four, so the
 # frame view gives span=4 beside the cell's w=2. Standing on the
-# character's trailing half, the cursor draws from its leading cell, as
-# on a single-size line.
-# spec: ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph": "On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only."
+# character's trailing half, in the second dump, the cursor draws from
+# its leading cell.
+# spec: ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph": "On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only."; for the second dump, ADR-1308 D1: "When the cursor stands on either cell of a wide character, vtium draws the cursor over the whole character, starting at its left cell, on a line of any size."
 # covers: text.line-size
 size 10 4
 needs cursor-extent
