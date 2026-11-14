@@ -439,8 +439,10 @@ fn reset_and_withdraw_end_the_upload_with_no_answer() {
 }
 
 // The handler takes the terminal's colors when the last chunk has arrived,
-// so a color change between chunks takes effect for the whole picture
-// (ADR-1100 D15).
+// so a color change between chunks takes effect for the whole picture.
+//
+// References:
+// - ADR-1100 D15: where the colors come from.
 // covers: image.kitty
 #[test]
 fn a_color_change_between_chunks_takes_effect_for_the_whole_picture() {

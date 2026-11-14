@@ -1,6 +1,6 @@
 //! Kitty's raw pixel formats, `f=24` (R, G, B), `f=32` (R, G, B, A with
 //! straight alpha), and `f=8` and `f=16` (a palette index, and in `f=16`
-//! its alpha), as they arrive (ADR-1100, D7, D15).
+//! its alpha), as they arrive.
 //!
 //! A [`Raw`] takes the decoded bytes of a payload in any pieces. For RGB
 //! and RGBA it turns each whole pixel into the store's premultiplied ARGB,
@@ -14,6 +14,10 @@
 //!
 //! Each RGB or RGBA pixel goes through [`super::convert`], the one
 //! conversion the image helper and the fixture host use too.
+//!
+//! References:
+//! - ADR-1100 D7: raw pixels sent inline and uncompressed are read here.
+//! - ADR-1100 D15: the palette formats, and why their indices are kept.
 
 use super::convert::{Alpha, Layout, pixel as convert_pixel};
 

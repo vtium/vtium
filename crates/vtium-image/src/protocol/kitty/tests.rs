@@ -742,8 +742,11 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
 // The specification lets every medium and o=z carry f=8 and f=16: "You can
 // specify compression for any format". A picture read or inflated by the
 // image helper comes back as indices, four bytes a pixel, and stores the
-// same colors as the same picture sent directly (ADR-1100 D15, ADR-1101
-// D7).
+// same colors as the same picture sent directly.
+//
+// References:
+// - ADR-1100 D15: the palette formats through every medium.
+// - ADR-1101 D7: the pixel description's palette layouts.
 // covers: image.kitty
 #[test]
 fn palette_index_pictures_come_through_every_medium_and_with_zlib() {
@@ -803,8 +806,10 @@ fn palette_index_pictures_come_through_every_medium_and_with_zlib() {
 }
 
 // A palette-index picture costs the budget its pixels, its 512-byte charge
-// and the indices it keeps, one byte a pixel for f=8 and two for f=16
-// (ADR-1100 D15).
+// and the indices it keeps, one byte a pixel for f=8 and two for f=16.
+//
+// References:
+// - ADR-1100 D15: what a palette-index picture costs the budget.
 // covers: image.kitty
 #[test]
 fn a_palette_index_picture_is_charged_for_its_indices() {
@@ -829,7 +834,10 @@ fn a_palette_index_picture_is_charged_for_its_indices() {
 // current colors of the terminal and is automatically redrawn when they
 // change". After a color change vtium-term hands the store the new colors,
 // and the store makes the picture's pixels again from its indices; a frame
-// that already holds the old pixels keeps them (ADR-1100 D15).
+// that already holds the old pixels keeps them.
+//
+// References:
+// - ADR-1100 D15: when the colors change, and what the store does.
 // covers: image.kitty
 #[test]
 fn a_palette_index_picture_takes_the_new_colors_when_they_change() {

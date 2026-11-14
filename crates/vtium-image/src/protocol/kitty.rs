@@ -1333,8 +1333,9 @@ impl Handler for Kitty {
             return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
         };
         if cmd.indexed() {
-            // the helper returns palette indices as they came, which the
-            // console turns into colors (ADR-1101 D7)
+            // the helper returns palette indices as they came, since only
+            // the console knows the colors, and the console turns them into
+            // colors
             let Some(indices) = payload.copy_indices(cmd.layout()) else {
                 ctx.unreserve(reservation);
                 return reply(ctx, &cmd, cmd.id, Err(Error::BadFile));

@@ -436,10 +436,14 @@ impl Command {
     /// with a parent, since a virtual placement is never a relative one
     /// (D13); a raw upload without `s` and `v`, answered as kitty answers it
     /// (D15), or past `max-graphic-size`; palette indices while the host
-    /// gives no colors (ADR-1100, D15); and a placement whose pixel offset
-    /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`]. Palette
-    /// indices come through every medium and with `o=z`, as the spec says:
-    /// "You can specify compression for any format".
+    /// gives no colors; and a placement whose pixel offset lies outside its
+    /// cell or whose box passes [`BOX_CELLS_MAX`]. Palette indices come
+    /// through every medium and with `o=z`, as the spec says: "You can
+    /// specify compression for any format".
+    ///
+    /// References:
+    /// - ADR-1100 D15: the palette formats through every medium, and their
+    ///   refusal while the host gives no colors.
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
         if !matches!(self.format, 8 | 16 | 24 | 32 | 100) {
             return Some(Error::UnknownFormat {
@@ -507,7 +511,10 @@ impl Command {
 
     /// The bytes the store charges the raw picture: its pixels and the
     /// image's overhead ([`charge`]), and for a palette format the indices
-    /// it keeps, one or two bytes a pixel (ADR-1100, D15).
+    /// it keeps, one or two bytes a pixel.
+    ///
+    /// References:
+    /// - ADR-1100 D15: what a palette-index picture costs the budget.
     pub(super) fn charge(&self) -> u64 {
         let kept = if self.indexed() {
             self.pixels().saturating_mul(u64::from(self.bpp()))

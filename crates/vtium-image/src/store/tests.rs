@@ -1937,7 +1937,10 @@ fn frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_ba
 
 // A palette-index picture's kept indices must hold one group for each
 // pixel; any other count is refused, as pixels of the wrong count are, and
-// nothing is charged (ADR-1100 D15).
+// nothing is charged.
+//
+// References:
+// - ADR-1100 D15: the indices the store keeps.
 #[test]
 fn indices_of_the_wrong_count_are_refused() {
     use crate::store::kitty::Indices;

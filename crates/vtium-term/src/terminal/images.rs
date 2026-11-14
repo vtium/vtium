@@ -1560,8 +1560,10 @@ mod tests {
     // The kitty graphics specification says a palette-index picture "is
     // drawn using the current colors of the terminal and is automatically
     // redrawn when they change". So a kitty f=8 picture sent before OSC 4
-    // changes color 1 shows the new color, as one sent after it does
-    // (ADR-1100, D15).
+    // changes color 1 shows the new color, as one sent after it does.
+    //
+    // References:
+    // - ADR-1100 D15: a palette-index picture follows the colors.
     // covers: image.kitty
     #[test]
     fn a_palette_index_picture_takes_the_colors_of_now_whenever_it_arrived() {
@@ -1587,9 +1589,11 @@ mod tests {
     // Each way a program changes the colors, OSC 4, 10, 11, 12, 17 and 19,
     // and each reset, OSC 104, 110, 111, 112, 117 and 119, converts a
     // palette-index picture's pixels again and marks its cells changed; so
-    // do the host's palette and RIS's color reset (ADR-1100, D15). The
-    // picture shows index 1 and indices 248 to 253, so each of these
-    // strings changes one of its pixels.
+    // does the host's palette. The picture shows index 1 and indices 248
+    // to 253, so each of these strings changes one of its pixels.
+    //
+    // References:
+    // - ADR-1100 D15: when the colors change.
     // covers: image.kitty
     #[test]
     fn every_color_change_and_reset_redraws_a_palette_index_picture() {

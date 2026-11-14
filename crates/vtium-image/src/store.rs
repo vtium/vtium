@@ -134,8 +134,10 @@ struct Image {
     transient: bool,
     /// The palette indices it arrived as, kitty's `f=8` or `f=16`, from
     /// which its pixels are made again whenever the terminal's colors
-    /// change. Such a picture takes no frames and no composition (ADR-1100,
-    /// D15).
+    /// change. Such a picture takes no frames and no composition.
+    ///
+    /// References:
+    /// - ADR-1100 D15: the kept indices, and the refused frames.
     indices: Option<Indices>,
     placements: u32,
     /// Held while an operation that may evict works for it.
@@ -718,9 +720,11 @@ impl Store {
 
     /// [`add_image`](Self::add_image), for a picture that also keeps the
     /// palette `indices` it arrived as, whose bytes its charge counts too:
-    /// one a pixel, or two with alpha (ADR-1100, D15). Indices that are
-    /// not one group for each pixel are refused as pixels of the wrong
-    /// count are.
+    /// one a pixel, or two with alpha. Indices that are not one group for
+    /// each pixel are refused as pixels of the wrong count are.
+    ///
+    /// References:
+    /// - ADR-1100 D15: what a palette-index picture costs the budget.
     pub(crate) fn add_image_kept(
         &mut self,
         new: NewImage,
