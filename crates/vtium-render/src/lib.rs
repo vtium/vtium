@@ -81,6 +81,8 @@ mod picture;
 mod reach;
 mod renderer;
 mod stored;
+#[cfg(feature = "bidi")]
+pub mod syllable;
 mod target;
 mod timer;
 mod trig;
