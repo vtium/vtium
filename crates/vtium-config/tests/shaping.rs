@@ -870,22 +870,51 @@ fn ink_edges(p: &Placed) -> ((usize, usize), (usize, usize)) {
     )
 }
 
-// ADR-1307 D1: the conjunct ka, virama, ssa takes the one cell its first
-// character takes, and its advance, 1,800 units, is three cells wide. The
-// helper squeezes it sideways to its cell at full height: its ink fills
-// the cell from edge to edge, none of it passes the cell, and its bars
-// span the rows the vowel a's bar spans, which fits its cell unsqueezed
+// ADR-1307 D1: ka with a virama and no consonant after it takes the one
+// cell its first character takes (ADR-1006 D1), and its advance, 900
+// units, is a cell and a half wide. The helper squeezes it sideways to its
+// cell at full height: its ink fills the cell from edge to edge, none of it
+// passes the cell, and its bar spans the rows the vowel a's bar spans,
+// which fits its cell unsqueezed
 #[test]
 fn an_indic_cluster_wider_than_its_cell_is_squeezed_to_it_at_full_height() {
-    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let key = ['\u{915}', '\u{94d}'];
     let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
     assert_eq!(o.strikes[0].width, 12);
-    let g = cluster(&o, &key).expect("the conjunct");
+    let g = cluster(&o, &key).expect("ka and virama");
     assert!(!g.wide && g.ink.is_none(), "inside its cell: {:?}", g.ink);
     let a = codepoint(&o, '\u{905}');
     let (rows, cols) = ink_edges(g);
     assert_eq!(cols, (0, 11), "across the whole cell");
     assert_eq!(rows.0, ink_edges(a).0.0, "the bars' top at the vowel's");
+}
+
+// ADR-1006 D1 and D6, with ADR-1307 D1: the conjunct ka, virama, ssa takes
+// two cells, and its advance, 1,800 units, is three cells wide. The helper
+// squeezes it sideways to its two cells at full height: its ink fills both
+// cells from edge to edge, none of it passes them, and its bars span the
+// rows the vowel a's bar spans
+#[test]
+fn a_virama_conjunct_takes_two_cells_and_is_squeezed_to_them() {
+    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
+    assert_eq!(o.strikes[0].width, 12);
+    let g = cluster(&o, &key).expect("the conjunct");
+    assert!(g.wide, "two cells");
+    assert!(g.ink.is_none(), "inside its cells: {:?}", g.ink);
+    let cols = inked_columns(g, 24);
+    assert_eq!(
+        (cols.first().copied(), cols.last().copied()),
+        (Some(0), Some(23)),
+        "across both cells"
+    );
+    let rows: Vec<usize> = (0..20).filter(|&y| !inked(g, 24, y).is_empty()).collect();
+    let a = codepoint(&o, '\u{905}');
+    assert_eq!(
+        rows.first().copied(),
+        Some(ink_edges(a).0.0),
+        "the bars' top at the vowel's"
+    );
 }
 
 // ADR-1307 D1 and D2: a single Indic letter wider than its cell, from a

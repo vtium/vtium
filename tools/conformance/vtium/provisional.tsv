@@ -66,3 +66,8 @@ kitty-upload-sixel-between	derived from upload-rules.md (ADR-1100 D16/D14), seal
 kitty-upload-stray	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-capital-t-cursor	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-cut-chunk	derived from the maintainer's answer of 2026-11-13 (ADR-1100 D16, "What ends an upload early"), sealed before vtium ran; not reviewed yet
+width-tamil	Tamil ko, kai, koo and mi in two cells each, ko widening as its vowel sign arrives, wrapping whole in the last column and staying one cell without autowrap, by ADR-1006 D1 and D3; expectations from the record, not reviewed yet
+width-devanagari	Devanagari ki in two cells and ku in one, the conjunct ksha widening as its second consonant arrives, stri and rma at the two-cell cap, and insert mode moving the cells after ki, by ADR-1006 D1 and D3; expectations from the record, not reviewed yet
+width-malayalam	Malayalam kssma and stri at the two-cell cap and ko in two cells, by ADR-1006 D1 and D2; expectations from the record, not reviewed yet
+width-kannada	Kannada stree as three clusters of 1, 1 and 2 cells, and kra as two of one cell each, by ADR-1006 D2; expectations from the record, not reviewed yet
+width-single	cluster-width = single: ko, ki, ksha, kssma and rii in one cell each and a heart with VS16 in two, by ADR-1006 D8; expectations from the record, not reviewed yet

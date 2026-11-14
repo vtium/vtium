@@ -169,3 +169,8 @@ kitty-upload-sixel-between 20 10
 kitty-upload-stray 20 10
 kitty-upload-capital-t-cursor 20 10
 kitty-upload-cut-chunk 20 10
+width-tamil 10 3
+width-devanagari 12 3
+width-malayalam 10 2
+width-kannada 10 2
+width-single 12 2

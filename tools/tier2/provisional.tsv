@@ -1,3 +1,4 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+scripts-indic	moved by ADR-1006: the Hindi line now takes more than 64 cells, so it outgrows the 64x2 grid, wraps and scrolls off, and 18,484 pixels move; the redraw waits for the joined-syllables card (ADR-1203), which changes this screen too

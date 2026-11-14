@@ -118,6 +118,9 @@ pub enum Command {
     Backspace {
         del: bool,
     },
+    /// What a cluster with a spacing mark or a virama conjunct takes, as
+    /// vtium.conf's `cluster-width` chooses it (ADR-1006 D8).
+    ClusterWidth(vtium_term::ClusterWidth),
     State,
     /// Whether the host takes OSC 50, as `allow-font-ops` sets it.
     FontOps(bool),
@@ -197,7 +200,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.10, in the order of its describe blocks:
+/// Every command of interface 1.11, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -270,6 +273,7 @@ pub const SPECS: &[Spec] = &[
     spec("grid-request", Some("window-ops"), &[], true),
     spec("display-ops", Some("display-ops"), &["on"], true),
     spec("display-request", Some("display-ops"), &[], true),
+    spec("cluster-width", Some("cluster-width"), &["rule"], true),
 ];
 
 const fn spec(
@@ -591,6 +595,13 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "backspace" => Command::Backspace {
             del: f.flag("del", None)?,
         },
+        "cluster-width" => Command::ClusterWidth(f.name_of(
+            "rule",
+            &[
+                ("double", vtium_term::ClusterWidth::Double),
+                ("single", vtium_term::ClusterWidth::Single),
+            ],
+        )?),
         "state" => Command::State,
         "font-ops" => Command::FontOps(f.flag("on", Some(true))?),
         "font-name" => {
@@ -843,6 +854,14 @@ mod tests {
             parse(b"backspace;del=0"),
             Ok(Command::Backspace { del: false })
         );
+        assert_eq!(
+            parse(b"cluster-width;rule=single"),
+            Ok(Command::ClusterWidth(vtium_term::ClusterWidth::Single))
+        );
+        assert_eq!(
+            parse(b"cluster-width;rule=double"),
+            Ok(Command::ClusterWidth(vtium_term::ClusterWidth::Double))
+        );
         assert_eq!(parse(b"state"), Ok(Command::State));
         assert_eq!(parse(b"font-ops"), Ok(Command::FontOps(true)));
         assert_eq!(parse(b"font-ops;on=0"), Ok(Command::FontOps(false)));
@@ -936,6 +955,8 @@ mod tests {
             "hover;col=1;row=1;ctrl=2",
             "backspace",
             "backspace;del=2",
+            "cluster-width",
+            "cluster-width;rule=packed",
             "state;x=1",
         ] {
             assert_eq!(code(text), Some(2), "{text:?}");

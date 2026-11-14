@@ -1,0 +1,34 @@
+test state margins 0-1 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 36
+size 10x2
+cursor 4,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 20
+frame-cursor 4,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ಸ್ತ್ರೀ|
+cells 0 2-2 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 3-3 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 1 ||
+test state margins 0-1 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 63
+size 10x2
+cursor 6,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 2
+frame-cursor 6,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |ಸ್ತ್ರೀಕ್ರ|
+cells 0 2-2 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 3-3 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 1 ||

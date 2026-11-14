@@ -527,6 +527,13 @@ impl Terminal {
         self.state.host.width_method = method;
     }
 
+    /// vtium.conf's `cluster-width`: what a cluster with a spacing mark or
+    /// a virama conjunct takes while mode 2027 is set (ADR-1006 D8). The
+    /// host sets it when the terminal starts, and RIS and DECSTR keep it.
+    pub fn set_cluster_width(&mut self, rule: crate::ClusterWidth) {
+        self.state.screen.set_cluster_width(rule);
+    }
+
     /// DECARM: whether the host repeats a held key.
     pub fn auto_repeat(&self) -> bool {
         self.state.modes.auto_repeat()

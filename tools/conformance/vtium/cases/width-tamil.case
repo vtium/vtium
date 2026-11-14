@@ -1,0 +1,20 @@
+# Tamil syllables with a spacing vowel sign take two cells under
+# cluster-width = double, the default (ADR-1006 D1). Ka takes one cell,
+# and the vowel sign o widens it to two as it arrives, so the cursor moves
+# one cell further (D3). Kai, koo and mi take two cells each. Ka with the
+# virama and no consonant after it keeps one cell. In the last column, ko
+# moves to the next line and leaves a pad. Without autowrap it stays one
+# cell wide in the last column.
+# spec: Python wcwidth 0.9.4's specification, "Width of 2": "Any character of non-zero width followed by an Mc (Spacing Combining Mark) character when measured in sequence by wcwidth.wcswidth"; ADR-1006 D1, D3
+# covers: text.grapheme
+size 10 3
+send "\u{B95}"
+dump state
+send "\u{BCA}"
+dump state
+send "\u{B95}\u{BC8}\u{B95}\u{BC2}\u{BAE}\u{BBF}\u{B95}\u{BCD}"
+dump state
+send "\u{B95}\u{BCA}"
+dump state
+send "\e[?7l\e[3;10H\u{B95}\u{BCA}"
+dump state

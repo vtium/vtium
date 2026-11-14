@@ -1,0 +1,22 @@
+# Devanagari clusters under cluster-width = double, the default (ADR-1006
+# D1). Ki, with the spacing vowel sign i, takes two cells, and ku, with the
+# nonspacing vowel sign u, one. The conjunct ksha takes two cells once its
+# second consonant arrives. Stri, three consonants joined by two viramas
+# with the vowel sign ii, takes two cells, the most a cluster takes, and so
+# does rma. In insert mode, the cells after ki move right by one more cell
+# as the vowel sign widens it.
+# spec: Python wcwidth 0.9.4's specification, "Width of 2" and "Virama Conjunct Formation": "A Consonant immediately following a Virama adds its width to the current grapheme cluster", "The cluster total is capped at 2 cells"; ADR-1006 D1, D3
+# covers: text.grapheme
+size 12 3
+send "\u{915}\u{93F}\u{915}\u{941}"
+dump state
+send "\u{915}\u{94D}"
+dump state
+send "\u{937}"
+dump state
+send "\u{938}\u{94D}\u{924}\u{94D}\u{930}\u{940}\u{930}\u{94D}\u{92E}"
+dump state
+send "\e[2;1Habcde\e[2;1H\e[4h\u{915}"
+dump state
+send "\u{93F}"
+dump state

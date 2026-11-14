@@ -229,6 +229,19 @@
 
 #text-direction=ltr
 
+# -- Syllables with vowel signs and joined consonants ------------------------
+
+## How many character cells a syllable with a vowel sign or a virama takes, in
+## Tamil, Devanagari and other scripts of South and Southeast Asia.
+##
+## `double`, the default, gives such a syllable two cells, so கொ takes two.
+## `single` gives it one cell and squeezes it to fit.
+##
+## vtium reads this key when it starts, so a change takes effect when vtium
+## restarts.
+
+#cluster-width=double
+
 # == Colors ==================================================================
 #
 # The sixteen basic colors, the default text and background colors, and the

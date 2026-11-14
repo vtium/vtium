@@ -1,0 +1,13 @@
+# A Kannada conjunct that UAX #29 cuts into several clusters takes the
+# cells of each cluster (ADR-1006 D2). Kannada's virama has no
+# Indic_Conjunct_Break=Linker, so stree is three clusters: sa with the
+# virama, ta with the virama, and ra with the vowel sign ii. They take 1, 1
+# and 2 cells, 4 in all, as glibc's wcswidth counts the word. Kra is ka
+# with the virama and then ra, two clusters of one cell each.
+# spec: UAX #29 GB9c; Python wcwidth 0.9.4's specification, "Scope": "Each string yielded by wcwidth.iter_graphemes may be mapped to wcwidth.wcswidth to accurately measure the width of a grapheme"; ADR-1006 D2
+# covers: text.grapheme
+size 10 2
+send "\u{CB8}\u{CCD}\u{CA4}\u{CCD}\u{CB0}\u{CC0}"
+dump state
+send "\u{C95}\u{CCD}\u{CB0}"
+dump state
