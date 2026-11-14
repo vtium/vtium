@@ -6,7 +6,7 @@
 #
 # Thai and Lao stack vowel signs and tone marks above a consonant, and
 # write some vowels under it. The vowels under a consonant with a tail
-# below, such as Thai's tho than (U+0E10), reach furthest under the line.
+# below, such as Thai's do chada (U+0E0E), reach furthest under the line.
 # Line spacing of 25 adds an eighth of the text's height above each row
 # and an eighth below it, so the stacks of one row stay clear of the rows
 # above and below.
