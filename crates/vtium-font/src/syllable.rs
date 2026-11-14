@@ -12,7 +12,8 @@
 //! [`joins`] is the rule of ADR-1203 D1 for two clusters side by side: the
 //! first ends with a linker, a character whose Indic_Syllabic_Category is
 //! Virama, Invisible_Stacker or Consonant_With_Stacker, optionally followed
-//! by U+200D ZERO WIDTH JOINER; the second starts with a Consonant, or,
+//! by U+200D ZERO WIDTH JOINER, and holds a consonant before the linker, as
+//! rule GB9c of UAX #29 asks; the second starts with a Consonant, or,
 //! after an Invisible_Stacker, with a Vowel_Independent; and the two
 //! characters share a value of Script_Extensions. It is the rule by which
 //! UAX #44 derives the Indic_Conjunct_Break values that rule GB9c of UAX
@@ -93,11 +94,13 @@ fn share(a: u16, b: u16) -> bool {
 }
 
 /// Whether the cluster `left` joins the cluster `right`, written after it
-/// on the same row, into one syllable (ADR-1203 D1): `left` ends with a
-/// linker, optionally followed by U+200D; `right` starts with a consonant,
-/// or with an independent vowel after an invisible stacker; and the two
-/// characters share a script. A cluster that ends with U+200C ZERO WIDTH
-/// NON-JOINER keeps its virama and joins nothing.
+/// on the same row, into one syllable (ADR-1203 D1). `left` ends with a
+/// linker, optionally followed by U+200D, and a consonant comes before the
+/// linker in `left`, as rule GB9c of UAX #29 asks; a consonant with its
+/// own stacker is that consonant itself. `right` starts with a consonant,
+/// or with an independent vowel after an invisible stacker. The linker and
+/// the character after it share a script. A cluster that ends with U+200C
+/// ZERO WIDTH NON-JOINER keeps its virama and joins nothing.
 pub fn joins(left: &[char], right: &[char]) -> bool {
     let left = match left {
         [rest @ .., ZWJ] => rest,
@@ -124,7 +127,15 @@ pub fn joins(left: &[char], right: &[char]) -> bool {
         }
         Category::Consonant | Category::VowelIndependent => false,
     };
-    follows && share(a, b)
+    // as rule GB9c of UAX #29 asks, a consonant comes before the linker:
+    // the cluster holds one, or the linker is a consonant with its own
+    // stacker
+    let body = left.split_last().map_or(&[][..], |(_, body)| body);
+    let consonant = link == Category::ConsonantWithStacker
+        || body
+            .iter()
+            .any(|&c| syllabic(c).is_some_and(|(cat, _)| cat == Category::Consonant));
+    follows && consonant && share(a, b)
 }
 
 /// Whether `c` is a linker: a character whose Indic_Syllabic_Category is
@@ -276,6 +287,23 @@ mod tests {
         );
         // a virama joins no independent vowel
         assert!(!link(&['\u{c95}', '\u{ccd}'], &['\u{c85}']), "Kannada a");
+    }
+
+    // ADR-1203 D1, after rule GB9c of UAX #29: a linker joins only after a
+    // consonant, so x with a Kannada virama joins no ra after it, and a
+    // virama alone joins nothing
+    #[test]
+    fn a_linker_with_no_consonant_before_it_joins_nothing() {
+        assert!(!joins(&['x', '\u{ccd}'], &['\u{cb0}']), "x, virama");
+        assert!(!joins(&['\u{ccd}'], &['\u{cb0}']), "a virama alone");
+        assert!(
+            !joins(&['\u{c85}', '\u{ccd}'], &['\u{cb0}']),
+            "the vowel a, virama"
+        );
+        assert!(
+            joins(&['\u{c95}', '\u{cbc}', '\u{ccd}'], &['\u{cb0}']),
+            "ka, nukta, virama"
+        );
     }
 
     // ADR-1203 D1: U+200D after the virama keeps the join, and U+200C

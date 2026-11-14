@@ -24,7 +24,7 @@
 
 use vtium_font::Variant;
 use vtium_font::syllable::{Piece, SYLLABLE_SCALARS_MAX, joins, may_follow, may_link};
-use vtium_term::{Frame, FrameCell, Glyph, Rgb, Width};
+use vtium_term::{CLUSTER_MAX, Frame, FrameCell, Glyph, Rgb, Width};
 
 /// The most clusters a syllable holds: each holds one scalar value at
 /// least.
@@ -76,19 +76,19 @@ fn linked(left: &FrameCell<'_>, right: &FrameCell<'_>) -> bool {
     if left.col.checked_add(usize::from(cells(left))) != Some(right.col) {
         return false;
     }
-    // the last two characters of the left cluster, enough for a linker
-    // and the U+200D that may follow it, and the right cluster's first
-    let (mut before, mut last) = (None, None);
-    for c in chars(left.glyph) {
-        (before, last) = (last, Some(c));
-    }
-    let (Some(last), Some(head)) = (last, chars(right.glyph).next()) else {
+    let Some(head) = chars(right.glyph).next() else {
         return false;
     };
-    match before {
-        Some(b) => joins(&[b, last], &[head]),
-        None => joins(&[last], &[head]),
+    // the whole left cluster, since a consonant must come before its
+    // linker (rule GB9c of UAX #29); the terminal keeps at most
+    // CLUSTER_MAX scalar values in a cluster
+    let mut text = ['\0'; CLUSTER_MAX];
+    let mut len: usize = 0;
+    for (slot, c) in text.iter_mut().zip(chars(left.glyph)) {
+        *slot = c;
+        len = len.saturating_add(1);
     }
+    joins(text.get(..len).unwrap_or_default(), &[head])
 }
 
 impl Syllable {
@@ -312,6 +312,13 @@ mod tests {
         // ka with its spacing vowel sign aa takes two cells (ADR-1006 D1)
         assert_eq!(syllables("ಕಾರ್ತ್ಸ್ನ್ಯ"), [vec![2, 3, 4, 5, 6]]);
         assert_eq!(syllables("ಕನ್ನಡ"), [vec![1, 2]]);
+        // a nukta stands between ka and its virama, so the whole cluster
+        // before ra counts, not its last two characters
+        assert_eq!(
+            syllables("ಕ\u{cbc}್ರ"),
+            [vec![0, 1]],
+            "ka, nukta, virama, ra"
+        );
         assert_eq!(
             syllables("a b ಕ್ ರ"),
             Vec::<Vec<usize>>::new(),
@@ -320,6 +327,17 @@ mod tests {
         assert_eq!(syllables("ಕ್\u{200c}ರ"), Vec::<Vec<usize>>::new(), "ZWNJ");
         assert_eq!(syllables("ಕ್\u{c15}"), Vec::<Vec<usize>>::new(), "Telugu ka");
         assert_eq!(syllables("नमस्ते"), Vec::<Vec<usize>>::new(), "Devanagari");
+        // a linker after no consonant joins nothing (rule GB9c of UAX #29)
+        assert_eq!(
+            syllables("x\u{ccd}ರ"),
+            Vec::<Vec<usize>>::new(),
+            "x, virama, ra"
+        );
+        assert_eq!(
+            syllables("\u{5d0}\u{ccd}ರ"),
+            Vec::<Vec<usize>>::new(),
+            "alef, virama, ra"
+        );
     }
 
     // ADR-1203 D1: a syllable stays on its row; a run past the bound is no

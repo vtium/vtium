@@ -72,6 +72,7 @@ ADR-1004 D6 already draws one shape across two cells: the lam-alef ligature, whi
 The console reads each row of the frame in the order its cells are stored, which is logical order (ADR-1004 D1). A cell joins the cell after it when all of these hold:
 
 - the cell's cluster ends with a linker, optionally followed by U+200D ZERO WIDTH JOINER. A linker is a character whose Indic_Syllabic_Category is Virama, Invisible_Stacker or Consonant_With_Stacker;
+- a consonant comes before the linker in the cell's cluster, as GB9c asks. A Consonant_With_Stacker is its own consonant;
 - the next cell's cluster starts with a character whose Indic_Syllabic_Category is Consonant. After an Invisible_Stacker, it may also be Vowel_Independent;
 - the two characters share a script: a value of the linker's Script_Extensions is also one of the follower's;
 - both cells are on the same row of the screen.
@@ -84,7 +85,7 @@ A syllable's text holds at most 15 scalar values: one fewer than `CLUSTER_SCALAR
 
 The tables come from Unicode's IndicSyllabicCategory.txt and ScriptExtensions.txt, with Scripts.txt for the characters that ScriptExtensions.txt does not list, at the Unicode version vtium's other tables use. The generator that writes vtium-config's shaping tables writes them.
 
-> Edited 2026-11-14: the build of this record (the work that draws joined syllables). The bound read: "A syllable's text holds at most `CLUSTER_SCALARS_MAX` scalar values, 16 today". A piece's key spends one scalar value on the piece's mark, so a syllable's text holds 15.
+> Edited 2026-11-14: the build of this record (the work that draws joined syllables). The bound read: "A syllable's text holds at most `CLUSTER_SCALARS_MAX` scalar values, 16 today". A piece's key spends one scalar value on the piece's mark, so a syllable's text holds 15. D1 had no condition on what comes before the linker, so the x in x, virama, ra joined ra as if x were a consonant.
 
 > Edited 2026-11-13: research on Unicode 18.0 and on HarfBuzz's grammar (the basis). D1 read: the cluster ends with a character whose Indic_Syllabic_Category is Virama or Invisible_Stacker; the next starts with a Consonant; "both characters have the same Script property"; "A syllable spans at most four cells. A run that would span more is drawn split." Consonant_With_Stacker was missing, so ೱಕ, Brahmi's and Newa's never joined; Script left out characters shared between scripts; and the limit of four cells split a syllable of five consonants.
 
