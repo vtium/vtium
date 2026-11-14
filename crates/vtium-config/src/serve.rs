@@ -845,6 +845,14 @@ pub fn default_fit(c: u32) -> Fit {
     Fit::default_for(c)
 }
 
+/// Whether `c` is a private-use character: of the Private Use Area,
+/// U+E000 to U+F8FF, or of Supplementary Private Use Area-A or -B. Unicode
+/// assigns these no meaning, and symbol fonts such as Nerd Fonts and
+/// Powerline put their symbols there.
+fn private_use(c: u32) -> bool {
+    matches!(c, 0xe000..=0xf8ff | 0xf_0000..=0xf_fffd | 0x10_0000..=0x10_fffd)
+}
+
 /// A source [`Engine::load`] left out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeftOut {
@@ -1551,6 +1559,63 @@ impl Engine {
         Some(b)
     }
 
+    /// Source `i`'s own baseline in a cell `height` pixels high: where the
+    /// source stands when it draws at its own size, its ascent and descent
+    /// spanning the cell ([`Engine::fitted`]). Found once for the engine's
+    /// life, as [`Engine::baseline`] finds the others.
+    fn own_baseline(&self, i: usize, height: u32) -> Option<u32> {
+        if self.size(i, height).is_none() {
+            return self.baseline(i, height);
+        }
+        // the cache holds (i, height) for a source that draws at its own
+        // size only, so a source at the first source's size keeps its own
+        // baseline under a key no other lookup uses
+        let key = (i.checked_add(self.sources.len())?, height);
+        if let Some(&b) = self.baselines.borrow().get(&key) {
+            return Some(b);
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+            return None;
+        };
+        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        self.baselines.borrow_mut().insert(key, b);
+        Some(b)
+    }
+
+    /// Whether source `i`'s glyph for `c` is a merged symbol, fitted to the
+    /// first source's cell: `c` is a private-use character, where Nerd
+    /// Fonts and Powerline put their symbols, and source `i` is an outline
+    /// source with `cover=` lines that would otherwise draw at the first
+    /// source's size ([`Engine::size`]). Such a glyph draws at the source's
+    /// own size, at which the source's ascent and descent span the cell,
+    /// and on the source's own baseline at that size. A symbol font made
+    /// for merging, such as Symbols Nerd Font Mono, lays out its symbols
+    /// in that box, so they fill the cell's height as the font means them
+    /// to: a Powerline separator runs from the cell's top to its bottom,
+    /// and an icon stands in the middle of the cell. A symbol whose ink
+    /// still passes its cells is drawn smaller, as any later source's
+    /// glyph is.
+    ///
+    /// Letters a `cover=` source gives, such as the ideographs of
+    /// `cover=gb2312`, keep the first source's size and baseline, so every
+    /// script on a line shares the first source's baseline.
+    ///
+    /// References:
+    /// - ADR-1200 D17: later sources draw at the first source's size, on its baseline.
+    /// - ADR-1302 D1: font merging fits a merged symbol before ink reaches past its cell.
+    fn fitted(&self, i: usize, c: u32) -> bool {
+        if !private_use(c) {
+            return false;
+        }
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR);
+        let outline = |i: usize| matches!(self.sources.get(i), Some((_, Loaded::Outline { .. })));
+        let merged = self
+            .sources
+            .get(i)
+            .is_some_and(|(source, _)| !source.cover.is_empty());
+        merged && first.is_some_and(|first| first != i && outline(first)) && outline(i)
+    }
+
     /// The baseline and the underline and strike-through a strike at
     /// `cell` reports (ADR-1302 D3, ADR-1200 D2): those of the frit's
     /// first regular source, the font that sets the cell, for an outline
@@ -1962,11 +2027,11 @@ impl Engine {
     fn script_request(
         &self,
         request: OutlineRequest,
-        i: usize,
+        (i, fitted): (usize, bool),
         (cell, band, base): (Cell, Band, u32),
         script: Script,
     ) -> Option<OutlineRequest> {
-        let size = match self.size(i, cell.height) {
+        let size = match self.size(i, cell.height).filter(|_| !fitted) {
             Some(size) => size,
             None => {
                 let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
@@ -2089,7 +2154,11 @@ impl Engine {
         let passes = [true, false]
             .into_iter()
             .flat_map(|color| order.clone().map(move |source| (color, source)));
-        for (color_only, (i, (source, loaded), synth)) in passes {
+        // a merged symbol font's private-use symbols are drawn in a request
+        // of their own, at the font's own size ([`Engine::fitted`]), before
+        // the rest of what the source gives
+        let passes = passes.flat_map(|pass| [true, false].map(|fitted| (pass, fitted)));
+        for ((color_only, (i, (source, loaded), synth)), fitted) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
@@ -2097,14 +2166,23 @@ impl Engine {
             let left: Vec<u32> = want
                 .iter()
                 .copied()
-                .filter(|&c| !mapped.contains(&c) && source.covers(c) && asked(&[c]))
+                .filter(|&c| {
+                    !mapped.contains(&c)
+                        && source.covers(c)
+                        && asked(&[c])
+                        && self.fitted(i, c) == fitted
+                })
                 .collect();
             let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
+            // a cluster is shaped whole with the rest of the source's glyphs
             let unshaped: Vec<&[u32]> = clusters
                 .iter()
                 .map(Vec::as_slice)
                 .filter(|k| {
-                    !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)) && asked(k)
+                    !fitted
+                        && !shaped.contains(k)
+                        && lead(k).is_some_and(|c| source.covers(c))
+                        && asked(k)
                 })
                 .collect();
             match loaded {
@@ -2290,9 +2368,15 @@ impl Engine {
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         cluster_width: self.cluster_width.get(),
-                        baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        baselines: match fitted {
+                            true => self.own_baseline(i, cell.height),
+                            false => self.baseline(i, cell.height),
+                        }
+                        .into_iter()
+                        .collect(),
                         sizes: self
                             .size(i, cell.height)
+                            .filter(|_| !fitted)
                             .map(f32::to_bits)
                             .into_iter()
                             .collect(),
@@ -2318,8 +2402,12 @@ impl Engine {
                     };
                     let request = match script {
                         Script::Baseline => request,
-                        _ => match self.script_request(request, i, (cell, band, text_base), script)
-                        {
+                        _ => match self.script_request(
+                            request,
+                            (i, fitted),
+                            (cell, band, text_base),
+                            script,
+                        ) {
                             Some(request) => request,
                             None => continue,
                         },
@@ -4227,6 +4315,85 @@ mod tests {
         let ink = l.ink().unwrap();
         assert_eq!((ink.left(), ink.width()), (-3, 15));
         assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
+    }
+
+    /// A tall main font, whose ascent and descent span 1.5 em, and a short
+    /// symbol font, whose span 1 em, merged by `cover=` for the Private
+    /// Use Area and Cyrillic: the symbol font's U+E0B0, a bar from its
+    /// descent to its ascent, and U+0416, the same bar as a letter.
+    fn merged_frit(name: &str) -> (FritText, Scratch) {
+        let dir = scratch(name);
+        let main = super::ttf::Font {
+            family: "Tall Mono".to_owned(),
+            ascent: 1100,
+            descent: -400,
+            ..super::ttf::test_mono()
+        };
+        let symbols = super::ttf::Font {
+            family: "Short Symbols".to_owned(),
+            ascent: 800,
+            descent: -200,
+            glyphs: vec![
+                super::ttf::Glyph::empty(400),
+                super::ttf::Glyph::rect(400, 0, -200, 400, 800),
+            ],
+            cmap: vec![(0x0416, 1), (0xe0b0, 1)],
+            colr: Vec::new(),
+            palette: Vec::new(),
+            ..super::ttf::test_mono()
+        };
+        let (main_path, symbols_path) = (dir.join("main.ttf"), dir.join("symbols.ttf"));
+        std::fs::write(&main_path, main.build()).unwrap();
+        std::fs::write(&symbols_path, symbols.build()).unwrap();
+        let text = format!(
+            "source=outline:{}\nsource=outline:{}\ncover=U+E000-U+F8FF\ncover=U+0400-U+04FF\n",
+            main_path.display(),
+            symbols_path.display()
+        );
+        (frit(&text), dir)
+    }
+
+    // #64: a merged symbol font's private-use glyph is fitted to the main
+    // font's cell. It draws at the size at which the symbol font's own
+    // ascent and descent span the cell, so a bar the font draws from its
+    // descent to its ascent, as a Powerline separator runs, fills the
+    // cell from its top row to its bottom row. At the main font's size it
+    // would span only two thirds of the cell. A letter the same font gives
+    // through cover= keeps the main font's size, on its baseline, as every
+    // later source's letters do (ADR-1200 D17)
+    // covers: text.font-merge
+    #[test]
+    fn a_merged_symbol_fills_the_main_fonts_cell() {
+        let (frit, _dir) = merged_frit("merged-fit");
+        let cell = Cell {
+            width: 12,
+            height: 30,
+        };
+        let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
+            cell,
+            band: Band::NONE,
+            ..request(ASK, frit, &['\u{e0b0}', '\u{416}'])
+        }]);
+        assert_eq!(frames[0].0, FRAME_GLYPHS);
+        let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+        let face = SetFace::new(set, 30).unwrap();
+        let rows = |c: char| -> Vec<u32> {
+            let g = face.draw(&[c], Style::default()).unwrap();
+            (0..g.height())
+                .filter(|&y| (0..g.width()).any(|x| g.pixel(x, y).unwrap()[0] > 0))
+                .collect()
+        };
+        assert_eq!(
+            rows('\u{e0b0}'),
+            (0..30).collect::<Vec<_>>(),
+            "the separator"
+        );
+        let letter = rows('\u{416}');
+        assert!(
+            letter.len() <= 21,
+            "the letter at the main font's size: {letter:?}"
+        );
     }
 
     // ADR-1006 D8: an ask under `cluster-width = single` has the conjunct
