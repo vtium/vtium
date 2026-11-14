@@ -294,3 +294,28 @@ pub(crate) static TO_SRGB: [u8; 4096] = [
     254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 254, 255, 255, 255, 255,
     255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
 ];
+
+/// The width of [`texture`] in texels.
+#[cfg(feature = "gpu")]
+pub(crate) const TEXTURE_WIDTH: u32 = 64;
+/// The height of [`texture`] in texels: its 5,632 bytes in rows of 256.
+#[cfg(feature = "gpu")]
+pub(crate) const TEXTURE_HEIGHT: u32 = 22;
+
+/// The three tables as the bytes of an RGBA8 texture of [`TEXTURE_WIDTH`]
+/// by [`TEXTURE_HEIGHT`] texels, so that the GPU path's picture shader
+/// blends with the very values the CPU path uses. The bytes are the tables
+/// one after another, each entry's lowest byte first: [`RECIPROCAL`] from
+/// byte 0, four bytes an entry; [`TO_LINEAR`] from byte 1,024, two bytes
+/// an entry; and [`TO_SRGB`] from byte 1,536, one byte an entry. The
+/// texture is 64 texels wide, so it fits the smallest texture side a test
+/// sets, and every OpenGL ES 3.0 GPU, whose largest texture is at least
+/// 2,048 a side.
+#[cfg(feature = "gpu")]
+pub(crate) fn texture() -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(5632);
+    bytes.extend(RECIPROCAL.iter().flat_map(|r| r.to_le_bytes()));
+    bytes.extend(TO_LINEAR.iter().flat_map(|l| l.to_le_bytes()));
+    bytes.extend_from_slice(&TO_SRGB);
+    bytes
+}

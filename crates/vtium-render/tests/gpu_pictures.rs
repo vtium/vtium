@@ -26,14 +26,16 @@ const COLS: usize = 20;
 const ROWS: usize = 6;
 
 const PICTURE_INPUTS: [&str; 4] = ["target_size", "picture", "scale", "origin"];
-/// A picture that is not opaque, drawn over a copy of the pixels beneath.
-const PICTURE_OVER_INPUTS: [&str; 6] = [
+/// A picture that is not opaque, drawn over a copy of the pixels beneath
+/// with the blend's tables.
+const PICTURE_OVER_INPUTS: [&str; 7] = [
     "target_size",
     "picture",
     "scale",
     "origin",
     "under",
     "under_at",
+    "tables",
 ];
 const CELL_INPUTS: [&str; 5] = ["target_size", "masks", "colors", "sprites", "cell"];
 /// A cell's text layer or vtium's mark, drawn over a copy of the pixels
@@ -1044,4 +1046,64 @@ fn draws_over_a_copy_read_their_own_tiles_pixels_across_the_seams() {
             );
         }
     }
+}
+
+// ADR-1300 D7: a picture that is not opaque goes over the pixels beneath
+// it in linear light through the CPU path's own tables. The first frame
+// that shows one uploads them once, as a 64x22 texture of their bytes
+// one after another, lowest byte first: the reciprocals from byte 0, the
+// linear light from byte 1,024 and the sRGB bytes from byte 1,536. Every
+// draw over the pixels beneath samples that one texture, a later frame
+// uploads nothing more, and a frame of opaque pictures alone uploads none.
+#[test]
+fn a_picture_that_is_not_opaque_blends_through_the_cpu_paths_tables() {
+    let mut g = Gpu::new();
+    g.frame(&placements(&[pic(1, (16, 16), (0, 0), (2, 1))]), true);
+    assert_eq!(g.made(), [Size::new(16, 16)], "an opaque picture's tables");
+    let glass = || Pic {
+        alpha: 0x80,
+        ..pic(2, (24, 24), (2, 0), (3, 2))
+    };
+    let tables_filled = |g: &Gpu| {
+        g.calls()
+            .iter()
+            .filter(|c| matches!(c, Call::FillTexture(r) if (r.width, r.height) == (64, 22)))
+            .count()
+    };
+    g.frame(&placements(&[glass()]), true);
+    assert!(g.made().contains(&Size::new(64, 22)), "{:?}", g.made());
+    assert_eq!(tables_filled(&g), 1);
+    let tables: Vec<u32> =
+        g.gl.seen()
+            .iter()
+            .filter_map(|s| s.textures.iter().find(|(n, _)| *n == "tables"))
+            .map(|&(_, t)| t)
+            .collect();
+    assert!(!tables.is_empty(), "no draw read the tables");
+    assert!(tables.iter().all(|&t| t == tables[0]), "{tables:?}");
+    let (format, size, bytes) = g.gl.texture_pixels(tables[0]).unwrap();
+    assert_eq!((format, size), (Format::Rgba8, Size::new(64, 22)));
+    assert_eq!(bytes.len(), 5632);
+    let u32_at = |o: usize| u32::from_le_bytes(bytes[o..o + 4].try_into().unwrap());
+    let u16_at = |o: usize| u16::from_le_bytes([bytes[o], bytes[o + 1]]);
+    // RECIPROCAL: 0 for alpha 0, (255 * 65536 + 8) / 17 for 17, 255 * 257
+    // for 255, rounded from 65,535.5
+    assert_eq!(u32_at(0), 0);
+    assert_eq!(u32_at(4 * 17), 983_040);
+    assert_eq!(u32_at(4 * 255), 65_536);
+    // TO_LINEAR: black, the 210 of D7's example, and full brightness
+    assert_eq!(u16_at(1024), 0);
+    assert_eq!(u16_at(1024 + 2 * 210), 42_226);
+    assert_eq!(u16_at(1024 + 2 * 255), 65_520);
+    // TO_SRGB: black, step 176 of D7's example, and white
+    assert_eq!(bytes[1536], 0);
+    assert_eq!(bytes[1536 + 176], 58);
+    assert_eq!(bytes[1536 + 4095], 255);
+    g.frame(&placements(&[glass()]), true);
+    assert!(!g.made().contains(&Size::new(64, 22)), "{:?}", g.made());
+    assert_eq!(
+        tables_filled(&g),
+        0,
+        "a later frame uploads the tables again"
+    );
 }
