@@ -93,7 +93,7 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspe
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
-The next publish also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. `vtium-fonts` then also depends on `noto-fonts`, which holds every font they name. See [Fonts for scripts with marks](fonts-for-scripts.md) for details.
+From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. It then depends on `noto-fonts` too, which holds every font they name. See [Fonts for scripts with marks](fonts-for-scripts.md) for details.
 
 ## From a checkout
 
@@ -116,7 +116,7 @@ On another distribution, a package build can call two make targets:
 - `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that a console package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.
 
-`make install` builds the console with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16`, `minspec-8`, and the five frits for scripts with marks: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+`make install` builds the console with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
 Some package builds run with no network, as Debian's does. Such a build takes the crates that vtium builds with from the release:
 

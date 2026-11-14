@@ -185,17 +185,26 @@ IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter logind,$(subst $(comma), ,$(FEATURES))))
 # The frits make install and make install-tree stage into /etc/vtium/fonts,
 # by name (ADR-1500 D8). Each is NAME.vtfrit in crates/vtium-config/frits,
-# or in tools/specimens/frits, where the specimens draw desktop and tier 2
-# draws the five frits for scripts with marks. The default is the set the
-# vtium package ships; a minspec package names FRITS='minspec-16
-# minspec-8'. A frit names its fonts, and no vtium install ships a font.
-FRITS := desktop minspec-16 minspec-8 arabic hebrew indic thai-lao vietnamese
+# or in tools/specimens/frits, where the specimens draw desktop. The
+# default is the set the vtium package ships; a minspec package names
+# FRITS='minspec-16 minspec-8'. A frit names its fonts, and no vtium
+# install ships a font.
+FRITS := desktop minspec-16 minspec-8
 FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
-frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+# The frits the optional vtium-fonts package ships beside the fonts they
+# name, which make install-fonts stages: the five for scripts whose marks
+# need room above and below the letters (ADR-1500 D8). make install stages
+# any of them that FRITS names too.
+FONTS_FRITS := arabic hebrew indic thai-lao vietnamese
+frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+frit_files = $(call frit_paths,$(FRITS))
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
 _frits := $(frit_files)
+endif
+ifneq ($(filter install-fonts,$(MAKECMDGOALS)),)
+_fonts_frits := $(call frit_paths,$(FONTS_FRITS))
 endif
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
@@ -239,7 +248,8 @@ endif
 # vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
 # package's build can be one call: make install DESTDIR="$pkgdir"
 # PREFIX=/usr PKGNAME="$pkgname" (ADR-1500 D1, D3). packaging/arch's AUR
-# recipes call this target and install-terminfo. make install stages the
+# recipes call this target and install-terminfo, and the vtium-fonts
+# recipe calls install-fonts. make install stages the
 # console, built with the minspec profile and FEATURES and made to start its
 # glyph helper at PREFIX/bin/vtium-config, the helper, with images in
 # FEATURES the image helper, which the console starts at
@@ -321,15 +331,15 @@ endif
 # Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
 # machine's own root, so neither writes a file over the packaged vtium's or
 # beside it in /usr/local.
-ifneq ($(filter install install-terminfo,$(MAKECMDGOALS)),)
+ifneq ($(filter install install-terminfo install-fonts,$(MAKECMDGOALS)),)
 ifeq ($(origin DESTDIR),file)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
 endif
 ifeq ($(strip $(DESTDIR)),)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
 endif
 ifeq ($(shell readlink -m -- '$(DESTDIR)'),/)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
 endif
 endif
 
@@ -348,7 +358,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8 arabic hebrew indic thai-lao vietnamese): make install DESTDIR=DIR PREFIX=/usr
+install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8): make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 ifneq ($(IMAGES),)
@@ -364,6 +374,10 @@ endif
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
+
+.PHONY: install-fonts
+install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese), in /etc/vtium/fonts under DESTDIR=DIR
+	install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(call frit_paths,$(FONTS_FRITS))
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)

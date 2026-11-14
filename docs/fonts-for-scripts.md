@@ -24,17 +24,25 @@ The extra rows are room for the script's marks. A mark may reach into them, so i
 
 The `indic` set renders some scripts poorly for now. Tamil, Malayalam and Sinhala come out smaller than the text, and Kannada shows its conjuncts as separate letters. See [the shaping issue](https://github.com/vtium/vtium/issues/144) for the work that fixes this.
 
-## Install the fonts
+## Install the font sets and their fonts
 
-vtium ships the font sets, never the fonts. On Arch Linux, the `noto-fonts` package installs every font that the five sets name:
+vtium ships the font sets, never the fonts. The optional `vtium-fonts` package installs all five sets in `/etc/vtium/fonts`, and it depends on the fonts they name. From its next publish, installing it gives you both:
 
 ```
-# pacman -S noto-fonts
+$ git clone https://aur.archlinux.org/vtium-fonts.git
+$ cd vtium-fonts
+$ makepkg -si
 ```
 
-From its next publish, the `vtium-fonts` package depends on `noto-fonts` too, so installing `vtium-fonts` brings these fonts with the others.
+On Arch Linux, those fonts come from the `noto-fonts` package. On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
 
-On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
+When you build vtium from a checkout, name the sets in `FRITS` beside the default ones, and `make install` stages them too:
+
+```
+$ make install DESTDIR=DIR PREFIX=/usr FRITS='desktop minspec-16 minspec-8 arabic'
+```
+
+`make install-fonts DESTDIR=DIR` stages the five sets alone. Their files are in `tools/specimens/frits`.
 
 When a font is missing, vtium leaves it out and says nothing. The characters it would have rendered then come from vtium's built-in font. To see which fonts a set still lacks, run:
 
@@ -42,19 +50,13 @@ When a font is missing, vtium leaves it out and says nothing. The characters it 
 $ vtium config fonts
 ```
 
-The command lists each font set, whether vtium can read it, and the fonts it needs that this machine lacks.
-
-## Where the font sets are
-
-From its next publish, the `vtium` package installs all five sets in `/etc/vtium/fonts`, beside its other font sets. A font set that nothing names changes nothing. To check a set the way vtium reads it, run:
+The command lists each font set, whether vtium can read it, and the fonts it needs that this machine lacks. To check a set the way vtium reads it, run:
 
 ```
 $ vtium config check /etc/vtium/fonts/arabic.vtfrit
 ```
 
 A good font set prints `ok` and the file's name.
-
-When you build vtium from a checkout, `make install` stages the five sets with the others. Their files are in `tools/specimens/frits`.
 
 ## Use a font set
 
