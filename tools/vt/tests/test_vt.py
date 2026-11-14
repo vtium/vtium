@@ -3893,9 +3893,11 @@ class Package(Case):
         self.assertIn("install-terminfo: no", p.stderr)
         self.assertEqual(self.staged(), [])
 
-    # ADR-1500 D8: vtium-fonts ships the frits for scripts with marks beside
-    # the fonts they name, and make install-fonts stages them for its recipe.
-    SCRIPT_FRITS = ("arabic", "hebrew", "indic", "thai-lao", "vietnamese")
+    # ADR-1500 D8: vtium-fonts ships the frits for scripts with marks and the
+    # four CJK frits, one for each region, beside the fonts they name, and
+    # make install-fonts stages them for its recipe.
+    SCRIPT_FRITS = ("arabic", "hebrew", "indic", "thai-lao", "vietnamese",
+                    "cjk-sc", "cjk-tc", "cjk-jp", "cjk-kr")
 
     def test_install_fonts_stages_the_script_frits_alone(self):
         p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")

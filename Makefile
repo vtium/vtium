@@ -193,9 +193,10 @@ FRITS := desktop minspec-16 minspec-8
 FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
 # The frits the optional vtium-fonts package ships beside the fonts they
 # name, which make install-fonts stages: the five for scripts whose marks
-# need room above and below the letters (ADR-1500 D8). make install stages
-# any of them that FRITS names too.
-FONTS_FRITS := arabic hebrew indic thai-lao vietnamese
+# need room above and below the letters, and the four for Chinese, Japanese
+# and Korean, one for each region's forms of Han (ADR-1500 D8). make
+# install stages any of them that FRITS names too.
+FONTS_FRITS := arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr
 frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
 frit_files = $(call frit_paths,$(FRITS))
 # A frit vtium does not hold stops the install as make reads this file,
@@ -376,7 +377,7 @@ endif
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
-install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese), in /etc/vtium/fonts under DESTDIR=DIR
+install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr), in /etc/vtium/fonts under DESTDIR=DIR
 	install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(call frit_paths,$(FONTS_FRITS))
 
 .PHONY: install-terminfo
