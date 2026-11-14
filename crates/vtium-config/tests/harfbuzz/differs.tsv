@@ -1,0 +1,13 @@
+name	reason	why
+use_syllable_001	left-out	Noto Sans Cham's subset has no glyph for U+AA29, so hb-shape draws .notdef there.
+indic_special_cases_001	cut	The terminal cuts Kannada ra, virama and ka into two clusters, because Unicode's grapheme rules join no Kannada conjunct, so the font cannot draw the reph.
+use_indic3_001	cut	The terminal cuts Kannada ka, virama and ra into two clusters, because Unicode's grapheme rules join no Kannada conjunct, so the font cannot draw the conjunct.
+indic_syllable_001	cut	The font kerns Tamil ta and virama against the superscript three after them, which is a cluster of its own.
+indic_syllable_013	cut	The font picks the first Tamil pa's form by the cluster after it.
+myanmar_syllable_002	cut	The terminal gives the Myanmar visarga and the tone mark after it clusters of their own, because Unicode's grapheme rules do not count either as a spacing mark, so the font draws each on a dotted circle.
+use_javanese_013	cut	The font places Javanese glyphs by the clusters around them, and the terminal cuts the text into five clusters.
+use_javanese_028	cut	The font places Javanese glyphs by the clusters around them, and the terminal cuts the text into thirteen clusters.
+use_syllable_010	cut	The terminal cuts the Brahmi conjuncts that the number joiner U+1107F makes, because Unicode's grapheme rules do not join them.
+use_010	cut	The terminal cuts Newa's conjuncts, because Unicode's grapheme rules join no Newa conjunct.
+indic_syllable_006	never-asked	The text is Gurmukhi udaat alone, which hb-shape draws on a dotted circle.
+khmer_misc_090	never-asked	The text is two Khmer coengs alone, which hb-shape draws on dotted circles.
