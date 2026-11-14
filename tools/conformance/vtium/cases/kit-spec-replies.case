@@ -1,0 +1,18 @@
+# Two of vtium's kitty replies keep to the specification's text. A reply's
+# message holds only printable characters and spaces, so the reply to a
+# composition whose destination frame does not exist ends with no line
+# feed. A relative placement that would make a cycle is refused with
+# ECYCLE, and a placement that names itself as its parent makes the
+# shortest cycle.
+#
+# References: ADR-1100 D13, D15.
+# spec: kitty graphics protocol, "Querying support for protocol features": "The message data will be a ASCII encoded string containing only printable characters and spaces"; "Relative placements": "Terminals are required to reject the creation of a relative placement that would create a cycle", answered with "the ECYCLE error code"
+# covers: image.kitty
+# covers: image.kitty-relative
+size 12 4
+send "\e_Ga=T,i=1,p=1,f=24,s=1,v=1,C=1;/wAA\e\\"
+send "\e_Ga=c,i=1,r=1,c=5\e\\"
+send "\e_Ga=p,i=1,p=1,P=1,Q=1\e\\"
+send "\e_Ga=p,i=1,p=2,P=1,Q=1,q=1\e\\"
+send "\e_Ga=p,i=1,p=1,P=1,Q=2\e\\"
+dump

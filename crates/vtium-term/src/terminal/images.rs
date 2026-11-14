@@ -335,17 +335,7 @@ impl Context for Ctx<'_> {
     }
 
     fn colors(&self) -> Option<vtium_image::Colors> {
-        use crate::palette::Special;
-        let p = &self.state.colors;
-        let rgb = |c: crate::style::Rgb| [c.r, c.g, c.b];
-        Some(vtium_image::Colors {
-            table: core::array::from_fn(|i| rgb(p.color(u8::try_from(i).unwrap_or(u8::MAX)))),
-            fg: rgb(p.fg()),
-            bg: rgb(p.bg()),
-            selection_bg: p.special(Special::SelectionBg).map(rgb),
-            selection_fg: p.special(Special::SelectionFg).map(rgb),
-            cursor: p.cursor().map(rgb),
-        })
+        Some(self.state.image_colors())
     }
 
     fn note(&mut self, cause: Cause, why: &str) {
@@ -354,6 +344,40 @@ impl Context for Ctx<'_> {
 }
 
 impl State {
+    /// The terminal's colors as a palette-index picture takes them: the
+    /// palette its frames draw through, the palette vtium.conf configured
+    /// with the colors a program has since set through OSC 4, 10, 11, 12, 17
+    /// and 19.
+    fn image_colors(&self) -> vtium_image::Colors {
+        use crate::palette::Special;
+        let p = &self.colors;
+        let rgb = |c: crate::style::Rgb| [c.r, c.g, c.b];
+        vtium_image::Colors {
+            table: core::array::from_fn(|i| rgb(p.color(u8::try_from(i).unwrap_or(u8::MAX)))),
+            fg: rgb(p.fg()),
+            bg: rgb(p.bg()),
+            selection_bg: p.special(Special::SelectionBg).map(rgb),
+            selection_fg: p.special(Special::SelectionFg).map(rgb),
+            cursor: p.cursor().map(rgb),
+        }
+    }
+
+    /// After the terminal's colors change, makes the pixels of every kitty
+    /// palette-index picture (`f=8` and `f=16`) in both buffers again in
+    /// the new colors. The kitty graphics specification says such a picture
+    /// "is drawn using the current colors of the terminal and is
+    /// automatically redrawn when they change". Every place that changes the
+    /// colors marks every cell changed, so the cells under the pictures are
+    /// redrawn too. The store counts each pixel it looks at as input work,
+    /// so a flood of color changes stops the input call early.
+    ///
+    /// References:
+    /// - ADR-1100 D15: when the colors change, and what the store does.
+    pub(super) fn recolor_images(&mut self) {
+        let table = self.image_colors().resolved();
+        self.screen.with_images(|store, _, _| store.recolor(&table));
+    }
+
     /// Calls the handler for `which` with a context over this state. The
     /// handler is out of its slot meanwhile, and is marked as running, so
     /// the protocol still reads as offered from inside the call, as the
@@ -1507,13 +1531,9 @@ mod tests {
         0xff00_0000 | u32::from(rgb.r) << 16 | u32::from(rgb.g) << 8 | u32::from(rgb.b)
     }
 
-    // A kitty f=8 picture takes the palette the frames draw through as it
-    // arrives (ADR-1100, D15): one sent before OSC 4 changes color 1 keeps
-    // the old color, and one sent after it takes the new one.
-    // covers: image.kitty
-    #[test]
-    fn a_palette_index_picture_takes_the_colors_in_force_when_it_arrives() {
-        let mut t = Terminal::new(4, 2, 0);
+    /// A terminal of `cols` by 2 with kitty graphics on.
+    fn kitty_term(cols: usize) -> Terminal {
+        let mut t = Terminal::new(cols, 2, 0);
         t.screen_mut().set_image_limit(1 << 20);
         assert!(t.screen_mut().set_image_cell(8, 16).is_ok());
         t.set_image_switches(Switches {
@@ -1525,28 +1545,96 @@ mod tests {
             ImageString::Kitty,
             Some(Box::new(vtium_image::Kitty::default())),
         );
+        t
+    }
+
+    /// Each placement's pixels, in draw order.
+    fn placed_pixels(t: &Terminal) -> Vec<Vec<u32>> {
+        t.screen()
+            .placements()
+            .iter()
+            .map(|p| p.pixels.as_slice().to_vec())
+            .collect()
+    }
+
+    // The kitty graphics specification says a palette-index picture "is
+    // drawn using the current colors of the terminal and is automatically
+    // redrawn when they change". So a kitty f=8 picture sent before OSC 4
+    // changes color 1 shows the new color, as one sent after it does.
+    //
+    // References:
+    // - ADR-1100 D15: a palette-index picture follows the colors.
+    // covers: image.kitty
+    #[test]
+    fn a_palette_index_picture_takes_the_colors_of_now_whenever_it_arrived() {
+        let mut t = kitty_term(4);
         let old = t.palette().color(1);
         // index 1, then the default background (248) and foreground (249)
         let picture = |id: u8| format!("\x1b_Ga=T,f=8,s=3,v=1,i={id},C=1;Afj5\x1b\\");
         t.input(picture(1).as_bytes());
+        let (fg, bg) = (t.palette().fg(), t.palette().bg());
+        assert_eq!(
+            placed_pixels(&t),
+            vec![vec![opaque(old), opaque(bg), opaque(fg)]]
+        );
         t.input(b"\x1b]4;1;rgb:12/34/56\x1b\\");
         let new = t.palette().color(1);
         assert_ne!(old, new);
         t.input(picture(2).as_bytes());
         assert_eq!(t.replies(), b"\x1b_Gi=1;OK\x1b\\\x1b_Gi=2;OK\x1b\\");
-        let (fg, bg) = (t.palette().fg(), t.palette().bg());
-        let placed = t.screen().placements();
-        let pixels: Vec<Vec<u32>> = placed
-            .iter()
-            .map(|p| p.pixels.as_slice().to_vec())
-            .collect();
-        assert_eq!(
-            pixels,
-            vec![
-                vec![opaque(old), opaque(bg), opaque(fg)],
-                vec![opaque(new), opaque(bg), opaque(fg)],
-            ]
-        );
+        let now = vec![opaque(new), opaque(bg), opaque(fg)];
+        assert_eq!(placed_pixels(&t), vec![now.clone(), now]);
+    }
+
+    // Each way a program changes the colors, OSC 4, 10, 11, 12, 17 and 19,
+    // and each reset, OSC 104, 110, 111, 112, 117 and 119, converts a
+    // palette-index picture's pixels again and marks its cells changed; so
+    // does the host's palette. The picture shows index 1 and indices 248
+    // to 253, so each of these strings changes one of its pixels.
+    //
+    // References:
+    // - ADR-1100 D15: when the colors change.
+    // covers: image.kitty
+    #[test]
+    fn every_color_change_and_reset_redraws_a_palette_index_picture() {
+        let mut t = kitty_term(8);
+        // 1, 248, 249, 250, 251, 252, 253 as base64
+        t.input(b"\x1b_Ga=T,f=8,s=7,v=1,i=1,C=1,q=1;Afj5+vv8/Q==\x1b\\");
+        let changes: [&[u8]; 12] = [
+            b"\x1b]4;1;rgb:12/34/56\x1b\\",
+            b"\x1b]104;1\x1b\\",
+            b"\x1b]10;rgb:01/02/03\x1b\\",
+            b"\x1b]110\x1b\\",
+            b"\x1b]11;rgb:04/05/06\x1b\\",
+            b"\x1b]111\x1b\\",
+            b"\x1b]12;rgb:07/08/09\x1b\\",
+            b"\x1b]112\x1b\\",
+            b"\x1b]17;rgb:0a/0b/0c\x1b\\",
+            b"\x1b]117\x1b\\",
+            b"\x1b]19;rgb:0d/0e/0f\x1b\\",
+            b"\x1b]119\x1b\\",
+        ];
+        for change in changes {
+            let before = placed_pixels(&t);
+            let age = t.screen_mut().checkpoint();
+            t.input(change);
+            let after = placed_pixels(&t);
+            let what = String::from_utf8_lossy(change);
+            assert_ne!(after, before, "{what:?} redraws the picture");
+            // the picture's cell is marked changed for the next frame
+            assert!(t.screen().damage().changed(0, 0, age), "{what:?}");
+            // and the pixels are those of a picture sent now
+            t.input(b"\x1b_Ga=T,f=8,s=7,v=1,i=2,C=1,q=1;Afj5+vv8/Q==\x1b\\");
+            let fresh = placed_pixels(&t);
+            assert_eq!(fresh.first(), fresh.last(), "{what:?}");
+            t.input(b"\x1b_Ga=d,d=I,i=2\x1b\\");
+        }
+        // the host's palette, a change of the configured palette
+        let before = placed_pixels(&t);
+        let mut p = t.palette().clone();
+        p.set_color(1, crate::style::Rgb::new(1, 1, 1));
+        t.set_palette(p);
+        assert_ne!(placed_pixels(&t), before, "the host's palette");
     }
 
     /// The pixels of the picture placed last, after feeding `t` an f=8
@@ -1569,18 +1657,7 @@ mod tests {
     // covers: image.kitty
     #[test]
     fn osc_colors_reach_a_palette_index_picture() {
-        let mut t = Terminal::new(8, 2, 0);
-        t.screen_mut().set_image_limit(1 << 20);
-        assert!(t.screen_mut().set_image_cell(8, 16).is_ok());
-        t.set_image_switches(Switches {
-            sixel: false,
-            kitty: true,
-            iterm2: false,
-        });
-        t.set_image_handler(
-            ImageString::Kitty,
-            Some(Box::new(vtium_image::Kitty::default())),
-        );
+        let mut t = kitty_term(8);
         let (fg, bg) = (t.palette().fg(), t.palette().bg());
         let unset = special_indices(&mut t, 1);
         assert_eq!(

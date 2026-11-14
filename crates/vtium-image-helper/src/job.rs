@@ -483,6 +483,56 @@ mod tests {
         );
     }
 
+    // kitty's f=8 and f=16 come back unconverted, four bytes a pixel: the
+    // index, its alpha (255 for f=8) and two zero bytes, inflated from zlib
+    // or read from a file, and too few bytes are TOO_SHORT as for RGB
+    #[test]
+    fn palette_indices_come_back_unconverted_in_the_reply_form() {
+        for (layout, data, want) in [
+            (
+                Layout::Index,
+                vec![7u8, 250],
+                vec![7, 0xff, 0, 0, 250, 0xff, 0, 0],
+            ),
+            (
+                Layout::IndexAlpha,
+                vec![7, 0x80, 250, 0],
+                vec![7, 0x80, 0, 0, 250, 0, 0, 0],
+            ),
+        ] {
+            let mut r = raw(Medium::Direct(Vec::new()), layout, 2, 1);
+            r.inflate = true;
+            r.pixels.as_mut().unwrap().compressed = true;
+            let z = miniz_oxide::deflate::compress_to_vec_zlib(&data, 6);
+            let reply = ReplyFile::Fresh(memory_file("r").unwrap());
+            let source = open(&r, Some(inline(&z)), None).unwrap();
+            let o = finish(&r, source, Some(&reply), &Locked::unsandboxed());
+            assert_eq!(
+                (o.status, o.width, o.height),
+                (Status::Ok, 2, 1),
+                "{}",
+                o.reason
+            );
+            let ReplyFile::Fresh(fd) = &reply else {
+                unreachable!()
+            };
+            assert_eq!(sealed_bytes(fd), want, "{layout:?} inflated");
+            // the same bytes from a file, then one byte short
+            let file = inline(&data);
+            let r = raw(Medium::File(b"/x".to_vec()), layout, 2, 1);
+            let (read, _) = read_bounded(&r, &file, data.len() as u64).unwrap();
+            assert_eq!(read, data);
+            let mut short = raw(Medium::File(b"/x".to_vec()), layout, 2, 1);
+            short.offset = 1;
+            assert_eq!(
+                read_bounded(&short, &file, data.len() as u64)
+                    .unwrap_err()
+                    .status,
+                Status::TooShort
+            );
+        }
+    }
+
     #[test]
     fn a_read_takes_its_bounds_and_counts_what_it_leaves() {
         let file = inline(b"0123456789");

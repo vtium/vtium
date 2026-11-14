@@ -298,6 +298,51 @@ impl Payload {
         }
     }
 
+    /// The one copy of a palette-index picture's indices into memory only
+    /// the console holds: the reply's index form, four bytes a pixel
+    /// ([`convert::reply_group`]), read back out as `layout` holds them, one
+    /// byte a pixel for [`Layout::Index`] and two for
+    /// [`Layout::IndexAlpha`]. The buffer is reserved whole before a byte is
+    /// read, and the caller has reserved it under the budget. `None` for a
+    /// layout that is not a palette index, a discard's answer, a buffer that
+    /// cannot be had, and for a file that cannot be read whole or hands
+    /// over more or fewer bytes than its size.
+    pub fn copy_indices(&self, layout: Layout) -> Option<Vec<u8>> {
+        if !layout.indexed() {
+            return None;
+        }
+        let (width, height) = self.size()?;
+        let pixels = usize::try_from(u64::from(width).checked_mul(u64::from(height))?).ok()?;
+        let len = pixels.checked_mul(layout.bytes())?;
+        let mut out = Vec::new();
+        out.try_reserve_exact(len).ok()?;
+        match self {
+            Self::Rgba { data, .. } => {
+                let need = pixels.checked_mul(4)?;
+                if data.len() != need {
+                    return None;
+                }
+                convert::indices_from_reply(layout, data, &mut out);
+                Some(out)
+            }
+            Self::File { file, .. } => {
+                let mut over = false;
+                let whole = file.read(&mut |run| {
+                    let room = len.saturating_sub(out.len());
+                    let room = room
+                        .checked_div(layout.bytes())
+                        .unwrap_or(0)
+                        .saturating_mul(4);
+                    let take = run.get(..room).unwrap_or(run);
+                    over |= take.len() < run.len();
+                    convert::indices_from_reply(layout, take, &mut out);
+                });
+                (whole && !over && out.len() == len).then_some(out)
+            }
+            Self::Frames { .. } | Self::Discarded => None,
+        }
+    }
+
     /// The one copy of an animated GIF's first `keep` frames into memory
     /// only the console holds, which the caller reserved under the budget
     /// and the frame allowance: each frame's pixels in the store's format,
@@ -680,5 +725,40 @@ mod file_tests {
         assert_eq!(file(vec![0xff; 12], 4).copy_into(Vec::new()), None);
         assert!(file(vec![0xff; 8], 8).copy_into(Vec::new()).unwrap().1);
         assert_eq!(Payload::Discarded.copy_into(Vec::new()), None);
+    }
+
+    #[test]
+    fn palette_indices_are_copied_out_of_the_reply_and_its_size_checked() {
+        // two pixels in the reply's index form: index, alpha, 0, 0
+        let reply = vec![7, 0x80, 0, 0, 250, 0xff, 0, 0];
+        for run in [4, 8] {
+            let f = file(reply.clone(), run);
+            assert_eq!(f.copy_indices(Layout::Index), Some(vec![7, 250]));
+            assert_eq!(
+                f.copy_indices(Layout::IndexAlpha),
+                Some(vec![7, 0x80, 250, 0xff])
+            );
+        }
+        let memory = Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: reply.clone(),
+        };
+        assert_eq!(memory.copy_indices(Layout::Index), Some(vec![7, 250]));
+        // too few or too many bytes, a layout of colors, and a discard
+        assert_eq!(
+            file(reply.get(..4).unwrap().to_vec(), 4).copy_indices(Layout::Index),
+            None
+        );
+        let more = [reply.as_slice(), &[0; 4]].concat();
+        assert_eq!(file(more.clone(), 4).copy_indices(Layout::Index), None);
+        let memory = Payload::Rgba {
+            width: 2,
+            height: 1,
+            data: more,
+        };
+        assert_eq!(memory.copy_indices(Layout::IndexAlpha), None);
+        assert_eq!(file(reply, 4).copy_indices(Layout::Rgba), None);
+        assert_eq!(Payload::Discarded.copy_indices(Layout::Index), None);
     }
 }

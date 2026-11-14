@@ -1,0 +1,17 @@
+# DECSWL (ESC # 5) returns the cursor's line to single width. On the line
+# DECDWL made double width, CUF stops at column 5 of 10; after DECSWL the
+# cursor stays on its character position, CUF reaches column 10 again, and
+# printing wraps after the screen's last column.
+# spec: the VT100 User Guide, DECSWL and DECDWL
+# capability: decswl
+size 10 3
+send "\e#6abc\e[99C"
+check
+want cursor 4,0
+send "\e#5"
+check
+want cursor 4,0
+send "\e[99C\e[1;4Hdefghijk"
+check
+want row 0 |abcdefghij|
+want row 1 |k|
