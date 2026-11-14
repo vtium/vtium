@@ -356,6 +356,17 @@ considered:
     said: "A glyph exactly twice its cells' width squeezes 2:1 inside its cells (OR pooling, no overhang); any other glyph wider than its cells squeezes to the cells' width plus 2 pixels as written. Keep all 8 columns of Unscii-8 in tiny5's cell, 1 pixel past each side, as written."
     via: the maintainer, in the steering session, after the Wide Glyph Fit page round 3 pictures, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "No implicit emoji source for the frit made from font-name: fonts are not combined for coverage without a specification of how font sets are organized."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
+  - operator: aaronsb
+    said: "I just want to avoid 'deco-collaging' a bunch of fonts together to get coverage, at least without a clear specification for the fonts."
+    via: the steering session's questions on 2026-11-14, on the text records, relayed in the maintainer's words by the team lead
+  - operator: aaronsb
+    said: "Behind a bitmap first font, outline glyphs draw 1-bit by default, with render= to override, as proposed."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
 observable:
   - "A glyph arriving for a character shown only in the scrollback view, or inside a cluster, redraws that cell on the next frame"
   - "With the store at its limit, the fill sends nothing more, and an ask evicts the glyphs least recently shown, redrawing nothing"
@@ -622,10 +633,10 @@ The C reference loaded its font before its first frame and took the font's cell.
 ### D9: the font at start, and its fallback
 
 - vtium chooses the font in this order, the most specific first (D16): the frit that the head's profile names, where that frit has a source; else `font-name` from the command line or vtium.conf; else `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; else the built-in font.
-- vtium looks a name up as a frit under `/etc/vtium/fonts`. When no frit has that name, a kbd name, a font path given with `font-engine=psf`, a family given with `font-engine=freetype` or `pango`, or vconsole.conf's `FONT=` becomes a frit that vtium makes on the fly, with a `kbd:`, `file:`, `font:<family>` or `vconsole` source (D1), so that existing console setups keep working (the operator, 2026-10-28).
-- **The frit made from a family has an emoji source.** The frit that vtium makes for a family has a second source after the family: `font:` and the family that vtium.conf's `font-emoji` key names, `Noto Color Emoji` by default. Noto Color Emoji is the color emoji font that the common Linux distributions package, and vtium's own example frits name it. `font-emoji = none` leaves the second source out, so the frit holds the family alone. `font-emoji` sits at the same levels as `font-name`, the top level and a look, and vtium reads it together with the `font-name` of the same level. The second source fills only the characters that the family lacks (D1). A character whose Emoji_Presentation is No, such as ❤, still draws from a text glyph where a font has one, by D7's order. On a machine without the emoji font, the helper leaves the source out quietly (D1), and the console draws as before. The helper's fill (D18) draws the emoji font's glyphs while nothing is asked, as it draws any source's, until the store's limit (D19). The frits made from a kbd name, a font path and vconsole's font keep one source. They are console fonts, and the built-in unifont keeps drawing their emoji in 1 bit. A frit that a person writes names its own sources, and `font-emoji` does not change it. Not built yet.
+- vtium looks a name up as a frit under `/etc/vtium/fonts`. When no frit has that name, a kbd name, a font path given with `font-engine=psf`, a family given with `font-engine=freetype` or `pango`, or vconsole.conf's `FONT=` becomes a one-source frit that vtium makes on the fly, with a `kbd:`, `file:`, `font:<family>` or `vconsole` source (D1), so that existing console setups keep working (the operator, 2026-10-28).
+- **The frit made from a family stays one font.** The frit that vtium makes for a family that `font-name` names holds that family alone, so no emoji source reaches it, and every emoji that the family lacks draws from the built-in unifont, in 1 bit. vtium adds no font to a frit it makes, for emoji or for any other coverage, until a specification decides how font sets are organized. A person who wants color emoji with such a family writes a frit that names both fonts, as `docs/fonts.md` shows.
 
-> Edited 2026-11-14: the maintainer's decision of 2026-10-28 that color emoji are in the outline-fonts work's scope (`basis`), and the finding that the frit made for `font-name=DejaVu Sans Mono` reached no emoji source, so that every emoji drew from the built-in unifont. The work on text records proposes the emoji source and the key `font-emoji`. The second bullet read "becomes a one-source frit that vtium makes on the fly", and the bullet on the emoji source is new.
+> Edited 2026-11-14: the finding that the frit made for `font-name=DejaVu Sans Mono` reached no emoji source, so that every emoji drew from the built-in unifont. The work on text records proposed a second source, Noto Color Emoji, under a key `font-emoji`. The maintainer declined it (`considered`): "I just want to avoid 'deco-collaging' a bunch of fonts together to get coverage, at least without a clear specification for the fonts." The bullet that the frit made from a family stays one font is new, and states what vtium already did.
 
 > Edited 2026-10-30: the operator gave a head's font one path (ADR-1401's `considered`). The first bullet began: "The font is, the most specific first (D16): the head's own `font-name` (ADR-1401 D3); unset, the frit the head's profile names,".
 

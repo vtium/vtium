@@ -31,6 +31,28 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "A ligature draws apart when the cursor stands on it, as the record says."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
+    covers: [cursor in a ligature]
+  - operator: aaronsb
+    said: "The key is font-ligatures, on or off, off by default, as the record says."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
+  - operator: aaronsb
+    said: "Only runs of 2 to 14 ASCII symbols join into a ligature, as the record says."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
+  - operator: aaronsb
+    said: "Not decided: how a line holding part of a run taller than one row behaves at a width change. Research what other terminals do first."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
+  - operator: aaronsb
+    said: "A big heading written near the bottom scrolls the screen up so that it fits, as the record says."
+    via: the steering session's questions on 2026-11-14, on the text records
+    paraphrase: true
 status: proposed
 date: 2026-11-14
 deciders:
@@ -52,7 +74,7 @@ related:
 ## Summary
 
 - **Decided:** A run is a block of cells that draws one piece of text as a whole. vtium has two kinds. A sized run is what kitty's text sizing protocol, OSC 66, writes: text drawn at a scale across a block of cells, up to 49 columns wide and 7 rows high. vtium-term stores a sized run as one character, and every edit treats it as one unit: an edit that would move, clear or overwrite some of its cells and not the rest erases the whole run. vtium takes all six of the protocol's keys, s, w, n, d, v and h, and follows the protocol's rules for wrapping, overwriting, the cursor and the editing controls. A ligature is the other kind. It is a drawing only, as a joined syllable is: the terminal keeps each character in its own cell, and the console draws the font's ligature across those cells, one piece in each cell. Ligatures are off by default, and the vtium.conf key `font-ligatures = on` turns them on. A double-size line is not a run: each of its characters is one cell, drawn twice as wide, and the VT510's rules for it stand.
-- **Trades away:** A program that writes over any cell of a sized run's top row loses the whole run, as the protocol asks. Rows that hold part of a run taller than one row do not rewrap at a width change. A ligature draws apart when the cursor stands on it, so the drawing changes as the cursor moves through code. Only ligatures made of ASCII symbols draw, so a font's ligatures of letters or digits, such as `www` or `0x`, do not.
+- **Trades away:** A program that writes over any cell of a sized run's top row loses the whole run, as the protocol asks. Rows that hold part of a run taller than one row do not rewrap at a width change, which stays open until the maintainer decides it (D6). A ligature draws apart when the cursor stands on it, so the drawing changes as the cursor moves through code. Only ligatures made of ASCII symbols draw, so a font's ligatures of letters or digits, such as `www` or `0x`, do not.
 - **One-way?** No, not yet. The run is stored only in memory, in the screen and the scrollback, and nothing on disk holds it. The name of the key `font-ligatures` becomes expensive to change once a release ships it, since people write it into vtium.conf.
 - **Probes:** *Not confident (cursor in a ligature):* when the cursor stands on any cell of a ligature, vtium draws the ligature's characters apart, so you can see which character the cursor is on, as it already does for joined syllables and the Arabic lam-alef. Is that what you want, or should the ligature stay whole under the cursor? *Confident (big text is one piece):* a heading a program writes in big text behaves like one large character. When anything writes over its first row, or an erase touches any part of it, the whole heading goes, never half of it. Right?
 - **Inversion:** The choice sat between storing every cell of a run as an ordinary character and drawing the scale on top, which lets an edit leave half a heading, and making the whole line a special line, as a double-size line is, which cannot hold big text beside normal text. A run stored as one character keeps both: normal text beside big text, and no half of a heading. A ligature sits at the other end on purpose. The program wrote separate characters, so the terminal keeps them separate and only the drawing joins them.
@@ -152,8 +174,10 @@ A change to any cell of a run damages every cell of the run, on every row, so th
 - **A mouse report** names the cell under the pointer, as it does for any cell.
 - **Selection and copy.** A selection that touches any cell of a run selects the whole run. Copying gives the run's text once, from its top row, and the run's other cells copy as nothing.
 - **Right-to-left text.** The bidirectional algorithm sees a run as one U+FFFC OBJECT REPLACEMENT CHARACTER, which is neutral. So a run moves as one block when its paragraph is reordered, and its text is drawn in the order its own shaping gives (ADR-1004).
-- **Reflow at a width change (ADR-1003).** A run of one row moves whole to the next row when the row no longer holds it, as a wide character does, and leaves pad cells behind it. A line that holds any row of a run taller than one row does not rewrap: it keeps its columns, as a line written while mode 2028 is reset keeps them. A narrower margin that cuts such a run erases the whole run.
+- **Reflow at a width change (ADR-1003), open.** A run of one row moves whole to the next row when the row no longer holds it, as a wide character does, and leaves pad cells behind it. A line that holds any row of a run taller than one row does not rewrap: it keeps its columns, as a line written while mode 2028 is reset keeps them. A narrower margin that cuts such a run erases the whole run.
 - **A resize that makes the screen too small** for a run, narrower than its columns or shorter than its rows, erases the run, as the protocol says a terminal may.
+
+> Open 2026-11-14: the maintainer has not decided how a line that holds a row of a run taller than one row behaves at a width change, and asked for research first on what other terminals do with such lines, and with double-height lines, at a width change. The reflow bullet above is a proposal until that decision.
 
 ### D7: sized runs on double-size lines
 
