@@ -1,0 +1,36 @@
+size 12x4
+cursor 3,3
+flags AUTO_WRAP
+reply 1b5f47693d313b4f4b1b5c1b5f47693d323b4f4b1b5c
+host: 1 t=f flags=- O=0 max=0 min=3 name=/tmp/idx8 len=0
+reply 1b5f47693d333b4f4b1b5c
+host: 2 t=f flags=- O=0 max=0 min=6 name=/tmp/idx16 len=0
+reply 1b5f47693d343b4f4b1b5c
+host: 3 t=t flags=- O=0 max=0 min=3 name=/tmp/tty-graphics-protocol-idx8 len=0
+reply 1b5f47693d353b4f4b1b5c
+host: 4 t=s flags=- O=0 max=0 min=3 name=shm-idx8 len=0
+reply 1b5f47693d363b4f4b1b5c
+host: 5 t=d flags=inflate O=0 max=0 min=3 name= len=11
+reply 1b5f47693d373b4f4b1b5c
+host: 6 t=d flags=inflate O=0 max=0 min=6 name= len=14
+reply 1b5f47693d383b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 0 opaque
+placement 1 row 0 col 3 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 1
+placement 2 row 1 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 2 opaque
+placement 3 row 1 col 3 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 3
+placement 4 row 2 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 4 opaque
+placement 5 row 2 col 3 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 5 opaque
+placement 6 row 3 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 6 opaque
+placement 7 row 3 col 3 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 7
+image 0 3x1 digest d8dfc700
+image 1 3x1 digest c3b93537
+image 2 3x1 digest d8dfc700
+image 3 3x1 digest c3b93537
+image 4 3x1 digest d8dfc700
+image 5 3x1 digest d8dfc700
+image 6 3x1 digest d8dfc700
+image 7 3x1 digest c3b93537

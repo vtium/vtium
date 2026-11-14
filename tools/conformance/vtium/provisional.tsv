@@ -66,3 +66,7 @@ kitty-upload-sixel-between	derived from upload-rules.md (ADR-1100 D16/D14), seal
 kitty-upload-stray	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-capital-t-cursor	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-cut-chunk	derived from the maintainer's answer of 2026-11-13 (ADR-1100 D16, "What ends an upload early"), sealed before vtium ran; not reviewed yet
+kit-spec-indexed-recolor	derived from the kitty graphics protocol's published specification, "Indexed color data", and ADR-1100 D15; the digests match ones computed by hand from the spec and the reference palette; not reviewed yet
+kit-spec-indexed-media	derived from the kitty graphics protocol's published specification, "Transferring pixel data" and "Compression", and ADR-1100 D15; not reviewed yet
+kit-spec-replies	derived from the kitty graphics protocol's published specification, "Querying support for protocol features" and "Relative placements"; not reviewed yet
+kit-spec-no-id-order	derived from the kitty graphics protocol's published specification, "Display images on screen" and "Controlling displayed image layout", and ADR-1100 D4; not reviewed yet
