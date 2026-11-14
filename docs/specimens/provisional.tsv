@@ -2,3 +2,12 @@
 # provisional profile that moves is reported as drift and fails nothing,
 # and may go undrawn where its set cannot be built; a row goes when the
 # operator accepts the profile, which then fails on a moved pixel.
+320x240	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 120 pixels of screen-5 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+320x240-1bit	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 120 pixels of screen-5 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+480x320	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 120 pixels of screen-5 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+640x480	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 164 pixels of screen-3 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+800x480	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 164 pixels of screen-3 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+1366x768	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 164 pixels of screen-2 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+320x240-gray16	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 120 pixels of screen-5 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+320x240-gray4	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 120 pixels of screen-5 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
+640x480-gray16	#144: moved by ADR-1006, which gives a cluster with a spacing mark or a virama conjunct two cells: 164 pixels of screen-3 and its collage move; the redraw waits for the joined-syllables card, which changes the same lines; not reviewed yet
