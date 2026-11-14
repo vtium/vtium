@@ -42,6 +42,17 @@
 //! of the row above when it changes the first row's first column, the
 //! scrollback's newest line's above the screen's first row.
 //!
+//! A line of double size (DECDWL, DECDHL) holds half the screen's columns
+//! (`LineSize::columns`). ICH, DCH, DECIC and DECDC move its cells only up
+//! to its last column. ED returns each line it erases whole to single
+//! size, since the VT510 manual's ED says that erased complete lines
+//! "become single-height, single-width lines". EL keeps the line's size,
+//! since neither the VT510 manual's EL nor the VT100 User Guide's says
+//! otherwise. IL, DL and every scroll move a line with its size, and the
+//! blank lines they bring in are single size. While DECLRMM is set no line
+//! is of double size (`set_line_size`), so the left and right margins
+//! never meet one.
+//!
 //! [`Line::erase`]: crate::Line::erase
 //! [`Line::insert_cells`]: crate::Line::insert_cells
 //! [`Line::delete_cells`]: crate::Line::delete_cells
@@ -51,7 +62,7 @@ use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::{Line, LineFlags};
+use crate::line::{Line, LineFlags, LineSize};
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -92,6 +103,87 @@ impl Screen {
             line.erase(cols.clone(), &blank);
         }
         self.mark_cells(y, cols);
+    }
+
+    /// How many columns row `y` holds: the screen's, or half of them on a
+    /// line of double size.
+    pub(super) fn line_cols(&self, y: usize) -> usize {
+        self.line(y)
+            .map_or(self.cols, |l| l.flags().size().columns(self.cols))
+    }
+
+    /// The column after the last that an edit of row `y` moves cells up
+    /// to: the right margin's, inside the row's columns.
+    pub(super) fn edit_end(&self, y: usize) -> usize {
+        self.right.saturating_add(1).min(self.line_cols(y))
+    }
+
+    /// DECSWL, DECDWL and DECDHL: the cursor's line takes `size`, and is
+    /// drawn again whole. While DECLRMM is set the line stays single size,
+    /// as the VT510 manual's DECLRMM says: "The terminal ignores any
+    /// sequences to change the line attributes to double width or double
+    /// height". A line that becomes double size loses its cells past its
+    /// new last column, which no longer show, and its wrap, whose last
+    /// column they held. The cursor keeps its column, or moves to the
+    /// line's last column when it stood past it, and a pending wrap ends
+    /// (VT100 User Guide, DECDWL and DECDHL: "The cursor remains over the
+    /// same character position unless it would be to the right of the right
+    /// margin, in which case it is moved to the right margin").
+    pub(crate) fn set_line_size(&mut self, size: LineSize) {
+        if size.is_double() && self.flags.lr_margins {
+            return;
+        }
+        let (cols, y) = (self.cols, self.cursor_y);
+        if self.line(y).is_none() {
+            return;
+        }
+        let kept = size.columns(cols);
+        if kept < cols {
+            self.split_wide(y, kept);
+            self.images_cut(y, kept, cols.saturating_sub(1));
+            if let Some(line) = self.line_mut(y) {
+                line.erase(kept..cols, &Style::DEFAULT);
+            }
+            self.unwrap_rows(y..y.saturating_add(1));
+        }
+        if let Some(line) = self.line_mut(y) {
+            line.flags_mut().set_size(size);
+        }
+        self.mark_cells(y, 0..cols);
+        let x = self.cursor_x.min(kept.saturating_sub(1));
+        self.move_cursor(x, y);
+    }
+
+    /// DECLRMM set: every line of both screens returns to single size, as
+    /// the VT510 manual's DECLRMM says: "All line attributes currently in
+    /// page memory for the session are set to single width, single
+    /// height". Each line keeps its cells, and the lines that changed are
+    /// drawn again.
+    pub(crate) fn single_size_all(&mut self) {
+        let rows = self.rows;
+        let mut changed = Vec::new();
+        for (screen, lines) in [(false, &mut self.main), (true, &mut self.alt)] {
+            for (y, line) in lines.iter_mut().enumerate() {
+                if line.flags().size().is_double() {
+                    line.flags_mut().set_size(LineSize::Single);
+                    if screen == self.flags.alternate && y < rows {
+                        changed.push(y);
+                    }
+                }
+            }
+        }
+        for y in changed {
+            self.mark_cells(y, 0..self.cols);
+        }
+    }
+
+    /// Returns each row of `rows` to single size: ED's rows erased whole.
+    fn single_size(&mut self, rows: &[usize]) {
+        for &y in rows {
+            if let Some(line) = self.line_mut(y) {
+                line.flags_mut().set_size(LineSize::Single);
+            }
+        }
     }
 
     /// Clears from `from` to `to` inclusive, each a column and a row, in
@@ -138,7 +230,9 @@ impl Screen {
                     run = col.saturating_add(1);
                 }
             }
-            if x == 0 && end >= last_col && runs.is_empty() {
+            // A row is erased whole when the region covers its columns,
+            // which on a line of double size end at half the screen.
+            if x == 0 && end.saturating_add(1) >= self.line_cols(y) && runs.is_empty() {
                 whole.push(y);
             }
             runs.push(run..end.saturating_add(1));
@@ -248,6 +342,7 @@ impl Screen {
     pub fn erase_above(&mut self, which: Erase) {
         let y = self.cursor_y;
         let whole = self.erase_region((0, 0), (self.cursor_x, y), which);
+        self.single_size(&whole);
         // The rows cleared whole take the current paragraph values.
         #[cfg(feature = "bidi")]
         self.give_current(whole.iter().copied().filter(|&row| row != y));
@@ -258,6 +353,7 @@ impl Screen {
     pub fn erase_below(&mut self, which: Erase) {
         let (x, y) = (self.erase_column(), self.cursor_y);
         let whole = self.erase_region((x, y), (self.cols, self.rows), which);
+        self.single_size(&whole);
         // The rows cleared whole take the current paragraph values.
         #[cfg(feature = "bidi")]
         self.give_current(whole.iter().copied().filter(|&row| row != y));
@@ -273,6 +369,7 @@ impl Screen {
         if let Some(held) = held {
             self.images_erase_screen(held);
         }
+        self.single_size(&whole);
         for &y in &whole {
             if let Some(line) = self.line_mut(y) {
                 line.flags_mut().remove(LineFlags::MARKS);
@@ -303,7 +400,7 @@ impl Screen {
     /// and right margins: the cells from `x` to the right margin move
     /// right, and those pushed past it go.
     fn insert_cells_at(&mut self, y: usize, x: usize, n: usize) {
-        let end = self.right.saturating_add(1).min(self.cols);
+        let end = self.edit_end(y);
         let n = n.min(end.saturating_sub(x));
         let kept = end.saturating_sub(x).saturating_sub(n);
         // a picture text cuts loses the row from the cursor on: shifting
@@ -340,7 +437,7 @@ impl Screen {
     /// left, blank cells fill in at the margin, and the row's wrap ends, as
     /// xterm's `ScrnDeleteChar` ends it.
     fn delete_cells_at(&mut self, y: usize, x: usize, n: usize) {
-        let end = self.right.saturating_add(1).min(self.cols);
+        let end = self.edit_end(y);
         let n = n.min(end.saturating_sub(x));
         self.images_cut(y, x, end.saturating_sub(1));
         // A wide character at either end of the deleted cells, or across

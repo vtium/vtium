@@ -10,6 +10,7 @@
 //! OSC strings through `color.rs`, OSC 8's links and OSC 133's marks
 //! through the screen, the in-band reports through
 //! `inband.rs`, the Linux console's blank sequences through `blank.rs`,
+//! the line size sequences (DECDWL, DECDHL, DECSWL) through `line_size.rs`,
 //! and the keys, the pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
@@ -29,6 +30,7 @@ mod images;
 mod inband;
 mod input;
 mod kitty_keyboard;
+mod line_size;
 mod modes;
 mod rect;
 mod reply;
@@ -1089,6 +1091,7 @@ impl Consumer for State {
         let slot = match intermediates.as_bytes() {
             [] => return self.esc_plain(final_byte),
             [b'#'] if final_byte == b'8' => return self.screen_alignment(),
+            [b'#'] => return self.line_size(final_byte),
             [b'('] => 0,
             [b')'] => 1,
             [b'*'] => 2,
