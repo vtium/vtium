@@ -32,6 +32,8 @@ vtium ships the font sets, never the fonts. On Arch Linux, the `noto-fonts` pack
 # pacman -S noto-fonts
 ```
 
+From its next publish, the `vtium-fonts` package depends on `noto-fonts` too, so installing `vtium-fonts` brings these fonts with the others.
+
 On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
 
 When a font is missing, vtium leaves it out and says nothing. The characters it would have rendered then come from vtium's built-in font. To see which fonts a set still lacks, run:
@@ -42,21 +44,17 @@ $ vtium config fonts
 
 The command lists each font set, whether vtium can read it, and the fonts it needs that this machine lacks.
 
-## Install a font set
+## Where the font sets are
 
-The packages do not install these font sets yet. Copy the set you want from vtium's source tree, where they are in `tools/specimens/frits`. For example, to install the `arabic` set:
-
-```
-# install -Dm644 tools/specimens/frits/arabic.vtfrit /etc/vtium/fonts/arabic.vtfrit
-```
-
-Then check the set the way vtium reads it:
+From its next publish, the `vtium` package installs all five sets in `/etc/vtium/fonts`, beside its other font sets. A font set that nothing names changes nothing. To check a set the way vtium reads it, run:
 
 ```
 $ vtium config check /etc/vtium/fonts/arabic.vtfrit
 ```
 
 A good font set prints `ok` and the file's name.
+
+When you build vtium from a checkout, `make install` stages the five sets with the others. Their files are in `tools/specimens/frits`.
 
 ## Use a font set
 

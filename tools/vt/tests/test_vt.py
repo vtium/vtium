@@ -3512,6 +3512,11 @@ class Package(Case):
         "etc/vtium/fonts/desktop.vtfrit",
         "etc/vtium/fonts/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit",
+        "etc/vtium/fonts/arabic.vtfrit",
+        "etc/vtium/fonts/hebrew.vtfrit",
+        "etc/vtium/fonts/indic.vtfrit",
+        "etc/vtium/fonts/thai-lao.vtfrit",
+        "etc/vtium/fonts/vietnamese.vtfrit",
         "etc/vtium/vtium.conf.example",
         "usr/bin/vtium",
         "usr/bin/vtium-config",
@@ -3530,11 +3535,22 @@ class Package(Case):
     # gallery tool (ADR-1101 D1, ADR-1500 D8).
     WITH_IMAGES = ["usr/bin/vtium-gallery", "usr/bin/vtium-image", "usr/lib/sysusers.d/vtium-image.conf"]
 
+    # The frits the vtium package ships and a minspec package does not:
+    # the desktop frit and the five frits for scripts with marks (ADR-1500
+    # D8).
+    DESKTOP_FRITS = ["etc/vtium/fonts/%s.vtfrit" % n for n in
+                     ("desktop", "arabic", "hebrew", "indic", "thai-lao", "vietnamese")]
+
     # Where each staged file that vtium's tree holds as it is comes from.
     SOURCES = {
         "etc/vtium/fonts/desktop.vtfrit": "tools/specimens/frits/desktop.vtfrit",
         "etc/vtium/fonts/minspec-16.vtfrit": "crates/vtium-config/frits/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit": "crates/vtium-config/frits/minspec-8.vtfrit",
+        "etc/vtium/fonts/arabic.vtfrit": "tools/specimens/frits/arabic.vtfrit",
+        "etc/vtium/fonts/hebrew.vtfrit": "tools/specimens/frits/hebrew.vtfrit",
+        "etc/vtium/fonts/indic.vtfrit": "tools/specimens/frits/indic.vtfrit",
+        "etc/vtium/fonts/thai-lao.vtfrit": "tools/specimens/frits/thai-lao.vtfrit",
+        "etc/vtium/fonts/vietnamese.vtfrit": "tools/specimens/frits/vietnamese.vtfrit",
         "usr/bin/vtium-gallery": "tools/gallery/gallery",
         "usr/share/licenses/vtium/COPYING": "COPYING",
         "usr/share/licenses/vtium/LICENSE": "LICENSE",
@@ -3743,7 +3759,7 @@ class Package(Case):
         p = self.make("install", f"DESTDIR={self.dest}", "PREFIX=/usr", f"INSTALL_TARGET_DIR={self.build}",
                       "FRITS=minspec-16 minspec-8", "HWACCEL=off", "DISPLAY_BUFFERS=2")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(self.staged(), [f for f in self.STAGED if f != "etc/vtium/fonts/desktop.vtfrit"])
+        self.assertEqual(self.staged(), [f for f in self.STAGED if f not in self.DESKTOP_FRITS])
         self.assertEqual([c.split(" rustc ")[0].split(" build ")[0] for c in self.s.calls_of("cargo")], [
             "VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2",
             "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=off VTIUM_DISPLAY_BUFFERS=2"])

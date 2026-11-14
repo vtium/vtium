@@ -11,7 +11,8 @@ use vtium_config::frit::{Frit, Origin};
 use vtium_font::spacing::Fit;
 
 /// The directory the frits ship from: the Makefile's `FRIT_DIRS` names
-/// it, so `make install FRITS=...` installs them into /etc/vtium/fonts.
+/// it, and its default `FRITS` installs all five into /etc/vtium/fonts
+/// (ADR-1500 D8).
 fn dir() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("frits")
 }

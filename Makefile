@@ -185,11 +185,11 @@ IMAGES := $(filter images,$(subst $(comma), ,$(FEATURES)))
 PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter logind,$(subst $(comma), ,$(FEATURES))))
 # The frits make install and make install-tree stage into /etc/vtium/fonts,
 # by name (ADR-1500 D8). Each is NAME.vtfrit in crates/vtium-config/frits,
-# or in tools/specimens/frits, where the specimens draw desktop. The
-# default is the set the vtium package ships; a minspec package names
-# FRITS='minspec-16 minspec-8'. A frit names its fonts, and no vtium
-# install ships a font.
-FRITS := desktop minspec-16 minspec-8
+# or in tools/specimens/frits, where the specimens draw desktop and tier 2
+# draws the five frits for scripts with marks. The default is the set the
+# vtium package ships; a minspec package names FRITS='minspec-16
+# minspec-8'. A frit names its fonts, and no vtium install ships a font.
+FRITS := desktop minspec-16 minspec-8 arabic hebrew indic thai-lao vietnamese
 FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
 frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
 # A frit vtium does not hold stops the install as make reads this file,
@@ -348,7 +348,7 @@ endif
 	$(build_settings)cargo build $(CARGO_BUILD_FLAGS) --release -p vtium-config $(if $(IMAGES),-p vtium-image-helper) --target-dir $(INSTALL_TARGET_DIR)
 
 .PHONY: install
-install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8): make install DESTDIR=DIR PREFIX=/usr
+install: install-build ## Stage what the vtium package ships under DESTDIR=DIR, for PREFIX (default /usr/local), PKGNAME (default vtium) and FRITS='...' (default desktop minspec-16 minspec-8 arabic hebrew indic thai-lao vietnamese): make install DESTDIR=DIR PREFIX=/usr
 	install -Dm755 $(INSTALL_TARGET_DIR)/minspec/vtium $(DESTDIR)$(PREFIX)/bin/vtium
 	install -Dm755 $(INSTALL_TARGET_DIR)/release/vtium-config $(DESTDIR)$(PREFIX)/bin/vtium-config
 ifneq ($(IMAGES),)
