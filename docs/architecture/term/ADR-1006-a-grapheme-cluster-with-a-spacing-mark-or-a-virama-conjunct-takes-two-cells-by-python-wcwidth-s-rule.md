@@ -103,6 +103,8 @@ The rules hold for every script. In practice they reach the Brahmic scripts of S
 
 The tables come from Unicode's DerivedGeneralCategory.txt and IndicSyllabicCategory.txt, at the Unicode version vtium-term's other tables use. vtium-term's generator writes them.
 
+> Edited 2026-11-14: the build's review found three readings that D1 left open, and the build follows them. First, the consonant after a virama is any character that UAX #29's rule GB9c joins to the cluster, Indic_Conjunct_Break Consonant, as well as any of Indic_Syllabic_Category Consonant. So the cluster boundaries and the width follow the same set of consonants, and Myanmar ka, virama and the independent vowel a takes two cells, as Khmer ka, coeng and an independent vowel does. Second, the spacing mark rule needs a base: a first character of nonzero width that is not itself a mark. A cluster that starts with a spacing mark, such as the Devanagari sign aa followed by a visarga at the start of a line, keeps the one cell of its first character. Third, a character with VS15 is still a base, so a heart with VS15 followed by a spacing mark takes two cells. The width reads the Indic_Conjunct_Break value that the grapheme rules already read, so the tables gain nothing for it.
+
 ### D2: each cluster is measured on its own
 
 vtium-term still cuts text into clusters by UAX #29, and D1 measures each cluster on its own. That is how the specification's Scope section says a grapheme is measured: each grapheme from its `iter_graphemes`, measured by `wcswidth`.
