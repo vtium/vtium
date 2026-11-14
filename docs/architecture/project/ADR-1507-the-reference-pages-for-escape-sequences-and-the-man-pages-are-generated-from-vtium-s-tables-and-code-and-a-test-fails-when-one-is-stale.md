@@ -24,7 +24,7 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
-status: proposed
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb
@@ -47,6 +47,9 @@ considered:
     said: "The man pages are vtium(8), vtium-config(1), vtium.conf(5) and vtium-gallery(1), with the image helper as a section of vtium(8). As written."
     via: the steering session's questions on 2026-11-14, on the site records
     paraphrase: true
+  - operator: aaronsb
+    said: "we've already gone through this so yes"
+    via: the steering session's chat on 2026-11-14, answering whether to accept wave 1's proposed records in one batch
 ---
 
 # ADR-1507: The reference pages for escape sequences and the man pages are generated from vtium's tables and code, and a test fails when one is stale

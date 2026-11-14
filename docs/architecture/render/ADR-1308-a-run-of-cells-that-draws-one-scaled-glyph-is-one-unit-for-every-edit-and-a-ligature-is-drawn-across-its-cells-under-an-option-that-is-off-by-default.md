@@ -69,7 +69,10 @@ considered:
     said: "Same rule as the cursor: whole doubled character on a pair, pair text copied once, mouse at half-width columns."
     via: the steering session's question on 2026-11-14, on selection on double-size lines
     paraphrase: true
-status: proposed
+  - operator: aaronsb
+    said: "we've already gone through this so yes"
+    via: the steering session's chat on 2026-11-14, answering whether to accept wave 1's proposed records in one batch
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb

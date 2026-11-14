@@ -25,7 +25,10 @@ considered:
     via: the steering session's questions on 2026-11-14, on the small records
     paraphrase: true
     covers: [exit status]
-status: proposed
+  - operator: aaronsb
+    said: "we've already gone through this so yes"
+    via: the steering session's chat on 2026-11-14, answering whether to accept wave 1's proposed records in one batch
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb
