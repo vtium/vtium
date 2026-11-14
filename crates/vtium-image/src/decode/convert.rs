@@ -16,10 +16,26 @@
 //! which clamps every color to its alpha and finds in the same pass
 //! whether every pixel is opaque, so a helper that sends wrong pixels
 //! gives that one picture wrong colors and never a value out of range.
+//!
+//! Kitty's palette formats, `f=8` and `f=16`, send each pixel as an index
+//! into the terminal's colors, and in `f=16` an alpha after it. Only the
+//! console knows those colors, and they can change after the picture
+//! arrives, so the helper returns such a picture unconverted. Each pixel
+//! of its reply is still four bytes, so every reply holds four bytes a
+//! pixel and the host checks every reply's size by one rule: the index,
+//! the alpha (255 for `f=8`), then two zero bytes ([`reply_group`]). The
+//! console reads the indices back out with [`indices_from_reply`], and
+//! turns indices into the store's pixels with [`indexed_into`].
+//!
+//! References: ADR-1100 D7, D15; ADR-1101 D7.
 
 /// How many bytes a raw pixel has, and in which order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Layout {
+    /// A palette index: 1 byte a pixel, always opaque, kitty's `f=8`.
+    Index,
+    /// A palette index, then its alpha: 2 bytes a pixel, kitty's `f=16`.
+    IndexAlpha,
     /// R, G, B: 3 bytes a pixel, always opaque.
     Rgb,
     /// R, G, B, A: 4 bytes a pixel.
@@ -30,9 +46,17 @@ impl Layout {
     /// The bytes one pixel takes.
     pub const fn bytes(self) -> usize {
         match self {
+            Self::Index => 1,
+            Self::IndexAlpha => 2,
             Self::Rgb => 3,
             Self::Rgba => 4,
         }
+    }
+
+    /// Each pixel is a palette index, which the helper returns
+    /// unconverted.
+    pub const fn indexed(self) -> bool {
+        matches!(self, Self::Index | Self::IndexAlpha)
     }
 }
 
@@ -74,7 +98,8 @@ pub fn clamped(r: u8, g: u8, b: u8, a: u8) -> u32 {
 }
 
 /// The store's pixel of one raw pixel's `bytes` in `layout` with `alpha`;
-/// 0 for a group of the wrong length, which a caller never passes.
+/// 0 for a group of the wrong length, which a caller never passes, and for
+/// a palette index, whose color only the console knows.
 pub fn pixel(layout: Layout, alpha: Alpha, bytes: &[u8]) -> u32 {
     match (layout, bytes) {
         (Layout::Rgb, &[r, g, b]) => premultiply(r, g, b, 0xff),
@@ -86,12 +111,61 @@ pub fn pixel(layout: Layout, alpha: Alpha, bytes: &[u8]) -> u32 {
     }
 }
 
+/// The four bytes of a reply for one raw pixel's `bytes` in `layout` with
+/// `alpha`: R, G, B, A premultiplied for RGB and RGBA, and for a palette
+/// index the index, its alpha (255 for `f=8`) and two zero bytes.
+pub fn reply_group(layout: Layout, alpha: Alpha, bytes: &[u8]) -> [u8; 4] {
+    match (layout, bytes) {
+        (Layout::Index, &[i]) => [i, 0xff, 0, 0],
+        (Layout::IndexAlpha, &[i, a]) => [i, a, 0, 0],
+        _ => reply_bytes(pixel(layout, alpha, bytes)),
+    }
+}
+
 /// The store's pixel of palette index `index` with straight alpha `a`,
 /// whose color `colors` gives, as kitty's `f=8` and `f=16` send it
 /// (ADR-1100, D15).
 pub fn indexed(colors: &[[u8; 3]; 256], index: u8, a: u8) -> u32 {
     let [r, g, b] = colors.get(usize::from(index)).copied().unwrap_or([0; 3]);
     premultiply(r, g, b, a)
+}
+
+/// The store's pixels of the palette indices `data`, one byte a pixel, or
+/// with `alpha` an index and its alpha, two bytes a pixel, each in the
+/// color `colors` gives, written over `out` in place: `out` must hold one
+/// pixel for each whole pixel of `data`, and a pixel already holding its
+/// new value is not written. Returns whether any pixel changed, so a
+/// picture whose colors did not change is left as it was.
+pub fn indexed_into(colors: &[[u8; 3]; 256], data: &[u8], alpha: bool, out: &mut [u32]) -> bool {
+    let bpp = if alpha { 2 } else { 1 };
+    let mut changed = false;
+    for (px, group) in out.iter_mut().zip(data.chunks_exact(bpp)) {
+        let new = match *group {
+            [i] => indexed(colors, i, 0xff),
+            [i, a] => indexed(colors, i, a),
+            _ => 0,
+        };
+        if *px != new {
+            *px = new;
+            changed = true;
+        }
+    }
+    changed
+}
+
+/// The palette indices a reply's `bytes` hold in `layout`'s index form,
+/// four bytes a pixel ([`reply_group`]), appended to `out`: the index alone
+/// for [`Layout::Index`], the index and its alpha for
+/// [`Layout::IndexAlpha`]. A partial pixel at the end is left out, and the
+/// two bytes after the alpha are ignored, so a helper that sends wrong
+/// bytes gives that one picture wrong colors and nothing else.
+pub fn indices_from_reply(layout: Layout, bytes: &[u8], out: &mut Vec<u8>) {
+    for &[i, a, _, _] in bytes.as_chunks::<4>().0 {
+        out.push(i);
+        if layout == Layout::IndexAlpha {
+            out.push(a);
+        }
+    }
 }
 
 /// The R, G, B, A bytes of the store's pixel `px`, as a reply carries it.
@@ -108,15 +182,15 @@ pub fn to_reply(layout: Layout, alpha: Alpha, src: &[u8], out: &mut Vec<u8>) {
     let n = src.len().checked_div(layout.bytes()).unwrap_or(0);
     out.reserve(n.saturating_mul(4));
     for group in src.chunks_exact(layout.bytes()) {
-        out.extend_from_slice(&reply_bytes(pixel(layout, alpha, group)));
+        out.extend_from_slice(&reply_group(layout, alpha, group));
     }
 }
 
 /// [`to_reply`] in place: the first `pixels` pixels of `data`, in `layout`
 /// with `alpha`, turned into the reply's bytes in the same buffer, grown
-/// for RGB, which is spread from the last pixel back so nothing is
-/// overwritten before it is read. `None` when `data` holds fewer pixels or
-/// the buffer cannot grow.
+/// for a layout of fewer than four bytes a pixel, which is spread from the
+/// last pixel back so nothing is overwritten before it is read. `None`
+/// when `data` holds fewer pixels or the buffer cannot grow.
 pub fn into_reply(
     layout: Layout,
     alpha: Alpha,
@@ -127,31 +201,30 @@ pub fn into_reply(
     if data.len() < pixels.checked_mul(layout.bytes())? {
         return None;
     }
-    match layout {
-        Layout::Rgba => {
-            data.truncate(len);
-            for group in data.as_chunks_mut::<4>().0 {
-                let px = reply_bytes(pixel(layout, alpha, group.as_slice()));
-                group.copy_from_slice(&px);
-            }
+    let bpp = layout.bytes();
+    if bpp == 4 {
+        data.truncate(len);
+        for group in data.as_chunks_mut::<4>().0 {
+            let px = reply_group(layout, alpha, group.as_slice());
+            group.copy_from_slice(&px);
         }
-        Layout::Rgb => {
-            data.truncate(pixels.checked_mul(3)?);
-            data.try_reserve_exact(len.saturating_sub(data.len()))
-                .ok()?;
-            data.resize(len, 0);
-            for i in (0..pixels).rev() {
-                let from = i.checked_mul(3)?;
-                let rgb = [
-                    *data.get(from)?,
-                    *data.get(from.checked_add(1)?)?,
-                    *data.get(from.checked_add(2)?)?,
-                ];
-                let px = reply_bytes(pixel(layout, alpha, &rgb));
-                let to = i.checked_mul(4)?;
-                data.get_mut(to..to.checked_add(4)?)?.copy_from_slice(&px);
-            }
-        }
+        return Some(data);
+    }
+    data.truncate(pixels.checked_mul(bpp)?);
+    data.try_reserve_exact(len.saturating_sub(data.len()))
+        .ok()?;
+    data.resize(len, 0);
+    // pixel i's source bytes start at i × bpp and its reply at i × 4, which
+    // is never before them, so walking back reads each source pixel before
+    // any reply overwrites it
+    for i in (0..pixels).rev() {
+        let from = i.checked_mul(bpp)?;
+        let mut group = [0u8; 4];
+        let src = group.get_mut(..bpp)?;
+        src.copy_from_slice(data.get(from..from.checked_add(bpp)?)?);
+        let px = reply_group(layout, alpha, src);
+        let to = i.checked_mul(4)?;
+        data.get_mut(to..to.checked_add(4)?)?.copy_from_slice(&px);
     }
     Some(data)
 }
@@ -264,6 +337,58 @@ mod tests {
             Some(8)
         );
         assert_eq!(into_reply(Layout::Rgb, Alpha::Straight, rgb, 11), None);
+    }
+
+    #[test]
+    fn palette_indices_travel_in_the_reply_unconverted_and_come_back_out() {
+        // f=8: each index then 255, 0, 0; f=16: each index, its alpha, 0, 0
+        let mut out = Vec::new();
+        to_reply(Layout::Index, Alpha::Straight, &[7, 250, 0], &mut out);
+        assert_eq!(out, [7, 0xff, 0, 0, 250, 0xff, 0, 0, 0, 0xff, 0, 0]);
+        let mut back = Vec::new();
+        indices_from_reply(Layout::Index, &out, &mut back);
+        assert_eq!(back, [7, 250, 0]);
+        out.clear();
+        to_reply(
+            Layout::IndexAlpha,
+            Alpha::Straight,
+            &[9, 0x80, 1, 0, 2],
+            &mut out,
+        );
+        assert_eq!(out, [9, 0x80, 0, 0, 1, 0, 0, 0]);
+        back.clear();
+        indices_from_reply(Layout::IndexAlpha, &out, &mut back);
+        assert_eq!(back, [9, 0x80, 1, 0]);
+        // in place, from the last pixel back, as for RGB
+        for layout in [Layout::Index, Layout::IndexAlpha] {
+            let src: Vec<u8> = (0..20u8).map(|b| b.wrapping_mul(13)).collect();
+            let n = src.len() / layout.bytes();
+            let mut want = Vec::new();
+            to_reply(layout, Alpha::Straight, &src, &mut want);
+            assert_eq!(
+                into_reply(layout, Alpha::Straight, src.clone(), n),
+                Some(want)
+            );
+            assert_eq!(into_reply(layout, Alpha::Straight, src, n + 1), None);
+        }
+    }
+
+    #[test]
+    fn indices_become_their_colors_and_report_a_change() {
+        let mut table = [[0u8; 3]; 256];
+        table[1] = [10, 20, 30];
+        table[2] = [40, 50, 60];
+        let mut px = [0u32; 2];
+        assert!(indexed_into(&table, &[1, 2], false, &mut px));
+        assert_eq!(
+            px,
+            [premultiply(10, 20, 30, 0xff), premultiply(40, 50, 60, 0xff)]
+        );
+        // the same colors again change nothing
+        assert!(!indexed_into(&table, &[1, 2], false, &mut px));
+        table[2] = [1, 1, 1];
+        assert!(indexed_into(&table, &[1, 0x80, 2, 0], true, &mut px));
+        assert_eq!(px, [premultiply(10, 20, 30, 0x80), 0]);
     }
 
     #[test]

@@ -1934,3 +1934,32 @@ fn frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_ba
     assert!(s.split_frames(ahead, key, 300, 2).is_none());
     assert_eq!(s.frame_bytes(), 0);
 }
+
+// A palette-index picture's kept indices must hold one group for each
+// pixel; any other count is refused, as pixels of the wrong count are, and
+// nothing is charged (ADR-1100 D15).
+#[test]
+fn indices_of_the_wrong_count_are_refused() {
+    use crate::store::kitty::Indices;
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    for (len, alpha) in [(3usize, false), (5, false), (7, true), (9, true)] {
+        let image = NewImage {
+            protocol: Protocol::KITTY,
+            width: 2,
+            height: 2,
+            pixels: vec![0xff00_0000; 4],
+            id: 1,
+            number: 0,
+            transient: false,
+            opaque: Some(true),
+        };
+        let indices = Indices::new(vec![0; len], alpha);
+        assert_eq!(
+            s.add_image_kept(image, Some(indices), None, f.screens()),
+            Err(Refusal::Invalid),
+            "{len} bytes, alpha {alpha}"
+        );
+    }
+    assert_eq!((s.image_count(), s.bytes()), (0, 0));
+}

@@ -8,10 +8,16 @@
 //!
 //! - **A direct transmission** (`a=t`, `a=T`, `a=f`, or no `a`, sent
 //!   directly) or a query (`a=q`) decodes its payload into a transfer
-//!   ([`upload`]) as the pieces arrive. Raw pixels are converted at once,
-//!   and a PNG or zlib payload is kept for the image helper under the
-//!   budget. When the string ends, the handler stores the picture or the
-//!   frame, or asks the helper, and answers.
+//!   ([`upload`]) as the pieces arrive. Raw RGB and RGBA pixels are
+//!   converted at once, palette indices are kept as they come, and a PNG or
+//!   zlib payload is kept for the image helper under the budget. When the
+//!   string ends, the handler stores the picture or the frame, or asks the
+//!   helper, and answers.
+//! - **Palette indices**, `f=8` and `f=16`, come through every medium and
+//!   with `o=z`. The handler takes the terminal's colors when the last
+//!   chunk has arrived, or when the helper answers, and stores the picture
+//!   with its indices, which the store turns into colors again whenever the
+//!   terminal's colors change.
 //! - **A transmission from a file, a temporary file or shared memory**
 //!   decodes its payload into the object's name, which the helper opens.
 //! - **A put, a delete, an animation control or a composition** acts
@@ -53,14 +59,14 @@ use vtium_parse::Chunk;
 
 use crate::bounds::IMAGE_OVERHEAD;
 use crate::decode::base64::{Base64, Sink};
-use crate::decode::convert::{Alpha, Layout};
+use crate::decode::convert::{Alpha, indexed_into};
 use crate::decode::raw::{Format, Raw};
 use crate::decode::{Description, Medium, Payload, Reply, Request};
 use crate::handler::{Cause, Context, Handler, Intro};
 use crate::image::{ImageKey, NewImage, Place, Refusal};
 use crate::protocol::chunk_work;
 use crate::rules::Protocol;
-use crate::store::kitty::{Delete, Select};
+use crate::store::kitty::{Delete, Indices, Select};
 use crate::store::{Compose, Control, Link, NewFrame, Placing, Reservation, Store, layer_cost};
 
 mod command;
@@ -409,12 +415,16 @@ impl Kitty {
                 let Some(reservation) = reservation else {
                     return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
                 };
+                if raw.format().indexed() {
+                    let (indices, into) = raw.into_indices();
+                    return store_indexed(ctx, &cmd, indices, into, reservation);
+                }
                 let (pixels, opaque) = raw.into_pixels();
                 let picture = (cmd.width, cmd.height, pixels, opaque);
                 if cmd.action == b'f' {
                     frame(ctx, &cmd, picture, reservation);
                 } else {
-                    store(ctx, &cmd, picture, reservation);
+                    store(ctx, &cmd, picture, reservation, None);
                 }
             }
             Data::Count { want } => {
@@ -583,14 +593,12 @@ impl Kitty {
                 }
             } else {
                 // the helper converts the raw pixels it reads or inflates
-                // into the store's format, from this description
+                // into the store's format, from this description; palette
+                // indices it returns as they are, since only the console
+                // knows the colors
                 request.min = cmd.pixels().saturating_mul(u64::from(cmd.bpp()));
                 request.pixels = Some(Description {
-                    layout: if cmd.bpp() == 3 {
-                        Layout::Rgb
-                    } else {
-                        Layout::Rgba
-                    },
+                    layout: cmd.layout(),
                     alpha: Alpha::Straight,
                     width: cmd.width,
                     height: cmd.height,
@@ -735,11 +743,15 @@ impl Kitty {
     }
 }
 
+/// Stores `cmd`'s picture under `reservation`, with the palette `indices`
+/// its pixels were made from when it arrived as palette indices, places it
+/// for `a=T`, and answers.
 fn store(
     ctx: &mut dyn Context,
     cmd: &Command,
     (width, height, pixels, opaque): (u32, u32, Vec<u32>, bool),
     reservation: Reservation,
+    indices: Option<Indices>,
 ) {
     let mut id = cmd.id;
     // a number alone: the terminal picks an unused id (spec)
@@ -756,13 +768,14 @@ fn store(
         transient: cmd.hints & 1 != 0,
         opaque: Some(opaque),
     };
-    let key = match ctx.add_image(image, Some(reservation)) {
-        Ok(key) => {
-            if cmd.indexed() {
-                ctx.edit(|e| e.set_indexed(key));
-            }
-            key
-        }
+    let added = match indices {
+        Some(indices) => ctx
+            .edit(|e| e.add_indexed(image, indices, Some(reservation)))
+            .unwrap_or(Err(Refusal::NoSpace)),
+        None => ctx.add_image(image, Some(reservation)),
+    };
+    let key = match added {
+        Ok(key) => key,
         Err(Refusal::NoSpace) => return reply(ctx, cmd, cmd.id, Err(Error::NoSpace)),
         Err(_) => return reply(ctx, cmd, cmd.id, Err(Error::Invalid)),
     };
@@ -772,6 +785,52 @@ fn store(
         Ok(())
     };
     reply(ctx, cmd, id, answer);
+}
+
+/// Stores `cmd`'s palette-index picture from its `indices`, one or two
+/// bytes a pixel as they arrived, under `reservation`, which holds its
+/// pixels and its indices. The handler takes the terminal's colors now, as
+/// the last chunk has arrived or the helper has answered, and makes the
+/// pixels into `into`, an empty buffer the budget already holds. The
+/// store keeps the indices, and makes the pixels again whenever the colors
+/// change. A host that gives no colors now answers EINVAL.
+///
+/// References: ADR-1100 D15.
+fn store_indexed(
+    ctx: &mut dyn Context,
+    cmd: &Command,
+    indices: Vec<u8>,
+    mut into: Vec<u32>,
+    reservation: Reservation,
+) {
+    let Some(colors) = ctx.colors() else {
+        ctx.unreserve(reservation);
+        return reply(ctx, cmd, cmd.id, Err(Error::Invalid));
+    };
+    let table = colors.resolved();
+    let alpha = cmd.format == 16;
+    let count = usize::try_from(cmd.pixels()).unwrap_or(usize::MAX);
+    if into
+        .try_reserve_exact(count.saturating_sub(into.len()))
+        .is_err()
+    {
+        ctx.unreserve(reservation);
+        return reply(ctx, cmd, cmd.id, Err(Error::NoSpace));
+    }
+    into.clear();
+    into.resize(count, 0);
+    indexed_into(&table, &indices, alpha, &mut into);
+    ctx.add_work(cmd.pixels());
+    // f=8 is opaque; f=16 is opaque when every alpha is 255
+    let opaque = !alpha || indices.iter().skip(1).step_by(2).all(|&a| a == 0xff);
+    let picture = (cmd.width, cmd.height, into, opaque);
+    store(
+        ctx,
+        cmd,
+        picture,
+        reservation,
+        Some(Indices::new(indices, alpha)),
+    );
 }
 
 /// The kitty answer to a store's refusal.
@@ -1136,15 +1195,11 @@ fn ready(
         let want = count.saturating_mul(u64::from(cmd.bpp()));
         return Ok((Data::Count { want }, None, None));
     }
-    // palette indices take the colors in force at the first chunk
-    let colors = || {
-        ctx.colors()
-            .map(|c| Box::new(c.resolved()))
-            .ok_or(Error::Invalid)
-    };
+    // palette indices are kept as they come, and take the colors in force
+    // when the last chunk has arrived
     let format = match cmd.format {
-        8 => Format::Index(colors()?),
-        16 => Format::IndexAlpha(colors()?),
+        8 => Format::Index,
+        16 => Format::IndexAlpha,
         24 => Format::Rgb,
         _ => Format::Rgba,
     };
@@ -1159,7 +1214,7 @@ fn ready(
         let raw = Raw::new(format, len, Vec::new());
         return Ok((Data::Raw(raw), Some(reservation), Some(cost)));
     }
-    let cost = charge(count);
+    let cost = cmd.charge();
     let (into, reservation) = if chunked {
         let reservation = ctx
             .edit(|e| e.reserve_beside(cmd.id, cost))
@@ -1269,9 +1324,24 @@ impl Handler for Kitty {
         }
         let len = usize::try_from(count).unwrap_or(usize::MAX);
         // the budget refuses before a byte of the picture is copied
-        let Some((into, reservation)) = buffer(ctx, cmd.id, len, charge(count)) else {
+        let cost = if cmd.indexed() {
+            cmd.charge()
+        } else {
+            charge(count)
+        };
+        let Some((into, reservation)) = buffer(ctx, cmd.id, len, cost) else {
             return reply(ctx, &cmd, cmd.id, Err(Error::NoSpace));
         };
+        if cmd.indexed() {
+            // the helper returns palette indices as they came, which the
+            // console turns into colors (ADR-1101 D7)
+            let Some(indices) = payload.copy_indices(cmd.layout()) else {
+                ctx.unreserve(reservation);
+                return reply(ctx, &cmd, cmd.id, Err(Error::BadFile));
+            };
+            ctx.add_work(count);
+            return store_indexed(ctx, &cmd, indices, into, reservation);
+        }
         // the one copy into memory only the console holds, into the buffer
         // just reserved, clamps each color to its alpha and finds the
         // opacity, before the store sees a pixel
@@ -1280,7 +1350,13 @@ impl Handler for Kitty {
             return reply(ctx, &cmd, cmd.id, Err(Error::BadFile));
         };
         ctx.add_work(count);
-        store(ctx, &cmd, (size.0, size.1, pixels, opaque), reservation);
+        store(
+            ctx,
+            &cmd,
+            (size.0, size.1, pixels, opaque),
+            reservation,
+            None,
+        );
     }
 
     fn reset(&mut self, ctx: &mut dyn Context) {

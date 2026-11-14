@@ -45,6 +45,7 @@ pub use anim::{Animation, FramePixels, Run};
 pub(crate) use anim::{Compose, Control, NewFrame, layer_cost};
 pub use edit::Edit;
 pub use frame::FramePlacement;
+use kitty::Indices;
 use relative::{Drawn, Located, Spot};
 pub(crate) use relative::{Link, Placing};
 pub use reserve::Reservation;
@@ -131,9 +132,11 @@ struct Image {
     /// The use clock's value when it was transmitted.
     sent_at: u64,
     transient: bool,
-    /// It arrived as palette indices, kitty's `f=8` or `f=16`, which take no
-    /// frames and no composition (ADR-1100, D15).
-    indexed: bool,
+    /// The palette indices it arrived as, kitty's `f=8` or `f=16`, from
+    /// which its pixels are made again whenever the terminal's colors
+    /// change. Such a picture takes no frames and no composition (ADR-1100,
+    /// D15).
+    indices: Option<Indices>,
     placements: u32,
     /// Held while an operation that may evict works for it.
     hold: u32,
@@ -710,6 +713,21 @@ impl Store {
         reservation: Option<Reservation>,
         screens: Screens<'_>,
     ) -> Result<ImageKey, Refusal> {
+        self.add_image_kept(new, None, reservation, screens)
+    }
+
+    /// [`add_image`](Self::add_image), for a picture that also keeps the
+    /// palette `indices` it arrived as, whose bytes its charge counts too:
+    /// one a pixel, or two with alpha (ADR-1100, D15). Indices that are
+    /// not one group for each pixel are refused as pixels of the wrong
+    /// count are.
+    pub(crate) fn add_image_kept(
+        &mut self,
+        new: NewImage,
+        indices: Option<Indices>,
+        reservation: Option<Reservation>,
+        screens: Screens<'_>,
+    ) -> Result<ImageKey, Refusal> {
         let b = self.active();
         // the image a reservation held for its replacement, when it is
         // still in the buffer in use with the id; it is held no more. A copy
@@ -741,9 +759,18 @@ impl Store {
         };
         let side = |s: u32| s > 0 && u64::from(s) <= IMAGE_SIDE_MAX;
         let n = u64::from(new.width).saturating_mul(u64::from(new.height));
-        let bytes = n.checked_mul(4).and_then(|b| b.checked_add(IMAGE_OVERHEAD));
-        let fits =
-            side(new.width) && side(new.height) && u64::try_from(new.pixels.len()).ok() == Some(n);
+        let kept = indices
+            .as_ref()
+            .map_or(Some(0), |i| u64::try_from(i.data.len()).ok());
+        let bytes = n
+            .checked_mul(4)
+            .and_then(|b| b.checked_add(IMAGE_OVERHEAD))
+            .zip(kept)
+            .and_then(|(b, k)| b.checked_add(k));
+        let fits = side(new.width)
+            && side(new.height)
+            && u64::try_from(new.pixels.len()).ok() == Some(n)
+            && indices.as_ref().is_none_or(|i| i.fits(n));
         let Some(bytes) = bytes.filter(|_| fits) else {
             return refuse(self, reserved, Refusal::Invalid);
         };
@@ -814,7 +841,7 @@ impl Store {
             used_at: stamp,
             sent_at: stamp,
             transient: new.transient,
-            indexed: false,
+            indices,
             placements: 0,
             hold: 0,
             revision,
@@ -1015,15 +1042,6 @@ impl Store {
         Ok(key)
     }
 
-    /// Marks image `key` of the buffer in use as one that arrived as
-    /// palette indices (ADR-1100, D15).
-    pub(crate) fn set_indexed(&mut self, key: ImageKey) {
-        let b = self.active();
-        if let Some(image) = self.image_mut(b, key) {
-            image.indexed = true;
-        }
-    }
-
     /// The width and height of image `key` of the buffer in use.
     pub(crate) fn image_size(&self, key: ImageKey) -> Option<(u32, u32)> {
         let image = self.image(self.active(), key)?;
@@ -1034,7 +1052,7 @@ impl Store {
     pub fn indexed(&self, key: ImageKey) -> bool {
         self.buffers
             .iter()
-            .any(|b| b.images.get(&key).is_some_and(|i| i.indexed))
+            .any(|b| b.images.get(&key).is_some_and(|i| i.indices.is_some()))
     }
 
     fn image(&self, b: usize, key: ImageKey) -> Option<&Image> {

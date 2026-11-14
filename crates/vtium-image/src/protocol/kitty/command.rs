@@ -4,6 +4,7 @@
 use core::fmt::Write as _;
 
 use crate::bounds::{BOX_CELLS_MAX, IMAGE_OVERHEAD, IMAGE_SIDE_MAX, KITTY_REPLY_MAX};
+use crate::decode::Layout;
 use crate::handler::{Cause, Context, ReplyKind};
 use crate::image::ImageKey;
 use crate::store::Store;
@@ -431,11 +432,14 @@ impl Command {
     }
 
     /// What is refused before any data is read: a key that cannot be read;
-    /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1` with a parent, since a virtual
-    /// placement is never a relative one (D13); a raw upload without `s` and
-    /// `v`, answered as kitty answers it (D15), or past `max-graphic-size`; palette indices in a frame, from a named medium
-    /// or with `o=z` (ADR-1100, D15); and a placement whose pixel offset
-    /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`].
+    /// `i` with `I`, as the spec asks; a `U` other than 0 or 1, and `U=1`
+    /// with a parent, since a virtual placement is never a relative one
+    /// (D13); a raw upload without `s` and `v`, answered as kitty answers it
+    /// (D15), or past `max-graphic-size`; palette indices while the host
+    /// gives no colors (ADR-1100, D15); and a placement whose pixel offset
+    /// lies outside its cell or whose box passes [`BOX_CELLS_MAX`]. Palette
+    /// indices come through every medium and with `o=z`, as the spec says:
+    /// "You can specify compression for any format".
     pub(super) fn refusal(&self, ctx: &dyn Context) -> Option<Error> {
         if !matches!(self.format, 8 | 16 | 24 | 32 | 100) {
             return Some(Error::UnknownFormat {
@@ -450,10 +454,7 @@ impl Command {
         }
         if self.bad
             || self.virtual_placement > 1
-            || (self.transmits()
-                && self.action != b'f'
-                && self.indexed()
-                && (self.medium != b'd' || self.compression == b'z'))
+            || (self.transmits() && self.action != b'f' && self.indexed() && ctx.colors().is_none())
         {
             return Some(Error::Invalid);
         }
@@ -502,6 +503,29 @@ impl Command {
     /// The pixels the raw picture holds.
     pub(super) fn pixels(&self) -> u64 {
         u64::from(self.width).saturating_mul(u64::from(self.height))
+    }
+
+    /// The bytes the store charges the raw picture: its pixels and the
+    /// image's overhead ([`charge`]), and for a palette format the indices
+    /// it keeps, one or two bytes a pixel (ADR-1100, D15).
+    pub(super) fn charge(&self) -> u64 {
+        let kept = if self.indexed() {
+            self.pixels().saturating_mul(u64::from(self.bpp()))
+        } else {
+            0
+        };
+        charge(self.pixels()).saturating_add(kept)
+    }
+
+    /// The layout a raw picture's bytes have, for the image helper's pixel
+    /// description.
+    pub(super) fn layout(&self) -> Layout {
+        match self.format {
+            8 => Layout::Index,
+            16 => Layout::IndexAlpha,
+            24 => Layout::Rgb,
+            _ => Layout::Rgba,
+        }
     }
 }
 
