@@ -1734,8 +1734,7 @@ pub const CLUSTER_WIDTH: Key = Key {
            `double`, the default, gives such a syllable two cells, so கொ takes two. `single` gives it one cell and squeezes it to fit.\n\n\
            [docs] For example, the Tamil syllable கொ is the letter க with the vowel sign ொ. Under `double` it is drawn at full size, and the shell's line editor counts it as two cells too. `single` suits programs that count one cell for each syllable, such as Neovim.\n\n\
            [docs] The choice comes from each character's Unicode properties, never from the font. A syllable takes two cells when a spacing vowel sign (General_Category Mc) follows its first letter, or when a virama joins a consonant to it, as Python wcwidth's specification counts them. No syllable takes more than two cells. A program that resets mode 2027 gives each character its own cells under either value.\n\n\
-           vtium reads this key when it starts, so a change takes effect when vtium restarts.\n\n\
-           [docs] The key never changes text that is already on the screen.",
+           vtium reads this key when it starts, so a change takes effect when vtium restarts.",
     cite: "[the syllabic scripts issue](https://github.com/vtium/vtium/issues/144)",
 };
 
