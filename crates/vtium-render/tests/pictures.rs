@@ -178,6 +178,31 @@ fn cell(c: &Canvas, col: u32, row: u32) -> Vec<u32> {
         .collect()
 }
 
+/// Half-transparent blue, `0x8000_0060` premultiplied, over each color a
+/// cell of [`screen`] draws, blended in linear light. Worked from the
+/// tables of ADR-1300 D7 at alpha 128, whose reciprocal is 130,560. Blue
+/// 0x60 is straight (96 * 130,560 + 32,768) >> 16 = 191, and
+/// TO_LINEAR[191] = 34,136; red and green are 0. Each channel mixes as
+/// (34,136 or 0) * 128 + TO_LINEAR[under] * 127, plus 2,040, over 4,080:
+/// - over black, blue: 4,371,448 / 4,080 = 1,071, TO_SRGB[1071] = 140;
+/// - over the dark red 0x20, red: TO_LINEAR[32] = 946, 122,182 / 4,080 =
+///   29, TO_SRGB[29] = 20;
+/// - over white ink, red and green: 8,323,080 / 4,080 = 2,039,
+///   TO_SRGB[2039] = 187; blue: 12,692,488 / 4,080 = 3,110,
+///   TO_SRGB[3110] = 226;
+/// - over the default foreground 0xc0, red and green: TO_LINEAR[192] =
+///   34,537, 4,388,239 / 4,080 = 1,075, TO_SRGB[1075] = 140; blue:
+///   8,757,647 / 4,080 = 2,146, TO_SRGB[2146] = 192.
+fn glass_over(under: u32) -> u32 {
+    match under {
+        0x00_0000 => 0x00_008c,
+        0x20_0000 => 0x14_008c,
+        0xff_ffff => 0xbb_bbe2,
+        0xc0_c0c0 => 0x8c_8cc0,
+        _ => panic!("no worked blend over {under:06x}"),
+    }
+}
+
 fn screen() -> Screen {
     let mut s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
     let st = style(rgb("ffffff"), rgb("200000"));
@@ -290,11 +315,7 @@ fn text_draws_over_a_picture_below_text_and_under_one_above_it() {
         let c = draw(&s, con.frame(0));
         let (got, was) = (cell(&c, 0, 1), cell(&plain, 0, 1));
         for (i, (&g, &w)) in got.iter().zip(&was).enumerate() {
-            let want = if above || w == BG {
-                arrow_over(w, half)
-            } else {
-                w
-            };
+            let want = if above || w == BG { glass_over(w) } else { w };
             assert_eq!(g, want, "z {z}, pixel {i}");
         }
     }
@@ -317,7 +338,7 @@ fn a_picture_partly_transparent_goes_over_the_cell_as_drawn() {
     );
     let (c, plain) = (draw(&s, con.frame(0)), draw(&s, Vec::new()));
     for (&g, &w) in cell(&c, 3, 1).iter().zip(&cell(&plain, 3, 1)) {
-        assert_eq!(g, arrow_over(w, half));
+        assert_eq!(g, glass_over(w));
     }
 }
 

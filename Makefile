@@ -516,6 +516,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
+	python3 -I tools/vt/tests/test_typepad.py
 	python3 -I -B tools/tier3/test_t3img.py
 	python3 -I -B tools/tier3/test_t3.py
 	python3 -I -B tools/gallery/tests/test_gallery.py
