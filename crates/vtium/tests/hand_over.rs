@@ -336,6 +336,43 @@ impl Video for Card {
     }
 }
 
+/// The terminal side of a console's pty, opened by the test without
+/// blocking, to read what vtium wrote to a session that reads nothing.
+struct Slave(rustix::fd::OwnedFd);
+
+impl Slave {
+    /// The terminal side of the pty of head `name`'s shown console.
+    fn of(app: &App, name: &str) -> Slave {
+        let pty = app.head(name).and_then(|h| h.pty()).expect("a pty");
+        let path = rustix::pty::ptsname(pty.master(), Vec::new()).expect("its terminal's name");
+        let flags = rustix::fs::OFlags::RDWR
+            | rustix::fs::OFlags::NOCTTY
+            | rustix::fs::OFlags::NONBLOCK
+            | rustix::fs::OFlags::CLOEXEC;
+        Slave(rustix::fs::open(path.as_c_str(), flags, rustix::fs::Mode::empty()).expect("open"))
+    }
+
+    /// What waits on the terminal now, taken.
+    fn take(&self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut buf = [0u8; 256];
+        while let Ok(n) = rustix::io::read(&self.0, &mut buf) {
+            if n == 0 {
+                break;
+            }
+            out.extend_from_slice(buf.get(..n).unwrap_or_default());
+        }
+        out
+    }
+}
+
+/// What waited on a terminal the moment vtium let the VT go.
+#[derive(Default)]
+struct AtRelease {
+    slave: Option<Slave>,
+    seen: Option<Vec<u8>>,
+}
+
 /// The fake VT, counting each release vtium acknowledges and each time
 /// vtium puts the VT's modes back, and standing in for a seat manager's
 /// seat where `seat_manager` holds.
@@ -346,6 +383,8 @@ struct TestVt {
     /// Events the test sends, as the kernel's VT reports a re-take.
     sent: Rc<RefCell<Vec<VtEvent>>>,
     events: Vec<VtEvent>,
+    /// The terminal it reads when vtium lets the VT go.
+    at_release: Rc<RefCell<AtRelease>>,
 }
 
 impl Vt for TestVt {
@@ -355,6 +394,11 @@ impl Vt for TestVt {
         self.events.drain(..)
     }
     fn acknowledge_release(&mut self) -> io::Result<()> {
+        let mut at = self.at_release.borrow_mut();
+        if let Some(slave) = &at.slave {
+            at.seen = Some(slave.take());
+        }
+        drop(at);
         self.vt.acknowledge_release()
     }
     fn refuse_release(&mut self) -> io::Result<()> {
@@ -425,7 +469,10 @@ const B2: DisplayId = DisplayId(2);
 /// (mode 1004) and `.exit` ends the session. Where the seat boots with
 /// `F` set, the session reads its input three bytes at a time instead of
 /// by lines, and prints each read as hex after `k:`, so a focus report
-/// shows as `k: 1b 5b 49` (in) or `k: 1b 5b 4f` (out).
+/// shows as `k: 1b 5b 49` (in) or `k: 1b 5b 4f` (out). Where it boots
+/// with `Q` set, the session turns on focus reporting at once and reads
+/// nothing, so what vtium sends it waits on the terminal, where the test
+/// reads it ([`Slave`]).
 const SESSION: &str = r#"P="$D/$VTIUM_HEAD-$VTIUM_CONSOLE"
 ( while kill -0 $$ 2>/dev/null; do
     if [ -e "$P.bg" ]; then rm -f "$P.bg"; printf '\033]setBackground\007'; echo sent:bg; fi
@@ -435,7 +482,9 @@ const SESSION: &str = r#"P="$D/$VTIUM_HEAD-$VTIUM_CONSOLE"
     sleep 0.02
   done ) &
 if [ -n "$F" ]; then stty -icanon -echo; fi
+if [ -n "$Q" ]; then stty raw -echo; printf '\033[?1004h'; fi
 echo "ready:$VTIUM_HEAD-$VTIUM_CONSOLE"
+if [ -n "$Q" ]; then exec sleep 1000; fi
 if [ -n "$F" ]; then
   while :; do echo "k:$(head -c 3 | od -An -tx1)"; done
 fi
@@ -570,6 +619,7 @@ struct Seat {
     master_b: Rc<RefCell<Master>>,
     /// Events sent to the VT.
     vt_sent: Rc<RefCell<Vec<VtEvent>>>,
+    at_release: Rc<RefCell<AtRelease>>,
     dir: Scratch,
 }
 
@@ -601,26 +651,33 @@ impl Seat {
     /// [`Seat::boot`], with card A's sleep ending `sleep_turns` turns
     /// after it starts.
     fn boot_with(test: &str, args: &[&str], seat_manager: bool, sleep_turns: u32) -> Seat {
-        Seat::boot_full(test, args, seat_manager, sleep_turns, false)
+        Seat::boot_full(test, args, seat_manager, sleep_turns, "")
     }
 
     /// [`Seat::boot`], each session reading its input three bytes at a
     /// time, so that it prints the focus reports it receives. The test
     /// turns on each console's focus reporting with [`Seat::report_focus`].
     fn boot_reporting(test: &str, seat_manager: bool) -> Seat {
-        Seat::boot_full(test, &[], seat_manager, 0, true)
+        Seat::boot_full(test, &[], seat_manager, 0, "F=1\n")
     }
 
+    /// [`Seat::boot`], each session with focus reporting on and reading
+    /// nothing, so the test reads what vtium sends it ([`Slave`]).
+    fn boot_quiet(test: &str) -> Seat {
+        Seat::boot_full(test, &[], false, 0, "Q=1\n")
+    }
+
+    /// [`Seat::boot`], with card A's sleep ending `sleep_turns` turns after
+    /// it starts, and `set` before [`SESSION`], which sets its variables.
     fn boot_full(
         test: &str,
         args: &[&str],
         seat_manager: bool,
         sleep_turns: u32,
-        reporting: bool,
+        set: &str,
     ) -> Seat {
         let dir = Scratch::new(test);
-        let f = if reporting { "F=1\n" } else { "" };
-        let script = format!("D='{}'\n{f}{SESSION}", dir.display());
+        let script = format!("D='{}'\n{set}{SESSION}", dir.display());
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(args)
@@ -634,7 +691,9 @@ impl Seat {
         let (vt, released) = CountingVt::new(FakeVt::with_number(1));
         let restores = Rc::new(Cell::new(0));
         let vt_sent = Rc::new(RefCell::new(Vec::new()));
+        let at_release = Rc::new(RefCell::new(AtRelease::default()));
         let vt = TestVt {
+            at_release: Rc::clone(&at_release),
             vt,
             seat_manager,
             restores: Rc::clone(&restores),
@@ -666,6 +725,7 @@ impl Seat {
             master_a,
             master_b,
             vt_sent,
+            at_release,
             dir,
         };
         assert!(
@@ -1302,4 +1362,41 @@ fn under_a_seat_manager_set_background_sends_no_focus_report() {
     assert!(s.until(|a| console_shows(a, "left", 1, "sent:bg")));
     s.turns(10);
     assert_eq!(reports(&s.app, "left"), lines(&[]));
+}
+
+/// D5: the focus-out reaches the session before vtium lets the VT go. The
+/// fake VT reads the terminal of `left`'s console at the moment vtium
+/// acknowledges the release.
+// covers: platform.heads.focus
+#[test]
+fn the_focus_out_waits_on_the_terminal_when_vtium_lets_the_vt_go() {
+    let mut s = Seat::boot_quiet("hand-over-focus-release-order");
+    let slave = Slave::of(&s.app, "left");
+    slave.take();
+    s.at_release.borrow_mut().slave = Some(slave);
+    let released = s.released.get();
+    s.app.device_input(Path::new(KBD_LEFT), switch_key(), now());
+    let count = Rc::clone(&s.released);
+    assert!(s.until(|_| count.get() > released), "the VT switched away");
+    assert_eq!(
+        s.at_release.borrow().seen.as_deref(),
+        Some(&b"\x1b[O"[..]),
+        "the session had its focus-out when vtium let the VT go"
+    );
+}
+
+/// D16: the focus-out goes in the turn that takes setBackground. The test
+/// reads the session's output with no turn, then turns the seat once:
+/// that turn gives card A up and writes the focus-out.
+// covers: platform.hand-back
+#[test]
+fn the_focus_out_goes_in_the_turn_that_takes_set_background() {
+    let mut s = Seat::boot_quiet("hand-over-focus-same-turn");
+    let slave = Slave::of(&s.app, "left");
+    slave.take();
+    s.tell("left", 1, "bg");
+    assert!(s.read_until_requested("left"), "console 1's request waits");
+    s.app.turn(now());
+    assert_eq!(s.master_a.borrow().holder, None, "the turn gave card A up");
+    assert_eq!(slave.take(), b"\x1b[O", "and wrote the focus-out");
 }

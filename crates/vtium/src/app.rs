@@ -1697,8 +1697,9 @@ impl App {
         let open = |id: Option<DeviceId>| {
             input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
         };
-        // A release under way counts as the VT gone: the VT stays ours
-        // until vtium lets it go, once the displays are asleep.
+        // A release under way counts as the VT gone. The VT stays ours
+        // until the turn lets it go, once the displays are asleep, and the
+        // release reports the focus-out before that.
         let shown = self.vt.is_active() && self.releasing.is_none();
         let paused = self.paused_heads();
         for (h, head) in self.heads.iter_mut().enumerate() {
@@ -2533,6 +2534,9 @@ impl App {
                         painter.release();
                     }
                 }
+                // The focus-out goes now, before the turn lets the VT go
+                // (ADR-1401 D5).
+                self.report_focus();
             }
             VtEvent::Retaken if self.blank.blanked() => {
                 // As a hotplug while blanked: the set-up waits for the
