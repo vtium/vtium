@@ -181,3 +181,8 @@ kit-spec-indexed-recolor 12 4
 kit-spec-indexed-media 12 4
 kit-spec-replies 12 4
 kit-spec-no-id-order 12 4
+cursor-pair-top-block 10 4
+cursor-pair-bottom-bar 10 4
+cursor-dwl-underline 10 4
+cursor-dhl-alone 10 4
+cursor-dwl-wide 10 4

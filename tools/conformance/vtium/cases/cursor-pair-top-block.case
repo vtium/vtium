@@ -1,0 +1,11 @@
+# A block cursor on the top line of a double-height pair (ESC # 3 on line
+# 1, ESC # 4 on line 2) covers both halves of the doubled character. The
+# frame view says so: span=2 for the two display cells across, and
+# rows=0-1 for both lines of the pair. The terminal's cursor stays on
+# line 1.
+# spec: ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph": "On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only."
+# covers: text.line-size
+size 10 4
+needs cursor-extent
+send "\e[2 q\e#3Big\r\n\e#4Big\e[1;2H"
+dump

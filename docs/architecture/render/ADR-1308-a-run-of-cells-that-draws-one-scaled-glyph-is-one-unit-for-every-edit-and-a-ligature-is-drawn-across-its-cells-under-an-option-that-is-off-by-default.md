@@ -61,6 +61,10 @@ considered:
   - operator: aaronsb
     said: "In wave one goldens the vertical cursor on a double height character reaches only half which seems wrong. The cursor should resize to the height (or width if double) on a character that is doubled. This is different than a ligature or composite character (Arabic, Hindu ,cjketc) where the character is formed. Does that make sense?"
     via: the steering session, 2026-11-14, after the wave 1 picture page
+  - operator: aaronsb
+    said: "Whole character: the cursor covers the whole wide character from its left cell, whichever half it stands on."
+    via: the steering session's question on 2026-11-14, after the tier 1 review of the cursor cases
+    paraphrase: true
 status: proposed
 date: 2026-11-14
 deciders:
@@ -108,7 +112,9 @@ A run is a block of cells that draws one piece of text as a whole.
 - **A sized run** is the block that one OSC 66 sequence writes (D2). The terminal stores it as one character that covers its block (D3), and every edit treats it as one unit (D5).
 - **A ligature** is a drawing only (D8). The terminal keeps each of its characters in a cell of its own, and every edit acts on those cells as on any others.
 - **A double-size line is not a run.** Each character on it is one cell, which the renderer draws at twice the width, and on a double-height line at twice the height, split across the line and the next. The VT510's rules for the cursor's position, the margins and the editing controls apply to it, as the work on double-size lines builds them. This record adds only how the cursor is drawn there, in the next bullet. D7 says how a double-size line meets a sized run.
-- **The cursor on a scaled glyph scales with the glyph.** On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only. A sized run follows the same rule at its own scale (D6).
+- **The cursor on a scaled glyph scales with the glyph.** On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only. A sized run follows the same rule at its own scale (D6). When the cursor stands on either cell of a wide character, vtium draws the cursor over the whole character, starting at its left cell, on a line of any size.
+
+> Edited 2026-11-14: the maintainer's answer after the tier 1 review of the cursor cases (`considered`). The bullet ended at "A sized run follows the same rule at its own scale (D6).", and it did not say where the cursor draws when it stands on the right half of a wide character.
 
 > Edited 2026-11-14: the maintainer's words after the wave 1 picture page, where a bar cursor on a double-height character reached only half of it (`considered`). The bullet on double-size lines ended "apply to it, as the work on double-size lines builds them, and this record adds nothing to them.", and the record gave no rule for drawing the cursor on a double-size line. D6's bullet on the cursor's drawing said nothing of how thick a bar or an underline is, and D8 did not say why a ligature's rule differs.
 
