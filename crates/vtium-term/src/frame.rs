@@ -70,7 +70,7 @@ pub struct CursorExtent {
     /// How many display cells the cursor covers across: the width of the
     /// character it stands on, doubled on a line of double size.
     pub cells: usize,
-    /// The frame rows the cursor covers: its own row, or both rows of a
+    /// The frame rows under the cursor: its own row, or both rows of a
     /// pair of double-height lines.
     pub rows: Range<usize>,
 }
