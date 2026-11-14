@@ -16,7 +16,9 @@
 mod common;
 
 use common::{Screen, rgb, style};
-use vtium_font::{Cell, Face, Font, Format, Glyph, Style, Width as FontWidth};
+use vtium_font::{
+    Cell, Doubled, Face, Font, Format, Glyph, Script, Style, Variant, Width as FontWidth,
+};
 use vtium_render::{Canvas, Config, DrawState, Rect, Renderer};
 use vtium_term::{Age, Attrs, Color, CursorShape, LineSize, UnderlineStyle};
 
@@ -434,5 +436,250 @@ fn lines_change_size(n: usize) {
                 "{what}: the damage {damage:?} does not hold the whole line"
             );
         }
+    }
+}
+
+/// Whether the glyph of `c` that [`Rendered`] holds at a double size
+/// lights its pixel at `x`, `y` of the doubled cells: a pattern of its own
+/// at that size, which no doubling of [`lit`]'s pixels gives.
+fn lit_doubled(c: char, x: u32, y: u32) -> bool {
+    (x * 5 + y * 3 + u32::from(c)) % 11 < 4
+}
+
+/// [`Dots`], whose face also holds the glyphs of `a` and `W` rendered at
+/// each double size, as the font helper renders an outline font's glyphs.
+/// As the console's face does, it holds none for another character, for
+/// a cluster, or for a superscript or subscript.
+struct Rendered;
+
+impl Face for Rendered {
+    fn cell(&self) -> Cell {
+        Dots { reaches: false }.cell()
+    }
+    fn size_step(&self) -> u32 {
+        1
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        Dots { reaches: false }.has_glyph(c)
+    }
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        Dots { reaches: false }.draw(cluster, style)
+    }
+    fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
+        let &[c] = cluster else {
+            return None;
+        };
+        if !matches!(c, 'a' | 'W') || variant.script != Script::Baseline {
+            return None;
+        }
+        let width = if c == 'W' {
+            FontWidth::Wide
+        } else {
+            FontWidth::Narrow
+        };
+        let (w, h) = (2 * CW * width.cells(), CH * doubled.rows());
+        let px = |x: u32, y: u32| if lit_doubled(c, x, y) { 255 } else { 0 };
+        let own = (0..h).flat_map(|y| (0..w).map(move |x| px(x, y))).collect();
+        Some(Glyph::from_pixels(w, h, Format::Mask, own)?.with_cells(width))
+    }
+}
+
+/// `s` drawn whole in [`Rendered`].
+fn whole_rendered(s: &Screen) -> Canvas {
+    let (w, h) = display(s);
+    let mut r = Renderer::new(Font::new(Rendered), w, h, Config::default());
+    let mut c = Canvas::new(w, h, 0);
+    r.draw(&s.frame(Age::NEVER), &mut c, 0, &state(s));
+    c
+}
+
+/// The pixel [`Rendered`]'s glyph of `c` at a double size draws at `x`,
+/// `y` of its doubled cells, in the screen's colors.
+fn doubled_px(c: char, x: u32, y: u32) -> u32 {
+    if lit_doubled(c, x, y) { px(FG) } else { px(BG) }
+}
+
+// issue #61, the maintainer's direction of 2026-11-14: where the face
+// holds a glyph rendered at double size, as the font helper renders an
+// outline font's, a line of double size draws that glyph's pieces as they
+// are. A double-width line draws each display cell from its column of
+// the glyph, a wide character's across four cells, and a double-height
+// pair draws the glyph's upper rows above and its lower rows below. A
+// character the face holds no such glyph for doubles its pixels, as a
+// bitmap font's does.
+// covers: text.line-size
+#[test]
+fn a_glyph_rendered_at_double_size_draws_its_pieces_as_they_are() {
+    let mut s = screen(8, 3);
+    s.text(0, 0, "ab", plain());
+    s.put(2, 0, 'W', true, plain());
+    s.text(0, 1, "ab", plain());
+    s.text(0, 2, "ab", plain());
+    size(&mut s, 0, LineSize::DoubleWidth);
+    size(&mut s, 1, LineSize::DoubleHeightTop);
+    size(&mut s, 2, LineSize::DoubleHeightBottom);
+    let c = whole_rendered(&s);
+    let wide = |x: u32, y: u32| match x / (2 * CW) {
+        0 => doubled_px('a', x, y),
+        1 => glyph_px('b', (x % (2 * CW)) / 2, y),
+        _ => doubled_px('W', x - 4 * CW, y),
+    };
+    assert_row(&c, 8, 0, wide, "double width");
+    let tall = |half: u32| {
+        move |x: u32, y: u32| match x / (2 * CW) {
+            0 => doubled_px('a', x, y + half * CH),
+            1 => glyph_px('b', (x % (2 * CW)) / 2, (y + half * CH) / 2),
+            _ => px(BG),
+        }
+    };
+    assert_row(&c, 8, 1, tall(0), "top");
+    assert_row(&c, 8, 2, tall(1), "bottom");
+}
+
+/// Fails unless rows 0 and 1 of `pair`, a pair of double-height lines,
+/// draw as row 0 of `normal` doubled: its upper half on row 0 and its
+/// lower half on row 1.
+fn assert_pair(normal: &Canvas, pair: &Canvas, cols: usize, what: &str) {
+    for (row, half) in [(0, 0), (1, CH)] {
+        assert_row(
+            pair,
+            cols,
+            row,
+            |x, y| at(normal, x / 2, (y + half) / 2),
+            &format!("{what}, line {row}"),
+        );
+    }
+}
+
+// The maintainer's look at the double-height cursor screens, 2026-11-14:
+// on a pair of double-height lines (ESC # 3 then ESC # 4), the cursor
+// covers the whole doubled character, whichever line of the pair it
+// stands on. A block covers both halves, a bar runs down both lines, and
+// an underline lies under the bottom half, so the pair draws as its line
+// at the normal size, cursor and all, doubled.
+// covers: text.line-size
+#[test]
+fn the_cursor_covers_both_lines_of_a_double_height_pair() {
+    let shapes = [
+        (CursorShape::Block, None),
+        (CursorShape::Block, Some(rgb("30ff30"))),
+        (CursorShape::Underline, None),
+        (CursorShape::Bar, None),
+    ];
+    for (shape, color) in shapes {
+        for col in [1, 6] {
+            let mut normal = screen(20, 1);
+            decorated(&mut normal, 0);
+            normal.cursor.visible = true;
+            (normal.cursor.col, normal.cursor.row) = (col, 0);
+            normal.cursor.shape = shape;
+            normal.cursor.color = color;
+            let normal = whole(&normal);
+            for on in [0, 1] {
+                let mut s = screen(20, 2);
+                decorated(&mut s, 0);
+                decorated(&mut s, 1);
+                size(&mut s, 0, LineSize::DoubleHeightTop);
+                size(&mut s, 1, LineSize::DoubleHeightBottom);
+                s.cursor.visible = true;
+                (s.cursor.col, s.cursor.row) = (col, on);
+                s.cursor.shape = shape;
+                s.cursor.color = color;
+                let what = format!("{shape:?} {color:?} at column {col} on line {on}");
+                assert_pair(&normal, &whole(&s), 20, &what);
+            }
+        }
+    }
+}
+
+// A top line with no bottom line after it, and a bottom line with no top
+// line before it, draw the cursor on their own line alone: the line next
+// to them draws as it does with no cursor.
+// covers: text.line-size
+#[test]
+fn the_cursor_on_a_line_with_no_partner_covers_its_own_line() {
+    for (sizes, on, other) in [
+        ([LineSize::DoubleHeightTop, LineSize::Single], 0u32, 1u32),
+        ([LineSize::DoubleHeightTop, LineSize::DoubleHeightTop], 0, 1),
+        ([LineSize::Single, LineSize::DoubleHeightBottom], 1, 0),
+        (
+            [LineSize::DoubleHeightBottom, LineSize::DoubleHeightBottom],
+            1,
+            0,
+        ),
+        ([LineSize::DoubleWidth, LineSize::DoubleWidth], 0, 1),
+    ] {
+        let make = |cursor: bool| {
+            let mut s = screen(20, 2);
+            decorated(&mut s, 0);
+            decorated(&mut s, 1);
+            size(&mut s, 0, sizes[0]);
+            size(&mut s, 1, sizes[1]);
+            s.cursor.visible = cursor;
+            (s.cursor.col, s.cursor.row) = (1, on as usize);
+            s
+        };
+        let (with, without) = (whole(&make(true)), whole(&make(false)));
+        assert_row(
+            &with,
+            20,
+            other,
+            |x, y| at(&without, x, other * CH + y),
+            &format!("{sizes:?}, the line with no cursor"),
+        );
+        let line = on * CH;
+        let differs =
+            (0..CH).any(|y| (0..40).any(|x| at(&with, x, line + y) != at(&without, x, line + y)));
+        assert!(differs, "{sizes:?}: the cursor's own line shows it");
+    }
+}
+
+// As the cursor moves onto a pair, between its lines, and off it, and as
+// it blinks, each frame drawn into one buffer matches a whole draw: the
+// other line of the pair draws the cursor and loses it again with the
+// cursor's own line.
+// covers: text.line-size
+#[test]
+fn each_frame_of_the_cursor_on_a_pair_matches_a_whole_draw() {
+    let mut s = screen(10, 4);
+    for row in 0..4 {
+        decorated(&mut s, row);
+    }
+    size(&mut s, 1, LineSize::DoubleHeightTop);
+    size(&mut s, 2, LineSize::DoubleHeightBottom);
+    s.cursor.visible = true;
+    let (w, h) = display(&s);
+    let mut r = Renderer::new(Font::new(Dots { reaches: false }), w, h, Config::default());
+    let mut buffer = Canvas::new(w, h, 0);
+    let mut since = Age::NEVER;
+    let moves: [(&str, usize, usize, bool); 6] = [
+        ("above the pair", 1, 0, true),
+        ("on the top line", 1, 1, true),
+        ("on the bottom line", 2, 2, true),
+        ("blinked off", 2, 2, false),
+        ("blinked on", 2, 2, true),
+        ("below the pair", 2, 3, true),
+    ];
+    for (what, col, row, on) in moves {
+        let old = (s.cursor.col, s.cursor.row);
+        s.damage.mark_cell(old.1, old.0);
+        (s.cursor.col, s.cursor.row) = (col, row);
+        s.damage.mark_cell(row, col);
+        let st = DrawState {
+            cursor_on: on,
+            ..state(&s)
+        };
+        // the one buffer holds the frame before, so a frame after the
+        // first draws only what changed
+        let age = u32::from(since != Age::NEVER);
+        r.draw(&s.frame(since), &mut buffer, age, &st);
+        since = s.damage.checkpoint();
+        let mut want = Canvas::new(w, h, 0);
+        let mut fresh = Renderer::new(Font::new(Dots { reaches: false }), w, h, Config::default());
+        fresh.draw(&s.frame(Age::NEVER), &mut want, 0, &st);
+        assert!(
+            buffer == want,
+            "{what}: the buffer differs from a whole draw"
+        );
     }
 }

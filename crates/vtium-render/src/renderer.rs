@@ -349,6 +349,9 @@ struct Pass<'p, 'f> {
     cursor: Cursor,
     /// Where the cursor draws, when it shows.
     at: Option<(usize, usize)>,
+    /// The other cell that draws the cursor, when it shows on a pair of
+    /// double-height lines ([`Pass::pair_cell`]).
+    at_pair: Option<(usize, usize)>,
     /// Where the visible cursor stands, in either phase of its blink: the
     /// letter there keeps its ink beside it inside its cells (ADR-1302 D8).
     held: Option<(usize, usize)>,
@@ -363,6 +366,38 @@ struct Pass<'p, 'f> {
 }
 
 impl<'f> Pass<'_, 'f> {
+    /// Whether the cell at `col`, `row` draws the cursor: the cursor's own
+    /// cell, and on a pair of double-height lines the same cell of the
+    /// pair's other line.
+    fn shows_cursor(&self, col: usize, row: usize) -> bool {
+        [self.at, self.at_pair].contains(&Some((col, row)))
+    }
+
+    /// The cell of the other line of a pair of double-height lines that
+    /// draws the cursor with the cell `at`, so the cursor covers the whole
+    /// doubled character: the same column of the line below a top line
+    /// (ESC # 3) that the pair's bottom line (ESC # 4) directly follows,
+    /// or of the line above such a bottom line. Each line draws its half
+    /// of the cursor, cut from the cursor doubled as its glyph is: a block
+    /// covers both halves, a bar runs down both lines, and an underline
+    /// lies under the bottom half. `None` on a line of any other size, and
+    /// on a top or bottom line with no partner, where the cursor covers
+    /// its own line alone. The terminal's cursor stays on its own line.
+    fn pair_cell(&self, at: Option<(usize, usize)>) -> Option<(usize, usize)> {
+        let (col, row) = at?;
+        match self.size(row) {
+            LineSize::DoubleHeightTop => {
+                let below = row.checked_add(1)?;
+                (self.size(below) == LineSize::DoubleHeightBottom).then_some((col, below))
+            }
+            LineSize::DoubleHeightBottom => {
+                let above = row.checked_sub(1)?;
+                (self.size(above) == LineSize::DoubleHeightTop).then_some((col, above))
+            }
+            LineSize::Single | LineSize::DoubleWidth => None,
+        }
+    }
+
     /// The frame without its selection.
     fn plain(&self) -> &Frame<'f> {
         self.plain
@@ -1319,16 +1354,21 @@ impl<F: Face> Renderer<F> {
         self.blink_hidden = phases;
         let last_cursor = core::mem::replace(&mut self.cursor_at, at);
         let last_held = core::mem::replace(&mut self.held_at, held);
-        let pass = Pass {
+        let mut pass = Pass {
             g: *g,
             frame,
             state,
             cursor,
             at,
+            at_pair: None,
             held,
             plain: core::cell::OnceCell::new(),
             link_row,
         };
+        pass.at_pair = pass.pair_cell(at);
+        // the cells that draw the cursor, or drew it last frame, on the
+        // other line of a pair of double-height lines
+        let pairs = [at, last_cursor, held, last_held].map(|c| pass.pair_cell(c));
         self.resize_rows(&pass);
         let on = |c: Option<(usize, usize)>, row: usize| c.is_some_and(|(_, r)| r == row);
         let (mut drawn, mut scanned) = (0u32, 0u32);
@@ -1342,6 +1382,7 @@ impl<F: Face> Renderer<F> {
                 || frame.row_changed(row)
                 || [at, last_cursor, held, last_held]
                     .into_iter()
+                    .chain(pairs)
                     .any(|c| on(c, row));
             if scan {
                 scanned = scanned.saturating_add(1);
@@ -1429,7 +1470,7 @@ impl<F: Face> Renderer<F> {
             }
             return false;
         }
-        let is_cursor = p.at == Some((col, row));
+        let is_cursor = p.shows_cursor(col, row);
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         if ncells == 2 {
             let tail = col.saturating_add(1);
@@ -1658,7 +1699,7 @@ impl<F: Face> Renderer<F> {
         fc: &FrameCell<'_>,
         ncells: usize,
     ) {
-        let is_cursor = p.at == Some((col, row));
+        let is_cursor = p.shows_cursor(col, row);
         let off = blink_off(fc, is_cursor, p.state, self.config.blink);
         #[cfg(feature = "bidi")]
         let mut drawn = core::mem::take(&mut self.drawn);
@@ -1916,7 +1957,7 @@ impl<F: Face> Renderer<F> {
             // a block cursor or the selection marks the job's cell
             let block = matches!(p.cursor.shape, CursorShape::Block);
             let marked =
-                (block && p.at == Some((a, row))) || p.cell(row, a).is_some_and(|c| c.selected);
+                (block && p.shows_cursor(a, row)) || p.cell(row, a).is_some_and(|c| c.selected);
             let from = self.compose.sources.len();
             for &(_, _, k, r, span) in &found {
                 if let Some(src) = self.source(p, (&job, marked), (k, r, span)) {
@@ -2312,7 +2353,7 @@ impl<F: Face> Renderer<F> {
             if covered {
                 continue;
             }
-            let is_cursor = p.at == Some((here, row));
+            let is_cursor = p.shows_cursor(here, row);
             let off = blink_off(&fc, is_cursor, p.state, self.config.blink);
             self.cells.mark_drawn(here, row, ncells);
             #[cfg(feature = "bidi")]
