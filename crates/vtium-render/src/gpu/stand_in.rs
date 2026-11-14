@@ -273,6 +273,7 @@ impl StandIn {
             sprites: texture("sprites"),
             boxes: texture("boxes"),
             ink: texture("ink"),
+            color_boxes: texture("color_boxes"),
             cell: (cw, ch),
             sprite_columns,
             box_slot: (sw, sh, across),

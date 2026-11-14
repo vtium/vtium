@@ -121,6 +121,14 @@ its crate:
 	the emoji sequences, the letters that join to their neighbors and the
 	script ranges that vtium-config's shaping reads.
 
+The locale data table, built into vtium: crates/vtium-font/src/letters/data.rs,
+which vtium-config's gen-shaping makes from the main exemplar characters of
+the Unicode Common Locale Data Repository (CLDR) 49, Copyright © 2001-2026
+Unicode, Inc., under the Unicode License v3, whose text is at the end of this
+file and in crates/vtium-config/gen-shaping/src/cldr-license.txt. It lists the
+everyday letters of each language that vtium check-config checks a font set
+for. The table carries the notice.
+
 The tests' Unicode data, crates/vtium-term/src/unicode/grapheme_break_test.txt
 and crates/vtium-term/src/unicode/above_marks.txt beside it, and
 crates/vtium-term/src/unicode/bidi/bidi_test.txt and

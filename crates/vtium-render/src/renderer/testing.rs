@@ -83,6 +83,7 @@ impl<F: Face> Renderer<F> {
     /// cache stores a glyph from the font at its ink box.
     fn stored_for_test(&self, ink: TestInk<'_>, o: Orientation) -> Stored {
         let b = InkBox {
+            rgba: false,
             left: ink.left,
             top: ink.top,
             width: ink.width,

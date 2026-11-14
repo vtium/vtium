@@ -60,7 +60,7 @@ fn accent() -> BoxLines {
 fn grid() -> InkGrid {
     let mut g = InkGrid::default();
     g.begin(5, 3, CELL);
-    g.name((2, 1), 7, Rgb::new(1, 2, 3));
+    g.name((2, 1), 7, Rgb::new(1, 2, 3), false);
     g.settle(|k, r| match (k, r) {
         (2, 1) => (Reach::new(0, 1, 1, 0), 1),
         _ => (Reach::NONE, 0),
@@ -111,7 +111,7 @@ fn the_reach_and_the_named_entries_bound_the_lines() {
     let lines = |slot: u32| (slot == 7).then_some(&boxes);
     let mut g = InkGrid::default();
     g.begin(5, 3, CELL);
-    g.name((2, 1), 7, Rgb::new(1, 2, 3));
+    g.name((2, 1), 7, Rgb::new(1, 2, 3), false);
     g.settle(|_, _| (Reach::new(0, 1, 0, 1), 1));
     g.mark(job(2, 0, 1, false), (BOUND, CELL), &lines);
     assert!(g.lines_set(2, 0).is_empty(), "no reach up");
@@ -177,7 +177,7 @@ fn a_wide_glyphs_ink_below_and_past_its_cells_sets_the_lines_it_reaches() {
     for (down, want) in [(false, [2, 3, 4].as_slice()), (true, &[6, 7])] {
         let mut g = InkGrid::default();
         g.begin(5, 3, CELL);
-        g.name((1, 0), 3, Rgb::new(1, 2, 3));
+        g.name((1, 0), 3, Rgb::new(1, 2, 3), false);
         g.settle(|k, r| match (k, r) {
             (1, 0) => (Reach::new(0, 1, 0, 1), 2),
             _ => (Reach::NONE, 0),
@@ -198,7 +198,7 @@ fn a_cell_no_job_marks_this_frame_has_its_lines_cleared() {
     g.mark_jobs([job(2, 0, 2, false)].into_iter(), (BOUND, CELL), lines);
     assert_eq!(g.lines_set(3, 0), [10, 11, 13, 14, 15]);
     g.begin(5, 3, CELL);
-    g.name((2, 1), 7, Rgb::new(1, 2, 3));
+    g.name((2, 1), 7, Rgb::new(1, 2, 3), false);
     g.settle(|k, r| match (k, r) {
         (2, 1) => (Reach::new(0, 1, 1, 0), 1),
         _ => (Reach::NONE, 0),

@@ -12,8 +12,13 @@ curl -fsSL -o /tmp/ucd/ArabicShaping.txt https://www.unicode.org/Public/18.0.0/u
 curl -fsSL -o /tmp/ucd/UnicodeData.txt https://www.unicode.org/Public/18.0.0/ucd/UnicodeData.txt
 curl -fsSL -o /tmp/ucd/Scripts.txt https://www.unicode.org/Public/18.0.0/ucd/Scripts.txt
 curl -fsSL -o /tmp/ucd/emoji-data.txt https://www.unicode.org/Public/18.0.0/ucd/emoji/emoji-data.txt
-cargo run --manifest-path crates/vtium-config/gen-shaping/Cargo.toml -- /tmp/ucd
+mkdir -p /tmp/cldr
+curl -fsSL -o /tmp/cldr/cldr-common-49.zip https://unicode.org/Public/cldr/49/cldr-common-49.zip
+unzip -q -d /tmp/cldr /tmp/cldr/cldr-common-49.zip 'common/main/*.xml'
+cargo run --manifest-path crates/vtium-config/gen-shaping/Cargo.toml -- /tmp/ucd /tmp/cldr
 ```
+
+It also writes vtium-font's `src/letters/data.rs`: the main exemplar characters of each language in vtium-font's table of locales, from the Unicode Common Locale Data Repository (CLDR) 49. These are the everyday letters `vtium check-config` checks a look's font set for (ADR-1401 D7). The generator reads each language's `common/main/<language>.xml` and refuses one whose SHA-256 differs from its pin in `src/main.rs`.
 
 The generator refuses a file whose SHA-256 differs from its pin in `src/main.rs`. Two runs on the same files write identical output.
 
@@ -21,5 +26,6 @@ The generator refuses a file whose SHA-256 differs from its pin in `src/main.rs`
 |---|---|
 | `src/main.rs` | The generator: the pinned files and their SHA-256s, the scripts whose letters take joining forms and those shaped on demand, each as HarfRust 0.12 routes them to its shapers, and SHA-256 itself. |
 | `src/unicode-license.txt` | The Unicode License v3, from https://www.unicode.org/license.txt, copied into the output. |
+| `src/cldr-license.txt` | CLDR 49's `LICENSE`, which puts its data under the Unicode License v3, copied into vtium-font's letters file. |
 | `Cargo.toml`, `Cargo.lock` | The generator crate, its own workspace. |
 | `.gitignore` | Leaves out `target`. |

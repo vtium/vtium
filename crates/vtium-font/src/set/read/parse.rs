@@ -831,9 +831,6 @@ pub(super) fn parse_inks(
         let s = strikes
             .get(usize::from(strike))
             .ok_or(SetError::Malformed("an ink box of a strike the set lacks"))?;
-        if s.info.format == PixelFormat::Rgba {
-            return Err(SetError::Malformed("an ink box in a color strike"));
-        }
         let wide = match kind {
             INK_GLYPH if glyph < s.info.glyph_count => s
                 .spans
@@ -858,6 +855,13 @@ pub(super) fn parse_inks(
             width: i64::from(width),
             height: i64::from(height),
         };
+        // a color strike's box belongs only to a color emoji drawn in one
+        // cell (ADR-1302 D5)
+        if s.info.format == PixelFormat::Rgba && !boxed.is_emoji_edge(cell, wide) {
+            return Err(SetError::Malformed(
+                "an ink box in a color strike past 1 pixel beside a one-cell glyph",
+            ));
+        }
         if !boxed.in_reach(cell, cells) {
             return Err(SetError::Malformed(
                 "an ink box past its glyph's reach, or not past its cells",

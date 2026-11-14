@@ -135,8 +135,8 @@ const CELL_INPUTS: [Input; 5] = [
 ];
 
 /// The inputs of the cell shader built with [`INK`]: the cell shader's,
-/// the boxes, a box slot's size and the ink grid.
-const INK_INPUTS: [Input; 8] = [
+/// the boxes, a box slot's size, the ink grid and the color boxes.
+const INK_INPUTS: [Input; 9] = [
     CELL_INPUTS[0],
     CELL_INPUTS[1],
     CELL_INPUTS[2],
@@ -152,6 +152,10 @@ const INK_INPUTS: [Input; 8] = [
     },
     Input {
         name: "ink",
+        kind: InputKind::Texture,
+    },
+    Input {
+        name: "color_boxes",
         kind: InputKind::Texture,
     },
 ];
@@ -202,7 +206,7 @@ const BENEATH: [Input; 2] = [
 ];
 
 #[cfg(feature = "images")]
-const LAYER_INPUTS: [Input; 10] = [
+const LAYER_INPUTS: [Input; 11] = [
     INK_INPUTS[0],
     INK_INPUTS[1],
     INK_INPUTS[2],
@@ -211,6 +215,7 @@ const LAYER_INPUTS: [Input; 10] = [
     INK_INPUTS[5],
     INK_INPUTS[6],
     INK_INPUTS[7],
+    INK_INPUTS[8],
     BENEATH[0],
     BENEATH[1],
 ];
@@ -1103,8 +1108,13 @@ impl Composition {
             ),
         ];
         if ink {
-            let (boxes, [w, h, across]) = glyphs.boxes();
+            let (boxes, color_boxes, [w, h, across]) = glyphs.boxes();
             let boxes = match boxes {
+                Some(t) => texture(t)?,
+                None => sprites,
+            };
+            // no cell reads the color boxes before a color glyph takes a box
+            let color_boxes = match color_boxes {
                 Some(t) => texture(t)?,
                 None => sprites,
             };
@@ -1116,6 +1126,7 @@ impl Composition {
                     Value::IVec4([side(w), side(h), side(across), 0]),
                 ),
                 ("ink", Value::Texture(grid, Filter::Nearest)),
+                ("color_boxes", Value::Texture(color_boxes, Filter::Nearest)),
             ]);
         }
         Ok(inputs)
@@ -1904,7 +1915,7 @@ impl<G: Gl> GpuBack<'_, G> {
             let Some((slot, _)) = place.boxed else {
                 continue;
             };
-            self.glyphs.ink.name(s.cell, slot, s.own);
+            self.glyphs.ink.name(s.cell, slot, s.own, place.color);
             flags |= RECEIVES;
             if s.marked {
                 flags |= MARKED;

@@ -284,7 +284,7 @@ impl Composer {
                         sources.get(from..to).unwrap_or_default(),
                         job,
                         (y0, n, jw),
-                        (recv, &mut lines.cov),
+                        (recv, &mut lines.cov, &mut lines.src),
                     );
                 let glyph = glyph(cache, font, text, job);
                 let len = n
@@ -388,7 +388,7 @@ fn receive<F: Face>(
     sources: &[Source],
     job: &Job,
     (y0, n, jw): (i64, usize, usize),
-    (recv, cov): (&mut Vec<u32>, &mut Vec<u8>),
+    (recv, cov, argb): (&mut Vec<u32>, &mut Vec<u8>, &mut Vec<u32>),
 ) -> bool {
     if sources.is_empty() {
         return false;
@@ -416,6 +416,7 @@ fn receive<F: Face>(
             continue;
         }
         cov.resize(to.saturating_sub(from), 0);
+        argb.resize(to.saturating_sub(from), 0);
         for (i, line) in recv.chunks_mut(jw.max(1)).enumerate() {
             let y = y0.saturating_add(int(i));
             if y < s.clip.y || y >= s.clip.bottom() {
@@ -424,7 +425,18 @@ fn receive<F: Face>(
             let Some(seg) = line.get_mut(from..to) else {
                 continue;
             };
-            g.mask_line(x0.saturating_sub(s.g.x), y.saturating_sub(s.g.y), cov);
+            let (gx, gy) = (x0.saturating_sub(s.g.x), y.saturating_sub(s.g.y));
+            if g.is_rgba() {
+                // a color emoji's edge keeps its own colors, inside a mark
+                // too (ADR-1302 D5, D8)
+                g.argb_line(gx, gy, argb);
+                for (p, &c) in seg.iter_mut().zip(argb.iter()) {
+                    any |= c != 0;
+                    *p = argb_over(*p, c);
+                }
+                continue;
+            }
+            g.mask_line(gx, gy, cov);
             for (p, &a) in seg.iter_mut().zip(cov.iter()) {
                 any |= a != 0;
                 *p = tint_over(*p, a, s.color);

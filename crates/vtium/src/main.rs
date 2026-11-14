@@ -113,7 +113,8 @@ fn main() -> ExitCode {
     if loaded.check {
         // check-config reads a candidate whoever owns it, and judges its
         // ownership apart (ADR-1403 D3)
-        return ExitCode::from(check::main(&config::load(&args, &mut config::read_bytes)));
+        let loaded = config::load(&args, &mut config::read_bytes);
+        return ExitCode::from(check::main(&loaded, &*clock()));
     }
     for w in check::warnings(&loaded) {
         vtium::warn::warn(w);

@@ -52,12 +52,12 @@
 //! (ADR-1202 D14).
 //!
 //! ```text
-//! request  magic "VTVSREQ7", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ8", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
-//!          says how its glyphs were made), frit name length u32, the name (ADR-1200 D1's
+//!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
-//!          u32 (0 for a cell or sources query), cell height u32 (for a
-//!          sources query 0, for a cell query
+//!          u32 (0 for a query), cell height u32 (for a sources or
+//!          coverage query 0, for a cell query
 //!          the height an outline font is drawn at, or 0), the rows line
 //!          spacing adds above and below the cell's text band u32 and u32
 //!          (both 0 for a query, and together less than the cell's
@@ -69,7 +69,8 @@
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
-//!          wanted, a fill's first; none for a cell query), cluster count
+//!          wanted, a fill's first, a coverage query's letters; none for
+//!          a cell or sources query), cluster count
 //!          u32, each cluster's length u32 and scalar values u32 (an ask's
 //!          alone), held range
 //!          count u32, each range's first and last codepoint u32 (what the
@@ -101,7 +102,11 @@
 //!          made its superscript and subscript glyphs, once before its
 //!          done frame ([`Made::encode_all`]); kind 14 the parts of the
 //!          helper's sandbox in force, once before its first answer
-//!          ([`FRAME_SANDBOX`], a u32 of bits); kind 3 a failure (UTF-8
+//!          ([`FRAME_SANDBOX`], a u32 of bits); kind 15 a coverage
+//!          query's answer, the count u32 and each codepoint u32 of the
+//!          letters asked that the frit covers, then the family of an
+//!          installed font that covers the most of the rest (UTF-8, empty
+//!          when none does); kind 3 a failure (UTF-8
 //!          reason), the helper's own, as when it fails as it starts
 //! ```
 //!
@@ -206,7 +211,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ7";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ8";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -253,6 +258,12 @@ pub const FRAME_MADE: u32 = 13;
 /// and [`SANDBOX_SOCKETS`]. A console of another build never meets it,
 /// since its request's magic is refused first.
 pub const FRAME_SANDBOX: u32 = 14;
+/// A coverage query's answer ([`COVERAGE`], ADR-1401 D7): the count u32
+/// and each codepoint u32 of the letters asked that the frit's sources
+/// cover, then the family of an installed outline font that covers the
+/// most of the rest, UTF-8, empty when none does
+/// ([`crate::sources::font_covering`]).
+pub const FRAME_COVERAGE: u32 = 15;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -267,6 +278,12 @@ pub const ASK_PARTS: u32 = 6;
 pub const ASK_MADE: u32 = 7;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
+/// A coverage query asks which of the letters it names the frit covers,
+/// and which installed font covers the rest, for `vtium check-config`'s
+/// warning on a font set that leaves the locale's everyday letters to the squeeze
+/// (ADR-1401 D7, ADR-1302 D14). It carries a cell of 0 by 0 and the
+/// letters as its codepoints.
+pub const COVERAGE: u32 = 8;
 /// The end of a cell's fill.
 pub const STOP: u32 = 3;
 /// A cell query asks for the frit's own cell. It carries a width of 0, the
@@ -477,7 +494,7 @@ impl ServeRequest {
         let kind = f.u32()?;
         if !matches!(
             kind,
-            ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES
+            ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES | COVERAGE
         ) {
             return Err("an unknown request kind".to_owned());
         }
@@ -496,14 +513,14 @@ impl ServeRequest {
             width: f.u32()?,
             height: f.u32()?,
         };
-        let query = matches!(kind, OWN_CELL | SOURCES);
+        let query = matches!(kind, OWN_CELL | SOURCES | COVERAGE);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
             return Err(format!(
                 "a cell query at a cell, or at a height of more than {CELL_SIDE_MAX} pixels"
             ));
         }
-        if kind == SOURCES && cell.height != 0 {
-            return Err("a sources query at a height".to_owned());
+        if matches!(kind, SOURCES | COVERAGE) && cell.height != 0 {
+            return Err("a sources or coverage query at a height".to_owned());
         }
         if !query
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
@@ -536,7 +553,11 @@ impl ServeRequest {
             return Err("display capabilities this helper does not read".to_owned());
         }
         let n = f.count(
-            if query { 0 } else { FIRST_MAX },
+            if query && kind != COVERAGE {
+                0
+            } else {
+                FIRST_MAX
+            },
             "the codepoints asked for",
         )?;
         let mut codepoints = Vec::with_capacity(n);
@@ -1994,6 +2015,9 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
+        // color glyphs in one cell held back for a text glyph from a later
+        // source, the first source's for each character
+        let mut in_one_cell: Vec<(char, Placed, Fit)> = Vec::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
@@ -2255,39 +2279,12 @@ impl Engine {
                         continue;
                     };
                     let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
-                    let mut index = |(g, fit): (u32, Fit),
-                                     target: &mut StrikeBuilder,
-                                     glyph: &Placed| {
-                        *placed.entry((g, fit)).or_insert_with(|| {
-                            let width = if glyph.wide {
-                                Width::Wide
-                            } else {
-                                Width::Narrow
-                            };
-                            let format = if glyph.color {
-                                vtium_font::Format::Rgba
-                            } else {
-                                vtium_font::Format::Mask
-                            };
-                            let size = (cell.width * width.cells(), cell.height);
-                            let (pixels, ink) = spacing::place_rows(
-                                &glyph.pixels,
-                                size,
-                                format,
-                                glyph.ink.as_ref(),
-                                (band, fit, false),
-                            )?;
-                            let at = target.glyph(width, pixels);
-                            // a box past a set's chunk is not sent, and
-                            // the glyph is cut to its cells (ADR-1306 D3)
-                            let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
-                            if let Some(ink) = ink {
-                                let at_box = ((ink.left, ink.top), (ink.width, ink.height));
-                                target.ink(at, at_box.0, at_box.1, ink.pixels);
-                            }
-                            Some(at)
-                        })
-                    };
+                    let mut index =
+                        |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
+                            *placed
+                                .entry((g, fit))
+                                .or_insert_with(|| put_placed(target, glyph, (cell, band, fit)))
+                        };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
                         else {
@@ -2297,6 +2294,20 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
+                            continue;
+                        }
+                        // a character that presents as text by default
+                        // takes a later source's text glyph before a color
+                        // glyph in one cell (ADR-1302 D14, step 2)
+                        if glyph.color
+                            && !glyph.wide
+                            && !color_only
+                            && script == Script::Baseline
+                            && !crate::shaping::emoji_by_default(c)
+                        {
+                            if !in_one_cell.iter().any(|(d, ..)| *d == ch) {
+                                in_one_cell.push((ch, glyph.clone(), Engine::fit(source, c)));
+                            }
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
@@ -2358,6 +2369,16 @@ impl Engine {
                 }
             }
         }
+        for (ch, glyph, fit) in in_one_cell {
+            let c = u32::from(ch);
+            if mapped.contains(&c) {
+                continue;
+            }
+            if let Some(at) = put_placed(&mut rgba, &glyph, (cell, band, fit)) {
+                rgba.map(ch, at);
+                mapped.insert(c);
+            }
+        }
         if mapped.is_empty() && shaped.is_empty() && parts.is_empty() {
             return Ok(None);
         }
@@ -2369,6 +2390,60 @@ impl Engine {
         }
         set.write().map(Some).map_err(|e| e.to_string())
     }
+}
+
+/// `glyph`, placed by the helper's outline engine in cells of `cell`,
+/// added to `target` placed in a cell taller by `band` as `fit` says
+/// (ADR-1302 D13), with its ink box where it has one that fits a set's
+/// chunk; a box past a chunk is not sent, and the glyph is cut to its cells
+/// (ADR-1306 D3). Gives the glyph's number in `target`.
+fn put_placed(
+    target: &mut StrikeBuilder,
+    glyph: &Placed,
+    (cell, band, fit): (Cell, Band, Fit),
+) -> Option<u32> {
+    let width = if glyph.wide {
+        Width::Wide
+    } else {
+        Width::Narrow
+    };
+    let format = if glyph.color {
+        vtium_font::Format::Rgba
+    } else {
+        vtium_font::Format::Mask
+    };
+    let size = (cell.width * width.cells(), cell.height);
+    let (pixels, ink) = spacing::place_rows(
+        &glyph.pixels,
+        size,
+        format,
+        glyph.ink.as_ref(),
+        (band, fit, false),
+    )?;
+    let at = target.glyph(width, pixels);
+    let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
+    if let Some(ink) = ink {
+        target.ink(at, (ink.left, ink.top), (ink.width, ink.height), ink.pixels);
+    }
+    Some(at)
+}
+
+/// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
+/// frit's sorted `coverage` holds, and the family of an installed font
+/// under `dirs` that covers the most of the rest.
+fn coverage_payload(coverage: &[u32], letters: &[u32], dirs: &[PathBuf]) -> Vec<u8> {
+    let (covered, rest): (Vec<u32>, Vec<u32>) = letters
+        .iter()
+        .partition(|c| coverage.binary_search(c).is_ok());
+    let rest: Vec<char> = rest.into_iter().filter_map(char::from_u32).collect();
+    let font = crate::sources::font_covering(&rest, dirs).unwrap_or_default();
+    let mut out = Vec::new();
+    put32(&mut out, len32(covered.len()));
+    for c in covered {
+        put32(&mut out, c);
+    }
+    out.extend_from_slice(font.as_bytes());
+    out
 }
 
 /// One bit for each Unicode codepoint.
@@ -2683,6 +2758,17 @@ impl Work<'_> {
                         write_frame(out, FRAME_OUTLINE_CELL, &cell_payload(cell))
                     }
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
+                };
+            }
+            COVERAGE => {
+                let dirs = self.paths.font_dirs.clone();
+                return match self.engine(&request.frit) {
+                    Ok(engine) => {
+                        let payload =
+                            coverage_payload(engine.coverage(), &request.codepoints, &dirs);
+                        write_frame(out, FRAME_COVERAGE, &payload)
+                    }
+                    Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
                 };
             }
             SOURCES => {
@@ -3249,8 +3335,9 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1200 D15's report of the sandbox moved the magic from VTVSREQ6
-    // to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
+    // ADR-1401 D7's coverage query and ADR-1302 D5's color emoji's box
+    // moved the magic from VTVSREQ7 to VTVSREQ8, as ADR-1200 D15's report
+    // of the sandbox moved it from VTVSREQ6 to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
     // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
     // from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
@@ -3265,7 +3352,13 @@ mod tests {
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5", b"VTVSREQ6"] {
+        for magic in [
+            b"VTVSREQ3",
+            b"VTVSREQ4",
+            b"VTVSREQ5",
+            b"VTVSREQ6",
+            b"VTVSREQ7",
+        ] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
             assert_eq!(
