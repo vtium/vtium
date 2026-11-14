@@ -133,6 +133,25 @@ pub trait Vt {
     /// vtium's consoles cannot take the card, and vtium ignores
     /// setBackground (ADR-1401 D16). The kernel's VT and the fake VT give
     /// the seat to no seat manager.
+    /// A check of whether the kernel has asked for the VT and the loop has
+    /// not read the request yet. The loop gives it to each card, which asks
+    /// it between the steps of its display work and stops the work where it
+    /// answers yes (ADR-1401 D2, "A VT release while display work runs").
+    /// `None` where the backend cannot tell before the loop reads its
+    /// source, as with a seat manager, whose disable the loop reads at its
+    /// next dispatch.
+    fn release_check(&self) -> Option<crate::display::Interrupt> {
+        None
+    }
+
+    /// Reads a request for the VT that waits, as [`Vt::release_check`]
+    /// sees it, so that the next [`Vt::events`] reports
+    /// [`VtEvent::Release`]. The loop calls it in the middle of a turn, so
+    /// it lets the VT go in that turn (ADR-1401 D2, "A VT release while
+    /// display work runs"). A backend that cannot read a request early
+    /// does nothing.
+    fn take_release(&mut self) {}
+
     fn seat_manager(&self) -> bool {
         false
     }

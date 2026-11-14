@@ -22,6 +22,7 @@ use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane,
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 use crate::scratch::Scratch;
+use std::rc::Rc;
 
 const A: u32 = 41;
 const B: u32 = 42;
@@ -814,27 +815,134 @@ fn a_sleep_waits_for_a_frames_flip_and_commits_nothing_to_hide() {
     );
 }
 
-// A VT release before the first frame, as when another program takes the
-// VT while the first modeset's flip is in flight, waits for that flip. Its
-// bound running out during the sleep is no warning, since the program
-// taking the card may hold the flip up, and the sleep commits nothing.
+// A VT release while a modeset's flip is in flight, as when another
+// program takes the VT during vtium's first modeset, does not wait for that
+// flip: the card falls asleep in the same call, commits nothing, and warns
+// of nothing. The modeset's late event is dropped, and the next wake-up
+// sets the display again (ADR-1401 D2, "A VT release while display work
+// runs").
+// covers: platform.vt-switch
 #[test]
-fn a_sleep_over_the_first_modesets_flip_warns_of_nothing() {
+fn a_sleep_does_not_wait_for_a_modesets_flip() {
     let mut v = one();
     v.wake_up().unwrap();
     v.events().for_each(drop);
     let commits = v.card().state().commits.len();
     logs::capture();
     v.sleep();
-    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
-    v.flip_expired(100);
-    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert_eq!(events(&mut v), [Event::Asleep], "asleep in the same call");
+    assert!(!v.card().state().master, "the card let DRM master go");
     assert_eq!(v.card().state().commits.len(), commits, "nothing to hide");
     assert!(
         logs::at_least(Level::Warn).is_empty(),
         "{:?}",
         logs::at_least(Level::Warn)
     );
+    // The modeset's event comes late and is dropped.
+    flip(&mut v);
+    assert!(events(&mut v).is_empty());
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(lends(&mut v, A), "the display takes frames again");
+}
+
+/// Gives `v` a check of whether the kernel asked for the VT, which the
+/// test answers through the cell it returns.
+fn release_check(v: &mut Drm2d<FakeCard>) -> Rc<std::cell::Cell<bool>> {
+    let asked = Rc::new(std::cell::Cell::new(false));
+    let check = Rc::clone(&asked);
+    v.set_interrupt(Rc::new(move || check.get()));
+    asked
+}
+
+/// A card with two connected displays, A and B, asleep, whose wake-up is
+/// asked for the VT once connector `at` is read. Returns the card, the
+/// cell that answers the check, and whether connector B was read.
+fn asked_during_read(
+    at: u32,
+) -> (
+    Drm2d<FakeCard>,
+    Rc<std::cell::Cell<bool>>,
+    Rc<std::cell::Cell<bool>>,
+) {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    let asked = release_check(&mut v);
+    let read_b = Rc::new(std::cell::Cell::new(false));
+    let seen = Rc::clone(&read_b);
+    v.card()
+        .after_read(ListRead::Connector(B), move |_| seen.set(true));
+    let set = Rc::clone(&asked);
+    v.card()
+        .after_read(ListRead::Connector(at), move |_| set.set(true));
+    (v, asked, read_b)
+}
+
+// A VT release asked while the wake-up reads connector A, as during a slow
+// probe, stops the scan before the next read: the card reads no other
+// connector and sets no mode, so the sleep lets the card go at once. The
+// acquire's wake-up does the work again (ADR-1401 D2, "A VT release while
+// display work runs").
+// covers: platform.vt-switch
+#[test]
+fn a_release_asked_during_a_connector_read_stops_the_scan() {
+    let (mut v, asked, read_b) = asked_during_read(A);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(!read_b.get(), "the scan stopped before connector B");
+    assert!(v.card().state().commits.is_empty(), "no mode was set");
+    assert!(!events(&mut v).contains(&Event::Awake));
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep], "asleep in the same call");
+    assert!(!v.card().state().master);
+    asked.set(false);
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(lends(&mut v, A) && lends(&mut v, B), "the acquire set both");
+}
+
+// A VT release asked after the last connector read stops the scan before
+// its modeset: the card sets no mode.
+// covers: platform.vt-switch
+#[test]
+fn a_release_asked_before_a_modeset_sets_no_mode() {
+    let (mut v, _asked, read_b) = asked_during_read(B);
+    v.wake_up().unwrap();
+    assert!(read_b.get(), "the scan read every connector");
+    assert!(v.card().state().commits.is_empty(), "no mode was set");
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+}
+
+// A scan probes a connector only where the kernel reports a monitor on it,
+// or has not detected yet whether one is there. A connector the kernel
+// reports disconnected is read as the kernel last detected it, with no
+// probe, as a probe of it can take seconds (ADR-1401 D2).
+#[test]
+fn a_scan_probes_only_connectors_that_may_have_a_monitor() {
+    const C: u32 = 47;
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, Vec::new()),
+        (C, Vec::new()),
+    ]);
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let c = card.state().connectors.get_mut(&C).map(|c| {
+        c.connected = false;
+        c.unknown = true;
+    });
+    assert!(c.is_some());
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(v.card().state().probes, [A, C]);
 }
 
 #[test]
@@ -3833,6 +3941,7 @@ fn virtio_gpu() -> FakeCard {
                 kind: 15,
                 kind_id: 1,
                 connected: true,
+                unknown: false,
                 modes: vec![mode(1366, 768, 60, true)],
                 mm: (0, 0),
                 encoder: 0,
@@ -4745,6 +4854,7 @@ fn shared_dark_card() -> FakeCard {
                 kind: 10,
                 kind_id: 1,
                 connected: false,
+                unknown: false,
                 encoder: 201,
                 encoders: vec![201],
                 ..Connector::default()

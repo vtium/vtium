@@ -390,6 +390,13 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// The cards whose hotplug a request for the VT stopped. Each scans at
+    /// the next turn that holds the VT, unless the acquire's wake-up scans
+    /// it first.
+    hotplug_owed: BTreeSet<PathBuf>,
+    /// Device events a test hands the next turn, as udev would.
+    #[cfg(test)]
+    queued_devices: Vec<DeviceEvent>,
     /// The start's wait for a display.
     wait: Wait,
     /// A frame has been on screen since the start.
@@ -617,6 +624,9 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            hotplug_owed: BTreeSet::new(),
+            #[cfg(test)]
+            queued_devices: Vec::new(),
             wait,
             presented: false,
             timer_due: None,
@@ -980,6 +990,9 @@ impl App {
     /// master a card's open took; the VT's acquire, or the hand-over's
     /// end, wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
+        if let Some(check) = self.vt.release_check() {
+            video.set_interrupt(check);
+        }
         // A card a hand-over gave up stays asleep until the hand-over ends
         // (ADR-1401 D16).
         if self.awake && !self.hand_overs.given_up(&node) {
@@ -2489,6 +2502,7 @@ impl App {
                 // and each `Awake` it brings counts as activity.
                 self.retake_owed = false;
                 self.retaking.clear();
+                self.hotplug_owed.clear();
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
@@ -3099,6 +3113,65 @@ impl App {
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
         }
+    }
+
+    /// The device events of one turn. Each card scans once for all the
+    /// hotplugs it had in the turn. Between a card's display work and the
+    /// next, the loop reads a request for the VT, and once one comes it
+    /// lets the VT go in this turn and leaves the scans that remain to the
+    /// acquire (ADR-1401 D2, "A VT release while display work runs").
+    fn device_events(&mut self, events: Vec<DeviceEvent>, now: Instant) {
+        let mut hotplugs: Vec<PathBuf> = Vec::new();
+        if self.vt.is_active() && self.releasing.is_none() {
+            hotplugs.extend(std::mem::take(&mut self.hotplug_owed));
+        }
+        for e in events {
+            match e {
+                DeviceEvent::Hotplug { node, .. } => {
+                    if !hotplugs.contains(&node) {
+                        hotplugs.push(node);
+                    }
+                }
+                DeviceEvent::Added(dev) if dev.kind != DeviceKind::Input => {
+                    // A card added wakes up, and so reads its connectors,
+                    // only while the VT is vtium's.
+                    self.release_now(now);
+                    self.device_event(DeviceEvent::Added(dev));
+                }
+                e => self.device_event(e),
+            }
+        }
+        for node in hotplugs {
+            if self.release_now(now) {
+                if self.videos.contains_key(&node) {
+                    self.hotplug_owed.insert(node);
+                }
+                continue;
+            }
+            if let Some(video) = self.videos.get_mut(&node)
+                && let Err(e) = video.hotplug()
+            {
+                log::warn!("{}: hotplug: {e}", node.display());
+            }
+        }
+        self.release_now(now);
+    }
+
+    /// Reads a request for the VT that waits, as a card's display work may
+    /// have stopped for, and handles it now, so the turn lets the VT go.
+    /// Returns whether the VT is being released.
+    fn release_now(&mut self, now: Instant) -> bool {
+        let asked = self.releasing.is_none()
+            && self.vt.is_active()
+            && self.vt.release_check().is_some_and(|asked| asked());
+        if asked {
+            self.vt.take_release();
+            let events: Vec<VtEvent> = self.vt.events().collect();
+            for e in events {
+                self.vt_event(e, now);
+            }
+        }
+        self.releasing.is_some()
     }
 
     /// A device of the seat came, went or changed. A framebuffer a DRM
@@ -4265,14 +4338,15 @@ impl App {
         // After the VT's events, so none shows once the VT is released, and
         // before the devices', so a flip they queue is read this turn.
         self.frames(now);
-        let devices: Vec<DeviceEvent> = self
+        #[cfg_attr(not(test), expect(unused_mut, reason = "a test adds its events"))]
+        let mut devices: Vec<DeviceEvent> = self
             .udev
             .as_mut()
             .map(|u| u.events().collect())
             .unwrap_or_default();
-        for e in devices {
-            self.device_event(e);
-        }
+        #[cfg(test)]
+        devices.splice(0..0, std::mem::take(&mut self.queued_devices));
+        self.device_events(devices, now);
         self.settled_videos();
         let nodes: Vec<PathBuf> = self.videos.keys().cloned().collect();
         for node in nodes {
@@ -5348,6 +5422,11 @@ mod tests {
         /// A draw no key caused waits for its flip in flight, as on a DRM
         /// display with two or three buffers (ADR-1401 D2).
         waits_for_flip: bool,
+        /// The scans its hotplugs ran.
+        pub(super) hotplugs: u32,
+        /// Set during each scan, as when the kernel asks for the VT while
+        /// a slow probe holds the loop.
+        pub(super) asks_for_vt: Option<Rc<std::cell::Cell<bool>>>,
     }
 
     impl Still {
@@ -5372,6 +5451,8 @@ mod tests {
                 committed: 0,
                 unplug_at_commit: false,
                 waits_for_flip: false,
+                hotplugs: 0,
+                asks_for_vt: None,
             }
         }
 
@@ -5494,6 +5575,10 @@ mod tests {
             Ok(())
         }
         fn hotplug(&mut self) -> io::Result<()> {
+            self.hotplugs = self.hotplugs.saturating_add(1);
+            if let Some(asks) = &self.asks_for_vt {
+                asks.set(true);
+            }
             Ok(())
         }
         fn as_any(&mut self) -> &mut dyn Any {
@@ -7576,5 +7661,149 @@ mod tests {
         app.turn(Instant::now());
         assert_eq!(asked.borrow().len(), 1, "not asked again");
         assert!(!app.videos.contains_key(&fb));
+    }
+
+    /// A VT the kernel asks for while the test says, as SIGUSR2 waits in
+    /// the signalfd, counting the releases vtium acknowledged.
+    struct Asks {
+        active: bool,
+        asked: Rc<std::cell::Cell<bool>>,
+        released: Rc<std::cell::Cell<u32>>,
+        events: Vec<VtEvent>,
+    }
+
+    impl Vt for Asks {
+        fn release_check(&self) -> Option<vtium_platform::display::Interrupt> {
+            let asked = Rc::clone(&self.asked);
+            Some(Rc::new(move || asked.get()))
+        }
+        fn take_release(&mut self) {
+            if self.asked.replace(false) {
+                self.events.push(VtEvent::Release);
+            }
+        }
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.events.drain(..)
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            self.active = false;
+            self.released.set(self.released.get().saturating_add(1));
+            Ok(())
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn activate(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn leave(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn wait(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn is_active(&self) -> bool {
+            self.active
+        }
+        fn key(&mut self, _: &KeyEvent) -> bool {
+            false
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn bell(&mut self) {}
+        fn number(&self) -> Option<u16> {
+            Some(1)
+        }
+    }
+
+    /// The seat on an [`Asks`] VT it has acquired, with two cards. Returns
+    /// the app, the cell through which the kernel asks for the VT, the
+    /// count of releases vtium acknowledged and both cards.
+    fn asking_seat() -> (
+        App,
+        Rc<std::cell::Cell<bool>>,
+        Rc<std::cell::Cell<u32>>,
+        PathBuf,
+        PathBuf,
+    ) {
+        let loaded = crate::config::load(&["--font-size=16".into()], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let released = Rc::new(std::cell::Cell::new(0));
+        let vt = Asks {
+            active: true,
+            asked: Rc::new(std::cell::Cell::new(false)),
+            released: Rc::clone(&released),
+            events: vec![VtEvent::Acquired],
+        };
+        let check = Rc::clone(&vt.asked);
+        let mut app = App::new(
+            loaded.config,
+            Box::new(vt),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_font_sources(no_fonts());
+        let (card0, card1) = (
+            PathBuf::from("/dev/dri/card0"),
+            PathBuf::from("/dev/dri/card1"),
+        );
+        let mut first = Still::new(&[(1, "A")]);
+        first.like_a_device = true;
+        let mut second = Still::new(&[(2, "B")]);
+        second.like_a_device = true;
+        app.add_video(card0.clone(), Box::new(first));
+        app.add_video(card1.clone(), Box::new(second));
+        app.turn(Instant::now());
+        assert!(app.awake, "the VT is vtium's");
+        (app, check, released, card0, card1)
+    }
+
+    fn hotplug(node: &Path) -> DeviceEvent {
+        DeviceEvent::Hotplug {
+            kind: DeviceKind::Drm,
+            node: node.to_owned(),
+        }
+    }
+
+    fn hotplugs(app: &mut App, card: &Path) -> u32 {
+        app.videos
+            .get_mut(card)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .hotplugs
+    }
+
+    // A request for the VT that comes while a card scans, as during a
+    // slow connector probe, is answered in the same turn: the loop lets the
+    // VT go before the turn ends and leaves the other card's scan to the
+    // acquire (ADR-1401 D2, "A VT release while display work runs").
+    // covers: platform.vt-switch
+    #[test]
+    fn a_release_asked_during_a_scan_is_acknowledged_in_that_turn() {
+        let (mut app, asked, released, card0, card1) = asking_seat();
+        app.videos
+            .get_mut(&card0)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .asks_for_vt = Some(asked);
+        app.queued_devices = vec![hotplug(&card0), hotplug(&card1)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card0), 1, "card0 scanned");
+        assert_eq!(hotplugs(&mut app, &card1), 0, "left to the acquire");
+        assert_eq!(released.get(), 1, "the VT went in the same turn");
+    }
+
+    // A card scans once for all the hotplugs udev reported for it in one
+    // turn (ADR-1401 D2, "A VT release while display work runs").
+    #[test]
+    fn a_card_scans_once_for_the_hotplugs_of_a_turn() {
+        let (mut app, _, released, card0, card1) = asking_seat();
+        app.queued_devices = vec![hotplug(&card1), hotplug(&card1), hotplug(&card1)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card1), 1, "one scan for three hotplugs");
+        assert_eq!(hotplugs(&mut app, &card0), 0);
+        assert_eq!(released.get(), 0, "the VT stays");
     }
 }
