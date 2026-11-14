@@ -55,7 +55,7 @@ type CoverLine = (Vec<(u32, u32)>, Option<Fit>);
 #[derive(Default)]
 struct Reading {
     style: Style,
-    covers: Vec<CoverLine>,
+    lines: Vec<CoverLine>,
     /// The `fit=` that follows the `source=` line itself.
     whole: Option<Fit>,
 }
@@ -64,7 +64,7 @@ impl Reading {
     /// The source's ranges, each with the fit its glyphs take there.
     fn ranges(self) -> impl Iterator<Item = Range> {
         let (style, whole) = (self.style, self.whole);
-        self.covers.into_iter().flat_map(move |(ranges, fit)| {
+        self.lines.into_iter().flat_map(move |(ranges, fit)| {
             ranges.into_iter().map(move |(first, last)| Range {
                 first,
                 last,
@@ -103,7 +103,7 @@ impl FritFits {
             };
             match key {
                 "cover" => {
-                    source.covers.push((cover(value), None));
+                    source.lines.push((cover(value), None));
                     after_cover = true;
                 }
                 "style" => {
@@ -115,7 +115,7 @@ impl FritFits {
                     let Some(fit) = Fit::parse(value) else {
                         continue;
                     };
-                    match source.covers.last_mut() {
+                    match source.lines.last_mut() {
                         Some((_, set)) if after_cover => *set = Some(fit),
                         _ => source.whole = Some(fit),
                     }
