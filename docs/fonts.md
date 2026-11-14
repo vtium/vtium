@@ -45,7 +45,7 @@ Here, "first" means the file in the font directory that is listed first, and wit
 
 [crates/vtium-config/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-config/README.md#frits) lists every source form and frit key.
 
-vtium ships ready-made frits for Arabic, Hebrew, the Indic scripts, Thai, Lao and Vietnamese, whose marks need room above and below the letters. See [Fonts for scripts with marks](fonts-for-scripts.md) for details.
+vtium ships ready-made frits for Arabic, Hebrew, the Indic scripts, Thai, Lao and Vietnamese, whose marks need room above and below the letters. It also ships four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
 vtium's service unit runs vtium as root. When vtium runs as root, it starts the font helper as the user `nobody`. The font helper looks for outline fonts only under `/usr/share/fonts` and `/usr/local/share/fonts`. It never sees a font installed in your home directory, for example under `~/.local/share/fonts`. To use such a font, copy it into `/usr/local/share/fonts`:
 

@@ -93,7 +93,7 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspe
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
-From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `cjk-sc`, `cjk-tc`, `cjk-jp` and `cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for scripts with marks](fonts-for-scripts.md) for details.
+From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `cjk-sc`, `cjk-tc`, `cjk-jp` and `cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
 
 ## From a checkout
 

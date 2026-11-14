@@ -1,4 +1,4 @@
-# Fonts for scripts with marks
+# Fonts for other scripts
 
 Many writing systems put marks above and below their letters. Arabic writes its vowels as marks, Hebrew adds vowel points under its letters, and Vietnamese stacks two marks on one letter. In a terminal's tight rows, those marks can touch the row above or below.
 
