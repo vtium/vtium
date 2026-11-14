@@ -230,6 +230,9 @@ considered:
     said: "Count the locale's everyday letters: CLDR's exemplar characters"
     via: the maintainer, in the steering session, 2026-11-13
     paraphrase: true
+  - operator: aaronsb
+    said: "they look good, better than previous"
+    via: the maintainer, on the Squeeze Goldens page, 2026-11-13
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
