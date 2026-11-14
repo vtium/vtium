@@ -421,16 +421,29 @@ const B2: DisplayId = DisplayId(2);
 
 /// Each console's session: it echoes each line typed, and it acts on the
 /// files the test makes, each named for its head and console: `.bg` sends
-/// setBackground, `.fg` setForeground and `.exit` ends the session.
+/// setBackground, `.fg` setForeground, `.focus` turns on focus reporting
+/// (mode 1004) and `.exit` ends the session. Where the seat boots with
+/// `F` set, the session reads its input three bytes at a time instead of
+/// by lines, and prints each read as hex after `k:`, so a focus report
+/// shows as `k: 1b 5b 49` (in) or `k: 1b 5b 4f` (out).
 const SESSION: &str = r#"P="$D/$VTIUM_HEAD-$VTIUM_CONSOLE"
 ( while kill -0 $$ 2>/dev/null; do
     if [ -e "$P.bg" ]; then rm -f "$P.bg"; printf '\033]setBackground\007'; echo sent:bg; fi
     if [ -e "$P.fg" ]; then rm -f "$P.fg"; printf '\033]setForeground\007'; echo sent:fg; fi
+    if [ -e "$P.focus" ]; then rm -f "$P.focus"; printf '\033[?1004h'; echo focus:on; fi
     if [ -e "$P.exit" ]; then rm -f "$P.exit"; kill $$; fi
     sleep 0.02
   done ) &
+if [ -n "$F" ]; then stty -icanon -echo; fi
 echo "ready:$VTIUM_HEAD-$VTIUM_CONSOLE"
+if [ -n "$F" ]; then
+  while :; do echo "k:$(head -c 3 | od -An -tx1)"; done
+fi
 while read a; do echo "got:$a"; done"#;
+
+/// A focus-in and a focus-out, as a session booted with `F` prints them.
+const IN: &str = "k: 1b 5b 49";
+const OUT: &str = "k: 1b 5b 4f";
 
 #[expect(
     clippy::disallowed_methods,
@@ -522,6 +535,31 @@ fn console_shows(app: &App, name: &str, n: usize, text: &str) -> bool {
         .is_some_and(|rows| rows.iter().any(|l| l.contains(text)))
 }
 
+/// The focus reports that console 1 of head `name` received, in order,
+/// as a session booted with `F` prints them.
+fn reports(app: &App, name: &str) -> Vec<String> {
+    consoles(app, name)
+        .first()
+        .map(|rows| {
+            rows.iter()
+                .filter(|l| l.starts_with("k:"))
+                .map(|l| l.trim_end().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The focus reports of console 1 of each head, `left`, `right` and
+/// `other` in that order.
+fn every_report(app: &App) -> [Vec<String>; 3] {
+    ["left", "right", "other"].map(|h| reports(app, h))
+}
+
+/// `texts` as owned lines, to compare with [`reports`].
+fn lines(texts: &[&str]) -> Vec<String> {
+    texts.iter().map(|t| (*t).to_owned()).collect()
+}
+
 struct Seat {
     lp: Loop<App>,
     app: App,
@@ -563,8 +601,26 @@ impl Seat {
     /// [`Seat::boot`], with card A's sleep ending `sleep_turns` turns
     /// after it starts.
     fn boot_with(test: &str, args: &[&str], seat_manager: bool, sleep_turns: u32) -> Seat {
+        Seat::boot_full(test, args, seat_manager, sleep_turns, false)
+    }
+
+    /// [`Seat::boot`], each session reading its input three bytes at a
+    /// time, so that it prints the focus reports it receives. The test
+    /// turns on each console's focus reporting with [`Seat::report_focus`].
+    fn boot_reporting(test: &str, seat_manager: bool) -> Seat {
+        Seat::boot_full(test, &[], seat_manager, 0, true)
+    }
+
+    fn boot_full(
+        test: &str,
+        args: &[&str],
+        seat_manager: bool,
+        sleep_turns: u32,
+        reporting: bool,
+    ) -> Seat {
         let dir = Scratch::new(test);
-        let script = format!("D='{}'\n{SESSION}", dir.display());
+        let f = if reporting { "F=1\n" } else { "" };
+        let script = format!("D='{}'\n{f}{SESSION}", dir.display());
         let args: Vec<OsString> = ["--font-size=16"]
             .iter()
             .chain(args)
@@ -708,6 +764,23 @@ impl Seat {
             self.app
                 .device_input(Path::new(node), InputEvent::Key(char_key(c)), now());
         }
+    }
+
+    /// Console 1 of each head named turns on focus reporting, and the
+    /// test waits until each says so. Each head already has the focus, so
+    /// no session has a report yet.
+    fn report_focus(&mut self, heads: &[&str]) {
+        for h in heads {
+            self.tell(h, 1, "focus");
+        }
+        assert!(
+            self.until(|a| heads.iter().all(|h| console_shows(a, h, 1, "focus:on"))),
+            "focus reporting is on: {:?}",
+            heads
+                .iter()
+                .map(|h| consoles(&self.app, h))
+                .collect::<Vec<_>>()
+        );
     }
 
     /// Console 1 of head `left` sends setBackground, and the test waits
@@ -1096,4 +1169,137 @@ fn a_set_foreground_before_the_card_is_asleep_keeps_the_card() {
     s.type_on(KBD_LEFT, "k\r");
     assert!(s.until(|a| console_shows(a, "left", 1, "got:k")));
     assert_eq!(s.card(CARD_A).refused, 0);
+}
+
+/// D16 and D5: the shown console of a head that setBackground wholly
+/// pauses gets a focus-out, and a focus-in when setForeground ends the
+/// hand-over. `right` pauses on card A only and keeps drawing on card B,
+/// so it keeps its focus, and `other` draws on and keeps its focus.
+// covers: platform.hand-back
+#[test]
+fn a_wholly_paused_head_gets_a_focus_out_and_a_focus_in_at_the_end() {
+    let mut s = Seat::boot_reporting("hand-over-focus", false);
+    s.report_focus(&["left", "right", "other"]);
+    s.left_sends_background();
+    assert!(
+        s.until(|a| every_report(a) == [lines(&[OUT]), lines(&[]), lines(&[])]),
+        "left lost the focus, and the others kept theirs: {:?}",
+        every_report(&s.app)
+    );
+    s.tell("left", 1, "fg");
+    assert!(
+        s.until(|a| every_report(a) == [lines(&[OUT, IN]), lines(&[]), lines(&[])]),
+        "left has the focus again: {:?}",
+        every_report(&s.app)
+    );
+    s.turns(10);
+    assert_eq!(
+        every_report(&s.app),
+        [lines(&[OUT, IN]), lines(&[]), lines(&[])],
+        "no report more"
+    );
+}
+
+/// D16: every wholly paused head gets a focus-out, not only the one that
+/// sent setBackground. `right` gives up cards A and B, which pauses all
+/// three heads. The end of `right`'s session ends the hand-over, and the
+/// two heads whose sessions run on get a focus-in.
+// covers: platform.hand-back
+#[test]
+fn each_head_a_hand_over_pauses_gets_a_focus_out() {
+    let mut s = Seat::boot_reporting("hand-over-focus-every", false);
+    s.report_focus(&["left", "right", "other"]);
+    s.tell("right", 1, "bg");
+    assert!(
+        s.until(|a| every_report(a) == [lines(&[OUT]), lines(&[OUT]), lines(&[OUT])]),
+        "every head lost the focus: {:?}",
+        every_report(&s.app)
+    );
+    s.tell("right", 1, "exit");
+    assert!(
+        s.until(|a| {
+            let [left, _, other] = every_report(a);
+            [left, other] == [lines(&[OUT, IN]), lines(&[OUT, IN])]
+        }),
+        "the session's end gives left and other the focus again: {:?}",
+        every_report(&s.app)
+    );
+}
+
+/// D5: at a VT release every shown console that has the focus gets a
+/// focus-out, and at the acquire a focus-in. Under a seat manager, its
+/// disable and enable count as the release and the acquire.
+// covers: platform.heads.focus
+#[test]
+fn a_vt_switch_sends_a_focus_out_and_a_focus_in_back() {
+    for seat_manager in [false, true] {
+        let mut s = Seat::boot_reporting("hand-over-focus-vt", seat_manager);
+        s.report_focus(&["left", "right", "other"]);
+        let released = s.released.get();
+        s.app.device_input(Path::new(KBD_LEFT), switch_key(), now());
+        let count = Rc::clone(&s.released);
+        assert!(s.until(|_| count.get() > released), "the VT switched away");
+        assert!(
+            s.until(|a| every_report(a) == [lines(&[OUT]), lines(&[OUT]), lines(&[OUT])]),
+            "every head lost the focus, under a seat manager {seat_manager}: {:?}",
+            every_report(&s.app)
+        );
+        s.app.device_input(Path::new(KBD_LEFT), switch_key(), now());
+        let both = lines(&[OUT, IN]);
+        assert!(
+            s.until(|a| a.vt.is_active()
+                && every_report(a) == [both.clone(), both.clone(), both.clone()]),
+            "every head has the focus again, under a seat manager {seat_manager}: {:?}",
+            every_report(&s.app)
+        );
+    }
+}
+
+/// D5 and D16: a head that a hand-over paused lost its focus already, so
+/// the VT release that follows sends it nothing. The acquire ends the
+/// hand-over, and every head gets one focus-in.
+// covers: platform.hand-back
+#[test]
+fn a_vt_switch_during_a_hand_over_sends_each_report_once() {
+    let mut s = Seat::boot_reporting("hand-over-focus-vt-paused", false);
+    s.report_focus(&["left", "right", "other"]);
+    s.left_sends_background();
+    assert!(s.until(|a| every_report(a) == [lines(&[OUT]), lines(&[]), lines(&[])]));
+    let released = s.released.get();
+    s.app.device_input(Path::new(KBD_LEFT), switch_key(), now());
+    let count = Rc::clone(&s.released);
+    assert!(s.until(|_| count.get() > released), "the VT switched away");
+    assert!(
+        s.until(|a| every_report(a) == [lines(&[OUT]), lines(&[OUT]), lines(&[OUT])]),
+        "right and other lost the focus: {:?}",
+        every_report(&s.app)
+    );
+    s.app.device_input(Path::new(KBD_LEFT), switch_key(), now());
+    let both = lines(&[OUT, IN]);
+    assert!(
+        s.until(
+            |a| a.vt.is_active() && every_report(a) == [both.clone(), both.clone(), both.clone()]
+        ),
+        "every head has the focus again: {:?}",
+        every_report(&s.app)
+    );
+    s.turns(10);
+    assert_eq!(
+        every_report(&s.app),
+        [both.clone(), both.clone(), both],
+        "no report more"
+    );
+}
+
+/// D16: under a seat manager, vtium ignores setBackground and sends no
+/// focus report.
+// covers: platform.hand-back
+#[test]
+fn under_a_seat_manager_set_background_sends_no_focus_report() {
+    let mut s = Seat::boot_reporting("hand-over-focus-seat-manager", true);
+    s.report_focus(&["left"]);
+    s.tell("left", 1, "bg");
+    assert!(s.until(|a| console_shows(a, "left", 1, "sent:bg")));
+    s.turns(10);
+    assert_eq!(reports(&s.app, "left"), lines(&[]));
 }
