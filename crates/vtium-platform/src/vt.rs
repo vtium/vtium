@@ -127,6 +127,25 @@ pub trait Vt {
     /// the VT is ours.
     fn restore(&mut self) -> io::Result<()>;
 
+    /// A check of whether the kernel has asked for the VT and the loop has
+    /// not read the request yet. The loop gives it to each card, which asks
+    /// it between the steps of its display work and stops the work where it
+    /// answers yes (ADR-1401 D2, "A VT release while display work runs").
+    /// `None` where the backend cannot tell before the loop reads its
+    /// source, as with a seat manager, whose disable the loop reads at its
+    /// next dispatch.
+    fn release_check(&self) -> Option<crate::display::Interrupt> {
+        None
+    }
+
+    /// Reads a request for the VT that waits, as [`Vt::release_check`]
+    /// sees it, so that the next [`Vt::events`] reports
+    /// [`VtEvent::Release`]. The loop calls it in the middle of a turn, so
+    /// it lets the VT go in that turn (ADR-1401 D2, "A VT release while
+    /// display work runs"). A backend that cannot read a request early
+    /// does nothing.
+    fn take_release(&mut self) {}
+
     /// Whether a seat manager, logind or seatd, gives vtium the seat. A
     /// seat manager gives a card that vtium lets go only to the session
     /// that holds the seat, which is vtium's own, so a program in one of

@@ -25,6 +25,8 @@ use crate::mmap::Mapping;
 
 /// `DRM_MODE_CONNECTED`, `drm/drm_mode.h`.
 const CONNECTED: u32 = 1;
+/// `DRM_MODE_UNKNOWNCONNECTION`, `drm/drm_mode.h`.
+const UNKNOWN: u32 = 3;
 
 /// A DRM card's primary node, opened read-write and non-blocking.
 pub struct Card {
@@ -168,6 +170,7 @@ impl Kms for Card {
                 kind: info.connector_type,
                 kind_id: info.connector_type_id,
                 connected: info.connection == CONNECTED,
+                unknown: info.connection == UNKNOWN,
                 mm: (info.mm_width, info.mm_height),
                 encoder: info.encoder_id,
                 modes: len(info.count_modes.into())?,
