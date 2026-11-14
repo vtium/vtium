@@ -7,7 +7,7 @@ From the repository's root, `make fuzz FUZZ_TARGETS=vtium-image-helper:png` runs
 | Path | What it is |
 |---|---|
 | `fuzz_targets/png.rs` | Any input as a PNG file, alone, as any image, and inside zlib (`png`, `fdeflate`, `miniz_oxide`): no panic, and a picture is exactly its size's premultiplied pixels within the bounds its header was checked against. |
-| `fuzz_targets/zlib.rs` | Any input as zlib data for raw pixels, the first byte choosing their count and layout (`miniz_oxide` and the one conversion): no panic, an inflate never past its bound, and the converted pixels exactly the picture's. |
+| `fuzz_targets/zlib.rs` | Any input as zlib data for raw pixels, the first byte choosing their count and layout, kitty's palette layouts among them (`miniz_oxide` and the one conversion): no panic, an inflate never past its bound, the converted pixels exactly the picture's, and palette indices in the reply's index form. |
 | `fuzz_targets/jpeg.rs` | Any input as a JPEG file (`zune-jpeg`): no panic, and a picture is exactly its size's opaque pixels. |
 | `fuzz_targets/gif.rs` | Any input as a GIF file, every frame composed whole on a transparent canvas (`gif`, `weezl`): no panic, each frame exactly its size's premultiplied pixels, the frames in order, and one delay for each frame kept. |
 | `fuzz_targets/request.rs` | Any input as a request packet, a reply packet and a hello (the wire both ends link): no panic, and every packet accepted encodes back to itself. |
