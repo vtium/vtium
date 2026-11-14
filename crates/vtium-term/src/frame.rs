@@ -334,7 +334,13 @@ impl<'a> Frame<'a> {
     /// that row is a bottom line (ESC # 4), and a bottom line pairs with
     /// the row directly above it when that row is a top line. A top or
     /// bottom line with no such partner, a line of any other size, and a
-    /// row whose partner the frame does not show belong to no pair.
+    /// row whose partner the frame does not show belong to no pair. The
+    /// pair decides where the cursor draws ([`Frame::cursor_extent`]).
+    ///
+    /// References:
+    /// - ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph":
+    ///   a double-height pair is a top line directly followed by its bottom
+    ///   line.
     pub fn pair_row(&self, row: usize) -> Option<usize> {
         match self.size(row) {
             LineSize::DoubleHeightTop => {
@@ -363,7 +369,7 @@ impl<'a> Frame<'a> {
     /// cursor stands on, never the width of the run it belongs to.
     ///
     /// References:
-    /// - ADR-1308, "The cursor on a scaled glyph scales with the glyph":
+    /// - ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph":
     ///   the extent on double-width lines and on double-height pairs.
     pub fn cursor_extent(&self, row: usize, cells: usize) -> CursorExtent {
         let scale = if self.size(row).is_double() { 2 } else { 1 };
