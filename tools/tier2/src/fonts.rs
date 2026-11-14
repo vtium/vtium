@@ -781,6 +781,11 @@ pub fn chosen_frit(
     };
     for one in &shown(at.cell)? {
         let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
+        if let Some(doubled) = one.doubled {
+            add_doubled(&engine, generated, (at, one.variant, doubled), &one.chars)
+                .map_err(|why| format!("the frit {name}: {why}"))?;
+            continue;
+        }
         let clusters: Vec<Vec<u32>> = one
             .clusters
             .iter()
@@ -808,6 +813,53 @@ pub fn chosen_frit(
         store.add(fresh);
     }
     Ok(chosen)
+}
+
+/// Adds to the console's store `generated` the glyphs of `chars` that the
+/// engine draws at the double size `doubled` for the cell `at` in
+/// `variant`, as the helper answers a double ask and the console takes
+/// the answer. The engine refuses a superscript or subscript and a cell
+/// whose double passes the largest cell, as the helper does, and the set
+/// must hold one cell, the one the double size gives `at`, as the console
+/// checks.
+fn add_doubled(
+    engine: &vtium_config::serve::Engine,
+    generated: &vtium::deferred::Shared,
+    (at, variant, doubled): (
+        vtium_font::spacing::SpacedCell,
+        vtium_font::Variant,
+        vtium_font::Doubled,
+    ),
+    chars: &[char],
+) -> Result<(), String> {
+    let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+    let Some(bytes) = engine.draw_doubled(at, (variant, doubled), &want)? else {
+        return Ok(());
+    };
+    let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+    let set = Arc::new(Set::from_bytes(bytes).map_err(|e| format!("{e:?}"))?);
+    let drawn = doubled
+        .cell(at.cell)
+        .ok_or("a double size past the largest cell")?;
+    if set.cells() != [drawn] {
+        return Err(format!(
+            "the glyphs at {doubled:?} are not at the cell {}x{}",
+            drawn.width, drawn.height
+        ));
+    }
+    let face = SetFace::new(Arc::clone(&set), drawn.height)
+        .ok_or_else(|| format!("no strike at {}", drawn.height))?;
+    let held: Vec<char> = chars
+        .iter()
+        .copied()
+        .filter(|&c| face.draw_variant(&[c], variant).is_some())
+        .collect();
+    let mut store = lock(generated);
+    let fresh = store
+        .fresh_doubled((at, variant, doubled), set, &runs(&held), len)
+        .ok_or("the store refused the glyphs at a double size")?;
+    store.add(fresh);
+    Ok(())
 }
 
 /// The face `chosen` draws through at [`HEIGHT`], as a display of the
