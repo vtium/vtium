@@ -59,6 +59,7 @@ _Cells and images to pixels - the renderer and its display interface_
 | [ADR-1305](./render/ADR-1305-a-frame-clock-gives-the-time-to-spatial-shaders-that-declare-they-read-it.md) | A frame clock gives the time to spatial shaders that declare they read it | accepted |
 | [ADR-1306](./render/ADR-1306-glyph-ink-reaches-one-row-past-its-own-up-and-down-and-each-row-is-composed-from-the-glyphs-of-three-rows.md) | Glyph ink reaches one row past its own, up and down, and each row is composed from the glyphs of three rows | accepted |
 | [ADR-1307](./render/ADR-1307-an-indic-cluster-wider-than-its-cell-is-squeezed-sideways-to-it-at-full-height.md) | An Indic cluster wider than its cell is squeezed sideways to it at full height | accepted |
+| [ADR-1308](./render/ADR-1308-a-run-of-cells-that-draws-one-scaled-glyph-is-one-unit-for-every-edit-and-a-ligature-is-drawn-across-its-cells-under-an-option-that-is-off-by-default.md) | A run of cells that draws one scaled glyph is one unit for every edit, and a ligature is drawn across its cells under an option that is off by default | proposed |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_
