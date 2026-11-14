@@ -368,6 +368,8 @@ The engine rasterises each outline font with swash at the cell asked for, so the
 
 **Size.** The frit's first outline source is sized so that its ascent and descent span the cell's height less half a pixel. A FreeType cell request for that height does the same. Each outline source after the first draws at the first source's size, as many pixels to the em. So Noto Sans CJK's ideographs behind DejaVu Sans Mono draw at DejaVu's size.
 
+A merged symbol font is an outline source with `cover=` lines behind an outline first source. Its private-use characters, where Nerd Fonts and Powerline put their symbols, draw at the merged font's own size. At that size the merged font's ascent and descent span the cell, and each symbol stands on the merged font's own baseline. A symbol font made for merging lays its symbols out between its ascent and descent. So a Powerline separator runs from the cell's top to its bottom, and an icon stands in the cell's middle. The other characters that a `cover=` source gives, such as the ideographs of `cover=gb2312`, keep the first source's size and baseline.
+
 A glyph of such a later source may have ink that would pass its cells, as a large Nerd Font icon's ink would. Such a glyph is drawn smaller until it fits. It is centred across its cells, and on its baseline as far as the row allows, as a color glyph is. A letter of a joining script from such a source is not drawn smaller. It uses the reach as the first source's letters do. A shaped cluster keeps the mark rule (ADR-1200 D17, ADR-1306 D12). A source behind a bitmap first source is sized by its own ascent and descent.
 
 **Baseline.** The baseline sits the ascent, rounded up, below the top. It is raised by the whole pixels by which the lowest ink of the font's printable ASCII, U+0021 to U+007E, drawn at that cell, passes the cell's bottom edge. So the underscore and the descenders end in the cell's bottom rows (ADR-1302 D3).
@@ -614,7 +616,7 @@ The frit may name a bold or an italic face but no bold-italic face. Then the hel
 
 ## Line spacing
 
-Each ask and fill names the rows that line spacing adds to its cell, above and below the text band (ADR-1302 D13). The helper draws each glyph in the text band, the cell less those rows, exactly as it draws one with no spacing. It then places the glyph in the whole cell by the `fit=` of the set that gives it, or by the character's default.
+Each ask and fill names the rows that line spacing adds to its cell, above and below the text band (ADR-1302 D13). The helper draws each glyph in the text band, the cell less those rows, exactly as it draws one with no spacing. It then places the glyph in the whole cell by the `fit=` of the set that gives it, or by the character's default. The default is vtium-font's `Fit::default_for`, which the console also uses for the glyphs it draws itself, so the helper and the console agree on every character's default fit.
 
 A `fill` glyph stretches to the whole cell. A bitmap glyph repeats its top row upward and its bottom row downward. An outline glyph's coverage is scaled vertically, with each new row the weighted average of the rows it covers.
 
