@@ -2,3 +2,4 @@
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
 glyph-fit	new: a short symbol font merged behind DejaVu Sans Mono, its Powerline separators and icons fitted to the cell (vtium/vtium#64), for the maintainer to review
+glyph-fit-spaced	new: the glyph-fit screen with 30 per cent of line spacing and fit=natural for Legacy Computing (vtium/vtium#327), for the maintainer to review
