@@ -78,6 +78,12 @@
 #                    guest's monotonic clock, then switches there with chvt, which returns once the VT is shown,
 #                    and answers the VT shown and the PID and age of vtium
 #                    on tty2 (t3_heads.py's display-away check)
+#   hand-over        plays the graphical program of a display hand-over
+#                    (t3_handover.py): runs t3-probe take-master, which
+#                    takes /dev/dri/card0 once vtium lets it go, draws a
+#                    frame and lets the card go again; then makes the
+#                    marker /tmp/t3-hand-over.done that the session waits
+#                    for, and answers the probe's lines and the VT shown
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -488,6 +494,14 @@ while True:
             fi
             echo "shown $(fgconsole)"
             vtium_age
+            ;;
+        hand-over)
+            rm -f /tmp/t3-hand-over.done
+            timeout 20 /usr/local/sbin/t3-probe take-master --check hand-over \
+                --card /dev/dri/card0
+            touch /tmp/t3-hand-over.done
+            chmod 644 /tmp/t3-hand-over.done
+            echo "shown $(fgconsole)"
             ;;
         *) echo "refused $request" ;;
     esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done

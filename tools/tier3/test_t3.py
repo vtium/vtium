@@ -52,6 +52,7 @@ import t3_pointer  # noqa: E402
 import t3_power  # noqa: E402
 import t3_rootchecks  # noqa: E402
 import t3_seat  # noqa: E402
+import t3_handover  # noqa: E402
 import t3_qemu  # noqa: E402
 import t3_runner  # noqa: E402
 import t3_scenario  # noqa: E402
@@ -6857,6 +6858,56 @@ class SeatTest(unittest.TestCase):
         for case in t3_seat.CHECKS:
             self.assertIn(case, t3_evaluate.NO_GOLDEN)
             self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))
+
+
+class HandOverTest(unittest.TestCase):
+    """The display hand-over's check (t3_handover.py), without a guest."""
+
+    PROBE = ["ROOTCHECK hand-over open /dev/dri/card0: ok",
+             "ROOTCHECK hand-over master: yes, after 300 ms",
+             "ROOTCHECK hand-over drew: connector 36 crtc 35 mode 1366x768",
+             "ROOTCHECK hand-over flip: ok",
+             "ROOTCHECK hand-over drop master: ok",
+             "shown 2"]
+
+    def test_a_probe_that_took_and_drew_on_the_card_passes(self):
+        self.assertIsNone(t3_handover.probe_verdict(self.PROBE))
+
+    def test_a_probe_that_never_took_the_card_fails(self):
+        answer = ["ROOTCHECK hand-over open /dev/dri/card0: ok",
+                  "ROOTCHECK hand-over master: no, vtium still held the card after 10 s",
+                  "shown 2"]
+        self.assertIn("never became", t3_handover.probe_verdict(answer))
+
+    def test_a_probe_that_could_not_draw_fails(self):
+        answer = [line for line in self.PROBE if "drew" not in line]
+        self.assertIn("could not draw", t3_handover.probe_verdict(answer))
+
+    def test_a_vt_switch_during_the_hand_over_fails(self):
+        answer = self.PROBE[:-1] + ["shown 3"]
+        self.assertIn("VT shown changed", t3_handover.probe_verdict(answer))
+
+    def test_a_focus_out_then_a_focus_in_passes(self):
+        self.assertIsNone(t3_handover.focus_verdict("T3-FOCUS 1b5b4f 1b5b49"))
+
+    def test_other_reports_fail(self):
+        for line in ("T3-FOCUS 1b5b49 1b5b4f", "T3-FOCUS none none", "T3-FOCUS 1b5b4f none",
+                     "T3-FOCUS"):
+            self.assertIsNotNone(t3_handover.focus_verdict(line), line)
+
+    def test_the_variant_runs_the_agent_and_carries_the_probe(self):
+        v = t3_scenario.VARIANTS["hand-over"]
+        self.assertTrue(v["agent"] and v["probe"])
+        self.assertEqual(v["checks"], [t3_handover.CASE])
+        self.assertIn(t3_handover.CASE, t3_scenario.CHECK_RUNS)
+        self.assertEqual(t3_evaluate.describe(t3_handover.CASE),
+                         (t3_handover.CHECKS[t3_handover.CASE], None))
+
+    def test_the_agent_answers_hand_over(self):
+        with open(os.path.join(t3_common.GUEST, "t3-agent")) as f:
+            agent = f.read()
+        self.assertIn("        hand-over)\n", agent)
+        self.assertIn("t3-probe take-master --check hand-over", agent)
 
 
 class RootChecksTest(unittest.TestCase):

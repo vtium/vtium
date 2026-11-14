@@ -31,6 +31,11 @@
 //!   master on it, and passes a copy of the descriptor to a process running
 //!   as U, which draws with dumb buffers and page flips while root drops
 //!   and sets master on its own copy.
+//! - `take-master --check N --card PATH`: as root, plays the graphical
+//!   program of a display hand-over (ADR-1401 D16). It opens the card and
+//!   tries to become its master for at most 10 s, as a program does after a
+//!   console sent setBackground. It draws one frame and flips once, then
+//!   drops master and closes the card.
 
 mod bus;
 mod drm;
@@ -112,9 +117,10 @@ fn main() {
         "drm" => draw(&args),
         "vt-state" => vt_state(&args),
         "pty-run" => pty_run(&args),
+        "take-master" => take_master(&args),
         _ => {
             eprintln!(
-                "usage: t3-probe session|as|control|seat-client|builtin|kmsg|isolate|drm|vt-state|pty-run --check N ..."
+                "usage: t3-probe session|as|control|seat-client|builtin|kmsg|isolate|drm|vt-state|pty-run|take-master --check N ..."
             );
             2
         }
@@ -992,5 +998,54 @@ fn draw(args: &Args) -> i32 {
     }
     answer(&check, "the drawer ended", wait(pid));
     answer(&check, "root sets KD_TEXT", vt::set_mode(tty, vt::KD_TEXT));
+    0
+}
+
+/// The take-master command: a graphical program that takes a card once
+/// vtium lets it go. A card with no master makes the file that opens it
+/// master, and root may set master on a card no file holds, so the probe
+/// tries both, every 100 ms, for at most 10 s.
+fn take_master(args: &Args) -> i32 {
+    let check = args.get("check");
+    let path = args.get("card");
+    let card = sys::cstring(&path);
+    // SAFETY: open with a valid path.
+    let fd = unsafe { libc::open(card.as_ptr(), libc::O_RDWR | libc::O_CLOEXEC) };
+    answer(&check, &format!("open {path}"), result(i64::from(fd)));
+    if fd < 0 {
+        return 1;
+    }
+    let mut waited = 0;
+    let mut master = drm::is_master(fd) == "yes";
+    while !master && waited < 10_000 {
+        turn();
+        waited += 100;
+        master = drm::master_call(fd, drm::SET_MASTER) == "ok";
+    }
+    if !master {
+        answer(&check, "master", "no, vtium still held the card after 10 s");
+        // SAFETY: closes the descriptor this process opened.
+        unsafe { libc::close(fd) };
+        return 1;
+    }
+    answer(&check, "master", format!("yes, after {waited} ms"));
+    match drm::Drawing::new(fd) {
+        Ok((mut drawing, what)) => {
+            answer(&check, "drew", what);
+            answer(
+                &check,
+                "flip",
+                drawing.flip(fd).map_or_else(|e| e, |()| "ok".into()),
+            );
+        }
+        Err(e) => answer(&check, "drew", e),
+    }
+    answer(
+        &check,
+        "drop master",
+        drm::master_call(fd, drm::DROP_MASTER),
+    );
+    // SAFETY: closes the descriptor this process opened.
+    unsafe { libc::close(fd) };
     0
 }
