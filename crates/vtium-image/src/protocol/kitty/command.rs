@@ -33,9 +33,11 @@ pub(super) enum Error {
     NoParentImage { parent: u32 },
     /// A relative placement's parent image exists, but not the placement.
     NoParentPlacement { parent: u32, placement: u32 },
-    /// A relative placement names itself as its parent.
-    SelfParent,
-    /// A relative placement would follow itself through other placements.
+    /// A relative placement would follow itself, through other placements
+    /// or directly, by naming itself as its parent. kitty answers the
+    /// second with an EINVAL of its own; the specification asks for ECYCLE
+    /// for any cycle, and a placement that is its own parent is the
+    /// shortest one.
     Cycle,
     /// A chain of relative placements would pass `RELATIVE_DEPTH_MAX`.
     TooDeep,
@@ -81,8 +83,10 @@ impl Error {
                 out,
                 "ENOENT:Animation command refers to non-existent image with id: {id} and number: {number}"
             ),
-            // kitty's text ends with a line feed
-            Self::NoDestFrame { frame, id } => writeln!(
+            // kitty ends this text with a line feed, and vtium does not: the
+            // specification says a reply holds only printable characters
+            // and spaces
+            Self::NoDestFrame { frame, id } => write!(
                 out,
                 "ENOENT:No destination frame number {frame} exists in image id: {id}"
             ),
@@ -99,9 +103,6 @@ impl Error {
                 out,
                 "ENOPARENT:Put command refers to a parent image placement with id: {parent} and placement id: {placement} that does not exist"
             ),
-            Self::SelfParent => {
-                write!(out, "EINVAL:Put command refers to itself as its own parent")
-            }
             Self::Cycle => write!(out, "ECYCLE:relative placement would make a cycle"),
             Self::TooDeep => write!(out, "ETOODEEP:Too many levels of parent references"),
             Self::VirtualParent => write!(

@@ -915,7 +915,7 @@ fn animation_commands_are_answered_as_a_put_is() {
         h.take(),
         "\x1b_Gi=9;ENOENT:Animation command refers to non-existent image with id: 9 and number: 0\x1b\\\
          \x1b_Gi=1,r=4;EINVAL:No frame with number: 7 found\x1b\\\
-         \x1b_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\n\x1b\\\
+         \x1b_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\x1b\\\
          \x1b_Gi=1;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\"
     );
     assert_eq!(h.store.animation(key).unwrap().frames, 3);
@@ -1909,11 +1909,12 @@ fn a_placement_that_would_follow_itself_is_ecycle() {
         h.take(),
         "\x1b_Gi=1,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
     );
-    // naming itself as its parent is answered with kitty's text
+    // naming itself as its parent makes the shortest cycle, which the
+    // specification answers with ECYCLE
     send(&mut k, &mut h, "a=p,i=2,p=1,P=2,Q=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=2,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\"
+        "\x1b_Gi=2,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
     );
     assert_eq!(
         sorted(&h),
@@ -2473,7 +2474,7 @@ fn refusals_carry_kittys_texts() {
          \x1b_Gi=75;EINVAL:Put command creating a virtual placement cannot refer to a parent\x1b\\\
          \x1b_Gi=75,p=2;ENOPARENT:Put command refers to a parent image with id: 99 that does not exist\x1b\\\
          \x1b_Gi=75,p=3;ENOPARENT:Put command refers to a parent image placement with id: 75 and placement id: 9 that does not exist\x1b\\\
-         \x1b_Gi=75,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\",
+         \x1b_Gi=75,p=1;ECYCLE:relative placement would make a cycle\x1b\\",
     );
     for n in 12..20 {
         want += &format!("\x1b_Gi=75,p={n};OK\x1b\\");
@@ -2491,7 +2492,7 @@ fn refusals_carry_kittys_texts() {
         "\x1b_Gi=43;OK\x1b\\\x1b_Gi=43,r=2;OK\x1b\\\
          \x1b_Gi=43;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\\
          \x1b_Gi=43;EINVAL:The destination rectangle is out of bounds\x1b\\\
-         \x1b_Gi=43;ENOENT:No destination frame number 9 exists in image id: 43\n\x1b\\"
+         \x1b_Gi=43;ENOENT:No destination frame number 9 exists in image id: 43\x1b\\"
     );
 }
 
@@ -2510,7 +2511,10 @@ fn a_names_unpadded_last_group_decodes_with_it() {
 
 // The longest error answer fits KITTY_REPLY_MAX: every error the closed
 // set holds, with its numbers at their widest, after the widest keys an
-// answer names, i, I, p and r.
+// answer names, i, I, p and r. Each answer's message holds only printable
+// ASCII and the space, as the specification says a reply's message does:
+// "only printable characters and spaces". A line feed, which kitty puts
+// after one of its texts, fails the test.
 // covers: image.kitty
 #[test]
 fn the_longest_error_answer_fits_the_answer_bound() {
@@ -2538,7 +2542,6 @@ fn the_longest_error_answer_fits_the_answer_bound() {
             parent: big,
             placement: big,
         },
-        Error::SelfParent,
         Error::Cycle,
         Error::TooDeep,
         Error::VirtualParent,
@@ -2568,7 +2571,6 @@ fn the_longest_error_answer_fits_the_answer_bound() {
         | Error::NoSpace
         | Error::NoParentImage { .. }
         | Error::NoParentPlacement { .. }
-        | Error::SelfParent
         | Error::Cycle
         | Error::TooDeep
         | Error::VirtualParent
@@ -2599,6 +2601,14 @@ fn the_longest_error_answer_fits_the_answer_bound() {
         reply(&mut h, &cmd, big, Err(e));
         let answer = h.take();
         assert!(answer.contains(",r="), "{answer:?}");
+        let message = answer
+            .strip_prefix("\x1b_G")
+            .and_then(|a| a.strip_suffix("\x1b\\"))
+            .unwrap();
+        assert!(
+            message.bytes().all(|b| (0x20..0x7f).contains(&b)),
+            "{e:?} answers {answer:?}"
+        );
         longest = longest.max(answer.len());
     }
     assert!(

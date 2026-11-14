@@ -1030,9 +1030,6 @@ fn place(ctx: &mut dyn Context, cmd: &Command, key: ImageKey, id: u32) -> Answer
                 }
             });
         }
-        Err(Placing::Cycle) if cmd.parent == id && cmd.parent_placement == cmd.placement => {
-            return Err(Error::SelfParent);
-        }
         Err(Placing::Cycle) => return Err(Error::Cycle),
         Err(Placing::TooDeep) => return Err(Error::TooDeep),
         Err(Placing::Refused(_)) => return Err(Error::Invalid),

@@ -165,7 +165,8 @@ These follow the kitty spec where it leaves a choice open. Each stays vtium's re
 - **`a=c` without `c` answers kitty's text for a missing destination frame,** `ENOENT:No destination frame number 0 exists in image id: I`, since frame 0 does not exist. An `s` past 3 in `a=a` is not answered, as kitty answers no control whose image exists.
 - **A refusal kitty was not seen to give keeps vtium's own fixed text,** such as `ENOENT:image not found` for a composition's missing source frame; ADR-1100 D15 lists the texts taken from kitty.
 - **`d=f` and `d=F` with neither `i` nor `I` delete nothing,** since the spec asks every animation command for one of them (ADR-1102, D5).
-- **The text after ECYCLE is vtium's own.** kitty answers a placement that names itself as its parent with its own EINVAL text, and a longer cycle was not seen, so `ECYCLE:relative placement would make a cycle` stays vtium's.
+- **A placement that names itself as its parent answers ECYCLE.** The spec says a terminal must answer a relative placement that would make a cycle with ECYCLE, and a placement that is its own parent makes the shortest cycle. kitty answers it with an EINVAL text of its own instead. The text after ECYCLE, `relative placement would make a cycle`, is vtium's own, since kitty was not seen to answer a longer cycle (`a_placement_that_would_follow_itself_is_ecycle`).
+- **No reply ends with a line feed.** The spec says a reply's message holds only printable characters and spaces. kitty ends its text for a composition's missing destination frame with a line feed, and vtium sends the same text without it (`the_longest_error_answer_fits_the_answer_bound`).
 
 ## How kitty's palette formats work
 
