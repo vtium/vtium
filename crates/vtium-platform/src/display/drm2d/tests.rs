@@ -945,6 +945,74 @@ fn a_scan_probes_only_connectors_that_may_have_a_monitor() {
     assert_eq!(v.card().state().probes, [A, C]);
 }
 
+// A sleep leaves only an atomic modeset's own flip to the kernel. The
+// frame flipped after a modeset is waited for, on the atomic path and on
+// the legacy one, whose modeset starts no flip of its own, so the next
+// master's first page flip on that CRTC is not refused as busy.
+// covers: platform.vt-switch
+#[test]
+fn a_sleep_waits_for_the_first_frames_flip_after_a_modeset() {
+    for atomic in [true, false] {
+        let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+        card.state().atomic = atomic;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        frame(&mut v, &[DOT]).unwrap();
+        v.sleep();
+        assert!(
+            events(&mut v).is_empty(),
+            "atomic {atomic}: the sleep waits for the frame's flip"
+        );
+        assert!(v.card().state().master, "atomic {atomic}");
+        flip(&mut v);
+        assert_eq!(events(&mut v), [Event::Asleep], "atomic {atomic}");
+    }
+}
+
+// A hotplug's scan that a VT release stops is no failure: the poll answers
+// Ok and warns of nothing, and the sleep that follows ends its retries.
+#[test]
+fn a_hotplug_a_release_stops_answers_ok() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let asked = release_check(&mut v);
+    let set = Rc::clone(&asked);
+    v.card()
+        .after_read(ListRead::Connector(A), move |_| set.set(true));
+    logs::capture();
+    assert!(v.poll().is_ok(), "the stopped hotplug is no failure");
+    assert!(asked.get(), "the kernel asked during the scan");
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    v.sleep();
+    assert_eq!(events(&mut v).last(), Some(&Event::Asleep));
+}
+
+// The first wake-up and a hotplug probe only the connectors that may have
+// a monitor. The wake-up at an acquire probes every connector, so it finds
+// a monitor that the kernel cannot detect by itself (ADR-1401 D2).
+#[test]
+fn the_acquires_wake_up_probes_every_connector() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)]), (B, Vec::new())]);
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert_eq!(v.card().state().probes, [A], "the first wake-up");
+    v.card().state().probes.clear();
+    v.poll().unwrap();
+    assert_eq!(v.card().state().probes, [A], "a hotplug");
+    v.sleep();
+    v.card().state().probes.clear();
+    v.wake_up().unwrap();
+    assert_eq!(v.card().state().probes, [A, B], "the acquire's wake-up");
+}
+
 #[test]
 fn a_sleep_goes_ahead_when_the_flip_never_completes() {
     let mut v = awake(one());

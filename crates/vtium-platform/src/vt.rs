@@ -127,12 +127,6 @@ pub trait Vt {
     /// the VT is ours.
     fn restore(&mut self) -> io::Result<()>;
 
-    /// Whether a seat manager, logind or seatd, gives vtium the seat. A
-    /// seat manager gives a card that vtium lets go only to the session
-    /// that holds the seat, which is vtium's own, so a program in one of
-    /// vtium's consoles cannot take the card, and vtium ignores
-    /// setBackground (ADR-1401 D16). The kernel's VT and the fake VT give
-    /// the seat to no seat manager.
     /// A check of whether the kernel has asked for the VT and the loop has
     /// not read the request yet. The loop gives it to each card, which asks
     /// it between the steps of its display work and stops the work where it
@@ -152,6 +146,12 @@ pub trait Vt {
     /// does nothing.
     fn take_release(&mut self) {}
 
+    /// Whether a seat manager, logind or seatd, gives vtium the seat. A
+    /// seat manager gives a card that vtium lets go only to the session
+    /// that holds the seat, which is vtium's own, so a program in one of
+    /// vtium's consoles cannot take the card, and vtium ignores
+    /// setBackground (ADR-1401 D16). The kernel's VT and the fake VT give
+    /// the seat to no seat manager.
     fn seat_manager(&self) -> bool {
         false
     }

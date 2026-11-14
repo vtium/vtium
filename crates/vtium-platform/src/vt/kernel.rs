@@ -664,7 +664,7 @@ fn warn_unwatched(e: &io::Error) {
 /// process's pending signals. The loop's signalfd blocks the signal
 /// ([`KernelVt::new`]), so the kernel's request waits there until the
 /// loop reads it at its next dispatch.
-fn release_waits() -> bool {
+pub(super) fn release_waits() -> bool {
     let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
     #[expect(unsafe_code, reason = "reading the set of pending signals")]
     // SAFETY: sigpending writes the whole set into `set`, which is read
@@ -678,7 +678,7 @@ fn release_waits() -> bool {
 /// Takes a SIGUSR2 that waits among the pending signals, with no wait, so
 /// the loop's signalfd does not report it again. Returns whether one was
 /// taken.
-fn take_waiting_release() -> bool {
+pub(super) fn take_waiting_release() -> bool {
     let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
     let none = libc::timespec {
         tv_sec: 0,

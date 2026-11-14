@@ -59,8 +59,6 @@ fn errno(e: &io::Error) -> Option<Errno> {
     e.raw_os_error().map(Errno::from_raw_os_error)
 }
 
-/// Whether `e` says the kernel removed the card: every ioctl on a card
-/// the kernel removed fails with ENODEV (`drm_ioctl`).
 /// The error of display work that the kernel's request for the VT stopped.
 fn released() -> io::Error {
     io::Error::new(
@@ -79,6 +77,8 @@ fn stopped(e: io::Error) -> io::Result<()> {
     }
 }
 
+/// Whether `e` says the kernel removed the card: every ioctl on a card
+/// the kernel removed fails with ENODEV (`drm_ioctl`).
 fn card_removed(e: &io::Error) -> bool {
     errno(e) == Some(Errno::NODEV)
 }
@@ -330,8 +330,6 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.card_path = path;
     }
 
-    /// Sets which displays are left dark, asked of each connector as it is
-    /// connected from the next scan; unset, every display is lit.
     /// Gives the card the loop's check of whether the kernel has asked for
     /// the VT. The card asks it before each connector read of a scan and
     /// before a modeset, and stops its display work where it answers yes
@@ -340,6 +338,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         self.interrupt = Some(interrupt);
     }
 
+    /// Sets which displays are left dark, asked of each connector as it is
+    /// connected from the next scan; unset, every display is lit.
     pub fn set_dark(&mut self, dark: Box<DarkPolicy>) {
         self.dark_policy = Some(dark);
     }
@@ -1210,7 +1210,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// kernel (ADR-1401 D2, "A VT release while display work runs").
     fn leave_modeset_flips(&mut self) {
         for o in &mut self.outputs {
-            if !(o.flipping && o.modeset_flip) {
+            if !(o.flipping && o.modeset_flip_no == Some(o.flips)) {
                 continue;
             }
             if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
@@ -1577,12 +1577,18 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // Every connector is read before the scan changes anything, and
         // the loop is asked between the reads whether the kernel wants
         // the VT, so a release stops the scan there with nothing changed.
+        // The wake-up at an acquire probes every connector, so it finds a
+        // monitor plugged in where the kernel detects none by itself. No
+        // program waits on vtium then, and the release check below still
+        // stops the scan between probes. The first wake-up and a hotplug probe only
+        // the connectors that may have a monitor (ADR-1401 D2).
+        let all = scan == Scan::WakeUp && self.scanned;
         let mut read = Vec::with_capacity(res.connectors.len());
         for &id in &res.connectors {
             if self.interrupted() {
                 return Err(released());
             }
-            let conn = self.connector(id);
+            let conn = self.connector(id, all);
             // A connector the removed card cannot read is not unplugged.
             if conn.is_none() && self.card.removed() {
                 return Err(Errno::NODEV.into());
@@ -1846,14 +1852,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// logged at debug level; any other failure, a read refused because
     /// the connector changed between its two reads among them, is a
     /// warning.
-    /// Connector `id`, read first as the kernel last detected it. Only a
-    /// connector the kernel reports a monitor on, or has not detected yet,
-    /// is read again with a probe: a probe of a connector with no monitor
-    /// can take seconds, as with a DisplayPort converter chip that does not
-    /// answer, and holds the loop meanwhile (ADR-1401 D2).
-    fn connector(&self, id: u32) -> Option<Connector> {
+    ///
+    /// The connector is read first as the kernel last detected it. Only a
+    /// connector the kernel reports a monitor on, or has not checked yet,
+    /// is read again with a probe, and every connector when `all` asks, as
+    /// the wake-up at an acquire does. A probe of a connector with no
+    /// monitor can take seconds, as with a DisplayPort converter chip that
+    /// does not answer, and holds the loop meanwhile (ADR-1401 D2).
+    fn connector(&self, id: u32, all: bool) -> Option<Connector> {
         let current = self.read_logged(id, self.card.connector_current(id))?;
-        if !current.connected && !current.unknown {
+        if !all && !current.connected && !current.unknown {
             return Some(current);
         }
         self.read_logged(id, self.card.connector(id))
@@ -2059,6 +2067,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             flip_crtc: crtc,
             flip_timer: None,
             modeset_flip: false,
+            modeset_flip_no: None,
             available: true,
             announced: false,
             returning: self.scanned,
@@ -3254,6 +3263,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.cursor_set = o.cursor_shown();
                 o.start_flip();
                 o.modeset_flip = true;
+                o.modeset_flip_no = Some(o.flips);
                 o.damage.set_whole();
             } else {
                 if !self.card.removed() {

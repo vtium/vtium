@@ -390,10 +390,6 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
-    /// The cards whose hotplug a request for the VT stopped. Each scans at
-    /// the next turn that holds the VT, unless the acquire's wake-up scans
-    /// it first.
-    hotplug_owed: BTreeSet<PathBuf>,
     /// Device events a test hands the next turn, as udev would.
     #[cfg(test)]
     queued_devices: Vec<DeviceEvent>,
@@ -624,7 +620,6 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
-            hotplug_owed: BTreeSet::new(),
             #[cfg(test)]
             queued_devices: Vec::new(),
             wait,
@@ -2502,7 +2497,6 @@ impl App {
                 // and each `Awake` it brings counts as activity.
                 self.retake_owed = false;
                 self.retaking.clear();
-                self.hotplug_owed.clear();
                 if let Some(input) = &mut self.input {
                     input.wake_up();
                 }
@@ -3118,13 +3112,12 @@ impl App {
     /// The device events of one turn. Each card scans once for all the
     /// hotplugs it had in the turn. Between a card's display work and the
     /// next, the loop reads a request for the VT, and once one comes it
-    /// lets the VT go in this turn and leaves the scans that remain to the
-    /// acquire (ADR-1401 D2, "A VT release while display work runs").
+    /// lets the VT go in this turn and skips the scans that remain. The
+    /// VT comes back to vtium only through an acquire, whose wake-up scans
+    /// every card, so a skipped scan needs no record (ADR-1401 D2, "A VT
+    /// release while display work runs").
     fn device_events(&mut self, events: Vec<DeviceEvent>, now: Instant) {
         let mut hotplugs: Vec<PathBuf> = Vec::new();
-        if self.vt.is_active() && self.releasing.is_none() {
-            hotplugs.extend(std::mem::take(&mut self.hotplug_owed));
-        }
         for e in events {
             match e {
                 DeviceEvent::Hotplug { node, .. } => {
@@ -3143,9 +3136,6 @@ impl App {
         }
         for node in hotplugs {
             if self.release_now(now) {
-                if self.videos.contains_key(&node) {
-                    self.hotplug_owed.insert(node);
-                }
                 continue;
             }
             if let Some(video) = self.videos.get_mut(&node)
@@ -7792,6 +7782,23 @@ mod tests {
         app.turn(Instant::now());
         assert_eq!(hotplugs(&mut app, &card0), 1, "card0 scanned");
         assert_eq!(hotplugs(&mut app, &card1), 0, "left to the acquire");
+        assert_eq!(released.get(), 1, "the VT went in the same turn");
+    }
+
+    // A request for the VT that comes during the turn's last scan is
+    // answered in that turn too, though no other card's work follows it.
+    // covers: platform.vt-switch
+    #[test]
+    fn a_release_asked_during_the_last_scan_is_acknowledged_in_that_turn() {
+        let (mut app, asked, released, card0, _) = asking_seat();
+        app.videos
+            .get_mut(&card0)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .asks_for_vt = Some(asked);
+        app.queued_devices = vec![hotplug(&card0)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card0), 1, "card0 scanned");
         assert_eq!(released.get(), 1, "the VT went in the same turn");
     }
 
