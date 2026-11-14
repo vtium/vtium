@@ -45,6 +45,10 @@ considered:
   - operator: aaronsb
     said: "I think the default is double, but packed can be used for compatibility"
     via: the maintainer, in the steering session, 2026-11-13, answering whether cluster-width's default is double
+  - operator: aaronsb
+    said: "cluster-width and if there's a better phrasing (maybe just double or single) that's fine"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1006's Setting probe
+    covers: [Setting]
 status: proposed
 date: 2026-11-13
 deciders:
@@ -62,11 +66,11 @@ related:
 
 ## Summary
 
-- **Decided:** vtium-term measures each grapheme cluster by two rules of Python wcwidth's specification. A cluster in which a spacing mark follows its first character takes two cells, as கொ and कि do. A cluster that holds a virama conjunct takes the sum of its consonants' widths, at most two, as क्ष does. Every other cluster keeps the width it has today. The terminal still cuts text into clusters by UAX #29, so each cluster is measured on its own. A setting in vtium.conf, `cluster-width`, chooses between this rule, `double`, which is the default, and `packed`, the value for compatibility. Under `packed`, each cluster keeps the cells of its first character, and its glyph is squeezed to fit, as in programs and terminals that count one cell per cluster (D8).
-- **Trades away:** room, and agreement with one group of programs or the other. Under `double`, Devanagari and the other scripts with spacing vowel signs take up to half as much room again, and a cluster narrower than its two cells leaves a gap. The cursor moves when a spacing mark arrives, which the mode 2027 specification allows only for VS16. Programs split on these clusters. Under `double`, vtium agrees with the shell and disagrees with Neovim, foot and WezTerm. Under `packed`, it is the other way round.
+- **Decided:** vtium-term measures each grapheme cluster by two rules of Python wcwidth's specification. A cluster in which a spacing mark follows its first character takes two cells, as கொ and कि do. A cluster that holds a virama conjunct takes the sum of its consonants' widths, at most two, as क्ष does. Every other cluster keeps the width it has today. The terminal still cuts text into clusters by UAX #29, so each cluster is measured on its own. A setting in vtium.conf, `cluster-width`, chooses between this rule, `double`, which is the default, and `single`, the value for compatibility. Under `single`, each cluster keeps the cells of its first character, and its glyph is squeezed to fit, as in programs and terminals that count one cell per cluster (D8).
+- **Trades away:** room, and agreement with one group of programs or the other. Under `double`, Devanagari and the other scripts with spacing vowel signs take up to half as much room again, and a cluster narrower than its two cells leaves a gap. The cursor moves when a spacing mark arrives, which the mode 2027 specification allows only for VS16. Programs split on these clusters. Under `double`, vtium agrees with the shell and disagrees with Neovim, foot and WezTerm. Under `single`, it is the other way round.
 - **One-way?** No. The rule lives in vtium-term's width function and its tables, and no stored format depends on it.
 - **Probes:** *Not confident (Devanagari):* Devanagari takes more room. The Hindi line of tier 2's font set screen grows from 26 to 36 cells. A cluster such as र्म fills only half its two cells, so the headline breaks around it. Is that acceptable? *Not confident (Kannada):* a Kannada, Tamil or Sinhala conjunct that the grapheme rules cut into several clusters takes the cells of each. ಸ್ತ್ರೀ takes 4 cells, as glibc counts it, where Python wcwidth's measure of the whole word, by its own rules, gives 2. Is that what you want? *Not confident (Setting):* the setting is named `cluster-width`, with the values `double` and `packed`, and sits beside `text-direction` under "Fonts and text". Is that name right? Another name could be `syllable-width`, which reads more plainly but fits less well outside the Brahmic scripts.
-- **Inversion:** the choice sat between the first character's width, one cell whatever follows, and the sum of every character's width, as glibc counts. The rule gives two cells, the most a glyph holds, to the clusters whose shapes need room, and no more. The setting's value `packed` keeps the first end for compatibility, on a console whose programs count one cell per cluster.
+- **Inversion:** the choice sat between the first character's width, one cell whatever follows, and the sum of every character's width, as glibc counts. The rule gives two cells, the most a glyph holds, to the clusters whose shapes need room, and no more. The setting's value `single` keeps the first end for compatibility, on a console whose programs count one cell per cluster.
 
 > Edited 2026-11-13: the maintainer asked for "a uniform behavior flag that is independent of the actual language" with the values packed and double, and asked of the sentence on programs that disagree "is this really an issue? how many other terminals act this way?" (`considered`). The Decided item had no setting. The Trades away item read: "room and agreement with some programs. Devanagari and the other scripts with spacing vowel signs take up to half as much room again, and a cluster narrower than its two cells leaves a gap. A program that gives a cluster its first character's width disagrees with vtium on these clusters. The cursor moves when a spacing mark arrives, which the mode 2027 specification allows only for VS16." The Setting probe and the inversion's last sentence are new. The maintainer later confirmed the default, "I think the default is double, but packed can be used for compatibility", so the Setting probe asks only about the name.
 
@@ -138,14 +142,14 @@ The figure shows the Tamil line of tier 2's frit-indic screen at 1:1, in 14×45 
 - **ADR-1307 D1:** a cluster takes the cells this record gives it. ADR-1307 declined to give a cluster more cells. This record takes that alternative in part: two cells at most, by Python wcwidth's rules, not one cell for each consonant and vowel sign.
 - **ADR-1203 D2:** the terminal keeps UAX #29's clusters, and each takes the width this record gives it.
 
-### D8: a setting chooses double or packed
+### D8: a setting chooses double or single
 
-> Added 2026-11-13: the maintainer asked for "a uniform behavior flag that is independent of the actual language, and instead offers packed (narrowed/scaled) or double (two cells) for any multi cell character", and confirmed that its trigger comes from Unicode, "not the font". The maintainer then set the default: "I think the default is double, but packed can be used for compatibility" (`considered`).
+> Added 2026-11-13: the maintainer asked for "a uniform behavior flag that is independent of the actual language, and instead offers packed (narrowed/scaled) or double (two cells) for any multi cell character", and confirmed that its trigger comes from Unicode, "not the font". The maintainer then set the default: "I think the default is double, but packed can be used for compatibility". Answering the Setting probe, the maintainer kept the name and renamed the value packed to single: "cluster-width and if there's a better phrasing (maybe just double or single) that's fine" (`considered`).
 
 A key of vtium.conf's top level, `cluster-width`, chooses what vtium-term does with the clusters that D1's rules name. It has two values:
 
 - **`double`**, the default. D1 to D3 apply as written. A cluster with a spacing mark after its first character, or with a virama conjunct, takes two cells, and its glyph is drawn at full size (D6).
-- **`packed`**, the value for compatibility. It suits a console whose programs count one cell per cluster, such as Neovim, foot, WezTerm, kitty and mlterm with its default options. D1's two rules do not apply. Every cluster keeps the cells that Unicode's grapheme and East_Asian_Width rules give it, as ADR-1200 D21 states: its first character's width, or two for an emoji-style base with U+FE0F. The glyph helper squeezes a glyph wider than those cells to fit them, as ADR-1307 D1 decides. A cluster never widens after it is printed, so D3's departure from the mode 2027 specification does not arise.
+- **`single`**, the value for compatibility. It suits a console whose programs count one cell per cluster, such as Neovim, foot, WezTerm, kitty and mlterm with its default options. D1's two rules do not apply. Every cluster keeps the cells that Unicode's grapheme and East_Asian_Width rules give it, as ADR-1200 D21 states: its first character's width, or two for an emoji-style base with U+FE0F. The glyph helper squeezes a glyph wider than those cells to fit them, as ADR-1307 D1 decides. A cluster never widens after it is printed, so D3's departure from the mode 2027 specification does not arise.
 
 The setting applies to every script alike. It names no language and no script. It chooses only between two widths for the clusters that D1's rules name, and every other cluster takes the same width under both values.
 
@@ -155,9 +159,9 @@ vtium reads the key when it starts, so a change takes effect when vtium restarts
 
 The key belongs in the key table's section "Fonts and text", in a group of its own beside "Right-to-left text". vtium-term reads it. It is set only at the top level, as `text-direction` is, so that every console measures text the same way. Its description in the key table says what each value does, with கொ as the example, and that a change takes effect when vtium restarts.
 
-The setting applies with mode 2027 set. With mode 2027 reset, each codepoint takes its own width under both values, as D4 states. DECRQM of mode 2027 answers set or reset, as D4 states, under both values. No standard query tells a program which width rule a terminal uses, and vtium adds none. A program that needs to know prints a cluster such as கொ and asks for the cursor's position with DSR 6, as the ucs-detect suite does. Under `double`, the cursor is two cells on, and under `packed`, one.
+The setting applies with mode 2027 set. With mode 2027 reset, each codepoint takes its own width under both values, as D4 states. DECRQM of mode 2027 answers set or reset, as D4 states, under both values. No standard query tells a program which width rule a terminal uses, and vtium adds none. A program that needs to know prints a cluster such as கொ and asks for the cursor's position with DSR 6, as the ucs-detect suite does. Under `double`, the cursor is two cells on, and under `single`, one.
 
-Under `packed`, kitty's text sizing protocol with a width key `w` of 0 gives a cluster with a spacing mark one scaled cell, not the two that D5 states.
+Under `single`, kitty's text sizing protocol with a width key `w` of 0 gives a cluster with a spacing mark one scaled cell, not the two that D5 states.
 
 ## What the build moves
 
@@ -198,7 +202,7 @@ ADR-1307's figure and ADR-1203's figure stay as they were published, at the widt
 ### Negative
 
 - Devanagari, Bengali and the other headline scripts take more room. A cluster narrower than its two cells is centred with a gap on each side, so the headline breaks more often.
-- Programs and terminals split three ways on these clusters, and either value of `cluster-width` disagrees with some of them. One group gives each cluster one cell: Neovim 0.12, foot 1.28, WezTerm, kitty 0.49 and, by default, mlterm 3.9.5. A second group gives two cells by Python wcwidth's rule: glibc's wcswidth, which bash, readline and C programs use, Vim 9.2, Python wcwidth, Ghostty and Windows Terminal. A third group sums every code point's width, three or four cells for a long conjunct: glibc and Vim on conjuncts of several consonants, Konsole and Contour. Under `double`, vtium agrees with the second group, the shell among it, and disagrees with the first. Under `packed`, it agrees with the first group and disagrees with the shell, as vtium did before this record. The basis gives the sources.
+- Programs and terminals split three ways on these clusters, and either value of `cluster-width` disagrees with some of them. One group gives each cluster one cell: Neovim 0.12, foot 1.28, WezTerm, kitty 0.49 and, by default, mlterm 3.9.5. A second group gives two cells by Python wcwidth's rule: glibc's wcswidth, which bash, readline and C programs use, Vim 9.2, Python wcwidth, Ghostty and Windows Terminal. A third group sums every code point's width, three or four cells for a long conjunct: glibc and Vim on conjuncts of several consonants, Konsole and Contour. Under `double`, vtium agrees with the second group, the shell among it, and disagrees with the first. Under `single`, it agrees with the first group and disagrees with the shell, as vtium did before this record. The basis gives the sources.
 
 > Edited 2026-11-13: the maintainer asked of this item "is this really an issue? how many other terminals act this way?" (`considered`). It read: "A program that gives a cluster its first character's width disagrees with vtium on these clusters. Before, it agreed."
 
@@ -213,7 +217,7 @@ ADR-1307's figure and ADR-1203's figure stay as they were published, at the widt
 ## Alternatives Considered
 
 - **Keep one cell for every cluster,** as ADR-1200 D21 states today. Not taken by the maintainer: Tamil, Malayalam and Sinhala syllables are squeezed past reading, and the shell's own count disagrees.
-- **Make one cell the default.** Not taken: the maintainer chose Python wcwidth's rule for these clusters, and said that `double` is the default and that `packed` can be used for compatibility (D8).
+- **Make one cell the default.** Not taken: the maintainer chose Python wcwidth's rule for these clusters, and said that `double` is the default and that `single` can be used for compatibility (D8).
 - **Take the width from the font,** two cells when the glyph needs them. Not taken: a program cannot know vtium's font, and the maintainer confirmed that the trigger comes "from unicode not the font" (D8).
 - **Choose the width per language or per script.** Not taken: the maintainer asked for one setting that names no language (D8).
 - **Give each cluster the sum of its characters' widths,** as glibc's wcswidth counts. Not taken: a long conjunct would take three or four cells, which the glyph format cannot hold, and the squeeze would turn into wide gaps.
