@@ -1,0 +1,33 @@
+# arabic: a font set for Arabic, Persian and Urdu (vtium/vtium#204). Noto
+# Sans Mono draws Latin text and sets the character cell, and Noto Sans
+# Arabic draws the Arabic script at Noto Sans Mono's size. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and then the built-in font draws those characters.
+#
+# Arabic marks stand well above and below the letters: hamza, the harakat
+# and shadda, often two in a stack over a tall letter such as lam. At Noto
+# Sans Mono's size, Noto Sans Arabic's stacked marks pass the text's height
+# by up to about a third of it, above and below. Line spacing of 50 adds a
+# quarter of the text's height above each row and a quarter below it, so
+# the marks of one row and the descenders of the row above share blank
+# rows instead of crossing the other row's letters.
+#
+# Licences, as each source's documentation gives them:
+# - Noto Sans Mono: SIL OFL 1.1.
+# - Noto Sans Arabic: SIL OFL 1.1.
+
+name=arabic
+license=OFL-1.1
+
+# Latin text, setting the cell at each size. It holds no Arabic.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+
+# The Arabic script, its marks and its presentation forms, which Noto Sans
+# Mono lacks. Its marks may use the rows that line spacing adds. Arabic is
+# room by default; the line says so for the reader.
+source=font:Noto Sans Arabic
+fit=room
+# Arch's noto-fonts installs it.
+
+line-spacing=50

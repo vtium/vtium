@@ -1,0 +1,31 @@
+# thai-lao: a font set for Thai and Lao (vtium/vtium#204). Noto Sans Mono
+# draws Latin text and sets the character cell, and Noto Sans Thai and Noto
+# Sans Lao draw those scripts at Noto Sans Mono's size. vtium ships this
+# font set, never the fonts. The font helper leaves out a font that the
+# machine lacks, and then the built-in font draws those characters.
+#
+# Thai and Lao stack vowel signs and tone marks above a consonant, and
+# write some vowels under it. The vowels under a consonant with a tail
+# below, such as Thai's tho than (U+0E10), reach furthest under the line.
+# Line spacing of 30 adds three twentieths of the text's height above each
+# row and as much below it, so the stacks of one row stay clear of the
+# rows above and below.
+#
+# Licences, as each source's documentation gives them: every font below is
+# under the SIL OFL 1.1.
+
+name=thai-lao
+license=OFL-1.1
+
+# Latin text, setting the cell at each size. It holds no Thai or Lao.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+
+# The two scripts, which Noto Sans Mono lacks. Their marks may use the rows
+# that line spacing adds. Arch's noto-fonts installs both.
+source=font:Noto Sans Thai
+fit=room
+source=font:Noto Sans Lao
+fit=room
+
+line-spacing=30

@@ -1,0 +1,32 @@
+# hebrew: a font set for Hebrew (vtium/vtium#204). Noto Sans Mono draws
+# Latin text and sets the character cell, and Noto Sans Hebrew draws the
+# Hebrew script at Noto Sans Mono's size. vtium ships this font set, never
+# the fonts. The font helper leaves out a font that the machine lacks, and
+# then the built-in font draws those characters.
+#
+# Niqqud, the vowel points, sit mostly under the letters, and the
+# cantillation marks of biblical text sit above and below them. Noto Sans
+# Hebrew draws its letters and marks inside Noto Sans Mono's line, so a
+# little room is enough. Line spacing of 20 adds a tenth of the text's
+# height above each row and a tenth below it, so the points under one row
+# stay clear of the marks above the next.
+#
+# Licences, as each source's documentation gives them:
+# - Noto Sans Mono: SIL OFL 1.1.
+# - Noto Sans Hebrew: SIL OFL 1.1.
+
+name=hebrew
+license=OFL-1.1
+
+# Latin text, setting the cell at each size. It holds no Hebrew.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+
+# The Hebrew script and its marks, which Noto Sans Mono lacks. Its marks
+# may use the rows that line spacing adds. Hebrew is room by default; the
+# line says so for the reader.
+source=font:Noto Sans Hebrew
+fit=room
+# Arch's noto-fonts installs it.
+
+line-spacing=20
