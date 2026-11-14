@@ -1,0 +1,34 @@
+checkpoint 19
+size 10x4
+cursor 4,0
+flags AUTO_WRAP
+row 0 |01234|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 32
+size 10x4
+cursor 2,1
+flags AUTO_WRAP
+row 0 |abcde|
+row 1 |fg|
+row 2 ||
+row 3 ||
+checkpoint 50
+size 10x4
+cursor 4,2
+flags AUTO_WRAP
+reply 1b5b333b3552
+row 0 |abcde|
+row 1 |fg|
+row 2 ||
+row 3 ||
+checkpoint 62
+size 10x4
+cursor 9,2
+flags AUTO_WRAP
+reply 1b5b333b313052
+row 0 |abcde|
+row 1 |fg|
+row 2 ||
+row 3 ||
