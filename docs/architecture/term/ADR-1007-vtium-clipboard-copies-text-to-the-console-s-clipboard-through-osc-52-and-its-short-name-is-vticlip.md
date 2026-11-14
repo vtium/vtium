@@ -20,6 +20,11 @@ considered:
     via: the steering session's questions on 2026-11-14, on the wave plan
     paraphrase: true
     covers: [copy only]
+  - operator: aaronsb
+    said: "vticlip copy exits 3 when nothing confirmed the copy, inside tmux included, as written."
+    via: the steering session's questions on 2026-11-14, on the small records
+    paraphrase: true
+    covers: [exit status]
 status: proposed
 date: 2026-11-14
 deciders:

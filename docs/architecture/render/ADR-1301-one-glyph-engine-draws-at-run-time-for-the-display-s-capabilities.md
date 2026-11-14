@@ -142,6 +142,14 @@ considered:
   - operator: aaronsb
     said: "A `display-dpi` configuration key states the density. When it is set, vtium uses it and logs no warning. Like ADR-1301's `display-depth` and `display-subpixel` overrides, it wins over the measured value, which also covers monitors whose EDID reports a wrong size. The order is: `display-dpi` if configured, then the EDID's measured size, then 96 DPI with a warning saying the density is assumed."
     via: the operator's decision on the same issue, 2026-10-28, relayed by the team lead; the issue's comment of 2026-10-28T23:27Z, "The operator added (2026-10-28)"
+  - operator: aaronsb
+    said: "COLORTERM is decided when a program starts, and one log line says so when a black-and-white screen joins later, as written."
+    via: the steering session's questions on 2026-11-14, on the small records
+    paraphrase: true
+  - operator: aaronsb
+    said: "A head with no screen counts as full color under display-depth=auto, as written."
+    via: the steering session's questions on 2026-11-14, on the small records
+    paraphrase: true
 observable:
   - Tier 2 draws its screens in 1-bit mode with every pixel black or white, a red-on-black line lit, and the curly underline unbroken
   - A profile whose frit asks for subpixel strikes on a 1-bit display is linted by `vtium-vitrify`, naming the rule

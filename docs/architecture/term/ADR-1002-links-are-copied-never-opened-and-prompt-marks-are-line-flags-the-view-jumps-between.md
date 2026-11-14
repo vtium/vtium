@@ -41,6 +41,14 @@ considered:
     via: the steering session's questions on 2026-11-14, on the wave plan
     paraphrase: true
     covers: [no mouse]
+  - operator: aaronsb
+    said: "Ctrl+Shift+O starts link hints, on the normal screen and in full-screen programs alike, as written."
+    via: the steering session's questions on 2026-11-14, on the small records
+    paraphrase: true
+  - operator: aaronsb
+    said: "Hints label only links marked with OSC 8, as written."
+    via: the steering session's questions on 2026-11-14, on the small records
+    paraphrase: true
 observable:
   - "A replay case opens a link, prints across a wrap, scrolls it into the scrollback and resizes; each cell keeps its link, and a sweep frees only links no line names"
   - "A flood of distinct links past `LINKS_BYTES_MAX` strips the oldest scrollback lines' links first and keeps every link on the screen; fed whole and chunked, it ends in the same store"
