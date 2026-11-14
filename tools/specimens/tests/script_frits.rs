@@ -25,8 +25,8 @@ fn read(name: &str) -> Frit {
 /// Each script frit's name, its fonts' families in its order, and its
 /// line spacing in per cent of the text's height.
 const SCRIPT_FRITS: [(&str, &[&str], u32); 5] = [
-    ("arabic", &["Noto Sans Mono", "Noto Sans Arabic"], 50),
-    ("hebrew", &["Noto Sans Mono", "Noto Sans Hebrew"], 20),
+    ("arabic", &["Noto Sans Mono", "Noto Sans Arabic"], 30),
+    ("hebrew", &["Noto Sans Mono", "Noto Sans Hebrew"], 10),
     (
         "indic",
         &[
@@ -47,7 +47,7 @@ const SCRIPT_FRITS: [(&str, &[&str], u32); 5] = [
     (
         "thai-lao",
         &["Noto Sans Mono", "Noto Sans Thai", "Noto Sans Lao"],
-        30,
+        25,
     ),
     ("vietnamese", &["Noto Sans Mono"], 25),
 ];

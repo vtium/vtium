@@ -6,10 +6,10 @@
 #
 # Niqqud, the vowel points, sit mostly under the letters, and the
 # cantillation marks of biblical text sit above and below them. Noto Sans
-# Hebrew draws its letters and marks inside Noto Sans Mono's line, so a
-# little room is enough. Line spacing of 20 adds a tenth of the text's
-# height above each row and a tenth below it, so the points under one row
-# stay clear of the marks above the next.
+# Hebrew draws its letters and marks inside the text's height, so a little
+# room is enough. Line spacing of 10 adds a twentieth of the text's height
+# above each row and a twentieth below it, so the points under one row
+# stay apart from the marks above the next.
 #
 # Licences, as each source's documentation gives them:
 # - Noto Sans Mono: SIL OFL 1.1.
@@ -29,4 +29,4 @@ source=font:Noto Sans Hebrew
 fit=room
 # Arch's noto-fonts installs it.
 
-line-spacing=20
+line-spacing=10

@@ -4,13 +4,12 @@
 # font set, never the fonts. The font helper leaves out a font that the
 # machine lacks, and then the built-in font draws those characters.
 #
-# Arabic marks stand well above and below the letters: hamza, the harakat
-# and shadda, often two in a stack over a tall letter such as lam. At Noto
-# Sans Mono's size, Noto Sans Arabic's stacked marks pass the text's height
-# by up to about a third of it, above and below. Line spacing of 50 adds a
-# quarter of the text's height above each row and a quarter below it, so
-# the marks of one row and the descenders of the row above share blank
-# rows instead of crossing the other row's letters.
+# Arabic writes marks above and below the letters: hamza, the vowel marks
+# (harakat) and shadda, sometimes two in a stack. Noto Sans Arabic's
+# highest marks and its deepest letters and marks reach past the text's
+# height. Line spacing of 30 adds three twentieths of the text's height
+# above each row and as much below it, so the marks of one row stay clear
+# of the letters and marks of the rows above and below.
 #
 # Licences, as each source's documentation gives them:
 # - Noto Sans Mono: SIL OFL 1.1.
@@ -30,4 +29,4 @@ source=font:Noto Sans Arabic
 fit=room
 # Arch's noto-fonts installs it.
 
-line-spacing=50
+line-spacing=30
