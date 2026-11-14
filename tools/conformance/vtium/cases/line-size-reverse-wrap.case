@@ -7,7 +7,7 @@
 # last column. Three BS from column 3 of row 3 reach column 5 of row 2,
 # which CPR reports, and CUB 3 from the first column of row 1 ends at
 # column 3 of row 0.
-# spec: ctlseqs, DECSET 45, "Reverse-wraparound mode (XTREVWRAP)", read as ADR-1000 DEC-45 states it: "while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row"; the VT100 User Guide, DECDWL and DECDHL: "The use of double-width characters reduces the number of characters per line by half"
+# spec: ctlseqs, DECSET 45, "Reverse-wraparound mode (XTREVWRAP)", read as vtium's mode table states it (docs/modes.tsv, DEC-45): "while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row"; the VT100 User Guide, DECDWL and DECDHL: "The use of double-width characters reduces the number of characters per line by half"
 # covers: text.line-size, DEC-45
 size 10 4
 send "\e#6abcdefg\e[3;1H\e#3hijklmn\e[?45h\x08\x08\x08\e[6n\e[2;1H\e[3D"
