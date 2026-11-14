@@ -892,13 +892,28 @@ impl Screen {
     fn move_cursor(&mut self, x: usize, y: usize) {
         self.segment = None;
         self.margin_wrap = false;
-        let held = self.line_cols(y);
-        self.cursor_x = if held < self.cols {
-            x.min(held.saturating_sub(1))
+        let last = self.line_last(y);
+        self.cursor_x = if last.saturating_add(1) < self.cols {
+            x.min(last)
         } else {
             x
         };
         self.cursor_y = y;
+    }
+
+    /// The last column of row `y`. A line of single size ends at the
+    /// screen's last column. A line of double size draws each character
+    /// over two screen columns, so only half as many characters fit across
+    /// the screen, and the line ends at the last of those: column 39 on a
+    /// screen 80 columns wide. The cursor, printing and the edits all stop
+    /// there, because a character past it would fall off the screen.
+    ///
+    /// References:
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: "The use of
+    ///   double-width characters reduces the number of characters per line
+    ///   by half."
+    fn line_last(&self, y: usize) -> usize {
+        self.line_cols(y).saturating_sub(1)
     }
 
     /// The first and last columns the cursor may be addressed to: the
@@ -956,9 +971,7 @@ impl Screen {
     /// on and the cursor stands on a right margin before the screen's last
     /// column, as DECSC saves the wrap (VT510 manual, DECSC).
     pub fn restore_margin_wrap(&mut self) {
-        let edge = self
-            .right
-            .min(self.line_cols(self.cursor_y).saturating_sub(1));
+        let edge = self.right.min(self.line_last(self.cursor_y));
         self.margin_wrap =
             self.flags.auto_wrap && self.cursor_x == edge && edge.saturating_add(1) < self.cols;
     }
