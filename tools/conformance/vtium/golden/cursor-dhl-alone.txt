@@ -1,0 +1,16 @@
+checkpoint 23
+size 10x4
+cursor 1,0
+flags AUTO_WRAP
+row 0 |Top|
+row 1 |next|
+row 2 ||
+row 3 ||
+checkpoint 50
+size 10x4
+cursor 0,3
+flags AUTO_WRAP
+row 0 |Top|
+row 1 |next|
+row 2 ||
+row 3 |Bot|

@@ -1,0 +1,16 @@
+checkpoint 14
+size 10x4
+cursor 1,0
+flags AUTO_WRAP
+row 0 |a中b|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 20
+size 10x4
+cursor 2,0
+flags AUTO_WRAP
+row 0 |a中b|
+row 1 ||
+row 2 ||
+row 3 ||

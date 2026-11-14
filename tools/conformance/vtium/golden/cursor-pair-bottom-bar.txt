@@ -1,0 +1,7 @@
+size 10x4
+cursor 2,1
+flags AUTO_WRAP
+row 0 |Big|
+row 1 |Big|
+row 2 ||
+row 3 ||
