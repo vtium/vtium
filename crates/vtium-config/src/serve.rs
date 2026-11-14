@@ -52,7 +52,7 @@
 //! (ADR-1202 D14).
 //!
 //! ```text
-//! request  magic "VTVSREQ8", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ9", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
 //!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
@@ -65,7 +65,9 @@
 //!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
 //!          name one other than regular), script u32 (0 normal, 1
 //!          superscript, 2 subscript; an ask's alone may name one other
-//!          than normal), capabilities
+//!          than normal), cluster width u32 (0 double, 1 single, the
+//!          console's `cluster-width`, ADR-1006 D8; an ask's alone may
+//!          name single), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
@@ -200,6 +202,7 @@ pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
+use vtium_term::ClusterWidth;
 
 /// The command that makes the binary the helper.
 pub const SERVE_ARG: &str = "serve";
@@ -211,7 +214,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ8";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -346,6 +349,10 @@ pub struct ServeRequest {
     /// Where an ask's glyphs sit in their cells (ADR-1202 D11): normal, or
     /// superscript or subscript; normal for every other request.
     pub script: Script,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the helper places
+    /// an ask's clusters in; `double` for every other request.
+    pub cluster_width: ClusterWidth,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
@@ -421,6 +428,7 @@ impl ServeRequest {
         put32(&mut out, self.band.below);
         put32(&mut out, style_code(self.style));
         put32(&mut out, script_code(self.script));
+        put32(&mut out, cluster_width_code(self.cluster_width));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -549,6 +557,10 @@ impl ServeRequest {
         if !ask && script != Script::Baseline {
             return Err("a superscript or subscript on a request that is not an ask".to_owned());
         }
+        let cluster_width = cluster_width_of(f.u32()?).ok_or("an unknown cluster width")?;
+        if !ask && cluster_width != ClusterWidth::Double {
+            return Err("a cluster width on a request that is not an ask".to_owned());
+        }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
         }
@@ -635,6 +647,7 @@ impl ServeRequest {
             band,
             style,
             script,
+            cluster_width,
             codepoints,
             clusters,
             held,
@@ -647,6 +660,23 @@ impl ServeRequest {
 /// carries its style.
 pub fn style_code(style: Style) -> u32 {
     u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// A cluster width as a request carries it: `double` 0, `single` 1.
+pub fn cluster_width_code(rule: ClusterWidth) -> u32 {
+    match rule {
+        ClusterWidth::Double => 0,
+        ClusterWidth::Single => 1,
+    }
+}
+
+/// The cluster width a request's code names.
+fn cluster_width_of(code: u32) -> Option<ClusterWidth> {
+    match code {
+        0 => Some(ClusterWidth::Double),
+        1 => Some(ClusterWidth::Single),
+        _ => None,
+    }
 }
 
 /// A script as a request carries it: normal 0, superscript 1, subscript
@@ -867,6 +897,10 @@ pub struct Engine {
     /// How the outline sources' glyphs are hinted: the frit's `hinting=`
     /// (ADR-1200 D1).
     hinting: Hinting,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the ask being
+    /// answered names ([`Engine::set_cluster_width`]).
+    cluster_width: std::cell::Cell<ClusterWidth>,
     /// Each bitmap source's smaller sizes by its place in `sources`, in
     /// the order D3 names them: a CPI source's other heights, then the
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
@@ -1211,6 +1245,14 @@ fn smaller_fonts(
 }
 
 impl Engine {
+    /// Places the clusters the engine draws next in the cells that `rule`
+    /// gives a cluster with a spacing mark or a virama conjunct, as the
+    /// console's terminal gives them (ADR-1006 D8): the ask being answered
+    /// names it, and every other drawing takes `double`, the default.
+    pub fn set_cluster_width(&self, rule: ClusterWidth) {
+        self.cluster_width.set(rule);
+    }
+
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
     /// fails only when none is left. A source that is on this machine and
@@ -1325,6 +1367,7 @@ impl Engine {
         coverage.dedup();
         // `Frit::parse` refuses a name that is not valid
         Ok(Engine {
+            cluster_width: std::cell::Cell::default(),
             name: frit.name,
             sources,
             coverage,
@@ -1924,6 +1967,7 @@ impl Engine {
         let (num, den) = vtium_font::SCRIPT_SCALE;
         let small = size * num as f32 / den as f32;
         Some(OutlineRequest {
+            cluster_width: Default::default(),
             sizes: vec![small.to_bits()],
             baselines: vec![script_baseline(
                 script,
@@ -2234,6 +2278,7 @@ impl Engine {
                         cells: vec![(cell.width, cell.height)],
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
+                        cluster_width: self.cluster_width.get(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
                         sizes: self
                             .size(i, cell.height)
@@ -2813,6 +2858,7 @@ impl Work<'_> {
         let mut made = BTreeMap::new();
         match self.engine(&request.frit) {
             Ok(engine) => {
+                engine.set_cluster_width(request.cluster_width);
                 let batches = want
                     .chunks(BATCH)
                     .map(|w| (w, &[][..]))
@@ -3233,6 +3279,7 @@ mod tests {
 
     fn request(kind: u32, frit: FritText, codepoints: &[char]) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             kind,
             frit,
             cell: CELL,
@@ -3282,6 +3329,7 @@ mod tests {
     #[test]
     fn a_request_reads_back() {
         let r = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x41, 0x5a), (0x4e00, 0x4e00)],
             console: Some(ConsoleFont {
                 width: 8,
@@ -3307,6 +3355,7 @@ mod tests {
     #[test]
     fn an_ask_made_says_how_each_script_glyph_was_made() {
         let sup = ServeRequest {
+            cluster_width: Default::default(),
             script: Script::Super,
             ..request(ASK_MADE, frit("source=builtin:unifont\n"), &['x', '2'])
         };
@@ -3335,8 +3384,9 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1401 D7's coverage query and ADR-1302 D5's color emoji's box
-    // moved the magic from VTVSREQ7 to VTVSREQ8, as ADR-1200 D15's report
+    // ADR-1006 D8's cluster width moved the magic from VTVSREQ8 to
+    // VTVSREQ9, as ADR-1401 D7's coverage query and ADR-1302 D5's color
+    // emoji's box moved it from VTVSREQ7 to VTVSREQ8, as ADR-1200 D15's report
     // of the sandbox moved it from VTVSREQ6 to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
     // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
     // from VTVSREQ3 to VTVSREQ4: a request of an older layout
@@ -3346,6 +3396,7 @@ mod tests {
     #[test]
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
+            cluster_width: Default::default(),
             style: BOLD_ITALIC,
             script: Script::Baseline,
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
@@ -3358,6 +3409,7 @@ mod tests {
             b"VTVSREQ5",
             b"VTVSREQ6",
             b"VTVSREQ7",
+            b"VTVSREQ8",
         ] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
@@ -3375,6 +3427,7 @@ mod tests {
         for kind in [FILL, STOP, OWN_CELL, SOURCES] {
             let query = matches!(kind, OWN_CELL | SOURCES);
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 style: ITALIC,
                 script: Script::Baseline,
                 cell: if query {
@@ -3391,6 +3444,7 @@ mod tests {
             let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
             assert!(e.contains("style"), "{kind}: {e}");
             let regular = ServeRequest {
+                cluster_width: Default::default(),
                 style: REGULAR,
                 script: Script::Baseline,
                 ..r
@@ -3405,8 +3459,8 @@ mod tests {
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
         // the frit `a` with no text: its cell at 21, its line spacing at 29,
-        // its style at 37, its script at 41, its capabilities at 45, its
-        // codepoint at 53
+        // its style at 37, its script at 41, its cluster width at 45, its
+        // capabilities at 49, its codepoint at 57
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -3435,15 +3489,15 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         // the kind, the cell's width and height, line spacing above and
         // below that leaves no text band, a style past bold italic, a
-        // script past subscript, capabilities not yet read, the codepoint,
-        // the cluster count
+        // script past subscript, a cluster width past single, capabilities
+        // not yet read, the codepoint, the cluster count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
@@ -3452,21 +3506,40 @@ mod tests {
             (33, 16),
             (37, 4),
             (41, 3),
-            (45, 1),
-            (53, 0xd800),
-            (57, u32::MAX),
+            (45, 2),
+            (49, 1),
+            (57, 0xd800),
+            (61, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
             assert!(ServeRequest::read(&mut &bad[..]).is_err(), "{at}");
         }
+        // ADR-1006 D8: an ask carries its cluster width, and a request
+        // that is not an ask carries `double`
+        let single = ServeRequest {
+            cluster_width: ClusterWidth::Single,
+            ..request(ASK, a.clone(), &['A'])
+        };
+        let read = ServeRequest::read(&mut &single.encode()[..])
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.cluster_width, ClusterWidth::Single);
+        let fill = ServeRequest {
+            cluster_width: ClusterWidth::Single,
+            ..request(FILL, a.clone(), &[])
+        };
+        let e = ServeRequest::read(&mut &fill.encode()[..]).unwrap_err();
+        assert!(e.contains("cluster width"), "{e}");
         let backwards = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x42, 0x41)],
             ..request(FILL, a, &[])
         };
         assert!(ServeRequest::read(&mut &backwards.encode()[..]).is_err());
         for name in ["", "a\nb"] {
             let named = ServeRequest {
+                cluster_width: Default::default(),
                 frit: FritText {
                     name: name.to_owned(),
                     text: String::new(),
@@ -3492,6 +3565,7 @@ mod tests {
     #[test]
     fn a_frit_that_draws_nothing_has_an_answer_of_its_own() {
         let ask = |text: &str| ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 0,
                 height: 0,
@@ -3524,6 +3598,7 @@ mod tests {
             height: 0,
         };
         let query = ServeRequest {
+            cluster_width: Default::default(),
             cell: empty,
             band: Band::NONE,
             ..request(SOURCES, frit("source=builtin:unifont\n"), &[])
@@ -3536,6 +3611,7 @@ mod tests {
             (
                 "a width",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     cell: Cell {
                         width: 1,
                         height: 0,
@@ -3547,6 +3623,7 @@ mod tests {
             (
                 "a height",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     cell: Cell {
                         width: 0,
                         height: 16,
@@ -3558,6 +3635,7 @@ mod tests {
             (
                 "a codepoint",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     codepoints: vec![0x41],
                     ..query.clone()
                 },
@@ -3565,6 +3643,7 @@ mod tests {
             (
                 "a held range",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     held: vec![(0x41, 0x42)],
                     ..query.clone()
                 },
@@ -3584,6 +3663,7 @@ mod tests {
         let acute = vec![0x65, 0x301];
         let family = vec![0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467];
         let ask = ServeRequest {
+            cluster_width: Default::default(),
             clusters: vec![acute.clone(), family],
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
         };
@@ -3592,6 +3672,7 @@ mod tests {
         let longest = CLUSTER_SCALARS_MAX as usize;
         for bad in [vec![], vec![0x41; longest + 1], vec![0x65, 0xd800]] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 clusters: vec![bad.clone()],
                 ..ask.clone()
             };
@@ -3601,12 +3682,14 @@ mod tests {
             );
         }
         let longest_ok = ServeRequest {
+            cluster_width: Default::default(),
             clusters: vec![vec![0x41; longest]],
             ..ask.clone()
         };
         assert!(ServeRequest::read(&mut &longest_ok.encode()[..]).is_ok());
         for kind in [FILL, STOP] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 clusters: vec![acute.clone()],
                 ..request(kind, frit("source=builtin:unifont\n"), &[])
             };
@@ -3799,6 +3882,7 @@ mod tests {
             height: 528,
         };
         let asked = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: huge,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &['A', 'B'])
@@ -3822,6 +3906,7 @@ mod tests {
         }
         // a fill at that cell is answered too
         let filled = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: huge,
             band: Band::NONE,
             ..request(FILL, frit, &[])
@@ -3875,6 +3960,7 @@ mod tests {
     /// A cell query for `frit`: at no cell, naming nothing.
     fn query(frit: FritText) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 0,
                 height: 0,
@@ -3952,6 +4038,7 @@ mod tests {
     /// an outline first source is drawn at.
     fn query_at(frit: FritText, height: u32) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell { width: 0, height },
             band: Band::NONE,
             ..query(frit)
@@ -4117,6 +4204,7 @@ mod tests {
             height: 20,
         };
         let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band: Band::NONE,
             ..request(ASK, frit, &['L', 'A'])
@@ -4128,6 +4216,41 @@ mod tests {
         let ink = l.ink().unwrap();
         assert_eq!((ink.left(), ink.width()), (-3, 15));
         assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
+    }
+
+    // ADR-1006 D8: an ask under `cluster-width = single` has the conjunct
+    // ka, virama, ssa drawn in one cell, as the console's terminal gives it,
+    // and the same ask under `double` in two
+    #[test]
+    fn an_ask_places_its_clusters_by_its_cluster_width() {
+        let mut font = super::ttf::test_mono();
+        let first = u16::try_from(font.glyphs.len()).unwrap();
+        for (i, c) in [0x915u32, 0x94d, 0x937].into_iter().enumerate() {
+            font.glyphs
+                .push(super::ttf::Glyph::rect(900, 0, 0, 900, 500));
+            font.cmap.push((c, first + u16::try_from(i).unwrap()));
+        }
+        font.cmap.sort_unstable();
+        let (frit, _dir) = outline_frit("cluster-width", "", &[Ok(font)]);
+        let key = vec![0x915, 0x94d, 0x937];
+        let cells = |rule: ClusterWidth| {
+            let frames = run(&[ServeRequest {
+                cluster_width: rule,
+                clusters: vec![key.clone()],
+                ..request(ASK, frit.clone(), &[])
+            }]);
+            let set = frames
+                .iter()
+                .find(|(k, _)| *k == FRAME_GLYPHS)
+                .map(|(_, p)| Arc::new(Set::from_bytes(p.clone()).unwrap()))
+                .unwrap();
+            let face = SetFace::new(set, 16).unwrap();
+            face.cluster(&['\u{915}', '\u{94d}', '\u{937}'], Style::default())
+                .unwrap()
+                .cells()
+        };
+        assert_eq!(cells(ClusterWidth::Single), Width::Narrow);
+        assert_eq!(cells(ClusterWidth::Double), Width::Wide);
     }
 
     // ADR-1302 D3: every request draws a font on one baseline, found from
@@ -4151,6 +4274,7 @@ mod tests {
             height: 12,
         };
         let ask = |c: char| ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &[c])
@@ -4198,6 +4322,7 @@ mod tests {
         ] {
             let text = format!("{key}source=outline:{font}\n");
             let frames = run(&[ServeRequest {
+                cluster_width: Default::default(),
                 cell,
                 band: Band::NONE,
                 ..request(ASK, frit(&text), &['H'])
@@ -4208,6 +4333,7 @@ mod tests {
             let face = SetFace::new(Arc::new(set), 16).unwrap();
             let drawn = face.draw(&['H'], Style::default()).unwrap();
             let want = rasterise(&OutlineRequest {
+                cluster_width: Default::default(),
                 font: std::fs::read(font).unwrap().into(),
                 cells: vec![(9, 16)],
                 cover: vec![(0x48, 0x48)],
@@ -4233,6 +4359,7 @@ mod tests {
         font.cmap.sort_unstable();
         let (frit, _dir) = outline_frit("two-heights", "", &[Ok(font)]);
         let at = |h| ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 7,
                 height: h,
@@ -4292,6 +4419,7 @@ mod tests {
         chars: &[char],
     ) -> (Vec<Vec<Vec<u8>>>, (Decorations, u32)) {
         let bytes = run_bytes(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band,
             ..request(ASK, frit.clone(), chars)
@@ -4373,6 +4501,7 @@ mod tests {
         assert_eq!(base, plain_base + 2);
         let lean = |cell: Cell, band: Band| -> Vec<Vec<u8>> {
             let frames = run(&[ServeRequest {
+                cluster_width: Default::default(),
                 cell,
                 band,
                 ..request(ASK, unscii.clone(), &['A'])
@@ -4472,6 +4601,7 @@ mod tests {
         };
         let band = Band { above: 3, below: 3 };
         let bytes = run_bytes(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band,
             ..request(ASK, mono, &['\u{2191}'])
@@ -4502,6 +4632,7 @@ mod tests {
         let unscii = frit("source=builtin:unscii-8\n");
         let band = Band { above: 2, below: 2 };
         let fill = |band| ServeRequest {
+            cluster_width: Default::default(),
             band,
             ..request(FILL, unscii.clone(), &['A'])
         };
@@ -4529,6 +4660,7 @@ mod tests {
         let unscii = frit("source=builtin:unscii-8\n");
         let band = Band { above: 2, below: 1 };
         let at = |kind| ServeRequest {
+            cluster_width: Default::default(),
             band,
             ..request(kind, unscii.clone(), &['A'])
         };
@@ -4556,6 +4688,7 @@ mod tests {
             (11, 0, 11, false),
         ] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 cell: Cell {
                     width: 8,
                     height: cell_h,
@@ -4567,6 +4700,7 @@ mod tests {
             assert_eq!(read.is_ok(), ok, "{above}+{below} of {cell_h}");
         }
         let query = ServeRequest {
+            cluster_width: Default::default(),
             band: Band { above: 1, below: 0 },
             ..super::tests::query(unscii)
         };
@@ -4585,6 +4719,7 @@ mod tests {
             height: 20,
         };
         let asked = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: stated,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &['W'])
@@ -4609,11 +4744,13 @@ mod tests {
         assert_eq!((read.cell.width, read.cell.height), (0, CELL_SIDE_MAX));
         for bad in [
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: CELL,
                 band: Band::NONE,
                 ..query(frit(""))
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: Cell {
                     width: 8,
                     height: 0,
@@ -4623,11 +4760,13 @@ mod tests {
             },
             query_at(frit(""), CELL_SIDE_MAX + 1),
             ServeRequest {
+                cluster_width: Default::default(),
                 codepoints: vec![0x41],
                 clusters: Vec::new(),
                 ..query(frit(""))
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 held: vec![(0x41, 0x41)],
                 ..query(frit(""))
             },
@@ -4643,6 +4782,7 @@ mod tests {
     fn a_frit_name_outside_d1s_set_is_refused() {
         let named = |name: &str| {
             ServeRequest {
+                cluster_width: Default::default(),
                 frit: FritText {
                     name: name.to_owned(),
                     text: String::new(),
@@ -4683,6 +4823,7 @@ mod tests {
     fn a_fill_draws_the_screen_then_latin_and_box_then_the_rest_once() {
         let frit = frit("source=builtin:unscii-8\n");
         let fill = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x42, 0x42)],
             ..request(FILL, frit, &['α'])
         };
@@ -4837,11 +4978,13 @@ mod tests {
         };
         let frames = run(&[
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: small,
                 band: Band::NONE,
                 ..request(ASK, frit.clone(), &['A'])
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: small,
                 band: Band::NONE,
                 ..request(FILL, frit, &['A'])

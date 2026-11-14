@@ -20,6 +20,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -164,6 +165,7 @@ fn light_hinting_fits_rows_only_and_full_hinting_both_ways() {
     let font = dejavu_ascii();
     let at = |hinting| {
         rasterise(&OutlineRequest {
+            cluster_width: Default::default(),
             font: font.clone().into(),
             family: "DejaVu Sans Mono".to_owned(),
             cells: vec![(0, 16)],
@@ -334,6 +336,7 @@ fn overhanging(right: i16) -> OutlineRequest {
     font.cmap.push((0x52, 9));
     font.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: font.build().into(),
         ..request(&[(0, 20)], &[])
@@ -405,6 +408,7 @@ fn a_glyph_is_placed_by_its_rounded_advance() {
     font.cmap.push((0x43, 8));
     font.cmap.sort_unstable();
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         font: font.build().into(),
         ..request(&[(0, 20)], &[])
     })
@@ -435,6 +439,7 @@ fn a_glyph_is_placed_by_its_rounded_advance() {
 #[test]
 fn a_box_past_the_chunk_bound_leaves_the_glyph_cut_to_its_cell() {
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         cells: vec![(0, 128)],
         ..overhanging(2000)
     })
@@ -500,6 +505,7 @@ fn an_answer_with_a_box_past_the_reach_is_refused() {
         "the cell's bottom row left out"
     );
     let near = OutlineRequest {
+        cluster_width: Default::default(),
         reaches: vec![(5, 3)],
         ..req.clone()
     };
@@ -539,6 +545,7 @@ fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
     let at = |h| baseline(&font, "Test Mono", h, None, Hinting::Light).expect("a baseline");
     assert_eq!([at(10), at(12), at(20)], [8, 9, 16]);
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         font: font.clone().into(),
         cells: vec![(0, 10), (0, 12), (0, 20)],
         cover: vec![(0x61, 0x61)],
@@ -550,6 +557,7 @@ fn the_baseline_rises_where_ascii_ink_passes_the_cell() {
     // the underscore ends in the cell's bottom row, and a's ink stands on
     // the baseline
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         font: font.into(),
         cells: vec![(0, 12)],
         ..request(&[], &[])
@@ -851,25 +859,27 @@ fn the_request_reads_back() {
     let r = request(&[(0, 10), (8, 16)], &[(0x41, 0x5a)]);
     assert_eq!(OutlineRequest::decode(&r.encode()), Ok(r.clone()));
     let full = OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         hinting: Hinting::Full,
         ..r.clone()
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's third byte from its end, 0 light and 1
+    // the hinting is the request's fourth byte from its end, 0 light and 1
     // full
     let mut other = full.encode();
     let n = other.len();
-    other[n - 3] = 2;
+    other[n - 4] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),
         "a hinting the parser does not know"
     );
-    // the synthesis is the byte before its last, bold 1 and italic 2
+    // the synthesis is its third byte from the end, bold 1 and italic 2
     // (ADR-1302 D4)
     let slanted = OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: vtium_font::Style {
             bold: true,
@@ -878,30 +888,52 @@ fn the_request_reads_back() {
         ..r.clone()
     };
     let bytes = slanted.encode();
-    assert_eq!(bytes[bytes.len() - 2], 3);
+    assert_eq!(bytes[bytes.len() - 3], 3);
     assert_eq!(OutlineRequest::decode(&bytes), Ok(slanted));
     let mut other = r.encode();
     let n = other.len();
-    other[n - 2] = 4;
+    other[n - 3] = 4;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown synthesis"));
-    // the script is its last byte, normal 0, superscript 1 and subscript 2
-    // (ADR-1202 D2, D5)
+    // the script is the byte before its last, normal 0, superscript 1 and
+    // subscript 2 (ADR-1202 D2, D5)
     for (script, code) in [
         (vtium_font::Script::Baseline, 0u8),
         (vtium_font::Script::Super, 1),
         (vtium_font::Script::Sub, 2),
     ] {
         let scripted = OutlineRequest {
+            cluster_width: Default::default(),
             script,
             ..r.clone()
         };
         let bytes = scripted.encode();
-        assert_eq!(bytes.last(), Some(&code));
+        assert_eq!(bytes[bytes.len() - 2], code);
         assert_eq!(OutlineRequest::decode(&bytes), Ok(scripted));
     }
     let mut other = r.encode();
-    *other.last_mut().expect("a byte") = 3;
+    let n = other.len();
+    other[n - 2] = 3;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown script"));
+    // the cluster width is its last byte, double 0 and single 1 (ADR-1006
+    // D8)
+    for (rule, code) in [
+        (vtium_term::ClusterWidth::Double, 0u8),
+        (vtium_term::ClusterWidth::Single, 1),
+    ] {
+        let ruled = OutlineRequest {
+            cluster_width: rule,
+            ..r.clone()
+        };
+        let bytes = ruled.encode();
+        assert_eq!(bytes.last(), Some(&code));
+        assert_eq!(OutlineRequest::decode(&bytes), Ok(ruled));
+    }
+    let mut other = r.encode();
+    *other.last_mut().expect("a byte") = 2;
+    assert_eq!(
+        OutlineRequest::decode(&other),
+        Err("an unknown cluster width")
+    );
     let mut long = r.encode();
     long.push(0);
     assert!(OutlineRequest::decode(&long).is_err());
@@ -927,6 +959,7 @@ fn the_parsers_child_rasterises() {
 #[test]
 fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -985,6 +1018,7 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     // are drawn smaller, reads back; its fit is the byte before the
     // hinting, 0 or 1
     let fallback = OutlineRequest {
+        cluster_width: Default::default(),
         fit: true,
         ..r.clone()
     };
@@ -995,6 +1029,7 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     // the reach each cell's glyphs' ink may use above and below it reads
     // back (ADR-1306 D8); a reach for no cell, or past a cell, is refused
     let reached = OutlineRequest {
+        cluster_width: Default::default(),
         reaches: vec![(20, 18), (24, 22)],
         ..r.clone()
     };
@@ -1008,6 +1043,7 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
         vec![(20, 18), (1 << 20, 22)],
     ] {
         let wrong = OutlineRequest {
+            cluster_width: Default::default(),
             reaches: bad,
             ..r.clone()
         };
@@ -1018,9 +1054,9 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     }
     // a request and an answer under the magics before the reach and the
     // box's rows were added, VTVOUT6 and VTVOUTL3, and a request under the
-    // magic before the script was, VTVOUT7, are refused: their layouts lack
-    // those fields
-    for magic in [b"VTVOUT6\0", b"VTVOUT7\0"] {
+    // magic before the script was, VTVOUT7, and before the cluster width
+    // was, VTVOUT8, are refused: their layouts lack those fields
+    for magic in [b"VTVOUT6\0", b"VTVOUT7\0", b"VTVOUT8\0"] {
         let mut old = reached.encode();
         old[..8].copy_from_slice(magic);
         assert_eq!(OutlineRequest::decode(&old), Err("not an outline request"));
@@ -1030,8 +1066,8 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     assert_eq!(Outline::decode(&old, &r), Err("not an outline answer"));
     let mut other = fallback.encode();
     let n = other.len();
-    assert_eq!(other[n - 4], 1);
-    other[n - 4] = 2;
+    assert_eq!(other[n - 5], 1);
+    other[n - 5] = 2;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown fit"));
     for bad in [
         vec![15.5f32.to_bits()],

@@ -265,6 +265,7 @@ fn characters(lines: &[&str]) -> Vec<char> {
 /// A request about `frit`, its glyphs, if it asks for any, normal ones.
 fn request(kind: u32, frit: &FritText, cell: Cell, codepoints: Vec<u32>) -> ServeRequest {
     ServeRequest {
+        cluster_width: Default::default(),
         kind,
         frit: frit.clone(),
         cell,
@@ -589,6 +590,7 @@ fn ask_made(
     codepoints: Vec<u32>,
 ) -> Result<Answer, String> {
     let ask = ServeRequest {
+        cluster_width: Default::default(),
         script,
         ..request(ASK_MADE, frit, cell, codepoints)
     };

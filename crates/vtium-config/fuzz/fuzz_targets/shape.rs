@@ -86,6 +86,7 @@ fuzz_target!(|data: &[u8]| {
     let keys: Vec<Vec<u32>> = keys.into_iter().chain(pieces).collect();
     let cover: Vec<(u32, u32)> = keys.iter().flatten().map(|&c| (c, c)).collect();
     let request = OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font,
         family: String::new(),

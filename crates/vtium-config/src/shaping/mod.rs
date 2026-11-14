@@ -189,13 +189,25 @@ pub fn asks_for_emoji(key: &[u32]) -> bool {
     first.is_some_and(emoji_by_default) || (key.len() > 1 && kind(key) == Kind::Emoji)
 }
 
-/// Whether the terminal gives the character or cluster `key` two cells:
-/// vtium-term's rule for the width it stores (ADR-1200 D21), East_Asian_Width
-/// W or F, Emoji_Presentation=Yes, or an emoji-style base with U+FE0F. The
-/// helper places a glyph in those cells whatever its advance.
+/// Whether the terminal gives the character or cluster `key` two cells
+/// under `cluster-width = double`, the default: [`cells`] with that rule.
 pub fn wide(key: &[u32]) -> bool {
+    cells(key, vtium_term::ClusterWidth::Double) == 2
+}
+
+/// The cells the terminal gives the character or cluster `key` under
+/// `rule`, 1 or 2: vtium-term's rule for the width it stores (ADR-1200
+/// D21, ADR-1006 D1), East_Asian_Width W or F, Emoji_Presentation=Yes, an
+/// emoji-style base with U+FE0F, and under `double` a cluster with a
+/// spacing mark or a virama conjunct. The helper places a glyph in those
+/// cells whatever its advance.
+pub fn cells(key: &[u32], rule: vtium_term::ClusterWidth) -> u32 {
     let chars: Vec<char> = key.iter().filter_map(|&c| char::from_u32(c)).collect();
-    vtium_term::cluster_width(&chars) == 2
+    if vtium_term::cluster_width_with(&chars, rule) == 2 {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether `part` is `key` with one or more of its marks left out and

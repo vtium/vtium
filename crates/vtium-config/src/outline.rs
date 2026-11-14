@@ -9,7 +9,7 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT8\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT9\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
@@ -20,7 +20,9 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript)
+//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
+//!          cluster width u8 (0 double, 1 single: the console's
+//!          `cluster-width`, ADR-1006 D8)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -116,7 +118,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT8\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT9\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
@@ -175,6 +177,10 @@ pub struct OutlineRequest {
     /// subscript color glyph is fitted to two thirds of its cells and
     /// placed against the cell's top or bottom.
     pub script: Script,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8): a cluster is placed in the
+    /// cells [`vtium_term::cluster_width_with`] counts by it.
+    pub cluster_width: vtium_term::ClusterWidth,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -379,6 +385,10 @@ impl OutlineRequest {
             Script::Super => 1,
             Script::Sub => 2,
         });
+        out.push(match self.cluster_width {
+            vtium_term::ClusterWidth::Double => 0,
+            vtium_term::ClusterWidth::Single => 1,
+        });
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -477,6 +487,11 @@ impl OutlineRequest {
             2 => Script::Sub,
             _ => return Err("an unknown script"),
         };
+        let cluster_width = match r.u8()? {
+            0 => vtium_term::ClusterWidth::Double,
+            1 => vtium_term::ClusterWidth::Single,
+            _ => return Err("an unknown cluster width"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -493,6 +508,7 @@ impl OutlineRequest {
             synth,
             fit,
             script,
+            cluster_width,
         })
     }
 
@@ -1641,6 +1657,7 @@ pub(crate) mod raster {
                 ppem,
                 reach: request.reach(i),
                 script: request.script,
+                cluster_width: request.cluster_width,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
             let mut index: Vec<(u16, u32)> = Vec::new();
@@ -1716,6 +1733,8 @@ pub(crate) mod raster {
         pub(crate) reach: (u32, u32),
         /// Where the glyphs sit in the cell ([`OutlineRequest::script`]).
         pub(crate) script: Script,
+        /// The cells a cluster takes ([`OutlineRequest::cluster_width`]).
+        pub(crate) cluster_width: vtium_term::ClusterWidth,
     }
 
     /// Glyph `g` of the character `c`, advancing `advance` pixels, placed
@@ -2089,6 +2108,7 @@ mod tests {
             ppem: 10.0,
             reach: (10, 10),
             script: vtium_font::Script::Baseline,
+            cluster_width: vtium_term::ClusterWidth::Double,
         };
         let placed =
             place_drawn(&mut |_, _| Some(bar(10)), 1, Some(-10.0), false, &cell).expect("placed");

@@ -113,6 +113,10 @@ pub type Text = Vec<char>;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {
     pub variant: Variant,
+    /// The cells the display's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the helper places
+    /// the clusters in.
+    pub cluster_width: vtium_term::ClusterWidth,
     pub chars: Vec<char>,
     pub clusters: Vec<Text>,
 }
@@ -1818,6 +1822,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
@@ -2013,6 +2018,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2063,6 +2069,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2839,6 +2846,7 @@ mod tests {
         g.touch(
             AT,
             &Shown {
+                cluster_width: Default::default(),
                 variant: Variant::default(),
                 chars: vec!['o'],
                 clusters: Vec::new(),
@@ -3804,6 +3812,7 @@ mod tests {
             1 << 20,
         );
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],

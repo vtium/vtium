@@ -309,7 +309,8 @@ mod tests {
         assert_eq!(syllables("ಕ್ರ"), [vec![0, 1]]);
         assert_eq!(syllables("ರ್ಕ"), [vec![0, 1]]);
         assert_eq!(syllables("ಸ್ತ್ರೀ"), [vec![0, 1, 2]]);
-        assert_eq!(syllables("ಕಾರ್ತ್ಸ್ನ್ಯ"), [vec![1, 2, 3, 4, 5]]);
+        // ka with its spacing vowel sign aa takes two cells (ADR-1006 D1)
+        assert_eq!(syllables("ಕಾರ್ತ್ಸ್ನ್ಯ"), [vec![2, 3, 4, 5, 6]]);
         assert_eq!(syllables("ಕನ್ನಡ"), [vec![1, 2]]);
         assert_eq!(
             syllables("a b ಕ್ ರ"),

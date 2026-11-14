@@ -29,6 +29,7 @@ fn ask(cs: &[char], kind: Kind) -> Ask {
 /// `Test Shaping` at a 20-pixel cell, asked for `asks`.
 fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -234,6 +235,7 @@ fn two_glyph_lam_alef(asks: Vec<Ask>) -> OutlineRequest {
     let mut f = ttf::test_shaping();
     f.gsub.retain(|(tag, _)| tag != b"rlig");
     OutlineRequest {
+        cluster_width: Default::default(),
         font: f.build().into(),
         ..request(asks)
     }
@@ -331,6 +333,7 @@ fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
     .expect("the fixture");
     let stack = ['\u{644}', '\u{651}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: font.into(),
         cells: vec![(9, 16)],
@@ -387,6 +390,7 @@ fn marked(keys: &[&[char]], height: u32, reach: Option<u32>) -> OutlineRequest {
     add(0x308, ttf::Glyph::rect(0, -350, 0, -250, 1500));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -525,6 +529,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let key = ['x', '\u{307}'];
     let drawn = |by: Option<i16>| {
         let o = rasterise(&OutlineRequest {
+            cluster_width: Default::default(),
             fit: false,
             synth: Default::default(),
             script: Default::default(),
@@ -566,6 +571,7 @@ fn alef_damma(reach: Option<u32>) -> OutlineRequest {
     f.cmap.push((0x64f, 9));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -714,6 +720,7 @@ fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
         .map(|k| vtium_config::shaping::ask(&key(k)))
         .collect();
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: font.build().into(),
         ..request(asks)
@@ -756,6 +763,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     f.cmap.sort_unstable();
     let key = ['x', '\u{302}', '\u{301}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -803,6 +811,7 @@ fn a_squeezed_cluster_keeps_its_marks_over_its_letter() {
     f.cmap.sort_unstable();
     let key = ['\u{628}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -842,6 +851,7 @@ fn devanagari(keys: &[&[char]], fit: bool) -> OutlineRequest {
         (0x94d, ttf::Glyph::rect(0, -300, -150, -100, -50)),
     ]);
     OutlineRequest {
+        cluster_width: Default::default(),
         fit,
         synth: Default::default(),
         script: Default::default(),
@@ -917,6 +927,36 @@ fn a_virama_conjunct_takes_two_cells_and_is_squeezed_to_them() {
     );
 }
 
+// ADR-1006 D8: under `cluster-width = single` the console's terminal gives
+// the conjunct ka, virama, ssa the one cell of its first letter, and the
+// request says so. The helper places the conjunct in that one cell,
+// squeezed sideways to it at full height (ADR-1307 D1), where under
+// `double` it takes two
+#[test]
+fn a_cluster_takes_the_cells_the_requests_cluster_width_gives_it() {
+    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let single = OutlineRequest {
+        cluster_width: vtium_term::ClusterWidth::Single,
+        ..devanagari(&[&key], false)
+    };
+    let o = rasterise(&single).expect("rasterised");
+    let g = cluster(&o, &key).expect("the conjunct");
+    assert!(!g.wide, "one cell");
+    assert_eq!(g.pixels.len(), 12 * 20);
+    assert!(g.ink.is_none(), "inside its cell: {:?}", g.ink);
+    let cols = inked_columns(g, 12);
+    assert_eq!(
+        (cols.first().copied(), cols.last().copied()),
+        (Some(0), Some(11))
+    );
+    // the same request under `double` places it in two
+    let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
+    assert!(cluster(&o, &key).expect("the conjunct").wide);
+    // the rule crosses the pipe to the parser's child
+    let back = OutlineRequest::decode(&single.encode()).expect("decoded");
+    assert_eq!(back.cluster_width, vtium_term::ClusterWidth::Single);
+}
+
 // ADR-1307 D1 and D2: a single Indic letter wider than its cell, from a
 // later source of a frit, is squeezed sideways to the cell at full height,
 // where ADR-1200 D17 drew it smaller: its bar keeps the vowel a's rows
@@ -947,6 +987,7 @@ fn narrow_beh(asks: Vec<Ask>) -> OutlineRequest {
     f.cmap.push((0x640, tatweel));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         font: f.build().into(),
         ..request(asks)
     }
@@ -1039,6 +1080,7 @@ fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
     ]);
     let (accent, hamza) = (['\u{5d0}', '\u{592}'], [ALEF, '\u{655}']);
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1117,6 +1159,7 @@ fn a_letter_drawn_as_several_glyphs_is_one_base_for_an_unplaced_mark() {
     ]);
     let k = ['\u{1e0d}', '\u{302}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1172,6 +1215,7 @@ fn a_joining_form_the_font_draws_as_several_glyphs_is_kept() {
         &[BEH, FATHA, ZWJ],
     ];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: naskh().into(),
         cells: vec![(12, 24)],
@@ -1215,6 +1259,7 @@ fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
     f.gsub = vec![(*b"ccmp", ttf::Lookup::Single(vec![(beh, other)]))];
     let keys = [[BEH, ZWJ], [ZWJ, BEH]];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1253,6 +1298,7 @@ fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
     f.gsub = vec![(*b"fina", ttf::Lookup::Single(vec![(composed, fina)]))];
     let (after, before) = ([ALEF, '\u{654}', ZWJ], [ZWJ, ALEF, '\u{654}']);
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1283,6 +1329,7 @@ fn kannada(asks: Vec<Ask>) -> OutlineRequest {
     )
     .expect("the font");
     OutlineRequest {
+        cluster_width: Default::default(),
         font: font.into(),
         family: "Noto Sans Kannada UI".to_owned(),
         cells: vec![(14, 32)],

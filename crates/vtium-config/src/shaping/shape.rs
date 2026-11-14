@@ -320,7 +320,7 @@ pub(crate) fn draw_all(
             None => {
                 let cells = match s.kind {
                     // the cells the terminal gives the cluster (ADR-1200 D21)
-                    Kind::Emoji | Kind::Marks => outline_cells(super::wide(&s.key)),
+                    Kind::Emoji | Kind::Marks => super::cells(&s.key, cell.cluster_width),
                     // a cell for each letter, the marks on it taking none:
                     // lam-alef takes the two its letters do
                     Kind::Joining => outline_cells(
@@ -956,6 +956,7 @@ mod tests {
             ppem: 2.0,
             reach: (1, 0),
             script: vtium_font::Script::Baseline,
+            cluster_width: vtium_term::ClusterWidth::Double,
         };
         // six columns of two rows, each pixel its column's number, and a
         // box from one column before the first cell to one after the last,

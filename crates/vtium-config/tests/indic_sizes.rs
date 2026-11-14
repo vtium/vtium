@@ -291,6 +291,7 @@ fn measure_indic_sizes() {
             let mut line = format!("  {text:<8} helper {:?}", helper.flatten());
             for s in &steps {
                 let request = OutlineRequest {
+                    cluster_width: Default::default(),
                     fit: s.fit,
                     synth: Default::default(),
                     script: Default::default(),
@@ -437,6 +438,7 @@ mod pictures {
         let shrink = cap.filter(|&c| wide > c).map_or(1.0, |c| c / wide);
         let single = key.len() == 1;
         let request = OutlineRequest {
+            cluster_width: Default::default(),
             fit: true,
             synth: Default::default(),
             script: Default::default(),

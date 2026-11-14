@@ -581,6 +581,7 @@ fn style_asks_are_answered_in_their_style() {
         for style in [BOLD, ITALIC, BOLD_ITALIC] {
             input.extend(
                 ServeRequest {
+                    cluster_width: Default::default(),
                     kind: ASK,
                     frit: frit(&text),
                     cell: CELL,
