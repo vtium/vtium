@@ -95,7 +95,7 @@ use rustix::process::{
 };
 use vtium_font::set::{Set, SetFace};
 use vtium_font::spacing::{Band, SpacedCell};
-use vtium_font::{Cell, Script, Variant};
+use vtium_font::{Cell, Doubled, Script, Variant};
 use vtium_platform::vt::font::ConsoleFont;
 
 use crate::config::Config;
@@ -171,7 +171,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQA";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -494,6 +494,10 @@ fn refusal(kind: FileType, owner: u32, mode: u32, me: u32) -> Option<String> {
     None
 }
 
+/// What glyphs a request is about besides their cell: their variant, a
+/// style and a script, and their double size, `None` for the normal size.
+type Kind = (Variant, Option<Doubled>);
+
 fn put32(out: &mut Vec<u8>, v: u32) {
     out.extend_from_slice(&v.to_le_bytes());
 }
@@ -532,14 +536,15 @@ impl FritText {
 }
 
 /// One request's bytes: `kind` at `cell`, whose line spacing adds `band`
-/// (ADR-1302 D13), in `variant`, a style and a script, for `frit`, naming
+/// (ADR-1302 D13), in `variant`, a style and a script, at the double size
+/// `doubled` or the normal size, for `frit`, naming
 /// `codepoints` and
 /// `clusters` (each cut at [`FIRST_MAX`]) and `held`, with the kernel's
 /// font. The display's capabilities are reserved, and sent empty.
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
-    (kind, cell, band, variant, rule): (u32, Cell, Band, Variant, ClusterWidth),
+    (kind, cell, band, (variant, doubled), rule): (u32, Cell, Band, Kind, ClusterWidth),
     (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
@@ -571,6 +576,14 @@ fn encode(
         match rule {
             ClusterWidth::Double => 0,
             ClusterWidth::Single => 1,
+        },
+    );
+    put32(
+        &mut out,
+        match doubled {
+            None => 0,
+            Some(Doubled::Width) => 1,
+            Some(Doubled::Height) => 2,
         },
     );
     put32(&mut out, 0);
@@ -1050,6 +1063,10 @@ struct CellState {
     /// its own.
     at: SpacedCell,
     variant: Variant,
+    /// The double size its glyphs are drawn at, on a line of double size,
+    /// or `None` for the normal size. The glyphs of each size are asked
+    /// for and held apart.
+    doubled: Option<Doubled>,
     held: Bits,
     absent: Bits,
     pending: Bits,
@@ -1085,10 +1102,11 @@ impl CellState {
         }
     }
 
-    fn new(at: SpacedCell, variant: Variant) -> CellState {
+    fn new(at: SpacedCell, (variant, doubled): Kind) -> CellState {
         CellState {
             at,
             variant,
+            doubled,
             held: Bits::new(),
             absent: Bits::new(),
             pending: Bits::new(),
@@ -1107,6 +1125,8 @@ impl CellState {
 struct Ask {
     at: SpacedCell,
     variant: Variant,
+    /// The double size the ask's glyphs are drawn at, or `None`.
+    doubled: Option<Doubled>,
     /// The cells the terminal gives a cluster with a spacing mark or a
     /// virama conjunct, which the helper places the clusters in (ADR-1006
     /// D8).
@@ -1222,21 +1242,31 @@ impl Helper {
 
     /// What the console knows of `at` in `variant`, made on first use.
     fn state(&mut self, at: SpacedCell, variant: Variant) -> Option<&mut CellState> {
+        self.state_of(at, (variant, None))
+    }
+
+    /// [`Helper::state`] for glyphs of `kind`, at a double size or not.
+    fn state_of(&mut self, at: SpacedCell, kind: Kind) -> Option<&mut CellState> {
         if !self
             .cells
             .iter()
-            .any(|c| (c.at, c.variant) == (at, variant))
+            .any(|c| (c.at, (c.variant, c.doubled)) == (at, kind))
         {
-            self.cells.push(CellState::new(at, variant));
+            self.cells.push(CellState::new(at, kind));
         }
-        self.known(at, variant)
+        self.known_of(at, kind)
     }
 
     /// What the console knows of `at` in `variant`, if it knows anything.
     fn known(&mut self, at: SpacedCell, variant: Variant) -> Option<&mut CellState> {
+        self.known_of(at, (variant, None))
+    }
+
+    /// [`Helper::known`] for glyphs of `kind`, at a double size or not.
+    fn known_of(&mut self, at: SpacedCell, kind: Kind) -> Option<&mut CellState> {
         self.cells
             .iter_mut()
-            .find(|c| (c.at, c.variant) == (at, variant))
+            .find(|c| (c.at, (c.variant, c.doubled)) == (at, kind))
     }
 
     /// Fills `cell`'s coverage of regular glyphs, `first` first, while
@@ -1257,7 +1287,7 @@ impl Helper {
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
         self.send(
-            (FILL, at, Variant::default(), ClusterWidth::Double),
+            (FILL, at, (Variant::default(), None), ClusterWidth::Double),
             (&codepoints, &[]),
             &held,
             now,
@@ -1276,9 +1306,15 @@ impl Helper {
         if self.failed.is_some() || self.asks.len() >= ASKS_MAX {
             return;
         }
-        let variant = shown.variant;
+        let (variant, doubled) = (shown.variant, shown.doubled);
+        // the helper draws no superscript or subscript at a double size,
+        // and none past the largest cell; the renderer doubles the pixels
+        // of those glyphs at the normal size
+        if doubled.is_some_and(|d| d.cell(cell).is_none() || variant.script != Script::Baseline) {
+            return;
+        }
         let at = SpacedCell { cell, band };
-        let Some(state) = self.state(at, variant) else {
+        let Some(state) = self.state_of(at, (variant, doubled)) else {
             return;
         };
         let mut want = BTreeSet::new();
@@ -1297,8 +1333,13 @@ impl Helper {
             .saturating_sub(known.pending.len())
             .min(FIRST_MAX);
         let mut clusters = BTreeSet::new();
-        for t in shown
-            .clusters
+        // the helper draws no cluster at a double size
+        let clusters_asked = if doubled.is_some() {
+            &[][..]
+        } else {
+            &shown.clusters[..]
+        };
+        for t in clusters_asked
             .iter()
             .filter(|t| (2..=longest).contains(&t.len()))
         {
@@ -1318,13 +1359,14 @@ impl Helper {
         self.asks.push_back(Ask {
             at,
             variant,
+            doubled,
             cluster_width: shown.cluster_width,
             want,
             clusters,
             sent: now,
         });
         self.send(
-            (ASK, at, variant, shown.cluster_width),
+            (ASK, at, (variant, doubled), shown.cluster_width),
             (&codepoints, &texts),
             &[],
             now,
@@ -1359,7 +1401,7 @@ impl Helper {
                 (
                     OWN_CELL,
                     SpacedCell::plain(query),
-                    Variant::default(),
+                    (Variant::default(), None),
                     ClusterWidth::Double,
                 ),
                 (&[], &[]),
@@ -1460,7 +1502,7 @@ impl Helper {
                 (
                     COVERAGE,
                     SpacedCell::plain(query),
-                    Variant::default(),
+                    (Variant::default(), None),
                     ClusterWidth::Double,
                 ),
                 (letters, &[]),
@@ -1539,7 +1581,7 @@ impl Helper {
     /// until the helper says it took the stop.
     fn stop_fill(&mut self, at: SpacedCell, now: Instant) {
         self.send(
-            (STOP, at, Variant::default(), ClusterWidth::Double),
+            (STOP, at, (Variant::default(), None), ClusterWidth::Double),
             (&[], &[]),
             &[],
             now,
@@ -1554,7 +1596,7 @@ impl Helper {
     /// running.
     fn send(
         &mut self,
-        what: (u32, SpacedCell, Variant, ClusterWidth),
+        what: (u32, SpacedCell, Kind, ClusterWidth),
         named: (&[u32], &[Text]),
         held: &[(u32, u32)],
         now: Instant,
@@ -1565,11 +1607,11 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let (kind, at, variant, rule) = what;
+        let (kind, at, of, rule) = what;
         let bytes = encode(
             &self.frit,
             self.console.as_ref(),
-            (kind, at.cell, at.band, variant, rule),
+            (kind, at.cell, at.band, of, rule),
             named,
             held,
         );
@@ -1717,7 +1759,7 @@ impl Helper {
         );
         self.due = None;
         // each waiting ask's cell, variant, cluster width and what it named
-        type Resend = (SpacedCell, Variant, ClusterWidth, Vec<u32>, Vec<Text>);
+        type Resend = (SpacedCell, Kind, ClusterWidth, Vec<u32>, Vec<Text>);
         let asks: Vec<Resend> = self
             .asks
             .iter_mut()
@@ -1725,11 +1767,17 @@ impl Helper {
                 a.sent = now;
                 let want = a.want.iter().copied().collect();
                 let clusters = a.clusters.iter().cloned().collect();
-                (a.at, a.variant, a.cluster_width, want, clusters)
+                (
+                    a.at,
+                    (a.variant, a.doubled),
+                    a.cluster_width,
+                    want,
+                    clusters,
+                )
             })
             .collect();
-        for (at, variant, rule, want, clusters) in asks {
-            self.send((ASK, at, variant, rule), (&want, &clusters), &[], now);
+        for (at, of, rule, want, clusters) in asks {
+            self.send((ASK, at, of, rule), (&want, &clusters), &[], now);
         }
         let fills: Vec<SpacedCell> = self
             .cells
@@ -1744,7 +1792,7 @@ impl Helper {
             state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
             self.send(
-                (FILL, at, Variant::default(), ClusterWidth::Double),
+                (FILL, at, (Variant::default(), None), ClusterWidth::Double),
                 (&first, &[]),
                 &held,
                 now,
@@ -1855,16 +1903,27 @@ impl Helper {
     ) -> Result<Option<Answer>, String> {
         let not_asked = || "the helper answered what was not asked".to_owned();
         let cells = set.cells();
-        let &[cell] = cells.as_slice() else {
+        let &[drawn] = cells.as_slice() else {
             return Err(not_asked());
         };
-        let at = SpacedCell { cell, band };
         // a fill's glyphs are regular and normal, an ask's in the style
-        // and the script it names
-        let variant = if fill {
-            Variant::default()
+        // and the script it names, and at the double size it names, whose
+        // set is at the cell that size gives the ask's cell
+        let (variant, doubled) = if fill {
+            (Variant::default(), None)
         } else {
-            self.asks.front().ok_or_else(not_asked)?.variant
+            let ask = self.asks.front().ok_or_else(not_asked)?;
+            (ask.variant, ask.doubled)
+        };
+        let at = match doubled {
+            None => SpacedCell { cell: drawn, band },
+            Some(d) => {
+                let ask = self.asks.front().ok_or_else(not_asked)?;
+                if d.cell(ask.at.cell) != Some(drawn) || ask.at.band != band {
+                    return Err(not_asked());
+                }
+                ask.at
+            }
         };
         if !set.strikes().all(|s| s.style == variant.style) {
             return Err("the helper answered in a style that was not asked for".to_owned());
@@ -1878,9 +1937,12 @@ impl Helper {
         let clusters: Vec<Text> = set.clusters().map(|(_, _, key)| key).collect();
         let store = Arc::clone(&self.store);
         let without_held = || {
-            crate::deferred::lock(&store)
-                .fresh((at, variant), Arc::clone(set), &runs, bytes)
-                .ok_or_else(not_asked)
+            let store = crate::deferred::lock(&store);
+            match doubled {
+                None => store.fresh((at, variant), Arc::clone(set), &runs, bytes),
+                Some(d) => store.fresh_doubled((at, variant, d), Arc::clone(set), &runs, bytes),
+            }
+            .ok_or_else(not_asked)
         };
         let fresh = if fill {
             if !clusters.is_empty() {
@@ -1946,7 +2008,7 @@ impl Helper {
                     return Err("the helper answered a cluster the ask did not name".to_owned());
                 }
             }
-            let Some(state) = self.known(at, variant) else {
+            let Some(state) = self.known_of(at, (variant, doubled)) else {
                 // no display draws at the cell any more
                 return Ok(None);
             };
@@ -1971,8 +2033,8 @@ impl Helper {
                     break fresh;
                 }
                 let left = crate::deferred::lock(&self.store).make_room(overrun);
-                for (left_at, of, gone) in left {
-                    if let Some(state) = self.known(left_at, of) {
+                for (held, gone) in left {
+                    if let Some(state) = self.known_of(held.at, (held.variant, held.doubled)) {
                         for t in gone {
                             state.forget(t);
                         }
@@ -2009,7 +2071,7 @@ impl Helper {
         );
         chars.sort_unstable();
         chars.dedup();
-        if let Some(state) = self.state(at, variant) {
+        if let Some(state) = self.state_of(at, (variant, doubled)) {
             for t in added {
                 state.hold(t);
             }
@@ -2076,7 +2138,7 @@ impl Helper {
             .asks
             .pop_front()
             .ok_or_else(|| "the helper answered an ask not made".to_owned())?;
-        if let Some(state) = self.known(ask.at, ask.variant) {
+        if let Some(state) = self.known_of(ask.at, (ask.variant, ask.doubled)) {
             for &c in &ask.want {
                 state.pending.put(c, false);
                 state.absent.put(c, true);
@@ -2430,6 +2492,7 @@ mod tests {
     fn shown(chars: &[char]) -> Shown {
         Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
@@ -2478,7 +2541,7 @@ mod tests {
                 ASK,
                 CELL,
                 Band { above: 2, below: 1 },
-                both.into(),
+                (both.into(), None),
                 ClusterWidth::Single,
             ),
             (&[0x41], &[vec!['e', '\u{301}']]),
@@ -2529,7 +2592,13 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
+            (
+                ASK,
+                CELL,
+                Band::NONE,
+                (ITALIC.into(), None),
+                ClusterWidth::Double,
+            ),
             (&[0x41], &[]),
             &[],
         );
@@ -2543,6 +2612,7 @@ mod tests {
         let now = t0();
         let italic = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2578,7 +2648,13 @@ mod tests {
         let one = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
+            (
+                ASK,
+                CELL,
+                Band::NONE,
+                (ITALIC.into(), None),
+                ClusterWidth::Double,
+            ),
             (&[0x41], &[]),
             &[],
         )
@@ -2595,6 +2671,7 @@ mod tests {
         let now = t0();
         let italic = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2647,6 +2724,7 @@ mod tests {
             } else {
                 let ask = Shown {
                     cluster_width: Default::default(),
+                    doubled: None,
                     variant: style.into(),
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2693,7 +2771,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, SUPER, ClusterWidth::Double),
+            (ASK, CELL, Band::NONE, (SUPER, None), ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         );
@@ -2712,6 +2790,7 @@ mod tests {
         let now = t0();
         let sup = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: SUPER,
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2738,6 +2817,120 @@ mod tests {
         assert!(!s.helper.busy());
         s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
         assert!(s.helper.busy());
+    }
+
+    /// A shown character `A` at the double size `doubled`, regular.
+    fn doubled_a(doubled: Option<Doubled>) -> Shown {
+        Shown {
+            doubled,
+            chars: vec!['A'],
+            ..Shown::default()
+        }
+    }
+
+    // issue #61: a line of double size asks for its characters in an ask of
+    // its own, whose line size field follows the cluster width: 1 for
+    // double width, 2 for double height. The helper's answer at the cell
+    // the size gives goes into the store at that size, apart from the
+    // glyphs of the normal size, and the face draws it as the doubled
+    // glyph
+    #[test]
+    fn a_double_ask_names_its_line_size_and_its_glyphs_are_held_at_it() {
+        for (doubled, code) in [(Doubled::Width, 1u32), (Doubled::Height, 2)] {
+            let ask = encode(
+                &frit("source=builtin:unscii-8\n"),
+                None,
+                (
+                    ASK,
+                    CELL,
+                    Band::NONE,
+                    (Variant::default(), Some(doubled)),
+                    ClusterWidth::Double,
+                ),
+                (&[0x41], &[]),
+                &[],
+            );
+            // after the magic, the kind, the frit's name and text, the
+            // cell, the band, the style, the script and the cluster width
+            let field = 8 + 4 + 4 + 1 + 4 + "source=builtin:unscii-8\n".len() + 4 * 7;
+            assert_eq!(&ask[field..field + 4], &code.to_le_bytes(), "{doubled:?}");
+            let drawn = doubled.cell(CELL).unwrap();
+            let mut fixture = frame_bytes(FRAME_GLYPHS, &set(drawn, &['A']));
+            fixture.extend(frame_bytes(FRAME_DONE, &[]));
+            let script = format!(
+                "head -c {} >\"$1.ask\"; cat \"$1\"; cat >/dev/null",
+                ask.len()
+            );
+            let mut s = StandIn::new(&format!("doubled-{code}"), &script, &fixture);
+            let now = t0();
+            s.helper
+                .ask(CELL, Band::NONE, &doubled_a(Some(doubled)), now);
+            let answers = s.run(now);
+            assert_eq!(s.helper.failed(), None, "{doubled:?}");
+            assert_eq!(answers.len(), 1, "{doubled:?}");
+            assert_eq!(answers[0].at, AT, "{doubled:?}: the answer's cell");
+            assert_eq!(std::fs::read(s.dir.join("answer.ask")).unwrap(), ask);
+            let store = crate::deferred::lock(&s.helper.store);
+            assert!(!store.holds_variant(AT, Variant::default(), &['A']));
+            drop(store);
+            let face = crate::deferred::DeferredFace::new(
+                Box::new(vtium_font::Unifont::new(16)),
+                CELL,
+                16,
+                Arc::clone(&s.helper.store),
+            );
+            let g = face.doubled(&['A'], Variant::default(), doubled).unwrap();
+            assert_eq!((g.width(), g.height()), (drawn.width, drawn.height));
+            assert!(g.pixels().iter().all(|&p| p == 255), "{doubled:?}");
+            // asked again at that size, it is held; at the normal size, it
+            // is not
+            s.helper
+                .ask(CELL, Band::NONE, &doubled_a(Some(doubled)), now);
+            assert!(!s.helper.busy(), "{doubled:?}");
+            s.helper.ask(CELL, Band::NONE, &doubled_a(None), now);
+            assert!(s.helper.busy(), "{doubled:?}");
+        }
+    }
+
+    // the console refuses a double ask's answer at any cell but the one its
+    // size gives, the normal cell among them, and gives the helper up; it
+    // asks no superscript at a double size, and no double size whose cell
+    // passes the largest cell
+    #[test]
+    fn a_double_asks_answer_at_another_cell_gives_the_helper_up() {
+        let wide = Doubled::Width.cell(CELL).unwrap();
+        let tall = Doubled::Height.cell(CELL).unwrap();
+        for (name, cell, doubled) in [
+            ("normal-for-wide", CELL, Doubled::Width),
+            ("tall-for-wide", tall, Doubled::Width),
+            ("wide-for-tall", wide, Doubled::Height),
+        ] {
+            let mut s = StandIn::new(
+                name,
+                ANSWERS,
+                &frame_bytes(FRAME_GLYPHS, &set(cell, &['A'])),
+            );
+            let now = t0();
+            s.helper
+                .ask(CELL, Band::NONE, &doubled_a(Some(doubled)), now);
+            assert!(s.run(now).is_empty(), "{name}");
+            let why = s.helper.failed().unwrap_or_default();
+            assert!(why.contains("not asked"), "{name}: {why}");
+        }
+        let mut s = StandIn::new("doubled-unasked", ANSWERS, &[]);
+        let now = t0();
+        let sup = Shown {
+            variant: SUPER,
+            ..doubled_a(Some(Doubled::Height))
+        };
+        s.helper.ask(CELL, Band::NONE, &sup, now);
+        let huge = Cell {
+            width: 8,
+            height: vtium_font::CELL_SIDE_MAX / 2 + 1,
+        };
+        s.helper
+            .ask(huge, Band::NONE, &doubled_a(Some(Doubled::Height)), now);
+        assert!(!s.helper.busy(), "nothing is asked");
     }
 
     // ADR-1202 D11: the console refuses a strike in another script than
@@ -2777,6 +2970,7 @@ mod tests {
             } else {
                 let ask = Shown {
                     cluster_width: Default::default(),
+                    doubled: None,
                     variant,
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2848,6 +3042,7 @@ mod tests {
         chars.dedup();
         Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars,
             clusters: clusters.iter().map(|k| k.to_vec()).collect(),
@@ -2865,6 +3060,7 @@ mod tests {
         let now = t0();
         let only_clusters = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
@@ -3126,6 +3322,7 @@ mod tests {
         let long = vec!['e'; vtium_font::CLUSTER_SCALARS_MAX as usize + 1];
         let shown = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![long, vec!['e']],
@@ -3152,6 +3349,7 @@ mod tests {
         for i in 0..1000 {
             let shown = Shown {
                 cluster_width: Default::default(),
+                doubled: None,
                 variant: Variant::default(),
                 chars: Vec::new(),
                 clusters: (0..10).map(|j| cluster(i, j)).collect(),
@@ -3175,6 +3373,7 @@ mod tests {
         let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
         let shown = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
@@ -3798,7 +3997,7 @@ mod tests {
                 kind,
                 CELL,
                 Band::NONE,
-                Variant::default(),
+                (Variant::default(), None),
                 ClusterWidth::Double,
             ),
             (&[], &[]),
@@ -3867,7 +4066,13 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, band, Variant::default(), ClusterWidth::Double),
+            (
+                STOP,
+                CELL,
+                band,
+                (Variant::default(), None),
+                ClusterWidth::Double,
+            ),
             (&[], &[]),
             &[],
         );
@@ -3899,7 +4104,7 @@ mod tests {
                 STOP,
                 CELL,
                 Band::NONE,
-                Variant::default(),
+                (Variant::default(), None),
                 ClusterWidth::Double,
             ),
             (&[], &[]),
