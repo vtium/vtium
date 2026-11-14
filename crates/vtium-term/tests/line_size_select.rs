@@ -22,6 +22,31 @@ fn selected(t: &Terminal) -> Vec<std::ops::Range<usize>> {
         .to_vec()
 }
 
+// A drag from the line above a pair to the line below it copies the
+// pair's text once, from its top line. A drag that starts on the top line
+// and ends on the bottom line selects the characters between the two
+// columns, as on one line, and both lines of the pair draw those columns
+// selected.
+// covers: text.line-size, clipboard.selection
+#[test]
+fn a_pair_copies_its_text_once_and_selects_as_one_line() {
+    let mut t = term(10, 4, b"above\r\n\x1b#3abcd\r\n\x1b#4abcd\r\nbelow");
+    let s = t.screen_mut();
+    s.select_start(2, 0);
+    s.select_to(1, 3);
+    assert_eq!(
+        t.screen().selection_text().as_deref(),
+        Some("ove\nabcd\nbe")
+    );
+    // screen column 6 of the top line is the doubled d, and screen column
+    // 2 of the bottom line is the doubled b
+    let s = t.screen_mut();
+    s.select_start(6, 1);
+    s.select_to(2, 2);
+    assert_eq!(t.screen().selection_text().as_deref(), Some("bcd"));
+    assert_eq!(selected(&t)[1..3], [1..4, 1..4]);
+}
+
 // A pair whose top line scrolled into the scrollback shows only its bottom
 // line, at the top of the view. A drag there selects the doubled
 // characters under the pointer. The visible bottom line draws them
