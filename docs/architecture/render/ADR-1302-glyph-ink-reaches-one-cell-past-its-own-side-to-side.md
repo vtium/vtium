@@ -233,6 +233,9 @@ considered:
   - operator: aaronsb
     said: "they look good, better than previous"
     via: the maintainer, on the Squeeze Goldens page, 2026-11-13
+  - operator: aaronsb
+    said: "squeeze goldens look fine"
+    via: the maintainer, in the steering session, 2026-11-13, after the Squeeze Goldens page gained the specimen screens its first version left out
 observable:
   - "Tier 2's `overhang-italic` screen shows an italic run whose letters lean into the next cell, unbroken across cell edges, over cells of alternating background colors"
   - "Tier 2's `overhang-underscore` screen shows a whole underscore in the bottom rows of every cell height from 12 to 32 pixels"
