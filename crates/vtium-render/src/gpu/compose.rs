@@ -248,13 +248,14 @@ const PICTURE_INPUTS: [Input; 4] = [
 ];
 
 #[cfg(feature = "images")]
-const PICTURE_OVER_INPUTS: [Input; 6] = [
+const PICTURE_OVER_INPUTS: [Input; 7] = [
     PICTURE_INPUTS[0],
     PICTURE_INPUTS[1],
     PICTURE_INPUTS[2],
     PICTURE_INPUTS[3],
     BENEATH[0],
     BENEATH[1],
+    super::pictures::TABLES,
 ];
 
 const UNDER_INPUTS: [Input; 2] = [
