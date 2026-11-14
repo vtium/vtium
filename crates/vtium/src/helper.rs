@@ -2185,19 +2185,21 @@ fn after(t: Instant, d: Duration) -> Instant {
 /// file of root's belongs to the overflow uid, 65534. Each test process
 /// makes its copy once and renames it into place, so a test process that
 /// runs at the same time never starts a copy that is still being written.
+/// `cp` writes the copy (`vtium_testscript::executable_copy`), so this
+/// process never holds the copy open for writing. Had it done so, a child
+/// that another test thread forked during the copy would keep the copy
+/// busy until that child ran its own program, and the kernel would refuse
+/// to start the shell with ETXTBSY.
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails by panicking")]
 pub(crate) fn stand_in_shell() -> &'static Path {
     static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     SHELL.get_or_init(|| {
-        use std::os::unix::fs::PermissionsExt;
         let exe = std::env::current_exe().expect("the test binary");
         let dir = exe.parent().expect("the test binary's directory");
         let shell = dir.join("vtium-stand-in-sh");
         let part = dir.join(format!("vtium-stand-in-sh.{}", std::process::id()));
-        std::fs::copy("/bin/sh", &part).expect("a copy of /bin/sh");
-        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))
-            .expect("the copy's mode");
+        vtium_testscript::executable_copy(Path::new("/bin/sh"), &part);
         std::fs::rename(&part, &shell).expect("the copy in place");
         shell
     })
