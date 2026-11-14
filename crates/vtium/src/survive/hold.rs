@@ -35,6 +35,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use rustix::io::Errno;
 use rustix::net::{
     AddressFamily, RecvAncillaryBuffer, RecvAncillaryMessage, RecvFlags, SendAncillaryBuffer,
     SendAncillaryMessage, SendFlags, SocketAddrUnix, SocketFlags, SocketType, accept_with, bind,
@@ -79,7 +80,7 @@ fn peer_is(conn: BorrowedFd<'_>, owner: Uid) -> bool {
 }
 
 /// Sends `text`, with `fd` attached when there is one.
-fn send(conn: BorrowedFd<'_>, text: &str, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
+pub(super) fn send(conn: BorrowedFd<'_>, text: &str, fd: Option<BorrowedFd<'_>>) -> io::Result<()> {
     let fds: Vec<BorrowedFd<'_>> = fd.into_iter().collect();
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(1))];
     let mut control = SendAncillaryBuffer::new(&mut space);
@@ -97,16 +98,30 @@ fn send(conn: BorrowedFd<'_>, text: &str, fd: Option<BorrowedFd<'_>>) -> io::Res
 
 /// The next packet's text and the descriptors attached to it; `None` once
 /// the peer has closed the connection.
-fn receive(conn: BorrowedFd<'_>) -> io::Result<Option<(String, Vec<OwnedFd>)>> {
+///
+/// vtium waits for the holder's answer with a receive timeout. The kernel
+/// ends such a wait with EINTR, and does not restart it, when vtium is
+/// stopped and continued, or when a signal reaches the waiting thread
+/// (signal(7), "Interruption of system calls and library functions by
+/// signal handlers" and "by stop signals"). An interrupted recvmsg has
+/// taken no packet, so `receive` calls it again, as the kernel itself
+/// restarts a wait that has no time limit. Each call waits at most the
+/// receive timeout again.
+pub(super) fn receive(conn: BorrowedFd<'_>) -> io::Result<Option<(String, Vec<OwnedFd>)>> {
     let mut bytes = [0_u8; PACKET_MAX];
     let mut space = [MaybeUninit::uninit(); rustix::cmsg_space!(ScmRights(4))];
     let mut control = RecvAncillaryBuffer::new(&mut space);
-    let got = recvmsg(
-        conn,
-        &mut [IoSliceMut::new(&mut bytes)],
-        &mut control,
-        RecvFlags::CMSG_CLOEXEC,
-    )?;
+    let got = loop {
+        match recvmsg(
+            conn,
+            &mut [IoSliceMut::new(&mut bytes)],
+            &mut control,
+            RecvFlags::CMSG_CLOEXEC,
+        ) {
+            Err(Errno::INTR) => {}
+            got => break got?,
+        }
+    };
     let mut fds = Vec::new();
     for message in control.drain() {
         if let RecvAncillaryMessage::ScmRights(received) = message {
