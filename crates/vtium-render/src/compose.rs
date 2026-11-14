@@ -83,6 +83,24 @@ pub(crate) struct Job {
     /// draw.
     #[cfg(feature = "images")]
     pub(crate) under: Under,
+    /// A bar cursor's bar, which draws over everything else in the cell.
+    pub(crate) bar: Option<Bar>,
+}
+
+/// The bar of a bar cursor: `area`, the display pixels it fills, in
+/// `color`. In the grid's own pixels, before the display's orientation
+/// turns them, the bar is `w` pixels wide and runs down the whole height
+/// of the character's cells, along their left edge, or along their right
+/// edge when `right`. The bar is drawn last, over the cell's letter, its
+/// lines and any ink or picture in the cell, so the letter shows beside
+/// the bar. A bar is opaque, so the CPU path fills its pixels and the GPU
+/// path draws it as a quad of one color.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Bar {
+    pub(crate) area: Area,
+    pub(crate) color: Rgb,
+    pub(crate) w: i64,
+    pub(crate) right: bool,
 }
 
 /// A neighbour's glyph whose ink a cell receives (ADR-1306 D4).
@@ -116,6 +134,25 @@ pub(crate) struct Source {
 }
 
 impl Job {
+    /// The part of the job's area that its bar covers, if it has a bar
+    /// and the bar meets its area: on a line of double size, only the
+    /// display cell at the bar's edge of the character holds the bar.
+    pub(crate) fn bar_area(&self) -> Option<(Area, Rgb)> {
+        let b = self.bar?;
+        let (a, r) = (b.area, self.r);
+        let (x0, y0) = (a.x.max(r.x), a.y.max(r.y));
+        let (x1, y1) = (a.right().min(r.right()), a.bottom().min(r.bottom()));
+        (x0 < x1 && y0 < y1).then_some((
+            Area {
+                x: x0,
+                y: y0,
+                w: x1.saturating_sub(x0),
+                h: y1.saturating_sub(y0),
+            },
+            b.color,
+        ))
+    }
+
     pub(crate) fn layered(&self) -> bool {
         self.underline.is_some() || self.over.is_some()
     }
@@ -307,7 +344,10 @@ impl Composer {
                     out,
                 ) {
                     Pictured::No => {}
-                    Pictured::Drawn => continue,
+                    Pictured::Drawn => {
+                        bar_over(job, (y0, n, w), out);
+                        continue;
+                    }
                     Pictured::Covered(pic) => {
                         let cell = Cover {
                             pic,
@@ -351,6 +391,7 @@ impl Composer {
                         }
                     }
                 }
+                bar_over(job, (y0, n, w), out);
             }
             #[cfg(feature = "images")]
             if let Some(c) = covered.take() {
@@ -367,6 +408,31 @@ impl Composer {
                 }
             }
             top = bottom;
+        }
+    }
+}
+
+/// The job's bar over its `n` lines from display line `y0` in `out`, whose
+/// lines are `w` apart and begin at the job's left edge: each pixel the bar
+/// covers takes the bar's color.
+fn bar_over(job: &Job, (y0, n, w): (i64, usize, usize), out: &mut [u32]) {
+    let Some((bar, color)) = job.bar_area() else {
+        return;
+    };
+    let (Ok(from), Ok(len)) = (
+        usize::try_from(bar.x.saturating_sub(job.r.x)),
+        usize::try_from(bar.w),
+    ) else {
+        return;
+    };
+    let px = pixel(color);
+    for (i, y) in (y0..).take(n).enumerate() {
+        if y < bar.y || y >= bar.bottom() {
+            continue;
+        }
+        let at = i.saturating_mul(w).saturating_add(from);
+        if let Some(line) = out.get_mut(at..at.saturating_add(len)) {
+            line.fill(px);
         }
     }
 }
@@ -703,7 +769,7 @@ fn pictured(
                 *p = tint(*p, job.bg);
             }
         }
-        mark_over(job, glyph, sprites, lines, y, line);
+        mark_over(job, sprites, lines, y, line);
     }
     Pictured::Drawn
 }
@@ -782,7 +848,7 @@ fn text_over(
         deco_over(job, sprites, u, y, prem, cov);
     }
     received_over(prem, ink);
-    if let Some(g) = glyph.filter(|_| mark != Mark::Bar) {
+    if let Some(g) = glyph {
         glyph_over(job, g, y, (&mut *prem, &mut *cov, src));
     }
     if let Some(o) = job.over {
@@ -793,40 +859,22 @@ fn text_over(
     }
 }
 
-/// vtium's mark at display line `y`, over everything else in `out`: the
-/// bar of a bar cursor, or an underline cursor's line.
+/// vtium's mark at display line `y`, over everything else in `out`: an
+/// underline cursor's line. A bar cursor's bar is drawn over the whole
+/// cell once the cell is composed ([`bar_over`]).
 #[cfg(feature = "images")]
 #[deny(clippy::float_arithmetic)]
-fn mark_over(
-    job: &Job,
-    glyph: Option<&Stored>,
-    sprites: &Sprites,
-    lines: &mut Lines,
-    y: i64,
-    out: &mut [u32],
-) {
-    if matches!(job.under.mark, Mark::None | Mark::Opaque) {
+fn mark_over(job: &Job, sprites: &Sprites, lines: &mut Lines, y: i64, out: &mut [u32]) {
+    let Some(u) = job.underline.filter(|_| job.under.mark == Mark::Underline) else {
         return;
-    }
+    };
     let w = out.len();
     lines.cov.resize(w, 0);
     lines.prem.resize(w, 0);
-    lines.src.resize(w, 0);
     let cov = lines.cov.get_mut(..w).unwrap_or_default();
     let prem = lines.prem.get_mut(..w).unwrap_or_default();
-    let src = lines.src.get_mut(..w).unwrap_or_default();
     prem.fill(0);
-    match job.under.mark {
-        Mark::Bar => {
-            let Some(g) = glyph else { return };
-            glyph_over(job, g, y, (&mut *prem, &mut *cov, src));
-        }
-        Mark::Underline => {
-            let Some(u) = job.underline else { return };
-            deco_over(job, sprites, u, y, prem, cov);
-        }
-        Mark::None | Mark::Opaque => return,
-    }
+    deco_over(job, sprites, u, y, prem, cov);
     for (o, &p) in out.iter_mut().zip(prem.iter()) {
         *o = over_px(*o, p);
     }

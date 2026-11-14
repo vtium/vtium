@@ -153,7 +153,7 @@ fn under_cursor(shape: CursorShape, color: Option<Rgb>) -> Canvas {
 // The cursor draws over the cell as dim left it: a block swaps the dimmed
 // foreground with the background; OSC 12's color replaces the block's
 // background; an underline and a bar take the dimmed foreground or OSC
-// 12's color.
+// 12's color, and the dimmed letter shows beside them.
 // covers: sgr.dim
 #[test]
 fn the_cursor_draws_over_the_dimmed_cell() {
@@ -189,10 +189,11 @@ fn the_cursor_draws_over_the_dimmed_cell() {
         &[BG_PX, DIM],
         "bar",
     );
+    // the dimmed letter shows beside the bar
     holds(
         &under_cursor(CursorShape::Bar, Some(rgb("00ff00"))),
         0,
-        &[BG_PX, 0x00_ff_00],
+        &[BG_PX, DIM, 0x00_ff_00],
         "colored bar",
     );
 }

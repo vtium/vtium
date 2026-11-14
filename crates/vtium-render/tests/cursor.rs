@@ -1,13 +1,14 @@
 //! The cursor's shapes: a block swaps the cell's
 //! colors, an underline toggles a single underline in the foreground, and
-//! a bar draws U+258F in place of the character. Each case is checked
+//! a bar draws over the cell's left edge, the character under it as it draws
+//! without a cursor. Each case is checked
 //! against the same screen without a cursor, styled to look as the cursor
 //! should.
 
 mod common;
 
 use common::{Screen, arrow_over, rgb, style, unifont};
-use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, PointerShape, Renderer};
+use vtium_render::{Arrow, Canvas, Config, DrawState, Orientation, PointerShape, Renderer, Target};
 use vtium_term::{Age, CursorShape, Rgb, Style, UnderlineStyle};
 
 const FG: &str = "e0e0e0";
@@ -111,27 +112,98 @@ fn an_underline_cursor_toggles_a_single_underline() {
     assert!(draw(&s, true, None) == draw(&want, false, None));
 }
 
+/// What a bar cursor at `col` of `s` should draw: the cells as they draw
+/// with no cursor, and over them, in the cursor's cell, the bar's pixels,
+/// which are the pixels where U+258F, LEFT ONE EIGHTH BLOCK, drawn in the
+/// bar's color on a blank cell, differs from that blank cell. Also gives
+/// how many of the bar's pixels there are.
+fn letter_under_bar(s: &Screen, col: usize, cells: u32, bar: Rgb) -> (Canvas, u32) {
+    let mut want = draw(s, false, None);
+    let st = style(bar, rgb(BG));
+    let mut marked = Screen::new(s.cols, 1, rgb("c0c0c0"), rgb("101010"));
+    let mut blank = Screen::new(s.cols, 1, rgb("c0c0c0"), rgb("101010"));
+    for k in 0..cells as usize {
+        marked.put(col + k, 0, ' ', false, st);
+        blank.put(col + k, 0, ' ', false, st);
+    }
+    marked.put(col, 0, '\u{258f}', false, st);
+    let (marked, blank) = (draw(&marked, false, None), draw(&blank, false, None));
+    let x0 = col as u32 * 8;
+    let mut n = 0;
+    for y in 0..16 {
+        for x in x0..x0 + cells * 8 {
+            let m = marked.pixel(x, y).unwrap();
+            if m != blank.pixel(x, y).unwrap() {
+                want.write(x, y, &[m]);
+                n += 1;
+            }
+        }
+    }
+    (want, n)
+}
+
+/// Whether the cursor's cell in `got` shows the letter's own foreground
+/// somewhere outside the bar, as `want` has it.
+fn shows_letter(got: &Canvas, col: usize, cells: u32, fg: Rgb) -> bool {
+    let fg = u32::from(fg.r) << 16 | u32::from(fg.g) << 8 | u32::from(fg.b);
+    let x0 = col as u32 * 8;
+    (0..16).any(|y| (x0 + 1..x0 + cells * 8).any(|x| got.pixel(x, y) == Some(fg)))
+}
+
+// The maintainer's look at a steady bar cursor on a real VT, 2026-11-14:
+// the bar never hides the letter in its cell. The letter draws as it does
+// with no cursor, and the bar draws over it along the cell's left edge,
+// one eighth of the cell wide, as the underline cursor draws over the
+// cell's bottom.
 // covers: cursor.style
 #[test]
-fn a_bar_replaces_the_character_with_a_left_eighth_block() {
+fn a_bar_draws_over_the_letter_along_the_cells_left_edge() {
     let st = style(rgb(FG), rgb(BG));
-    let s = screen(st, 0, CursorShape::Bar, None);
-    let mut want = screen(st, 0, CursorShape::Bar, None);
-    want.put(0, 0, '▏', false, st);
-    assert!(draw(&s, true, None) == draw(&want, false, None));
+    for (col, cells, color) in [
+        (0, 1, None),
+        (4, 1, None),
+        // on a wide character, along the left edge of its first cell
+        (2, 2, None),
+        (3, 2, None),
+        // in OSC 12's color
+        (0, 1, Some(rgb("00ff00"))),
+    ] {
+        let s = screen(st, col, CursorShape::Bar, color);
+        let lead = if col == 3 { 2 } else { col };
+        let (want, n) = letter_under_bar(&s, lead, cells, color.unwrap_or(rgb(FG)));
+        let got = draw(&s, true, None);
+        assert_eq!(
+            n, 16,
+            "column {col}: the bar is a pixel wide and a cell tall"
+        );
+        assert!(
+            got == want,
+            "column {col}, {color:?}: the letter and the bar over it"
+        );
+        assert!(
+            shows_letter(&got, lead, cells, rgb(FG)),
+            "column {col}: the letter shows"
+        );
+    }
+}
 
-    // on a wide character: the bar in the first cell, the second empty
-    let s = screen(st, 2, CursorShape::Bar, None);
-    let mut want = screen(st, 2, CursorShape::Bar, None);
-    want.put(2, 0, '▏', false, st);
-    want.put(3, 0, ' ', false, st);
-    assert!(draw(&s, true, None) == draw(&want, false, None));
-
-    // in OSC 12's color
-    let s = screen(st, 0, CursorShape::Bar, Some(rgb("00ff00")));
-    let mut want = screen(st, 0, CursorShape::Bar, None);
-    want.put(0, 0, '▏', false, style(rgb("00ff00"), rgb(BG)));
-    assert!(draw(&s, true, None) == draw(&want, false, None));
+// A blinking bar keeps its letter in both phases of its blink: with the
+// bar shown, the letter lies under it, and with the bar hidden, the cell
+// draws as it does with no cursor.
+// covers: cursor.style
+#[test]
+fn a_blinking_bar_keeps_its_letter_in_both_phases() {
+    let st = style(rgb(FG), rgb(BG));
+    let mut s = screen(st, 0, CursorShape::Bar, None);
+    s.cursor.blink = true;
+    let (want, _) = letter_under_bar(&s, 0, 1, rgb(FG));
+    assert!(draw(&s, true, None) == want, "the bar shown");
+    let mut plain = screen(st, 0, CursorShape::Bar, None);
+    plain.cursor.visible = false;
+    assert!(
+        draw(&s, false, None) == draw(&plain, true, None),
+        "the bar hidden"
+    );
 }
 
 // The pointer drawn in software: the arrow a cell tall, its tip on the
