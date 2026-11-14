@@ -19,6 +19,7 @@ target/release/conformance scenarios [NAME...]               # the behaviour sce
 target/release/conformance scenarios --write NAME...         # writes a new scenario's transcript
 target/release/conformance scenarios --play NAME...          # plays a scenario in this terminal for review
 target/release/conformance scenarios --bin NAME DIR          # writes a scenario's replay input for vtium-replay
+target/release/conformance cases --bin NAME DIR              # writes a case's replay input for vtium-replay
 ```
 
 `conformance` exits 0 when every verdict holds, 1 on a failure, and 2 when it refuses to run.
@@ -148,6 +149,25 @@ The frame view prints the colors vtium-term's frame resolves, so a difference in
 `vtium/` holds cases for behaviour the copied corpus does not hold, such as `sixel-over`, which plays chafa's padded frames and mpv's opaque frames, whose edge ends inside a cell, over each other, and a picture with a clear pixel in each cell over the last, the cases that tell vtium's per-cell sixel coverage apart from cutting a whole box. Its files are vtium's own, and the generator does not write them. `conformance run` replays each in both views after the corpus, and in the display view too when `golden-display/` holds its golden, and compares it with its golden, masked as the corpus is, and puts it through the chunking check. A golden is vtium's own output, and it lands in a commit of its own. Until the golden is accepted, its case is listed in `provisional.tsv`, `CASE REASON` a line, and the golden judges nothing: a difference from it is printed as `provisional` and fails nothing. The list covers the corpus's cases too: a case of the corpus whose golden waits for work an open issue owes is listed there, with that issue in its reason, and the capability the case needs is a `missing` line of `capabilities.list` that names the issue. A case not listed there fails on any difference. A listed case that neither `cases.list` holds stops the run.
 
 A case of `vtium/` is either a stream or a readable case. A stream is `cases/NAME.bin`, with its cuts in `cases/NAME.cuts`. A readable case is `cases/NAME.case`, written in the scenario language (Scenarios). Its header holds a `# spec:` line, a comment that says what the case checks, and a `# covers:` line when the case checks ADR-1000 rows. Its commands follow, from `size` on. The runner reads the file and compiles it with the scenario compiler, the code that `conformance scenarios --bin` uses. It then replays the result as it replays a stream. So no stream of a readable case is committed. The compiled input has a cut after each `dump`, except at the stream's end, where the replay prints a block anyway. `dump state` adds the interface's `state` command before its cut. A readable case has no `check` or assertion, since its goldens judge it, and it names no capability. Its `size` must agree with its line in `cases.list`. A case that has both a stream and a readable case stops the run. `docs/scripts/coverage` reads a readable case's `# covers:` line, and the line counts only once `provisional.tsv` no longer lists the case. The 54 cases that come from an outside collection of terminal test scenarios are readable cases.
+
+## Running one case by hand
+
+You can run one case of the corpus or of vtium's own cases through vtium-replay yourself. Build both programs as `make conformance` builds them, then write the case's files:
+
+```
+cargo build --release -p vtium-conformance --features images,bidi --bins
+target/release/conformance cases --bin alt-bce out
+```
+
+`conformance cases --bin NAME DIR` writes the case's stream as `DIR/NAME.bin` and its cuts as `DIR/NAME.cuts`. When the case has fixtures, the command copies them into `DIR/NAME.files/`, where vtium-replay looks for them. The command takes a readable case's stream and cuts from the compiler the runner uses, so the files hold the input the runner replays. `tests/cases_bin.rs` checks that for every case, in every view the runner judges.
+
+The command then prints one vtium-replay command line for each view the runner judges the case in, with the golden that judges that view. Run a line and compare its output with that golden:
+
+```
+target/release/vtium-replay --frame 4 3 out/alt-bce.bin out/alt-bce.cuts | diff - tools/conformance/vtium/golden-frame/alt-bce.txt
+```
+
+The runner masks the changed counts before it compares, so a count that differs from the golden can still pass. See The judge for details. When no `cases.list` holds the name, the command says where the names are and exits 2. A behaviour scenario has no line in a `cases.list`, so you write its files with `conformance scenarios --bin NAME DIR` instead.
 
 ## The judge
 

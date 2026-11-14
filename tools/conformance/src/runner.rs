@@ -119,6 +119,43 @@ impl Corpus {
         })
     }
 
+    /// Writes `case`'s replay input into `dir` as the files vtium-replay
+    /// reads, so a person can run the case by hand: the stream as
+    /// `NAME.bin`, its cuts as `NAME.cuts`, one offset a line, and its
+    /// fixtures in `NAME.files/`, where vtium-replay looks for them. The
+    /// files hold the input [`Corpus::input`] gives the runner, a readable
+    /// case compiled as the runner compiles it.
+    pub fn write_input(&self, case: &Case, dir: &Path) -> Result<Written, String> {
+        let input = self.input(case, View::Screen)?;
+        let at = |path: &Path| {
+            let path = path.display().to_string();
+            move |e: std::io::Error| format!("{path}: {e}")
+        };
+        std::fs::create_dir_all(dir).map_err(at(dir))?;
+        let bin = dir.join(format!("{}.bin", case.name));
+        let cuts = dir.join(format!("{}.cuts", case.name));
+        std::fs::write(&bin, &input.data).map_err(at(&bin))?;
+        let offsets: String = input.cuts.iter().map(|c| format!("{c}\n")).collect();
+        std::fs::write(&cuts, offsets).map_err(at(&cuts))?;
+        let fixtures = if input.fixtures.is_dir() {
+            let to = Input::fixtures_for(&bin);
+            std::fs::create_dir_all(&to).map_err(at(&to))?;
+            for entry in std::fs::read_dir(&input.fixtures).map_err(at(&input.fixtures))? {
+                let from = entry.map_err(at(&input.fixtures))?.path();
+                let name = from.file_name().unwrap_or_default();
+                std::fs::copy(&from, to.join(name)).map_err(at(&from))?;
+            }
+            Some(to)
+        } else {
+            None
+        };
+        Ok(Written {
+            bin,
+            cuts,
+            fixtures,
+        })
+    }
+
     pub fn golden(&self, case: &Case, golden_dir: &str) -> Result<String, String> {
         let path = self
             .root
@@ -126,6 +163,40 @@ impl Corpus {
             .join(format!("{}.txt", case.name));
         std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))
     }
+}
+
+/// The files [`Corpus::write_input`] writes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Written {
+    /// The stream, `NAME.bin`.
+    pub bin: PathBuf,
+    /// The cuts, `NAME.cuts`.
+    pub cuts: PathBuf,
+    /// The fixture directory, `NAME.files`, when the case has fixtures.
+    pub fixtures: Option<PathBuf>,
+}
+
+/// The case named `name`, in the first of `sets` whose `cases.list` holds
+/// it. The refusal says where the names are, and names the command for a
+/// behaviour scenario, which has no line in a `cases.list`.
+pub fn find<'a>(sets: &[&'a Corpus], name: &str) -> Result<(&'a Corpus, &'a Case), String> {
+    sets.iter()
+        .find_map(|set| {
+            set.cases
+                .iter()
+                .find(|c| c.name == name)
+                .map(|case| (*set, case))
+        })
+        .ok_or_else(|| {
+            let lists: Vec<String> = sets
+                .iter()
+                .map(|set| set.root.join("cases.list").display().to_string())
+                .collect();
+            format!(
+                "No case is named {name}. A case's name is the first word of its line in {}. For a behaviour scenario, run `conformance scenarios --bin NAME DIR` instead.",
+                lists.join(" or ")
+            )
+        })
 }
 
 /// The stream and cuts of a readable case, compiled from the scenario
