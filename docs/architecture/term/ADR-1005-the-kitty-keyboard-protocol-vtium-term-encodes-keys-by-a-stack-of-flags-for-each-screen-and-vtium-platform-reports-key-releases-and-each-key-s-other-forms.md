@@ -108,6 +108,12 @@ considered:
     said: "vtium follows the kitty keyboard protocol's published specification and the kitty graphics protocol's published specification. Several departures were decided before a thorough look at the specification, some by copying kitty's observed behaviour; those change to follow the specification. vtium keeps a departure only where the specification opens the door to an unsafe operation, such as reading arbitrary files or shared memory, unbounded memory or a decompression bomb, and the record names the risk."
     via: the maintainer's rule of 2026-11-14, relayed by the steering session in its brief for the audit of kitty specification departures
     paraphrase: true
+  - operator: aaronsb
+    said: "Keep xterm's bytes"
+    via: the maintainer, through the steering session's question tool, 2026-11-14, asked which spec governs the keys of a program that never asks for the kitty keyboard protocol (flags 0), xterm's control-sequence document or the kitty spec's legacy section
+  - operator: aaronsb
+    said: "Keep the release"
+    via: the maintainer, through the steering session's question tool, 2026-11-14, asked whether the KP_1 release under flag 2 alone stays under the follow-the-spec rule
 status: accepted
 date: 2026-11-07
 deciders:
