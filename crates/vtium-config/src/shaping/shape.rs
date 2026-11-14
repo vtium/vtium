@@ -832,6 +832,16 @@ fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
 #[expect(
     clippy::indexing_slicing,
     clippy::expect_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
+#[path = "harfbuzz.rs"]
+mod harfbuzz;
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
     reason = "a test fails by panicking"
 )]
 mod tests {
