@@ -2875,10 +2875,10 @@ const BASE: &[Case] = &[
     // bitmap font whose glyphs double each pixel, and in the outline test
     // font set
     Case {
-        screen: Screen::new("lines-dwl-unifont", LINES_DWL_DESC, LINES_DWL, 28, 4),
+        screen: Screen::new("lines-dwl-unifont", LINES_DWL_DESC, LINES_DWL, 32, 4),
     },
     Case {
-        screen: outline("lines-dwl", LINES_DWL_DESC, LINES_DWL, 28, 4),
+        screen: outline("lines-dwl", LINES_DWL_DESC, LINES_DWL, 32, 4),
     },
     Case {
         screen: Screen::new("lines-dhl-unifont", LINES_DHL_DESC, LINES_DHL, 24, 4),
@@ -3189,13 +3189,13 @@ const FRIT_CJK_KR_DESC: &str = "The shipped font set cjk-kr at 32 pixels of text
 /// a wide character, then a line of the normal size again.
 const LINES_DWL: &[u8] = concat!(
     "A normal line, for its size\r\n",
-    "\x1b#6Double width AaGg\r\n",
+    "\x1b#6Double wide AaGg\r\n",
     "\x1b#6\x1b[31mred\x1b[0m \x1b[30;42mgreen\x1b[0m \x1b[7mrev\x1b[0m 中\r\n",
     "A normal line again",
 )
 .as_bytes();
 
-const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 28 by 4 cells. The second line reads Double width AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
+const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 32 by 4 cells. The second line reads Double wide AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
 
 /// The `lines-dhl` screens: two double-height pairs (DECDHL, `ESC # 3`
 /// on the top line and `ESC # 4` on the bottom line), the second with
@@ -3250,11 +3250,11 @@ const LINES_MIXED_DESC: &str = "Every line size on one screen, 26 by 6 cells, wi
 const LINES_CURSOR_DWL: &[u8] = b"\x1b#6Cursor\r\nnormal size";
 const LINES_CURSOR_DHL: &[u8] = b"\x1b#3Cursor\r\n\x1b#4Cursor";
 
-const LINES_CURSOR_DWL_DESC: &str = "A block cursor on a double-width line, 16 by 2 cells: the first line reads Cursor at double width with the cursor on its s, the second line normal size at the normal size. Correct: the block covers both display cells of the s, twice as wide as a cell of the normal line, with the s inside it in the background's color.";
+const LINES_CURSOR_DWL_DESC: &str = "A block cursor on a double-width line, 16 by 2 cells: the first line reads Cursor at double width with the cursor on its o, and the second line reads normal size at the normal size. Correct: the block covers both display cells of the o, twice as wide as a cell of the normal line, with the o inside it in the background's color.";
 
-const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands before the s of the top line. Correct: the bar twice as thick as at the normal size, at the left edge of the s's cell on the top line only; the s's upper half on the top line and its lower half on the bottom line.";
+const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the top line. Correct: the bar twice as thick as at the normal size, at the left edge of the o's cell on the top line only, where the bar cursor draws in place of the letter as on a line of the normal size; the o's lower half on the bottom line.";
 
-const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands under the s of the bottom line. Correct: the underline twice as wide and twice as thick as at the normal size, along the bottom of the s's cell on the bottom line only, under the s's lower half.";
+const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the bottom line. Correct: the underline twice as wide and twice as thick as at the normal size, along the bottom of the o's cell on the bottom line only, under the o's lower half.";
 
 /// A line size screen of 16 by 2 cells in `font`, whose cursor `tail`
 /// shapes and places after the bytes, drawn in the cursor's on phase.
