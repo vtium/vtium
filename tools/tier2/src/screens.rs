@@ -3313,9 +3313,9 @@ const LINES_CURSOR_DHL: &[u8] = b"\x1b#3Cursor\r\n\x1b#4Cursor";
 
 const LINES_CURSOR_DWL_DESC: &str = "A block cursor on a double-width line, 16 by 2 cells: the first line reads Cursor at double width with the cursor on its o, and the second line reads normal size at the normal size. Correct: the block covers both display cells of the o, twice as wide as a cell of the normal line, with the o inside it in the background's color.";
 
-const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the top line. Correct: the bar twice as thick as at the normal size, at the left edge of the o's cell on the top line only, where the bar cursor draws in place of the letter as on a line of the normal size; the o's lower half on the bottom line.";
+const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the top line. Correct: the cursor covers the whole doubled o. The bar is twice as thick as at the normal size and runs down both lines at the left edge of the o's cells, where the bar cursor draws in place of the letter as on a line of the normal size.";
 
-const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the bottom line. Correct: the underline twice as wide and twice as thick as at the normal size, along the bottom of the o's cell on the bottom line only, under the o's lower half.";
+const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the bottom line. Correct: the cursor covers the whole doubled o, so the underline lies under its lower half, twice as wide and twice as thick as at the normal size, along the bottom of the o's cells on the bottom line. The top line shows the o's upper half with no cursor mark, since an underline lies under the whole character.";
 
 /// A line size screen of 16 by 2 cells in `font`, whose cursor `tail`
 /// shapes and places after the bytes, drawn in the cursor's on phase.
