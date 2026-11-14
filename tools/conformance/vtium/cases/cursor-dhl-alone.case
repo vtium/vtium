@@ -1,0 +1,13 @@
+# A double-height line with no partner draws the cursor on its own line.
+# First the cursor stands on a top line (ESC # 3) whose next line is a
+# single-size line. Then it stands on a bottom line (ESC # 4) whose line
+# above is double width, not a top line. Each line is double width, so
+# span=2, and neither block gives a rows key.
+# spec: ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph": "On a double-width line, a block cursor covers both display cells of the character, and a bar or an underline cursor is twice as thick. A double-height pair is a top line directly followed by its bottom line. On such a pair, the cursor covers the whole doubled character, whichever line of the pair it stands on: a block covers both halves, a bar runs the full height of both lines, and an underline sits under the bottom half. A double-height line is also double width, so the bar and the underline are twice as thick there too. For the terminal, the cursor's position stays on its own line, and only the drawing spans the pair. On a top or a bottom line with no partner, the cursor covers its own line only."
+# covers: text.line-size
+size 10 4
+needs cursor-extent
+send "\e[2 q\e#3Top\r\nnext\e[1;2H"
+dump
+send "\e[3;1H\e#6\e[4;1H\e#4Bot\e[4;1H"
+dump

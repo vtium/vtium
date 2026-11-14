@@ -66,3 +66,8 @@ kitty-upload-sixel-between	derived from upload-rules.md (ADR-1100 D16/D14), seal
 kitty-upload-stray	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-capital-t-cursor	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-cut-chunk	derived from the maintainer's answer of 2026-11-13 (ADR-1100 D16, "What ends an upload early"), sealed before vtium ran; not reviewed yet
+cursor-pair-top-block	derived from ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph", by the rule and not from vtium's output; its citation waits for a fresh reviewer
+cursor-pair-bottom-bar	derived from ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph", by the rule and not from vtium's output; its citation waits for a fresh reviewer
+cursor-dwl-underline	derived from ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph", by the rule and not from vtium's output; its citation waits for a fresh reviewer
+cursor-dhl-alone	derived from ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph", by the rule and not from vtium's output; its citation waits for a fresh reviewer
+cursor-dwl-wide	derived from ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph", by the rule and not from vtium's output; its citation waits for a fresh reviewer
