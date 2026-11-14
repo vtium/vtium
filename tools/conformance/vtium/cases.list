@@ -174,3 +174,6 @@ width-devanagari 12 3
 width-malayalam 10 2
 width-kannada 10 2
 width-single 12 2
+line-size-wrap 10 4
+line-size-erase 10 4
+line-size-edit 10 3

@@ -1,0 +1,15 @@
+# ED returns each line it erases whole to single size, and EL and a partial
+# ED keep a line's size. After each erase, the text printed on each line
+# shows the line's size by where it wraps: after column 5 on a double-size
+# line, and after column 10 on a single-size one.
+# spec: the VT510 manual, ED: "When you erase complete lines, they become single-height, single-width lines"; the VT100 User Guide, ED: "Any complete line erased by this sequence will return that line to single width mode"; neither manual's EL changes a line's size
+# covers: text.line-size
+size 10 4
+send "\e#6\e[2;1H\e#6\e[3;1H\e#6"
+send "\e[2;3H\e[J"
+send "\e[1;1H\e[2K"
+send "\e[1;1Habcdefg\e[2;1Hhijklmn\e[3;1Hopqrstuvwxyz"
+dump
+send "\e[2;5H\e[1J"
+send "\e[1;1Habcdefghijk"
+dump

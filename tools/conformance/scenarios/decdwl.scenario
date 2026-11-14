@@ -1,0 +1,18 @@
+# DECDWL (ESC # 6) makes the cursor's line double width, holding half the
+# screen's columns. The characters right of the center are lost, printing
+# wraps after column 5 of 10, and CUF and CPR stop at column 5.
+# spec: the VT100 User Guide, DECDWL
+# capability: decdwl
+size 10 3
+send "0123456789\e[1;1H\e#6"
+check
+want row 0 |01234|
+want cursor 0,0
+send "abcdefg"
+check
+want row 0 |abcde|
+want row 1 |fg|
+want cursor 2,1
+send "\e[1;1H\e[99C\e[6n"
+check
+reply "\e[1;5R"

@@ -75,7 +75,9 @@ impl LinkId {
 }
 
 /// DECDWL, DECDHL and DECSWL: how a line's cells are drawn
-/// (vtium/vtium#61).
+/// (vtium/vtium#61). A line of double size draws each character twice as
+/// wide, so it holds half as many columns as the screen: the cursor, the
+/// right margin, printing and editing count those columns only.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LineSize {
     #[default]
@@ -83,6 +85,30 @@ pub enum LineSize {
     DoubleWidth,
     DoubleHeightTop,
     DoubleHeightBottom,
+}
+
+impl LineSize {
+    /// Whether the line draws each character twice as wide: every size
+    /// but single. The two halves of a double-height line are double width
+    /// too.
+    pub const fn is_double(self) -> bool {
+        !matches!(self, Self::Single)
+    }
+
+    /// How many columns a line of this size holds on a screen `cols`
+    /// columns wide: all of them at single size, and half of them at
+    /// double size. A double-size line on an odd width leaves the last
+    /// screen column empty, since no character fits there at twice the
+    /// width. A screen one column wide still gives a double-size line one
+    /// column, so the cursor has a place on it.
+    pub const fn columns(self, cols: usize) -> usize {
+        if self.is_double() {
+            let half = cols / 2;
+            if half == 0 { 1 } else { half }
+        } else {
+            cols
+        }
+    }
 }
 
 /// What a line records about itself in 16 bits: the reflow flag, the
@@ -2051,5 +2077,25 @@ mod tests {
         assert!(!f.contains(LineFlags::WRAPPED));
         assert!(f.contains(LineFlags::PROMPT));
         assert_eq!(f.size(), LineSize::Single);
+    }
+
+    // A double-size line holds half the screen's columns, rounded down,
+    // and at least one; a single-size line holds them all (VT100 User
+    // Guide, DECDWL: "The use of double-width characters reduces the
+    // number of characters per line by half").
+    #[test]
+    fn a_double_size_line_holds_half_the_columns() {
+        for size in [
+            LineSize::DoubleWidth,
+            LineSize::DoubleHeightTop,
+            LineSize::DoubleHeightBottom,
+        ] {
+            assert!(size.is_double());
+            assert_eq!(size.columns(80), 40);
+            assert_eq!(size.columns(81), 40);
+            assert_eq!(size.columns(1), 1);
+        }
+        assert!(!LineSize::Single.is_double());
+        assert_eq!(LineSize::Single.columns(81), 81);
     }
 }

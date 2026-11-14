@@ -24,6 +24,9 @@ mode-2027                     works   -     DEC-2027                       mode 
 vs16-width                    works   -     text.vs-width                  VS16 widens U+2764 to two cells under mode 2027
 wide-at-margin                works   -     text.vs-width                  a wide character wraps whole at the margin
 rep                           works   -     text.rep                       REP repeats the last printed character, a wide one whole
+decdwl                        works   -     text.line-size                 ESC # 6 makes a line double width: it holds half the columns, and printing and the cursor stop at its last one
+decdhl                        works   -     text.line-size                 ESC # 3 and ESC # 4 make the two halves of a double-height line, each holding half the columns
+decswl                        works   -     text.line-size                 ESC # 5 returns a line to single width, and printing wraps at the screen's last column again
 erase-colours-only            works   -     ctl.bce                        EL, SU, SD and RI blanks take the pen background only
 frame-age-per-caller          works   -     platform.multi-monitor         each frame-since caller keeps its own changes
 reflow                        works   -     text.reflow                    a resize rewraps the lines a wrap made
