@@ -13,7 +13,7 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
-status: proposed
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb
@@ -36,6 +36,9 @@ considered:
     said: "make api joins the gate line and make gates, whatever it costs."
     via: the steering session's questions on 2026-11-14, on the site records
     paraphrase: true
+  - operator: aaronsb
+    said: "we've already gone through this so yes"
+    via: the steering session's chat on 2026-11-14, answering whether to accept wave 1's proposed records in one batch
 ---
 
 # ADR-1508: The site publishes the crates' interfaces under /api/ and a page for each release, and each release's notes are written once
