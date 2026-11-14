@@ -272,6 +272,7 @@ fn request(kind: u32, frit: &FritText, cell: Cell, codepoints: Vec<u32>) -> Serv
         band: vtium_font::spacing::Band::NONE,
         style: vtium_font::Style::default(),
         script: vtium_font::Script::Baseline,
+        doubled: None,
         codepoints,
         clusters: Vec::new(),
         held: Vec::new(),

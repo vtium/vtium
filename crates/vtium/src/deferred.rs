@@ -46,8 +46,8 @@ use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder, Stri
 use vtium_font::spacing::{Band, Fit, SpacedCell};
 use vtium_font::sprite::Range;
 use vtium_font::{
-    Cell, Decorations, Face, Format, Glyph, Narrowing, Origin, RangeCoverage, Script, ScriptFrom,
-    SpritePolicy, Style, Variant, Width,
+    Cell, Decorations, Doubled, Face, Format, Glyph, Narrowing, Origin, RangeCoverage, Script,
+    ScriptFrom, SpritePolicy, Style, Variant, Width,
 };
 
 mod data;
@@ -112,9 +112,17 @@ pub type Text = Vec<char>;
 
 /// What the displays show in one variant, a style and a script: each
 /// character, and each cluster of more than one, each sorted and once.
+/// A line of double size shows its characters at that size as well
+/// (`doubled`), and the console asks the helper for those glyphs at that
+/// size in a request of their own.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Shown {
     pub variant: Variant,
+    /// The double size the characters are shown at, on a line of double
+    /// width or double height; `None` for the normal size. A double size
+    /// shows characters alone, in the normal script, since the helper
+    /// draws no cluster and no superscript or subscript at a double size.
+    pub doubled: Option<Doubled>,
     /// The cells the display's terminal gives a cluster with a spacing
     /// mark or a virama conjunct (ADR-1006 D8), which the helper places
     /// the clusters in.
@@ -143,19 +151,9 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_render::joined;
     use vtium_render::syllable::Syllable;
     use vtium_term::Glyph;
-    let shown_in = |all: &mut Vec<Shown>, variant: Variant| -> usize {
-        match all.iter().position(|s| s.variant == variant) {
-            Some(i) => i,
-            None => {
-                all.push(Shown {
-                    variant,
-                    ..Shown::default()
-                });
-                all.len().saturating_sub(1)
-            }
-        }
-    };
+    let shown_in = |all: &mut Vec<Shown>, variant: Variant| shown_index(all, variant, None);
     let mut drawn = Vec::new();
+    read_doubled(frame, all);
     for row in 0..frame.rows() {
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
@@ -202,6 +200,65 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
                 shown.clusters.push(text);
             }
         }
+    }
+}
+
+/// Where in `all` the characters shown in `variant` at `doubled` go, a
+/// [`Shown`] added after the others where `all` has none.
+pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubled>) -> usize {
+    match all
+        .iter()
+        .position(|s| s.variant == variant && s.doubled == doubled)
+    {
+        Some(i) => i,
+        None => {
+            all.push(Shown {
+                variant,
+                doubled,
+                ..Shown::default()
+            });
+            all.len().saturating_sub(1)
+        }
+    }
+}
+
+/// Adds to `all` the characters each line of double size in `frame`
+/// shows, at that size and in each cell's variant, which the console asks
+/// the helper to render at that size (vtium/vtium#61). Only characters in
+/// the normal script go in, since the helper draws no cluster and no
+/// superscript or subscript at a double size. Every build reads them, so
+/// every build draws an outline font's lines of double size from glyphs
+/// rendered at that size.
+pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    for row in 0..frame.rows() {
+        let Some(doubled) = frame.line(row).and_then(|l| doubled_of(l.flags().size())) else {
+            continue;
+        };
+        for cell in frame.cells(row) {
+            let vtium_term::Glyph::Char(c) = cell.glyph else {
+                continue;
+            };
+            let variant = variant_of(cell.attrs);
+            if variant.script != Script::Baseline {
+                continue;
+            }
+            let i = shown_index(all, variant, Some(doubled));
+            if let Some(shown) = all.get_mut(i) {
+                shown.chars.push(c);
+            }
+        }
+    }
+}
+
+/// The double size a line of `size` draws its glyphs at: `None` for a
+/// line of the normal size, and the same size for both lines of a pair of
+/// double height, which draw the two halves of one glyph.
+pub fn doubled_of(size: vtium_term::LineSize) -> Option<Doubled> {
+    use vtium_term::LineSize;
+    match size {
+        LineSize::Single => None,
+        LineSize::DoubleWidth => Some(Doubled::Width),
+        LineSize::DoubleHeightTop | LineSize::DoubleHeightBottom => Some(Doubled::Height),
     }
 }
 
@@ -694,6 +751,9 @@ struct Entry {
     cell: Cell,
     band: Band,
     variant: Variant,
+    /// The double size its glyphs are drawn at, in the cell
+    /// [`Doubled::cell`] gives for `cell`, or `None` for the normal size.
+    doubled: Option<Doubled>,
     face: SetFace,
     /// Sorted by text.
     glyphs: Vec<(Text, u64)>,
@@ -724,6 +784,19 @@ impl Entry {
         }
     }
 
+    /// The cell its set's strikes are at: its own cell, or the cell its
+    /// double size draws in.
+    fn drawn(&self) -> Cell {
+        self.doubled
+            .and_then(|d| d.cell(self.cell))
+            .unwrap_or(self.cell)
+    }
+
+    /// Whether it holds glyphs in `variant` at `doubled` at `at`.
+    fn is(&self, at: SpacedCell, variant: Variant, doubled: Option<Doubled>) -> bool {
+        self.at() == at && self.variant == variant && self.doubled == doubled
+    }
+
     fn find(&self, text: &[char]) -> Result<usize, usize> {
         self.glyphs
             .binary_search_by(|(t, _)| t.as_slice().cmp(text))
@@ -743,7 +816,8 @@ impl Entry {
     fn compact(&mut self, gone: &[Text]) -> (Vec<Text>, bool) {
         self.glyphs.retain(|(t, _)| gone.binary_search(t).is_err());
         if !self.glyphs.is_empty()
-            && let Some((face, bytes)) = rewrite(&self.face, self.cell, self.variant, &self.glyphs)
+            && let Some((face, bytes)) =
+                rewrite(&self.face, self.drawn(), self.variant, &self.glyphs)
         {
             self.face = face;
             self.bytes = bytes;
@@ -891,6 +965,16 @@ pub fn lock(shared: &Shared) -> MutexGuard<'_, Generated> {
     shared.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// What a set of the store's glyphs is held by: the cell and the rows line
+/// spacing adds to it, the variant, and the double size, `None` for the
+/// normal size.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Held {
+    pub at: SpacedCell,
+    pub variant: Variant,
+    pub doubled: Option<Doubled>,
+}
+
 /// A set the helper sent, without the glyphs the store held at its cell
 /// when it was made ([`Generated::fresh`]): what adding it takes.
 #[derive(Debug)]
@@ -924,15 +1008,42 @@ impl Generated {
         runs: &[(u32, u32)],
         bytes: u64,
     ) -> Option<Fresh> {
-        let at: SpacedCell = at.into();
+        self.fresh_at((at.into(), variant, None), set, runs, bytes)
+    }
+
+    /// [`Generated::fresh`] for a set of glyphs drawn at the double size
+    /// `doubled` for the cell `at`, as the helper answers a double ask: its
+    /// strikes are at the cell [`Doubled::cell`] gives, and the store holds
+    /// them apart from the glyphs of the normal size.
+    pub fn fresh_doubled(
+        &self,
+        (at, variant, doubled): (impl Into<SpacedCell>, Variant, Doubled),
+        set: Arc<Set>,
+        runs: &[(u32, u32)],
+        bytes: u64,
+    ) -> Option<Fresh> {
+        self.fresh_at((at.into(), variant, Some(doubled)), set, runs, bytes)
+    }
+
+    fn fresh_at(
+        &self,
+        (at, variant, doubled): (SpacedCell, Variant, Option<Doubled>),
+        set: Arc<Set>,
+        runs: &[(u32, u32)],
+        bytes: u64,
+    ) -> Option<Fresh> {
+        let drawn = match doubled {
+            Some(d) => d.cell(at.cell)?,
+            None => at.cell,
+        };
         let clusters: Vec<Text> = set
             .strike_clusters()
             .filter(|(of, _)| {
-                of.cell == at.cell && of.style == variant.style && of.script == variant.script
+                of.cell == drawn && of.style == variant.style && of.script == variant.script
             })
             .map(|(_, key)| key)
             .collect();
-        let face = SetFace::new(set, at.cell.height)?;
+        let face = SetFace::new(set, drawn.height)?;
         let mut glyphs: Vec<(Text, u64)> = runs
             .iter()
             .flat_map(|&(first, n)| (0..n).map(move |i| first.checked_add(i)))
@@ -946,13 +1057,14 @@ impl Generated {
         let held: Vec<Text> = glyphs
             .iter()
             .map(|(t, _)| t)
-            .filter(|t| self.held(at, variant, t))
+            .filter(|t| self.entry_at((at, variant, doubled), t).is_some())
             .cloned()
             .collect();
         let mut entry = Entry {
             cell: at.cell,
             band: at.band,
             variant,
+            doubled,
             face,
             glyphs,
             bytes,
@@ -979,7 +1091,7 @@ impl Generated {
     /// Whether the store holds at `at`, in any variant, the glyph of a
     /// cluster `c` begins.
     fn begins(&self, at: SpacedCell, c: char) -> bool {
-        self.entries.iter().filter(|e| e.at() == at).any(|e| {
+        self.normal().filter(|e| e.at() == at).any(|e| {
             let i = e
                 .glyphs
                 .partition_point(|(t, _)| t.as_slice() <= [c].as_slice());
@@ -1003,16 +1115,28 @@ impl Generated {
 
     /// Whether the store holds `text`'s glyph at `at` in any variant.
     fn held_any(&self, at: SpacedCell, text: &[char]) -> bool {
-        self.entries
-            .iter()
-            .any(|e| e.at() == at && e.find(text).is_ok())
+        self.normal().any(|e| e.at() == at && e.find(text).is_ok())
+    }
+
+    /// The entries of glyphs at the normal size.
+    fn normal(&self) -> impl Iterator<Item = &Entry> + '_ {
+        self.entries.iter().filter(|e| e.doubled.is_none())
     }
 
     /// The entry holding `text`'s glyph at `at` in `variant`.
     fn entry(&self, at: SpacedCell, variant: Variant, text: &[char]) -> Option<&Entry> {
+        self.entry_at((at, variant, None), text)
+    }
+
+    /// The entry holding `text`'s glyph at `at` in `variant` at `doubled`.
+    fn entry_at(
+        &self,
+        (at, variant, doubled): (SpacedCell, Variant, Option<Doubled>),
+        text: &[char],
+    ) -> Option<&Entry> {
         self.entries
             .iter()
-            .find(|e| e.at() == at && e.variant == variant && e.find(text).is_ok())
+            .find(|e| e.is(at, variant, doubled) && e.find(text).is_ok())
     }
 
     /// The bytes held: each set's as the helper sent it or as compaction
@@ -1026,10 +1150,11 @@ impl Generated {
     /// share of their sets' bytes covers it, and writes each set they
     /// leave again without them ([`rewrite`]). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
-    /// go too. The texts no longer held, by cell, band and variant; nothing
-    /// is redrawn, and each is asked for again when the screen shows it.
-    pub fn make_room(&mut self, overrun: u64) -> Vec<(SpacedCell, Variant, Vec<Text>)> {
-        let mut out: Vec<(SpacedCell, Variant, Vec<Text>)> = Vec::new();
+    /// go too. The texts no longer held, by cell, band, variant and double
+    /// size; nothing is redrawn, and each is asked for again when the
+    /// screen shows it.
+    pub fn make_room(&mut self, overrun: u64) -> Vec<(Held, Vec<Text>)> {
+        let mut out: Vec<(Held, Vec<Text>)> = Vec::new();
         let mut short = overrun;
         while short > 0 && !self.entries.is_empty() {
             let held = self.bytes();
@@ -1063,25 +1188,26 @@ impl Generated {
                 };
                 list.sort_unstable();
                 let (lost, empty) = e.compact(&list);
-                let (at, variant) = (e.at(), e.variant);
+                let held = Held {
+                    at: e.at(),
+                    variant: e.variant,
+                    doubled: e.doubled,
+                };
                 if empty {
                     self.entries.remove(i);
                 }
-                match out
-                    .iter_mut()
-                    .find(|(of_at, of, _)| (*of_at, *of) == (at, variant))
-                {
-                    Some((_, _, texts)) => texts.extend(lost),
-                    None => out.push((at, variant, lost)),
+                match out.iter_mut().find(|(of, _)| *of == held) {
+                    Some((_, texts)) => texts.extend(lost),
+                    None => out.push((held, lost)),
                 }
             }
             short = short.saturating_sub(held.saturating_sub(self.bytes()));
         }
-        for (_, _, texts) in &mut out {
+        for (_, texts) in &mut out {
             texts.sort_unstable();
             texts.dedup();
         }
-        out.retain(|(_, _, texts)| !texts.is_empty());
+        out.retain(|(_, texts)| !texts.is_empty());
         out
     }
 
@@ -1097,7 +1223,7 @@ impl Generated {
         for e in self
             .entries
             .iter_mut()
-            .filter(|e| e.at() == at && e.variant == shown.variant)
+            .filter(|e| e.is(at, shown.variant, shown.doubled))
         {
             for &t in &texts {
                 if let Ok(i) = e.find(t)
@@ -1126,8 +1252,7 @@ impl Generated {
     /// superscript or subscript set reports the lines of its own script.
     fn decorations(&self, at: SpacedCell) -> Option<Decorations> {
         let e = self
-            .entries
-            .iter()
+            .normal()
             .find(|e| e.at() == at && e.variant.script == Script::Baseline)?;
         Some(e.face.decorations())
     }
@@ -1139,8 +1264,7 @@ impl Generated {
     /// there gives them. `None` while none is held.
     fn script_decorations(&self, at: SpacedCell, script: Script) -> Option<Decorations> {
         let e = self
-            .entries
-            .iter()
+            .normal()
             .find(|e| e.at() == at && e.variant.script == script)?;
         Some(e.face.script_decorations(script))
     }
@@ -1157,6 +1281,19 @@ impl Generated {
     fn draw(&self, at: SpacedCell, text: &[char], variant: Variant) -> Option<Glyph> {
         let face = &self.entry(at, variant, text)?.face;
         draw_text(face, text, variant, false)
+    }
+
+    /// The glyph for `c` in `variant` drawn at the double size `doubled`
+    /// for the cell `at`, from a set the helper drew at that size; `None`
+    /// while the store holds none.
+    fn draw_doubled(
+        &self,
+        at: SpacedCell,
+        c: char,
+        (variant, doubled): (Variant, Doubled),
+    ) -> Option<Glyph> {
+        let face = &self.entry_at((at, variant, Some(doubled)), &[c])?.face;
+        draw_text(face, &[c], variant, false)
     }
 }
 
@@ -1689,6 +1826,18 @@ impl Face for DeferredFace {
         lock(&self.generated).held(self.at(), variant, cluster)
     }
 
+    /// The helper's glyph for a character drawn at a double size, which
+    /// the helper renders from an outline font at that size. The store
+    /// holds no such glyph for a cluster, for a superscript or subscript,
+    /// or for a character a bitmap font or a color glyph draws, and the
+    /// renderer then doubles the pixels of the glyph at the normal size.
+    fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
+        let &[c] = cluster else {
+            return None;
+        };
+        lock(&self.generated).draw_doubled(self.at(), c, (variant, doubled))
+    }
+
     fn last_resort(&self, style: Style) -> Option<Glyph> {
         self.fit(self.builtin.last_resort(style)?, Fit::Natural)
     }
@@ -2089,9 +2238,19 @@ mod tests {
     fn shown(chars: &[char]) -> Shown {
         Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
+        }
+    }
+
+    /// What glyphs at the normal size at `at` in `variant` are held by.
+    fn normal(at: impl Into<SpacedCell>, variant: Variant) -> Held {
+        Held {
+            at: at.into(),
+            variant,
+            doubled: None,
         }
     }
 
@@ -2285,6 +2444,7 @@ mod tests {
             AT,
             &Shown {
                 cluster_width: Default::default(),
+                doubled: None,
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2292,7 +2452,7 @@ mod tests {
         );
         // C was shown least recently, so it leaves and A's set is written
         // again without it
-        assert_eq!(g.make_room(1), vec![(AT, SUPER, texts(&['C']))]);
+        assert_eq!(g.make_room(1), vec![(normal(AT, SUPER), texts(&['C']))]);
         assert!(g.held(AT, SUPER, &['A']) && !g.held(AT, SUPER, &['C']));
         let a = g.draw(AT, &['A'], SUPER).unwrap();
         assert!(a.pixels().iter().all(|&p| p == 77));
@@ -2336,6 +2496,7 @@ mod tests {
             AT,
             &Shown {
                 cluster_width: Default::default(),
+                doubled: None,
                 variant: SUPER,
                 chars: vec!['A'],
                 clusters: Vec::new(),
@@ -2343,7 +2504,7 @@ mod tests {
         );
         assert_eq!(
             g.make_room(1),
-            vec![(AT, Variant::default(), texts(&['B']))]
+            vec![(normal(AT, Variant::default()), texts(&['B']))]
         );
         assert!(
             g.draw(AT, &['A'], SUPER)
@@ -2791,12 +2952,12 @@ mod tests {
         g.touch(AT, &shown(&['A']));
         assert_eq!(
             g.make_room(1),
-            vec![(AT, Variant::default(), texts(&['B']))]
+            vec![(normal(AT, Variant::default()), texts(&['B']))]
         );
         assert_eq!(g.bytes(), 10);
         assert_eq!(
             g.make_room(1),
-            vec![(AT, Variant::default(), texts(&['A']))]
+            vec![(normal(AT, Variant::default()), texts(&['A']))]
         );
         assert_eq!(g.make_room(1), vec![]);
         assert_eq!(g.bytes(), 0);
@@ -2887,7 +3048,10 @@ mod tests {
         let after = answer(&[], &[a, c, w]).len() as u64 + answer(&[d], &[]).len() as u64;
         assert!(after < before);
         let gone = lock(&generated).make_room(before - after);
-        assert_eq!(gone, vec![(AT, Variant::default(), texts(&['B', 'E']))]);
+        assert_eq!(
+            gone,
+            vec![(normal(AT, Variant::default()), texts(&['B', 'E']))]
+        );
         assert_eq!(lock(&generated).bytes(), after);
         for (k, glyph) in kept.into_iter().zip(drawn) {
             assert_eq!(f.draw(&[k], Style::default()), Some(glyph), "{k}");
@@ -2913,7 +3077,7 @@ mod tests {
         g.touch(AT, &shown(&['A', 'D']));
         assert_eq!(
             g.make_room(1),
-            vec![(AT, Variant::default(), texts(&['E']))]
+            vec![(normal(AT, Variant::default()), texts(&['E']))]
         );
         let strikes: Vec<_> = g.entries[0]
             .face
@@ -3113,6 +3277,7 @@ mod tests {
             AT,
             &Shown {
                 cluster_width: Default::default(),
+                doubled: None,
                 variant: Variant::default(),
                 chars: vec!['o'],
                 clusters: Vec::new(),
@@ -3120,7 +3285,7 @@ mod tests {
         );
         let left = g.make_room(1);
         assert!(
-            left.iter().any(|(_, _, gone)| gone.contains(&vec!['A'])),
+            left.iter().any(|(_, gone)| gone.contains(&vec!['A'])),
             "A leaves the store: {left:?}"
         );
         assert!(g.held(AT, Variant::default(), &['o']));
@@ -4189,6 +4354,7 @@ mod tests {
         );
         let shown = Shown {
             cluster_width: Default::default(),
+            doubled: None,
             variant: Variant::default(),
             chars: vec!['e'],
             clusters: vec![ACUTE.to_vec()],
@@ -4196,7 +4362,7 @@ mod tests {
         lock(&generated).touch(AT, &shown);
         assert_eq!(
             lock(&generated).make_room(1),
-            vec![(AT, Variant::default(), vec![grave.to_vec()])]
+            vec![(normal(AT, Variant::default()), vec![grave.to_vec()])]
         );
         let f = face(&generated);
         assert!(all(&f.draw(&ACUTE, Style::default()).unwrap(), 7));
@@ -4235,6 +4401,90 @@ mod tests {
         assert!(lock(&generated).holds(SpacedCell::plain(other)));
         lock(&generated).retain(&[AT]);
         assert!(!lock(&generated).holds(SpacedCell::plain(other)));
+    }
+
+    // issue #61: a line of double width and a pair of double-height lines
+    // ask for their characters at their size, each in its variant, with
+    // both lines of the pair at one size; a line of the normal size, a
+    // superscript and a cluster ask for none at a double size
+    #[test]
+    fn a_line_of_double_size_asks_for_its_characters_at_that_size() {
+        let mut t = vtium_term::Terminal::new(10, 4, 0);
+        t.input(
+            "\x1b#6ab\x1b[1mc\r\n\x1b[0m\x1b#3de\r\n\x1b#4fe\u{301}\x1b[73mx\r\n\x1b[0mgh"
+                .as_bytes(),
+        );
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let mut all = vec![Shown::default()];
+        read_doubled(&frame, &mut all);
+        let at = |variant: Variant, doubled: Doubled| {
+            all.iter()
+                .find(|s| s.variant == variant && s.doubled == Some(doubled))
+                .map(|s| s.chars.clone())
+        };
+        let bold = Variant::from(Style {
+            bold: true,
+            italic: false,
+        });
+        assert_eq!(at(Variant::default(), Doubled::Width), Some(vec!['a', 'b']));
+        assert_eq!(at(bold, Doubled::Width), Some(vec!['c']));
+        assert_eq!(
+            at(Variant::default(), Doubled::Height),
+            Some(vec!['d', 'e', 'f'])
+        );
+        assert!(
+            all.iter()
+                .filter(|s| s.doubled.is_some())
+                .all(|s| s.variant.script == Script::Baseline && s.clusters.is_empty()),
+            "{all:?}"
+        );
+        assert!(
+            !all.iter()
+                .flat_map(|s| &s.chars)
+                .any(|c| matches!(c, 'g' | 'h' | 'x'))
+        );
+        assert_eq!(all[0], Shown::default(), "the normal size is read apart");
+    }
+
+    // a set at a double size is held apart from the normal size: the normal
+    // lookups do not find it, and a store that makes room says which double
+    // size the texts it drops were held at
+    #[test]
+    fn the_store_holds_a_double_size_apart() {
+        let generated: Shared = Arc::default();
+        let tall = Doubled::Height.cell(CELL).unwrap();
+        let set = solid(tall, &['A']);
+        let fresh = lock(&generated)
+            .fresh_doubled(
+                (AT, Variant::default(), Doubled::Height),
+                set,
+                &[(0x41, 1)],
+                10,
+            )
+            .unwrap();
+        lock(&generated).add(fresh);
+        let f = face(&generated);
+        assert!(!lock(&generated).held(AT, Variant::default(), &['A']));
+        assert_eq!(f.doubled(&['A'], Variant::default(), Doubled::Width), None);
+        let g = f
+            .doubled(&['A'], Variant::default(), Doubled::Height)
+            .unwrap();
+        assert_eq!((g.width(), g.height()), (tall.width, tall.height));
+        assert_eq!(
+            f.doubled(&['A', '\u{301}'], Variant::default(), Doubled::Height),
+            None
+        );
+        assert_eq!(
+            lock(&generated).make_room(1),
+            vec![(
+                Held {
+                    at: AT,
+                    variant: Variant::default(),
+                    doubled: Some(Doubled::Height),
+                },
+                texts(&['A'])
+            )]
+        );
     }
 
     // ADR-1203 D3: a row of Kannada asks the helper for each piece of the

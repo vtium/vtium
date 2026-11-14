@@ -17,12 +17,15 @@
 //! and the cell shader draw a piece as they draw any narrow glyph. The CPU
 //! path and the GPU path draw the same pieces, so they draw the same bytes.
 //!
-//! The glyph is doubled by doubling each of its pixels, which is how the
-//! DEC terminals drew double-size text from their character ROM. That is
-//! the final look for a bitmap font. For an outline font, the font helper
-//! is to render the glyph at true double size, so that its strokes stay
-//! sharp; [`piece_glyph`] is the one place where that glyph takes the
-//! doubled pixels' place.
+//! Where the font's face holds the glyph rendered at double size
+//! ([`Face::doubled`]), each piece is cut from that glyph as it is. The
+//! font helper renders a glyph of an outline font that way, so its strokes
+//! stay sharp at the larger size. Otherwise each piece is cut from the
+//! glyph at the normal size with each of its pixels doubled, which is how
+//! the DEC terminals drew double-size text from their character ROM. That
+//! is the look of a bitmap font, of a color glyph, of a cluster, and of an
+//! outline glyph until the helper's double-size glyph arrives.
+//! [`piece_glyph`] is the one place that chooses between the two.
 //!
 //! References:
 //! - The maintainer's direction on the double-size lines work, 2026-11-14:
@@ -30,7 +33,7 @@
 //!   size through the font helper, and the VT100's dot stretching stays
 //!   out of the text renderer.
 
-use vtium_font::{Face, Font, Glyph, Variant, Width};
+use vtium_font::{Doubled, Face, Font, Glyph, Variant, Width};
 use vtium_term::LineSize;
 
 /// Which piece of a glyph or decoration a display cell draws: the glyph
@@ -73,6 +76,17 @@ impl Piece {
 
     fn kind(self) -> u8 {
         self.0 >> 2
+    }
+
+    /// The double size the piece's glyph is drawn at: `None` for the whole
+    /// glyph, and the same size for the top and the bottom pieces, which
+    /// cut the two halves of one glyph.
+    fn doubled(self) -> Option<Doubled> {
+        match self.kind() {
+            WIDTH => Some(Doubled::Width),
+            TOP | BOTTOM => Some(Doubled::Height),
+            _ => None,
+        }
     }
 
     fn column(self) -> u32 {
@@ -175,26 +189,74 @@ fn doubled(glyph: &Glyph, piece: Piece) -> Option<Glyph> {
     Some(piece.with_cells(Width::Narrow))
 }
 
+/// Piece `piece` of `glyph`, a glyph `width` cells wide drawn at the
+/// piece's double size in cells of `cell`, as one narrow glyph of `cell`:
+/// the cell at the piece's column, and on a line of double height the
+/// glyph's upper or lower half. The glyph's pixels are its ink cut to its
+/// cells, so the piece holds no ink past its cell. `None` when the glyph
+/// is not the size that double size gives `width` cells of `cell`.
+fn cut_drawn(
+    glyph: &Glyph,
+    (cell, width): (vtium_font::Cell, Width),
+    piece: Piece,
+) -> Option<Glyph> {
+    let doubled = piece.doubled()?;
+    let (cw, ch) = (cell.width, cell.height);
+    let size = (
+        cw.checked_mul(2)?.checked_mul(width.cells())?,
+        ch.checked_mul(doubled.rows())?,
+    );
+    if (glyph.width(), glyph.height()) != size || glyph.cells() != width {
+        return None;
+    }
+    let bpp = usize::try_from(glyph.format().bytes_per_pixel()).ok()?;
+    let row = usize::try_from(size.0).ok()?.checked_mul(bpp)?;
+    let out_row = usize::try_from(cw).ok()?.checked_mul(bpp)?;
+    let left = usize::try_from(piece.column().checked_mul(cw)?)
+        .ok()?
+        .checked_mul(bpp)?;
+    let first = match piece.kind() {
+        BOTTOM => ch,
+        _ => 0,
+    };
+    let mut out = Vec::with_capacity(out_row.checked_mul(usize::try_from(ch).ok()?)?);
+    for y in first..first.checked_add(ch)? {
+        let at = usize::try_from(y)
+            .ok()?
+            .checked_mul(row)?
+            .checked_add(left)?;
+        out.extend_from_slice(glyph.pixels().get(at..at.checked_add(out_row)?)?);
+    }
+    let piece = Glyph::from_pixels(cw, ch, glyph.format(), out)?;
+    Some(piece.with_cells(Width::Narrow))
+}
+
 /// The glyph that a display cell of a line of double size draws for
-/// `text` in `variant`, `width` cells wide: its piece `piece`, from
-/// `whole`, the glyph that the font drew at the normal size, each of its
-/// pixels `scale` pixels square. Gives the piece and its scale.
+/// `text` in `variant`, `width` cells wide: its piece `piece`. Gives the
+/// piece and the scale of its pixels.
 ///
-/// This is the one place where a glyph rendered at double size takes the
-/// doubled pixels' place. Today every font's piece is cut from `whole`
-/// with each pixel doubled, which is the final look for a bitmap font.
-/// The work that renders outline glyphs at true double size in the font
-/// helper asks `font` here for the glyph at twice the cell's width, and at
-/// twice its height on a double-height line, and cuts the piece from that
-/// glyph, at scale 1, when the font has it. The cache keys the piece on
-/// its text, variant, width and piece, so nothing else changes.
+/// Where `font`'s face holds the glyph rendered at the piece's double
+/// size ([`Face::doubled`]), as the font helper renders an outline font's,
+/// the piece is cut from that glyph, at scale 1. Otherwise the piece is
+/// cut from `whole`, the glyph the font drew at the normal size, each of
+/// its pixels `scale` pixels square, with each pixel doubled. The cache
+/// keys the piece on its text, variant, width and piece, and forgets it
+/// when a glyph for its text arrives, so the piece is cut again from the
+/// helper's glyph once that glyph is there.
 pub(crate) fn piece_glyph<F: Face>(
-    _font: &Font<F>,
-    (_text, _width, _variant): (&[char], Width, Variant),
+    font: &Font<F>,
+    (text, width, variant): (&[char], Width, Variant),
     (whole, scale): (&Glyph, u32),
     piece: Piece,
 ) -> Option<(Glyph, u32)> {
-    Some((doubled(whole, piece)?, scale))
+    let drawn = piece
+        .doubled()
+        .and_then(|d| font.face().doubled(text, variant, d))
+        .and_then(|glyph| cut_drawn(&glyph, (font.cell(), width), piece));
+    match drawn {
+        Some(glyph) => Some((glyph, 1)),
+        None => Some((doubled(whole, piece)?, scale)),
+    }
 }
 
 #[cfg(test)]

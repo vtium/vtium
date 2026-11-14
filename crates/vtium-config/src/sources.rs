@@ -765,6 +765,7 @@ fn outline(font: Vec<u8>, family: &str) -> Input {
         synth: vtium_font::Style::default(),
         script: vtium_font::Script::Baseline,
         fit: false,
+        double_width: false,
     })
 }
 

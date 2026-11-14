@@ -29,6 +29,7 @@ fn ask(cs: &[char], kind: Kind) -> Ask {
 /// `Test Shaping` at a 20-pixel cell, asked for `asks`.
 fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -390,6 +391,7 @@ fn marked(keys: &[&[char]], height: u32, reach: Option<u32>) -> OutlineRequest {
     add(0x308, ttf::Glyph::rect(0, -350, 0, -250, 1500));
     f.cmap.sort_unstable();
     OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -529,6 +531,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let key = ['x', '\u{307}'];
     let drawn = |by: Option<i16>| {
         let o = rasterise(&OutlineRequest {
+            double_width: false,
             cluster_width: Default::default(),
             fit: false,
             synth: Default::default(),
@@ -571,6 +574,7 @@ fn alef_damma(reach: Option<u32>) -> OutlineRequest {
     f.cmap.push((0x64f, 9));
     f.cmap.sort_unstable();
     OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -763,6 +767,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     f.cmap.sort_unstable();
     let key = ['x', '\u{302}', '\u{301}'];
     let o = rasterise(&OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -811,6 +816,7 @@ fn a_squeezed_cluster_keeps_its_marks_over_its_letter() {
     f.cmap.sort_unstable();
     let key = ['\u{628}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -851,6 +857,7 @@ fn devanagari(keys: &[&[char]], fit: bool) -> OutlineRequest {
         (0x94d, ttf::Glyph::rect(0, -300, -150, -100, -50)),
     ]);
     OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit,
         synth: Default::default(),

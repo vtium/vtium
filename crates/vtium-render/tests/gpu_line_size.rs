@@ -11,7 +11,10 @@
 mod common;
 
 use common::{Screen, rgb, style};
-use vtium_font::{Cell, Face, Font, Format as FontFormat, Glyph, Style, Width as FontWidth};
+use vtium_font::{
+    Cell, Doubled, Face, Font, Format as FontFormat, Glyph, Script, Style, Variant,
+    Width as FontWidth,
+};
 use vtium_render::gpu::{DrawTarget, Gl, Pipeline, Size, StandIn};
 use vtium_render::{Canvas, Config, DrawState, Orientation, Renderer};
 use vtium_term::{Age, Attrs, Color, CursorShape, LineSize, UnderlineStyle};
@@ -62,6 +65,42 @@ impl Face for Shades {
             .flat_map(|y| (0..w).map(move |x| if y < 4 { (x * 30) as u8 } else { px(x, y - 4) }))
             .collect();
         g.with_ink((0, -4), (w, CH + 4), boxed)
+    }
+}
+
+/// [`Shades`], whose glyphs the face also holds rendered at each double
+/// size, as the font helper renders an outline font's: a pattern of its
+/// own over the doubled cell, which no doubling of the normal glyph's
+/// pixels gives. As the console's face does, it holds none for a cluster
+/// or for a superscript or subscript.
+struct Rendered;
+
+impl Face for Rendered {
+    fn cell(&self) -> Cell {
+        Shades.cell()
+    }
+    fn size_step(&self) -> u32 {
+        Shades.size_step()
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        Shades.has_glyph(c)
+    }
+    fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
+        Shades.draw(cluster, style)
+    }
+    fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
+        let &[c] = cluster else {
+            return None;
+        };
+        if variant.script != Script::Baseline || !self.has_glyph(c) {
+            return None;
+        }
+        let width = Shades.draw(cluster, variant.style)?.cells();
+        let (w, h) = (2 * CW * width.cells(), CH * doubled.rows());
+        let k = u32::from(c);
+        let px = move |x: u32, y: u32| ((x * 13 + y * 7 + k * 3) % 251) as u8;
+        let own = (0..h).flat_map(|y| (0..w).map(move |x| px(x, y))).collect();
+        Some(Glyph::from_pixels(w, h, FontFormat::Mask, own)?.with_cells(width))
     }
 }
 
@@ -121,11 +160,11 @@ fn state(s: &Screen) -> DrawState {
     }
 }
 
-/// `s` drawn whole on the CPU path, turned as `o` says, with the columns
-/// `sel` of each row selected.
-fn whole(s: &Screen, o: Orientation, sel: &[std::ops::Range<usize>]) -> Canvas {
+/// `s` drawn whole on the CPU path in `face`, turned as `o` says, with the
+/// columns `sel` of each row selected.
+fn whole<F: Face>(face: F, s: &Screen, o: Orientation, sel: &[std::ops::Range<usize>]) -> Canvas {
     let size = display(s, o);
-    let mut r = Renderer::new(Font::new(Shades), size.width, size.height, config(o));
+    let mut r = Renderer::new(Font::new(face), size.width, size.height, config(o));
     let mut c = Canvas::new(size.width, size.height, 0);
     let frame = s.frame(Age::NEVER).with_selection(sel.to_vec());
     r.draw(&frame, &mut c, 0, &state(s));
@@ -134,17 +173,17 @@ fn whole(s: &Screen, o: Orientation, sel: &[std::ops::Range<usize>]) -> Canvas {
 
 /// A display on the stand-in GL, whose upright frame keeps every frame
 /// the GPU path composed.
-struct Gpu {
+struct Gpu<F: Face> {
     gl: StandIn,
     pipeline: Pipeline,
     buffer: DrawTarget,
-    r: Renderer<Shades>,
+    r: Renderer<F>,
     since: Age,
     orientation: Orientation,
 }
 
-impl Gpu {
-    fn new(s: &Screen, o: Orientation) -> Gpu {
+impl<F: Face> Gpu<F> {
+    fn new(face: F, s: &Screen, o: Orientation) -> Gpu<F> {
         let size = display(s, o);
         let mut gl = StandIn::new();
         let pipeline = Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
@@ -153,7 +192,7 @@ impl Gpu {
             gl,
             pipeline,
             buffer,
-            r: Renderer::new(Font::new(Shades), size.width, size.height, config(o)),
+            r: Renderer::new(Font::new(face), size.width, size.height, config(o)),
             since: Age::NEVER,
             orientation: o,
         }
@@ -195,7 +234,7 @@ impl Gpu {
 
 /// Fails, saying where, unless the GPU path's upright frame is `cpu`'s
 /// pixels.
-fn assert_same(g: &Gpu, cpu: &Canvas, what: &str) {
+fn assert_same<F: Face>(g: &Gpu<F>, cpu: &Canvas, what: &str) {
     let gpu = g.upright();
     let (w, h) = (cpu.width(), cpu.height());
     let up = |x: u32, y: u32| match g.orientation {
@@ -236,6 +275,22 @@ const TURNS: [Orientation; 4] = [
 // covers: text.line-size
 #[test]
 fn every_gpu_frame_of_double_size_lines_matches_a_whole_draw() {
+    frames_match_whole_draws(|| Shades);
+}
+
+// The same frames match where the face holds its glyphs rendered at each
+// double size, as the font helper renders an outline font's: the GPU path
+// draws the pieces of those glyphs as the CPU path does, and the glyph
+// cache keeps them under their piece keys apart from the doubled pixels
+#[test]
+fn every_gpu_frame_of_rendered_double_size_glyphs_matches_a_whole_draw() {
+    frames_match_whole_draws(|| Rendered);
+}
+
+/// Draws each step of a screen whose lines change size on the GPU path
+/// in the face `face` makes, and fails unless each frame matches the CPU
+/// path's whole drawing of the same screen, at every turn of the display.
+fn frames_match_whole_draws<F: Face>(face: impl Fn() -> F) {
     for o in TURNS {
         let mut s = Screen::new(10, 4, rgb(FG), rgb(BG));
         s.cursor.visible = false;
@@ -243,7 +298,7 @@ fn every_gpu_frame_of_double_size_lines_matches_a_whole_draw() {
             decorated(&mut s, row);
         }
         s.text(0, 3, "A A A", plain());
-        let mut g = Gpu::new(&s, o);
+        let mut g = Gpu::new(face(), &s, o);
         type Step = fn(&mut Screen) -> Vec<std::ops::Range<usize>>;
         let steps: [(&str, Step); 10] = [
             ("the screen", |_| Vec::new()),
@@ -300,7 +355,7 @@ fn every_gpu_frame_of_double_size_lines_matches_a_whole_draw() {
         for (what, step) in steps {
             let sel = step(&mut s);
             g.frame(&mut s, &sel);
-            assert_same(&g, &whole(&s, o, &sel), &format!("{what}, {o:?}"));
+            assert_same(&g, &whole(face(), &s, o, &sel), &format!("{what}, {o:?}"));
         }
     }
 }

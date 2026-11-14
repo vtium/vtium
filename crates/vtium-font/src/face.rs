@@ -53,6 +53,49 @@ pub struct Cell {
     pub height: u32,
 }
 
+/// How a line of double size (DECDWL or DECDHL) draws its glyphs: twice
+/// as wide, or twice as wide and twice as tall. Both halves of a line of
+/// double height draw from the same glyph, so one size covers them.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, PartialOrd, Ord)]
+pub enum Doubled {
+    /// A line of double width: each glyph twice as wide, as tall as it is.
+    Width,
+    /// A line of double height: each glyph twice as wide and twice as
+    /// tall, its upper half on the top line and its lower half on the
+    /// bottom line.
+    Height,
+}
+
+impl Doubled {
+    /// How many times taller than its cell a glyph is drawn: 1 or 2.
+    pub fn rows(self) -> u32 {
+        match self {
+            Doubled::Width => 1,
+            Doubled::Height => 2,
+        }
+    }
+
+    /// The cell a glyph of `cell` is drawn in at this size; `None` past
+    /// [`crate::CELL_SIDE_MAX`].
+    pub fn cell(self, cell: Cell) -> Option<Cell> {
+        let out = Cell {
+            width: cell.width.checked_mul(2)?,
+            height: cell.height.checked_mul(self.rows())?,
+        };
+        (out.width <= crate::CELL_SIDE_MAX && out.height <= crate::CELL_SIDE_MAX).then_some(out)
+    }
+
+    /// The rows line spacing adds above and below a cell drawn at this
+    /// size, when `band` adds them to the cell itself: twice as many on a
+    /// line of double height.
+    pub fn band(self, band: Band) -> Band {
+        Band {
+            above: band.above.saturating_mul(self.rows()),
+            below: band.below.saturating_mul(self.rows()),
+        }
+    }
+}
+
 /// Where underline, strike-through and overline go in a cell, in pixel
 /// rows from its top, each inside the cell and at least a row thick. The
 /// overline is as thick as the underline. A normal cell's overline lies on
@@ -139,6 +182,17 @@ pub trait Face {
 
     /// The glyph drawn when the face lacks the character, U+25A1 and `?`.
     fn last_resort(&self, _style: Style) -> Option<Glyph> {
+        None
+    }
+
+    /// The face's own glyph for `cluster` in `variant` drawn at the double
+    /// size `doubled`, in a cell [`Doubled::cell`] gives, as a line of
+    /// double size draws it: a source that draws from outlines renders it
+    /// at that size, so its strokes stay sharp. `None` when the face holds
+    /// no such glyph, as for a bitmap font and for a glyph still on its
+    /// way, and the renderer then doubles each pixel of the glyph at its
+    /// own size. The default holds none.
+    fn doubled(&self, _cluster: &[char], _variant: Variant, _doubled: Doubled) -> Option<Glyph> {
         None
     }
 
@@ -362,6 +416,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn holds(&self, cluster: &[char], variant: Variant) -> bool {
         (**self).holds(cluster, variant)
+    }
+    fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
+        (**self).doubled(cluster, variant, doubled)
     }
 }
 
