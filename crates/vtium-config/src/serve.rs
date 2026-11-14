@@ -832,6 +832,19 @@ pub fn steps(style: Style) -> Vec<Step> {
     out
 }
 
+/// How `c` uses a row made taller by line spacing when the frit's set
+/// that gives it has no `fit=`. The console places the glyphs it draws
+/// itself by the same function ([`Fit::default_for`]), so the helper and
+/// the console agree on every character's default, combining marks
+/// included: vtium-font's one table of marks decides which characters are
+/// marks for both.
+///
+/// References:
+/// - ADR-1302 D13: the default fit of each kind of character.
+pub fn default_fit(c: u32) -> Fit {
+    Fit::default_for(c)
+}
+
 /// A source [`Engine::load`] left out.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LeftOut {
@@ -1932,11 +1945,9 @@ impl Engine {
 
     /// How the glyph that source `source` gives for `c` uses a row made
     /// taller by line spacing (ADR-1302 D13): the `fit=` of the source's
-    /// set that holds `c`, else `c`'s default.
+    /// set that holds `c`, else `c`'s default ([`default_fit`]).
     fn fit(source: &Source, c: u32) -> Fit {
-        source
-            .fit(c)
-            .unwrap_or_else(|| Fit::default_for(c, crate::shaping::mark_side(c).is_some()))
+        source.fit(c).unwrap_or_else(|| default_fit(c))
     }
 
     /// `request`, for source `i`'s normal glyphs at `cell` in the text band,

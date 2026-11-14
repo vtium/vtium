@@ -79,6 +79,7 @@ mod gzip;
 mod hex;
 pub mod italic;
 pub mod letters;
+pub mod marks;
 mod policy;
 #[cfg(feature = "psf")]
 mod psf;
