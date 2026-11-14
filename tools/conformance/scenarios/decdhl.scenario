@@ -1,0 +1,18 @@
+# DECDHL (ESC # 3 and ESC # 4) makes the cursor's line the top or the
+# bottom half of a double-height, double-width line. Each half holds half
+# the screen's columns, so printing wraps after column 5 of 10 and CPR
+# stops there.
+# spec: the VT100 User Guide, DECDHL
+# capability: decdhl
+size 10 4
+send "\e#3Big\r\n\e#4Big"
+check
+want row 0 |Big|
+want row 1 |Big|
+send "\e[1;1H\e[99C\e[6n"
+check
+reply "\e[1;5R"
+send "\e[2;1Habcdefg"
+check
+want row 1 |abcde|
+want row 2 |fg|
