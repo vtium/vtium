@@ -12,3 +12,4 @@ frit-vietnamese	#204: a new screen of a shipped font set for a script that needs
 frit-cjk-jp	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
 frit-cjk-tc	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
 frit-cjk-kr	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
+scripts-indic	moved by ADR-1006: the Hindi line now takes more than 64 cells, so it outgrows the 64x2 grid, wraps and scrolls off, and 18,484 pixels move; the redraw waits for the joined-syllables card (ADR-1203), which changes this screen too
