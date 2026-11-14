@@ -125,24 +125,47 @@ pub struct Shown {
 /// what a right-to-left row draws ([`vtium_render::joined`]): each joined
 /// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
 /// and the presentation form each key draws where no font holds the joined
-/// form (ADR-1004 D6, D7). A variant `all` lacks is added after the others.
+/// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
+/// too, piece by piece, in the variant of its first cell
+/// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
+/// cells' colors, which only decide whether it draws joined. A variant
+/// `all` lacks is added after the others.
 /// A build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     use vtium_render::joined;
+    use vtium_render::syllable::Syllable;
     use vtium_term::Glyph;
-    let mut drawn = Vec::new();
-    for row in 0..frame.rows() {
-        for (col, cell) in frame.cells(row).enumerate() {
-            let variant = variant_of(cell.attrs);
-            if !all.iter().any(|s| s.variant == variant) {
+    let shown_in = |all: &mut Vec<Shown>, variant: Variant| -> usize {
+        match all.iter().position(|s| s.variant == variant) {
+            Some(i) => i,
+            None => {
                 all.push(Shown {
                     variant,
                     ..Shown::default()
                 });
+                all.len().saturating_sub(1)
             }
-            let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
+        }
+    };
+    let mut drawn = Vec::new();
+    for row in 0..frame.rows() {
+        for (col, cell) in frame.cells(row).enumerate() {
+            // a syllable's pieces, once, from its first cell
+            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell) {
+                let i = shown_in(all, s.variant());
+                if let Some(shown) = all.get_mut(i) {
+                    for index in 0..s.len() {
+                        let mut key = Vec::new();
+                        if s.key(index, &mut key).is_some() {
+                            shown.clusters.push(key);
+                        }
+                    }
+                }
+            }
+            let i = shown_in(all, variant_of(cell.attrs));
+            let Some(shown) = all.get_mut(i) else {
                 continue;
             };
             match cell.glyph {
@@ -1168,6 +1191,13 @@ impl DeferredFace {
             &[c] => self.single(c, variant),
             _ => {
                 let held = lock(&self.generated).draw(self.at(), cluster, variant);
+                // a syllable's piece is the helper's or nothing: the
+                // renderer draws its clusters on their own while the store
+                // lacks it (ADR-1203 D4)
+                #[cfg(feature = "bidi")]
+                if vtium_font::syllable::piece_of_chars(cluster).is_some() {
+                    return held;
+                }
                 #[cfg(feature = "bidi")]
                 if let Some(key) = joined::Key::of(cluster) {
                     return held.or_else(|| self.joined(&key, variant));
@@ -1457,6 +1487,13 @@ impl Face for DeferredFace {
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         self.draw_in(cluster, style.into())
+    }
+
+    /// Whether the store holds the glyph the helper made for the whole of
+    /// `cluster` in `variant`, as it makes each piece of a syllable
+    /// (ADR-1203 D3).
+    fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        lock(&self.generated).held(self.at(), variant, cluster)
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -3813,5 +3850,81 @@ mod tests {
         assert!(lock(&generated).holds(SpacedCell::plain(other)));
         lock(&generated).retain(&[AT]);
         assert!(!lock(&generated).holds(SpacedCell::plain(other)));
+    }
+
+    // ADR-1203 D3: a row of Kannada asks the helper for each piece of the
+    // syllable ka, virama, ra, in the variant of its first cell, beside
+    // each cluster on its own; with the cursor on it, too, since the
+    // cursor only decides how it draws
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_syllable_is_asked_for_piece_by_piece() {
+        use vtium_font::syllable::Piece;
+        for bytes in ["\x1b[1mಕ್ರ", "\x1b[1mಕ್ರ\x1b[1;2H"] {
+            let mut t = vtium_term::Terminal::new(8, 1, 0);
+            t.input(bytes.as_bytes());
+            let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+            let mut all = vec![Shown::default()];
+            read_shown(&frame, &mut all);
+            settle(&mut all);
+            let bold = all.iter().find(|s| s.variant.style.bold).unwrap();
+            let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+            for start in [0, 1] {
+                let mut key = text.to_vec();
+                key.push(Piece::new(start, 1, 2).unwrap().mark());
+                assert!(
+                    bold.clusters.contains(&key),
+                    "{bytes:?}: {key:?} in {bold:?}"
+                );
+                assert!(
+                    !bold.chars.contains(key.last().unwrap()),
+                    "the mark is no character"
+                );
+            }
+            assert!(
+                bold.clusters.contains(&text[..2].to_vec()),
+                "ka with its virama"
+            );
+            assert!(bold.chars.contains(&'\u{cb0}'), "ra on its own");
+        }
+    }
+
+    // ADR-1203 D4: the console's face holds a syllable's piece once the
+    // helper's set brings it, and draws nothing for a piece it lacks, so
+    // the renderer draws the clusters on their own meanwhile
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_piece_is_held_or_drawn_as_nothing() {
+        use vtium_font::syllable::Piece;
+        let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+        let mut held = text.to_vec();
+        held.push(Piece::new(0, 1, 2).unwrap().mark());
+        let mut lacked = text.to_vec();
+        lacked.push(Piece::new(1, 1, 2).unwrap().mark());
+        let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
+        let g = s.glyph(Width::Narrow, vec![7; (CELL.width * CELL.height) as usize]);
+        s.cluster(&held, g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let generated = Shared::default();
+        {
+            let mut store = lock(&generated);
+            let fresh = store.fresh((AT, Variant::default()), set, &[], 1).unwrap();
+            store.add(fresh);
+        }
+        let f = face(&generated);
+        assert!(f.holds(&held, Variant::default()));
+        assert!(!f.holds(&lacked, Variant::default()));
+        let bold = Variant {
+            style: Style {
+                bold: true,
+                italic: false,
+            },
+            ..Variant::default()
+        };
+        assert!(!f.holds(&held, bold), "held in its own variant alone");
+        let drawn = f.draw(&held, Style::default()).unwrap();
+        assert!(drawn.pixels().iter().all(|&p| p == 7));
+        assert!(f.draw(&lacked, Style::default()).is_none());
     }
 }
