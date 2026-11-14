@@ -5,7 +5,7 @@ The files here are the goldens that judge the glyph helper's shaper on syllabic 
 | File | What it is |
 |---|---|
 | `cases.tsv` | 180 test cases: each one's name, its font's file, its text as Unicode code points, and the output of HarfBuzz's `hb-shape` for that text, unchanged. |
-| `differs.tsv` | The 12 cases that the helper cannot draw as `hb-shape` does, each with its reason. |
+| `differs.tsv` | The 9 cases that the helper cannot draw as `hb-shape` does, each with its reason. |
 | `fonts/` | The 29 fonts that the cases use, unchanged. |
 | `import` | The script that copied `cases.tsv` and `fonts/` from HarfRust. |
 | `HarfRust-LICENSE.txt`, `HarfBuzz-COPYING.txt` | The MIT licences of HarfRust and HarfBuzz, which cover the test cases. |
@@ -15,7 +15,7 @@ The files here are the goldens that judge the glyph helper's shaper on syllabic 
 
 Each case gives a text and a font. The test writes the text on the first row of a vtium terminal and reads the clusters back, one cell at a time. Where the clusters of one syllable link, the test joins them, as the console joins the cells that hold them (ADR-1203). For example, ka with its virama links to the ra after it. Those are the clusters and syllables that the console asks the helper for. The test shapes each of them with the helper's own code, `shaping::shape::shape_all`, and lays them end to end. The result must be `hb-shape`'s glyphs, at `hb-shape`'s places, with `hb-shape`'s advance. The test compares glyph ids and positions in font units. It does not compare `hb-shape`'s cluster numbers, because the helper numbers each glyph by the character it comes from.
 
-106 of the cases are one cluster each, and 74 are several clusters. 168 cases draw exactly as `hb-shape` draws them. `differs.tsv` lists the other 12, each under one of three reasons:
+106 of the cases are one cluster each, and 74 are several clusters. 171 cases draw exactly as `hb-shape` draws them. `differs.tsv` lists the other 9, each under one of three reasons:
 
 - **left-out:** the font has no glyph for a character, so `hb-shape` draws the font's .notdef glyph. The helper leaves such a cluster out, so that a later font in the frit, or the console, draws the cluster.
 - **never-asked:** the text is only marks. A vtium terminal stores no mark at the start of a row, so the console never asks for such a text.
