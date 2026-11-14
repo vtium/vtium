@@ -36,6 +36,11 @@ considered:
     said: "The overlay row covers only the address's own cells; the rest of the row shows what the program drew."
     via: the maintainer's answers in the steering session's interview, 2026-11-01
     paraphrase: true
+  - operator: aaronsb
+    said: "Keyboard link hints are built in this wave."
+    via: the steering session's questions on 2026-11-14, on the wave plan
+    paraphrase: true
+    covers: [no mouse]
 observable:
   - "A replay case opens a link, prints across a wrap, scrolls it into the scrollback and resizes; each cell keeps its link, and a sweep frees only links no line names"
   - "A flood of distinct links past `LINKS_BYTES_MAX` strips the oldest scrollback lines' links first and keeps every link on the screen; fed whole and chunked, it ends in the same store"
@@ -53,13 +58,15 @@ related: []
 
 ## Summary
 
-- **Decided:** OSC 8 links are kept per cell through ADR-1001's link index, in one link store bounded at 256 KiB that holds each distinct link once. A link is underlined while the pointer is over it, shows its URI on an overlay row while Ctrl is held, and Ctrl+click copies the URI into the selection buffer the middle button and Shift+Insert paste. Nothing is ever opened or run. OSC 133 marks set ADR-1001's three line flags; Ctrl+Shift+Up and Down move the view between marked prompts, and Ctrl+right-click copies the output of the command under the pointer.
-- **Trades away:** No link opens a browser or any command. A link draws nothing until it is hovered, and a console with no pointer cannot use links. On the main screen, Ctrl+Shift+Up and Down never reach a program. Past 256 KiB of distinct links, the oldest scrollback lines lose theirs.
+- **Decided:** OSC 8 links are kept per cell through ADR-1001's link index, in one link store bounded at 256 KiB that holds each distinct link once. A link is underlined while the pointer is over it, shows its URI on an overlay row while Ctrl is held, and Ctrl+click copies the URI into the selection buffer the middle button and Shift+Insert paste. Nothing is ever opened or run. OSC 133 marks set ADR-1001's three line flags; Ctrl+Shift+Up and Down move the view between marked prompts, and Ctrl+right-click copies the output of the command under the pointer. Link hints copy a link with the keyboard alone: `key-link-hints`, Ctrl+Shift+O by default, labels each visible link with letters, and typing a label copies that link's address (section 7, proposed).
+- **Trades away:** No link opens a browser or any command. A link draws nothing until it is hovered or labelled. Ctrl+Shift+O never reaches a program while it is bound to link hints. On the main screen, Ctrl+Shift+Up and Down never reach a program. Past 256 KiB of distinct links, the oldest scrollback lines lose theirs.
 - **One-way?** No. Reversible: the cell's link index and the line flags exist already, and nothing outlives the process.
 - **Probes:**
   - *Confident (nothing opens):* a link on the console never starts a browser or any other program; Ctrl+click puts its address in the paste buffer, and you paste it where you choose, such as after `w3m` at a shell prompt.
   - *Not confident (no mouse):* on a console with no mouse, links do nothing until a keyboard way to pick one is built, as foot labels every link on the screen with a letter to type; that is left to its own issue.
 - **Inversion:** Between "the console as a launcher", where kitty, foot, Ghostty and WezTerm open a link through the desktop's opener, and "links parsed and dropped", as the C reference had them. The answer sits between: links kept, shown and copied, with the launch left out.
+
+> Edited 2026-11-14: section 7 is new and proposed, and it waits for the maintainer's reading. The maintainer decided that keyboard link hints are built in this wave (`considered`), which answers the probe on a console with no mouse. The Decided line gains its last sentence. The Trades away line read: "No link opens a browser or any command. A link draws nothing until it is hovered, and a console with no pointer cannot use links." Section 3's bullet on a console with no pointer, section 6's last option and the Negative consequences change with it, each with a note.
 
 ## Context
 
@@ -128,7 +135,9 @@ The open link is part of the pen: printed cells take it, erased cells take none,
 - **Ctrl held over a link** also shows its URI on an overlay row (section 4).
 - **Ctrl+left click on a link** copies its URI into the selection buffer, replacing what it held, and clears the selection on the screen; the middle button and Shift+Insert then paste it, filtered and bracketed as any paste. Nothing is opened, run or sent to the program. When a program tracks the pointer, Shift is added, as it is for selection.
 - **A plain click on a link** selects, as a click anywhere does.
-- **With no pointer**, links do nothing. A keyboard mode that labels each visible link for a key to pick, as foot's `show-urls-copy` and kitty's hints do, goes to its own issue, opened when the operator asks for it or a console without a pointer needs links.
+- **With no pointer**, link hints copy a link from the keyboard (section 7).
+
+  > Edited 2026-11-14: the maintainer decided that link hints are built (`considered`). The bullet read: "**With no pointer**, links do nothing. A keyboard mode that labels each visible link for a key to pick, as foot's `show-urls-copy` and kitty's hints do, goes to its own issue, opened when the operator asks for it or a console without a pointer needs links."
 
 | Option | Cost | Who does it | Verdict |
 |---|---|---|---|
@@ -204,7 +213,45 @@ The keys join the terminal's grabs (`crates/vtium/src/grab.rs`), where Shift+Up 
 | Ctrl+Shift+Z and X | apart from vtium's scroll keys; taken from a program that reads them through modifyOtherKeys or the kitty keyboard protocol | kitty, foot | Rejected |
 | No key, a configured action | nothing to find | WezTerm | Rejected: the issue's done condition is a jump |
 | Show or pipe a command's output to another program | starts a program | kitty's pager, foot's `pipe-command-output` | Rejected, as in section 3 |
-| Copy a command's output by a key | no pointer needed; which command the key means needs a rule | kitty's `show_last_command_output` | Left for the keyboard issue in section 3 |
+| Copy a command's output by a key | no pointer needed; which command the key means needs a rule | kitty's `show_last_command_output` | Left open: link hints (section 7) copy links only |
+
+> Edited 2026-11-14: with link hints decided (section 7), the last option's verdict read "Left for the keyboard issue in section 3".
+
+### 7. Keyboard link hints
+
+> Added 2026-11-14, proposed: this section is new and waits for the maintainer's reading. The maintainer decided that keyboard link hints are built in this wave (`considered`). The section decides how they work.
+
+Link hints let you copy a link with the keyboard alone, on a console with no mouse or with one. You press a key, vtium puts a short label of letters on each link on the screen, and you type the label of the link you want. vtium then copies that link's address, as Ctrl+click does.
+
+- **The key.** `key-link-hints` starts link hints, and its default is `<Ctrl><Shift>O`. Like every key binding, an empty value hands the key back to the program. The key works on the main screen and on the alternate screen, since full-screen programs such as pagers and mail readers print links too. It acts on the console shown on the head that the keyboard types into.
+- **A screen with no links.** When no link is visible, vtium starts no hints. It shows "No links are on the screen." on the overlay row of section 4 until the next key press or pointer movement, and that key press reaches the program as usual.
+- **Which links get a label.** Each distinct link visible in the view gets one label, a link being one entry of the link store. vtium orders the links by the cell where each first appears, row by row from the top, and in each row from left to right as the row is drawn. Only OSC 8 links get labels. Text that merely looks like an address does not.
+- **How labels are chosen.** Labels are made from the 26 lowercase letters, in this order: the home row `a s d f g h j k l`, then `q w e r t y u i o p`, then `z x c v b n m`. Every label has the same number of letters: the fewest that give each visible link its own label. That is one letter for up to 26 links, two letters for up to 676, and so on. The first link takes the first label, the second link the second, counting through the letters in the order above. Because all labels are the same length, no label begins another, so the last letter you type picks the link and you never press Enter. The same screen always gets the same labels.
+- **How labels are drawn.** Each label covers the first cells of its link where the link first appears, one letter to a character cell. Labels draw in the default colors inverted, as the overlay row draws an address. A label that would pass the row's last column moves left so that it ends there. While hints are on, every visible cell of a labelled link also takes the dashed underline that the pointer's hover gives it (section 4). The overlay row shows "Type a link's label to copy its address. Press Escape to stop." Labels and that row draw with vtium's own notices, above every program's text and pictures (ADR-1100 D4). Under a label the text cursor and the selection are not drawn. Labels are no part of the screen: no cell, selection, copy or reply sees them.
+- **Typing a label.** While hints are on, vtium takes every key press from the head's keyboards, and none reaches the program. A letter that continues at least one label is kept, and the labels it does not continue disappear. A letter that continues no label is ignored. Backspace takes back the last letter kept. When the letters kept spell a whole label, vtium copies that link's address into the selection buffer, replacing what it held. It also clears the selection on the screen, as Ctrl+click does. The middle button and Shift+Insert then paste it. Hints end, and the overlay row shows "Copied: " followed by the address until the next key press or pointer movement, so you see what you copied. Nothing is opened, run or sent to the program.
+- **How hints end without a copy.** Escape ends them, and so does `key-link-hints` again. Any other key that is not a letter or Backspace ends them too, and vtium drops that key, so a key meant for the hints never types into the program. Hints also end at a pointer click, a scroll of the view, or a switch to another console or VT. They end when the grid's size, zoom or rotation changes, and when the console's session ends.
+- **Output while hints are on.** Hints stay on while the program writes. vtium fixes the labels when hints start, so a label always means the same link. Each label follows its link to where the link now first appears. A link that leaves the view loses its label, and a link that arrives gets none. The labelled links count as named when the link store sweeps (section 1), as the hovered link does, so the store never frees a link while its label shows.
+- **Several displays.** A head shows one console on all its displays, so each display of the head draws the same labels.
+
+In this example, `ls --hyperlink` printed three links. The labels `a`, `s` and `d`, drawn inverted, each cover the first cell of a name, and the overlay row is the screen's last row.
+
+```text
+ drwxr-xr-x  2 aaron aaron 4096 Oct 27 09:12 aocs
+ -rw-r--r--  1 aaron aaron  913 Oct 27 09:12 sEADME.md
+ -rw-r--r--  1 aaron aaron 1270 Oct 27 09:12 dargo.toml
+
+ Type a link's label to copy its address. Press Escape to stop.
+```
+
+| Option | Cost | Who does it | Verdict |
+|---|---|---|---|
+| Labels of letters, typed to copy the link | a key taken from programs while it is bound | foot's URL mode with `show-urls-copy`, kitty's hints | Taken |
+| Labels of equal length, so the last letter picks the link | three letters on a screen with more than 676 links | | Taken |
+| Labels of different lengths, shortest for the first links | a label that begins another needs Enter to pick the shorter one | | Rejected |
+| Number the links, typed and then Enter | one more key for every copy, and numbers sit far from the home row | | Rejected |
+| Move a highlight from link to link with the arrow keys | many presses on a screen full of links | | Rejected |
+| Label text that looks like an address, found by a pattern | a pattern that finds addresses where a program printed none, and a second way for a link to come about | foot, kitty | Not taken in this section: OSC 8 links are the links vtium keeps |
+| `<Ctrl><Shift>O` | a program that reads Ctrl+Shift+O, through the kitty keyboard protocol, loses it while the key is bound | foot binds it to its URL mode | Taken |
 
 ### Where each part lands
 
@@ -214,6 +261,11 @@ The keys join the terminal's grabs (`crates/vtium/src/grab.rs`), where Shift+Up 
 | The hovered link and the overlay's text in the frame; the rows a hover change marks | `vtium-term` |
 | The dashed hover underline and the overlay row | `vtium-render` |
 | The hover from the pointer, Ctrl+click and Ctrl+right-click, the prompt jump grabs | `vtium` |
+| Link hints: the key, the labels, the letters typed and the copy | `vtium` |
+| The labels drawn over their links, and the hint row | `vtium-render` |
+| The labelled links counted as named when the store sweeps | `vtium-term` |
+
+> Edited 2026-11-14: the three rows for link hints are new (section 7).
 
 ## Consequences
 
@@ -228,7 +280,10 @@ The keys join the terminal's grabs (`crates/vtium/src/grab.rs`), where Shift+Up 
 ### Negative
 
 - A link cannot be followed from the console; the user pastes its address into a program that can.
-- Links are invisible until hovered, and unusable without a pointer until the keyboard mode is built.
+- Links are invisible until hovered or labelled.
+- Ctrl+Shift+O never reaches a program while `key-link-hints` binds it.
+
+> Edited 2026-11-14: with link hints (section 7), the first bullet above read "Links are invisible until hovered, and unusable without a pointer until the keyboard mode is built.", and the bullet on Ctrl+Shift+O is new.
 - Ctrl+Shift+Up and Down never reach a program on the main screen.
 - A long session with more than about 2,300 distinct links in the scrollback loses the oldest ones' links.
 - A sweep is linear in the lines held, about 100,000 table reads at the largest cap, once per 64 KiB of new links.
