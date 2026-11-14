@@ -32,6 +32,10 @@
 #   VTIUM_VT_RENDER_PATH  for the acceptance pass: gpu or cpu (RENDER_PATH=),
 #                     which run-vt.sh gives vtium as --hwaccel or
 #                     --no-hwaccel and the pass's record names
+#   VTIUM_VT_PAGES    for the acceptance pass: only these pages (PAGES='51
+#                     56'), by number or file name, checked here with
+#                     accept.sh --check before sudo and handed to run-vt.sh
+#                     as --pages, one word
 #   VTIUM_VT_GUIDE    for guide: a name in tools/vt/checks (NAME.guide) or a
 #                     path, checked here with guide.sh --check before sudo
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
@@ -100,6 +104,15 @@ if [ "$mode" = guide ]; then
 	[ ${#steps[@]} -eq 0 ] || session+=(--steps="${steps[*]}")
 elif [ -n "${VTIUM_VT_GUIDE:-}${VTIUM_VT_STEPS:-}" ]; then
 	die "GUIDE and GUIDE_STEPS go with make vt-check"
+fi
+# The acceptance pass's pages, checked before sudo: accept.sh names a page
+# that matches none. The list is split into words and never run as code.
+pages_arg=()
+if [ "$mode" = accept ] && [ -n "${VTIUM_VT_PAGES:-}" ]; then
+	ACCEPT_ONLY=$VTIUM_VT_PAGES ACCEPT_PAGES='' "$here/accept.sh" --check >/dev/null ||
+		die "PAGES is refused (above): name pages of tools/vt/sections by number (51) or file name (51-double-size)"
+	read -ra page_words <<<"${VTIUM_VT_PAGES//,/ }"
+	pages_arg=(--pages="${page_words[*]}")
 fi
 if [ -n "${VTIUM_VT_ARGS:-}" ]; then
 	printf '%s' "$VTIUM_VT_ARGS" | xargs -r printf '%s\0' >/dev/null ||
@@ -226,7 +239,7 @@ build_cmd() {
 	[ -z "$transcript" ] || record=(--transcript="$transcript")
 	[ -z "$drm" ] || state=(--debug="$drm")
 	cmd=("$here/run-vt.sh" --bin="$bin" "${helper_arg[@]}" --label="dev build ${label:-unknown}"
-		--features="${VTIUM_VT_FEATURES:-}" --passes="$passes" "${render[@]}" "${state[@]}" "${session[@]}"
+		--features="${VTIUM_VT_FEATURES:-}" --passes="$passes" "${render[@]}" "${pages_arg[@]}" "${state[@]}" "${session[@]}"
 		"${record[@]}" "$vt" -- "${extra[@]}")
 }
 

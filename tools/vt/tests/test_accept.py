@@ -611,6 +611,85 @@ class Walk(Case):
         self.assertEqual(d.finish(), 0)
         self.assertNotIn(b"r resume it", d.seen)
 
+    def test_a_pass_limited_to_some_pages_walks_them_in_order_and_says_so(self):
+        # ACCEPT_ONLY names pages by number or by file name, in any order;
+        # the walk takes them in file name order.
+        d = self.walk(self.env(ACCEPT_ONLY="40-reverse 20"))
+        d.wait_for(b"only 2 of the 4 pages: this is not a full pass")
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"[1/2] two")
+        d.wait_for(ASK)
+        d.send(b"y")
+        d.wait_for(b"[2/2] reverse")
+        d.wait_for(ASK)
+        d.send(b"n")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"page one", d.seen)
+        _, text = self.record()
+        self.assertIn("\n- pages: only 20-two and 40-reverse, of the 4 pages; this is not a full pass\n", text)
+        self.assertIn("- answered: 2 of 2\n", text)
+        self.assertEqual(self.rows(text), [("20-two", "yes", ""), ("40-reverse", "no", "")])
+        # feedback.sh prints the limit with the pass.
+        p = self.feedback()
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn("pages     only 20-two and 40-reverse, of the 4 pages; this is not a full pass\n", p.stdout)
+
+    def test_a_full_pass_says_nothing_of_pages(self):
+        d = self.walk(self.env())
+        d.wait_for(b"press a key to start the pass")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"not a full pass", d.seen)
+
+    def test_an_unknown_page_refuses_to_start_and_names_the_page(self):
+        marker = os.path.join(self.tmp, "ran")
+        for only, args, name in (("20 99", (), "99"), ("", ("two", "three"), "three"),
+                                 ("10 one-two", (), "one-two"), (f"$(touch {marker})", (), "$(touch")):
+            with self.subTest(only=only, args=args):
+                p = subprocess.run(["/bin/bash", ACCEPT_SH, *args], env=self.env(ACCEPT_ONLY=only),
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=WAIT_BOUND)
+                self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+                self.assertIn(f"accept: no such page: {name}", p.stderr)
+                self.assertFalse(os.path.exists(self.passes))
+        # The words are names, never shell code.
+        self.assertFalse(os.path.exists(marker))
+
+    def test_check_lists_the_chosen_pages_and_starts_nothing(self):
+        p = subprocess.run(["/bin/bash", ACCEPT_SH, "--check"], env=self.env(ACCEPT_ONLY="40, 10-one"),
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=WAIT_BOUND)
+        self.assertEqual((p.returncode, p.stdout, p.stderr), (0, "10-one\n40-reverse\n", ""))
+        self.assertFalse(os.path.exists(self.passes))
+        p = subprocess.run(["/bin/bash", ACCEPT_SH, "--check"], env=self.env(ACCEPT_ONLY="5"),
+                           stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=WAIT_BOUND)
+        self.assertEqual(p.returncode, 2, p.stdout)
+        self.assertIn("accept: no such page: 5", p.stderr)
+
+    def test_a_limited_pass_and_a_full_pass_never_resume_each_other(self):
+        self.quit_after_one()
+        d = self.walk(self.env(ACCEPT_ONLY="10 20"))
+        d.wait_for(b"press a key to start the pass")
+        d.send(b" ")
+        d.wait_for(b"[1/2] one")
+        d.wait_for(ASK)
+        d.send(b"q")
+        d.wait_for(b"q exit")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        self.assertNotIn(b"r resume it", d.seen)
+        # The full pass that stopped is still the one a full run resumes,
+        # and the limited one is resumed only by the same pages.
+        d = self.walk(self.env())
+        d.wait_for(b"r resume it at page 2 (1 of 4 answered)")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+        d = self.walk(self.env(ACCEPT_ONLY="10 20"))
+        d.wait_for(b"r resume it at page 1 (0 of 2 answered)")
+        d.send(b"q")
+        self.assertEqual(d.finish(), 0)
+
     def test_nothing_is_recorded_in_a_directory_not_the_users_own(self):
         os.symlink(self.tmp, self.passes)
         d = self.walk(self.env())
