@@ -2842,6 +2842,15 @@ const BASE: &[Case] = &[
         screen: shipped(1, "frit-hebrew", FRIT_HEBREW_DESC, FRIT_HEBREW, 4),
     },
     Case {
+        screen: shipped(
+            2,
+            "frit-kannada-syllables",
+            FRIT_KANNADA_DESC,
+            FRIT_KANNADA,
+            4,
+        ),
+    },
+    Case {
         screen: shipped(3, "frit-thai-lao", FRIT_THAI_LAO_DESC, FRIT_THAI_LAO, 6),
     },
     Case {
@@ -3001,6 +3010,20 @@ const FRIT_INDIC: &[u8] = concat!(
 .as_bytes();
 
 const FRIT_INDIC_DESC: &str = "The shipped font set indic at 32 pixels of text, with its 40 per cent of line spacing, 48 by 12 cells: a line in each script the set names, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam and Sinhala, each naming its language and then words with vowel signs above and below, reph and conjuncts, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-kannada-syllables` screen: Kannada syllables that Unicode's
+/// grapheme rules cut into several clusters, joined across their cells,
+/// and the same syllables split by a change of color or of style, inside
+/// a box of light lines (ADR-1203).
+const FRIT_KANNADA: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ ಕ್ರ ರ್ಕ ಸ್ತ್ರೀ ಕನ್ನಡ ಕಾರ್ತ್ಸ್ನ್ಯ\r\n",
+    "│ ಕ್\x1b[31mರ\x1b[m ಸ್\x1b[1mತ್\x1b[mರೀ ಕ\x1b[4mನ್ನ\x1b[mಡ\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_KANNADA_DESC: &str = "The shipped font set indic at 32 pixels of text, with its 40 per cent of line spacing, 48 by 4 cells: ka with ra, ra with ka, stree, kannada and kartsnya, each syllable shaped once and drawn across the cells of its clusters, with ra under ka, the reph over ka, stree as one stacked conjunct, na under na and the five consonants of rtsny stacked (ADR-1203); then ka with a red ra and sa with a bold ta drawn split, each cluster on its own with its virama showing, and kannada with its na-na underlined and still joined, inside a box of light lines whose left side joins from row to row.";
 
 /// The `frit-thai-lao` screen: Thai and Lao with vowels and tone marks
 /// stacked above and below, inside a box of light lines.
