@@ -1281,8 +1281,10 @@ impl Screen {
     }
 
     /// The logical column view row `y` shows at column `x`, where the
-    /// pointer is: the cell a selection, a mouse report or a link's hover
-    /// takes. In a build with the bidi feature a row drawn in another
+    /// pointer is: the cell a mouse report takes, and the cell a selection
+    /// or a link's hover takes once [`character_col`](Self::character_col)
+    /// has halved a column of a line of double size. In a build with the
+    /// bidi feature a row drawn in another
     /// order than it was written shows another column there (ADR-1004
     /// D10); otherwise every column shows itself.
     pub(crate) fn pointer_col(&self, x: usize, y: usize) -> usize {
@@ -1292,6 +1294,25 @@ impl Screen {
         }
         let _ = y;
         x
+    }
+
+    /// The logical column of the character the pointer is over at screen
+    /// column `x` of view row `y`, which a selection and a link's hover
+    /// take. A line of double size draws each of its characters across two
+    /// of the screen's columns, so screen column `x` shows the line's own
+    /// column `x / 2`, and a click on either half of a doubled character
+    /// lands on that character. That column then goes through
+    /// [`pointer_col`](Self::pointer_col) for a row drawn in another order.
+    ///
+    /// References:
+    /// - ADR-1308 D1, "Selection on a double-size line follows the
+    ///   cursor's rule": the pointer maps a click or a drag on a
+    ///   double-size line to the line's own columns.
+    pub(crate) fn character_col(&self, x: usize, y: usize) -> usize {
+        let double = self
+            .view_line(y)
+            .is_some_and(|l| l.flags().size().is_double());
+        self.pointer_col(if double { x / 2 } else { x }, y)
     }
 
     /// Marks cells of `row` changed. While the view is scrolled back, the

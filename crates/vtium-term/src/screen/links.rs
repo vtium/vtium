@@ -164,7 +164,8 @@ impl Screen {
     }
 
     /// The link of the cell drawn at column `x` of view row `y`, if it has
-    /// one: in a row drawn in another order than it was written, the cell
+    /// one: on a line of double size, the doubled character drawn there,
+    /// and in a row drawn in another order than it was written, the cell
     /// of the logical column shown there (ADR-1004 D10). The id is valid
     /// until the next [`Terminal::input`](crate::Terminal::input): a sweep
     /// of the link store renumbers the links it keeps.
@@ -172,7 +173,7 @@ impl Screen {
         if x >= self.cols {
             return None;
         }
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         let line = self.view_line(y)?;
         line.link(line.cell(x))
     }

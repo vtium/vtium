@@ -17,12 +17,26 @@
 //! copy has no line end where it wrapped. The alternate screen's first row
 //! does not continue the scrollback, which holds the main screen's lines.
 //! Changing the selection marks everything, since its cells draw inverted.
+//!
+//! On a line of double size the pointer is over the doubled character
+//! drawn there, so a column of the screen is half a column of the line
+//! (`Screen::character_col`). A pair of double-height lines draws one line
+//! of tall characters, and the selection treats it as one line: an end on
+//! the bottom line holds the top line's column, both lines show the same
+//! columns selected, and a copy takes the pair's text once, from its top
+//! line.
+//!
+//! References:
+//! - ADR-1308 D1, "Selection on a double-size line follows the cursor's
+//!   rule": the half-width columns, both halves highlighted, and the pair's
+//!   text copied once from its top line.
 
 use core::ops::Range;
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::{Glyph, Line, LineFlags, LineId};
+use crate::frame::pair_of;
+use crate::line::{Glyph, Line, LineFlags, LineId, LineSize};
 
 /// One end of the selection: a column of a line.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -108,7 +122,7 @@ impl Screen {
 
     /// Starts a selection at column `x` of view row `y`.
     pub fn select_start(&mut self, x: usize, y: usize) {
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
@@ -125,7 +139,7 @@ impl Screen {
     /// Extends the selection from where it started to column `x` of view
     /// row `y`, whichever comes first in reading order.
     pub fn select_to(&mut self, x: usize, y: usize) {
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         if !self.selection.active {
             return;
         }
@@ -151,12 +165,12 @@ impl Screen {
     /// goes on at the start of the next, past the empty cells a wide
     /// character that wrapped whole leaves there.
     pub fn select_word(&mut self, x: usize, y: usize) {
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
         self.damage.mark_all();
-        let at = self.view_place(y);
+        let at = self.pair_top(self.view_place(y));
         let Some(line) = self.line_at(at) else {
             return;
         };
@@ -230,15 +244,16 @@ impl Screen {
     /// Selects the whole line at view row `y`, `x` any column of it: each
     /// row of it, when it wrapped.
     pub fn select_line(&mut self, x: usize, y: usize) {
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         let Some(anchor) = self.anchor(x, y) else {
             return;
         };
-        let mut first = self.view_place(y);
+        let at = self.pair_top(self.view_place(y));
+        let mut first = at;
         while let Some(prev) = first.checked_sub(1).filter(|&p| self.continues(p)) {
             first = prev;
         }
-        let mut last = self.view_place(y);
+        let mut last = at;
         while self.continues(last) {
             last = last.saturating_add(1);
         }
@@ -260,11 +275,11 @@ impl Screen {
     /// output, a prompt's or its input's, selects nothing, nor does the
     /// alternate screen. Returns whether it selected.
     pub fn select_output(&mut self, x: usize, y: usize) -> bool {
-        let x = self.pointer_col(x, y);
+        let x = self.character_col(x, y);
         let Some(anchor) = self.anchor(x, y).filter(|_| !self.flags.alternate) else {
             return false;
         };
-        let mut start = self.view_place(y);
+        let mut start = self.pair_top(self.view_place(y));
         loop {
             let Some(flags) = self.line_at(start).map(Line::flags) else {
                 return false;
@@ -319,7 +334,9 @@ impl Screen {
     /// The selected text, each line ended by a newline but a row that
     /// wrapped and the last of a selection of characters, each cell's whole
     /// cluster, an empty cell a space, and nothing for the tail of a wide
-    /// character; `None` when nothing is selected.
+    /// character; the bottom line of a double-height pair whose top line is
+    /// selected gives nothing, so the pair's text comes once; `None` when
+    /// nothing is selected.
     pub fn selection_text(&self) -> Option<String> {
         let (from, to) = self.selected_span()?;
         let mut out = String::new();
@@ -329,6 +346,11 @@ impl Screen {
             .take(to.0.saturating_add(1))
             .skip(from.0)
         {
+            // the bottom line of a pair whose top line the selection
+            // covers copies nothing: the top line holds the pair's text
+            if i > from.0 && self.pair_place(i).is_some_and(|top| top < i) {
+                continue;
+            }
             let start = if i == from.0 { from.1 } else { 0 };
             let end = if i == to.0 {
                 to.1.saturating_add(1)
@@ -343,7 +365,7 @@ impl Screen {
                 out.push('\n');
             }
         }
-        if !self.selection.line {
+        if !self.selection.line && out.ends_with('\n') {
             out.pop();
         }
         Some(out)
@@ -370,6 +392,11 @@ impl Screen {
     }
 
     /// The columns of each view row the selection covers, for the frame.
+    /// Both lines of a double-height pair get the same columns: the top
+    /// line's when the selection covers the top line, and the bottom
+    /// line's otherwise. So a selected doubled character shows both its
+    /// halves selected, even when the view shows only one line of its
+    /// pair.
     pub(super) fn selected_columns(&self, view: &[&Line]) -> Vec<Range<usize>> {
         let Some((from, to)) = self.selected_span() else {
             return Vec::new();
@@ -378,19 +405,28 @@ impl Screen {
             .scrollback
             .view_index()
             .unwrap_or(self.scrollback.len());
+        let covered = |i: usize| {
+            if i < from.0 || i > to.0 {
+                return 0..0;
+            }
+            let start = if i == from.0 { from.1 } else { 0 };
+            let end = if i == to.0 {
+                to.1.saturating_add(1)
+            } else {
+                self.cols
+            };
+            start..end.min(self.cols)
+        };
         (0..view.len())
             .map(|row| {
                 let i = base.saturating_add(row);
-                if i < from.0 || i > to.0 {
-                    return 0..0;
-                }
-                let start = if i == from.0 { from.1 } else { 0 };
-                let end = if i == to.0 {
-                    to.1.saturating_add(1)
-                } else {
-                    self.cols
+                let Some(other) = self.pair_place(i) else {
+                    return covered(i);
                 };
-                start..end.min(self.cols)
+                let (top, bottom) = (i.min(other), i.max(other));
+                Some(covered(top))
+                    .filter(|r| !r.is_empty())
+                    .unwrap_or_else(|| covered(bottom))
             })
             .collect()
     }
@@ -472,13 +508,38 @@ impl Screen {
         }
     }
 
-    /// Column `x` of view row `y`, inside the screen.
+    /// Column `x` of view row `y`, inside the screen. On the bottom line
+    /// of a double-height pair it is column `x` of the pair's top line,
+    /// since the pair draws one line of tall characters and its top line
+    /// holds their text.
     fn anchor(&self, x: usize, y: usize) -> Option<Anchor> {
         if x >= self.cols || y >= self.rows {
             return None;
         }
-        let line = *self.view().get(y)?;
-        Some(Anchor { line: line.id(), x })
+        self.view_line(y)?;
+        self.anchor_at(self.pair_top(self.view_place(y)), x)
+    }
+
+    /// The place in reading order of the other line of the double-height
+    /// pair that the line at `place` belongs to, by the rule the frame
+    /// pairs its rows with. On the alternate screen the scrollback's last
+    /// line and the screen's first row are not neighbours, so they never
+    /// pair.
+    fn pair_place(&self, place: usize) -> Option<usize> {
+        let size = |p: usize| {
+            self.line_at(p)
+                .map_or(LineSize::Single, |l| l.flags().size())
+        };
+        let other = pair_of(place, size)?;
+        let split = self.flags.alternate && place.max(other) == self.scrollback.len();
+        (!split).then_some(other)
+    }
+
+    /// The place of the top line of the double-height pair that the line
+    /// at `place` belongs to, or `place` itself when it belongs to none.
+    fn pair_top(&self, place: usize) -> usize {
+        self.pair_place(place)
+            .map_or(place, |other| other.min(place))
     }
 }
 
