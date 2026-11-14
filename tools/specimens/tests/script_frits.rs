@@ -129,7 +129,7 @@ fn the_vietnamese_frit_gives_latin_room_and_keeps_box_drawing_filling() {
     for c in [0x391, 0x416, 0x2500, 0x2588, 0x28ff] {
         assert_eq!(font.fit(c), None, "U+{c:04X} keeps its default");
     }
-    assert_eq!(Fit::default_for(0x2500, false), Fit::Fill);
+    assert_eq!(Fit::default_for(0x2500), Fit::Fill);
 }
 
 // ADR-1302 D13: Han, kana and Hangul draw inside the text's height, so each
