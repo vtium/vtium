@@ -247,6 +247,15 @@ pub trait Face {
     ) -> Option<Glyph> {
         None
     }
+
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant`, which it draws without building it from parts: the
+    /// renderer draws a syllable joined across its clusters only while the
+    /// face holds every piece of it (ADR-1203 D4, [`crate::syllable`]).
+    /// The default, for a face that shapes nothing across clusters, is no.
+    fn holds(&self, _cluster: &[char], _variant: Variant) -> bool {
+        false
+    }
 }
 
 /// Where a face's superscript or subscript glyph comes from
@@ -327,6 +336,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn fallback(&self, cluster: &[char], style: Style, width: u32, color: bool) -> Option<Glyph> {
         (**self).fallback(cluster, style, width, color)
+    }
+    fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        (**self).holds(cluster, variant)
     }
 }
 
@@ -425,6 +437,12 @@ impl<F: Face> Font<F> {
             Script::Baseline => self.face.decorations(),
             _ => self.face.script_decorations(script),
         }
+    }
+
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant` ([`Face::holds`]).
+    pub fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        self.face.holds(cluster, variant)
     }
 
     /// Whether `c` draws as itself: a sprite always does.
