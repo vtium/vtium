@@ -12,3 +12,4 @@ frit-vietnamese	#204: a new screen of a shipped font set for a script that needs
 frit-cjk-jp	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
 frit-cjk-tc	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
 frit-cjk-kr	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
+frit-kannada-syllables	ADR-1203: Kannada syllables that the grapheme rules cut into several clusters, each shaped once and drawn across its clusters' cells, and the same syllables split by a change of color or of style; drawn first on 2026-11-14; not reviewed yet
