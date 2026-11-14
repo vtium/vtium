@@ -270,9 +270,11 @@ impl Buffer {
         }
     }
 
-    /// Stacks a placement as a new arrival (D4): on top, but a picture
-    /// whose image has a kitty id goes beneath the first placement from the
-    /// bottom whose image has a higher one. Returns the placements passed.
+    /// Stacks a placement as a new arrival (D4): on top, but a kitty
+    /// picture goes beneath the first placement from the bottom whose image
+    /// has a higher kitty id. A kitty picture sent without an id has the
+    /// id 0, as the kitty specification gives it, so it goes beneath every
+    /// kitty picture with an id. Returns the placements passed.
     fn stack_arrival(&mut self, key: PlacementKey) -> u64 {
         let Some(p) = self.placements.get(&key) else {
             return 0;
@@ -299,10 +301,12 @@ impl Buffer {
         passed
     }
 
-    /// The kitty id the id rule compares a placement by, if it has one.
+    /// The kitty id the id rule compares a placement by: its image's id,
+    /// 0 for a kitty image sent without one, or none for a protocol
+    /// without ids.
     fn id_of(&self, p: &Placement) -> Option<u32> {
         let image = self.images.get(&p.image)?;
-        (rules(p.protocol.0).ids && image.id != 0).then_some(image.id)
+        rules(p.protocol.0).ids.then_some(image.id)
     }
 
     /// Stacks `key` directly above `after`, as a piece of it.
