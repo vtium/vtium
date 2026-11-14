@@ -24,6 +24,14 @@ considered:
   - operator: aaronsb
     said: "can we adobe wcwidth's rule?"
     via: the maintainer, through the steering session's question tool, 2026-11-13, after research showed Python wcwidth's rule, Ghostty and Windows Terminal give these clusters two cells; the steering session took the answer as yes
+  - operator: aaronsb
+    said: "Yes, one rule for all"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1006's Devanagari probe
+    covers: [Devanagari]
+  - operator: aaronsb
+    said: "Per cluster, like glibc"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1006's Kannada probe
+    covers: [Kannada]
 status: proposed
 date: 2026-11-13
 deciders:
