@@ -42,36 +42,36 @@ The cases are goldens, so the author of a change never rewrites them. A new impo
 
 The fonts are subsets of Noto fonts from HarfBuzz's own tests, in `test/shape/data/in-house/fonts/`, and each file is named by its SHA-1. HarfRust copies them into its repository. HarfBuzz's `in-house` directory has no notice of its own. Their name tables keep the family name, and most keep a version and a copyright line, but no licence.
 
-The Noto project publishes its fonts under the SIL Open Font License 1.1, which `Noto-LICENSE.txt` holds. The Noto fonts repository is `notofonts/noto-fonts`. The history of its `LICENSE` file shows the Apache License 2.0 from 2013-04-11, and the Open Font License from 2015-09-25. So a subset of a build from before 2015-09-25 may come under the Apache License 2.0, which `Apache-2.0.txt` holds. Both licences let vtium copy a subset of the font with its licence. The Noto project's licence names no Reserved Font Name, so the subsets keep their names. The tests read the fonts, and vtium installs none of them.
+The Noto project publishes its fonts under the SIL Open Font License 1.1, which `Noto-LICENSE.txt` holds. The Noto fonts repository is `notofonts/noto-fonts`. The history of its `LICENSE` file shows the Apache License 2.0 from 2013-04-11, and the Open Font License from 2015-09-25. So a subset of a build from before 2015-09-25 may come under the Apache License 2.0, which `Apache-2.0.txt` holds. The table below says which subsets may. Those are the builds whose copyright line names 2013 or 2015, and the subsets whose name table gives no copyright line, and so no date. The maintainer decided on 2026-11-13 to keep these subsets and to ship both licences' texts beside them. Both licences let vtium copy a subset of the font with its licence. The Noto project's licence names no Reserved Font Name, so the subsets keep their names. The tests read the fonts, and vtium installs none of them.
 
-| Font file | Family | Version | Copyright line | Cases |
-|---|---|---|---|---|
-| `fbb6c84c9e1fe0c39e152fbe845e51fd81f6748e.ttf` | Noto Sans Balinese | none | none | 1 |
-| `1ed7e9064f008f62de6ff0207bb4dd29409597a5.ttf` | Noto Sans Brahmi | none | none | 1 |
-| `28f497629c04ceb15546c9a70e0730125ed6698d.ttf` | Noto Sans Brahmi | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 3 |
-| `96490dd2ff81233b335a650e7eb660e0e7b2eeea.ttf` | Noto Sans Cham | none | none | 1 |
-| `e68a88939e0f06e34d2bc911f09b70890289c8fd.ttf` | Noto Sans Cham | none | none | 3 |
-| `9d8c53cb64b8747abdd2b70755cce2ee0eb42ef7.ttf` | Noto Sans Devanagari | Version 2.000 | Copyright 2015 Google Inc. All Rights Reserved. | 2 |
-| `dcf774ca21062e7439f98658b18974ea8b956d0c.ttf` | Noto Sans Grantha | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 1 |
-| `1735326da89f0818cd8c51a0600e9789812c0f94.ttf` | Noto Sans Gurmukhi | none | none | 2 |
-| `85fe0be440c64ac77699e21c2f1bd933a919167e.ttf` | Noto Sans Gurmukhi | none | none | 1 |
-| `f75c4b05a0a4d67c1a808081ae3d74a9c66509e8.ttf` | Noto Sans Gurmukhi | Version 1.03 uh | Copyright 2013 Google Inc. All Rights Reserved. | 2 |
-| `f70f345188472b93f565d1d7fae8c668dd6a3244.ttf` | Noto Sans Javanese | Version 2.003 | Copyright 2018-2022 Google Inc. All Rights Reserved. | 19 |
-| `3cae6bfe5b57c07ba81ddbd54c02fe4f3a1e3bf6.ttf` | Noto Sans Kannada | none | none | 1 |
-| `3d0b77a2360aa6faa1385aaa510509ab70dfbeff.ttf` | Noto Sans Kannada | none | none | 2 |
-| `3c96e7a303c58475a8c750bf4289bbe73784f37d.ttf` | Noto Sans Kannada UI | Version 1.03 uh | Copyright 2013 Google Inc. All Rights Reserved. | 1 |
-| `3998336402905b8be8301ef7f47cf7e050cbb1bd.ttf` | Noto Sans Khmer | Version 2.000 | Copyright 2016 Google Inc. All Rights Reserved. | 88 |
-| `ad01ab2ea1cb1a4d3a2783e2675112ef11ae6404.ttf` | Noto Sans Khmer | Version 2.001 | Copyright 2016 Google Inc. All Rights Reserved. | 1 |
-| `b6031119874ae9ff1dd65383a335e361c0962220.ttf` | Noto Sans Khmer | Version 2.000 | Copyright 2016 Google Inc. All Rights Reserved. | 25 |
-| `226bc2deab3846f1a682085f70c67d0421014144.ttf` | Noto Sans Malayalam | none | none | 1 |
-| `55e2910dbc9ef5dd89f4e146e7e0152169545b6a.ttf` | Noto Sans Malayalam | Version 2.101 | Copyright 2018 Google Inc. All Rights Reserved. | 15 |
-| `c825900b8a5b6571f0eb6c8c25c6512880bc42e9.ttf` | Noto Sans Malayalam | Version 2.104 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/malayalam) | 1 |
-| `e207635780b42f898d58654b65098763e340f5c7.ttf` | Noto Sans Malayalam | none | none | 1 |
-| `065b01e54f35f0d849fd43bd5b936212739a50cb.ttf` | Noto Sans Myanmar | 14.0d4e1 | Copyright 2015 Google Inc. All Rights Reserved. | 1 |
-| `a232bb734d4c6c898a44506547d19768f0eba6a6.ttf` | Noto Sans Myanmar | Version 2.001 | Copyright 2015 Google Inc. All Rights Reserved. | 1 |
-| `f4ba5a767ef56a40133844507efb98fee5635e71.ttf` | Noto Sans Myanmar | Version 2.107 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/myanmar) | 1 |
-| `573d3a3177c9a8646e94c8a0d7b224334340946a.ttf` | Noto Sans Newa | none | none | 1 |
-| `7c24183f26d60df414578a0a9f5e79ab9d32a22b.ttf` | Noto Sans Newa | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 1 |
-| `54674a3111d209fb6be0ed31745314b7a8d2c244.ttf` | Noto Sans Tamil | none | none | 1 |
-| `e2b17207c4b7ad78d843e1b0c4d00b09398a1137.ttf` | Noto Sans Tamil MN | Version 2.000 | Copyright 2017 Google Inc. All Rights Reserved. | 1 |
-| `e716f6bd00a108d186b7e9f47b4515565f784f36.ttf` | Noto Sans Telugu | Version 2.001 | Copyright 2019-2022 Google LLC. All Rights Reserved. | 1 |
+| Font file | Family | Version | Copyright line | Cases | Licence |
+|---|---|---|---|---|---|
+| `fbb6c84c9e1fe0c39e152fbe845e51fd81f6748e.ttf` | Noto Sans Balinese | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `1ed7e9064f008f62de6ff0207bb4dd29409597a5.ttf` | Noto Sans Brahmi | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `28f497629c04ceb15546c9a70e0730125ed6698d.ttf` | Noto Sans Brahmi | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 3 | OFL 1.1 |
+| `96490dd2ff81233b335a650e7eb660e0e7b2eeea.ttf` | Noto Sans Cham | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `e68a88939e0f06e34d2bc911f09b70890289c8fd.ttf` | Noto Sans Cham | none | none | 3 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `9d8c53cb64b8747abdd2b70755cce2ee0eb42ef7.ttf` | Noto Sans Devanagari | Version 2.000 | Copyright 2015 Google Inc. All Rights Reserved. | 2 | OFL 1.1, or Apache 2.0 if built before 2015-09-25 |
+| `dcf774ca21062e7439f98658b18974ea8b956d0c.ttf` | Noto Sans Grantha | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 1 | OFL 1.1 |
+| `1735326da89f0818cd8c51a0600e9789812c0f94.ttf` | Noto Sans Gurmukhi | none | none | 2 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `85fe0be440c64ac77699e21c2f1bd933a919167e.ttf` | Noto Sans Gurmukhi | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `f75c4b05a0a4d67c1a808081ae3d74a9c66509e8.ttf` | Noto Sans Gurmukhi | Version 1.03 uh | Copyright 2013 Google Inc. All Rights Reserved. | 2 | OFL 1.1, or Apache 2.0 if built before 2015-09-25 |
+| `f70f345188472b93f565d1d7fae8c668dd6a3244.ttf` | Noto Sans Javanese | Version 2.003 | Copyright 2018-2022 Google Inc. All Rights Reserved. | 19 | OFL 1.1 |
+| `3cae6bfe5b57c07ba81ddbd54c02fe4f3a1e3bf6.ttf` | Noto Sans Kannada | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `3d0b77a2360aa6faa1385aaa510509ab70dfbeff.ttf` | Noto Sans Kannada | none | none | 2 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `3c96e7a303c58475a8c750bf4289bbe73784f37d.ttf` | Noto Sans Kannada UI | Version 1.03 uh | Copyright 2013 Google Inc. All Rights Reserved. | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25 |
+| `3998336402905b8be8301ef7f47cf7e050cbb1bd.ttf` | Noto Sans Khmer | Version 2.000 | Copyright 2016 Google Inc. All Rights Reserved. | 88 | OFL 1.1 |
+| `ad01ab2ea1cb1a4d3a2783e2675112ef11ae6404.ttf` | Noto Sans Khmer | Version 2.001 | Copyright 2016 Google Inc. All Rights Reserved. | 1 | OFL 1.1 |
+| `b6031119874ae9ff1dd65383a335e361c0962220.ttf` | Noto Sans Khmer | Version 2.000 | Copyright 2016 Google Inc. All Rights Reserved. | 25 | OFL 1.1 |
+| `226bc2deab3846f1a682085f70c67d0421014144.ttf` | Noto Sans Malayalam | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `55e2910dbc9ef5dd89f4e146e7e0152169545b6a.ttf` | Noto Sans Malayalam | Version 2.101 | Copyright 2018 Google Inc. All Rights Reserved. | 15 | OFL 1.1 |
+| `c825900b8a5b6571f0eb6c8c25c6512880bc42e9.ttf` | Noto Sans Malayalam | Version 2.104 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/malayalam) | 1 | OFL 1.1 |
+| `e207635780b42f898d58654b65098763e340f5c7.ttf` | Noto Sans Malayalam | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `065b01e54f35f0d849fd43bd5b936212739a50cb.ttf` | Noto Sans Myanmar | 14.0d4e1 | Copyright 2015 Google Inc. All Rights Reserved. | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25 |
+| `a232bb734d4c6c898a44506547d19768f0eba6a6.ttf` | Noto Sans Myanmar | Version 2.001 | Copyright 2015 Google Inc. All Rights Reserved. | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25 |
+| `f4ba5a767ef56a40133844507efb98fee5635e71.ttf` | Noto Sans Myanmar | Version 2.107 | Copyright 2022 The Noto Project Authors (https://github.com/notofonts/myanmar) | 1 | OFL 1.1 |
+| `573d3a3177c9a8646e94c8a0d7b224334340946a.ttf` | Noto Sans Newa | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `7c24183f26d60df414578a0a9f5e79ab9d32a22b.ttf` | Noto Sans Newa | Version 2.000 | Copyright 2018 Google Inc. All Rights Reserved. | 1 | OFL 1.1 |
+| `54674a3111d209fb6be0ed31745314b7a8d2c244.ttf` | Noto Sans Tamil | none | none | 1 | OFL 1.1, or Apache 2.0 if built before 2015-09-25; the font gives no date |
+| `e2b17207c4b7ad78d843e1b0c4d00b09398a1137.ttf` | Noto Sans Tamil MN | Version 2.000 | Copyright 2017 Google Inc. All Rights Reserved. | 1 | OFL 1.1 |
+| `e716f6bd00a108d186b7e9f47b4515565f784f36.ttf` | Noto Sans Telugu | Version 2.001 | Copyright 2019-2022 Google LLC. All Rights Reserved. | 1 | OFL 1.1 |
