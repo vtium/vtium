@@ -577,7 +577,8 @@ $(VT_GOALS): export VTIUM_VT_RENDER_PATH =
 .PHONY: vt-accept
 vt-accept: export VTIUM_VT_SESSION = accept
 vt-accept: export VTIUM_VT_RENDER_PATH = $(value RENDER_PATH)
-vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures and bidi unless FEATURES is named, on the CPU path or the GPU path, every page answered and the pass recorded, then print the pass (RENDER_PATH=cpu|gpu, VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
+vt-accept: export VTIUM_VT_PAGES = $(value PAGES)
+vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptance pass on the development VT or a free VT, with pictures and bidi unless FEATURES is named, on the CPU path or the GPU path, every page answered and the pass recorded, then print the pass; PAGES walks only those pages, and the record says the pass is not a full pass (RENDER_PATH=cpu|gpu, PAGES='51 56-glyph-fit', VT=N, FEATURES='...', DEMO_ARGS='...', DRY_RUN=1, VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-login

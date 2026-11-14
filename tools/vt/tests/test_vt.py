@@ -1967,6 +1967,42 @@ class Make(Case):
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", HWACCEL="on")
         self.assertEqual(p.returncode, 0, "one exported in the shell is not refused: " + p.stderr)
 
+    def test_vt_accept_walks_only_the_pages_named(self):
+        # PAGES reaches run-vt.sh as --pages and the session as ACCEPT_ONLY,
+        # each one word, in the order typed; accept.sh walks them in file
+        # name order.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "PAGES=69 51-double-size,56")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --pages=69\\ 51-double-size\\ 56 ", p.stdout)
+        self.assertIn(" ACCEPT_ONLY=69\\ 51-double-size\\ 56 ", p.stdout)
+        self.assertIn("(only pages 69 51-double-size 56)", p.stdout)
+        # A name that matches no page, or that is shell code, is refused
+        # before sudo, and the refusal names it.
+        marker = os.path.join(self.s.tmp, "ran")
+        for pages, name in (("51 999", "999"), (f"$(touch {marker})", "$(touch")):
+            with self.subTest(pages=pages):
+                open(self.s.calls, "w").close()
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"PAGES={pages}")
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(f"accept: no such page: {name}", p.stderr)
+                self.assertIn("PAGES is refused", p.stderr)
+                self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertFalse(os.path.exists(marker))
+        # Without PAGES the pass walks every page, and the other targets
+        # take no PAGES.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("ACCEPT_ONLY", p.stdout)
+        p = self.make("vt-shell", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "PAGES=51")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("pages", p.stdout)
+        # run-vt.sh takes --pages only for the acceptance pass, and only
+        # names of letters, digits and dashes.
+        for args, why in ((("--pages=51", "--login"), "--pages goes with the acceptance pass"),
+                          (("--pages=51;ls",), "--pages takes page names")):
+            with self.subTest(args=args):
+                self.refused(self.run_vt(*args, "--dry-run", "8"), why)
+
     def test_vt_accept_chooses_the_render_path(self):
         # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
         # or --no-hwaccel and the pass as ACCEPT_RENDER_PATH (ADR-1501 D5).

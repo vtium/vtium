@@ -31,6 +31,7 @@ make vt-check GUIDE=start GUIDE_STEPS=2 # only that step
 make vt-accept                          # the acceptance pass on the CPU path, built with pictures and bidi: every page answered, the pass recorded
 make vt-accept RENDER_PATH=gpu          # the same on the GPU path, built with gpu too
 make vt-accept FEATURES=                # the same with the minspec build; the picture and bidi pages record skip
+make vt-accept PAGES='51 56 69'         # only those pages, in file name order; the record says it is not a full pass
 make vt-accept VT=4 DEMO_ARGS='--font-size=30 --mode=1366x768'
 make vt-check GUIDE=token FEATURES=gpu DEMO_ARGS='--hwaccel'   # a guide on the GPU path, with hwaccel on for this run
 make vt-login                           # a login prompt, for the acceptance pass or anything else by hand
@@ -74,6 +75,7 @@ The development VT is borrowed, not refused. The run stops `vtium-dev@ttyN`, and
 | `VT=N` | the VT, 2 to 12, in place of the development VT or a free VT. See [Which VT a run takes](#which-vt-a-run-takes). |
 | `DEMO_ARGS='...'` | vtium's options. They are split into words the way `xargs` splits them: quotes and backslashes are honoured, and nothing is expanded or run. Each option is one word: `--name=value`, or `--name` / `--no-name`. |
 | `GUIDE=NAME`, `GUIDE_STEPS='2 3'` | `make vt-check`'s guide, as a name in `tools/vt/checks` or as a path, and the steps to run. The guide and the steps are checked before sudo. Without `GUIDE`, the target fails before the build, and names the guides. |
+| `PAGES='51 56-glyph-fit'` | `make vt-accept`'s pages, when you want to look at only some of them. Name each page by its number or by its file name in `tools/vt/sections` without `.sh`, separated by spaces or commas. The pass walks those pages in file name order. A name that matches no page stops the target before sudo, and the message names the page. The list reaches `accept.sh` as one word, `ACCEPT_ONLY`, so nothing in it runs as shell code. |
 | `DRY_RUN=1` | picks the VT and prints the command. It then runs `run-vt.sh --dry-run` without sudo. That asks what a real run would ask (the VT on screen, the sessions, the active units), and prints each command that would change anything. |
 | `VT_DEBUG=1` | runs vtium with `--debug`, so that its log holds its debug messages too. It also copies the kernel's DRM state into a directory beside the log, named like the log with `.drm` in place of `.log`. `run-vt.sh` copies `/sys/kernel/debug/dri/<N>/state` of every card at three kinds of moment. The first is each time vtium logs that a display came or went, as `NNN-came-<N>.state` or `NNN-went-<N>.state`. The second is each time a display's first flip after its modeset is done, as `NNN-modeset-<N>.state`; vtium logs that at debug once the card scans the new mode out. The last is once more as `end-<N>.state`, after vtium stops and before the console unit starts again. A line in vtium's log names each copy, so the log shows which state followed which line. The copies are written as the invoking user. When something that vtium started still holds vtium's output 5 s after vtium stops, the log ends there, so the run never waits on it. |
 
@@ -351,7 +353,9 @@ The record says that it is evidence about that hardware only. accept.sh refuses 
 
 Three pages blink text: `10-sgr`, `35-blink` and `36-rapid-blink`. They name the blink style that vtium draws the text in. The style is read from the config that the run gives vtium and from its blink options (`tools/vt/blink.inc`). When neither sets one, the style is vtium's default, read from the checkout's key table. The record and the comparison name the style too.
 
-The next run of the same build on the same render path offers to resume a pass that was quit part way, at its first unanswered page. When a review run ends, `vt.sh` prints the pass that the run wrote.
+A pass of only some pages, which `PAGES` chooses, is not a full pass. Its title page says so in red, and its record has a `pages:` line that lists the pages it walked. A full pass has no `pages:` line.
+
+The next run of the same build on the same render path offers to resume a pass that was quit part way, at its first unanswered page. A full pass resumes only a full pass, and a pass of some pages resumes only a pass of the same pages. When a review run ends, `vt.sh` prints the pass that the run wrote.
 
 `tools/vt/feedback.sh` prints a pass, the newest by default. With `--list`, it lists the passes. With `--compare A B`, it compares two passes, named by id or by a record's path. The comparison prints each page whose answer changed. It warns first when the two passes ran on different hardware, and it names a render path that differs. It exits 1 when a page went from yes to no.
 
