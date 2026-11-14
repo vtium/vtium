@@ -24,6 +24,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
 | [ADR-1004](./term/ADR-1004-right-to-left-text-the-screen-keeps-logical-order-and-each-paragraph-is-drawn-in-the-order-the-bidirectional-algorithm-gives.md) | Right-to-left text: the screen keeps logical order and each paragraph is drawn in the order the bidirectional algorithm gives | accepted |
 | [ADR-1005](./term/ADR-1005-the-kitty-keyboard-protocol-vtium-term-encodes-keys-by-a-stack-of-flags-for-each-screen-and-vtium-platform-reports-key-releases-and-each-key-s-other-forms.md) | The kitty keyboard protocol: vtium-term encodes keys by a stack of flags for each screen, and vtium-platform reports key releases and each key's other forms | accepted |
+| [ADR-1006](./term/ADR-1006-a-grapheme-cluster-with-a-spacing-mark-or-a-virama-conjunct-takes-two-cells-by-python-wcwidth-s-rule.md) | A grapheme cluster with a spacing mark or a virama conjunct takes two cells, by Python wcwidth's rule | proposed |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
