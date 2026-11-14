@@ -376,6 +376,37 @@ mod tests {
         assert_eq!(piece.start, 2);
     }
 
+    // ADR-1203 D2: a cluster two cells wide, as ADR-1006 widens a cluster
+    // with a spacing mark, takes both its cells in the syllable, and its
+    // second half belongs to no syllable of its own
+    #[test]
+    fn a_wide_cluster_takes_its_two_cells_in_a_syllable() {
+        let mut l = line("ಕ್", 6);
+        l.write(
+            1,
+            Glyph::Char('\u{cb0}'),
+            Width::Wide,
+            &Style::DEFAULT,
+            None,
+        );
+        l.write(2, Glyph::Empty, Width::WideTail, &Style::DEFAULT, None);
+        l.write(3, Glyph::Char('x'), Width::Narrow, &Style::DEFAULT, None);
+        let damage = Damage::new(6, 1);
+        let p = palette();
+        let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
+        let ka = frame.cell(0, 0).unwrap();
+        let (s, i) = Syllable::find(&frame, (0, 0), &ka).unwrap();
+        assert_eq!((i, s.len()), (0, 2));
+        assert_eq!(s.cols().collect::<Vec<_>>(), [0, 1, 2]);
+        assert_eq!(s.piece(1), Piece::new(1, 2, 3));
+        let ra = frame.cell(0, 1).unwrap();
+        assert_eq!(Syllable::find(&frame, (1, 0), &ra).map(|(_, i)| i), Some(1));
+        let tail = frame.cell(0, 2).unwrap();
+        assert!(Syllable::find(&frame, (2, 0), &tail).is_none());
+        // the cursor on the second half splits it too
+        assert!(!s.joined(0, Some((2, 0)), |_| false));
+    }
+
     // ADR-1203 D4: the cursor on any cell, a cell of another color, style
     // or script, or a link overlay over a cell splits the syllable
     #[test]

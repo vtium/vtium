@@ -313,3 +313,38 @@ fn a_change_to_one_cell_draws_the_whole_syllable_again() {
     let d = step(&mut t, &mut r, 1);
     assert!(damaged(&d, 0) && damaged(&d, 1), "{d:?}");
 }
+
+// ADR-1203 D2, D3: a cluster two cells wide, as ADR-1006 widens a cluster
+// with a spacing mark, draws its piece across both its cells, and the
+// piece's mark names its two cells among the syllable's three
+#[test]
+fn a_wide_cluster_draws_its_piece_across_its_two_cells() {
+    use vtium_term::{Cursor, Damage, Glyph, Style, Width};
+    let t = term("ಕ್");
+    let mut l = t.screen().line(0).unwrap().clone();
+    l.write(1, Glyph::Char(RA), Width::Wide, &Style::DEFAULT, None);
+    l.write(2, Glyph::Empty, Width::WideTail, &Style::DEFAULT, None);
+    let damage = Damage::new(6, 1);
+    let frame = Frame::new(
+        vec![&l],
+        &damage,
+        t.palette(),
+        Age::NEVER,
+        Cursor::default(),
+        false,
+    );
+    let face = Pieces::new();
+    let drawn = Rc::clone(&face.drawn);
+    let mut r = Renderer::new(Font::new(face), 48, 16, Config::default());
+    let mut c = Canvas::new(48, 16, 0);
+    r.draw(&frame, &mut c, 0, &state(&t));
+    let got = drawn.take();
+    let mut wide = KA_RA.to_vec();
+    wide.push(Piece::new(1, 2, 3).unwrap().mark());
+    assert!(got.contains(&wide), "{got:?}");
+    assert!(got.contains(&key(&KA_RA, 0, 3)), "{got:?}");
+    let fg = px(t.palette().fg());
+    for x in [8, 15, 16, 23] {
+        assert_eq!(c.pixel(x, 2).unwrap() & 0xff_ffff, fg, "column {x}");
+    }
+}
