@@ -12,7 +12,7 @@ use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
 use crate::cache::{Budgets, GlyphCache, Profile, Storage};
-use crate::compose::{Area, Composer, Job, Source, int};
+use crate::compose::{Area, Bar, Composer, Job, Source, int};
 use crate::damage::Cells;
 use crate::deco::{Kind, Line, SCRIPTS, Sprites};
 use crate::link_row::LinkRow;
@@ -35,12 +35,13 @@ mod wider;
 
 pub use testing::TestInk;
 
-/// The bar cursor: U+258F, LEFT ONE EIGHTH BLOCK, a sprite.
-const BAR: char = '\u{258f}';
-/// The bar cursor on a character that resolves right to left: U+2595,
-/// RIGHT ONE EIGHTH BLOCK, a sprite (ADR-1004 D9).
-#[cfg(feature = "bidi")]
-const BAR_RIGHT: char = '\u{2595}';
+/// How many pixels wide a bar cursor is in a cell `cw` pixels wide: one
+/// eighth of the cell, rounded to the nearest pixel, and at least one. It
+/// is the width vtium-font gives its sprite for U+258F, LEFT ONE EIGHTH
+/// BLOCK, so the bar stands where that block would.
+fn bar_width(cw: i64) -> i64 {
+    cw.saturating_mul(2).saturating_add(8).div_euclid(16).max(1)
+}
 
 /// The color a decoration draws in.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -318,6 +319,28 @@ impl Layout {
         }
     }
 
+    /// The display area of a bar cursor's bar `w` pixels wide in the
+    /// grid's own pixels, down the whole height of the `n` cells from `col`
+    /// in `row`, along their left edge, or along their right edge when
+    /// `right`.
+    fn bar_area(
+        &self,
+        g: &Grid,
+        (col, row, n): (usize, usize, usize),
+        w: i64,
+        right: bool,
+    ) -> Area {
+        let span = int(n).saturating_mul(self.cw);
+        let w = w.min(span);
+        let left = int(col).saturating_mul(self.cw);
+        let x = if right {
+            left.saturating_add(span).saturating_sub(w)
+        } else {
+            left
+        };
+        self.area(g, x, int(row).saturating_mul(self.ch), w, self.ch)
+    }
+
     /// The display area of `n` cells from `col` in `row`.
     fn cells_area(&self, g: &Grid, col: usize, row: usize, n: usize) -> Area {
         self.area(
@@ -456,6 +479,9 @@ struct Paint {
     /// At 1 bit, whether the background is lit, where vtium marks the cell
     /// (`mono::marked`).
     lit: Option<bool>,
+    /// A bar cursor's bar, in the color it draws before the display's
+    /// depth changes it.
+    bar: Option<Bar>,
 }
 
 /// Where the pointer's arrow draws and the cells it changes.
@@ -1849,6 +1875,18 @@ impl<F: Face> Renderer<F> {
         let l = &self.layout;
         for job in &jobs {
             let first = job.posx.saturating_mul(2);
+            // the bar doubles with its character: twice as thick, at the
+            // same edge of the doubled character, so only the display cell
+            // at that edge draws it
+            let bar = job.bar.map(|b| {
+                let w = b.w.saturating_mul(2);
+                let cells = (first, row, job.ncells.saturating_mul(2));
+                Bar {
+                    area: l.bar_area(g, cells, w, b.right),
+                    w,
+                    ..b
+                }
+            });
             for column in 0..job.ncells.saturating_mul(2) {
                 let col = first.saturating_add(column);
                 if col >= g.cols {
@@ -1862,6 +1900,7 @@ impl<F: Face> Renderer<F> {
                     g: r,
                     tiles: [r, l.cells_area(g, col.saturating_add(1), row, 1)],
                     piece: double::Piece::of(size, column),
+                    bar,
                     ..*job
                 });
             }
@@ -2064,11 +2103,15 @@ impl<F: Face> Renderer<F> {
         })
     }
 
-    /// The jobs for one cell: its own, and for a bar cursor on a wide cell,
-    /// its other half's. `off` draws it in the text blink's off phase. In a
-    /// build with the bidi feature, `drawn` is the text the cell draws
-    /// ([`crate::joined::drawn`]), and a bar cursor stands on the right
-    /// side of a cell that resolves right to left (ADR-1004 D9).
+    /// The job for one cell. `off` draws it in the text blink's off phase.
+    /// A bar cursor keeps the cell's letter: the letter draws as it does
+    /// with no cursor, and the bar draws over it along the left edge of the
+    /// character's cells. In a build with the bidi feature, `drawn` is the
+    /// text the cell draws ([`crate::joined::drawn`]), and the bar stands
+    /// along the right edge of a character that resolves right to left.
+    ///
+    /// References:
+    /// - ADR-1004 D9: the bar's side on a right-to-left character.
     #[cfg_attr(
         feature = "bidi",
         expect(
@@ -2187,45 +2230,30 @@ impl<F: Face> Renderer<F> {
         if dimmed {
             fg = dim(fg, bg);
         }
-        // the bar cursor keeps one height along a line, so it draws its
-        // normal glyph in a superscript or subscript cell too (ADR-1202 D8)
-        let style = Variant {
-            script: if bar { Script::Baseline } else { script },
-            ..crate::variant::of(fc.attrs)
-        };
+        let style = crate::variant::of(fc.attrs);
         let text = &mut self.compose.text;
         let start = text.len();
         #[cfg(feature = "bidi")]
-        let bar_right = bar && cursor.is_some_and(|c| c.rtl);
-        let width = if bar {
-            #[cfg(feature = "bidi")]
-            text.push(if bar_right { BAR_RIGHT } else { BAR });
-            #[cfg(not(feature = "bidi"))]
-            text.push(BAR);
-            FontWidth::Narrow
+        if !hidden && !placeholder {
+            text.extend_from_slice(drawn);
+        }
+        #[cfg(not(feature = "bidi"))]
+        if !hidden && !placeholder {
+            match fc.glyph {
+                Glyph::Empty => {}
+                Glyph::Char(c) => text.push(c),
+                Glyph::Cluster(s) => text.extend(s.chars()),
+            }
+        }
+        // a lam-alef ligature spans its two narrow cells
+        #[cfg(feature = "bidi")]
+        let wide = fc.width == Width::Wide || at.ncells == 2;
+        #[cfg(not(feature = "bidi"))]
+        let wide = fc.width == Width::Wide;
+        let width = if wide {
+            FontWidth::Wide
         } else {
-            #[cfg(feature = "bidi")]
-            if !hidden && !placeholder {
-                text.extend_from_slice(drawn);
-            }
-            #[cfg(not(feature = "bidi"))]
-            if !hidden && !placeholder {
-                match fc.glyph {
-                    Glyph::Empty => {}
-                    Glyph::Char(c) => text.push(c),
-                    Glyph::Cluster(s) => text.extend(s.chars()),
-                }
-            }
-            // a lam-alef ligature spans its two narrow cells
-            #[cfg(feature = "bidi")]
-            let wide = fc.width == Width::Wide || at.ncells == 2;
-            #[cfg(not(feature = "bidi"))]
-            let wide = fc.width == Width::Wide;
-            if wide {
-                FontWidth::Wide
-            } else {
-                FontWidth::Narrow
-            }
+            FontWidth::Narrow
         };
         let len = text.len().saturating_sub(start);
         let text = (len > 0).then_some((start, len, width, style));
@@ -2236,47 +2264,23 @@ impl<F: Face> Renderer<F> {
             selected: fc.selected,
             mark,
         };
-        let mut at = at;
-        if bar && at.ncells == 2 {
-            // the bar takes the left half, or the right half where the
-            // character resolves right to left; the other half is the cell
-            // without it
-            let tail = Place {
-                col: at.col.saturating_add(1),
-                ncells: 1,
-                ..at
-            };
+        // the bar stands along the left edge of the character's cells, or
+        // along their right edge where the character resolves right to left
+        let bar = bar.then(|| {
             #[cfg(feature = "bidi")]
-            let tail = if bar_right {
-                Place {
-                    col: at.col,
-                    ..tail
-                }
-            } else {
-                tail
-            };
-            let paint = Paint {
-                fg: fc.fg,
-                bg: fc.bg,
-                underline,
-                over,
-                text: None,
-                lit,
-            };
-            let job = self.job(g, tail, 1, paint);
-            #[cfg(feature = "images")]
-            let job = Job {
-                under: under(Mark::None),
-                ..job
-            };
-            self.compose.jobs.push(job);
-            at.ncells = 1;
-            #[cfg(feature = "bidi")]
-            if bar_right {
-                at.col = at.col.saturating_add(1);
+            let right = cursor.is_some_and(|c| c.rtl);
+            #[cfg(not(feature = "bidi"))]
+            let right = false;
+            let w = bar_width(self.layout.cw);
+            Bar {
+                area: self
+                    .layout
+                    .bar_area(g, (at.col, at.row, at.ncells), w, right),
+                color: cursor_color.unwrap_or(fg),
+                w,
+                right,
             }
-        }
-        let fg = if bar { cursor_color.unwrap_or(fg) } else { fg };
+        });
         let glyph_cells = if width == FontWidth::Wide { 2 } else { 1 };
         let paint = Paint {
             fg,
@@ -2285,6 +2289,7 @@ impl<F: Face> Renderer<F> {
             over,
             text,
             lit: cell_lit,
+            bar,
         };
         let job = self.job(g, at, glyph_cells, paint);
         #[cfg(feature = "images")]
@@ -2325,6 +2330,10 @@ impl<F: Face> Renderer<F> {
             piece: double::Piece::WHOLE,
             #[cfg(feature = "images")]
             under: Under::default(),
+            bar: paint.bar.map(|b| Bar {
+                color: ink.fg(b.color),
+                ..b
+            }),
         }
     }
 

@@ -1,6 +1,7 @@
 //! Double-width and double-height lines (DECDWL, DECDHL) on the GPU path:
 //! each frame the GPU path composes matches the CPU path's whole drawing
-//! of the same screen, pixel for pixel, at every turn of the display.
+//! of the same screen, pixel for pixel, at every turn of the display. A
+//! bar cursor on a line of the normal size is checked the same way.
 //!
 //! The stand-in GL draws the cells through its model of the cell shader.
 //! A line of double size draws each piece of its doubled glyphs and
@@ -285,6 +286,38 @@ fn every_gpu_frame_of_double_size_lines_matches_a_whole_draw() {
 #[test]
 fn every_gpu_frame_of_rendered_double_size_glyphs_matches_a_whole_draw() {
     frames_match_whole_draws(|| Rendered);
+}
+
+// The maintainer's look at a bar cursor on a real VT, 2026-11-14: the bar
+// never hides the letter in its cell. On the GPU path the letter's cell is
+// drawn as any cell, and the bar is a quad of one color drawn after every
+// cell, so it lies over the letter. Each frame, as the bar moves along a
+// line of the normal size over every decoration, a wide character, colors
+// and reverse video, matches the CPU path's whole drawing, at every turn
+// of the display.
+// covers: cursor.style
+#[test]
+fn a_bar_cursor_keeps_its_letter_on_the_gpu_path() {
+    for o in TURNS {
+        for color in [None, Some(rgb("30ff30"))] {
+            let mut s = Screen::new(10, 1, rgb(FG), rgb(BG));
+            decorated(&mut s, 0);
+            s.cursor.visible = true;
+            s.cursor.shape = CursorShape::Bar;
+            s.cursor.color = color;
+            let mut g = Gpu::new(Shades, &s, o);
+            for col in 0..10 {
+                if col > 0 {
+                    s.damage.mark_cell(0, col - 1);
+                }
+                s.cursor.col = col;
+                s.damage.mark_cell(0, col);
+                g.frame(&mut s, &[]);
+                let what = format!("the bar at column {col}, {color:?}, {o:?}");
+                assert_same(&g, &whole(Shades, &s, o, &[]), &what);
+            }
+        }
+    }
 }
 
 /// Draws each step of a screen whose lines change size on the GPU path

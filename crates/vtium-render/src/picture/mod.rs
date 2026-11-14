@@ -50,7 +50,8 @@ pub(crate) enum Mark {
     /// A block cursor: the cell, drawn as without pictures, covers every
     /// picture under it.
     Opaque,
-    /// A bar cursor: the cell's glyph is the bar.
+    /// A bar cursor: the cell draws its letter, and the bar draws over the
+    /// whole cell once the cell is drawn.
     Bar,
     /// An underline cursor: the cell's underline is the cursor's.
     Underline,

@@ -183,7 +183,7 @@ impl<F: Face> Renderer<F> {
         let (text, tints, marks) = (back.text, back.tints, back.marks);
         #[cfg(feature = "images")]
         let shown = self.shown(turn, back.picture_rects);
-        let (clear, cells, mut error) = (back.clear, back.cells, back.error);
+        let (clear, cells, bars, mut error) = (back.clear, back.cells, back.bars, back.error);
         // the neighbours named as sources of ink take the reach each cell
         // has once the whole frame is scanned, and the jobs that receive
         // their ink the display lines it reaches
@@ -242,6 +242,7 @@ impl<F: Face> Renderer<F> {
             tints: &tints,
             #[cfg(feature = "images")]
             marks: &marks,
+            bars: &bars,
         };
         let damage = match pipeline.frame(gl, &work, target, age) {
             Ok(damage) => damage,

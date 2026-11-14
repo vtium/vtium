@@ -122,9 +122,10 @@ do: tall pair included. Stop on each line for a moment.
 expect: The bar does not blink. On the ruler and the last line, the bar is a
 expect: thin line at the left of the character. On the wide line, the bar is
 expect: twice as thick. On the tall pair, the bar is twice as thick and as
-expect: tall as the tall letters, from either line.
-expect: Wrong: a bar as tall as one line on the tall pair, or a bar of normal
-expect: thickness on a double-size line.
+expect: tall as the tall letters, from either line. On every line, the
+expect: letter under the bar stays visible beside the bar.
+expect: Wrong: a bar as tall as one line on the tall pair, a bar of normal
+expect: thickness on a double-size line, or a bar that hides its letter.
 
 step: An underline cursor on lines of double size
 run: python3 tools/vt/checks/typepad.py --cursor=4 mixed
