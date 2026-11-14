@@ -14,6 +14,15 @@ mod common;
 use common::term;
 use vtium_term::{Age, Terminal};
 
+/// A terminal of `cols` by `rows` that keeps 100 lines of scrollback, fed
+/// `bytes`.
+fn with_scrollback(cols: usize, rows: usize, bytes: &[u8]) -> Terminal {
+    let mut t = Terminal::new(cols, rows, 100);
+    t.screen_mut().set_scrollback_max(100);
+    t.input(bytes);
+    t
+}
+
 /// The columns the frame draws selected in each view row.
 fn selected(t: &Terminal) -> Vec<std::ops::Range<usize>> {
     t.screen()
@@ -55,7 +64,8 @@ fn a_pair_copies_its_text_once_and_selects_as_one_line() {
 // covers: text.line-size, clipboard.selection
 #[test]
 fn a_pair_cut_by_the_top_of_the_view_selects_and_copies_its_text() {
-    let mut t = term(10, 2, b"\x1b#3abcd\r\n\x1b#4abcd\r\nnext");
+    let mut t = with_scrollback(10, 2, b"\x1b#3abcd\r\n\x1b#4abcd\r\nnext");
+    assert_eq!(common::scrollback(t.screen()), ["abcd"]);
     let s = t.screen_mut();
     // the view shows the bottom line at row 0; screen columns 2 to 5 show
     // the doubled b and c
@@ -75,7 +85,8 @@ fn a_pair_cut_by_the_top_of_the_view_selects_and_copies_its_text() {
 // covers: text.line-size, clipboard.selection
 #[test]
 fn the_alternate_screen_does_not_pair_its_first_row_with_the_scrollback() {
-    let mut t = term(10, 2, b"\x1b#3main\r\n\r\n");
+    let mut t = with_scrollback(10, 2, b"\x1b#3main\r\n\r\n");
+    assert_eq!(common::scrollback(t.screen()), ["main"]);
     t.input(b"\x1b[?1049h\x1b[H\x1b#4alt!");
     let s = t.screen_mut();
     s.select_word(2, 0);
