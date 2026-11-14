@@ -1697,6 +1697,13 @@ impl Face for DeferredFace {
         self.band
     }
 
+    /// The frit's `fit=` for `c`, else `c`'s default ([`FritFits`]), which
+    /// places a sprite as [`DeferredFace::built_in`] places a built-in
+    /// glyph.
+    fn fit(&self, c: char, style: Style) -> Fit {
+        self.fits.fit(u32::from(c), style)
+    }
+
     /// For a character the store lacks, and for the last resort, the
     /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
     /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
@@ -1874,6 +1881,10 @@ impl Face for Builtins<'_> {
         self.0.band
     }
 
+    fn fit(&self, c: char, style: Style) -> Fit {
+        self.0.fits.fit(u32::from(c), style)
+    }
+
     /// The built-in font's origin, as it draws the cluster's first
     /// character, so the placeholder for a superscript or subscript glyph
     /// on its way is made small as the built-in font's own (ADR-1202 D4,
@@ -1950,23 +1961,25 @@ mod tests {
             )
             .with_fits(Arc::new(FritFits::of(fits)))
         };
-        let inked = |face: &DeferredFace, c: char| -> Vec<u32> {
-            let glyph = face.draw(&[c], Style::default()).unwrap();
+        let inked = |face: DeferredFace, c: char| -> Vec<u32> {
+            let glyph = Font::new(face)
+                .glyph(&[c], Width::Narrow, Style::default())
+                .unwrap();
             assert_eq!(glyph.height(), 21, "{c}");
             (0..glyph.height())
                 .filter(|&y| (0..glyph.width()).any(|x| glyph.pixel(x, y).unwrap()[0] != 0))
                 .collect()
         };
-        let none = face("source=font:Main\n");
+        let none = || face("source=font:Main\n");
         let natural =
-            face("source=font:Main\nsource=font:Lines\ncover=U+2500-U+257F\nfit=natural\n");
-        // the vertical line runs the whole cell by default, and the text
-        // band's 16 rows under fit=natural
-        assert_eq!(inked(&none, '\u{2502}'), (0..21).collect::<Vec<_>>());
-        assert_eq!(inked(&natural, '\u{2502}'), (3..19).collect::<Vec<_>>());
+            || face("source=font:Main\nsource=font:Lines\ncover=U+2500-U+257F\nfit=natural\n");
+        // the vertical line, a sprite, runs the whole cell by default, and
+        // the text band's 16 rows under fit=natural
+        assert_eq!(inked(none(), '\u{2502}'), (0..21).collect::<Vec<_>>());
+        assert_eq!(inked(natural(), '\u{2502}'), (3..19).collect::<Vec<_>>());
         // the full block, which no cover= line of the frit names, keeps its
         // default and fills the cell
-        assert_eq!(inked(&natural, '\u{2588}'), (0..21).collect::<Vec<_>>());
+        assert_eq!(inked(natural(), '\u{2588}'), (0..21).collect::<Vec<_>>());
     }
 
     #[test]
