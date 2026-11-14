@@ -3,3 +3,4 @@
 # row that a screen draws, or whose golden goldens/ holds, is refused. A
 # screen that takes one up adds its golden, and the row goes.
 frit-indic	vtium/vtium#144	the shipped font set indic draws Tamil, Malayalam and Sinhala clusters smaller than the text, which the helper's shaping of syllabic scripts owes
+glyph-fit-spaced	vtium/vtium#327	the built-in box drawing ignores the font set's fit=natural until the console passes the frit's fit= lines to the face that draws its built-in glyphs (crates/vtium/src/font.rs)
