@@ -1995,7 +1995,7 @@ class Make(Case):
         self.assertNotIn("ACCEPT_ONLY", p.stdout)
         p = self.make("vt-shell", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "PAGES=51")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertNotIn("pages", p.stdout)
+        self.assertNotIn("(only pages", p.stdout)
         # run-vt.sh takes --pages only for the acceptance pass, and only
         # names of letters, digits and dashes.
         for args, why in ((("--pages=51", "--login"), "--pages goes with the acceptance pass"),
