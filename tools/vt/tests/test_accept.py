@@ -904,7 +904,7 @@ def responder_run(page, answers, timeout=WAIT_BOUND):
     return os.waitstatus_to_exitcode(status), seen
 
 
-PICTURES = ["71-kitty-animation.sh", "72-kitty-placeholders.sh", "73-kitty-relative.sh", "95-sixel.sh",
+PICTURES = ["69-kitty-spec.sh", "71-kitty-animation.sh", "72-kitty-placeholders.sh", "73-kitty-relative.sh", "95-sixel.sh",
             "96-kitty.sh", "97-kitty-layers.sh", "98-kitty-png.sh", "99-iterm2.sh"]
 KITTY_QUERY = b"\x1b_Gi=31,s=1,v=1,a=q,f=24;AAAA\x1b\\\x1b[c"
 HELPER_QUERY = b"\x1b_Gi=32,a=q,f=100;"
@@ -975,6 +975,7 @@ class Pages(Case):
         answers = [(KITTY_QUERY, b"\x1b_Gi=31;OK\x1b\\" + DA1_PICTURES), (b"\x1b[c", DA1_PICTURES),
                    (HELPER_QUERY, b"\x1b_Gi=32;OK\x1b\\"), (b"\x1b[16t", b"\x1b[6;20;10t")]
         want = {
+            "69-kitty-spec.sh": [b"\x1b_Ga=c,i=44,r=1,c=5\x1b\\", b"\x1b_Ga=p,i=44,p=1,P=44,Q=1\x1b\\"],
             "71-kitty-animation.sh": [b"\x1b_Ga=T,i=21,q=2,C=1,f=24,s=16,v=16,c=10,r=5,m=0;",
                                       b"\x1b_Ga=f,i=21,q=2,f=24,s=16,v=16,z=500,m=0;",
                                       b"\x1b_Ga=a,i=21,q=2,r=1,z=500;\x1b\\", b"\x1b_Ga=a,i=21,q=2,s=3,v=1;\x1b\\",
