@@ -567,7 +567,9 @@ fn the_cursor_covers_both_lines_of_a_double_height_pair() {
         (CursorShape::Bar, None),
     ];
     for (shape, color) in shapes {
-        for col in [1, 6] {
+        // column 7 is the trailing half of the wide W at column 6, and the
+        // cursor there draws over the whole character from its left cell
+        for col in [1, 6, 7] {
             let mut normal = screen(20, 1);
             decorated(&mut normal, 0);
             normal.cursor.visible = true;
@@ -682,4 +684,33 @@ fn each_frame_of_the_cursor_on_a_pair_matches_a_whole_draw() {
             "{what}: the buffer differs from a whole draw"
         );
     }
+}
+
+// A block cursor on a wide character of a pair's top line covers the
+// columns of that character on the bottom line too, where two narrow
+// letters stand under it: both letters draw the cursor's block.
+// covers: text.line-size
+#[test]
+fn the_cursor_covers_the_wide_characters_columns_on_the_other_line() {
+    let make = |cursor: bool| {
+        let mut s = screen(8, 2);
+        s.put(0, 0, 'W', true, plain());
+        s.text(0, 1, "ab", plain());
+        size(&mut s, 0, LineSize::DoubleHeightTop);
+        size(&mut s, 1, LineSize::DoubleHeightBottom);
+        s.cursor.visible = cursor;
+        (s.cursor.col, s.cursor.row) = (1, 0);
+        s
+    };
+    let (with, without) = (whole(&make(true)), whole(&make(false)));
+    for (letter, cell) in [('a', 0), ('b', 1)] {
+        // the letter's two display cells on the bottom line
+        let x0 = cell * 2 * CW;
+        let differs = (0..CH)
+            .all(|y| (x0..x0 + 2 * CW).any(|x| at(&with, x, CH + y) != at(&without, x, CH + y)));
+        assert!(differs, "{letter} on the bottom line draws the block");
+    }
+    let rest =
+        (0..CH).all(|y| (4 * CW..8 * CW).all(|x| at(&with, x, CH + y) == at(&without, x, CH + y)));
+    assert!(rest, "the cells past the character draw no cursor");
 }
