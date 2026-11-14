@@ -314,7 +314,15 @@ pub(crate) fn draw_all(
         let placed = match piece {
             Some((text, p)) => syllables
                 .entry((text, p.total))
-                .or_insert_with(|| place(drawer, s, (text, u32::from(p.total)), (scale, row), cell))
+                .or_insert_with(|| {
+                    place(
+                        drawer,
+                        s,
+                        (text, u32::from(p.total), true),
+                        (scale, row),
+                        cell,
+                    )
+                })
                 .as_ref()
                 .and_then(|whole| cut(whole, p, cell)),
             None => {
@@ -331,7 +339,7 @@ pub(crate) fn draw_all(
                             > 1,
                     ),
                 };
-                place(drawer, s, (&s.key, cells), (scale, row), cell)
+                place(drawer, s, (&s.key, cells, false), (scale, row), cell)
             }
         };
         let Some(placed) = placed else {
@@ -361,12 +369,13 @@ pub(crate) fn draw_all(
 
 /// The shaped cluster `s`, whose text is `text`, placed across `cells`
 /// cells of `cell` at `scale` pixels to a font unit, its ink kept inside
-/// the reach `row` gives: as a joining letter, an Indic cluster or
-/// syllable squeezed to its cells, or any other cluster by its advance.
+/// the reach `row` gives: as a joining letter, squeezed to its cells where
+/// it is an Indic cluster or a syllable of any script wider than them
+/// (ADR-1307 D1, ADR-1203 D5), or any other cluster by its advance.
 fn place(
     drawer: &mut Drawer<'_>,
     s: &Shaped,
-    (text, cells): (&[u32], u32),
+    (text, cells, syllable): (&[u32], u32, bool),
     (scale, row): (f32, (i32, i32)),
     cell: &Cell,
 ) -> Option<Placed> {
@@ -385,9 +394,10 @@ fn place(
     let mut shift = 0.0;
     let (advance, sx) = match (s.kind, letters) {
         (Kind::Emoji, _) => (Some(advance_px), 1.0),
-        // ADR-1307 D1: an Indic cluster wider than its cell is squeezed
-        // sideways to it, at full height, its pen on the cell's left edge
-        (_, 0) if indic && advance_px > span => (None, span / advance_px),
+        // ADR-1307 D1: an Indic cluster wider than its cell, and a syllable
+        // of any script wider than its cells (ADR-1203 D5), is squeezed
+        // sideways to them, at full height, its pen on the left edge
+        (_, 0) if (indic || syllable) && advance_px > span => (None, span / advance_px),
         // ADR-1302 D2: any other cluster is placed by its advance
         (_, 0) => (Some(advance_px), 1.0),
         // ADR-1302 D2: a joining letter wider than its cells is squeezed

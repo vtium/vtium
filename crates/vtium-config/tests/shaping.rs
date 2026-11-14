@@ -1398,3 +1398,39 @@ fn a_syllable_the_font_cannot_draw_whole_is_left_out() {
     let o = rasterise(&kannada(vec![ask(&first, Kind::Marks)])).expect("rasterised");
     assert!(cluster(&o, &first).is_none());
 }
+
+// ADR-1307 D1, as ADR-1203 D5 amends it for every script: a Brahmi
+// syllable of ka, virama and kha, whose advance, 2,400 units, is four
+// cells wide, is squeezed sideways to its two cells at full height, so no
+// ink of it passes the syllable's sides
+#[test]
+fn a_brahmi_syllable_wider_than_its_cells_is_squeezed_to_them() {
+    let f = unpositioned(&[
+        (0x11013, ttf::Glyph::rect(1200, 0, 0, 1200, 500)),
+        (0x11014, ttf::Glyph::rect(1200, 0, 0, 1200, 500)),
+        (0x11046, ttf::Glyph::rect(0, -300, -150, -100, -50)),
+    ]);
+    let text = ['\u{11013}', '\u{11046}', '\u{11014}'];
+    let (first, second) = (piece_key(&text, 0, 2), piece_key(&text, 1, 2));
+    let request = OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        ..request(vec![ask(&first, Kind::Marks), ask(&second, Kind::Marks)])
+    };
+    let o = rasterise(&request).expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let a = cluster(&o, &first).expect("the first piece");
+    let b = cluster(&o, &second).expect("the second piece");
+    assert!(a.ink.as_ref().is_none_or(|i| i.left == 0), "{:?}", a.ink);
+    assert!(
+        b.ink
+            .as_ref()
+            .is_none_or(|i| i.left + i.width as i32 <= w as i32),
+        "{:?}",
+        b.ink
+    );
+    // the ink fills both cells, edge to edge
+    assert_eq!(inked_columns(a, w).first().copied(), Some(0));
+    assert_eq!(inked_columns(b, w).last().copied(), Some(w - 1));
+}
