@@ -1730,7 +1730,7 @@ pub const CLUSTER_WIDTH: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-term",
-    what: "How many character cells a syllable with a vowel sign or a virama takes, in Tamil, Devanagari and other scripts of South and Southeast Asia.\n\n\
+    what: "How many character cells a syllable takes when it has a spacing vowel sign or a virama that joins two consonants, in Tamil, Devanagari and other scripts of South and Southeast Asia.\n\n\
            `double`, the default, gives such a syllable two cells, so கொ takes two. `single` gives it one cell and squeezes it to fit.\n\n\
            [docs] For example, the Tamil syllable கொ is the letter க with the vowel sign ொ. Under `double` it is drawn at full size, and the shell's line editor counts it as two cells too. `single` suits programs that count one cell for each syllable, such as Neovim.\n\n\
            [docs] The choice comes from each character's Unicode properties, never from the font. A syllable takes two cells when a spacing vowel sign (General_Category Mc) follows its first letter, or when a virama joins a consonant to it, as Python wcwidth's specification counts them. No syllable takes more than two cells. A program that resets mode 2027 gives each character its own cells under either value.\n\n\
