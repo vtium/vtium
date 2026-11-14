@@ -13,9 +13,11 @@
 //! foot pads it and as a rewrap leaves it (ADR-1003); without autowrap it
 //! is not printed, as xterm does (Ghostty's notes, `Terminal.zig`,
 //! `print`). On a screen one column wide an empty cell is printed instead,
-//! as Ghostty does. A VS16 that widens a one-cell cluster takes the cell
-//! after it, or in the last column moves the cluster to the next line as a
-//! wide character wraps. Ghostty and foot are MIT-licensed.
+//! as Ghostty does. A codepoint that widens a one-cell cluster takes the
+//! cell after it, or in the last column moves the cluster to the next line
+//! as a wide character wraps: a VS16 after an emoji-style base, and under
+//! `cluster-width = double` a spacing mark or the consonant of a virama
+//! conjunct (ADR-1006 D3). Ghostty and foot are MIT-licensed.
 //!
 //! Each print marks the row it writes to as rewrapping at a resize or not,
 //! from mode 2028 (ADR-1003).
@@ -236,7 +238,7 @@ impl Screen {
     }
 
     /// Adds `c` to the cluster in the cell at `x`, `y`, whose segmentation
-    /// state after `c` is `state`. A cluster a VS16 makes wide takes two
+    /// state after `c` is `state`. A cluster that `c` makes wide takes two
     /// cells.
     fn append_to_cluster(&mut self, x: usize, y: usize, c: char, state: Segmenter) {
         let Some((mut text, width, style, link)) = self.cell_text(x, y) else {
@@ -261,9 +263,11 @@ impl Screen {
 
     /// The cells the cluster stored at `x`, `y` takes: its first
     /// codepoint's width, or, when clusters follow UAX #29,
-    /// [`unicode::cluster_width`]'s, which is two for an emoji-style base
-    /// with a VS16. What counts is what the line kept, since a
-    /// line past its cluster budget keeps only the first codepoints.
+    /// [`unicode::cluster_width_with`]'s under the screen's `cluster-width`,
+    /// which is two for an emoji-style base with a VS16 and, under
+    /// `double`, for a spacing mark or a virama conjunct (ADR-1006 D1).
+    /// What counts is what the line kept, since a line past its cluster
+    /// budget keeps only the first codepoints.
     fn stored_width(&self, x: usize, y: usize) -> u8 {
         let Some(line) = self.line(y) else {
             return 1;
@@ -274,13 +278,15 @@ impl Screen {
             Glyph::Cluster(s) => s,
         };
         if self.width_method == WidthMethod::Unicode {
-            return unicode::width_of(text.chars());
+            return unicode::width_of(text.chars(), self.cluster_width);
         }
         text.chars().next().map_or(1, unicode::char_width)
     }
 
-    /// A VS16 made the one-cell cluster at `x`, `y` two cells wide: it takes
-    /// the cell after it. In the last column the cluster moves to the start
+    /// A codepoint made the one-cell cluster at `x`, `y` two cells wide: a
+    /// VS16, a spacing mark or the consonant of a virama conjunct. The
+    /// cluster takes the cell after it, and the cursor moves one cell
+    /// further (ADR-1006 D3). In the last column the cluster moves to the start
     /// of the next line, as a wide character wraps, and the cell it left is
     /// cleared; without autowrap, or on a screen one column wide, it stays
     /// narrow.
