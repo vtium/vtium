@@ -1,0 +1,8 @@
+size 10x4
+cursor 2,0
+flags AUTO_WRAP
+reply 1b5b333b3552
+row 0 |abcde|
+row 1 |fg|
+row 2 |hijkl|
+row 3 |mn|

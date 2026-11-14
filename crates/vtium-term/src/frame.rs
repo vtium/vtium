@@ -330,29 +330,17 @@ impl<'a> Frame<'a> {
     }
 
     /// The other row of the pair of double-height lines that `row` belongs
-    /// to. A top line (ESC # 3) pairs with the row directly below it when
-    /// that row is a bottom line (ESC # 4), and a bottom line pairs with
-    /// the row directly above it when that row is a top line. A top or
-    /// bottom line with no such partner, a line of any other size, and a
-    /// row whose partner the frame does not show belong to no pair. The
-    /// pair decides where the cursor draws ([`Frame::cursor_extent`]).
+    /// to, by [`pair_of`]'s rule over the sizes the rows draw at. A row
+    /// whose partner the frame does not show, and the overlay row, belong
+    /// to no pair. The pair decides where the cursor draws
+    /// ([`Frame::cursor_extent`]).
     ///
     /// References:
     /// - ADR-1308 D1, "The cursor on a scaled glyph scales with the glyph":
     ///   a double-height pair is a top line directly followed by its bottom
     ///   line.
     pub fn pair_row(&self, row: usize) -> Option<usize> {
-        match self.size(row) {
-            LineSize::DoubleHeightTop => {
-                let below = row.checked_add(1)?;
-                (self.size(below) == LineSize::DoubleHeightBottom).then_some(below)
-            }
-            LineSize::DoubleHeightBottom => {
-                let above = row.checked_sub(1)?;
-                (self.size(above) == LineSize::DoubleHeightTop).then_some(above)
-            }
-            LineSize::Single | LineSize::DoubleWidth => None,
-        }
+        pair_of(row, |r| self.size(r))
     }
 
     /// Where the cursor draws when it stands on a character of `row` that
@@ -530,6 +518,29 @@ impl<'a> Frame<'a> {
             default_bg,
             selected,
         }
+    }
+}
+
+/// The other row of the pair of double-height lines that `row` belongs
+/// to, where `size` gives the size of each row: a top line (ESC # 3)
+/// pairs with the row directly below it when that row is a bottom line
+/// (ESC # 4), and a bottom line pairs with the row directly above it when
+/// that row is a top line. A top or bottom line with no such partner and a
+/// line of any other size belong to no pair. The frame finds its rows'
+/// pairs with this rule ([`Frame::pair_row`]), and the selection finds the
+/// pairs of the lines in the scrollback and on the screen with it, so the
+/// cursor, the highlight and the copy agree on which lines pair.
+pub(crate) fn pair_of(row: usize, size: impl Fn(usize) -> LineSize) -> Option<usize> {
+    match size(row) {
+        LineSize::DoubleHeightTop => {
+            let below = row.checked_add(1)?;
+            (size(below) == LineSize::DoubleHeightBottom).then_some(below)
+        }
+        LineSize::DoubleHeightBottom => {
+            let above = row.checked_sub(1)?;
+            (size(above) == LineSize::DoubleHeightTop).then_some(above)
+        }
+        LineSize::Single | LineSize::DoubleWidth => None,
     }
 }
 

@@ -2249,6 +2249,53 @@ fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
     );
 }
 
+/// On a double-width line (ESC # 6) each character draws across two cells,
+/// so the pointer over either half of a doubled character is over that
+/// character. A drag from the left half of the doubled b to the right half
+/// of the doubled c copies bc, and a drag from the right half of the a to
+/// the left half of the b copies ab.
+///
+/// References:
+/// - ADR-1308 D1, "Selection on a double-size line follows the cursor's
+///   rule": the pointer maps a click or a drag on a double-size line to the
+///   line's own columns.
+// covers: text.line-size, clipboard.selection
+#[test]
+fn a_drag_on_a_double_width_line_selects_the_doubled_characters_under_it() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033#6abcd\\n'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| shows(a, "abcd")));
+    // In cells of 8 by 16 pixels, the doubled a covers pixels 0 to 15
+    // across, the b 16 to 31 and the c 32 to 47.
+    let at = |x: i32, held: Option<Button>| PointerEvent::Moved { x, y: 8, held };
+    let none = Mods::empty();
+    h.point(
+        [
+            at(17, None),
+            press(Button::Left, false),
+            at(46, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"bc"[..]));
+    h.point(
+        [
+            at(14, None),
+            press(Button::Left, false),
+            at(18, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"ab"[..]));
+}
+
 /// A double click selects a word and a triple click a line, each copied
 /// as it is made; Shift+Insert pastes as the middle button does. A click
 /// with no drag copies nothing.

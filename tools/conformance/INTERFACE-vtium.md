@@ -128,7 +128,7 @@ Interface 1.0 reserves three keys for features it lacks: `overline`, `superscrip
 
 ## The selection and copy
 
-A user marks text with the pointer, and the host copies the marked text. The reference host selects through vtium-term's selection calls, the calls the vtium binary makes for a press of the left button and a drag, a double click, a triple click, and Ctrl with the right button. The `select` command names each of these by what it selects. It names a cell in the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback. In a build with right-to-left text, `col` is the column as drawn, where the pointer is, and vtium-term finds the character written there (ADR-1004, D10).
+A user marks text with the pointer, and the host copies the marked text. The reference host selects through vtium-term's selection calls, the calls the vtium binary makes for a press of the left button and a drag, a double click, a triple click, and Ctrl with the right button. The `select` command names each of these by what it selects. It names a cell in the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback. In a build with right-to-left text, `col` is the column as drawn, where the pointer is, and vtium-term finds the character written there (ADR-1004, D10). On a line of double size, each character covers two screen columns. So `col` names the doubled character drawn there, the line's own column `col / 2` (ADR-1308 D1).
 
 | Command | Keys | Feature | What it does |
 |---|---|---|---|

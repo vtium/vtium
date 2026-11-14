@@ -1,0 +1,13 @@
+test copy 6263
+test copy 616263640a7778797a0a31323334
+test copy 7879
+test copy 61626364
+test copy 616263640a
+test copy 62
+size 10x4
+cursor 4,3
+flags AUTO_WRAP
+row 0 |abcd|
+row 1 |abcd|
+row 2 |wxyz|
+row 3 |1234|

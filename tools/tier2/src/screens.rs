@@ -3305,7 +3305,7 @@ const LINES_MIXED: &[u8] = concat!(
 )
 .as_bytes();
 
-const LINES_MIXED_DESC: &str = "Every line size on one screen, 26 by 6 cells, with a selection from the fifth cell of the first line to the seventh cell of the third. The lines are a normal line, a double-width line, a double-height pair, a line set to double width and then back to the normal size by ESC # 5 (DECSWL), and a normal line. Correct: each line at its own size, each character on the double-size lines twice as wide; the double-height pair joined into one tall line; the line set back drawn at the normal size; the selection's colors on the cells it holds, each double-size cell across both of its display cells.";
+const LINES_MIXED_DESC: &str = "Every line size on one screen, 26 by 6 cells, with a selection from the fifth cell of the first line to the seventh cell of the third. The lines are a normal line, a double-width line, a double-height pair, a line set to double width and then back to the normal size by ESC # 5 (DECSWL), and a normal line. Correct: each line at its own size, each character on the double-size lines twice as wide; the double-height pair joined into one tall line; the line set back drawn at the normal size; the selection's colors on the cells it holds, each double-size cell across both of its display cells. The selection ends on the doubled b, which the seventh and eighth cells of the third line show, and both lines of the double-height pair show Doub selected, in its upper and lower halves.";
 
 /// The `lines-cursor-` screens: a cursor on a line of each size.
 const LINES_CURSOR_DWL: &[u8] = b"\x1b#6Cursor\r\nnormal size";

@@ -194,14 +194,21 @@ impl Screen {
         }
     }
 
-    /// Marks row `y`'s text as continuing on the next row, for reflow,
-    /// when a wrap from column `edge` reaches another row (`wrap_moves`)
-    /// and goes from the screen's last column to the next row's first. On
+    /// Marks row `y`'s text as continuing on the next row, for reflow and
+    /// reverse wraparound, when a wrap from column `edge` reaches another
+    /// row (`wrap_moves`) and goes from the row's last column to the next
+    /// row's first. The row's last column is the screen's, or on a line of
+    /// double size the last of the half as many columns the line holds. On
     /// the screen's last row below the region the wrap returns to the same
     /// row, whose text does not continue. Returns whether it marked the
     /// row.
+    ///
+    /// References:
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: "The use of
+    ///   double-width characters reduces the number of characters per line
+    ///   by half."
     fn mark_wrapped(&mut self, y: usize, edge: usize, last: usize) -> bool {
-        let edges = self.left == 0 && edge.saturating_add(1) >= self.cols;
+        let edges = self.left == 0 && edge.saturating_add(1) >= self.line_cols(y);
         if !edges || !self.wrap_moves(y, edge, last) {
             return false;
         }

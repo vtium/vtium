@@ -1,0 +1,28 @@
+# The pointer on a double-size line selects the doubled character drawn
+# under it: display column C of a line of double size is the line's own
+# column C / 2. A selection on either line of a double-height pair
+# selects the pair's characters on both lines, and the copy takes the
+# pair's text once, from its top line. Row 0 is a top line (ESC # 3),
+# row 1 its bottom line (ESC # 4), row 2 a double-width line (ESC # 6)
+# and row 3 a line of the normal size, on a screen 10 columns wide.
+# spec: ADR-1308 D1, "Selection on a double-size line follows the cursor's rule": "On a double-height pair, a selection that covers a character on either line of the pair highlights both halves of that doubled character. Copying a selection that covers both lines of a pair gives the pair's text once, from its top line. On a double-width line, the highlight covers both display cells of each character. The pointer maps a click or a drag on a double-size line to that line's own columns, which are half the screen's."
+# covers: text.line-size, clipboard.selection
+size 10 4
+send "\e#3abcd\r\n\e#4abcd\r\n\e#6wxyz\r\n1234"
+select start at 2,0
+select to at 5,1
+copy
+select start at 0,0
+select to at 9,3
+copy
+select start at 3,2
+select to at 4,2
+copy
+select word at 7,1
+copy
+select line at 0,1
+copy
+select start at 2,1
+select to at 3,1
+copy
+dump
