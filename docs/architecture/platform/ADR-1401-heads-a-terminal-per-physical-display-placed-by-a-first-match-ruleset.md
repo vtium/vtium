@@ -498,6 +498,9 @@ considered:
   - operator: aaronsb
     said: "Accept, note in D16"
     via: the maintainer, through the steering session's question tool, 2026-11-13, asked how vtium handles the focus-in a restart cannot send when it ends a display hand-over
+  - operator: aaronsb
+    said: "(a) Check between steps"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, asked whether vtium may let the VT go before display work in progress finishes, with options (a) check between steps, (b) answer on a timer thread, (c) display work on threads
 observable:
   - "With no head file, every display lights and mirrors one grid, and every keyboard types into it, as before this record"
   - "With a head file naming two heads, each display shows its own grid at its own density, each head's claimed keyboard types only into it, and a roaming keyboard types into whichever head the roaming chord makes active"
@@ -755,6 +758,21 @@ sequenceDiagram
 The later extension of two seats, drawn so its boundary is clear:
 
 ![Two GPUs on two seats, marked later and not built. On the left, seat0, with the kernel VTs and Ctrl-Alt-F&lt;n&gt;: the desktop compositor, the user's graphical session, holds the master of card1, the discrete GPU, and takes the large monitor on DP-8, keyboard A and the mouse; a vtium on a seat0 VT runs there too and takes card1 only while its VT is shown. On the right, seat1, dashed as later and not built, with no kernel VT: vtium, one a seat, with its own console switching, holds the master of card0, the integrated GPU, and takes the small panel on HDMI-A-2 and keyboard B, its own; Ctrl-Alt-F&lt;n&gt; are vtium's own keys there, and the two sessions run side by side, neither switching the other. Below both, logind assigns whole devices to seats, cards and inputs, never connectors; one keyboard cannot be on two seats, and only seat0 has kernel VTs. A legend marks root, the user, a device, and later, not built.](figures/ADR-1401-two-seats.svg)
+
+#### A VT release while display work runs
+
+The loop does each display's work itself, and each call into the kernel holds the loop until the kernel answers. On some cards a call takes seconds. When vtium, as DRM master, reads a connector and leaves no room for its modes, the kernel probes the connector first (`drm_mode_getconnector` in the kernel's `drivers/gpu/drm/drm_connector.c`, Linux 7.2). On a laptop whose DisplayPort converter chip does not answer, each such probe takes about 2 s. A display manager that asks for vtium's VT meanwhile waits for that work. So the loop answers a VT release between the steps of its display work (the maintainer, 2026-11-13).
+
+- **The loop checks for a release between steps.** It checks between udev events, between the reads of a card's connectors, and before a modeset. When the kernel has asked for the VT, the display work stops at that step. The loop then puts the displays to sleep and lets the VT go in the same turn.
+- **The acquire does the stopped work again.** The wake-up at the acquire scans every card and sets every display up again, so nothing the release stopped is lost.
+- **The release waits for one call to the kernel at most.** The loop cannot stop a call in progress, so the call that runs when the kernel asks for the VT finishes first.
+- **The sleep does not wait for a modeset's flip.** It still waits for a frame's flip in flight, at most `FLIP_WAIT_MS`, as above. A modeset in flight is left to the kernel. The program that takes the card may then find the display busy for a commit that does not block, until the modeset ends. A commit that blocks waits for it in the kernel.
+- **One scan for each card in a turn.** Several udev events for one card in one turn lead to one scan of that card.
+- **A connector is probed only where vtium does not know its modes.** vtium first reads each connector with room for one mode. That read returns what the kernel already knows and probes nothing, as libdrm's `drmModeGetConnectorCurrent` reads it. vtium asks for a probe only for a connector that is connected and either lists no modes or shows another monitor than the one whose modes vtium read.
+- **The order before the release stays.** The focus-out still reaches the session before vtium lets the VT go (D5). A framebuffer's sleep still revokes its token and clears the framebuffer first (above).
+- **The broker bounds the wait later.** Once the privilege split's broker owns the VT (ADR-1400 D4), it lets the VT go after a bounded wait, whatever the drawer is doing.
+
+> Added 2026-11-13: the maintainer decided that vtium lets its VT go between the steps of its display work (`considered`, 2026-11-13). On a laptop with an Intel GPU, a display manager waited about 3.3 s at a normal start for vtium's first connector probes and modeset, and 19.5 s at a start in early boot. D2 did not say when a release may cut display work short, and the sleep waited for a modeset's flip as it waits for a frame's.
 
 ### D3: the head file
 
