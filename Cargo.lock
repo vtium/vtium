@@ -1019,6 +1019,7 @@ dependencies = [
  "vtium-font",
  "vtium-render",
  "vtium-term",
+ "vtium-testfont",
  "vtium-tier2",
 ]
 
