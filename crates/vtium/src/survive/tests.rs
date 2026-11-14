@@ -9,7 +9,7 @@
 use std::ffi::OsString;
 use std::io::IoSliceMut;
 use std::mem::MaybeUninit;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -554,6 +554,94 @@ fn the_holder_and_vtium_each_refuse_another_user() {
         Err(std::io::ErrorKind::PermissionDenied)
     );
     assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
+}
+
+/// Set in the process that `a_stop_while_vtium_takes_loses_no_master`
+/// starts, to the holder socket that process takes from.
+const TAKE_FROM: &str = "VTIUM_TEST_TAKE_FROM";
+
+/// The state letter in a thread's `stat` file, which follows the
+/// parenthesized command name (proc(5)).
+fn thread_state(stat: &Path) -> Option<char> {
+    let text = std::fs::read_to_string(stat).ok()?;
+    let (_, rest) = text.rsplit_once(") ")?;
+    rest.chars().next()
+}
+
+// vtium is stopped and continued while it waits for the holder's answer to
+// `take`, as a job-control stop or a debugger does. The kernel ends that
+// wait with EINTR, because vtium waits with a receive timeout (signal(7)),
+// and vtium waits on and takes every master the holder then sends. The
+// vtium side runs in a process of its own, this test binary run again,
+// because a stop holds every thread of a process.
+#[test]
+fn a_stop_while_vtium_takes_loses_no_master() {
+    if let Some(path) = std::env::var_os(TAKE_FROM) {
+        let path = PathBuf::from(path);
+        // The thread that waits, which the test reads before the stop.
+        let thread = std::fs::read_link("/proc/thread-self").unwrap();
+        std::fs::write(
+            path.with_file_name("thread"),
+            thread.as_os_str().as_encoded_bytes(),
+        )
+        .unwrap();
+        let vtium = hold::Client::connect(&path).unwrap();
+        let kept = vtium.take().unwrap();
+        let names: Vec<&str> = kept.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["pty.1.console"], "the master the holder sent");
+        return;
+    }
+    let dir = Scratch::new("survive-stop-take");
+    let (path, listener) = holder_socket(&dir);
+    let name = format!(
+        "{}::a_stop_while_vtium_takes_loses_no_master",
+        module_path!().split_once("::").unwrap().1
+    );
+    let child = Command::new(std::env::current_exe().unwrap())
+        .args([name.as_str(), "--exact", "--test-threads=1"])
+        .env(TAKE_FROM, &path)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let pid = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+    let conn = rustix::net::accept_with(&listener, SocketFlags::CLOEXEC).unwrap();
+    // vtium wrote its thread's name before it connected.
+    let thread = std::fs::read_to_string(dir.join("thread")).unwrap();
+    let stat = Path::new("/proc").join(thread).join("stat");
+    let (word, _) = hold::receive(conn.as_fd()).unwrap().unwrap();
+    assert_eq!(word, "take");
+    // Once its `take` has gone out, the one wait vtium's thread can sleep in
+    // is the wait for the answer. The bound on the turns only keeps the test
+    // from hanging.
+    let waits = (0..1_000_000).any(|_| {
+        let asleep = thread_state(&stat) == Some('S');
+        if !asleep {
+            std::thread::yield_now();
+        }
+        asleep
+    });
+    assert!(waits, "vtium waits for the holder's answer");
+    rustix::process::kill_process(pid, rustix::process::Signal::STOP).unwrap();
+    // A continue sent before the stop takes hold would cancel the stop.
+    let status = rustix::process::waitpid(Some(pid), rustix::process::WaitOptions::UNTRACED)
+        .unwrap()
+        .map(|(_, status)| status);
+    assert!(status.is_some_and(|s| s.stopped()), "vtium is stopped");
+    rustix::process::kill_process(pid, rustix::process::Signal::CONT).unwrap();
+    let master = session();
+    // A vtium that gave up on the answer has closed the connection, which
+    // its own output below explains better than the failed send.
+    let sent = hold::send(conn.as_fd(), "kept pty.1.console", Some(master.master()))
+        .and_then(|()| hold::send(conn.as_fd(), "end", None));
+    let out = child.wait_with_output().unwrap();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && stdout.contains("1 passed"),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    sent.unwrap();
 }
 
 #[test]
