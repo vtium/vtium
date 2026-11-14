@@ -37,6 +37,12 @@
 //!   while the program still holds a card, and sends keys to the console
 //!   again. A setForeground that the console sends later ends no
 //!   hand-over, and vtium ignores it.
+//! - **Focus.** The shown console of each wholly paused head, the
+//!   sending head among them, gets a focus-out at setBackground and a
+//!   focus-in when the hand-over ends, where its program turned on focus
+//!   reporting (mode 1004). A head that still draws on a display keeps
+//!   its focus. Under a seat manager, where vtium ignores setBackground,
+//!   no report goes.
 //! - **On the GPU path,** a wholly paused head gives back its textures
 //!   and frames as at a VT release (ADR-1303 D9), and makes them again
 //!   when it draws whole at the end.
@@ -286,6 +292,9 @@ impl App {
     /// consoles hold, and on the GPU path gives back its textures and
     /// frames, as at a VT release (ADR-1303 D9). A head that draws again
     /// draws each display whole, making on the GPU path what it gave back.
+    /// The shown console of a head that pauses gets a focus-out, and of a
+    /// head that draws again a focus-in, where the program asked for
+    /// focus reports (ADR-1401 D5).
     fn pause_changed(&mut self, before: &BTreeSet<usize>, after: &BTreeSet<usize>) {
         for &h in after.difference(before) {
             if let Some(head) = self.heads.get_mut(h) {
@@ -304,6 +313,7 @@ impl App {
             }
         }
         self.let_go_of_held_keys();
+        self.report_focus();
     }
 }
 

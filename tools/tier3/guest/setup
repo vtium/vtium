@@ -124,6 +124,11 @@ if [ -f "$disc"/t3-agent ]; then
     install -m755 "$disc"/t3-agent /usr/local/sbin/t3-agent
     install -m644 "$disc"/t3-agent.service /etc/systemd/system/t3-agent.service
 fi
+# The probe the agent runs as root, in the variant that hands the display
+# to a graphical program (t3_handover.py).
+if [ -f "$disc"/t3-probe ]; then
+    install -m755 "$disc"/t3-probe /usr/local/sbin/t3-probe
+fi
 # The mode vtium runs in on the guest's VTs (ADR-1400 D3): direct, through
 # vtium@.service, unless the variant names seat mode, through
 # vtium-seat@.service, which a tree built with libseat and logind ships.

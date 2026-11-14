@@ -1682,10 +1682,14 @@ impl App {
         true
     }
 
-    /// Mode 1004's focus (ADR-1401 D5): the terminal of each head a
+    /// Mode 1004's focus (ADR-1401 D5): the shown console of each head a
     /// keyboard delivers to has it, lit or not, so several hold it at
-    /// once; each change goes to a program that asked for it.
-    fn report_focus(&mut self) {
+    /// once. It holds only while vtium's VT is shown, and only while the
+    /// head is not wholly paused by a hand-over of its displays (D16). So
+    /// a VT release, under a seat manager the seat's disable, takes it
+    /// from every head, and setBackground from each head it wholly
+    /// pauses. Each change goes to a program that asked for it.
+    pub(super) fn report_focus(&mut self) {
         // A keyboard that could not be opened, or went at a wake-up, is
         // gone from the seat's input; with no seat input, as a test drives
         // the seat, a device counts as open.
@@ -1693,10 +1697,17 @@ impl App {
         let open = |id: Option<DeviceId>| {
             input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
         };
+        // A release under way counts as the VT gone. The VT stays ours
+        // until the turn lets it go, once the displays are asleep, and the
+        // release reports the focus-out before that.
+        let shown = self.vt.is_active() && self.releasing.is_none();
+        let paused = self.paused_heads();
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let focused = self
-                .routes
-                .keyboard_reaches(&self.vt_heads, h, self.focus, open);
+            let focused = shown
+                && !paused.contains(&h)
+                && self
+                    .routes
+                    .keyboard_reaches(&self.vt_heads, h, self.focus, open);
             if focused != head.focused {
                 head.focused = focused;
                 if head.console.term.terminal.focus(focused) {
@@ -2523,6 +2534,9 @@ impl App {
                         painter.release();
                     }
                 }
+                // The focus-out goes now, before the turn lets the VT go
+                // (ADR-1401 D5).
+                self.report_focus();
             }
             VtEvent::Retaken if self.blank.blanked() => {
                 // As a hotplug while blanked: the set-up waits for the
@@ -6195,6 +6209,26 @@ mod tests {
         let keyboard =
             vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard);
         app.add_input(Path::new("/nonexistent/vtium-test/event9"), keyboard);
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
+    }
+
+    // ADR-1401 D5: the focus holds only while vtium's VT is shown. A
+    // release under way takes it, though the VT stays vtium's until the
+    // displays are asleep and vtium lets the VT go.
+    // covers: platform.heads.focus
+    #[test]
+    fn a_release_under_way_takes_the_focus() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.vt.activate().unwrap();
+        app.focus = Some(0);
+        let keyboard =
+            vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard);
+        app.add_input(Path::new("/dev/input/event9"), keyboard);
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(true));
+        app.releasing = Some(BTreeSet::from([PathBuf::from("/dev/dri/card0")]));
+        assert!(app.vt.is_active(), "the VT is still vtium's");
         app.report_focus();
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
     }

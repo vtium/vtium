@@ -10,6 +10,7 @@ import time
 
 import t3_bench
 import t3_devices
+import t3_handover
 import t3_heads
 import t3_images
 import t3_pointer
@@ -317,6 +318,13 @@ VARIANTS.update({
     "panic-sysrq": dict(POWER, conf="vtium-minimal.conf", panic=True, agent=True),
     "kmsg-notice": dict(POWER, conf="vtium-minimal.conf", kmsg=True, agent=True),
 })
+# hand-over hands the display to a graphical program and takes it back with
+# no VT switch, on the minspec tree in direct mode (ADR-1401 D16): its check
+# (t3_handover.CHECKS "hand-over") has the agent run the probe as root,
+# which takes the card once vtium lets it go, and judges the focus reports
+# the session received. The variant runs only when named.
+VARIANTS["hand-over"] = dict(SEAT, tree_features=[], checks=["hand-over"], agent=True,
+                             probe=True)
 SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
                  "kmsg-notice"]
 
@@ -901,9 +909,10 @@ def build_disc(variant, work, impl):
     if it runs a second vtium on tty3 from the boot, a `udev-examples`
     file if it runs that check, whose guest installs the example hwdb
     fragment, a `soft-reboot` file if its guest starts its userspace again
-    once the claim is made, the agent and its unit if it runs it, and
+    once the claim is made, the agent and its unit if it runs it,
     t3-novt, the script that hides /dev/tty0 from vtium, if vtium runs as on
-    a machine without kernel VTs."""
+    a machine without kernel VTs, and the probe t3-probe if the agent runs
+    it (t3_handover)."""
     disc = os.path.join(work, "disc")
     shutil.rmtree(disc, ignore_errors=True)
     os.makedirs(disc)
@@ -975,6 +984,8 @@ def build_disc(variant, work, impl):
             shutil.copy(os.path.join(GUEST, name), disc)
     if VARIANTS[variant].get("novt"):
         shutil.copy(os.path.join(GUEST, "t3-novt"), disc)
+    if VARIANTS[variant].get("probe"):
+        shutil.copy(t3_handover.build_probe(), os.path.join(disc, "t3-probe"))
     iso = os.path.join(work, "t3pkg.iso")
     make_iso(disc, "T3PKG", iso)
     return iso
@@ -1678,6 +1689,7 @@ CHECK_RUNS = {"udev-examples": check_udev_examples,
               "boot-claim": t3_seat.check_boot_claim,
               "login-session": t3_seat.check_login_session,
               "two-logins": t3_seat.check_two_logins,
+              **t3_handover.CHECK_RUNS,
               **t3_heads.CHECK_RUNS}
 
 

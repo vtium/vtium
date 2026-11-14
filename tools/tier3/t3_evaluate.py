@@ -7,6 +7,7 @@ import subprocess
 
 import t3_bench
 import t3_devices
+import t3_handover
 import t3_heads
 import t3_images
 import t3_pictures
@@ -94,7 +95,7 @@ RESTORED = {"images-640x480": PICTURE_SCREENS[-1]}
 # so that variant's goldens judge it.
 GOLDENS_OF = {"gl-1280x800": "2d-1280x800", "seat-seatd": "2d-potato-min",
               "seat-logind": "2d-potato-min", "direct-logind": "2d-potato-min",
-              "seat-seatd-wait": "2d-potato-min",
+              "seat-seatd-wait": "2d-potato-min", "hand-over": "2d-potato-min",
               "two-cards-mirror-hotplug": "two-cards-mirror",
               "novt-closed-broken": "heads-closed-broken", "novt-open": "2d-640x480-psf16"}
 
@@ -266,6 +267,7 @@ CHECKS = {
     **t3_heads.CHECKS,
     **t3_images.CHECKS,
     **t3_seat.CHECKS,
+    **t3_handover.CHECKS,
     **t3_seat.CAPTIONS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
@@ -274,7 +276,7 @@ CHECKS = {
 # whose figures are reported, not judged, and whose picture judges only
 # that the screen finished.
 NO_GOLDEN = {"vt-switch", "sync-clock", *t3_power.CHECKS, *t3_pointer.CHECKS, *t3_devices.CHECKS,
-             *t3_images.CHECKS, *t3_seat.CHECKS,
+             *t3_images.CHECKS, *t3_seat.CHECKS, *t3_handover.CHECKS,
              *t3_heads.CHECKS}
 
 PROVISIONAL_FILE = os.path.join(HERE, "provisional.tsv")
