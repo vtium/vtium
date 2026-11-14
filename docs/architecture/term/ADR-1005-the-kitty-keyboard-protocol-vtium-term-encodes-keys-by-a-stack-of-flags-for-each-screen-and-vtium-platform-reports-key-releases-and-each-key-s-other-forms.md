@@ -100,6 +100,9 @@ considered:
     said: "Every key that makes text follows the legacy section's text algorithm, not only the ASCII keys the specification lists, so Alt+с is ESC с."
     via: the steering session's question on 2026-11-13, on the fresh review of the kitty keyboard fixes
     paraphrase: true
+  - operator: aaronsb
+    said: "Keep, as everyone does"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, after a survey showed that kitty 0.49.2 (run here), foot, Ghostty, WezTerm, Alacritty and Rio (their MIT and Apache source) all send a text key's release as CSI <key>;<mods>:3u under flag 2 alone, as vtium does, while the specification's text says text keys get no events without flag 8; a new keypad scenario written from the specification had flagged the difference
 status: accepted
 date: 2026-11-07
 deciders:
