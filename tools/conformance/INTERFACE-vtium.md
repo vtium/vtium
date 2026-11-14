@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.10 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.11 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -467,6 +467,35 @@ row 2 ||
 row 3 ||
 ```
 
+## The width of a cluster with a spacing mark or a virama conjunct
+
+vtium.conf's `cluster-width` chooses how many cells a grapheme cluster takes when a spacing mark (General_Category Mc) follows its first character, or when a virama joins a consonant to it (ADR-1006). Under `double`, such a cluster takes two cells, by Python wcwidth's rules, and widens as the character that widens it arrives. Under `single`, every cluster takes its first character's cells, or two for an emoji-style base with U+FE0F. The reference host measures by `double` until the `cluster-width` command chooses otherwise. No case of 1.0 holds such a cluster, so no golden of 1.0 changes.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `cluster-width` | `rule`: name, `double` or `single` | `cluster-width` | Chooses the rule, as the host's `cluster-width` does. Text already on the screen keeps its cells, and text printed after the command starts a cell of its own. |
+
+| Feature | What declaring it means |
+|---|---|
+| `cluster-width` | `cluster-width`. |
+
+A worked example: Tamil ko, the letter ka with the vowel sign o, takes two cells under `double` and one under `single`.
+
+```example cluster-width
+size 8 1
+needs cluster-width
+send "\u{B95}\u{BCA}|"
+cmd cluster-width;rule=single
+send "\u{B95}\u{BCA}|"
+```
+
+```output cluster-width
+size 8x1
+cursor 5,0
+flags AUTO_WRAP
+row 0 |கொ|கொ||
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
@@ -476,7 +505,7 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.10
+interface 1.11
 view display
 feature clipboard
 feature attrs-renditions
@@ -493,6 +522,7 @@ feature key-forms
 feature font-ops
 feature window-ops
 feature display-ops
+feature cluster-width
 command clipboard clipboard
 command select selection
 command copy selection
@@ -508,6 +538,7 @@ command window-ops window-ops
 command grid-request window-ops
 command display-ops display-ops
 command display-request display-ops
+command cluster-width cluster-width
 ```
 
 ```grammar
