@@ -117,6 +117,11 @@ pub enum InkFonts {
     /// Bengali and Arabic, the showcase's fonts for those scripts
     /// ([`crate::fonts::SCRIPT_FONTS`]).
     Scripts,
+    /// A font set vtium ships for a script that needs room, as it ships,
+    /// its fonts found by family among the fonts [`crate::fonts`] fetches
+    /// ([`crate::fonts::SHIPPED_FONTS`]), and its rows made taller by its
+    /// own `line-spacing=`.
+    Shipped(crate::fonts::ShippedFrit),
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -799,6 +804,10 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     crate::fonts::check_scripts(&fetched)?;
                     let text = crate::fonts::scripts_frit_text(&fetched);
                     ("tier2-scripts", text, fetched.as_path())
+                }
+                InkFonts::Shipped(frit) => {
+                    crate::fonts::check_shipped(&fetched)?;
+                    (frit.name, frit.text.to_owned(), fetched.as_path())
                 }
             };
             let mut drawn = Vec::new();

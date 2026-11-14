@@ -139,6 +139,42 @@ const NOTO_SANS_ARABIC: Pinned = Pinned {
     color: false,
 };
 
+/// Noto Sans Hebrew, which draws the Hebrew blocks in the test frit.
+const NOTO_SANS_HEBREW: Pinned = Pinned {
+    file: "NotoSansHebrew-Regular.ttf",
+    sha256: "cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee",
+    origin: Origin::Url(
+        "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansHebrew/hinted/ttf/NotoSansHebrew-Regular.ttf",
+    ),
+    style: FritStyle::Regular,
+    cover: &HEBREW,
+    color: false,
+};
+
+/// Noto Sans Devanagari, in the scripts frit.
+const NOTO_SANS_DEVANAGARI: Pinned = Pinned {
+    file: "NotoSansDevanagari-Regular.ttf",
+    sha256: "306b53ecfb182a504dd8a7446093c316387d2fd8dc350d0792ed1753fe0996cd",
+    origin: Origin::Url(
+        "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansDevanagari/hinted/ttf/NotoSansDevanagari-Regular.ttf",
+    ),
+    style: FritStyle::Regular,
+    cover: &[],
+    color: false,
+};
+
+/// Noto Sans Bengali, in the scripts frit.
+const NOTO_SANS_BENGALI: Pinned = Pinned {
+    file: "NotoSansBengali-Regular.ttf",
+    sha256: "9f8b4dd091f19b111d24ea18daae81bea8684cc67de17ea1acd797e144bf20ba",
+    origin: Origin::Url(
+        "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Regular.ttf",
+    ),
+    style: FritStyle::Regular,
+    cover: &[],
+    color: false,
+};
+
 /// Iosevka Term 34.9.1's TrueType release archive, a zip.
 pub const IOSEVKA: Archive = Archive {
     file: "PkgTTF-IosevkaTerm-34.9.1.zip",
@@ -162,32 +198,167 @@ pub const SCRIPT_FONTS: [Pinned; 4] = [
         cover: &[],
         color: false,
     },
-    Pinned {
-        file: "NotoSansDevanagari-Regular.ttf",
-        sha256: "306b53ecfb182a504dd8a7446093c316387d2fd8dc350d0792ed1753fe0996cd",
-        origin: Origin::Url(
-            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansDevanagari/hinted/ttf/NotoSansDevanagari-Regular.ttf",
-        ),
-        style: FritStyle::Regular,
-        cover: &[],
-        color: false,
-    },
-    Pinned {
-        file: "NotoSansBengali-Regular.ttf",
-        sha256: "9f8b4dd091f19b111d24ea18daae81bea8684cc67de17ea1acd797e144bf20ba",
-        origin: Origin::Url(
-            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansBengali/hinted/ttf/NotoSansBengali-Regular.ttf",
-        ),
-        style: FritStyle::Regular,
-        cover: &[],
-        color: false,
-    },
+    NOTO_SANS_DEVANAGARI,
+    NOTO_SANS_BENGALI,
     NOTO_SANS_ARABIC,
 ];
 
 /// The height in pixels the scripts frit draws at, which gives Iosevka
 /// Term its own 16x40 cell, the showcase's.
 pub const SCRIPTS_HEIGHT: u32 = 40;
+
+/// A font set vtium ships for a script that needs room above and below its
+/// letters (vtium/vtium#204): its name and its text, as
+/// `tools/specimens/frits` holds it. It names its fonts by family, and the
+/// engine finds each family in the cache, its only font directory.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShippedFrit {
+    pub name: &'static str,
+    pub text: &'static str,
+}
+
+/// The font set `name`, read from `tools/specimens/frits` as it ships.
+macro_rules! shipped {
+    ($name:literal) => {
+        ShippedFrit {
+            name: $name,
+            text: include_str!(concat!("../../specimens/frits/", $name, ".vtfrit")),
+        }
+    };
+}
+
+/// The shipped font sets the `frit-` screens draw, in their screens' order.
+pub const SHIPPED_FRITS: [ShippedFrit; 5] = [
+    shipped!("arabic"),
+    shipped!("hebrew"),
+    shipped!("indic"),
+    shipped!("thai-lao"),
+    shipped!("vietnamese"),
+];
+
+/// Every font the shipped font sets name, each the file of its family in
+/// the Noto project's release of September 2024: Noto Sans Mono, which
+/// sets every one of their cells, then each script's font.
+pub const SHIPPED_FONTS: [Pinned; 15] = [
+    Pinned {
+        file: "NotoSansMono-Regular.ttf",
+        sha256: "65b5e2b2c4a1fba9ae8be1f026cb35b03dcb8886d9b2a4147054fde12f7e767d",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansMono/hinted/ttf/NotoSansMono-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    NOTO_SANS_ARABIC,
+    NOTO_SANS_HEBREW,
+    NOTO_SANS_DEVANAGARI,
+    NOTO_SANS_BENGALI,
+    Pinned {
+        file: "NotoSansGurmukhi-Regular.ttf",
+        sha256: "658d0207da305a1411c539a8b0bbeda64d4146e54fb4827facddb890b6b90d74",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansGurmukhi/hinted/ttf/NotoSansGurmukhi-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansGujarati-Regular.ttf",
+        sha256: "9b5a7aaeeb649a2e75a49d8b006a1f87db1b61c0df3b001609f4e0725d88dbf6",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansGujarati/hinted/ttf/NotoSansGujarati-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansOriya-Regular.ttf",
+        sha256: "38ac5eae2e1666558b88c63bf584349d6f924cca6b3b8867811546734afeb251",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansOriya/hinted/ttf/NotoSansOriya-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansTamil-Regular.ttf",
+        sha256: "3c0a186feb3c63c7f6d63e1511dcdc144e745ae09b98e217c83f3e317974f6f9",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansTamil/hinted/ttf/NotoSansTamil-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansTelugu-Regular.ttf",
+        sha256: "b274780b69d1d23fe84b55e809a152cb2ac5306d33864b1f87622f6971871aae",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansTelugu/hinted/ttf/NotoSansTelugu-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansKannada-Regular.ttf",
+        sha256: "f1a39a97a40486a345b1930169cb111098a4eaf40a88eb4303d2c0b8e7ceeeb5",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansKannada/hinted/ttf/NotoSansKannada-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansMalayalam-Regular.ttf",
+        sha256: "c08de7fa8d032a5d6a4d120fb82c78cec60b362a4e73fa26360d89759ff2a7f9",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansMalayalam/hinted/ttf/NotoSansMalayalam-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansSinhala-Regular.ttf",
+        sha256: "493a1c9cb7151783dac21456e45ad1bec554b3361b830734dcdaf6304421dfe6",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansSinhala/hinted/ttf/NotoSansSinhala-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansThai-Regular.ttf",
+        sha256: "61cf814eec46b294d6ea4401ac295d0cecd5207bd2331dcc5a15e7301d30ee44",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansThai/hinted/ttf/NotoSansThai-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansLao-Regular.ttf",
+        sha256: "0a86e5e1ccfe34ca78c43fac6829dc751b42bcc469272a9a55325aae587bfbe7",
+        origin: Origin::Url(
+            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansLao/hinted/ttf/NotoSansLao-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+];
+
+/// The height in pixels the `frit-` screens draw the shipped font sets
+/// at: the text's height, which each set's line spacing then makes taller.
+pub const SHIPPED_HEIGHT: u32 = 32;
 
 /// The test frit's fonts, in its order: DejaVu Sans Mono 2.37's four faces,
 /// Noto Sans Hebrew and Noto Sans Arabic from the Noto project's release of
@@ -234,16 +405,7 @@ pub const FONTS: [Pinned; 8] = [
         cover: &NOT_HEBREW_OR_ARABIC,
         color: false,
     },
-    Pinned {
-        file: "NotoSansHebrew-Regular.ttf",
-        sha256: "cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee",
-        origin: Origin::Url(
-            "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansHebrew/hinted/ttf/NotoSansHebrew-Regular.ttf",
-        ),
-        style: FritStyle::Regular,
-        cover: &HEBREW,
-        color: false,
-    },
+    NOTO_SANS_HEBREW,
     NOTO_SANS_ARABIC,
     Pinned {
         file: "NotoSansCJKsc-Regular.otf",
@@ -322,6 +484,20 @@ pub fn check(dir: &Path) -> Result<(), String> {
 /// [`check`] says it for the test frit's.
 pub fn check_scripts(dir: &Path) -> Result<(), String> {
     match SCRIPT_FONTS
+        .iter()
+        .find_map(|f| fault(dir, f.file, f.sha256))
+    {
+        Some(why) => Err(format!(
+            "{why}; `make tier2-fonts` fetches the pinned fonts"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// Why the shipped font sets' fonts in `dir` cannot be drawn from, as
+/// [`check`] says it for the test frit's.
+pub fn check_shipped(dir: &Path) -> Result<(), String> {
+    match SHIPPED_FONTS
         .iter()
         .find_map(|f| fault(dir, f.file, f.sha256))
     {
@@ -877,6 +1053,30 @@ mod tests {
             SCRIPT_FONTS[3].sha256, FONTS[5].sha256,
             "the same Noto Sans Arabic as the test frit"
         );
+    }
+
+    // each shipped font set names its fonts by family, and tier 2 pins
+    // exactly the files of those families, so every `frit-` screen finds
+    // each of its fonts in the cache and none is left out
+    #[test]
+    fn the_shipped_fonts_are_the_families_the_shipped_frits_name() {
+        use std::collections::BTreeSet;
+        use vtium_config::frit::{Frit, Origin};
+        let mut named = BTreeSet::new();
+        for frit in SHIPPED_FRITS {
+            let parsed =
+                Frit::parse(frit.text.as_bytes(), Path::new(frit.name), frit.name).unwrap();
+            assert_eq!(parsed.name, frit.name);
+            for source in parsed.sources {
+                let Origin::Font(family) = source.origin else {
+                    panic!("{}: {} is no family", frit.name, source.spelling);
+                };
+                named.insert(format!("{}-Regular.ttf", family.replace(' ', "")));
+            }
+        }
+        let pinned: BTreeSet<String> = SHIPPED_FONTS.iter().map(|f| f.file.to_owned()).collect();
+        assert_eq!(pinned, named);
+        assert_eq!(pinned.len(), SHIPPED_FONTS.len(), "each font pinned once");
     }
 
     #[test]

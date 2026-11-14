@@ -1,0 +1,52 @@
+# indic: a font set for Devanagari and the other Indic scripts
+# (vtium/vtium#204). Noto Sans Mono draws Latin text and sets the character
+# cell, and one Noto font for each script draws that script at Noto Sans
+# Mono's size: Devanagari (Hindi, Marathi, Nepali, Sanskrit), Bengali
+# (Bengali, Assamese), Gurmukhi (Punjabi), Gujarati, Odia, Tamil, Telugu,
+# Kannada, Malayalam and Sinhala. vtium ships this font set, never the
+# fonts. The font helper leaves out a font that the machine lacks, and then
+# the built-in font draws those characters, so a machine needs only the
+# fonts of the scripts it shows.
+#
+# Indic scripts stack signs above and below each letter: vowel signs
+# (matras), the reph over a cluster, and the lower half of a conjunct under
+# it. Kannada's and Telugu's conjuncts reach furthest below the line. Line
+# spacing of 40 adds a fifth of the text's height above each row and a
+# fifth below it, so the signs of one row stay clear of the row above and
+# the row below.
+#
+# Licences, as each source's documentation gives them: every font below is
+# under the SIL OFL 1.1.
+
+name=indic
+license=OFL-1.1
+
+# Latin text, setting the cell at each size. It holds no Indic script.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+
+# One font for each script, which Noto Sans Mono lacks. Each script's signs
+# may use the rows that line spacing adds. Arch's noto-fonts installs
+# every one of them.
+source=font:Noto Sans Devanagari
+fit=room
+source=font:Noto Sans Bengali
+fit=room
+source=font:Noto Sans Gurmukhi
+fit=room
+source=font:Noto Sans Gujarati
+fit=room
+source=font:Noto Sans Oriya
+fit=room
+source=font:Noto Sans Tamil
+fit=room
+source=font:Noto Sans Telugu
+fit=room
+source=font:Noto Sans Kannada
+fit=room
+source=font:Noto Sans Malayalam
+fit=room
+source=font:Noto Sans Sinhala
+fit=room
+
+line-spacing=40
