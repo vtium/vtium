@@ -5,6 +5,7 @@
 | Path | What it is |
 |---|---|
 | `runner.rs` | The runner's verdicts on a corpus of one case written in the test: a match, a difference, a replay that exits, and the masking; `vtium-replay`'s exit codes; and that a test that panics leaves no corpus directory behind. |
+| `cases_bin.rs` | `conformance cases --bin` on the tree: for every case of the corpus and of vtium's own cases, the stream, cuts and fixtures it writes equal the input the runner replays, and vtium-replay run on the written files prints what the runner's replay prints, in each view the runner judges; and an unknown name, refused with where the names are. |
 | `generate.rs` | The generator against the copies: every synthetic case byte for byte, its cuts and its fixtures, and its inputs refused when one is missing. |
 | `interface.rs` | The interface check on the tree, and each kind of fault it catches on inputs written in the test. |
 | `stand_in.rs` | Built with images: the image store against the `img-` cases' goldens, each solid sixel string replaced by the `image` and `place` commands that make the same picture, each compared with its goldens exactly, and the one case whose sixels are not solid left to the sixel handler. |
