@@ -231,8 +231,9 @@
 
 # -- Syllables with vowel signs and joined consonants ------------------------
 
-## How many character cells a syllable with a vowel sign or a virama takes, in
-## Tamil, Devanagari and other scripts of South and Southeast Asia.
+## How many character cells a syllable takes when it has a spacing vowel sign
+## or a virama that joins two consonants, in Tamil, Devanagari and other
+## scripts of South and Southeast Asia.
 ##
 ## `double`, the default, gives such a syllable two cells, so கொ takes two.
 ## `single` gives it one cell and squeezes it to fit.

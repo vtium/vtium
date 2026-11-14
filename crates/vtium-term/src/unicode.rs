@@ -19,12 +19,14 @@
 //! emoji-style base with U+FE0F (ADR-1200 D21). Under `cluster-width =
 //! double`, the default, two rules of Python wcwidth's specification widen
 //! it (ADR-1006 D1). A codepoint of General_Category Mc after a first
-//! codepoint of nonzero width gives the cluster two cells. A codepoint of
-//! Indic_Syllabic_Category Consonant after one of Virama or
-//! Invisible_Stacker, with only U+200D or nonspacing marks between them,
-//! adds its width to the cluster's. A virama of category Mc counts as a
-//! virama, and no cluster takes more than two cells. Under `single`
-//! neither rule applies.
+//! codepoint of nonzero width that is not itself a mark gives the cluster
+//! two cells. A consonant after a codepoint of Indic_Syllabic_Category
+//! Virama or Invisible_Stacker, with only U+200D or nonspacing marks
+//! between them, adds its width to the cluster's. A consonant is a
+//! codepoint of Indic_Syllabic_Category Consonant or of
+//! Indic_Conjunct_Break Consonant, the set UAX #29's GB9c joins. A
+//! virama of category Mc counts as a virama, and no cluster takes more
+//! than two cells. Under `single` neither rule applies.
 
 #[cfg(feature = "bidi")]
 pub(crate) mod bidi;
@@ -327,11 +329,15 @@ pub(crate) fn width_of(mut chars: impl Iterator<Item = char>, rule: ClusterWidth
         if p.virama() {
             // a spacing virama counts as a virama, not as a spacing mark
             conjunct = true;
-        } else if conjunct && p.isc() == Isc::Consonant {
+        } else if conjunct && (p.isc() == Isc::Consonant || p.incb() == InCb::Consonant) {
+            // a consonant by Indic_Syllabic_Category, or one that GB9c
+            // joins to the cluster, such as Myanmar's independent vowel a
             width = width.saturating_add(p.width());
             conjunct = false;
         } else if p.mark() == Mark::Mc {
-            if base.width() > 0 {
+            // only after a base: a first character of nonzero width that
+            // is not itself a mark
+            if base.width() > 0 && base.mark() == Mark::Other {
                 width = 2;
             }
             conjunct = false;
@@ -460,10 +466,13 @@ mod tests {
     }
 
     // ADR-1006 D1: no cluster takes three cells, however its rules add up,
-    // and a wide first character with a spacing mark stays two
+    // and a wide first character with a spacing mark stays two. The first
+    // two conjuncts hold no spacing mark, so only the cap keeps them at two
     #[test]
     fn no_cluster_takes_more_than_two_cells() {
         for text in [
+            "\u{915}\u{94D}\u{937}\u{94D}\u{937}",
+            "\u{1000}\u{1039}\u{1000}\u{1039}\u{1000}\u{1039}\u{1000}",
             "\u{915}\u{94D}\u{937}\u{94D}\u{937}\u{94D}\u{937}\u{93F}",
             "\u{4E2D}\u{93F}",
             "\u{2764}\u{FE0F}\u{93F}",
@@ -472,6 +481,62 @@ mod tests {
             let cluster = chars(text);
             assert_eq!(cluster_width(&cluster), 2, "{cluster:x?}");
         }
+    }
+
+    // ADR-1006 D1, dated note of 2026-11-14: after a virama, every
+    // consonant that UAX #29's GB9c joins to the cluster
+    // (Indic_Conjunct_Break=Consonant) adds its width, as an
+    // Indic_Syllabic_Category Consonant does: Myanmar's independent vowel
+    // a, Khmer's independent vowels, Tai Tham's and Chakma's
+    #[test]
+    fn a_conjunct_counts_every_consonant_gb9c_joins() {
+        for text in [
+            "\u{1000}\u{1039}\u{1021}",    // Myanmar ka, virama, independent a
+            "\u{1780}\u{17D2}\u{17A5}",    // Khmer ka, coeng, independent i
+            "\u{1A20}\u{1A60}\u{1A4D}",    // Tai Tham high ka, sakot, independent i
+            "\u{11107}\u{11133}\u{11103}", // Chakma ka, virama, independent a
+        ] {
+            let cluster = chars(text);
+            let Some((&first, rest)) = cluster.split_first() else {
+                panic!("an empty cluster");
+            };
+            let mut seg = Segmenter::start(first);
+            assert!(
+                rest.iter().all(|&c| seg.continues(c)),
+                "{cluster:x?}: one UAX #29 cluster"
+            );
+            assert_eq!(cluster_width(&cluster), 2, "{cluster:x?}");
+        }
+    }
+
+    // ADR-1006 D1, dated note of 2026-11-14: the spacing mark rule needs a
+    // base, a first character of nonzero width that is not itself a mark.
+    // A cluster that starts with a spacing mark, such as Devanagari aa sign
+    // and visarga at the start of a line, keeps its first character's one
+    // cell. A first character of no width keeps none: ZWNJ and the Hangul
+    // filler with a vowel sign i. A heart with VS15 is a base, so a spacing
+    // mark after it gives the cluster two cells
+    #[test]
+    fn the_spacing_mark_rule_needs_a_base() {
+        for (text, width) in [
+            ("\u{93E}\u{903}", 1),
+            ("\u{200C}\u{93F}", 0),
+            ("\u{1160}\u{93F}", 0),
+            ("\u{2764}\u{FE0E}\u{93F}", 2),
+        ] {
+            let cluster = chars(text);
+            assert_eq!(cluster_width(&cluster), width, "{cluster:x?}");
+        }
+        let mut term = crate::Terminal::new(6, 1, 0);
+        term.input("\u{93E}\u{903}x".as_bytes());
+        assert_eq!(term.screen().cursor(), (2, 0), "aa and visarga in one cell");
+        let mut term = crate::Terminal::new(6, 1, 0);
+        term.input("\u{2764}\u{FE0E}\u{93F}x".as_bytes());
+        assert_eq!(
+            term.screen().cursor(),
+            (3, 0),
+            "the heart cluster in two cells"
+        );
     }
 
     #[test]
