@@ -24,6 +24,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1003](./term/ADR-1003-reflow-on-a-width-change-and-no-cell-past-the-margin.md) | Reflow on a width change, and no cell past the margin | accepted |
 | [ADR-1004](./term/ADR-1004-right-to-left-text-the-screen-keeps-logical-order-and-each-paragraph-is-drawn-in-the-order-the-bidirectional-algorithm-gives.md) | Right-to-left text: the screen keeps logical order and each paragraph is drawn in the order the bidirectional algorithm gives | accepted |
 | [ADR-1005](./term/ADR-1005-the-kitty-keyboard-protocol-vtium-term-encodes-keys-by-a-stack-of-flags-for-each-screen-and-vtium-platform-reports-key-releases-and-each-key-s-other-forms.md) | The kitty keyboard protocol: vtium-term encodes keys by a stack of flags for each screen, and vtium-platform reports key releases and each key's other forms | accepted |
+| [ADR-1006](./term/ADR-1006-a-grapheme-cluster-with-a-spacing-mark-or-a-virama-conjunct-takes-two-cells-by-python-wcwidth-s-rule.md) | A grapheme cluster with a spacing mark or a virama conjunct takes two cells, by Python wcwidth's rule | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
@@ -43,7 +44,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1200](./font/ADR-1200-glyphs-are-generated-at-run-time-in-a-sandboxed-helper-from-a-profile-s-frit.md) | Glyphs are generated at run time in a sandboxed helper, from a profile's frit | accepted |
 | [ADR-1201](./font/ADR-1201-vtium-config-manages-the-console-s-fonts-and-settings-trying-each-choice-on-the-live-console.md) | vtium config manages the console's fonts and settings, trying each choice on the live console | accepted |
 | [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | accepted |
-| [ADR-1203](./font/ADR-1203-a-syllable-that-the-grapheme-rules-cut-into-several-clusters-is-shaped-once-and-drawn-across-their-cells.md) | A syllable that the grapheme rules cut into several clusters is shaped once and drawn across their cells | proposed |
+| [ADR-1203](./font/ADR-1203-a-syllable-that-the-grapheme-rules-cut-into-several-clusters-is-shaped-once-and-drawn-across-their-cells.md) | A syllable that the grapheme rules cut into several clusters is shaped once and drawn across their cells | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
