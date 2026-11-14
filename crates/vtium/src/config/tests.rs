@@ -1880,6 +1880,43 @@ fn each_console_starts_in_the_direction_text_direction_gives() {
     }
 }
 
+// ADR-1006 D8: `cluster-width` reads `double` or `single`, `double` when
+// unset; a value it does not take is reported and leaves the default.
+// Each console's terminal starts with the rule it names: under `double`
+// Tamil ko takes two cells, and under `single` one.
+#[test]
+#[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+fn each_console_measures_clusters_by_cluster_width() {
+    use vtium_term::ClusterWidth;
+    assert_eq!(main_file("").config.text(&CLUSTER_WIDTH), Some("double"));
+    for (text, want, cursor) in [
+        ("", ClusterWidth::Double, 2),
+        ("cluster-width = double\n", ClusterWidth::Double, 2),
+        ("cluster-width = single\n", ClusterWidth::Single, 1),
+    ] {
+        let l = main_file(text);
+        assert_eq!(l.reports, [], "{text:?}");
+        let clock = std::rc::Rc::new(std::time::Instant::now);
+        let mut term = crate::head::terminal(&l.config, (0, 0), 0, clock);
+        assert_eq!(term.terminal.screen().cluster_width(), want, "{text:?}");
+        let _ = term.terminal.input("\u{B95}\u{BCA}".as_bytes());
+        assert_eq!(term.terminal.screen().cursor(), (cursor, 0), "{text:?}");
+    }
+    let l = main_file("cluster-width = packed\n");
+    assert_eq!(l.config.text(&CLUSTER_WIDTH), Some("double"));
+    assert!(
+        matches!(
+            &problems(&l)[..],
+            [Problem::NotAChoice {
+                key: "cluster-width",
+                ..
+            }]
+        ),
+        "{:?}",
+        l.reports
+    );
+}
+
 /// vtium goes silent only on an `osd` line that says so in a form vtium
 /// can read. While the top level also holds an `osd` line whose value
 /// vtium cannot read, vtium runs as `off` in place of `silent`, so the

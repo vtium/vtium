@@ -229,6 +229,25 @@
 
 #text-direction=ltr
 
+# -- Syllables with vowel signs and joined consonants ------------------------
+
+## How many character cells a syllable takes when a vowel sign stands beside
+## its letter, or when a virama joins its consonants. Such syllables are
+## written in Indic scripts such as Tamil and Devanagari, and in other scripts
+## of South and Southeast Asia.
+##
+## `double`, the default, gives such a syllable two character cells. For
+## example, the Tamil syllable கொ, the letter க with the vowel sign ொ, takes
+## two cells and is drawn at full size. The shell's line editor counts கொ as
+## two cells too. `single` gives each syllable the cells of its first letter,
+## so கொ takes one cell and vtium squeezes it to fit. `single` suits programs
+## that count one cell for each syllable, such as Neovim.
+##
+## vtium reads this key when it starts, so a change takes effect when vtium
+## restarts. The key never changes text that is already on the screen.
+
+#cluster-width=double
+
 # == Colors ==================================================================
 #
 # The sixteen basic colors, the default text and background colors, and the
