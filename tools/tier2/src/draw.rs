@@ -122,10 +122,9 @@ pub enum InkFonts {
     /// ([`crate::fonts::SHIPPED_FONTS`]), and its rows made taller by its
     /// own `line-spacing=`.
     Shipped(crate::fonts::ShippedFrit),
-    /// The test frit of outline fonts [`crate::fonts`] fetches, without
-    /// its color emoji font, with the merged symbol test font
-    /// [`crate::fitfont`] behind it for the Private Use Area,
-    /// then the frit lines `extra`.
+    /// DejaVu Sans Mono, which [`crate::fonts`] fetches, with the merged
+    /// symbol test font [`crate::fitfont`] behind it for the Private Use
+    /// Area, then the frit lines `extra` ([`crate::fitfont::frit_text`]).
     Merged { extra: &'static str },
 }
 

@@ -120,13 +120,17 @@ fn file_name(font: &[u8]) -> String {
     format!("vtium-tier2-symbols-{}.ttf", sha.get(..16).unwrap_or(&sha))
 }
 
-/// The merged frit: the test frit of outline fonts in `fetched` without
-/// its color emoji font, then the symbol font in `symbols`, limited by
-/// `cover=` to the Private Use Area, then `extra`, lines of
-/// the screen's own such as `fit=` lines, and `line-spacing=` when
-/// `spacing` is not 0.
+/// The merged frit: DejaVu Sans Mono, the first source of the test frit
+/// of outline fonts in `fetched`, with no `cover=` line, then the symbol
+/// font in `symbols`, limited by `cover=` to the Private Use Area, then
+/// `extra`, lines of the screen's own such as `fit=` lines, and
+/// `line-spacing=` when `spacing` is not 0. DejaVu Sans Mono states no
+/// `cover=` line, so a `cover=` line in `extra` names the set that a
+/// character DejaVu Sans Mono lacks belongs to.
 pub fn frit_text(fetched: &Path, symbols: &Path, spacing: u32, extra: &str) -> String {
-    let mut text = crate::fonts::frit_text(fetched, false, 0);
+    let all = crate::fonts::frit_text(fetched, false, 0);
+    let mut text = all.lines().next().unwrap_or_default().to_owned();
+    text.push('\n');
     text.push_str(&format!(
         "source=outline:{}\ncover=U+E000-U+F8FF\n",
         symbols.join(file_name(&bytes())).display()
