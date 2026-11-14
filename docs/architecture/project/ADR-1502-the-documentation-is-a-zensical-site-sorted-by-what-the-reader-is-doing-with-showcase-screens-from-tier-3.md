@@ -67,6 +67,14 @@ considered:
     said: "Concepts become a section of the docs, one concept to a page, so a reader can open one at a time"
     via: the steering session, 2026-11-04
     paraphrase: true
+  - operator: aaronsb
+    said: "The showcase is organized by category, with a hero scene for each category, not one long list. The categories are: text and fonts; scripts and emoji; styles and modes; color; lines and blocks; pictures; input and pointer; small machines. The shell session stays the front page's hero. Each scene file in tools/tier3/guest/screens/ states its category in a header line '# category: NAME', and a hero scene also carries '# hero: yes'."
+    via: the steering session's questions on 2026-11-14, on the wave plan
+    paraphrase: true
+  - operator: aaronsb
+    said: "The hero rule: a card that draws something new adds a scene to its category or updates the category's hero. Cards do not run make showcase; the steering session runs it once per wave."
+    via: the steering session's questions on 2026-11-14, on the wave plan
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
@@ -74,14 +82,16 @@ deciders:
 related:
   - ADR-1500
   - ADR-1501
+  - ADR-1507
+  - ADR-1508
 ---
 
 # ADR-1502: The documentation is a Zensical site sorted by what the reader is doing, with showcase screens from tier 3
 
 ## Summary
 
-- **Decided:** vtium's documentation stays as markdown files under `docs/`, readable on GitHub, and is also published as a website at `vtium.github.io/vtium`. Zensical, a static site generator, builds the site from a `zensical.toml` at the repository's root. The site's menu sorts the pages by what the reader is doing, as Diátaxis does: tutorials, how-to guides, reference and explanation, then the decision records and a section for contributors. No existing file moves, apart from `concepts.md`, which became the section `docs/concepts/` (edited 2026-11-04, D1; it read "No existing file moves."). `managing-vtium.md` and `heads.md`, which mix kinds of page, are split, and two tutorials are written: "Try vtium on one VT" and "Your first frit". The README shrinks to a short front door. A link that leaves `docs/` is a full GitHub address, so it works in both places. A GitHub Actions workflow publishes `main` to GitHub Pages, and a CI job on every pull request builds the site in strict mode, which fails on a broken link or anchor; a Rust test fails on a page missing from the menu. New showcase screens, vtium's own drawing on a VT of tier 3's QEMU guest at 1920x1080 in Iosevka, replace the small-machine screens at the top of the README, and one of them shows four fonts side by side, bitmap and outline, to say that any font works. They are committed, regenerated at each release, and judge nothing.
-- **Trades away:** one more toolchain, Python with Zensical and its pinned dependencies, used only to build the site, on a generator that has not reached its 1.0 release, so a newer release may change or break the build. The README stops being the place that says everything. Each release gains a tier 3 run and a commit of new images, and the repository grows by those images.
+- **Decided:** vtium's documentation stays as markdown files under `docs/`, readable on GitHub, and is also published as a website at `vtium.github.io/vtium`. Zensical, a static site generator, builds the site from a `zensical.toml` at the repository's root. The site's menu sorts the pages by what the reader is doing, as Diátaxis does: tutorials, how-to guides, reference and explanation, then the decision records and a section for contributors. No existing file moves, apart from `concepts.md`, which became the section `docs/concepts/` (edited 2026-11-04, D1; it read "No existing file moves."). `managing-vtium.md` and `heads.md`, which mix kinds of page, are split, and two tutorials are written: "Try vtium on one VT" and "Your first frit". The README shrinks to a short front door. A link that leaves `docs/` is a full GitHub address, so it works in both places. A GitHub Actions workflow publishes `main` to GitHub Pages, and a CI job on every pull request builds the site in strict mode, which fails on a broken link or anchor; a Rust test fails on a page missing from the menu. New showcase screens, vtium's own drawing on a VT of tier 3's QEMU guest at 1920x1080 in Iosevka, replace the small-machine screens at the top of the README, and one of them shows four fonts side by side, bitmap and outline, to say that any font works. The showcase page sorts the screens into eight categories, and each category opens with a hero screen of its own. A card that makes vtium draw something new adds a screen to its category or updates that category's hero (edited 2026-11-14, D6). The screens are committed, made again once per wave of work and before each release, and judge nothing (edited 2026-11-14, D6; it read "They are committed, regenerated at each release, and judge nothing.").
+- **Trades away:** one more toolchain, Python with Zensical and its pinned dependencies, used only to build the site, on a generator that has not reached its 1.0 release, so a newer release may change or break the build. The README stops being the place that says everything. Each wave of work and each release gains a tier 3 run and a commit of new images, and the repository grows by those images (edited 2026-11-14, D6; it read "Each release gains a tier 3 run and a commit of new images").
 - **One-way?** No. The pages stay plain markdown, and `zensical.toml`, one workflow and one Rust test are all the site adds; removing them removes the site. The site's address is the hardest thing to change once people have it, and GitHub Pages redirects the `github.io` address to a custom domain once one is set.
 - **Probes:** *Confident (the readers):* the people you send vtium to run Linux but have never seen vtium, and the first thing they want is to try it on one VT and get back to their desktop safely; then to pick a font; then to look things up. The order of the menu and the two tutorials are built for them. *Not confident (the builder):* Material for MkDocs, which you named, stops getting fixes two days from now. This record builds with it anyway, pinned, and keeps `mkdocs.yml` to what Zensical, its authors' successor, also reads, so the switch later is a change of the build command. You may prefer to start on Zensical now, which is still before its 1.0 release.
 - **Answered 2026-11-04** (`considered`): the readers are Linux users new to vtium, as proposed; the builder is Zensical from the start, which this record now decides.
@@ -157,6 +167,8 @@ Two tutorials are new:
 The For contributors section lists `architecture.md`, `c-reference.md` and `vt-review.md`, and links `AGENTS.md`, `CONTRIBUTING.md` and the crates' folders by their GitHub addresses. Contributor pages keep their present shape; this record sorts only the user pages into modes.
 
 The Decisions section publishes every decision record, reached through `docs/architecture/INDEX.md`. The records hold the maintainer's quoted words and their reasons, which are public in the repository already; on the site a reader who asks "why does vtium do this?" can follow a link from an explanation page into the record.
+
+> Note 2026-11-14: two records proposed on this date add parts to the site that this record's map and menu do not show yet. ADR-1507 adds a generated reference page for each escape sequence vtium understands, and man pages generated from the same kind of source. ADR-1508 adds the crates' interfaces under `/api/` and a page for each release. Each record says where its pages sit in the menu. The map and the menu in D3 change when those records are accepted and their pages are built.
 
 ### D2: the README and the home page
 
@@ -267,7 +279,9 @@ The 23 relative links that leave `docs/` today change to full addresses in the w
 
 > Edited 2026-11-04: the maintainer chose Iosevka in place of JetBrains Mono, and asked for a scene that shows several fonts side by side, bitmap and outline (`considered`). It read: "JetBrains Mono, Noto Sans CJK, Noto Sans Devanagari, Noto Naskh Arabic, Noto Color Emoji, and Symbols Nerd Font Mono for the prompt's symbols", and seven scenes, without the fonts scene.
 
-The showcase is a set of screens that show a newcomer what vtium draws on an ordinary monitor. Each is vtium's own output, captured by tier 3 from a VT of its QEMU/KVM guest.
+> Edited 2026-11-14: the maintainer decided that the showcase is sorted by category, with a hero screen for each category in place of one long list, and that a card which draws something new adds a screen to its category (`considered`). The bullets "The categories", "The header lines", "The page" and "The hero rule" are new. The edited bullets below each carry a note with what they read before.
+
+The showcase is a set of screens that show a newcomer what vtium draws on an ordinary monitor. Each is vtium's own output, captured by tier 3 from a VT of its QEMU/KVM guest. In this section a scene is one screen of the showcase, drawn by one script. A category is a group of scenes about one part of what vtium draws, and a category's hero is the one scene that stands for the whole category.
 
 - **The variant.** A new tier 3 variant, `showcase-1920x1080`, runs the default machine (4 vCPUs, 4096 MB) with a `virtio-vga` display whose EDID gives 1920x1080, and an install tree built with the `images` feature. It draws on the CPU renderer, vtium's default. It runs only when named.
 - **The screens.** Each scene is a shell script, `tools/tier3/guest/screens/showcase-NAME.sh`, that writes fixed bytes, so every run draws the same screen. Each draws in Iosevka, with the other fonts below as fallbacks for what Iosevka lacks, apart from the fonts scene:
@@ -279,6 +293,24 @@ The showcase is a set of screens that show a newcomer what vtium draws on an ord
     6. `showcase-boxes`: a dashboard drawn by the script with box drawing, block elements, Braille and sextants.
     7. `showcase-pictures`: a sixel picture and a kitty picture, both computed by a script in vtium's tree, in the way `t3_pictures.py` computes tier 3's test pictures.
     8. `showcase-shell`: a shell session the script writes byte for byte, a prompt, commands and their output, in the way tier 3's `small-console` screen does. It shows several of the above at once and is the hero image of the README and the home page.
+- **The categories.** The showcase sorts its scenes into eight categories, in this order: text and fonts; scripts and emoji; styles and modes; color; lines and blocks; pictures; input and pointer; small machines. The shell session stands apart from the eight. It is the front page's hero: the first image of the showcase page, and the image the README and the home page show (D2). The scenes start out in these categories, and later cards change the list by the hero rule below:
+
+    | Category | Scenes | Hero |
+    |---|---|---|
+    | text and fonts | `showcase-fonts` | `showcase-fonts` |
+    | scripts and emoji | `showcase-scripts`, `showcase-emoji` | `showcase-scripts` |
+    | styles and modes | `showcase-text` | `showcase-text` |
+    | color | `showcase-color` | `showcase-color` |
+    | lines and blocks | `showcase-boxes` | `showcase-boxes` |
+    | pictures | `showcase-pictures` | `showcase-pictures` |
+    | input and pointer | none yet | none yet |
+    | small machines | the two small-machine goldens | `small/small-console.png`, the 320×240 screen |
+
+    `showcase-text` sits in styles and modes because it shows the underline styles, italic, strike, dim, overline, and raised and lowered text. The small machines category holds the two tier 3 goldens that `make showcase` copies. They are not scenes of the showcase variant, so they carry no header lines. Their hero is the 320×240 screen, because it shows the smallest display vtium supports. A new category is the maintainer's call. A card whose new drawing fits no category says so to the steering session, which asks the maintainer.
+- **The header lines.** Each scene's script states its category in its header comment, in a line `# category: NAME`, where NAME is the category's name as the list above spells it, such as `# category: scripts and emoji`. The hero of a category also carries a line `# hero: yes`. The shell session carries `# category: front page`, a value that only the shell session may use. A scene made of several captures, as the fonts scene is, carries the two lines in the file whose header gives the image its caption, `showcase-fonts.inc`, and its band scripts carry neither line. The showcase reads these two lines and keeps them out of the caption and the alt text. A check in tier 3's tests (`ShowcaseTest`) fails when a scene names no category or a category the list does not name, when a category that has scenes has no hero or more than one, and when a scene other than the shell session names the front page.
+- **How the showcase finds its scenes.** Today `t3_showcase.py` lists the scenes by name, in `SCENES`, and the images the page shows, in `IMAGES`, and `t3_evaluate.header` reads each scene's caption and `# alt:` lines from its script. From this amendment on, the showcase variant takes as its scenes every script `guest/screens/showcase-*.sh` whose header names a category, so a card adds a scene by adding its script and edits no list. The fonts scene stays the one image that `make showcase` composes from several captures, and its four band scripts stay listed in `t3_showcase.py`. A scene's image is `docs/showcase/NAME.png`, where NAME is the script's name without `showcase-`, as today. The shell session's image keeps the name `hero.png`, which the README and the home page show.
+- **The page.** `docs/showcase/README.md` stays the showcase's page in the menu. It opens with the front page's hero and its caption. Then it has one section for each category that has scenes, in the order of the list above. Each section shows the category's hero with its caption and links the category's own page. A category with no scenes yet does not appear. Each category has a page, `docs/showcase/SLUG.md`, where SLUG is the category's name in lower case with each space a hyphen, such as `scripts-and-emoji.md`. That page shows every scene of the category, the hero first and then the others in the order of their names, each with its alt text and caption. The category pages are reached from the showcase page and stay out of the menu. "How these screens are made" stays at the end of the showcase page.
+- **The hero rule.** A card that makes vtium draw something it did not draw before adds a scene for it to that thing's category, or changes the category's hero so that the hero shows it. The new scene keeps to "Only what vtium draws right" below. The card checks its scene with `make test-tools`, in which `ShowcaseTest` runs each scene on the host. The card does not run `make showcase`. The steering session runs `make showcase` once per wave of work, on the wave's merged tree, and the first capture of a new scene comes from that run.
 - **The fonts scene.** A console draws in one font at a time, so `showcase-fonts` is four captures of the same scene. Before each, the script switches the console to that font's frit with OSC 50 and waits for the switch, as the acceptance pass does (ADR-1501 D6). `make showcase` crops each capture to the band the scene draws and stacks the four bands, at their own pixel size and unscaled, into one image. This is the one image `make showcase` composes, and its caption says it is four captures.
 - **Only what vtium draws right.** A scene shows only what vtium draws correctly for a reader of that script or feature at the time of capture, and its caption says plainly what it shows. Until the bold and italic faces of outline fonts are built, no scene uses them. Arabic stays off the scripts screen until vtium draws right-to-left text in the order its reader reads it, and joins that screen in the same change that builds bidirectional text.
 - **The size of the text.** The font size gives a grid of about 110 to 130 columns, so the text stays readable when a page shows the image at half its width.
@@ -296,8 +328,13 @@ The showcase is a set of screens that show a newcomer what vtium draws on an ord
 
 - **Nothing from other programs.** No scene shows another program's output, logo, artwork or photograph. Every byte and every picture comes from vtium's tree.
 - **Not goldens.** The variant has no goldens, and its cases carry the status `capture`, which passes and judges nothing. A showcase image never decides whether vtium's output is right; the tiers do.
-- **`make showcase`** builds the tree with `images`, runs the variant, and writes `docs/showcase/NAME.png` for each scene and `docs/showcase/README.md`, the showcase page. The page shows each image with its alt text and its caption, taken from the header comment of the scene's script, and ends with the build's commit, the date, the machine, and each font with its version, SHA-256 and license. It also copies the two small-machine goldens the README shows today, `tools/tier3/goldens/2d-640x480-psf16/sgr.png` and `tools/tier3/goldens/2d-320x240-psf8/small-console.png`, into `docs/showcase/small/`, and records their source paths and SHA-256 on the page. It rewrites an image only when its pixels changed.
-- **Committed, and regenerated at each release.** Tier 3 does not run in vtium's CI, so the site's build cannot make the images, and they are committed. Before a release is tagged, `make showcase` runs on `integration`, and the images that changed go in a commit of their own that names each one. The maintainer reviews them in the pull request that takes the release to `main`, since they show vtium in public.
+> Edited 2026-11-14: the showcase is sorted by category (`considered`). The next bullet read: "writes `docs/showcase/NAME.png` for each scene and `docs/showcase/README.md`, the showcase page. The page shows each image with its alt text and its caption, taken from the header comment of the scene's script, and ends with the build's commit, the date, the machine, and each font with its version, SHA-256 and license."
+
+- **`make showcase`** builds the tree with `images`, runs the variant, and writes `docs/showcase/NAME.png` for each scene, the showcase page `docs/showcase/README.md`, and a page for each category that has scenes, as "The page" above describes. Each image's caption and alt text come from the header comment of the scene's script. The showcase page ends with the build's commit, the date, the machine, and each font with its version, SHA-256 and license. It also copies the two small-machine goldens the README shows today, `tools/tier3/goldens/2d-640x480-psf16/sgr.png` and `tools/tier3/goldens/2d-320x240-psf8/small-console.png`, into `docs/showcase/small/`, and records their source paths and SHA-256 on the page. It rewrites an image only when its pixels changed.
+
+> Edited 2026-11-14: the steering session runs `make showcase` once per wave of work (`considered`). The next bullet was headed "Committed, and regenerated at each release", and its second sentence read: "Before a release is tagged, `make showcase` runs on `integration`, and the images that changed go in a commit of their own that names each one." Its last sentence read: "The maintainer reviews them in the pull request that takes the release to `main`, since they show vtium in public."
+
+- **Committed, and made again once per wave and before each release.** Tier 3 does not run in vtium's CI, so the site's build cannot make the images, and they are committed. The steering session runs `make showcase` once per wave of work, on the wave's merged tree, and once more on `integration` before a release is tagged. After each run, the images and pages that changed go in a commit of their own that names each image. The maintainer reviews them in the pull request that takes the batch or the release to `main`, since they show vtium in public.
 
 ### D7: a video of vtium, later
 
@@ -316,6 +353,11 @@ The maintainer answered the record's questions on 2026-11-04 (`considered`):
 7. **Regenerating the showcase:** at each release, reviewed in the release's pull request, as proposed.
 8. **Turning on Pages:** the maintainer sets the repository's Pages source to GitHub Actions, once, before the first deploy.
 
+The maintainer decided two more points on 2026-11-14, in answer to the steering session's questions on the wave plan (`considered`):
+
+9. **The showcase by category:** eight categories, each with a hero scene, in place of one long list, with the shell session as the front page's hero. Each scene states its category and whether it is a hero in its header (D6).
+10. **The hero rule:** a card that draws something new adds a scene to its category or updates the category's hero. Cards do not run `make showcase`, and the steering session runs it once per wave (D6).
+
 ## C notes: the C reference's documentation
 
 The C reference documented itself in its README and in two man pages written in DocBook, `docs/man/kmscon.1.xml.in` for the program and `docs/man/kmscon.conf.5.xml.in` for its configuration file, which its meson build turned into man pages. The fork added markdown notes under `docs/fork/` and a README beside each of its harnesses. It published no website.
@@ -324,6 +366,8 @@ The C reference documented itself in its README and in two man pages written in 
 
 - vtium publishes its documentation as a website, sorted by what the reader is doing.
 - vtium has no man pages yet. Writing them is a decision of its own; `config.md`, which vtium generates from its key table, is where a man page for `vtium.conf` would be generated from.
+
+> Note 2026-11-14: ADR-1507, proposed on this date, is that decision. It generates the man pages from the key table and from each command's own list of options, as `config.md` is generated.
 
 ## Consequences
 
@@ -340,7 +384,8 @@ The C reference documented itself in its README and in two man pages written in 
 - Python, Zensical and its dependencies join vtium's toolchain for one job. Zensical is before its 1.0, so each change of its pin needs its own check of the built site, and a release that breaks the build holds the pin back until one builds.
 - Python-Markdown, which Zensical uses, reads some markdown differently from GitHub: a list needs a blank line before it, and a list inside a list needs four spaces of indent. The strict build does not catch a list that renders wrong, so the work that builds the site reads every page on the built site once.
 - Splitting `managing-vtium.md` and `heads.md` and shortening the README touches pages that other work changes at the same time, such as the work that adds the report command and the troubleshooting steps to `managing-vtium.md`. The split starts after that work lands.
-- Each release adds a tier 3 run, eleven captures (four of them for the fonts scene), a review of them, and git keeps every version of every image.
+- Each wave of work and each release adds a tier 3 run, a capture of every scene (the fonts scene takes four), a review of the images that moved, and git keeps every version of every image. The number of scenes grows as cards add them, so each run takes longer than the last (edited 2026-11-14, D6; it read "Each release adds a tier 3 run, eleven captures (four of them for the fonts scene), a review of them").
+- A scene names its category in its own header, so a wrong or missing category shows up only when `ShowcaseTest` runs, in `make test-tools` (edited 2026-11-14, D6).
 - A page added to `docs/` must be added to the menu, or to `not_in_nav`, in the same change, or the menu test fails.
 
 ### Neutral
