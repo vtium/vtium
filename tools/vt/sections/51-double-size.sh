@@ -22,7 +22,7 @@ printf '%s  1x: a single-width line again holds all 80 columns.\n' "$swl"
 printf '%s%s\n' "$dwl" "$ruler40"
 printf '%s%s\n' "$ruler40" "$ruler40"
 # CUF past the end stops at the line's last column, so the X lands there.
-printf '%sThe cursor stops at the edge:\033[99CX\n' "$dwl"
+printf '%sThe cursor stops at the edge:\033[999CX\n' "$dwl"
 printf '\n'
 printf '  The line sizes as vttest draws them:\n'
 printf '%sDouble-width, double-height\n' "$top"

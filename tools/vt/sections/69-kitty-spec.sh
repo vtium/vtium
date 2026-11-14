@@ -52,8 +52,9 @@ else
 	printf '%s[%d;30Hnot sent: the image helper does not decode here' "$esc" $((row + 2))
 fi
 printf '%s[%d;1H' "$esc" $((row + 4))
-kitty_send "a=T,i=44,p=1,q=2,C=1,f=24,s=1,v=1" "/wAA"
-printf '  A composition onto frame 5, which does not exist:\n'
+printf '  The red square is a 1 by 1 image, drawn over two cells:'
+kitty_send "a=T,i=44,p=1,q=2,C=1,c=2,r=1,f=24,s=1,v=1" "/wAA"
+printf '\n  A composition onto frame 5, which does not exist:\n'
 r=$(ask "${esc}_Ga=c,i=44,r=1,c=5${esc}\\" '\')
 printf '    %q\n' "${r%"$esc"}"
 printf '  A placement that names itself as its parent:\n'
