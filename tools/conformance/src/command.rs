@@ -200,7 +200,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.11, in the order of its describe blocks:
+/// Every command of interface 1.12, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
