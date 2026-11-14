@@ -4460,6 +4460,32 @@ class Guide(Case):
         self.assertRegex(log[16], r"^=== done ")
 
 
+    def test_a_run_step_hands_its_command_the_steps_text(self):
+        # A command that clears the screen, such as the typing pad, can show
+        # the step's heading, do: lines and expect: lines again.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        shown = ("printf '<%s|%s|%s|%s>\\n' \"$GUIDE_STEP_HEADING\" \"$GUIDE_STEP_DO\" "
+                 "\"$GUIDE_STEP_EXPECT\" \"$GUIDE_FILE\"")
+        write(guide, "title: Text guide\n"
+                     "step: Plain\ndo: look\nexpect: nothing\n"
+                     f"step: Shown\nrun: {shown}\ndo: one\ndo: two on VT {{vt}}\nexpect: three\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"s\r")
+        g.wait_for(b"Step 2 of 2: Shown")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"<Step 2 of 2: Shown|one\r\ntwo on VT 6\r\n|three\r\n|" + guide.encode() + b">")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
+
     def test_a_console_after_the_first_runs_a_shell_in_place_of_the_guide(self):
         # Ctrl+Super+Enter starts the head's command, the guide, again in the
         # new console (ADR-1401 D5); one run asks each step once.

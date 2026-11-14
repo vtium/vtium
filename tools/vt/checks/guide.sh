@@ -8,7 +8,10 @@
 #
 # Each step says what to do and what to expect, runs its command, or its
 # probe until q (or its shell until exit), then asks yes, no or skip and a
-# note. The answers, and every line a probe prints, are appended to
+# note. A run: step's command gets the step's text in its environment, so a
+# command that clears the screen can show it again: GUIDE_STEP_HEADING is
+# "Step K of N: TITLE", GUIDE_STEP_DO and GUIDE_STEP_EXPECT hold the do: and
+# expect: lines, one to a line, and GUIDE_FILE is the guide's path. The answers, and every line a probe prints, are appended to
 # vt-check.log in /tmp/vtium-vt (VTIUM_VT_DIR) under a header line for the run.
 # GUIDE_STEPS="4 8 9" (or 4,8,9) runs only those steps. In the guide's text,
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
@@ -241,7 +244,9 @@ shell() {
 # echoed onto the picture nor kept, so it never answers the step. Ctrl-C
 # stops the command, and Ctrl-\ the program it runs, as at a prompt: the trap
 # keeps them from ending the checks, and the command, which gets the default
-# actions, ends with its status.
+# actions, ends with its status. The command gets the step's heading, do:
+# lines and expect: lines, the arguments after the command, in its
+# environment.
 run() {
 	local status=0 saved
 	note "  run: $1"
@@ -249,7 +254,8 @@ run() {
 	trap : INT QUIT
 	saved=$(stty -g)
 	stty -echo
-	/bin/bash --noprofile --norc -c "$1" || status=$?
+	GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
+		/bin/bash --noprofile --norc -c "$1" || status=$?
 	while read -r -s -n 1 -t 0.05 _; do :; done
 	stty "$saved"
 	trap - INT QUIT
@@ -332,7 +338,7 @@ for ((s = 0; s < total; s++)); do
 	esac
 	case ${runs[s]:+run}${probes[s]} in
 	'') ;;
-	run) run "${runs[s]}" ;;
+	run) run "${runs[s]}" "Step $k of $total: ${titles[s]}" "${dos[s]}" "${expects[s]}" ;;
 	shell) shell || note "  shell exited with status $?" ;;
 	*) python3 "$probe" "${probes[s]}" || note "  probe exited with status $?" ;;
 	esac

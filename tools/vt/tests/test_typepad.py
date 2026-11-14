@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Tests the typing pad of the guided checks, tools/vt/checks/typepad.py:
 what it sends for each key, how Backspace asks the terminal where the
-cursor is, the screens it draws, and a whole run on a pseudo-terminal.
+cursor is, the edits of pair mode, the screens it draws with the step's
+text above them, and a whole run on a pseudo-terminal.
 
     python3 -I tools/vt/tests/test_typepad.py [-v] [TestCase.test_name ...]
 """
@@ -10,6 +11,8 @@ import fcntl
 import importlib.util
 import os
 import pty
+import re
+import shlex
 import select
 import signal
 import struct
@@ -24,6 +27,7 @@ WAIT_BOUND = 60
 
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 TYPEPAD = os.path.join(ROOT, "tools", "vt", "checks", "typepad.py")
+GUIDE = os.path.join(ROOT, "tools", "vt", "checks", "double-size.guide")
 
 spec = importlib.util.spec_from_file_location("typepad", TYPEPAD)
 typepad = importlib.util.module_from_spec(spec)
@@ -39,11 +43,11 @@ class Fake:
     as a terminal's answer arrives in a later read. When answers runs out,
     the question waits for the test to answer it with answer()."""
 
-    def __init__(self, answers=(), floor=7):
+    def __init__(self, answers=(), floor=7, partner=None):
         self.answers = list(answers)
         self.due = []
         self.out = []
-        self.pad = typepad.Pad(self.write, floor)
+        self.pad = typepad.Pad(self.write, floor, partner)
 
     def write(self, data):
         self.out.append(data)
@@ -200,6 +204,89 @@ class Backspace(unittest.TestCase):
             f.feed(b"\x04")
 
 
+# A tall pair on rows 9 and 10, as pair mode gets it.
+PAIR = {9: 10, 10: 9}
+
+
+def cup(row, col):
+    return b"\x1b[%d;%dH" % (row, col)
+
+
+class Pair(unittest.TestCase):
+    """Pair mode: each edit on a line of a tall pair is made on the pair's
+    other line too, at the same column, and the cursor ends where the edit
+    alone leaves it."""
+
+    def test_insert_delete_and_ctrl_k_on_a_pair_line_edit_both_lines(self):
+        for key, edit in ((b"\x1b[2~", b"\x1b[@"), (b"\x1b[3~", b"\x1b[P"), (b"\x0b", b"\x1b[K")):
+            for row, other in ((9, 10), (10, 9)):
+                with self.subTest(key=key, row=row):
+                    f = Fake([(row, 11)], partner=PAIR).feed(key)
+                    self.assertEqual(f.sent(), CPR + cup(other, 11) + edit + cup(row, 11) + edit)
+
+    def test_a_character_on_a_pair_line_prints_on_both_lines(self):
+        f = Fake([(9, 5), (9, 6)], partner=PAIR).feed(b"T")
+        self.assertEqual(f.sent(), CPR + cup(10, 5) + b"T" + cup(9, 5) + b"T" + CPR)
+        f = Fake([(10, 5), (10, 6)], partner=PAIR).feed("é".encode())
+        self.assertEqual(f.sent(), CPR + cup(9, 5) + "é".encode() + cup(10, 5) + "é".encode() + CPR)
+
+    def test_backspace_on_a_pair_line_erases_on_both_lines(self):
+        f = Fake([(9, 11)], partner=PAIR).feed(b"\x7f")
+        self.assertEqual(f.sent(), CPR + cup(10, 10) + b"\x1b[X" + cup(9, 10) + b"\x1b[X")
+        # After a character that left a wrap pending, Backspace erases the
+        # last column of both lines.
+        f = Fake([(9, 40), (9, 40), (9, 40)], partner=PAIR).feed(b"z\x7f")
+        self.assertTrue(f.sent().endswith(CPR + cup(10, 40) + b"\x1b[X" + cup(9, 40) + b"\x1b[X"), f.sent())
+        # In the first column, Backspace does nothing.
+        self.assertEqual(Fake([(10, 1)], partner=PAIR).feed(b"\x7f").sent(), CPR)
+
+    def test_a_character_typed_with_a_wrap_pending_prints_once(self):
+        f = Fake([(9, 40), (9, 40), (9, 40), (10, 2)], partner=PAIR).feed(b"y", b"z")
+        self.assertEqual(f.sent(), CPR + cup(10, 40) + b"y" + cup(9, 40) + b"y" + CPR + CPR + b"z" + CPR)
+
+    def test_off_a_pair_and_for_the_other_keys_the_pad_sends_the_plain_edit(self):
+        self.assertEqual(Fake([(8, 11)], partner=PAIR).feed(b"\x1b[2~").sent(), CPR + b"\x1b[@")
+        self.assertEqual(Fake([(8, 5), (8, 6)], partner=PAIR).feed(b"a").sent(), CPR + b"a" + CPR)
+        self.assertEqual(Fake([(8, 5)], partner=PAIR).feed(b"\x7f").sent(), CPR + b"\b\x1b[X")
+        for key, want in ((b"\x1b[A", b"\x1b[A"), (b"\x0c", b"\x1b[J"), (b"\r", b"\r\n"), (b"\x1b[15~", b"\x1b#5")):
+            with self.subTest(key=key):
+                self.assertEqual(Fake(partner=PAIR).feed(key).sent(), want)
+
+    def test_keys_typed_before_the_answer_wait_in_pair_mode(self):
+        f = Fake(partner=PAIR).feed(b"\x1b[2~ab")
+        self.assertEqual(f.sent(), CPR)
+        f.answer(9, 3)
+        self.assertEqual(f.sent(), CPR + cup(10, 3) + b"\x1b[@" + cup(9, 3) + b"\x1b[@" + CPR)
+
+    def test_pair_mode_finds_the_pairs_the_screen_draws(self):
+        lines, _ = typepad.screen("edit", 80)
+        self.assertEqual(typepad.pairs(lines, 7), {9: 10, 10: 9})
+        self.assertEqual(typepad.pairs(typepad.screen("pair", 80)[0], 12), {12: 13, 13: 12})
+        self.assertEqual(typepad.pairs(typepad.screen("wide", 80)[0], 7), {})
+        # Pair mode's key list takes two rows more than the plain one.
+        self.assertEqual(typepad.draw("pair", 80, 24, None, pair=True)[1:], (9, {9: 10, 10: 9}))
+        self.assertEqual(typepad.draw("pair", 80, 24, None)[1:], (7, {}))
+
+
+def guide_steps():
+    """The steps of double-size.guide, as guide.sh reads them and hands
+    them to the pad: (heading, do, expect, the pad's arguments)."""
+    steps = []
+    for line in open(GUIDE, encoding="utf-8"):
+        m = re.match(r"^([a-z]+):\s?(.*)$", line.rstrip("\n"))
+        if not m:
+            continue
+        key, text = m.groups()
+        if key == "step":
+            steps.append({"title": text, "do": "", "expect": "", "run": ""})
+        elif steps and key in ("do", "expect"):
+            steps[-1][key] += text + "\n"
+        elif steps and key == "run":
+            steps[-1]["run"] = text
+    return [("Step %d of %d: %s" % (i, len(steps), s["title"]), s["do"], s["expect"], shlex.split(s["run"])[2:])
+            for i, s in enumerate(steps, 1)]
+
+
 class Screens(unittest.TestCase):
     def lines(self, name, cols=80):
         return typepad.screen(name, cols)
@@ -213,6 +300,10 @@ class Screens(unittest.TestCase):
         self.assertEqual(lines[2][1], lines[0][1])
         self.assertEqual(lines[3][1], lines[0][1])
         self.assertEqual(cursor, (1, 11))
+        lines, cursor = self.lines("pair")
+        self.assertEqual(lines, [("top", lines[0][1]), ("bottom", lines[0][1])])
+        self.assertEqual(lines[0][1], "abcdefghijklmnopqrstuvwxyz0123456789ABCD")
+        self.assertEqual(cursor, (1, 11))
         lines, cursor = self.lines("mixed")
         self.assertEqual([s for s, _ in lines], ["single", "wide", "top", "bottom", "single"])
         self.assertEqual(lines[0][1], "1234567890" * 8)
@@ -220,23 +311,85 @@ class Screens(unittest.TestCase):
 
     def test_a_double_size_line_never_holds_more_than_half_the_columns(self):
         for cols in (80, 81, 100, 41):
-            for name in ("edit", "mixed"):
+            for name in ("edit", "pair", "mixed"):
                 lines, _ = self.lines(name, cols)
                 for size, text in lines:
                     with self.subTest(cols=cols, name=name, size=size):
                         self.assertLessEqual(len(text), cols if size == "single" else cols // 2)
 
-    def test_the_drawing_starts_below_the_legend(self):
-        out, floor = typepad.draw("tall", 80, 6)
+    def test_the_drawing_starts_below_the_key_list(self):
+        out, floor, _ = typepad.draw("tall", 80, 24, 6)
+        # Five rows of keys on 80 columns, and a blank row.
         self.assertEqual(floor, 7)
-        self.assertTrue(out.startswith(b"\x1b[H\x1b[2J\x1b[6 q"))
+        self.assertTrue(out.startswith(b"\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
+        self.assertIn(b"\x1b[4;1H        F3 to F6 change the size of the whole line the cursor is on", out)
         self.assertTrue(out.endswith(b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H"))
-        # On 40 columns each of the legend's five lines takes two rows.
-        self.assertEqual(typepad.draw("tall", 40, None)[1], 12)
+        # On 40 columns the key list takes twelve rows.
+        self.assertEqual(typepad.draw("tall", 40, 24, None)[1], 14)
 
-    def test_the_legend_fits_80_columns(self):
-        for line in typepad.LEGEND:
-            self.assertLessEqual(len(line), 80, line)
+    def test_the_steps_text_comes_first_with_the_key_list_below(self):
+        step = ("Step 2 of 9: Two", "Press the\nkey.\n", "One thing\nhappens.\nWrong: another.\n", "g.guide")
+        out, floor, _ = typepad.draw("wide", 80, 25, None, step)
+        self.assertEqual(typepad.layout(80, 25, typepad.screen("wide", 80)[0], step)[:5], [
+            "Step 2 of 9: Two",
+            "Do:     Press the key.",
+            "Expect: One thing happens.",
+            "        Wrong: another.",
+            "",
+        ])
+        self.assertIn(b"\x1b[2;1HDo:     Press the key.\x1b[3;1HExpect: One thing happens.", out)
+        self.assertIn(b"\x1b[6;1HKeys:   Ctrl-D", out)
+        self.assertEqual(floor, 12)
+        self.assertTrue(out.endswith(b"\x1b[12;1H\x1b#6\x1b[13;1H\x1b#6\x1b[12;1H"))
+
+    def test_a_step_that_does_not_fit_keeps_its_do_lines_and_says_where_the_rest_is(self):
+        lines = typepad.screen("edit", 80)[0]
+        # Each "Wrong:" line starts a paragraph, so the expect: text takes
+        # 30 rows.
+        step = ("Step 1 of 1: T", "do one\ndo two\n", "\n".join("Wrong: %d." % i for i in range(30)), "g.guide")
+        # 25 rows: four for the lines and one to type past them, and one for
+        # the question, so 19 for the text. The key list and its blank row
+        # take six, and the step's blank row one, so 12 rows hold the step.
+        text = typepad.layout(80, 25, lines, step)
+        self.assertEqual(len(text), 19)
+        self.assertEqual(text[:2], ["Step 1 of 1: T", "Do:     do one do two"])
+        self.assertEqual(text[2:4], ["Expect: Wrong: 0.", "        Wrong: 1."])
+        self.assertEqual(text[10], "        Wrong: 8.")
+        self.assertEqual(text[-8:-6], ["The rest of this step is in g.guide.", ""])
+        self.assertEqual(text[-6], "Keys:   Ctrl-D ends the typing. Arrows, Home and End move. Backspace erases.")
+        # On a screen with room for less, the do: lines go first.
+        text = typepad.layout(80, 16, lines, step)
+        self.assertEqual(text[:4], ["Step 1 of 1: T", "Do:     do one do two",
+                                    "The rest of this step is in g.guide.", ""])
+
+    def test_every_row_fits_the_screens_width(self):
+        step = ("Step 1 of 1: " + "t" * 100, "a " * 80, "b " * 80 + "\nWrong: " + "c" * 200, "g.guide")
+        for cols in (80, 60, 41, 20, 12, 5):
+            for pair in (False, True):
+                with self.subTest(cols=cols, pair=pair):
+                    for row in typepad.layout(cols, 60, [], step, pair):
+                        self.assertLessEqual(len(row), cols, row)
+
+    def test_every_step_of_the_guide_fits_80_by_25(self):
+        steps = guide_steps()
+        self.assertEqual(len(steps), 14)
+        for heading, do, expect, args in steps:
+            with self.subTest(step=heading):
+                name = [a for a in args if not a.startswith("--")]
+                self.assertEqual(len(name), 1, args)
+                lines, _ = typepad.screen(name[0], 80)
+                text = typepad.layout(80, 25, lines, (heading, do, expect, GUIDE), "--pair" in args)
+                self.assertFalse(any(r.startswith("The rest of this step") for r in text), text)
+                self.assertEqual(text[0], heading)
+                # The lines, a row for typing past them and the question's
+                # row fit below the text.
+                self.assertLessEqual(len(text) + len(lines) + 2, 25)
+
+    def test_the_step_comes_from_guide_shs_environment(self):
+        self.assertIsNone(typepad.step_text({}))
+        env = {"GUIDE_STEP_HEADING": "Step 1 of 2: T", "GUIDE_STEP_DO": "d\n", "GUIDE_STEP_EXPECT": "e\n",
+               "GUIDE_FILE": "x.guide"}
+        self.assertEqual(typepad.step_text(env), ("Step 1 of 2: T", "d\n", "e\n", "x.guide"))
 
     def test_the_end_puts_the_cursor_on_a_clean_single_line_at_the_bottom(self):
         self.assertEqual(typepad.finish(24, None), b"\x1b[24;1H\x1b#5\x1b[2K")
@@ -246,10 +399,12 @@ class Screens(unittest.TestCase):
 class Run(unittest.TestCase):
     """typepad.py itself, on a pseudo-terminal of 80 columns and 24 rows."""
 
-    def start(self, *args):
+    def start(self, *args, env=None):
+        # The pad gets the environment of guide.sh's step, or none of it.
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GUIDE_")} | (env or {})
         pid, fd = pty.fork()
         if pid == 0:
-            os.execv(sys.executable, [sys.executable, "-I", TYPEPAD, *args])
+            os.execve(sys.executable, [sys.executable, "-I", TYPEPAD, *args], env)
         fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
         self.addCleanup(self.reap, pid, fd)
         return pid, fd
@@ -310,6 +465,21 @@ class Run(unittest.TestCase):
         cooked = termios.tcgetattr(fd)
         self.assertTrue(cooked[3] & termios.ECHO and cooked[3] & termios.ICANON)
 
+    def test_a_run_shows_the_step_and_edits_both_lines_of_a_pair(self):
+        env = {"GUIDE_STEP_HEADING": "Step 6 of 14: Pairs", "GUIDE_STEP_DO": "Press Insert.\n",
+               "GUIDE_STEP_EXPECT": "Both halves move.\n", "GUIDE_FILE": "tools/vt/checks/double-size.guide"}
+        pid, fd = self.start("--pair", "pair", env=env)
+        out = self.read_until(fd, b"\x1b[14;1H\x1b#4abcdefghijklmnopqrstuvwxyz0123456789ABCD\x1b[13;11H")
+        self.assertIn(b"\x1b[1;1HStep 6 of 14: Pairs\x1b[2;1HDo:     Press Insert.\x1b[3;1HExpect: Both halves move.", out)
+        self.assertIn(b"Pair mode: on a tall line", out)
+        os.write(fd, b"\x1b[2~")
+        self.read_until(fd, b"\x1b[6n")
+        os.write(fd, b"\x1b[13;11R")
+        self.read_until(fd, b"\x1b[14;11H\x1b[@\x1b[13;11H\x1b[@")
+        os.write(fd, b"\x04")
+        self.read_until(fd, b"\x1b[24;1H\x1b#5\x1b[2K")
+        self.assertEqual(self.wait(pid), 0)
+
     def test_a_hangup_ends_the_pad_with_the_terminal_put_back(self):
         pid, fd = self.start("tall")
         self.read_until(fd, b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H")
@@ -319,10 +489,10 @@ class Run(unittest.TestCase):
         self.assertTrue(termios.tcgetattr(fd)[3] & termios.ECHO)
 
     def test_a_wrong_call_is_refused(self):
-        for args, why in ((["nonesuch"], "the screen 'nonesuch' is not one of wide, tall, edit or mixed"),
+        for args, why in ((["nonesuch"], "the screen 'nonesuch' is not one of wide, tall, edit, pair or mixed"),
                           (["--cursor=7", "wide"], "--cursor takes a DECSCUSR style from 0 to 6"),
                           (["--cursor=bar", "wide"], "--cursor takes a DECSCUSR style from 0 to 6"),
-                          ([], "typepad.py [--cursor=N] SCREEN")):
+                          ([], "typepad.py [--cursor=N] [--pair] SCREEN")):
             with self.subTest(args=args):
                 pid, fd = self.start(*args)
                 self.read_until(fd, why.encode())
