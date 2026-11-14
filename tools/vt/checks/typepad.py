@@ -25,7 +25,9 @@ What each key sends:
   Tab                     HT
   the arrows              CUU, CUD, CUF and CUB, one column or row
   Home and End            CR, and CUF 999, which stops at the line's last
-                          column
+                          column: the pad keeps no record of the letters on
+                          a line, so End goes to the line's right edge, past
+                          the last letter typed
   Insert and Delete       ICH and DCH, one character
   Ctrl-K and Ctrl-L       EL 0 and ED 0, to the end of the line or screen
   F3, F4, F5 and F6       ESC # 3, ESC # 4, ESC # 5 and ESC # 6, which set
@@ -54,7 +56,11 @@ does that for typing, Backspace, Insert, Delete and Ctrl-K on a line of a
 pair it drew. It asks where the cursor is, makes the edit on the pair's
 other line at the same column (CUP there, the edit, CUP back), and then
 makes the edit on the cursor's own line. The cursor ends where the plain
-edit leaves it. Two edits stay single in pair mode. A character typed while
+edit leaves it. Ctrl-L erases both lines from the cursor's column: EL 0 on
+the top line and ED 0 from the bottom line, so ED 0 never erases the whole
+bottom line from the top one. ED makes a line it erases whole single size,
+so the pad then sends ESC # 4 to keep the bottom line the bottom of the
+pair. Two edits stay single in pair mode. A character typed while
 a wrap is pending goes to the next line, as usual. Backspace in the first
 column of a pair's line does nothing, because the line above is not the
 line that the text wrapped from.
@@ -92,15 +98,15 @@ CSI = b"\033["
 
 # The key list, as paragraphs that the pad wraps to the screen's width.
 KEYS = (
-    "Ctrl-D ends the typing. Arrows, Home and End move. Backspace erases. Insert adds a blank. "
-    "Delete removes a letter. Ctrl-K erases to the end of the line, and Ctrl-L to the end of the "
-    "screen.",
+    "Ctrl-D ends the typing. Arrows and Home move. End goes to the right edge. Backspace erases. "
+    "Insert adds a blank. Delete removes a letter. Ctrl-K erases to the end of the line, Ctrl-L to "
+    "the end of the screen.",
     "F3 to F6 change the size of the whole line the cursor is on, letters already typed included: "
     "F3 tall top, F4 tall bottom, F5 normal, F6 wide.",
 )
 PAIR_KEYS = (
-    "Pair mode: on a tall line, the pad sends typing, Backspace, Insert, Delete and Ctrl-K to "
-    "both lines of the pair.",
+    "Pair mode: on a tall line, the pad sends typing, Backspace, Insert, Delete, Ctrl-K and "
+    "Ctrl-L to both lines of the pair.",
 )
 # The width of the labels that start the step's text and the key list, as
 # guide.sh prints them.
@@ -117,6 +123,7 @@ MOVES = {b"A": CSI + b"A", b"B": CSI + b"B", b"C": CSI + b"C", b"D": CSI + b"D",
 INSERT = CSI + b"@"
 DELETE = CSI + b"P"
 ERASE_LINE = CSI + b"K"
+ERASE_BELOW = CSI + b"J"
 # The keys that send CSI number ~.
 TILDE = {
     b"1": b"\r", b"7": b"\r", b"4": END, b"8": END,
@@ -126,11 +133,12 @@ TILDE = {
 # F3 and F4 send SS3 R and SS3 S.
 SS3_KEYS = {b"R": ESC + b"#3", b"S": ESC + b"#4"}
 # The control keys the pad acts on. Ctrl-D and Ctrl-C end it.
-CONTROLS = {0x0D: b"\r\n", 0x0A: b"\r\n", 0x09: b"\t", 0x0B: ERASE_LINE, 0x0C: CSI + b"J"}
+CONTROLS = {0x0D: b"\r\n", 0x0A: b"\r\n", 0x09: b"\t", 0x0B: ERASE_LINE, 0x0C: ERASE_BELOW}
 QUIT = (0x04, 0x03)
 BACKSPACE = (0x7F, 0x08)
-# The edits that pair mode makes on both lines of a tall pair.
-PAIRED = (INSERT, DELETE, ERASE_LINE)
+# The edits that pair mode makes on both lines of a tall pair. Ctrl-L's
+# ED 0 has a rule of its own (Pad.erase_below).
+PAIRED = (INSERT, DELETE, ERASE_LINE, ERASE_BELOW)
 # A parameter string longer than this is no key's, so the pad drops the
 # sequence.
 MAX_PARAMS = 16
@@ -390,13 +398,36 @@ class Pad:
                 self.send(out)
 
     def edit(self, out):
-        """Sends a key's sequence. In pair mode, Insert, Delete and Ctrl-K
-        first ask where the cursor is, so that the pad can make the same
-        edit on both lines of a pair."""
-        if self.partner and out in PAIRED:
+        """Sends a key's sequence. In pair mode, Insert, Delete, Ctrl-K and
+        Ctrl-L first ask where the cursor is, so that the pad can make the
+        same edit on both lines of a pair."""
+        if self.partner and out == ERASE_BELOW:
+            self.ask(lambda position: self.send(self.erase_below(position)))
+        elif self.partner and out in PAIRED:
             self.ask(lambda position: self.send(self.both(position, out)))
         else:
             self.send(out)
+
+    def erase_below(self, position):
+        """Ctrl-L in pair mode: erases both lines of the cursor's pair from
+        the cursor's column, and every line below the pair. ED 0 erases
+        from the cursor to the end of the screen, so from the top line it
+        would erase the whole bottom line, the bottom halves left of the
+        cursor too. The pad therefore sends ED 0 from the bottom line, at
+        the cursor's column, and EL 0 on the top line at the same column.
+        ED makes each line it erases whole single size, which on the bottom
+        line would leave the top line's letters without their bottom
+        halves, so ESC # 4 makes the bottom line the bottom of the pair
+        again. CUP takes the cursor between the lines, and the cursor ends
+        where ED 0 alone leaves it. Off a pair, ED 0 alone."""
+        row, col = position
+        other = self.partner.get(row)
+        if other is None:
+            return ERASE_BELOW
+        top, bottom = min(row, other), max(row, other)
+        top_erase = CSI + b"%d;%dH" % (top, col) + ERASE_LINE
+        bottom_erase = CSI + b"%d;%dH" % (bottom, col) + ERASE_BELOW + ESC + b"#4"
+        return top_erase + bottom_erase if row == bottom else bottom_erase + top_erase
 
     def both(self, position, out, col=None):
         """out made on the other line of the cursor's pair at column col

@@ -224,6 +224,21 @@ class Pair(unittest.TestCase):
                     f = Fake([(row, 11)], partner=PAIR).feed(key)
                     self.assertEqual(f.sent(), CPR + cup(other, 11) + edit + cup(row, 11) + edit)
 
+    def test_ctrl_l_on_a_pair_line_erases_both_lines_from_the_cursors_column(self):
+        # ED 0 runs from the pair's bottom line, so the top line is erased
+        # only from the cursor's column, by EL 0. ED makes a line it erases
+        # whole single size, so ESC # 4 makes the bottom line the bottom of
+        # the pair again.
+        for col in (11, 1):
+            with self.subTest(row=9, col=col):
+                f = Fake([(9, col)], partner=PAIR).feed(b"\x0c")
+                self.assertEqual(f.sent(), CPR + cup(10, col) + b"\x1b[J\x1b#4" + cup(9, col) + b"\x1b[K")
+            with self.subTest(row=10, col=col):
+                f = Fake([(10, col)], partner=PAIR).feed(b"\x0c")
+                self.assertEqual(f.sent(), CPR + cup(9, col) + b"\x1b[K" + cup(10, col) + b"\x1b[J\x1b#4")
+        # Off a pair, Ctrl-L is ED 0 alone.
+        self.assertEqual(Fake([(8, 11)], partner=PAIR).feed(b"\x0c").sent(), CPR + b"\x1b[J")
+
     def test_a_character_on_a_pair_line_prints_on_both_lines(self):
         f = Fake([(9, 5), (9, 6)], partner=PAIR).feed(b"T")
         self.assertEqual(f.sent(), CPR + cup(10, 5) + b"T" + cup(9, 5) + b"T" + CPR)
@@ -248,7 +263,7 @@ class Pair(unittest.TestCase):
         self.assertEqual(Fake([(8, 11)], partner=PAIR).feed(b"\x1b[2~").sent(), CPR + b"\x1b[@")
         self.assertEqual(Fake([(8, 5), (8, 6)], partner=PAIR).feed(b"a").sent(), CPR + b"a" + CPR)
         self.assertEqual(Fake([(8, 5)], partner=PAIR).feed(b"\x7f").sent(), CPR + b"\b\x1b[X")
-        for key, want in ((b"\x1b[A", b"\x1b[A"), (b"\x0c", b"\x1b[J"), (b"\r", b"\r\n"), (b"\x1b[15~", b"\x1b#5")):
+        for key, want in ((b"\x1b[A", b"\x1b[A"), (b"\r", b"\r\n"), (b"\x1b[15~", b"\x1b#5")):
             with self.subTest(key=key):
                 self.assertEqual(Fake(partner=PAIR).feed(key).sent(), want)
 
@@ -356,7 +371,7 @@ class Screens(unittest.TestCase):
         self.assertEqual(text[2:4], ["Expect: Wrong: 0.", "        Wrong: 1."])
         self.assertEqual(text[10], "        Wrong: 8.")
         self.assertEqual(text[-8:-6], ["The rest of this step is in g.guide.", ""])
-        self.assertEqual(text[-6], "Keys:   Ctrl-D ends the typing. Arrows, Home and End move. Backspace erases.")
+        self.assertEqual(text[-6], "Keys:   Ctrl-D ends the typing. Arrows and Home move. End goes to the right")
         # On a screen with room for less, the do: lines go first.
         text = typepad.layout(80, 16, lines, step)
         self.assertEqual(text[:4], ["Step 1 of 1: T", "Do:     do one do two",

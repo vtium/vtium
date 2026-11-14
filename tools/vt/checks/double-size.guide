@@ -88,10 +88,12 @@ step: A program that edits both lines keeps tall letters whole
 run: python3 tools/vt/checks/typepad.py --pair pair
 do: The pad now sends each edit to both lines of the tall pair. Press
 do: Insert, Delete and Backspace a few times each, then type a word. Then
-do: press Down and do the same on the bottom line. End with Ctrl-K.
+do: press Down and do the same on the bottom line. Press Ctrl-K and type a
+do: word. Press Left a few times, then Ctrl-L, and type a word.
 expect: After each key, every tall letter is whole: its top half and its
-expect: bottom half line up. Ctrl-K erases both halves of the letters from
-expect: the cursor to the right edge.
+expect: bottom half line up. Ctrl-K and Ctrl-L each erase both halves of
+expect: the letters from the cursor to the right edge. The words typed
+expect: after them are tall too.
 expect: Wrong: a tall letter whose two halves do not match.
 
 step: Typing on a tall pair
@@ -167,9 +169,14 @@ expect: Wrong: the whole line erased, or the line turning normal size.
 
 step: Ctrl-L erases the tall pair and makes its lines normal size
 run: python3 tools/vt/checks/typepad.py edit
-do: Press Down twice, then Home, to the start of the tall letters. Press
-do: Ctrl-L, then type a few letters.
-expect: Ctrl-L erases both lines of the tall pair. The new letters are
-expect: normal size. The wide line above keeps its letters and its size.
-expect: Wrong: half of a tall letter left on the screen, or new letters
-expect: drawn tall.
+do: Press Down twice. The cursor is now on the upper line of the tall
+do: letters. Press Home, to go to the start of that line. Press Ctrl-L and
+do: type a few letters. Then press Down once and type a few more.
+expect: Ctrl-L erases both lines of the tall pair, and they become lines of
+expect: normal size. The letters on both lines are normal size. The wide
+expect: line at the top keeps its letters and its size. Ctrl-L erases only
+expect: from the cursor down. So from the lower line, or without Home, the
+expect: tall letters above or left of the cursor stay as top halves, which
+expect: is right there too.
+expect: Wrong: after Ctrl-L at the start of the upper line, half of a tall
+expect: letter left on the screen, or new letters drawn tall.
