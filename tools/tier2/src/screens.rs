@@ -429,6 +429,15 @@ const EMOJI_RGBA: &[u8] = concat!(
 )
 .as_bytes();
 
+/// emoji-rgba-marks's bytes: the heart, which takes one cell with no
+/// selector, beside the cells a selection covers, and two hearts on each
+/// side of the y a block cursor stands on, all on yellow.
+const EMOJI_RGBA_MARKS: &[u8] = concat!(
+    "\x1b[43ma\u{2764}b  a\u{2764}b    \r\n",
+    "x\u{2764}y\u{2764}z       \x1b[0m",
+)
+.as_bytes();
+
 /// The 320x240 floor (vtium/vtium#75): a full-width title, a shell session
 /// with a line that wraps, a box of sprites around styled words, the 16
 /// background and foreground colors, block, shade, Braille and sextant
@@ -721,7 +730,7 @@ const RESCUE_NO_HEAD_DESC: &str = "vtium's notice that the rescue key moved the 
 
 const ONESHOT_DESC: &str = "vtium's notice that the head's session ended under `oneshot` and will not start again (vtium/vtium#156), over the session's last screen. Correct: the notice saying the session has ended and will not start again, then to press Ctrl+Super+↑ to switch to another screen, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, wrapped at a space where it is wider than the box; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
-const NO_CONSOLE_OPENED_DESC: &str = "vtium's notice that a console the open chord opened did not open, because its login could not start (ADR-1401 D5), a notice of a problem that shows whatever `osd` says, over a shell session. Correct: the notice `Console not opened: login could not start.` on one line, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
+const NO_CONSOLE_OPENED_DESC: &str = "vtium's notice that a console the open chord opened did not open, because its login could not start (ADR-1401 D5), a notice of a problem that shows at every level of `osd` but `silent`, over a shell session. Correct: the notice `Console not opened: login could not start.` on one line, in the notices' pale red box with a dark red edge across the top, the width of the display, its text dark, its first letter half a cell in from the edge; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
 const HEAD_FILE_DESC: &str = "vtium's notice of partly broken sections of vtium.conf (ADR-1401 D7, ADR-1403 D3): its rule on line 4 names the head `desc`, which the file does not declare, so that rule alone is dropped. Correct: two lines in the notices' pale red box with a dark red edge across the top, the console line `config partly invalid, running what's valid`, naming no error, since the log keeps the errors, then its next step, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; the row just below the box partly covered, on purpose, since the box is painted over the terminal's text and is not a whole number of rows tall; and the rows below it as the terminal drew them.";
 
@@ -739,9 +748,7 @@ const PANIC_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build wi
 
 const PANIC_IMAGES_80X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-640x400 screen: the maintainer's 80x80 sprite of a panicked Tux in a monitor in place of the drawing in text, each of its pixels a sharp 3x3 square, 240x240, in its six colors: black, white, gray, beak orange, mouth dark red and tongue pink. Correct: the sprite's black square at the box's top left, inside the edge and the inset; its 30 by 15 cells, then two empty columns, then the report's text, every line whole, in the remaining 46 columns; the box as tall as the taller of the text and the sprite; below the box, the screen's background and nothing else.";
 
-const PANIC_IMAGES_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-one-320x400 screen: the sprite in place of the small drawing, each of its pixels a sharp 2x2 square, 160x160, centered across the box at its top in the 20 by 10 cells it takes; an empty row; then the report with its one error, every line whole; below the box, the screen's background and nothing else.";
-
-const ALONE_NO_DISPLAY_DESC: &str = "vtium's notice that no head has a display, alone on the boot display (ADR-1401 D9): the heads of a closed vtium.conf have no display lit, so the display guard lights the boot display for this notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `vtium: no display for any head` and, on the next line, to connect a display that a rule in /etc/vtium/vtium.conf sends to a head; below the box, the screen's background and nothing else.";
+const PANIC_IMAGES_40X25_DESC: &str = "vtium's panic screen (ADR-1401 D7) in a build with image support, on the panic-one-320x400 screen: in place of the small drawing, the sprite cropped to its monitor, x 15 to 64 and y 6 to 49 of the sprite, 50×44 pixels, as the small drawing is the monitor cropped from the full one. The crop is the monitor's white bezel and its screen, with Tux inside, and the black background in the four corners outside the rounded bezel. It shows no arm, spark, stand or keyboard. Correct: the crop with each of its pixels a sharp 3×3 square, 150×132, centered across the box at its top in the 19 by 9 cells it takes; an empty row; then the report with its one error, every line whole; below the box, the screen's background and nothing else.";
 
 const ALONE_PARTLY_DESC: &str = "vtium's notice of partly broken sections of vtium.conf, alone on the boot display (ADR-1401 D7, D9, ADR-1403 D3): under the closed policy the heads that survive have no display lit, so the display guard lights the boot display for the start's notice alone, with no session behind it, until a head lights. Correct: one pale red box with a dark red edge across the top of an otherwise empty screen, holding `config partly invalid, running what's valid` and, on the next line, `Run vtium check-config /etc/vtium/vtium.conf to see why.`; below the box, the screen's background and nothing else.";
 
@@ -1982,10 +1989,29 @@ const BASE: &[Case] = &[
             font: FontKind::ColorSet { height: 16 },
             ..Screen::new(
                 "emoji-rgba",
-                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16 and cut to its middle cell otherwise; the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
+                "Color glyphs (vtium/vtium#23), drawn from a vitrified set built in memory: unifont's ASCII in a 1-bit strike and a grin, a rocket and a heart in a premultiplied RGBA strike at the same 8x16 cell, each two cells wide with edges of partial alpha and the rocket's flame translucent. The glyphs between letters and in bold; on blue, yellow and 256-color green backgrounds; reversed, plain and blue on yellow; under a single underline, a red curl, a double line on blue and a 24-bit green line; struck plain, in red, over an underline on red, and reversed; the heart with no selector, VS15 and VS16, and with no selector on red; an emoji the set lacks; and a grin written at the last column, which wraps to row 9. Correct: each color glyph in its own colors whatever the foreground, bold and reverse, its edges and the flame blended into the cell's background, which shows through around and under it; underlines below the glyphs and strikes over them in their own colors; the heart two cells wide with VS16; otherwise the whole heart scaled to a 10×10 square centred on its one cell, reaching 1 pixel into the cell on each side (ADR-1302 D5); the lacking emoji as `?` centred in two cells; the text glyphs drawn as in unifont.",
                 EMOJI_RGBA,
                 48,
                 10,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::ColorSet { height: 16 },
+            selection: Some(((2, 0), (5, 0))),
+            tail: b"\x1b[2;3H\x1b[2 q\x1b[?25h",
+            phase: crate::draw::Phase {
+                cursor_on: true,
+                blink_hidden: false,
+                rapid_hidden: false,
+            },
+            ..Screen::new(
+                "emoji-rgba-marks",
+                "The heart of emoji-rgba's color set, which takes one cell with no selector, beside a selection and beside a block cursor (ADR-1302 D5, ADR-1306 D4), on yellow cells so its ink shows where it reaches. The first row is a❤b, two spaces, then a❤b, with a selection from the b after the first heart to the a before the second. The second row is x❤y❤z, with a block cursor on the y. Correct: each heart scaled to a 10×10 square centred on its one cell, reaching 1 pixel into the cell on each side, in its own colors; the hearts themselves unselected, and their edges that reach into the selected b and a in the hearts' own colors over the selection's background; and the edges of the two hearts beside the cursor reaching into the cursor's cell in the hearts' own colors over the cursor's background, on each side of the y.",
+                EMOJI_RGBA_MARKS,
+                12,
+                2,
             )
         },
     },
@@ -2209,11 +2235,6 @@ const BASE: &[Case] = &[
     small("notices-four-800x480", NOTICES_FOUR_DESC, shown(FOUR)),
     alone_small("panic-800x480", PANIC_800X480_DESC, notices::panic_screen),
     alone_small(
-        "notice-alone-no-display-800x480",
-        ALONE_NO_DISPLAY_DESC,
-        notices::no_display,
-    ),
-    alone_small(
         "notice-alone-partly-800x480",
         ALONE_PARTLY_DESC,
         notices::partly,
@@ -2287,11 +2308,6 @@ const BASE: &[Case] = &[
     ),
     large("notices-four-3840x540", NOTICES_FOUR_DESC, shown(FOUR)),
     alone_large("panic-3840x540", PANIC_DESC, notices::panic_screen),
-    alone_large(
-        "notice-alone-no-display-3840x540",
-        ALONE_NO_DISPLAY_DESC,
-        notices::no_display,
-    ),
     alone_large(
         "notice-alone-partly-3840x540",
         ALONE_PARTLY_DESC,
@@ -2809,7 +2825,7 @@ const BASE: &[Case] = &[
         )
     }),
     Case {
-        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (64, 2)),
+        screen: scripts("scripts-indic", SCRIPTS_INDIC_DESC, SCRIPTS_INDIC, (72, 2)),
     },
     Case {
         screen: scripts(
@@ -2818,6 +2834,42 @@ const BASE: &[Case] = &[
             SCRIPTS_ARABIC,
             (64, 2),
         ),
+    },
+    Case {
+        screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
+    },
+    Case {
+        screen: shipped(1, "frit-hebrew", FRIT_HEBREW_DESC, FRIT_HEBREW, 4),
+    },
+    Case {
+        screen: shipped(
+            2,
+            "frit-kannada-syllables",
+            FRIT_KANNADA_DESC,
+            FRIT_KANNADA,
+            4,
+        ),
+    },
+    Case {
+        screen: shipped(3, "frit-thai-lao", FRIT_THAI_LAO_DESC, FRIT_THAI_LAO, 6),
+    },
+    Case {
+        screen: shipped(
+            4,
+            "frit-vietnamese",
+            FRIT_VIETNAMESE_DESC,
+            FRIT_VIETNAMESE,
+            6,
+        ),
+    },
+    Case {
+        screen: shipped(5, "frit-cjk-jp", FRIT_CJK_JP_DESC, FRIT_CJK_JP, 6),
+    },
+    Case {
+        screen: shipped(6, "frit-cjk-tc", FRIT_CJK_TC_DESC, FRIT_CJK_TC, 6),
+    },
+    Case {
+        screen: shipped(7, "frit-cjk-kr", FRIT_CJK_KR_DESC, FRIT_CJK_KR, 6),
     },
 ];
 
@@ -2836,7 +2888,9 @@ const OSD_TEXT: &[u8] = concat!(
 /// with the others, so the defect can be seen. When its fix lands, a
 /// screen moves to [`CASES`], its golden is added and its pending row
 /// goes.
-pub const WAITING: &[Case] = &[];
+pub const WAITING: &[Case] = &[Case {
+    screen: shipped(2, "frit-indic", FRIT_INDIC_DESC, FRIT_INDIC, 12),
+}];
 
 /// The scripts screens' one drawing, at 40 pixels, in Iosevka Term's
 /// 16x40 cell.
@@ -2870,7 +2924,7 @@ const SCRIPTS_INDIC: &[u8] = concat!(
 )
 .as_bytes();
 
-const SCRIPTS_INDIC_DESC: &str = "The first sentence of the Universal Declaration of Human Rights in Hindi and in Bengali, as the showcase's scripts scene writes them, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Devanagari and Noto Sans Bengali behind it, 64 by 2 cells.";
+const SCRIPTS_INDIC_DESC: &str = "The first sentence of the Universal Declaration of Human Rights in Hindi and in Bengali, as the showcase's scripts scene writes them, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Devanagari and Noto Sans Bengali behind it, 72 by 2 cells, so the Hindi line's 70 cells under ADR-1006's cluster widths fit on one row.";
 
 /// The `scripts-arabic` screen: two right-to-left paragraphs, set by SCP
 /// 2: the first sentence of the Universal Declaration of Human Rights in
@@ -2885,3 +2939,175 @@ const SCRIPTS_ARABIC: &[u8] = concat!(
 .as_bytes();
 
 const SCRIPTS_ARABIC_DESC: &str = "Two right-to-left paragraphs, set by SCP 2, drawn in Iosevka Term's 16x40 cell at 40 pixels with Noto Sans Arabic behind it, 64 by 2 cells: the first sentence of the Universal Declaration of Human Rights in Arabic, as the showcase's scripts scene writes it, and Article 1 of the Declaration named by its Arabic title, with the Latin UDHR in brackets and the numbers 1 and 1948.";
+
+/// The `frit-` screens' one drawing, at 32 pixels of text, which each font
+/// set's own line spacing makes taller.
+const AT_SHIPPED: [Take; 1] = [Take::at(crate::fonts::SHIPPED_HEIGHT)];
+
+/// A screen 48 cells wide and `rows` high drawn in the shipped font set
+/// `crate::fonts::SHIPPED_FRITS[frit]` ([`InkFonts::Shipped`]), as it
+/// ships, at 32 pixels of text.
+const fn shipped(
+    frit: usize,
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    rows: usize,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_SHIPPED,
+            spacing: None,
+            fonts: InkFonts::Shipped(crate::fonts::SHIPPED_FRITS[frit]),
+        },
+        ..Screen::new(name, desc, bytes, 48, rows)
+    }
+}
+
+/// The `frit-arabic` screen: Arabic with every mark written, then Persian
+/// and Urdu words with the letters those languages add, each line inside
+/// a box of light lines that join from row to row.
+const FRIT_ARABIC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ يُولَدُ جَمِيعُ النَّاسِ أَحْرَارًا مُتَسَاوِينَ فِي الْكَرَامَةِ\r\n",
+    "│ فارسی: پدر، چای، ژاله، گل\r\n",
+    "│ اردو: ٹوپی، ڈاک، پڑھنا، ہے\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_ARABIC_DESC: &str = "The shipped font set arabic at 32 pixels of text, with its 30 per cent of line spacing, 48 by 5 cells: the start of Article 1 of the Universal Declaration of Human Rights in Arabic with every vowel mark, shadda and tanween written, then Persian words with pe, che, zhe and gaf, and Urdu words with tte, ddal, rre, do-chashmi he and bari ye, each line in left-to-right paragraphs inside a box of light lines whose left side joins from row to row through the added rows.";
+
+/// The `frit-hebrew` screen: the first verse of Genesis with its vowel
+/// points and cantillation marks, and the start of Article 1 of the
+/// Declaration with its vowel points, inside a box of light lines.
+const FRIT_HEBREW: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃\r\n",
+    "│ כָּל בְּנֵי הָאָדָם נוֹלְדוּ בְּנֵי חוֹרִין\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_HEBREW_DESC: &str = "The shipped font set hebrew at 32 pixels of text, with its 10 per cent of line spacing, 48 by 4 cells: the first verse of Genesis with its vowel points and its cantillation marks above and below the letters, and the start of Article 1 of the Universal Declaration of Human Rights with its vowel points, each in a left-to-right paragraph inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-indic` screen: a line in each script the font set names, with
+/// vowel signs, reph and conjuncts, inside a box of light lines.
+const FRIT_INDIC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ हिन्दी: धर्म कार्य क्षत्रिय शुद्ध कि की कु कू कृ\r\n",
+    "│ বাংলা: কর্ম ক্ষমা স্ত্রী কু কূ\r\n",
+    "│ ਪੰਜਾਬੀ: ਗੁਰਮੁਖੀ ਪ੍ਰੇਮ\r\n",
+    "│ ગુજરાતી: ધર્મ ક્ષમા\r\n",
+    "│ ଓଡ଼ିଆ: କର୍ମ କ୍ଷମା\r\n",
+    "│ தமிழ்: க்ஷ கொ கை கூ\r\n",
+    "│ తెలుగు: క్ష్మ స్త్రీ కృ\r\n",
+    "│ ಕನ್ನಡ: ಕ್ಷ್ಮ ಸ್ತ್ರೀ ಕೃ\r\n",
+    "│ മലയാളം: ക്ഷ്മ സ്ത്രീ\r\n",
+    "│ සිංහල: භාෂාව ලංකා\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_INDIC_DESC: &str = "The shipped font set indic at 32 pixels of text, with its 40 per cent of line spacing, 48 by 12 cells: a line in each script the set names, Devanagari, Bengali, Gurmukhi, Gujarati, Odia, Tamil, Telugu, Kannada, Malayalam and Sinhala, each naming its language and then words with vowel signs above and below, reph and conjuncts, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-kannada-syllables` screen: Kannada syllables that Unicode's
+/// grapheme rules cut into several clusters, joined across their cells,
+/// and the same syllables split by a change of color or of style, inside
+/// a box of light lines (ADR-1203).
+const FRIT_KANNADA: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ ಕ್ರ ರ್ಕ ಸ್ತ್ರೀ ಕನ್ನಡ ಕಾರ್ತ್ಸ್ನ್ಯ\r\n",
+    "│ ಕ್\x1b[31mರ\x1b[m ಸ್\x1b[1mತ್\x1b[mರೀ ಕ\x1b[4mನ್ನ\x1b[mಡ\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_KANNADA_DESC: &str = "The shipped font set indic at 32 pixels of text, with its 40 per cent of line spacing, 48 by 4 cells: ka with ra, ra with ka, stree, kannada and kartsnya, each syllable shaped once and drawn across the cells of its clusters, with ra under ka, the reph over ka, stree as one stacked conjunct, na under na and the five consonants of rtsny stacked (ADR-1203); then ka with a red ra and sa with a bold ta drawn split, each cluster on its own with its virama showing, and kannada with its na-na underlined and still joined, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-thai-lao` screen: Thai and Lao with vowels and tone marks
+/// stacked above and below, inside a box of light lines.
+const FRIT_THAI_LAO: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ ภาษาไทย: ผู้ใหญ่ กี่ ปู่ น้ำ ฎุ ฏู\r\n",
+    "│ มนุษย์ทั้งหลายเกิดมามีอิสระและเสมอภาคกัน\r\n",
+    "│ ພາສາລາວ: ກີ່ ຜູ້ ນ້ຳ\r\n",
+    "│ ມະນຸດທັງຫຼາຍເກີດມາມີສິດເສລີພາບ\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_THAI_LAO_DESC: &str = "The shipped font set thai-lao at 32 pixels of text, with its 25 per cent of line spacing, 48 by 6 cells: Thai words with a vowel and a tone mark stacked over one consonant and vowels under consonants that have a tail below, the start of Article 1 of the Universal Declaration of Human Rights in Thai, then Lao words with stacked marks and the start of the same article in Lao, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-vietnamese` screen: a Vietnamese sentence, then lowercase
+/// letters with descenders over capitals whose two marks stand above the
+/// line, inside a box of light lines, and under the box two letters
+/// precomposed and then decomposed.
+const FRIT_VIETNAMESE: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    "│ Tất cả mọi người sinh ra đều được tự do\r\n",
+    "│ gjpqy ặ ộ ỵ ỹ ợ ự\r\n",
+    "│ ẤẦẨẪẬ ẮẰẲẴẶ ẾỀỂỄỆ ỐỒỔỖỘ ỚỜỞỠỢ ỨỪỬỮỰ\r\n",
+    "└──────────────────────────────────────────────\r\n",
+    "  Ấ ộ  A\u{302}\u{301} o\u{323}\u{302}",
+)
+.as_bytes();
+
+const FRIT_VIETNAMESE_DESC: &str = "The shipped font set vietnamese at 32 pixels of text, with its 25 per cent of line spacing, 48 by 6 cells: the start of Article 1 of the Universal Declaration of Human Rights in Vietnamese, lowercase letters with descenders and with marks below, then capitals whose vowel mark and tone mark stack above the line under that row, inside a box of light lines whose left side joins from row to row, and below the box Ấ and ộ written first as one precomposed character each and then as a letter and its two combining marks, which draw alike.";
+
+/// The Han characters whose forms differ by region, which each CJK
+/// `frit-` screen draws first, so the screens show the same characters in
+/// each region's forms.
+macro_rules! regional_han {
+    () => {
+        "│ 直 骨 刃 写 角 次 化 今 令 器\r\n"
+    };
+}
+
+/// The `frit-cjk-jp` screen: the Han characters whose forms differ by
+/// region, Japanese with kana and full-width punctuation, the start of
+/// Article 1 of the Declaration in Japanese, and Latin letters with
+/// descenders beside Han, inside a box of light lines.
+const FRIT_CJK_JP: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 日本語：ひらがな、カタカナ、漢字。\r\n",
+    "│ すべての人間は、生まれながらにして自由であり\r\n",
+    "│ gjpqy ÁÉ 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_JP_DESC: &str = "The shipped font set cjk-jp at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK JP's Japanese forms, then Japanese with hiragana, katakana and full-width punctuation set low in its cells, the start of Article 1 of the Universal Declaration of Human Rights in Japanese, and Latin letters with descenders and accented capitals from Noto Sans Mono beside two Han characters on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-cjk-tc` screen: the Han characters whose forms differ by
+/// region, Traditional Chinese with bopomofo and full-width punctuation,
+/// the start of Article 1 of the Declaration in Traditional Chinese, and
+/// Latin letters with descenders beside Han, inside a box of light lines.
+const FRIT_CJK_TC: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 繁體中文：注音符號 ㄅㄆㄇㄈ，標點。\r\n",
+    "│ 人人生而自由，在尊嚴和權利上一律平等。\r\n",
+    "│ gjpqy ÁÉ 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_TC_DESC: &str = "The shipped font set cjk-tc at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK TC's Taiwanese forms, then Traditional Chinese with bopomofo and full-width punctuation centred in its cells, the start of Article 1 of the Universal Declaration of Human Rights in Traditional Chinese, and Latin letters with descenders and accented capitals from Noto Sans Mono beside two Han characters on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `frit-cjk-kr` screen: the Han characters whose forms differ by
+/// region, Korean with Hangul and its letters, the start of Article 1 of
+/// the Declaration in Korean, and Latin letters with descenders beside
+/// Hangul and Han, inside a box of light lines.
+const FRIT_CJK_KR: &[u8] = concat!(
+    "┌──────────────────────────────────────────────\r\n",
+    regional_han!(),
+    "│ 한국어: 한글 ㄱㄴㄷ ㅏㅑㅓ 漢字\r\n",
+    "│ 모든 인간은 태어날 때부터 자유로우며\r\n",
+    "│ gjpqy ÁÉ 한글 漢字 gjpqy\r\n",
+    "└──────────────────────────────────────────────",
+)
+.as_bytes();
+
+const FRIT_CJK_KR_DESC: &str = "The shipped font set cjk-kr at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK KR's Korean forms, then Korean in Hangul syllables, Hangul letters and Han, the start of Article 1 of the Universal Declaration of Human Rights in Korean, and Latin letters with descenders and accented capitals from Noto Sans Mono beside Hangul and Han on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";

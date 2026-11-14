@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 
+use vtium::font::DisplayFace;
 use vtium_font::set::{Set, SetFace, builtin};
 use vtium_font::sprite::Range;
 use vtium_font::{Cell, Decorations, Face, Font, Glyph, RangeCoverage, SpritePolicy, Style};
@@ -62,12 +63,17 @@ pub type Generated = Result<Vec<CellGlyphs>, Absent>;
 /// helper has answered: the set of every character the frit gives, as its
 /// fill draws them, and, for each style a cluster shows in on the card,
 /// the set of those clusters drawn whole, as the helper answers the
-/// console's asks for them (ADR-1200 D21).
+/// console's asks for them (ADR-1200 D21), with the part of a cluster the
+/// font draws where it lacks a mark of the cluster (ADR-1200 D22 step 3).
+/// It keeps the frit, as its name and text, and the codepoints the set
+/// maps, so a profile can hold them in the console's own store.
 #[derive(Clone, Debug)]
 pub struct CellGlyphs {
     pub cell: Cell,
     pub set: Arc<Set>,
     pub clusters: Vec<(Style, Arc<Set>)>,
+    pub frit: (String, String),
+    pub codepoints: Vec<u32>,
 }
 
 /// Why a caller does not have a frit's glyphs.
@@ -143,7 +149,17 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<CardFace>, Stri
             }
             let base = SetFace::new(Arc::clone(&at.set), height)
                 .ok_or_else(|| format!("the set {} has no strikes", glyphs.set()))?;
-            return Ok(Font::new(CardFace { base, clusters }));
+            // an outline frit's clusters draw through the console's own
+            // face over the store it holds
+            let console = match glyphs {
+                Glyphs::Desktop { .. } => Some(std::rc::Rc::new(console_face(at, height)?)),
+                _ => None,
+            };
+            return Ok(Font::new(CardFace {
+                base,
+                clusters,
+                console,
+            }));
         }
     };
     let base = SetFace::new(set, profile.glyphs.height())
@@ -151,41 +167,108 @@ pub fn font(profile: &Profile, sources: &Sources) -> Result<Font<CardFace>, Stri
     Ok(Font::new(CardFace {
         base,
         clusters: Vec::new(),
+        console: None,
     }))
 }
+
+/// The face the console draws an outline frit through at `height`, its
+/// store holding `at`'s glyphs as the helper's answers bring them: every
+/// character the frit gives, and in each style the clusters drawn whole
+/// and the parts of them the font draws (ADR-1200 D22 step 3). It draws
+/// what the frit lacks in the console's built-in font, as the console
+/// does.
+pub fn console_face(at: &CellGlyphs, height: u32) -> Result<DisplayFace, String> {
+    use vtium::font::Chosen;
+    use vtium::helper::{FritText, OwnCell};
+    use vtium_font::Variant;
+    use vtium_font::spacing::SpacedCell;
+    let (name, text) = &at.frit;
+    let mut chosen = Chosen::frit(
+        FritText {
+            name: name.clone(),
+            text: text.clone(),
+        },
+        false,
+        None,
+    )?;
+    chosen.set_own_cell(OwnCell::Outline(at.cell), false);
+    let Chosen::Frit { generated, .. } = &chosen else {
+        return Err(format!("the frit {name} is not taken as a frit"));
+    };
+    {
+        let mut store = vtium::deferred::lock(generated);
+        let cell = SpacedCell::plain(at.cell);
+        let mut runs: Vec<(u32, u32)> = Vec::new();
+        for &c in &at.codepoints {
+            match runs.last_mut() {
+                Some((first, n)) if first.checked_add(*n) == Some(c) => *n += 1,
+                _ => runs.push((c, 1)),
+            }
+        }
+        let sets = core::iter::once((Variant::default(), &at.set, runs.as_slice())).chain(
+            at.clusters.iter().map(|(style, set)| {
+                let variant = Variant {
+                    style: *style,
+                    ..Variant::default()
+                };
+                (variant, set, &[][..])
+            }),
+        );
+        for (variant, set, runs) in sets {
+            if let Some(fresh) = store.fresh((cell, variant), Arc::clone(set), runs, 1) {
+                store.add(fresh);
+            }
+        }
+    }
+    chosen
+        .face(height, LOCALE)
+        .ok_or_else(|| format!("the frit {name} has no face at {height} pixels"))
+}
+
+/// The locale the specimens draw in, whose built-in font the console takes.
+const LOCALE: &str = "C";
 
 /// The face a profile draws through, as the console's store answers for
 /// a frit (ADR-1200 D22): a cluster of more than one character from the
 /// glyph the helper drew for it whole, where it drew one in the cell's
-/// style, and everything else from the set of single characters, a
-/// cluster the helper drew nothing for as its first character. A built-in
-/// set has no clusters.
-#[derive(Clone, Debug)]
+/// style, and everything else from the set of single characters. A cluster
+/// the helper drew nothing for is drawn by the console's own face from its
+/// characters' glyphs ([`vtium::deferred::DeferredFace`]): a letter with
+/// its marks over it and its spacing marks beside it (ADR-1302 D14), and a
+/// joined Arabic letter by the presentation form of its joined form
+/// (ADR-1004 D6). A built-in set has no clusters.
+#[derive(Clone)]
 pub struct CardFace {
     base: SetFace,
     clusters: Vec<(Style, SetFace)>,
+    /// The console's own face over its store, for an outline frit
+    /// ([`console_face`]): a cluster of more than one character draws
+    /// through it.
+    console: Option<std::rc::Rc<DisplayFace>>,
+}
+
+impl std::fmt::Debug for CardFace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CardFace")
+            .field("base", &self.base)
+            .field("clusters", &self.clusters)
+            .field("console", &self.console.is_some())
+            .finish()
+    }
 }
 
 impl CardFace {
-    /// What a joined Arabic letter's key draws from the set of single
-    /// characters when the helper drew nothing whole for it, as the
-    /// console draws it (ADR-1004 D6): the presentation form of its joined
-    /// form, where the set holds that, else its letter. Any other cluster
-    /// is drawn as it is. A lam-alef ligature the set holds neither whole
-    /// nor as its presentation form draws its lam, where the console draws
-    /// lam and alef side by side.
-    fn unjoined(&self, cluster: &[char]) -> Vec<char> {
-        const ZWJ: char = '\u{200d}';
-        if let Some(form) = vtium::deferred::presentation(cluster)
-            && self.base.has_glyph(form)
-        {
-            return vec![form];
-        }
-        let keyed = cluster.first() == Some(&ZWJ) || cluster.last() == Some(&ZWJ);
-        if keyed || vtium::deferred::presentation(cluster).is_some() {
-            return cluster.iter().copied().filter(|&c| c != ZWJ).collect();
-        }
-        cluster.to_vec()
+    /// `cluster`'s glyph as the console draws a cluster the helper drew
+    /// nothing whole for: through its own face, over a store that holds
+    /// nothing, with the set of single characters as its built-in font.
+    fn parts(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        let face = vtium::deferred::DeferredFace::new(
+            Box::new(self.base.clone()),
+            self.base.cell(),
+            self.base.size_step(),
+            vtium::deferred::Shared::default(),
+        );
+        face.draw_cells(cluster, style, cells)
     }
 
     /// The glyph the helper drew whole for `cluster` in `style`, if any.
@@ -222,8 +305,17 @@ impl Face for CardFace {
     }
 
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        self.whole(cluster, style)
-            .or_else(|| self.base.draw(&self.unjoined(cluster), style))
+        self.draw_cells(cluster, style, 1)
+    }
+
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        match (cluster, &self.console) {
+            ([_] | [], _) => self.base.draw(cluster, style),
+            (_, Some(console)) => console.draw_cells(cluster, style, cells),
+            (_, None) => self
+                .whole(cluster, style)
+                .or_else(|| self.parts(cluster, style, cells)),
+        }
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -245,8 +337,13 @@ impl Face for CardFace {
     // the helper draws a frit's glyphs at the profile's cell, at scale 1,
     // so a cluster's glyph is already unscaled
     fn draw_unscaled(&self, cluster: &[char], style: Style) -> Option<Glyph> {
-        self.whole(cluster, style)
-            .or_else(|| self.base.draw_unscaled(&self.unjoined(cluster), style))
+        match (cluster, &self.console) {
+            ([_] | [], _) => self.base.draw_unscaled(cluster, style),
+            (_, Some(console)) => console.draw(cluster, style),
+            (_, None) => self
+                .whole(cluster, style)
+                .or_else(|| self.parts(cluster, style, 1)),
+        }
     }
 
     fn last_resort_unscaled(&self, style: Style) -> Option<Glyph> {
@@ -466,6 +563,7 @@ mod tests {
         let face = CardFace {
             base: set(regular, 10, &['\u{2764}'], &[]),
             clusters: vec![(regular, set(regular, 20, &[], &[&vs16]))],
+            console: None,
         };
         let shade = |g: vtium_font::Glyph| (g.width(), g.pixels()[0]);
         assert_eq!(face.draw(&vs16, regular).map(shade), Some((16, 21)));
@@ -476,6 +574,60 @@ mod tests {
             face.draw_unscaled(&vs16, regular).map(shade),
             Some((16, 21))
         );
+    }
+
+    // ADR-1200 D22 step 3, as the console draws it: an outline frit that
+    // lacks the diaeresis below draws o with tilde and diaeresis below by
+    // the part the helper sends, o with the tilde where the font puts it,
+    // and lays the diaeresis below over it from the built-in font. The
+    // tilde of the part is all in the drawing, where a tilde drawn alone
+    // and laid over o lands elsewhere
+    #[test]
+    fn a_cluster_with_a_part_draws_the_part_where_the_font_puts_it() {
+        use vtium_testfont::ttf;
+        let mut font = ttf::test_mono();
+        let first = u16::try_from(font.glyphs.len()).unwrap();
+        font.glyphs.push(ttf::Glyph::rect(600, 100, 0, 500, 500));
+        font.glyphs.push(ttf::Glyph::rect(0, -450, 600, -150, 700));
+        font.cmap.push((0x6f, first));
+        font.cmap.push((0x303, first + 1));
+        font.cmap.sort_unstable();
+        let dir = std::env::temp_dir().join(format!("vtium-specimens-part-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("o.ttf");
+        std::fs::write(&path, font.build()).unwrap();
+        let text = format!("source=outline:{}\n", path.display());
+        let cell = Cell {
+            width: 12,
+            height: 20,
+        };
+        let cluster = ['o', '\u{303}', '\u{324}'];
+        let keys: Vec<u32> = cluster.iter().map(|&c| u32::from(c)).collect();
+        let sets =
+            crate::fonts::generate("t", &text, &dir, &[cell], &[(Style::default(), vec![keys])])
+                .unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+        let at = &sets[0];
+        let part_face = SetFace::new(Arc::clone(&at.clusters[0].1), 20).unwrap();
+        let part = part_face
+            .cluster(&['o', '\u{303}'], Style::default())
+            .expect("the helper sends the part");
+        let face = CardFace {
+            base: SetFace::new(Arc::clone(&at.set), 20).unwrap(),
+            clusters: vec![(Style::default(), part_face)],
+            console: Some(std::rc::Rc::new(console_face(at, 20).unwrap())),
+        };
+        let drawn = face.draw(&cluster, Style::default()).unwrap();
+        assert_eq!(drawn.width(), part.width());
+        let inked = |g: &vtium_font::Glyph, x: u32, y: u32| g.pixel(x, y).is_some_and(|p| p[0] > 0);
+        for y in 0..part.height() {
+            for x in 0..part.width() {
+                if inked(&part, x, y) {
+                    assert!(inked(&drawn, x, y), "the part's ink at {x},{y}");
+                }
+            }
+        }
     }
 
     // The desktop profiles' card shows the heart suit with VS16 and a flag, which

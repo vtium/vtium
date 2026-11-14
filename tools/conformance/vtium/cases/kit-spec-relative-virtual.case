@@ -1,0 +1,53 @@
+# A relative placement whose parent is a virtual placement takes its
+# place from the least row and the least column of that placement's
+# placeholder cells, and moves when the cells move. A parent named by P
+# alone, with Q left out, is the image's placement with no placement id
+# made last. A parent deleted by d=p takes its children and their
+# children with it, and their images go too, since they have no
+# placement left.
+#
+# References: ADR-1100 D13.
+# spec: kitty graphics protocol, "Relative placements"
+# covers: image.kitty-relative
+size 12 6
+
+# Image 5, 2×4 pixels, with virtual placement 1 of 2×2 cells, shown at
+# rows 3 and 4, columns 4 and 5.
+send "\e_Ga=t,f=24,s=2,v=4,i=5,q=2;/wAA/wAA/wAA/wAAAAD/AAD/AAD/AAD/\e\\"
+send "\e_Ga=p,U=1,i=5,p=1,c=2,r=2,q=2\e\\"
+send "\e[3;4H\e[38;5;5m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}\e[4;4H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}\e[m"
+
+# Image 6, one green pixel, placed 2 columns right of the virtual
+# placement and 1 row down. The cursor stays where it is.
+send "\e[1;1H\e_Ga=t,f=24,s=1,v=1,i=6,q=2;AP8A\e\\"
+send "\e_Ga=p,i=6,p=1,P=5,Q=1,H=2,V=1\e\\"
+dump
+
+# The placeholder cells are erased, so the child has nowhere to draw.
+send "\e[3;4H\e[2X\e[4;4H\e[2X"
+dump
+
+# The cells are written again at rows 1 and 2, columns 8 and 9, and the
+# child follows them.
+send "\e[1;8H\e[38;5;5m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}\e[2;8H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}\e[m"
+dump
+
+# Image 7, one white pixel, placed twice on row 6 with no placement id.
+send "\e[6;1H\e_Ga=T,f=24,s=1,v=1,i=7,C=1;////\e\\"
+send "\e[6;3H\e_Ga=p,i=7,C=1\e\\"
+
+# Image 8 is placed under image 7 with Q left out, one column right.
+# Image 9 is placed under image 8, one row up.
+send "\e_Ga=t,f=24,s=1,v=1,i=8,q=2;AAD/\e\\"
+send "\e_Ga=p,i=8,p=1,P=7,H=1\e\\"
+send "\e_Ga=t,f=24,s=1,v=1,i=9,q=2;/wAA\e\\"
+send "\e_Ga=p,i=9,p=1,P=8,Q=1,V=-1\e\\"
+dump
+
+# d=p on the cell of image 7's second placement deletes it, image 8's
+# placement under it and image 9's under that. Puts then find images 8
+# and 9 gone and image 7 still stored.
+send "\e_Ga=d,d=p,x=3,y=6\e\\"
+send "\e_Ga=p,i=8,C=1\e\\"
+send "\e_Ga=p,i=9,C=1\e\\"
+send "\e[6;5H\e_Ga=p,i=7,C=1\e\\"

@@ -1,5 +1,6 @@
 //! vtium and the kernel: the switch on the kernel command line that turns
-//! vtium off for one boot (ADR-1401 D9), and the kernel's messages, which
+//! vtium off for one boot, which still honors a closed vtium.conf
+//! (ADR-1401 D9), and the kernel's messages, which
 //! vtium shows on screen itself while its VT is in graphics mode
 //! (ADR-1401 D15).
 //!
@@ -31,6 +32,8 @@ use std::ffi::OsString;
 use std::io;
 use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
+
+use vtium_settings::Policy;
 
 use crate::config::{Config, keys};
 
@@ -143,18 +146,62 @@ pub fn runs_console(args: &[OsString]) -> bool {
 }
 
 /// The start's first check (ADR-1401 D9): when the kernel command line at
-/// `cmdline` turns vtium off for this boot, vtium logs one line that names
-/// the key and returns the exit status 1. It runs before vtium reads
-/// vtium.conf and before it opens its VT or a card. The binary reads
-/// [`CMDLINE`]; a test reads a stand-in through the same function.
-pub fn off_at_start(args: &[OsString], cmdline: &Path) -> Option<u8> {
+/// `cmdline` turns vtium off for this boot, vtium marks its VT for the
+/// policy of vtium.conf in `run`, logs one line that names the key, and
+/// returns the exit status 1. It runs before vtium reads vtium.conf whole
+/// and before it opens its VT or a card. Under a closed policy the marker
+/// keeps the unit's getty fallback off the VT, so the key never hands the
+/// VT to a login prompt; under an open one vtium removes the marker, and
+/// the getty fallback starts its getty. The binary reads [`CMDLINE`] and
+/// marks in [`crate::getty::DIR`]; a test gives stand-ins for both.
+pub fn off_at_start(args: &[OsString], cmdline: &Path, run: &Path) -> Option<u8> {
     if !runs_console(args) || !turned_off(&crate::font::read_text(cmdline)) {
         return None;
     }
-    log::warn!(
-        "vtium is turned off for this boot: the kernel command line sets {ENABLE}=0. Remove {ENABLE}=0 from the kernel command line to start vtium again."
-    );
+    let (vt, policy) = honored(args);
+    crate::getty::mark(run, vt.as_deref(), policy);
+    match policy {
+        Policy::Closed => log::warn!(
+            "vtium is turned off for this boot: the kernel command line sets {ENABLE}=0. vtium.conf's policy is closed, so no login prompt starts on this VT. Remove {ENABLE}=0 from the kernel command line to start vtium again."
+        ),
+        Policy::Open => log::warn!(
+            "vtium is turned off for this boot: the kernel command line sets {ENABLE}=0. Remove {ENABLE}=0 from the kernel command line to start vtium again."
+        ),
+    }
     Some(1)
+}
+
+/// The VT that the command line's `vt` names, and the policy that
+/// `vtium.enable=0` honors (ADR-1401 D9). vtium reads the command line and
+/// the policy of vtium.conf, and no other key of either. It reads the
+/// file with the trust check a start uses, and the policy with the rules
+/// for a policy line that a start uses ([`vtium_settings::policy`]), so
+/// the key and a start agree on it. A missing file, and one that vtium
+/// cannot trust or read, give the open policy, as the built-in
+/// configuration that a start then runs does.
+fn honored(args: &[OsString]) -> (Option<PathBuf>, Policy) {
+    // the command line alone: the reader finds no file
+    let given = crate::config::load(args, &mut |_| Ok(None));
+    let vt = given.config.text(&keys::VT).map(crate::start::vt_path);
+    let policy = match crate::config::read_file(&given.path) {
+        Ok(Some(bytes)) => vtium_settings::policy(&bytes),
+        Ok(None) => Policy::Open,
+        Err(e) => {
+            let path = given.path.display();
+            match e
+                .get_ref()
+                .and_then(|e| e.downcast_ref::<crate::config::NotTrusted>())
+            {
+                Some(crate::config::NotTrusted(why)) => log::warn!(
+                    "vtium does not read the policy of {path}, because {}",
+                    why.reason()
+                ),
+                None => log::warn!("vtium does not read the policy of {path}: {e}."),
+            }
+            Policy::Open
+        }
+    };
+    (vt, policy)
 }
 
 /// One record of `/dev/kmsg`: who logged it, how severe it is, and its
@@ -458,7 +505,8 @@ mod tests {
     // ADR-1401 D9: with `vtium.enable=0` on the command line that the start
     // reads, the start ends with status 1 before anything else; the commands
     // that only check or report still run, and without the key the start
-    // goes on.
+    // goes on. The configuration directory is the test's own, which holds
+    // no vtium.conf, so the start reads nothing of the machine's.
     #[test]
     fn the_start_exits_1_on_a_command_line_that_turns_vtium_off() {
         let dir = scratch("off_at_start");
@@ -466,18 +514,48 @@ mod tests {
         std::fs::write(&off, "root=/dev/sda1 vtium.enable=0 quiet\n").unwrap();
         let on = dir.join("cmdline-on");
         std::fs::write(&on, "root=/dev/sda1 quiet\n").unwrap();
-        assert_eq!(off_at_start(&args(&[]), &off), Some(1));
-        assert_eq!(off_at_start(&args(&["--vt=/dev/tty3"]), &off), Some(1));
+        let conf = format!("--configdir={}", dir.join("etc").display());
+        let run = dir.join("run-vtium");
+        let with = |words: &[&str]| {
+            let mut all = vec![conf.as_str()];
+            all.extend_from_slice(words);
+            args(&all)
+        };
+        assert_eq!(off_at_start(&with(&[]), &off, &run), Some(1));
         assert_eq!(
-            off_at_start(&args(&["--login", "--", "/bin/sh", "--help"]), &off),
+            off_at_start(&with(&["--vt=/dev/tty3"]), &off, &run),
+            Some(1)
+        );
+        assert_eq!(
+            off_at_start(&with(&["--login", "--", "/bin/sh", "--help"]), &off, &run),
             Some(1),
             "the login command's words do not count"
         );
         for command in [&["check-config"][..], &["--help"], &["--version"]] {
-            assert_eq!(off_at_start(&args(command), &off), None, "{command:?}");
+            assert_eq!(
+                off_at_start(&with(command), &off, &run),
+                None,
+                "{command:?}"
+            );
         }
-        assert_eq!(off_at_start(&args(&[]), &on), None);
-        assert_eq!(off_at_start(&args(&[]), &dir.join("none")), None);
+        assert_eq!(off_at_start(&with(&[]), &on, &run), None);
+        assert_eq!(off_at_start(&with(&[]), &dir.join("none"), &run), None);
+        assert!(!run.exists(), "no closed policy, so no marker");
+    }
+
+    // The start checks the key from `main`, before it reads vtium.conf
+    // whole, and marks in the directory the getty fallback reads. `main`
+    // is the binary's wiring, which no test drives, so this reads its text.
+    #[test]
+    fn main_checks_the_key_before_it_reads_vtium_conf() {
+        let source = include_str!("main.rs");
+        let key = source.find("vtium::kernel::off_at_start(").unwrap();
+        let call = &source[key..];
+        let call = &call[..call.find(") {").unwrap()];
+        assert!(call.contains("vtium::kernel::CMDLINE"), "{call}");
+        assert!(call.contains("vtium::getty::DIR"), "{call}");
+        let load = source.find("config::load(&args").unwrap();
+        assert!(key < load, "the key comes before vtium.conf is read");
     }
 
     #[test]

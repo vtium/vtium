@@ -41,7 +41,8 @@ type Ink = (i32, i32, i32, i32, u8);
 /// - `G`, a descender 14 pixels into the row below;
 /// - `V`, an accent 6 pixels into the row above;
 /// - `W`, two cells wide, with an accent over both and a lean after it;
-/// - `x` and `_`, ink inside the cell, the underscore on its last row.
+/// - `x` and `_`, ink inside the cell, the underscore on its last row;
+/// - `B`, a body and a bar down its first column, inside the cell.
 fn shape(c: char) -> (&'static [Ink], u32) {
     const BODY: Ink = (1, 6, 7, 14, 255);
     match c {
@@ -71,14 +72,39 @@ fn shape(c: char) -> (&'static [Ink], u32) {
             2,
         ),
         'x' => (&[BODY], 1),
+        'B' => (&[BODY, (0, 4, 1, 12, 255)], 1),
         '_' => (&[(0, 15, 8, 16, 255)], 1),
         _ => (&[], 1),
     }
 }
 
+/// The color emoji `@` draws in one cell (ADR-1302 D5): opaque red, a
+/// 10x10 square from row 3 whose first and last columns lie a pixel past
+/// each side of its cell, carried in its ink box.
+fn emoji() -> Option<Glyph> {
+    let (w, h) = (CW as i32, CH as i32);
+    let red = |x: i32, y: i32| {
+        if (-1..w + 1).contains(&x) && (3..13).contains(&y) {
+            [255, 0, 0, 255]
+        } else {
+            [0; 4]
+        }
+    };
+    let own = (0..h)
+        .flat_map(|y| (0..w).flat_map(move |x| red(x, y)))
+        .collect();
+    let boxed = (0..h)
+        .flat_map(|y| (-1..w + 1).flat_map(move |x| red(x, y)))
+        .collect();
+    Glyph::from_pixels(CW, CH, Format::Rgba, own)?.with_ink((-1, 0), (CW + 2, CH), boxed)
+}
+
 /// `c`'s glyph: its pixels inside its cells, and its ink box when its ink
 /// passes them.
 fn glyph(c: char) -> Option<Glyph> {
+    if c == '@' {
+        return emoji();
+    }
     let (rects, cells) = shape(c);
     let (gw, gh) = ((CW * cells) as i32, CH as i32);
     let cov = |x: i32, y: i32| {
@@ -1122,4 +1148,60 @@ fn a_glyph_that_arrives_with_ink_past_its_cell_draws_it() {
     let drawn = r.draw(&s.frame(since), &mut c, 1, &st);
     assert!(!drawn.damage.is_empty());
     assert_eq!(px(&c, (2, 1), (3, 14)), pixel(WHITE), "the accent arrived");
+}
+
+// covers: text.overhang
+// ADR-1302 D5, D7: a color emoji drawn in one cell reaches 1 pixel into
+// each neighbour. Its edge is drawn as any neighbour's ink is, over the
+// neighbour's background and under the neighbour's own glyph
+#[test]
+fn a_color_emojis_edge_lies_under_its_neighbours_own_glyph() {
+    let mut s = screen(4, 1);
+    let st = state(&s);
+    s.put(1, 0, '@', false, style(WHITE, rgb(BG)));
+    s.put(2, 0, '_', false, style(GREEN, rgb(BG)));
+    let mut d = Display::new(&s, 2, Config::default());
+    let (_, c) = d.draw(&mut s, &st);
+    let red = 0xff_0000;
+    // the left edge, in the last column of the cell before
+    assert_eq!(px(&c, (0, 0), (7, 5)), red);
+    assert_eq!(px(&c, (0, 0), (6, 5)), pixel(rgb(BG)));
+    // the right edge, in the first column of the cell after
+    assert_eq!(px(&c, (2, 0), (0, 5)), red);
+    assert_eq!(px(&c, (2, 0), (1, 5)), pixel(rgb(BG)));
+    // the square's rows only
+    assert_eq!(px(&c, (2, 0), (0, 2)), pixel(rgb(BG)));
+    // a glyph whose own ink covers the edge lies on top of it: B's bar
+    // down its first column, rows 4 to 11, of the square's 3 to 12
+    s.put(2, 0, 'B', false, style(GREEN, rgb(BG)));
+    s.damage.mark_cell(2, 0);
+    let (_, c) = d.draw(&mut s, &st);
+    assert_eq!(px(&c, (2, 0), (0, 5)), pixel(GREEN), "B's bar lies on top");
+    assert_eq!(px(&c, (2, 0), (0, 3)), red, "the edge above B's bar");
+}
+
+// covers: text.overhang
+// ADR-1302 D5, D8: where a color emoji's edge lands in a selected cell or
+// under a block cursor, it keeps the emoji's own colors, where any other
+// ink takes the mark's text color
+#[test]
+fn a_color_emojis_edge_keeps_its_colors_inside_a_mark() {
+    let mut s = screen(4, 1);
+    let st = state(&s);
+    s.put(1, 0, '@', false, style(WHITE, rgb(BG)));
+    let mut d = Display::new(&s, 2, Config::default());
+    d.draw(&mut s, &st);
+    d.sel = (2..3).map(|i| i..i + 1).collect();
+    s.damage.mark_cell(2, 0);
+    let (_, c) = d.draw(&mut s, &st);
+    assert_eq!(px(&c, (2, 0), (0, 5)), 0xff_0000);
+    d.sel = Vec::new();
+    s.cursor.visible = true;
+    s.cursor.col = 0;
+    s.cursor.row = 0;
+    s.cursor.shape = CursorShape::Block;
+    s.damage.mark_cell(0, 0);
+    s.damage.mark_cell(2, 0);
+    let (_, c) = d.draw(&mut s, &st);
+    assert_eq!(px(&c, (0, 0), (7, 5)), 0xff_0000);
 }

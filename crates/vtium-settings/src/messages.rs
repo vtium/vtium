@@ -810,8 +810,6 @@ impl Line {
             Line::Skipped => "vtium.conf not used: running the built-in configuration.",
             Line::Partly => "vtium.conf has errors: running the parts without errors.",
             Line::ClosedOff => "vtium.conf has errors and counts as closed: all input is off.",
-            // nothing about input: each head's own keyboards still deliver to it while it is off
-            Line::NoDisplay => "No head has a connected display.",
         }
     }
 
@@ -840,10 +838,6 @@ impl fmt::Display for Next<'_> {
                 f,
                 "This console takes no input. For the full report, run {check} {path} over ssh or from other boot media.",
                 check = CHECK_CONFIG,
-            ),
-            Line::NoDisplay => write!(
-                f,
-                "Connect a display that a rule in {path} sends to a head."
             ),
         }
     }
@@ -903,7 +897,7 @@ impl fmt::Display for AtStart {
                     f.write_str("vtium starts with this file as written and shows no notice.")
                 }
                 (Runs::NoHead, Policy::Open, _) => f.write_str(
-                    "This file has rules but no head, so vtium starts with its rules and turns on the boot display for the default head.",
+                    "This file has rules but no head, so vtium starts with its rules. Each display that no rule turns off shows a notice that it is not configured for any terminal.",
                 ),
                 (Runs::NoHead, Policy::Closed, _) => f.write_str(
                     "This file has no head and its policy is closed, so vtium starts with every display off, takes no input and shows nothing.",
@@ -1000,7 +994,7 @@ impl fmt::Display for Remark {
             ),
             Remark::UnnamedLitByGuard { head } => write!(
                 f,
-                "No rule names head {head}. It gets a display only when no other head has one: then, under the open policy, vtium gives it the boot display. Add a rule that sends a display to it, or remove the head."
+                "No rule names head {head}. Because the file has errors, vtium gives it the boot display under the open policy when no other head has a display. Add a rule that sends a display to it, or remove the head."
             ),
             Remark::EveryHeadIsolated => write!(
                 f,
@@ -1158,11 +1152,6 @@ mod tests {
                 (
                     "vtium.conf has errors and counts as closed: all input is off.",
                     "This console takes no input. For the full report, run vtium check-config /etc/vtium/heads.conf over ssh or from other boot media.".to_owned()
-                ),
-                (
-                    "No head has a connected display.",
-                    "Connect a display that a rule in /etc/vtium/heads.conf sends to a head."
-                        .to_owned()
                 ),
             ]
         );

@@ -172,11 +172,11 @@ def run_concurrently(variants, jobs, impl, deadline, results, log):
                 elif overdue:
                     results[job.variant] = t3_scenario.failed_variant(
                         job.variant, "no result within the %d s deadline; worker stopped"
-                        % deadline, log)
+                        % deadline, log, impl["tree_features"])
                 else:
                     results[job.variant] = t3_scenario.failed_variant(
                         job.variant, "worker exited with code %s before reporting"
-                        % job.proc.exitcode, log)
+                        % job.proc.exitcode, log, impl["tree_features"])
     finally:
         if running:  # interrupted: a second SIGTERM must not cut the cleanup short
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
@@ -210,7 +210,8 @@ def run_variants(variants, jobs, impl, deadline, log):
     for v in variants:
         if v not in results:
             results[v] = t3_scenario.failed_variant(
-                v, "run interrupted: %s" % (interrupted or "no result"), log)
+                v, "run interrupted: %s" % (interrupted or "no result"), log,
+                impl["tree_features"])
     log("%d variant(s) done, %d at a time" % (len(variants), jobs))
     return results, interrupted
 

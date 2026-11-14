@@ -11,7 +11,7 @@ const VERSION: &str = "18.0.0";
 
 /// The UCD files read, by base name, with their SHA-256 and the path under
 /// `https://www.unicode.org/Public/18.0.0/ucd/` they come from.
-const FILES: [(&str, &str, &str); 14] = [
+const FILES: [(&str, &str, &str); 15] = [
     (
         "GraphemeBreakProperty.txt",
         "auxiliary/",
@@ -82,6 +82,11 @@ const FILES: [(&str, &str, &str); 14] = [
         "",
         "045b24d2c8ab066951bd32fe8c6b4de34647f72b5b1c7df0265f24ab53573e01",
     ),
+    (
+        "IndicSyllabicCategory.txt",
+        "",
+        "a2b3aacf6b3e7bad4ca351ef985d9543825e20280ff280c25f646d9bc4ce304c",
+    ),
 ];
 
 /// The licence of the UCD files, copied into each output.
@@ -116,9 +121,23 @@ const INCB: [(&str, &str); 4] = [
     ("Extend", "EXTEND"),
 ];
 
+/// The General_Category values a cluster's width reads (ADR-1006 D1), by
+/// their code: every other category is `Other`.
+const MARK: [(&str, &str); 3] = [("Other", "OTHER"), ("Mn", "MN"), ("Mc", "MC")];
+
+/// The Indic_Syllabic_Category values a cluster's width reads (ADR-1006
+/// D1), by their code: every other category is `Other`.
+const ISC: [(&str, &str); 4] = [
+    ("Other", "OTHER"),
+    ("Virama", "VIRAMA"),
+    ("Invisible_Stacker", "INVISIBLE_STACKER"),
+    ("Consonant", "CONSONANT"),
+];
+
 // A property word: bits 0-3 Grapheme_Cluster_Break, bit 4
 // Extended_Pictographic, bits 5-6 Indic_Conjunct_Break, bits 7-8 the cell
-// width, bit 9 a base of an emoji-style variation sequence.
+// width, bit 9 a base of an emoji-style variation sequence, bits 10-11 the
+// General_Category Mn or Mc, bits 12-13 the Indic_Syllabic_Category.
 const GCB_MASK: u16 = 0x000f;
 const PICT: u16 = 1 << 4;
 const INCB_SHIFT: u16 = 5;
@@ -126,6 +145,10 @@ const INCB_MASK: u16 = 0b11 << INCB_SHIFT;
 const WIDTH_SHIFT: u16 = 7;
 const WIDTH_MASK: u16 = 0b11 << WIDTH_SHIFT;
 const VS16_BASE: u16 = 1 << 9;
+const MARK_SHIFT: u16 = 10;
+const MARK_MASK: u16 = 0b11 << MARK_SHIFT;
+const ISC_SHIFT: u16 = 12;
+const ISC_MASK: u16 = 0b11 << ISC_SHIFT;
 
 /// EastAsianWidth.txt's header: unassigned codepoints in these ranges are W.
 const EAW_DEFAULT_W: [(u32, u32); 5] = [
@@ -282,15 +305,29 @@ fn build(read: &dyn Fn(&str) -> Result<String, String>) -> Result<Vec<u16>, Stri
     }
 
     // General_Category Mn, Me, Cf and Cc, which take no cell; U+00AD SOFT
-    // HYPHEN takes one
+    // HYPHEN takes one. Mn and Mc, which a cluster's width reads.
     let mut gc_zero = vec![false; CODEPOINTS];
+    let mut mark = vec![0u16; CODEPOINTS];
     for r in records(&read("DerivedGeneralCategory.txt")?) {
         let (first, last, f) = r?;
-        if matches!(f.first().copied(), Some("Mn" | "Me" | "Cf" | "Cc")) {
+        let gc = f.first().copied();
+        if matches!(gc, Some("Mn" | "Me" | "Cf" | "Cc")) {
             fill(&mut gc_zero, first, last, true);
+        }
+        if let Some(code @ ("Mn" | "Mc")) = gc {
+            fill(&mut mark, first, last, index(&MARK, code)?);
         }
     }
     gc_zero[0xAD] = false;
+
+    // Indic_Syllabic_Category Virama, Invisible_Stacker and Consonant
+    let mut isc = vec![0u16; CODEPOINTS];
+    for r in records(&read("IndicSyllabicCategory.txt")?) {
+        let (first, last, f) = r?;
+        if let Some(value @ ("Virama" | "Invisible_Stacker" | "Consonant")) = f.first().copied() {
+            fill(&mut isc, first, last, index(&ISC, value)?);
+        }
+    }
 
     let mut eaw_wide = vec![false; CODEPOINTS];
     for (first, last) in EAW_DEFAULT_W {
@@ -355,7 +392,9 @@ fn build(read: &dyn Fn(&str) -> Result<String, String>) -> Result<Vec<u16>, Stri
             | if pict[cp] { PICT } else { 0 }
             | incb[cp] << INCB_SHIFT
             | width << WIDTH_SHIFT
-            | if vs16_base[cp] { VS16_BASE } else { 0 };
+            | if vs16_base[cp] { VS16_BASE } else { 0 }
+            | mark[cp] << MARK_SHIFT
+            | isc[cp] << ISC_SHIFT;
     }
     Ok(props)
 }
@@ -474,6 +513,24 @@ fn data_rs(starts: &[u32], words: &[u16]) -> String {
         "VS16_BASE",
         VS16_BASE,
     );
+    constant(
+        &mut out,
+        Some("General_Category Mn or Mc, one of the `MARK_` values."),
+        "MARK",
+        MARK_MASK,
+    );
+    for (code, (_, name)) in (0u16..).zip(MARK) {
+        constant(&mut out, None, &format!("MARK_{name}"), code << MARK_SHIFT);
+    }
+    constant(
+        &mut out,
+        Some("Indic_Syllabic_Category, one of the `ISC_` values."),
+        "ISC",
+        ISC_MASK,
+    );
+    for (code, (_, name)) in (0u16..).zip(ISC) {
+        constant(&mut out, None, &format!("ISC_{name}"), code << ISC_SHIFT);
+    }
 
     let starts: Vec<String> = starts.iter().map(|s| format!("{s:#08x}")).collect();
     let words: Vec<String> = words.iter().map(|w| format!("{w:#06x}")).collect();

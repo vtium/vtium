@@ -185,6 +185,31 @@
 
 #no-allow-window-ops
 
+# -- The display handed to a graphical program -------------------------------
+
+## Let a program in a console hand the display to a graphical program, such as
+## a video player or a kiosk application, and take it back, without a VT
+## switch.
+##
+## The program sends `OSC setBackground ST` to hand the display over, and
+## `OSC setForeground ST` to take it back. These are kmscon's private
+## sequences. Only the console that a head shows may hand the display over. A
+## head is the terminal that vtium runs on one or more displays.
+##
+## vtium then gives up each graphics card that drives a display of that head,
+## so the graphical program can open the card and draw. Other heads with
+## displays on those cards pause on those displays. vtium sends no keys or
+## pointer events to a head whose every display has paused. The VT switch keys
+## keep working.
+##
+## vtium takes the display back at setForeground from the same console, when
+## that console's session ends, when you switch away from vtium's VT and back,
+## or when vtium restarts.
+##
+## When off, vtium ignores both sequences. It is on by default.
+
+#allow-display-ops
+
 # -- Right-to-left text ------------------------------------------------------
 
 ## Which way a paragraph of text runs when the program that writes it does not
@@ -203,6 +228,20 @@
 ## and does nothing with it.
 
 #text-direction=ltr
+
+# -- Syllables with vowel signs and joined consonants ------------------------
+
+## How many character cells a syllable takes when it has a spacing vowel sign
+## or a virama that joins two consonants, in Tamil, Devanagari and other
+## scripts of South and Southeast Asia.
+##
+## `double`, the default, gives such a syllable two cells, so கொ takes two.
+## `single` gives it one cell and squeezes it to fit.
+##
+## vtium reads this key when it starts, so a change takes effect when vtium
+## restarts.
+
+#cluster-width=double
 
 # == Colors ==================================================================
 #
@@ -551,11 +590,17 @@
 ## osd: What the on-screen display shows at the top of each screen after a
 ## change, such as a console switch.
 ##
+## `full` shows a line across the top, such as `● desk · console 2 of 3`.
 ## `minimal` shows a dot in the top-right character cell: filled on the active
-## head, hollow on the others. `full` shows a line across the top, such as
-## `● desk · console 2 of 3`. `off` shows nothing.
+## head, hollow on the others. `off` shows nothing. Under these three, a
+## notice about a problem still appears, such as one about errors in
+## vtium.conf.
 ##
-## A notice about a problem appears whatever `osd` says.
+## `silent` shows nothing, and it hides vtium's notices too. vtium still
+## writes each notice to its log. Two screens appear even under `silent`,
+## because no console runs while they show. One is the panic screen of a
+## closed vtium.conf that cannot run. The other is the notice that vtium
+## stopped every screen because a session kept ending.
 #
 ## osd-timeout: How long the on-screen display stays visible after a change.
 ## `never` keeps it visible all the time.
@@ -590,8 +635,8 @@
 # -- Notice colors -----------------------------------------------------------
 
 ## notice-foreground: The text color of a notice. A notice is a box that
-## reports a problem, such as errors in vtium.conf. It appears whatever `osd`
-## says.
+## reports a problem, such as errors in vtium.conf. It appears at every level
+## of `osd` except `silent`.
 #
 ## notice-background: The background color of a notice. While a notice is
 ## showing, the on-screen display's line appears in the same box, in the
@@ -751,6 +796,11 @@
 
 ## Measure each display's frame times once a second, and write the figures to
 ## the log, show them on screen, or both.
+##
+## With `render-timer = osd`, vtium shows the figures at the top of each
+## display, in the on-screen display's box. When `osd = silent`, vtium shows
+## no figures on screen: `render-timer = osd` then shows nothing, and
+## `render-timer = both` writes only the log.
 
 #render-timer=none
 

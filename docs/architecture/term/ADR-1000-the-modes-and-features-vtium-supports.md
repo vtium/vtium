@@ -56,6 +56,40 @@ considered:
   - operator: aaronsb
     said: "agree"
     via: the steering session, 2026-11-07, asking whether ADR-1000's row text.vitrify becomes refused, because ADR-1200 has vtium generate every glyph at run time and build no glyph set ahead of time
+  - operator: aaronsb
+    said: "After the fast wake-up retries run out, vtium keeps retrying once a second for as long as its VT is the one shown. A key press, a pointer action or a hotplug still tries again at once. A VT release stops the slow retries too, and a VT acquire starts the fast retries again."
+    via: the steering session's question on 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "vtium honors the Linux console's cursor blink interval, CSI 16 ; n ], so its row in the features table is planned"
+    via: the steering session's question on 2026-11-13, on an outside scenario survey
+    paraphrase: true
+  - operator: aaronsb
+    said: "The configuration key is `allow-display-ops`, on by default, beside allow-font-ops and allow-window-ops."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Only a console a head is showing may send setBackground."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Per port, in steps. Step one: setBackground gives up the whole cards the sending head draws on, so every existing program works; other heads on those cards pause. Step two: a vtium socket, named in each session's environment, hands a DRM lease of only the sending head's connectors (with a CRTC and planes) to a program that asks; vtium keeps its own drawing and its hotplug paths off leased objects, and revokes the lease at setForeground. Later, as a separate experiment: vtium answers as a seat manager (the seatd protocol), so an unmodified libseat program receives a lease."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Under a seat manager (logind or seatd), only the lease path acts. vtium ignores a plain setBackground there, logs that it did, and sends no focus report. The whole-card hand-over happens only on the kernel's VT."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Focus reports go out at the hand-over and also at a VT switch (focus out when vtium's VT is released, in when it is acquired), in the same work."
+    via: the maintainer, in the steering session, 2026-11-13
+    paraphrase: true
+  - operator: aaronsb
+    said: "Gate leases on a prototype, file it as lower priority; we have a functional system now and leases would complicate the work"
+    via: the maintainer, in the steering session, 2026-11-13
+  - operator: aaronsb
+    said: "Supported"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, asked whether osc.kmscon-display and platform.hand-back move from partial to supported once the focus reports are built
 status: accepted
 date: 2026-10-26
 deciders:
@@ -81,7 +115,7 @@ The C reference recognised 34 modes in one declarative table (libtsm's `tsm-mode
 
 ### The target set
 
-The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (185 rows: 120 supported, 5 partial, 44 ignored, 8 refused, 8 planned). Both tables use the same statuses:
+The tables are `ADR-1000-modes.tsv` (131 rows: 44 supported, 10 ignored, 75 refused, 2 weighed) and `ADR-1000-features.tsv` (186 rows: 123 supported, 2 partial, 44 ignored, 8 refused, 9 planned). Both tables use the same statuses:
 
 - **supported**: set and reset, or the feature, do what the specification says.
 - **partial**: vtium does part of it; the note says what is missing, and the issue column names the work that builds the rest.
@@ -107,6 +141,10 @@ DECRQM, the query by which a program asks whether a mode is set, answers from vt
 > Edited 2026-11-07: the work on SGR renditions draws conceal (SGR 8 and 28) and overline (SGR 53 and 55), so `sgr.conceal` and `sgr.overline` are supported; rapid blink and superscript and subscript stay planned until they are drawn. The work on libseat seats takes the seat, its display devices and VT switching from the seat manager, so `platform.libseat` is partial; its note names what is not built or proven yet. Before this edit the counts above read 112 supported, 4 partial and 15 planned feature rows, which no longer matched the table.
 
 > Edited 2026-11-11: the work on runtime font changes builds XTWINOPS 8 behind the `allow-window-ops` key, off by default, so `window.resize` is supported; its note says how vtium meets a request. Before this edit the counts above read 183 feature rows, 114 supported, 6 partial and 11 planned, which no longer matched the table's 185 rows.
+
+> Edited 2026-11-13: `platform.libseat` is supported. The maintainer checked the libseat build on a laptop's VTs in seat mode under logind, and every step of the check passed; tier 3 runs the same build on seatd and on logind. Before this edit the counts above read 120 supported and 5 partial feature rows, which already did not match the table's 121 supported and 4 partial.
+
+> Edited 2026-11-13: the features table gains `ctl.linux-blink-interval`, planned. The Linux console sets how fast the cursor blinks with `CSI 16 ; n ]`. The maintainer decided that vtium honors the sequence, and the work on the cursor blink interval builds it. A survey of an outside collection of terminal test scenarios found the sequence. Before this edit the counts above read 185 feature rows, 122 supported, 3 partial and 8 planned. Those counts did not match the table's 123 supported and 2 partial.
 
 Each row names the layer it lands in, from the project's plan: minspec, text, images, gpu, seat or top, or `bidi` for a row that only a build with the cargo feature `bidi` has (ADR-1004 D13).
 
@@ -169,10 +207,15 @@ Every reply follows the reply rule (docs/architecture.md, "Determinism"): it is 
 - **A paste never carries its own end marker:** vtium filters every paste, bracketed or not, as xterm's paste filtering does with `allowPasteControls` false: each C0 control but HT, LF and CR, DEL, and each C1 control, a code point in UTF-8, becomes a space.
 - **ENQ answers an empty answerback.** The C reference answered ACK (0x06); vtium lists this as a departure.
 - **Focus (1004) and visibility (2033) reports are allowed:** a program opts in, and what they reveal is that the user switched VTs.
-- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display back and take it again. No DEC or ECMA specification defines them. vtium keeps them behind a configuration key, on by default, as the C reference behaved.
+- **setBackground and setForeground**, kmscon's private OSC strings (`kmscon/src/terminal.c:863` in the C reference), hand the display to a graphical program and take it back. No DEC or ECMA specification defines them. vtium reads them behind the key `allow-display-ops`, on by default, as the C reference behaved. The key sits beside `allow-font-ops` and `allow-window-ops`. Only a console that a head shows may send setBackground. On the kernel's VT, setBackground gives up every card the sending head draws on, and other heads on those cards pause (ADR-1401 D16). Under a seat manager, logind or seatd, vtium ignores setBackground, logs that it did, and sends no focus report. There, a graphical program runs in a session of its own on another VT. Handing a program only some ports of a card, through a DRM lease that vtium lends, is left to a later decision. That decision waits for a prototype in which an unmodified compositor runs on a lease from vtium. A shown console whose head can no longer draw gets a focus-out (1004) at the hand-over and a focus-in when the hand-over ends. Each shown console that has the focus gets the same at a VT release and acquire (ADR-1401 D5).
+
+> Edited 2026-11-13: the maintainer named the key, chose which console may send setBackground, chose what a hand-over gives up on the kernel's VT and under a seat manager, added the focus reports at a VT switch, and left a hand-over of single ports through a DRM lease to a later decision (`considered`, 2026-11-13). The bullet ended: "vtium keeps them behind a configuration key, on by default, as the C reference behaved."
 - **OSC 21** takes kitty's color-protocol meaning, which Ghostty shares, not xterm's DECSWT title. A query for a key vtium does not know is left out of the reply. kitty answers it with `unknown=` and the key's name in base64, which carries request bytes, so vtium lists this as a departure from kitty.
 - **Bidirectional modes** follow ADR-1004: BDSM, 1243, 2500 and 2501 are supported and DCSM is ignored and permanently set, each only in a build with the `bidi` feature, which the minspec build leaves out. DECRLM and DECRLCM are refused, since SCP and BDSM replace them.
 - **LNM (ANSI 20) stays supported**, as xterm and the C reference have it, though ECMA-48's 5th edition withdraws it.
+- **The wake-up retry keeps going while vtium's VT is shown.** vtium may fail to take its displays back while its VT is shown, as while another program holds DRM master. vtium then tries again every 50 ms for about 2 seconds. After that, vtium tries again once a second for as long as its VT is shown. A key press, a pointer action or a hotplug still tries again at once. A VT release stops the tries, and a VT acquire starts the fast tries again. So a display with no keyboard, such as a kiosk's, lights within about a second of the other program letting go of the card.
+
+> Edited 2026-11-13: the maintainer decided that vtium keeps trying to wake its displays after the fast tries run out, and the last bullet above is new. Before, the record did not describe the wake-up retry. After about 2 seconds of tries, only the next key press, pointer action or hotplug tried again, so a display that nobody touched stayed dark. The edit of 2026-11-06 above calls the hand-back's wake-up retry built, in the words "the display hand-back, whose wake-up retry is built". The retry it meant is the fast one.
 
 ### The terminfo entry and TERM
 

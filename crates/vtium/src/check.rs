@@ -385,6 +385,12 @@ pub struct Outcome {
 
 /// The subcommand on `loaded` and the machine `host`.
 pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
+    outcome_with(loaded, host, None)
+}
+
+/// [`outcome`], asking the glyph helper through `squeeze` which letters of
+/// the locale's everyday letters each look's font set covers (ADR-1401 D7).
+fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> Outcome {
     let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
         return Outcome {
@@ -407,7 +413,10 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
         devices: (!loaded.no_devices).then_some(devices.as_slice()),
         vts,
     };
-    let settings = Settings::of(&loaded.config, &host.frits, host.frit_trust.clone());
+    let settings = Settings {
+        squeeze,
+        ..Settings::of(&loaded.config, &host.frits, host.frit_trust.clone())
+    };
     // a candidate that is the installed file is checked as the start
     // reads it, ownership and all
     let path = loaded.candidate.as_deref().unwrap_or(&host.conf_file);
@@ -443,9 +452,31 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
 }
 
 /// The subcommand as the binary runs it on the machine's own files: it
-/// prints [`outcome`] and returns the exit status.
-pub fn main(loaded: &Loaded) -> u8 {
-    let out = outcome(loaded, &Host::system(&loaded.config));
+/// prints [`outcome`] and returns the exit status. It asks the glyph
+/// helper which of the locale's everyday letters each look's font set
+/// covers, waiting by `clock`.
+pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
+    let env: Vec<_> = std::env::vars_os().collect();
+    let locale = crate::app::locale(&env);
+    let ask = |frit: &helper::FritText, letters: &[u32]| {
+        let launcher = helper::Launcher::configured(&loaded.config)?;
+        let mut helper = helper::Helper::new(
+            launcher,
+            std::sync::Arc::new(|| {}),
+            clock(),
+            frit.clone(),
+            None,
+            crate::deferred::Shared::default(),
+            0,
+        );
+        let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
+        helper.coverage(letters, wait, clock)
+    };
+    let squeeze = Squeeze {
+        locale: &locale,
+        ask: &ask,
+    };
+    let out = outcome_with(loaded, &Host::system(&loaded.config), Some(squeeze));
     for line in &out.stderr {
         eprintln!("{line}");
     }
@@ -490,6 +521,32 @@ pub struct Settings<'a> {
     /// The ownership check a frit is read under: the one the start makes
     /// for the account the check runs as ([`font::trust`]).
     pub trust: Trust,
+    /// How the check asks the glyph helper which letters of the locale's
+    /// script a look's font set covers, for the warning on a font set
+    /// that leaves them to the squeeze (ADR-1401 D7); `None` asks nothing.
+    pub squeeze: Option<Squeeze<'a>>,
+}
+
+/// The question the check asks the glyph helper of a font set: which of
+/// these letters it covers, and which installed font covers the rest
+/// ([`helper::Helper::coverage`]).
+pub type AskCoverage<'a> =
+    &'a dyn Fn(&helper::FritText, &[u32]) -> Result<(Vec<u32>, Option<String>), String>;
+
+/// The system's locale, and how the check asks the glyph helper about a
+/// font set's letters.
+#[derive(Clone, Copy)]
+pub struct Squeeze<'a> {
+    pub locale: &'a str,
+    pub ask: AskCoverage<'a>,
+}
+
+impl std::fmt::Debug for Squeeze<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Squeeze")
+            .field("locale", &self.locale)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Settings<'_> {
@@ -509,6 +566,7 @@ impl Settings<'_> {
             total: number(&keys::CONSOLES_MAX, vtium_settings::CONSOLES_TOTAL_DEFAULT),
             frits,
             trust,
+            squeeze: None,
         }
     }
 }
@@ -657,7 +715,16 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             continue;
         };
         let line = Some(named.line);
-        match judge(&file, &settings.trust) {
+        let judged = judge(&file, &settings.trust);
+        // a font set the account reads is checked for the locale's letters
+        if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
+            let said = settings
+                .squeeze
+                .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
+            out.notes
+                .extend(said.map(|said| at(path, line, said).to_string()));
+        }
+        match judged {
             Judged::Read => {}
             Judged::Refused(why) => {
                 let said =
@@ -671,6 +738,46 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
             }
         }
     }
+}
+
+/// The note on a look, `look`, whose font set `name` at `file` leaves
+/// everyday letters of the system locale's language, CLDR's main exemplar
+/// characters, to the squeeze (ADR-1401 D7, ADR-1302 D14): the letters the
+/// built-in fonts draw squeezed in the font set's cell, of those the font
+/// set does not cover, as the glyph helper answers. The note names the
+/// script they are written in, and an installed font that covers them
+/// where the helper finds one. `None` when the locale's language is not in
+/// the table, when the built-in fonts squeeze none of its letters, when
+/// the font set covers every such letter, or when the helper cannot
+/// answer.
+fn squeeze_note(
+    look: &str,
+    name: &str,
+    file: &Path,
+    settings: &Settings,
+    sq: Squeeze<'_>,
+) -> Option<String> {
+    let script = vtium_font::letters::script_of(sq.locale)?;
+    let frit = helper::FritText::read(file, &settings.trust).ok()?;
+    let cell = font::frit_cell(&frit.text)
+        .ok()
+        .flatten()
+        .unwrap_or(vtium_font::Cell {
+            width: 8,
+            height: 16,
+        });
+    let squeezed: Vec<u32> = vtium_font::letters::of_locale(sq.locale)
+        .into_iter()
+        .filter(|&c| font::builtin_squeezes(c, cell, sq.locale))
+        .map(u32::from)
+        .collect();
+    if squeezed.is_empty() {
+        return None;
+    }
+    let (covered, installed) = (sq.ask)(&frit, &squeezed).ok()?;
+    let left = squeezed.iter().filter(|c| !covered.contains(c)).count();
+    (left > 0)
+        .then(|| check_config::squeezed_script(look, name, (script, left), installed.as_deref()))
 }
 
 /// What survives of the file, which a start `runs`: its warnings, counted,
@@ -1445,6 +1552,7 @@ mod tests {
             total: vtium_settings::CONSOLES_TOTAL_DEFAULT,
             frits: Path::new("/nonexistent/vtium/frits"),
             trust: font::trust(),
+            squeeze: None,
         }
     }
 
@@ -1591,7 +1699,7 @@ mod tests {
             ("version = 1\n".to_owned(), check_config::NO_FLOW, UNSET),
             (
                 "version = 1\n[rules]\ninput * -> roaming\n".to_owned(),
-                "This file has rules but no head, so vtium starts with its rules and turns on the boot display for the default head.",
+                "This file has rules but no head, so vtium starts with its rules. Each display that no rule turns off shows a notice that it is not configured for any terminal.",
                 UNSET,
             ),
             (
@@ -1734,6 +1842,87 @@ mod tests {
             )
         };
         assert_eq!(out.counted, [short(5, "b", 3), short(7, "c", 1)]);
+    }
+
+    // ADR-1401 D7, ADR-1302 D14: a look whose font set leaves everyday
+    // letters of the locale's language to the squeeze is noted, outside the exit
+    // status, naming the look, the font set, the script, how many letters
+    // and the installed font the glyph helper names. The stand-in answers
+    // as the helper does: it refuses a frit it cannot read, covers what
+    // the frit's sources hold, and names the font that covers the rest.
+    // GNU Unifont, the built-in font at 8x16, draws Devanagari 16 pixels
+    // wide, so it squeezes them. A font set that covers the locale's
+    // script takes no note, and neither does the C locale
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_font_set_that_leaves_the_locales_script_to_the_squeeze_is_noted() {
+        let text = "version = 1\n[look big]\nfont-name = desk\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, trust) = heads_fixture("squeeze", text, 0o644);
+        let f = file.display().to_string();
+        let frits = file.parent().unwrap().join("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::write(frits.join("desk.vtfrit"), "source=font:Latin Only\n").unwrap();
+        let ask = |frit: &helper::FritText, letters: &[u32]| {
+            if frit.name != "desk" {
+                return Err("no such font set".to_owned());
+            }
+            // a font set covers every everyday letter of the language its
+            // one source is named for: Latin English's, Devanagari Hindi's
+            let covers = |(script, locale): (&str, &str)| {
+                let all = vtium_font::letters::of_locale(locale);
+                frit.text.contains(script).then_some(all)
+            };
+            let held: Vec<char> = [("Latin", "en"), ("Devanagari", "hi")]
+                .into_iter()
+                .filter_map(covers)
+                .flatten()
+                .collect();
+            let covered = letters
+                .iter()
+                .copied()
+                .filter(|&c| char::from_u32(c).is_some_and(|c| held.contains(&c)))
+                .collect();
+            Ok((covered, Some("Noto Sans Devanagari".to_owned())))
+        };
+        let check = |locale: &str| {
+            let settings = Settings {
+                frits: &frits,
+                trust: font::trust().below(file.parent().unwrap()),
+                squeeze: Some(Squeeze { locale, ask: &ask }),
+                ..caps(4)
+            };
+            conf_file(&file, false, &trust, &machine(true), &settings)
+        };
+        let left = vtium_font::letters::of_locale("hi_IN")
+            .into_iter()
+            .filter(|&c| {
+                font::builtin_squeezes(
+                    c,
+                    vtium_font::Cell {
+                        width: 8,
+                        height: 16,
+                    },
+                    "hi_IN",
+                )
+            })
+            .count();
+        // 67 of Hindi's exemplar characters are two cells wide in GNU Unifont
+        assert_eq!(left, 67);
+        let out = check("hi_IN.UTF-8");
+        assert!(out.counted.is_empty(), "{:?}", out.counted);
+        let want = format!(
+            "{f}:3: Look \"big\": the font set desk has no glyph for {left} letters that the system's language writes in the Devanagari script. vtium draws those letters from its built-in font squeezed into their character cells, which keeps them whole but narrow. The installed font Noto Sans Devanagari covers them; add it to the font set with a source=font:Noto Sans Devanagari line."
+        );
+        assert!(out.notes.contains(&want), "{:#?}", out.notes);
+        let squeezed = |out: &HeadCheck| out.notes.iter().any(|n| n.contains("squeezed"));
+        assert!(!squeezed(&check("en_US.UTF-8")));
+        assert!(!squeezed(&check("C")));
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            "source=font:Noto Sans Devanagari\n",
+        )
+        .unwrap();
+        assert!(!squeezed(&check("hi_IN.UTF-8")));
     }
 
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
@@ -1947,17 +2136,16 @@ mod tests {
     }
 
     // ADR-1401 D9, "What fell to the default": each device present no rule
-    // places is noted with what the policy gives it; under open the display
-    // guard lights the display no rule takes, so it is not dark
+    // places is noted with what the policy gives it
     // covers: platform.heads.policy
     #[test]
     fn what_falls_to_the_open_policy_is_noted() {
         let (counted, notes) = remarked(
             "fell-open",
-            "version = 1\n[head a]\n[rules]\ninput class:joystick -> a\n",
+            "version = 1\n[head a]\n[rules]\ndisplay * -> a\ninput class:joystick -> a\n",
             &present(),
         );
-        assert_eq!(counted, [NO_DISPLAY_SENT]);
+        assert_eq!(counted, [] as [String; 0]);
         assert_eq!(
             notes,
             [
@@ -1984,6 +2172,7 @@ mod tests {
             [
                 "head a has only one keyboard, \"Keyboard A\"",
                 "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.",
+                "No rule matches display \"DP-1\", so it stays off. Add a `display` rule for it if a head should use it.",
             ]
         );
     }
@@ -2056,23 +2245,36 @@ mod tests {
         );
     }
 
-    // ADR-1401 D5, D9: under open the display guard gives the first head
-    // the boot display while no head has a display, so the first head no
-    // rule names is not left unreached, with the devices present or away
-    // from them
+    // ADR-1401 D3, D9: for a valid file the table decides, with or without
+    // a VT number, so the first head no rule names gets no display and the
+    // display no rule matches stays off, with the devices present or away
+    // from them. Only what survives of an open file with errors runs the
+    // display guard, which gives the first head the boot display while no
+    // head has one.
     // covers: platform.heads.guards
     #[test]
-    fn the_first_head_no_rule_names_is_lit_by_the_display_guard() {
+    fn the_first_head_no_rule_names_is_lit_by_the_display_guard_only_for_a_file_with_errors() {
         let file = "version = 1\n[head a]\n[rules]\ninput * -> roaming\n";
-        let lit = "No rule names head \"a\". It gets a display only when no other head has one: then, under the open policy, vtium gives it the boot display. Add a rule that sends a display to it, or remove the head.";
-        let (counted, notes) = remarked("unnamed-guard", file, &present());
+        let unused = "Head \"a\" is not used: no rule sends a display or input device to it. Add a rule that sends a display to it, or remove the head.";
+        let (counted, notes) = remarked("unnamed", file, &present());
         assert_eq!(counted, [NO_DISPLAY_SENT]);
-        assert_eq!(notes, [format!("2: {lit}")]);
-        let (out, f) = checked("unnamed-guard-away", file, true);
+        assert_eq!(
+            notes,
+            [
+                "No head that can be active has a connected display, so a roaming keyboard reaches no head until one turns on. Connect a display for a head that is not isolated.".to_owned(),
+                "No rule matches display \"DP-1\", so it stays off. Add a `display` rule for it if a head should use it.".to_owned(),
+                format!("2: {unused}"),
+            ]
+        );
+        let lit = "No rule names head \"a\". Because the file has errors, vtium gives it the boot display under the open policy when no other head has a display. Add a rule that sends a display to it, or remove the head.";
+        let broken = format!("{file}input path:usb-0:9 -> nowhere\n");
+        let (_, notes) = remarked("unnamed-guard", &broken, &present());
+        assert!(notes.contains(&format!("2: {lit}")), "{notes:?}");
+        let (out, f) = checked("unnamed-away", file, true);
         assert_eq!(
             out.notes,
             [
-                format!("{f}:2: {lit}"),
+                format!("{f}:2: {unused}"),
                 format!("{f}: {RULES_ALONE}"),
                 format!("{f}: {AS_WRITTEN}"),
                 format!("{f}: {UNSET}")

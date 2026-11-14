@@ -40,7 +40,7 @@ pub struct TargetInfo {
     pub name: u32,
     pub size: Size,
     /// The serial of the texture it draws into, for the upright frame;
-    /// `None` for an imported display buffer.
+    /// `None` for a display buffer or a buffer in GL's memory.
     texture: Option<u64>,
 }
 
@@ -322,9 +322,11 @@ impl Ledger {
         })
     }
 
-    /// Checks an imported display buffer of `size` against the largest
-    /// renderbuffer and viewport, and on success runs `make` and records it.
-    pub fn import_buffer(
+    /// Checks a buffer of `size`, an imported display buffer or a buffer in
+    /// GL's memory, against the largest renderbuffer and viewport, and on
+    /// success runs `make` and records it as a target with no texture. The
+    /// largest texture does not bound it.
+    pub fn buffer(
         &mut self,
         size: Size,
         make: impl FnOnce() -> Result<u32, Error>,
@@ -668,7 +670,7 @@ mod tests {
             ErrorKind::Handle
         );
 
-        let target = ledger.import_buffer(size, || Ok(3)).unwrap();
+        let target = ledger.buffer(size, || Ok(3)).unwrap();
         let kept = DrawTarget {
             handle: copy(&target.handle),
             size,

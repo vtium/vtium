@@ -1,0 +1,6 @@
+# Formats, media, compression, file range and the transient hint.
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "The terminal emulator will include in its reply every key from the feature query that has a non-default value which it supports for that action, with that value, as well as e itself"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=34,e=t,f=100,t=s,o=z,S=10,O=2,N=1\e\\"

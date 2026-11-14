@@ -23,7 +23,7 @@ the Flow view states the policy on its third line	crates/vtium-config/src/tui/wo
 with no sections vtium runs its built-in configuration	crates/vtium-settings/src/config.rs	Config::builtin
 the built-in configuration's lines	crates/vtium-settings/src/config.rs	TEMPLATE
 the built-in configuration ignores every input its classes do not name	crates/vtium-settings/templates/heads.conf	input * -> ignore
-vtium runs the built-in default only for an open file with no head and no rule	crates/vtium-settings/src/place.rs	Config::builtin_at
+vtium runs the built-in default only for an open file with no head and no rule	crates/vtium-settings/src/place.rs	Config::uses_builtin
 the default picture groups the keyboard and key classes as All keyboards	crates/vtium-config/src/tui/paths.rs	ANY_KEYBOARD
 the default picture groups the pointer classes as All mice and touchpads	crates/vtium-config/src/tui/paths.rs	POINTER_CLASSES
 a head with no vt key runs on every VT	crates/vtium-settings/src/config.rs	Head::runs_on

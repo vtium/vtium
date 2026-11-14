@@ -126,7 +126,7 @@ fn the_cell_shader_and_the_boxes_follow_the_bound() {
             cell.contains(&format!("#define REACH_ROWS {rows}\n")),
             "{bound:?}"
         );
-        let (_, [w, h, _]) = g.pipeline.glyphs().unwrap().boxes();
+        let (_, _, [w, h, _]) = g.pipeline.glyphs().unwrap().boxes();
         assert_eq!(Size::new(w, h), slot, "{bound:?}");
     }
 }

@@ -459,6 +459,68 @@ fn find_outline_family_capped(
     Ok(first)
 }
 
+/// The family of an installed outline font under `dirs` that covers the
+/// most of `letters`, which the font set leaves to the squeeze (ADR-1401
+/// D7): a face's first family name that prints as itself ([`printable`]),
+/// among its Regular faces first; a face with no such name is left out. A face
+/// covers a letter its character map gives a glyph for. The search opens
+/// at most [`FAMILY_FILES_MAX`] files, in the order of
+/// [`find_outline_family`], and a file holds at most
+/// [`OUTLINE_BYTES_MAX`] bytes; files past either bound are left out.
+/// `None` when no face covers any of `letters`.
+pub fn font_covering(letters: &[char], dirs: &[PathBuf]) -> Option<String> {
+    if letters.is_empty() {
+        return None;
+    }
+    let files = outline_files(dirs).ok()?;
+    let mut best: Option<(usize, bool, String)> = None;
+    for (_, path) in files.iter().take(FAMILY_FILES_MAX) {
+        let Ok(data) = read_bounded(path, OUTLINE_BYTES_MAX) else {
+            continue;
+        };
+        let Ok(faces) = crate::names::faces(data.as_slice()) else {
+            continue;
+        };
+        for face in faces {
+            let Some(font) = swash::FontRef::from_index(&data, face.index as usize) else {
+                continue;
+            };
+            // The font file is user-writable, so its family name can hold
+            // ESC, a newline or a bidirectional override. Such a name would
+            // print control sequences into check-config's output and break
+            // the source= line that the note suggests, so the search skips
+            // the name.
+            let Some(family) = face.families.iter().find(|f| printable(f)) else {
+                continue;
+            };
+            let map = font.charmap();
+            let covered = letters.iter().filter(|&&c| map.map(c) != 0).count();
+            let better = best
+                .as_ref()
+                .is_none_or(|(n, regular, _)| (covered, face.regular) > (*n, *regular));
+            if covered > 0 && better {
+                best = Some((covered, face.regular, family.clone()));
+            }
+        }
+    }
+    best.map(|(_, _, family)| family)
+}
+
+/// Whether a family name prints as itself on a terminal and in a
+/// `source=font:` line: not empty, and with no control character (Unicode's
+/// Cc), and no character that turns text around or hides (the bidirectional
+/// overrides, isolates and marks, zero-width characters and the byte order
+/// mark).
+fn printable(name: &str) -> bool {
+    let hidden = |c: char| {
+        matches!(
+            c,
+            '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
+        )
+    };
+    !name.trim().is_empty() && !name.chars().any(|c| c.is_control() || hidden(c))
+}
+
 /// Every TrueType or OpenType file or collection under `dirs`, with the
 /// place of its directory in `dirs`, in that order and then by path.
 fn outline_files(dirs: &[PathBuf]) -> Result<Vec<(usize, PathBuf)>, String> {
@@ -690,6 +752,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
 /// known.
 fn outline(font: Vec<u8>, family: &str) -> Input {
     Input::Outline(OutlineRequest {
+        cluster_width: Default::default(),
         font: font.into(),
         family: family.to_owned(),
         cells: Vec::new(),

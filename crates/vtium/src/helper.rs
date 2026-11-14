@@ -46,6 +46,12 @@
 //! A warning the frit's text gave as the helper read it, such as a key that
 //! does nothing, is logged once a boot, at most [`WARNINGS_MAX`] of them.
 //!
+//! Before its first answer, the helper reports which parts of its sandbox
+//! are in force (ADR-1200 D15). A helper that runs without its landlock
+//! domain, on a kernel without landlock, is logged once a boot, with
+//! whether its fallback filter stands in for the domain, and so is a
+//! helper that runs without its socket filter ([`sandbox_notice`]).
+//!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font
 //! goes on drawing what it has not sent, its clusters unshaped, a glyph a
@@ -80,6 +86,7 @@ use std::process::{Child, Command as Process, ExitStatus, Stdio};
 use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
+use vtium_term::ClusterWidth;
 
 use rustix::fs::{FileType, Mode, OFlags};
 use rustix::process::{
@@ -164,7 +171,7 @@ impl Drop for CellWait {
     }
 }
 
-const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
+const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
 /// Why the console gives the helper up when the two read different layouts
 /// of their format: a helper of an older build refuses this console's
 /// request as "not a serve request", and an answer of an older layout does
@@ -180,6 +187,28 @@ fn failure(why: &str) -> String {
         why => format!("the helper failed: {why}"),
     }
 }
+/// The line the console logs when the helper's report of its sandbox,
+/// `parts`, lacks a part (ADR-1200 D15); `None` when every part is in
+/// force.
+fn sandbox_notice(parts: u32) -> Option<String> {
+    let domain = if parts & SANDBOX_DOMAIN != 0 {
+        None
+    } else if parts & SANDBOX_FALLBACK != 0 {
+        Some(
+            "The font helper runs without its landlock domain, because this kernel does not offer landlock. A seccomp filter refuses in its place the file, signal and tracing calls that the domain refuses.",
+        )
+    } else {
+        Some(
+            "The font helper runs without its landlock domain, because this kernel does not offer landlock. No filter takes the domain's place, so a font that took over the font helper could change any file that the font helper's account may change.",
+        )
+    };
+    let sockets = (parts & SANDBOX_SOCKETS == 0).then_some(
+        "The font helper runs without its socket filter, because vtium has no seccomp filter for this machine's architecture.",
+    );
+    let lines: Vec<&str> = domain.into_iter().chain(sockets).collect();
+    (!lines.is_empty()).then(|| lines.join(" "))
+}
+
 /// An ask. A console built with right-to-left text asks with the kind that
 /// also takes the part of a cluster the font draws only without some of
 /// its marks (ADR-1200 D22 step 3), which its lookup lays the missing marks
@@ -191,6 +220,7 @@ const ASK: u32 = 6;
 const FILL: u32 = 2;
 const STOP: u32 = 3;
 const OWN_CELL: u32 = 4;
+const COVERAGE: u32 = 8;
 const FRAME_GLYPHS: u32 = 1;
 const FRAME_DONE: u32 = 2;
 const FRAME_FAILED: u32 = 3;
@@ -201,6 +231,14 @@ const FRAME_NO_OWN_CELL: u32 = 7;
 const FRAME_STOPPED: u32 = 8;
 const FRAME_WARNING: u32 = 9;
 const FRAME_OUTLINE_CELL: u32 = 10;
+const FRAME_DRAWS_NOTHING: u32 = 12;
+const FRAME_SANDBOX: u32 = 14;
+const FRAME_COVERAGE: u32 = 15;
+/// The bits of a [`FRAME_SANDBOX`]: the helper's landlock domain, its
+/// fallback filter and its socket filter are in force.
+const SANDBOX_DOMAIN: u32 = 1;
+const SANDBOX_FALLBACK: u32 = 2;
+const SANDBOX_SOCKETS: u32 = 4;
 
 /// `SIGXCPU`, which an exhausted `RLIMIT_CPU` sends.
 const SIGXCPU: i32 = 24;
@@ -501,7 +539,7 @@ impl FritText {
 fn encode(
     frit: &FritText,
     console: Option<&ConsoleFont>,
-    (kind, cell, band, variant): (u32, Cell, Band, Variant),
+    (kind, cell, band, variant, rule): (u32, Cell, Band, Variant, ClusterWidth),
     (codepoints, clusters): (&[u32], &[Text]),
     held: &[(u32, u32)],
 ) -> Vec<u8> {
@@ -526,6 +564,13 @@ fn encode(
             Script::Baseline => 0,
             Script::Super => 1,
             Script::Sub => 2,
+        },
+    );
+    put32(
+        &mut out,
+        match rule {
+            ClusterWidth::Double => 0,
+            ClusterWidth::Single => 1,
         },
     );
     put32(&mut out, 0);
@@ -640,6 +685,15 @@ enum Event {
     NoOwnCell(String),
     /// A warning the frit's text gave as the helper read it.
     Warning(String),
+    /// The parts of the helper's sandbox in force, as [`FRAME_SANDBOX`]'s
+    /// bits.
+    Sandbox(u32),
+    /// A coverage query's answer: the letters asked that the frit covers,
+    /// and an installed font that covers the most of the rest, empty when
+    /// none does.
+    Coverage(Vec<u32>, String),
+    /// The frit draws nothing, a coverage query's answer: why.
+    DrawsNothing(String),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -743,7 +797,9 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_DONE => 0,
         FRAME_FILLED | FRAME_STOPPED => 16,
         FRAME_OWN_CELL | FRAME_OUTLINE_CELL => 8,
-        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING => REASON_BYTES_MAX,
+        FRAME_SANDBOX => 4,
+        FRAME_COVERAGE => FRAME_BYTES_MAX,
+        FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING | FRAME_DRAWS_NOTHING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
     if len > max {
@@ -827,8 +883,40 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         },
         FRAME_NO_OWN_CELL => Event::NoOwnCell(String::from_utf8_lossy(&payload).into_owned()),
         FRAME_WARNING => Event::Warning(String::from_utf8_lossy(&payload).into_owned()),
+        FRAME_SANDBOX => match word(&payload, 0) {
+            Some(parts) => Event::Sandbox(parts),
+            _ => Event::Malformed("a sandbox report without its parts".to_owned()),
+        },
+        FRAME_COVERAGE => coverage_answer(&payload),
+        FRAME_DRAWS_NOTHING => Event::DrawsNothing(String::from_utf8_lossy(&payload).into_owned()),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
+}
+
+/// A coverage query's answer, [`FRAME_COVERAGE`]'s payload: the count and
+/// each codepoint the frit covers, each a scalar value, then a family name
+/// in UTF-8.
+fn coverage_answer(payload: &[u8]) -> Event {
+    let word = |i: usize| -> Option<u32> {
+        let at = i.checked_mul(4)?;
+        Some(u32::from_le_bytes(
+            payload.get(at..at.checked_add(4)?)?.try_into().ok()?,
+        ))
+    };
+    let Some(n) = word(0).and_then(|n| usize::try_from(n).ok()) else {
+        return Event::Malformed("a coverage answer without its count".to_owned());
+    };
+    let covered: Option<Vec<u32>> = (1..=n)
+        .map(|i| word(i).filter(|&c| char::from_u32(c).is_some()))
+        .collect();
+    let rest = n
+        .checked_add(1)
+        .and_then(|k| k.checked_mul(4))
+        .and_then(|at| payload.get(at..));
+    match (covered, rest.map(std::str::from_utf8)) {
+        (Some(covered), Some(Ok(font))) => Event::Coverage(covered, font.to_owned()),
+        _ => Event::Malformed("a coverage answer cut short or not UTF-8".to_owned()),
+    }
 }
 
 /// An answer the console takes: glyphs now in the store at `cell`, drawn
@@ -1019,6 +1107,10 @@ impl CellState {
 struct Ask {
     at: SpacedCell,
     variant: Variant,
+    /// The cells the terminal gives a cluster with a spacing mark or a
+    /// virama conjunct, which the helper places the clusters in (ADR-1006
+    /// D8).
+    cluster_width: ClusterWidth,
     want: BTreeSet<u32>,
     clusters: BTreeSet<Text>,
     sent: Instant,
@@ -1058,6 +1150,9 @@ pub struct Helper {
     full: bool,
     /// The frit's warnings logged this boot, at most [`WARNINGS_MAX`].
     warned: BTreeSet<String>,
+    /// The line logged this boot about a sandbox the helper runs without,
+    /// once one has been ([`sandbox_notice`]).
+    sandbox_noted: Option<String>,
     failed: Option<String>,
     answer: Duration,
     request: Duration,
@@ -1098,6 +1193,7 @@ impl Helper {
             restarts: 0,
             full: false,
             warned: BTreeSet::new(),
+            sandbox_noted: None,
             failed: None,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
@@ -1161,7 +1257,7 @@ impl Helper {
         state.first_glyphs = None;
         let (codepoints, held) = (state.first.clone(), state.held.ranges());
         self.send(
-            (FILL, at, Variant::default()),
+            (FILL, at, Variant::default(), ClusterWidth::Double),
             (&codepoints, &[]),
             &held,
             now,
@@ -1222,11 +1318,17 @@ impl Helper {
         self.asks.push_back(Ask {
             at,
             variant,
+            cluster_width: shown.cluster_width,
             want,
             clusters,
             sent: now,
         });
-        self.send((ASK, at, variant), (&codepoints, &texts), &[], now);
+        self.send(
+            (ASK, at, variant, shown.cluster_width),
+            (&codepoints, &texts),
+            &[],
+            now,
+        );
     }
 
     /// The cell the frit's first source gives at `height`, the height the
@@ -1254,7 +1356,12 @@ impl Helper {
         let query = Cell { width: 0, height };
         if self.failed.is_none() {
             self.send(
-                (OWN_CELL, SpacedCell::plain(query), Variant::default()),
+                (
+                    OWN_CELL,
+                    SpacedCell::plain(query),
+                    Variant::default(),
+                    ClusterWidth::Double,
+                ),
                 (&[], &[]),
                 &[],
                 now,
@@ -1296,6 +1403,10 @@ impl Helper {
                     self.warn(why.trim());
                     continue;
                 }
+                Ok(Event::Sandbox(parts)) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
                 Ok(
                     other @ (Event::Glyphs { .. }
                     | Event::Done
@@ -1321,6 +1432,77 @@ impl Helper {
                         late: true,
                     })
                 }
+            };
+        }
+    }
+
+    /// Which of `letters` the frit covers, and the family of an installed
+    /// font that covers the most of the rest, `None` when none does: the
+    /// helper's answer to a coverage query (ADR-1401 D7). The console
+    /// parses no font, so the helper reads the frit's sources and the
+    /// installed fonts. The error is why there is no answer: the helper
+    /// cannot start, refuses the frit, ends first, or gives no answer in
+    /// `wait`. `clock` tells the time as the wait goes on. `vtium
+    /// check-config` asks it, with no other request in flight.
+    pub fn coverage(
+        &mut self,
+        letters: &[u32],
+        wait: Duration,
+        clock: &dyn Fn() -> Instant,
+    ) -> Result<(Vec<u32>, Option<String>), String> {
+        let now = clock();
+        let query = Cell {
+            width: 0,
+            height: 0,
+        };
+        if self.failed.is_none() {
+            self.send(
+                (
+                    COVERAGE,
+                    SpacedCell::plain(query),
+                    Variant::default(),
+                    ClusterWidth::Double,
+                ),
+                (letters, &[]),
+                &[],
+                now,
+            );
+        }
+        if let Some(why) = &self.failed {
+            return Err(why.clone());
+        }
+        let end = after(now, wait);
+        loop {
+            let left = end.saturating_duration_since(clock());
+            let event = self
+                .running
+                .as_ref()
+                .ok_or_else(|| "the helper is not running".to_owned())?
+                .events
+                .recv_timeout(left);
+            return match event {
+                Ok(Event::Coverage(covered, font)) => {
+                    Ok((covered, Some(font).filter(|f| !f.is_empty())))
+                }
+                Ok(Event::DrawsNothing(why)) => Err(why.trim().to_owned()),
+                Ok(Event::Warning(why)) => {
+                    self.warn(why.trim());
+                    continue;
+                }
+                Ok(Event::Sandbox(parts)) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
+                Ok(Event::Failed(why)) => Err(failure(&why)),
+                Ok(Event::Malformed(why)) => Err(format!("the helper's answer was refused: {why}")),
+                Ok(other) => {
+                    self.early.push_back(other);
+                    continue;
+                }
+                Err(_) => Err(format!(
+                    "the helper gave no answer in {} ms",
+                    wait.as_millis()
+                )),
             };
         }
     }
@@ -1356,7 +1538,12 @@ impl Helper {
     /// Tells the helper to stop the fill at `at`, and drops its fill frames
     /// until the helper says it took the stop.
     fn stop_fill(&mut self, at: SpacedCell, now: Instant) {
-        self.send((STOP, at, Variant::default()), (&[], &[]), &[], now);
+        self.send(
+            (STOP, at, Variant::default(), ClusterWidth::Double),
+            (&[], &[]),
+            &[],
+            now,
+        );
         if self.running.is_some() {
             self.stopped.push(at);
         }
@@ -1367,7 +1554,7 @@ impl Helper {
     /// running.
     fn send(
         &mut self,
-        what: (u32, SpacedCell, Variant),
+        what: (u32, SpacedCell, Variant, ClusterWidth),
         named: (&[u32], &[Text]),
         held: &[(u32, u32)],
         now: Instant,
@@ -1378,11 +1565,11 @@ impl Helper {
                 Err(why) => return self.fail(&why),
             }
         }
-        let (kind, at, variant) = what;
+        let (kind, at, variant, rule) = what;
         let bytes = encode(
             &self.frit,
             self.console.as_ref(),
-            (kind, at.cell, at.band, variant),
+            (kind, at.cell, at.band, variant, rule),
             named,
             held,
         );
@@ -1529,17 +1716,20 @@ impl Helper {
             self.restarts
         );
         self.due = None;
-        let asks: Vec<(SpacedCell, Variant, Vec<u32>, Vec<Text>)> = self
+        // each waiting ask's cell, variant, cluster width and what it named
+        type Resend = (SpacedCell, Variant, ClusterWidth, Vec<u32>, Vec<Text>);
+        let asks: Vec<Resend> = self
             .asks
             .iter_mut()
             .map(|a| {
                 a.sent = now;
                 let want = a.want.iter().copied().collect();
-                (a.at, a.variant, want, a.clusters.iter().cloned().collect())
+                let clusters = a.clusters.iter().cloned().collect();
+                (a.at, a.variant, a.cluster_width, want, clusters)
             })
             .collect();
-        for (at, variant, want, clusters) in asks {
-            self.send((ASK, at, variant), (&want, &clusters), &[], now);
+        for (at, variant, rule, want, clusters) in asks {
+            self.send((ASK, at, variant, rule), (&want, &clusters), &[], now);
         }
         let fills: Vec<SpacedCell> = self
             .cells
@@ -1553,7 +1743,12 @@ impl Helper {
             };
             state.brought = Bits::new();
             let (first, held) = (state.first.clone(), state.held.ranges());
-            self.send((FILL, at, Variant::default()), (&first, &[]), &held, now);
+            self.send(
+                (FILL, at, Variant::default(), ClusterWidth::Double),
+                (&first, &[]),
+                &held,
+                now,
+            );
         }
     }
 
@@ -1595,6 +1790,14 @@ impl Helper {
                 Event::Warning(why) => {
                     self.warn(why.trim());
                     continue;
+                }
+                // nor does the sandbox's report
+                Event::Sandbox(parts) => {
+                    self.sandboxed(parts);
+                    continue;
+                }
+                Event::Coverage(..) | Event::DrawsNothing(_) => {
+                    Err("the helper answered a coverage query not made".to_owned())
                 }
                 Event::Failed(why) => Err(failure(&why)),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
@@ -1838,6 +2041,18 @@ impl Helper {
         }
     }
 
+    /// Logs the helper's report of its sandbox, `parts`, once a boot,
+    /// when a part is missing: a helper started again reports again.
+    fn sandboxed(&mut self, parts: u32) {
+        if self.sandbox_noted.is_some() {
+            return;
+        }
+        if let Some(line) = sandbox_notice(parts) {
+            log::warn!("{line}");
+            self.sandbox_noted = Some(line);
+        }
+    }
+
     /// The store is full while `cell` fills: the fill stops there, logged
     /// once a boot.
     fn store_full(&mut self, at: SpacedCell, now: Instant) {
@@ -2011,19 +2226,21 @@ fn after(t: Instant, d: Duration) -> Instant {
 /// file of root's belongs to the overflow uid, 65534. Each test process
 /// makes its copy once and renames it into place, so a test process that
 /// runs at the same time never starts a copy that is still being written.
+/// `cp` writes the copy (`vtium_testscript::executable_copy`), so this
+/// process never holds the copy open for writing. Had it done so, a child
+/// that another test thread forked during the copy would keep the copy
+/// busy until that child ran its own program, and the kernel would refuse
+/// to start the shell with ETXTBSY.
 #[cfg(test)]
 #[expect(clippy::expect_used, reason = "a test fails by panicking")]
 pub(crate) fn stand_in_shell() -> &'static Path {
     static SHELL: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
     SHELL.get_or_init(|| {
-        use std::os::unix::fs::PermissionsExt;
         let exe = std::env::current_exe().expect("the test binary");
         let dir = exe.parent().expect("the test binary's directory");
         let shell = dir.join("vtium-stand-in-sh");
         let part = dir.join(format!("vtium-stand-in-sh.{}", std::process::id()));
-        std::fs::copy("/bin/sh", &part).expect("a copy of /bin/sh");
-        std::fs::set_permissions(&part, std::fs::Permissions::from_mode(0o755))
-            .expect("the copy's mode");
+        vtium_testscript::executable_copy(Path::new("/bin/sh"), &part);
         std::fs::rename(&part, &shell).expect("the copy in place");
         shell
     })
@@ -2212,6 +2429,7 @@ mod tests {
     /// The screen showing `chars`, no cluster.
     fn shown(chars: &[char]) -> Shown {
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: chars.to_vec(),
             clusters: Vec::new(),
@@ -2256,22 +2474,28 @@ mod tests {
         let bytes = encode(
             &frit("x=y\n"),
             None,
-            (ASK, CELL, Band { above: 2, below: 1 }, both.into()),
+            (
+                ASK,
+                CELL,
+                Band { above: 2, below: 1 },
+                both.into(),
+                ClusterWidth::Single,
+            ),
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ6".to_vec();
+        let mut want = b"VTVSREQ9".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
         want.extend_from_slice(&4u32.to_le_bytes());
         want.extend_from_slice(b"x=y\n");
         // the cell, the rows line spacing adds above and below it, the
-        // style, bold 1 and italic 2, the script, normal 0, the reserved
-        // capabilities, the codepoint, the cluster of two, the held range,
-        // no console font
+        // style, bold 1 and italic 2, the script, normal 0, the cluster
+        // width, single 1, the reserved capabilities, the codepoint, the
+        // cluster of two, the held range, no console font
         for v in [
-            8u32, 16, 2, 1, 3, 0, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
+            8u32, 16, 2, 1, 3, 0, 1, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
         ] {
             want.extend_from_slice(&v.to_le_bytes());
         }
@@ -2305,7 +2529,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into()),
+            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         );
@@ -2318,6 +2542,7 @@ mod tests {
         let mut s = StandIn::new("italic", &script, &fixture);
         let now = t0();
         let italic = Shown {
+            cluster_width: Default::default(),
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2353,7 +2578,7 @@ mod tests {
         let one = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, ITALIC.into()),
+            (ASK, CELL, Band::NONE, ITALIC.into(), ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         )
@@ -2369,6 +2594,7 @@ mod tests {
         std::fs::write(s.dir.join("answer.b"), second).unwrap();
         let now = t0();
         let italic = Shown {
+            cluster_width: Default::default(),
             variant: ITALIC.into(),
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2420,6 +2646,7 @@ mod tests {
                 s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
+                    cluster_width: Default::default(),
                     variant: style.into(),
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2466,7 +2693,7 @@ mod tests {
         let ask = encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (ASK, CELL, Band::NONE, SUPER),
+            (ASK, CELL, Band::NONE, SUPER, ClusterWidth::Double),
             (&[0x41], &[]),
             &[],
         );
@@ -2484,6 +2711,7 @@ mod tests {
         let mut s = StandIn::new("superscript", &script, &fixture);
         let now = t0();
         let sup = Shown {
+            cluster_width: Default::default(),
             variant: SUPER,
             chars: vec!['A'],
             clusters: Vec::new(),
@@ -2548,6 +2776,7 @@ mod tests {
                 s.helper.fill(CELL, Band::NONE, &[], now);
             } else {
                 let ask = Shown {
+                    cluster_width: Default::default(),
                     variant,
                     chars: vec!['A'],
                     clusters: Vec::new(),
@@ -2618,6 +2847,7 @@ mod tests {
         chars.sort_unstable();
         chars.dedup();
         Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars,
             clusters: clusters.iter().map(|k| k.to_vec()).collect(),
@@ -2634,6 +2864,7 @@ mod tests {
         let mut s = StandIn::new("cluster", ANSWERS, &fixture);
         let now = t0();
         let only_clusters = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![ACUTE.to_vec(), GRAVE.to_vec()],
@@ -2790,6 +3021,64 @@ mod tests {
         );
     }
 
+    // a helper that runs without its landlock domain is logged once a
+    // boot, with whether its fallback filter stands in for the domain, and
+    // its report answers nothing, so the answer it leads still lands; a
+    // helper whose sandbox is whole is not logged (ADR-1200 D15, the
+    // maintainer, 2026-11-13)
+    #[test]
+    fn a_helper_without_its_landlock_domain_is_logged_once() {
+        let report = |parts: u32| frame_bytes(FRAME_SANDBOX, &parts.to_le_bytes());
+        let run = |name: &str, reports: &[u32]| {
+            let mut fixture = Vec::new();
+            for &parts in reports {
+                fixture.extend(report(parts));
+            }
+            fixture.extend(frame_bytes(FRAME_GLYPHS, &set(CELL, &['A'])));
+            fixture.extend(frame_bytes(FRAME_DONE, &[]));
+            let mut s = StandIn::new(name, ANSWERS, &fixture);
+            let now = t0();
+            s.helper.ask(CELL, Band::NONE, &shown(&['A']), now);
+            let answers = s.run(now);
+            assert_eq!(s.helper.failed(), None);
+            assert!(!answers.is_empty(), "the answer after the report lands");
+            s.helper.sandbox_noted.clone()
+        };
+        let whole = SANDBOX_DOMAIN | SANDBOX_SOCKETS;
+        assert_eq!(run("sandbox-whole", &[whole]), None);
+        let fallback = SANDBOX_FALLBACK | SANDBOX_SOCKETS;
+        let noted = run("sandbox-fallback", &[fallback, whole]).unwrap();
+        assert!(
+            noted.starts_with("The font helper runs without its landlock domain"),
+            "{noted}"
+        );
+        assert!(
+            noted.contains("A seccomp filter refuses in its place"),
+            "{noted}"
+        );
+        let noted = run("sandbox-none", &[0]).unwrap();
+        assert!(
+            noted.contains("No filter takes the domain's place"),
+            "{noted}"
+        );
+        assert!(noted.contains("without its socket filter"), "{noted}");
+        assert_eq!(sandbox_notice(whole), None);
+    }
+
+    // a sandbox report of any length but four bytes is refused, and the
+    // helper is given up
+    #[test]
+    fn a_sandbox_report_of_another_length_gives_the_helper_up() {
+        let mut fixture = frame_bytes(FRAME_SANDBOX, &[1, 0]);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let (why, _) = given_up("sandbox-short", ANSWERS, &fixture, false);
+        assert!(why.contains("a sandbox report without its parts"), "{why}");
+        let mut fixture = frame_bytes(FRAME_SANDBOX, &[1, 0, 0, 0, 0]);
+        fixture.extend(frame_bytes(FRAME_DONE, &[]));
+        let (why, _) = given_up("sandbox-long", ANSWERS, &fixture, false);
+        assert!(why.contains("past its kind's 4"), "{why}");
+    }
+
     // a warning's control characters are escaped before the log, and a
     // warning answers nothing: an ask the helper only warns on is still
     // past due at ANSWER_MS, and the helper is started again
@@ -2836,6 +3125,7 @@ mod tests {
         );
         let long = vec!['e'; vtium_font::CLUSTER_SCALARS_MAX as usize + 1];
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: vec![long, vec!['e']],
@@ -2861,6 +3151,7 @@ mod tests {
         };
         for i in 0..1000 {
             let shown = Shown {
+                cluster_width: Default::default(),
                 variant: Variant::default(),
                 chars: Vec::new(),
                 clusters: (0..10).map(|j| cluster(i, j)).collect(),
@@ -2883,6 +3174,7 @@ mod tests {
         };
         let mut t = StandIn::new("flood-one", "cat >/dev/null", b"");
         let shown = Shown {
+            cluster_width: Default::default(),
             variant: Variant::default(),
             chars: Vec::new(),
             clusters: (0..5000).map(|i| cluster(i / 10, i % 10)).collect(),
@@ -3502,7 +3794,13 @@ mod tests {
         encode(
             &frit("source=builtin:unscii-8\n"),
             None,
-            (kind, CELL, Band::NONE, Variant::default()),
+            (
+                kind,
+                CELL,
+                Band::NONE,
+                Variant::default(),
+                ClusterWidth::Double,
+            ),
             (&[], &[]),
             &[],
         )
@@ -3569,7 +3867,7 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, band, Variant::default()),
+            (STOP, CELL, band, Variant::default(), ClusterWidth::Double),
             (&[], &[]),
             &[],
         );
@@ -3597,7 +3895,13 @@ mod tests {
         let stop = encode(
             &s.helper.frit,
             None,
-            (STOP, CELL, Band::NONE, Variant::default()),
+            (
+                STOP,
+                CELL,
+                Band::NONE,
+                Variant::default(),
+                ClusterWidth::Double,
+            ),
             (&[], &[]),
             &[],
         );
@@ -3625,6 +3929,49 @@ mod tests {
         assert!(matches!(frame(&mut &done[..]), Some(Event::Malformed(_))));
         let (why, _) = given_up("huge", ANSWERS, &huge, false);
         assert!(why.contains("past its kind's"), "{why}");
+    }
+
+    // ADR-1401 D7: the console takes a coverage answer only whole. It
+    // refuses an answer whose count runs past the codepoints the payload
+    // holds, an answer with a codepoint that is not a Unicode scalar
+    // value, and an answer whose font name is not UTF-8.
+    #[test]
+    fn a_malformed_coverage_answer_is_refused() {
+        let answer = |count: u32, codepoints: &[u32], font: &[u8]| {
+            let mut payload = count.to_le_bytes().to_vec();
+            for c in codepoints {
+                payload.extend_from_slice(&c.to_le_bytes());
+            }
+            payload.extend_from_slice(font);
+            frame(&mut &raw_frame(FRAME_COVERAGE, &payload)[..])
+        };
+        let whole = answer(2, &[0x41, 0x416], b"Noto Sans");
+        assert!(
+            matches!(&whole, Some(Event::Coverage(c, f)) if c == &[0x41, 0x416] && f == "Noto Sans"),
+            "{whole:?}"
+        );
+        let none = answer(0, &[], b"");
+        assert!(
+            matches!(&none, Some(Event::Coverage(c, f)) if c.is_empty() && f.is_empty()),
+            "{none:?}"
+        );
+        let malformed: [(&str, u32, &[u32], &[u8]); 6] = [
+            ("a count past the payload", 3, &[0x41, 0x42], b""),
+            ("a count of u32::MAX", u32::MAX, &[0x41], b""),
+            ("a surrogate", 1, &[0xd800], b""),
+            ("a codepoint past U+10FFFF", 1, &[0x11_0000], b""),
+            ("a font name that is not UTF-8", 1, &[0x41], b"Noto\xff"),
+            ("a font name cut inside a character", 0, &[], b"Noto \xd0"),
+        ];
+        for (what, count, codepoints, font) in malformed {
+            let e = answer(count, codepoints, font);
+            assert!(matches!(&e, Some(Event::Malformed(_))), "{what}: {e:?}");
+        }
+        let short = frame(&mut &raw_frame(FRAME_COVERAGE, &[1, 0])[..]);
+        assert!(
+            matches!(&short, Some(Event::Malformed(why)) if why.contains("without its count")),
+            "{short:?}"
+        );
     }
 
     #[test]

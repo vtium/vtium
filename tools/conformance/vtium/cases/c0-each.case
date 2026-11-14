@@ -1,0 +1,13 @@
+# Every C0 control with no function in vtium, NUL included, does nothing
+# between printed letters, and so does DEL. ENQ answers nothing, and BEL
+# rings the bell.
+# spec: ECMA-48 8.2, the C0 set; vt100.net, "terminals only claiming VT220 compatibility can always ignore 7F"
+size 20 4
+send "a\x00b\x01c\x02d\x03e\x04f"
+send "\x05"
+send "\x06g\x07h"
+dump state
+# RIS, then the other C0 controls and DEL.
+send "\ec"
+send "\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x19\x1c\x1d\x1e\x1f\x7fz"
+dump state

@@ -1,0 +1,27 @@
+# CUP takes its first two parameters and ignores the rest, up to 34 in
+# all, and leading zeros. Empty parameters take their default. A private
+# marker or an intermediate makes another function, so CUU, CUD, CUF and
+# CUP with one do nothing. Finals with no function do nothing, and HPA
+# and HPR move the cursor.
+# spec: ECMA-48 5.4, 8.3.57 HPA and 8.3.59 HPR
+size 10 5
+send "\e[1;2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18H"
+dump state
+send "\e[2;3;4;5;6;7;8;9;10;11;12;13;14;15;16;17;18;19;20;21;22;23;24;25;26;27;28;29;30;31;32;33;34;35H"
+dump state
+send "\e[00003;00004H"
+dump state
+send "\e[;;;;;;;;;;;;;;;;;;;;;H"
+dump state
+send "\e[1 !\"q"
+dump state
+send "\e[?5A\e[>2B\e[=3C"
+dump state
+send "\e[1?2H\e[1>2H"
+dump state
+send "\e[ 2H"
+dump state
+send "\e[2 3H"
+dump state
+send "\e[5y\e[5~\e[5`\e[5a\e[5h"
+dump state

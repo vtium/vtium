@@ -185,6 +185,14 @@ const COLOR_STACK: Bound = Bound {
     cite: "ctlseqs, XTPUSHCOLORS: entries 1 through 10; `MAX_SAVED_SGR` and `xtermPushColors` in xterm 412's `ptyx.h` and `misc.c`. kitty's `color-stack` gives no depth",
 };
 
+const KEYS_HELD: Bound = Bound {
+    name: "KEYS_HELD_MAX",
+    value: 16,
+    what: "Keys held whose release the kitty keyboard protocol owes the program",
+    past: "A press with the record full drops the oldest key held, which then gets no release",
+    cite: "ADR-1005, D7: a key pressed under flag 2 whose press was sent gets its release; the host reports a release only for a key it reported pressed, so the record holds the keys held at once",
+};
+
 const KEYBOARD_FLAGS: Bound = Bound {
     name: "KEYBOARD_FLAGS_MAX",
     value: 8,
@@ -235,7 +243,7 @@ const BIDI_PARAGRAPH_ROWS: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 27] = [
+pub(crate) const BOUNDS: [Bound; 28] = [
     COLUMNS,
     ROWS,
     CLUSTER,
@@ -259,6 +267,7 @@ pub(crate) const BOUNDS: [Bound; 27] = [
     SGR_STACK,
     COLOR_STACK,
     KEYBOARD_FLAGS,
+    KEYS_HELD,
     INPUT_WORK,
     IMAGE_NOTE_REASONS,
     IMAGE_NOTE_BYTES,
@@ -389,6 +398,9 @@ pub const COLOR_STACK_MAX: usize = COLOR_STACK.value;
 /// The most sets of kitty keyboard protocol flags each screen keeps, the
 /// set in force included.
 pub const KEYBOARD_FLAGS_MAX: usize = KEYBOARD_FLAGS.value;
+
+/// The most keys held whose release the kitty keyboard protocol owes.
+pub const KEYS_HELD_MAX: usize = KEYS_HELD.value;
 
 #[cfg(test)]
 #[expect(

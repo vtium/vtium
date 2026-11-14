@@ -183,9 +183,9 @@ impl Stored {
         }
     }
 
-    /// A coverage mask stored at its ink box `b`, for a glyph `gw` by `gh`
-    /// pixels that spans `cells` cells, drawn `scale` times larger, turned
-    /// for `o`.
+    /// A glyph stored at its ink box `b`, a coverage mask or a color
+    /// emoji's RGBA, for a glyph `gw` by `gh` pixels that spans `cells`
+    /// cells, drawn `scale` times larger, turned for `o`.
     pub(crate) fn boxed(
         b: reach::InkBox<'_>,
         (gw, gh, cells): (u32, u32, u32),
@@ -193,12 +193,16 @@ impl Stored {
         o: Orientation,
         bits: bool,
     ) -> Stored {
+        let (format, bpp) = match b.rgba {
+            true => (Format::Rgba, 4),
+            false => (Format::Mask, 1),
+        };
         let src = Pixels {
             data: b.pixels,
             width: b.width,
             height: b.height,
-            format: Format::Mask,
-            bpp: 1,
+            format,
+            bpp,
         };
         let i = |v: u32| i64::from(v);
         let reach = reach::of_box(

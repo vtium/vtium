@@ -546,7 +546,7 @@ fn places(placement: &vtium_settings::Placement) -> Vec<Place> {
 #[test]
 fn table_closed_with_nothing_defined_leaves_every_display_blank() {
     let c = config(&closed("version = 1\n"));
-    assert!(!c.uses_builtin_on(4));
+    assert!(!c.uses_builtin());
     let placement = c.place_on(&[monitor("DP-1", "L"), keyboard("usb-0:1")], None, 4);
     assert_eq!(places(&placement), [Place::Off, Place::Ignore]);
     assert!(!placement.never_dark);
@@ -575,7 +575,7 @@ fn table_closed_with_some_paths_leaves_the_other_displays_blank() {
 #[test]
 fn table_open_with_nothing_defined_runs_the_built_in_default() {
     let c = config("version = 1\n");
-    assert!(c.uses_builtin_on(4));
+    assert!(c.uses_builtin());
     assert_eq!(c.heads_on_vt(4), Vec::<usize>::new());
     let mut pointer = Identity::input().with_class(Class::Mouse);
     pointer.path = Some("usb-0:9".to_owned());
@@ -599,8 +599,8 @@ fn table_open_with_nothing_defined_runs_the_built_in_default() {
     assert_eq!(placement.focus, Some(Place::DefaultHead));
     assert!(!placement.never_dark && !placement.anti_lockout);
     // a file with a rule defines a path, so the built-in default does not run
-    assert!(!config("version = 1\n[rules]\ninput * -> roaming\n").uses_builtin_on(4));
-    assert!(!config(NO_DISPLAY_HERE).uses_builtin_on(5));
+    assert!(!config("version = 1\n[rules]\ninput * -> roaming\n").uses_builtin());
+    assert!(!config(NO_DISPLAY_HERE).uses_builtin());
 }
 
 /// Two heads on VT 3 that hold both displays, and a rule for a head the
@@ -633,8 +633,11 @@ fn a_file_with_errors_lights_the_boot_display_where_none_of_its_heads_runs() {
     let survivors = |text: &str| reading(text.as_bytes()).parsed.config;
     let open = survivors(BROKEN_ON_VT3);
     assert!(open.survivors, "the file has errors");
-    assert!(open.default_head_on(4) && !open.uses_builtin_on(4));
-    assert!(!open.default_head_on(3), "the file's heads run on VT 3");
+    assert!(open.default_head_on(Some(4)) && !open.uses_builtin());
+    assert!(
+        !open.default_head_on(Some(3)),
+        "the file's heads run on VT 3"
+    );
     let placement = open.place_on(&devices, None, 4);
     let got: Vec<(Place, By)> = placement.placed.iter().map(|p| (p.place, p.by)).collect();
     assert_eq!(got[0], (Place::DefaultHead, By::NeverDark));
@@ -643,14 +646,14 @@ fn a_file_with_errors_lights_the_boot_display_where_none_of_its_heads_runs() {
     assert!(placement.never_dark);
     assert_eq!(placement.focus, Some(Place::DefaultHead));
     let shut = survivors(&closed(BROKEN_ON_VT3));
-    assert!(shut.survivors && !shut.default_head_on(4));
+    assert!(shut.survivors && !shut.default_head_on(Some(4)));
     let placement = shut.place_on(&devices, None, 4);
     assert_eq!(placement.placed[0].place, Place::Notice);
     assert_eq!(placement.placed[1].place, elsewhere(&shut, "panel"));
     assert_eq!(placement.focus, None);
     // a valid file keeps the table: each display shows its own notice
     let valid = config(&BROKEN_ON_VT3.replace("input path:usb-0:9 -> nowhere\n", ""));
-    assert!(!valid.survivors && !valid.default_head_on(4));
+    assert!(!valid.survivors && !valid.default_head_on(Some(4)));
     assert!(!valid.place_on(&devices, None, 4).never_dark);
 }
 
@@ -718,15 +721,63 @@ input * -> here
             assert!(matches!(placement.placed[0].by, By::Rule(_)), "VT {vt}");
         }
     }
-    // a walk that names no VT never gives a notice
-    let c = config(text);
-    let placement = c.place(&[off, monitor("DP-3", "N")], None);
-    assert!(
-        placement
-            .placed
-            .iter()
-            .all(|p| !matches!(p.place, Place::Unused(_)))
+    // without a VT number the table decides too: the display the rule
+    // turns off stays blank, and one that no rule catches shows its notice
+    let placement = config(text).place(&[off, monitor("DP-3", "N")], None);
+    assert_eq!(places(&placement), [Place::Off, Place::Unused(None)]);
+    assert!(!placement.never_dark);
+}
+
+/// One head on DP-8, with every head running, as on a machine whose kernel
+/// has no VTs.
+const DESK_ON_DP8: &str = "\
+version = 1
+[head desk]
+[rules]
+display connector:card0/DP-8 -> desk
+input * -> desk
+";
+
+/// The maintainer, 2026-11-13: a valid closed file leaves a display that no
+/// rule places blank on every machine, with or without kernel VTs. Without
+/// a VT number the display guard does not act for a valid file, so DP-9
+/// stays blank and no head is the active head (ADR-1401 D3).
+// covers: platform.heads.policy
+#[test]
+fn table_closed_without_a_vt_number_leaves_a_display_no_rule_places_blank() {
+    let c = config(&closed(DESK_ON_DP8));
+    let placement = c.place(&[monitor("DP-9", "F"), keyboard("usb-0:1")], None);
+    assert_eq!(
+        placement.placed[0],
+        Placed {
+            place: Place::Off,
+            by: By::NoMatch
+        }
     );
+    assert_eq!(placement.placed[1].place, head(&c, "desk"));
+    assert!(!placement.never_dark);
+    assert_eq!(placement.focus, None);
+}
+
+/// What survives of a closed file with errors keeps the display guard
+/// without a VT number, as on a VT: the boot display lights for the notice
+/// alone (ADR-1401 D7, D9).
+// covers: platform.heads.guards
+#[test]
+fn a_closed_file_with_errors_without_a_vt_number_lights_the_boot_display_for_its_notice() {
+    let text = closed(&format!("{DESK_ON_DP8}input path:usb-0:9 -> nowhere\n"));
+    let c = reading(text.as_bytes()).parsed.config;
+    assert!(c.survivors, "the file has errors");
+    let placement = c.place(&[monitor("DP-9", "F"), keyboard("usb-0:1")], None);
+    assert_eq!(
+        placement.placed[0],
+        Placed {
+            place: Place::Notice,
+            by: By::NeverDark
+        }
+    );
+    assert!(placement.never_dark);
+    assert_eq!(placement.focus, None);
 }
 
 /// [`TIED_KEYBOARD`] with `switch-on-enter = yes` on head three, under

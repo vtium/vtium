@@ -1,0 +1,156 @@
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 35
+size 8x3
+cursor 2,0
+flags AUTO_WRAP
+row 0 |ab cdefg|
+row 1 ||
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 57
+size 8x3
+cursor 2,0
+flags AUTO_WRAP
+row 0 |ab   cde|
+row 1 ||
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 88
+size 8x3
+cursor 7,0
+flags AUTO_WRAP
+row 0 |ab    c|
+row 1 ||
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 117
+size 8x3
+cursor 5,0
+flags AUTO_WRAP
+row 0 |ab|
+row 1 ||
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 158
+size 8x3
+cursor 2,1
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0134567|
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 180
+size 8x3
+cursor 2,1
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |01567|
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 211
+size 8x3
+cursor 7,1
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0167|
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 240
+size 8x3
+cursor 1,1
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0|
+row 2 ||
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 281
+size 8x3
+cursor 2,2
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0|
+row 2 |a   世b|
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 311
+size 8x3
+cursor 2,2
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0|
+row 2 |a 世b|
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 346
+size 8x3
+cursor 7,2
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0|
+row 2 |0123456|
+test state margins 0-2 0-7
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 381
+size 8x3
+cursor 7,2
+flags AUTO_WRAP
+row 0 |ab|
+row 1 |0|
+row 2 |0123456|

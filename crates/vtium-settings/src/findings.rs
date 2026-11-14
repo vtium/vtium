@@ -105,8 +105,9 @@ fn reported(id: &Identity) -> Quoted {
 }
 
 /// The remarks about `config`, each with the line it names, `None` for
-/// the file as a whole: a head no rule names, which under open the display
-/// guard still lights when it is the first (D3, D9); every head isolated
+/// the file as a whole: a head no rule names, which the display guard
+/// still lights when it is the first head of what survives of an open file
+/// with errors (D3, D7, D9); every head isolated
 /// (D5, D9); and on `devices`, the devices present, when given: no head
 /// that can be the active head with a display, under closed no keyboard
 /// reaching any head, and each device that no rule places and no guard
@@ -180,9 +181,10 @@ pub fn remarks(config: &Config, devices: Option<&[Identity]>) -> Vec<(Option<usi
             .any(|r| matches!(r.target, Target::Head(t) if t == i));
         if !named {
             let head = Quoted::new(&h.name);
-            // under open the display guard gives the first head the boot
-            // display while no head has one
-            let remark = if i == 0 && config.policy == Policy::Open {
+            // for what survives of an open file with errors, the display
+            // guard gives the first head the boot display while no head has
+            // one; for a valid file the table leaves it without one (D3)
+            let remark = if i == 0 && config.survivors && config.policy == Policy::Open {
                 Remark::UnnamedLitByGuard { head }
             } else {
                 Remark::Unnamed { head }

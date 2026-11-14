@@ -9,7 +9,7 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT8\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUT9\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
@@ -20,7 +20,9 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript)
+//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
+//!          cluster width u8 (0 double, 1 single: the console's
+//!          `cluster-width`, ADR-1006 D8)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -116,7 +118,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT8\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT9\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
@@ -175,11 +177,15 @@ pub struct OutlineRequest {
     /// subscript color glyph is fitted to two thirds of its cells and
     /// placed against the cell's top or bottom.
     pub script: Script,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8): a cluster is placed in the
+    /// cells [`vtium_term::cluster_width_with`] counts by it.
+    pub cluster_width: vtium_term::ClusterWidth,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
 /// by row, cut to its cells, and the ink box of an R8 glyph whose ink
-/// passes them.
+/// passes them, or of a color emoji drawn in one cell, RGBA (ADR-1302 D5).
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Placed {
     pub wide: bool,
@@ -379,6 +385,10 @@ impl OutlineRequest {
             Script::Super => 1,
             Script::Sub => 2,
         });
+        out.push(match self.cluster_width {
+            vtium_term::ClusterWidth::Double => 0,
+            vtium_term::ClusterWidth::Single => 1,
+        });
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -477,6 +487,11 @@ impl OutlineRequest {
             2 => Script::Sub,
             _ => return Err("an unknown script"),
         };
+        let cluster_width = match r.u8()? {
+            0 => vtium_term::ClusterWidth::Double,
+            1 => vtium_term::ClusterWidth::Single,
+            _ => return Err("an unknown cluster width"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -493,6 +508,7 @@ impl OutlineRequest {
             synth,
             fit,
             script,
+            cluster_width,
         })
     }
 
@@ -640,9 +656,6 @@ impl Outline {
                 let ink = if flags & GLYPH_INK == 0 {
                     None
                 } else {
-                    if color {
-                        return Err("an ink box on a color glyph");
-                    }
                     let i32_at = |r: &mut Reader<'_>| -> Result<i32, &'static str> {
                         Ok(i32::from_le_bytes(
                             r.take(4)?.try_into().map_err(|_| "cut short")?,
@@ -661,7 +674,18 @@ impl Outline {
                     if !in_reach(&ink, (width, span, height), reach) {
                         return Err("an ink box past its glyph's reach, or not past its cells");
                     }
-                    let n = Placed::bytes(false, false, box_width, box_height)
+                    // a color glyph's box is a color emoji's edge in one
+                    // cell, 1 pixel past each side (ADR-1302 D5)
+                    let right = i64::from(left).saturating_add(i64::from(box_width));
+                    let edge = !wide
+                        && left >= -1
+                        && right <= i64::from(width).saturating_add(1)
+                        && top == 0
+                        && box_height == height;
+                    if color && !edge {
+                        return Err("an ink box on a color glyph past 1 pixel beside its cell");
+                    }
+                    let n = Placed::bytes(false, color, box_width, box_height)
                         .ok_or("an ink box past usize")?;
                     if n > usize::try_from(SET_CHUNK_BYTES).unwrap_or(0) {
                         return Err("an ink box larger than a set's chunk");
@@ -1633,6 +1657,7 @@ pub(crate) mod raster {
                 ppem,
                 reach: request.reach(i),
                 script: request.script,
+                cluster_width: request.cluster_width,
             };
             let mut glyphs: Vec<Placed> = Vec::new();
             let mut index: Vec<(u16, u32)> = Vec::new();
@@ -1708,6 +1733,8 @@ pub(crate) mod raster {
         pub(crate) reach: (u32, u32),
         /// Where the glyphs sit in the cell ([`OutlineRequest::script`]).
         pub(crate) script: Script,
+        /// The cells a cluster takes ([`OutlineRequest::cluster_width`]).
+        pub(crate) cluster_width: vtium_term::ClusterWidth,
     }
 
     /// Glyph `g` of the character `c`, advancing `advance` pixels, placed
@@ -1737,7 +1764,7 @@ pub(crate) mod raster {
             let sx = span / advance;
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
-                wide,
+                cells(wide),
                 None,
                 false,
                 cell,
@@ -1751,7 +1778,7 @@ pub(crate) mod raster {
             };
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_moved(g, ppem, bounds, dx),
-                wide,
+                cells(wide),
                 None,
                 false,
                 cell,
@@ -1759,15 +1786,23 @@ pub(crate) mod raster {
         }
         place_drawn(
             &mut |ppem, bounds| drawer.draw(g, ppem, bounds),
-            wide,
+            cells(wide),
             Some(advance),
             fit,
             cell,
         )
     }
 
-    /// What `draw` draws at a size and within a box, placed in `cell`, two
-    /// cells wide when `wide`. A mask is placed by the font (ADR-1302 D2):
+    /// The cells a glyph two cells wide when `wide` spans.
+    pub(crate) fn cells(wide: bool) -> u32 {
+        if wide { 2 } else { 1 }
+    }
+
+    /// What `draw` draws at a size and within a box, placed across `cells`
+    /// cells of `cell`: 1 or 2 for a character or a cluster, and the cells
+    /// of all its clusters for a syllable (ADR-1203 D3), which
+    /// [`super::super::shaping::shape`] then cuts into its pieces. A mask
+    /// is placed by the font (ADR-1302 D2):
     /// its pen starts at the cell's left edge, moved right by half of what
     /// its cells' width exceeds its advance rounded to the nearest pixel,
     /// rounded down, which is a move left when the advance is wider, and
@@ -1784,13 +1819,13 @@ pub(crate) mod raster {
     /// baseline as far as the row allows.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
-        wide: bool,
+        cells: u32,
         advance: Option<f32>,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let h = cell.height;
-        let bw = cell.width * if wide { 2 } else { 1 };
+        let bw = cell.width * cells;
         // a superscript or subscript color glyph fits two thirds of its
         // cells (ADR-1202 D1, D5), as a normal one fits all of them
         let script = cell.script != Script::Baseline;
@@ -1801,6 +1836,9 @@ pub(crate) mod raster {
         };
         let mut image = draw(cell.ppem, (fw, fh))?;
         let color = image.content == Content::Color;
+        if color && cells == 1 && !script {
+            return emoji_in_one_cell(draw, cell);
+        }
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
         // where the font places a mask: the advance rounded to the nearest
         // pixel (ADR-1302 D2), and a negative advance counts as none
@@ -1878,9 +1916,52 @@ pub(crate) mod raster {
             ink_box(&image, cell, bw, (left, top))
         };
         Some(Placed {
-            wide,
+            wide: cells == 2,
             color,
             pixels: copy(&image, color, bw, h, left, top),
+            ink,
+        })
+    }
+
+    /// The tallest cell a frit may state, whose drawing of a color emoji
+    /// is the one a color emoji in one cell is cut from (ADR-1302 D5).
+    pub(crate) const LARGEST_CELL: (u32, u32) = (48, 96);
+
+    /// A color glyph that must draw in one cell of `cell` (ADR-1302 D5):
+    /// drawn as large as the tallest cell a frit may state draws it, two
+    /// cells of [`LARGEST_CELL`], and then cut to the square around its
+    /// ink and shrunk by nearest neighbour to a square the cell's width
+    /// and 2 pixels across, centred, by [`vtium_font::Glyph::in_one_cell`].
+    /// Its 1-pixel edge on each side goes to its ink box.
+    fn emoji_in_one_cell(
+        draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
+        cell: &Cell,
+    ) -> Option<Placed> {
+        let (lw, lh) = LARGEST_CELL;
+        let ppem = cell.ppem * lh as f32 / cell.height.max(1) as f32;
+        let image = draw(ppem, (lw * 2, lh))?;
+        let (iw, ih) = (image.placement.width, image.placement.height);
+        let picture = match (iw, ih) {
+            (0, _) | (_, 0) => vtium_font::Glyph::rgba(1, 1)?,
+            _ => vtium_font::Glyph::from_pixels(
+                iw,
+                ih,
+                vtium_font::Format::Rgba,
+                copy(&image, true, iw, ih, 0, 0),
+            )?,
+        };
+        let glyph = picture.in_one_cell((cell.width, cell.height))?;
+        let ink = glyph.ink().map(|ink| InkBox {
+            left: ink.left(),
+            top: ink.top(),
+            width: ink.width(),
+            height: ink.height(),
+            pixels: ink.pixels().to_vec(),
+        });
+        Some(Placed {
+            wide: false,
+            color: true,
+            pixels: glyph.pixels().to_vec(),
             ink,
         })
     }
@@ -2027,9 +2108,10 @@ mod tests {
             ppem: 10.0,
             reach: (10, 10),
             script: vtium_font::Script::Baseline,
+            cluster_width: vtium_term::ClusterWidth::Double,
         };
-        let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
-            .expect("placed");
+        let placed =
+            place_drawn(&mut |_, _| Some(bar(10)), 1, Some(-10.0), false, &cell).expect("placed");
         let row: Vec<usize> = (0..12).filter(|&x| placed.pixels[x] > 0).collect();
         assert_eq!(row, [6]);
     }

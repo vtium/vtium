@@ -82,17 +82,48 @@ class Scenarios(unittest.TestCase):
         self.assertEqual([e.split(': ')[0] for e in errors],
                          [f'{coverage.SCENARIO_PROVISIONAL}:1', f'{coverage.SCENARIO_PROVISIONAL}:2'])
 
+    def test_a_reviewed_cases_tag_names_its_file(self):
+        rel = coverage.CASES_DIR + 'tabs-hts.case'
+        (self.root / coverage.CASES_DIR).mkdir(parents=True)
+        found, errors = self.scan(rel, '# spec: x\n' + TAG + 'size 4 1\n')
+        self.assertEqual(errors, [])
+        self.assertEqual(found, [('DEC-1', rel, f'{rel}:2'), ('input.legacy', rel, f'{rel}:2')])
+
+    def test_the_case_provisional_list_keeps_a_cases_tag_from_counting(self):
+        (self.root / coverage.CASES_DIR).mkdir(parents=True)
+        self.write(coverage.CASE_PROVISIONAL, '# CASE<TAB>REASON\ntabs-hts\tnot reviewed yet\n')
+        errors = []
+        listed = coverage.provisional_names(self.root, coverage.CASE_PROVISIONAL, errors)
+        self.assertEqual((listed, errors), ({'tabs-hts'}, []))
+        rel = coverage.CASES_DIR + 'tabs-hts.case'
+        found, errors = self.scan(rel, '# spec: x\n' + TAG + 'size 4 1\n', provisional=listed)
+        self.assertEqual(errors, [])
+        self.assertEqual(found, [('DEC-1', None, f'{rel}:2'), ('input.legacy', None, f'{rel}:2')])
+
+    def test_a_cases_tag_on_an_unknown_id_is_an_error(self):
+        rel = coverage.CASES_DIR + 'tabs-hts.case'
+        (self.root / coverage.CASES_DIR).mkdir(parents=True)
+        found, errors = self.scan(rel, '# spec: x\n# cov' + 'ers: ctl.no-such-row\nsize 4 1\n')
+        self.assertEqual(errors, [])
+        tests = coverage.tests_by_row(found, {'ctl.tabs': None}, errors)
+        self.assertEqual(tests, {'ctl.tabs': set()})
+        self.assertEqual(errors, [f'{rel}:2: unknown id `ctl.no-such-row`'])
+
     def test_the_trees_scenarios_read_without_error(self):
         found, errors = [], []
         counts = coverage.scan(found, errors)
         self.assertEqual(errors, [])
         self.assertGreater(counts['.scenario'], 0)
+        self.assertGreater(counts['.case'], 0)
         listed = coverage.provisional_scenarios(coverage.ROOT, errors)
+        cases = coverage.provisional_names(coverage.ROOT, coverage.CASE_PROVISIONAL, errors)
         self.assertEqual(errors, [])
         for _, test, where in found:
+            name = Path(where.split(':')[0]).stem
             if where.startswith('tools/conformance/scenarios/'):
-                name = Path(where.split(':')[0]).stem
                 self.assertEqual(test is None, name in listed, where)
+            if where.startswith(coverage.CASES_DIR):
+                self.assertEqual(test is None, name in cases, where)
 
 
 # A stand-in for cargo. Like the real test, it writes COVERAGE.md only when

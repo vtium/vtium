@@ -67,6 +67,7 @@ pub(super) struct Inputs<'a> {
     pub(super) sprites: Texels<'a>,
     pub(super) boxes: Texels<'a>,
     pub(super) ink: Texels<'a>,
+    pub(super) color_boxes: Texels<'a>,
     /// The cell's width and height.
     pub(super) cell: (i64, i64),
     /// The sprites across the sprites' texture.
@@ -224,9 +225,13 @@ fn take(p: u32, i: &Inputs<'_>, (k, r): (i64, i64), job: &Job, at: (i64, i64), g
         slot.checked_rem(across).unwrap_or(0).saturating_mul(sw),
         slot.checked_div(across).unwrap_or(0).saturating_mul(sh),
     );
-    let a = i
-        .boxes
-        .byte((from.0.saturating_add(t.0), from.1.saturating_add(t.1)), 0);
+    let texel = (from.0.saturating_add(t.0), from.1.saturating_add(t.1));
+    if i.ink.byte((k, entry.saturating_add(1)), 3) != 0 {
+        // a color emoji's edge, in its own colors (ADR-1302 D5, D8)
+        let s = i.color_boxes.argb(texel);
+        return if s >> 24 == 0 { p } else { argb_over(p, s) };
+    }
+    let a = i.boxes.byte(texel, 0);
     let c = if job.marked {
         job.fg
     } else {

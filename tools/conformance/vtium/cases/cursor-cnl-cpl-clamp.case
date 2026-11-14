@@ -1,0 +1,15 @@
+# On an 80x24 screen, CPL and CNL by 1 move one row and return to the
+# first column, and CPL and CNL by 34 stop at the first and last row.
+# spec: ECMA-48 8.3.12 CNL and 8.3.13 CPL
+# covers: ctl.edit
+size 80 24
+send "\n123"
+dump state
+send "\e[1F"
+dump state
+send "\e[1E"
+dump state
+send "\e[34F"
+dump state
+send "\e[34E"
+dump state

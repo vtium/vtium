@@ -8,6 +8,8 @@
 # function keys carry a repeat's and a release's event type; Escape, a
 # Ctrl key and a text key send their legacy bytes on a press and a repeat
 # and nothing on a release, and modifyOtherKeys is not consulted.
+# Each release follows a press of its key with the same modifiers, since
+# vtium sends a release only for a press it sent while flag 2 was in force.
 # spec: kitty's Comprehensive keyboard handling in terminals: Progressive enhancement, Report event types, Event types, Legacy key event encoding, Functional key definitions
 # covers: input.kitty-keyboard
 size 20 2
@@ -15,14 +17,21 @@ send "\e[>3u"
 cmd key;sym=ff52
 cmd key;sym=ff52;event=repeat
 cmd key;sym=ff52;event=release
+cmd key;sym=ff52;mods=1
 cmd key;sym=ff52;mods=1;event=release
 cmd key;sym=ffff;event=repeat
+cmd key;sym=ffff;mods=4
 cmd key;sym=ffff;mods=4;event=release
+cmd key;sym=ffbe
 cmd key;sym=ffbe;event=release
+cmd key;sym=ffc0
 cmd key;sym=ffc0;event=release
+cmd key;sym=ff9c
 cmd key;sym=ff9c;event=release
+cmd key;sym=ffb1;mods=36
 cmd key;sym=ffb1;mods=36;event=release
 cmd key;sym=ff0d;mods=4;event=repeat
+cmd key;sym=ff0d;mods=4
 cmd key;sym=ff0d;mods=4;event=release
 send "\e[<u\e[>4;2m\e[>2u\e[?u"
 cmd key;sym=ff52
@@ -30,6 +39,7 @@ cmd key;sym=ff52;event=release
 cmd key;sym=ffc0;mods=1
 cmd key;sym=ffc0;mods=1;event=release
 cmd key;sym=ff1b;event=repeat
+cmd key;sym=ff1b
 cmd key;sym=ff1b;event=release
 cmd key;sym=61;ascii=61;unicode=61;mods=4
 cmd key;sym=61;ascii=61;unicode=61;mods=4;event=release

@@ -93,6 +93,8 @@ The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspe
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
+From the next publish, `vtium-fonts` also installs five frits for scripts whose marks need room above and below the letters: `arabic`, `hebrew`, `indic`, `thai-lao` and `vietnamese`. It also installs four frits for Chinese, Japanese and Korean, one for each region's forms of Han characters: `cjk-sc`, `cjk-tc`, `cjk-jp` and `cjk-kr`. It then depends on `noto-fonts` and `noto-fonts-cjk` too, which hold every font these frits name. See [Fonts for other scripts](fonts-for-scripts.md) for details.
+
 ## From a checkout
 
 Building vtium needs Rust 1.88 or later, and clang. The checkout's `rust-toolchain.toml` names the toolchain that the tests run on. rustup installs that toolchain for you inside the checkout. The first build fetches a Debian sysroot to link against. The sysroot is a copy of a Debian system's libraries, with glibc 2.36. Because vtium links against it, the binaries run on any distribution with that glibc or a newer one. See [tools/arm/README.md](https://github.com/vtium/vtium/blob/main/tools/arm/README.md) for details.
@@ -114,7 +116,7 @@ On another distribution, a package build can call two make targets:
 - `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that a console package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.
 
-`make install` builds the console with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+`make install` builds the console with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
 Some package builds run with no network, as Debian's does. Such a build takes the crates that vtium builds with from the release:
 
@@ -161,7 +163,9 @@ On a machine where `kmscon` holds the template link, read [Moving from another D
 vtium can run on a VT in two ways. The install turns on the first:
 
 - In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a console built with `libseat` gets them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, just as a login at a getty does. So sound, removable disks, and the actions that polkit allows the active session all work as usual. The unit is `vtium@.service`.
-- In seat mode, vtium gets the screen, the keyboards and VT switching from logind, through libseat. logind is the service that manages logins and seats. Each login gets a logind session with no seat. polkit treats that session as inactive. udev gives it no devices, such as sound cards. The unit is `vtium-seat@.service`. Only a console built with both `libseat` and `logind` ships this unit. The `vtium` and `vtium-git` packages are built that way by default. The minspec packages are not, so they do not ship it. When you build from the `vtium` recipe with your own `VTIUM_FEATURES`, the package ships this unit only if `VTIUM_FEATURES` names both `libseat` and `logind`.
+- In seat mode, vtium gets the screen, the keyboards and VT switching from logind, through libseat. logind is the service that manages logins and seats. Each login gets a logind session with no seat. polkit then asks for an administrator's password for more actions, such as powering off. udev gives that session no devices, such as sound cards. The unit is `vtium-seat@.service`. Only a console built with both `libseat` and `logind` ships this unit. The `vtium` and `vtium-git` packages are built that way by default. The minspec packages are not, so they do not ship it. When you build from the `vtium` recipe with your own `VTIUM_FEATURES`, the package ships this unit only if `VTIUM_FEATURES` names both `libseat` and `logind`.
+
+You can tell which mode a VT runs in from `vtium console status`, and from `loginctl`. See [What you see in each mode](concepts/seats-and-sessions.md#what-you-see-in-each-mode) for examples of both, and for what you see in seat mode.
 
 A VT runs one mode at a time. To ask which mode fits your machine, run `vtium console enable` with no mode. It changes nothing. It says what it finds, which mode it recommends and why, and the command to run. When another program holds the VT you name, the advice names that program, and it offers no command for that VT. `vtium console status` shows you which VTs are free. To move every VT that vtium has to seat mode, and back:
 
@@ -187,7 +191,11 @@ vtium also steps aside for systemd's rescue and emergency modes, as a getty does
 
 ### Turning vtium off for one boot
 
-To start a machine once without vtium, add `vtium.enable=0` to the kernel command line in your boot loader. vtium then exits as soon as it starts, before it touches the screen. Each VT's getty fallback gives you a login prompt. The key works with or without systemd. Without systemd, your init system chooses what runs on the VT after vtium exits. With systemd, you can instead put `systemd.unit=rescue.target` on the kernel command line. That boots into rescue mode, and vtium steps aside for it.
+To start a machine once without vtium, add `vtium.enable=0` to the kernel command line in your boot loader. vtium then exits as soon as it starts, before it touches the screen. Under the open policy, each VT's getty fallback gives you a login prompt.
+
+Under the closed policy, the key still turns vtium off, but no login prompt starts on vtium's VTs. A login prompt would accept any keyboard, which the closed policy forbids. If you run a closed vtium.conf, set a password on your boot loader, so that nobody else can edit the kernel command line. See [Turning vtium off for one boot](systemd.md#turning-vtium-off-for-one-boot) for what vtium does under each policy.
+
+The key also works with or without systemd. Without systemd, your init system chooses what runs on the VT after vtium exits. With systemd, you can instead put `systemd.unit=rescue.target` on the kernel command line. That boots into rescue mode, and vtium steps aside for it.
 
 **Note:** Masking vtium's unit, as with `systemd.mask=vtium@tty2.service`, does not turn vtium off on every VT. logind starts vtium through the template link `autovt@.service`. A mask does not reach a unit that systemd loads through a link. After the install, VT 1 also has no getty enabled. So a mask of `vtium@tty1.service` leaves VT 1 with no console.
 

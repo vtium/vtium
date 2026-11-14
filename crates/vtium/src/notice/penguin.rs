@@ -6,7 +6,10 @@
 //! A build without image support draws the drawing in 7-bit ASCII, a
 //! character to a cell: [`FULL`], 32 columns by 20 rows, or [`SMALL`], the
 //! monitor cropped from it, 21 columns by 10 rows. A build with image
-//! support draws the maintainer's 80x80 sprite in their place. vtium's
+//! support draws the maintainer's 80×80 sprite in their place: the whole
+//! sprite in the full drawing's place, and the sprite cropped to its
+//! monitor, [`SPRITE_MONITOR_AT`] and [`SPRITE_MONITOR_SIZE`], in the
+//! small drawing's place. vtium's
 //! root process decodes no compressed image, so the sprite is compiled in
 //! as a binary PPM, [`PPM`]: a short header, then its RGB samples,
 //! uncompressed. When the notice draws the sprite, it matches each
@@ -26,6 +29,19 @@ pub const SMALL: &str = include_str!("../../art/panic-penguin-aaron-small.txt");
 
 /// The sprite's width and height in pixels.
 pub const SPRITE_SIZE: (u32, u32) = (80, 80);
+
+/// The top left pixel of the sprite's monitor, which a build with image
+/// support draws in the small drawing's place, as [`SMALL`] is the monitor
+/// cropped from [`FULL`] (ADR-1401 D7). The monitor is its bezel and its
+/// screen, x 15 to 64 and y 6 to 49 of the sprite, inclusive. It holds no
+/// pixel of the arms, the sparks, the stand or the keyboard: the arms join
+/// the bezel at its outer edge, outside the crop. Its four corners outside
+/// the rounded bezel are the sprite's black background.
+pub const SPRITE_MONITOR_AT: (u32, u32) = (15, 6);
+
+/// The width and height in pixels of the sprite's monitor, from
+/// [`SPRITE_MONITOR_AT`].
+pub const SPRITE_MONITOR_SIZE: (u32, u32) = (50, 44);
 
 /// The sprite's colors, the six its pixels match, in this order: black, white,
 /// gray, beak orange, mouth dark red and tongue pink.
@@ -52,20 +68,31 @@ pub fn samples() -> Option<&'static [u8]> {
 }
 
 /// The drawing this build shows on the panic screen: the ASCII drawing,
-/// and in a build with image support the sprite in its place.
+/// and in a build with image support the sprite in its place, cropped to
+/// its monitor in the small drawing's place.
 pub fn drawing() -> vtium_render::Drawing {
     let drawing = vtium_render::Drawing::text(FULL, SMALL);
     #[cfg(feature = "images")]
     let drawing = match samples() {
-        Some(samples) => drawing.with_sprite(vtium_render::Sprite::new(
-            SPRITE_SIZE.0,
-            SPRITE_SIZE.1,
-            &PALETTE,
-            samples,
-        )),
+        Some(samples) => {
+            let sprite = vtium_render::Sprite::new(SPRITE_SIZE.0, SPRITE_SIZE.1, &PALETTE, samples);
+            drawing.with_sprite(sprite, monitor(sprite))
+        }
         None => drawing,
     };
     drawing
+}
+
+/// `sprite` cropped to its monitor, [`SPRITE_MONITOR_AT`] and
+/// [`SPRITE_MONITOR_SIZE`].
+#[cfg(feature = "images")]
+pub const fn monitor(sprite: vtium_render::Sprite) -> vtium_render::Sprite {
+    sprite.crop(
+        SPRITE_MONITOR_AT.0,
+        SPRITE_MONITOR_AT.1,
+        SPRITE_MONITOR_SIZE.0,
+        SPRITE_MONITOR_SIZE.1,
+    )
 }
 
 #[cfg(test)]
@@ -123,6 +150,62 @@ mod tests {
         assert_eq!(samples().map(<[u8]>::len), Some(80 * 80 * 3));
     }
 
+    // ADR-1401 D7: the crop the small drawing's place draws is the
+    // sprite's monitor, its bezel and screen and nothing past them. The
+    // crop's outer ring is the bezel, white, apart from its four corners,
+    // which are the black background outside the rounded bezel; so a crop
+    // a pixel wider, narrower, taller or shorter on any side has a ring
+    // that differs. The ring just outside the crop is black, apart from
+    // where the arms join the bezel, and every pixel inside the crop
+    // matches a color of the palette. The ring just outside the crop is
+    // black, apart from where the arms and the stand join the bezel.
+    #[cfg(feature = "images")]
+    #[test]
+    fn the_small_places_crop_is_the_sprites_monitor() {
+        let (black, white) = (Rgb::new(0, 0, 0), Rgb::new(255, 255, 255));
+        let sprite = vtium_render::Sprite::new(80, 80, &PALETTE, samples().expect("the samples"));
+        let crop = monitor(sprite);
+        assert_eq!(crop.size(), (50, 44));
+        assert!(crop.is_whole());
+        let (w, h) = crop.size();
+        for y in 0..h {
+            for x in 0..w {
+                let ring = x == 0 || y == 0 || x == w - 1 || y == h - 1;
+                let corner = (x == 0 || x == w - 1) && (y == 0 || y == h - 1);
+                if ring {
+                    let want = if corner { black } else { white };
+                    assert_eq!(crop.get(x, y), Some(want), "the crop's ring at {x},{y}");
+                }
+                assert_eq!(
+                    crop.get(x, y),
+                    sprite.get(x + 15, y + 6),
+                    "the sprite's pixel at {},{}",
+                    x + 15,
+                    y + 6
+                );
+            }
+        }
+        // just outside the crop: the row above it is black; the row below
+        // it is black but for the stand's two posts, columns 35, 36, 43
+        // and 44; and the columns to either side are black but for the
+        // arms, rows 30 and 31
+        for x in 14..=65 {
+            assert_eq!(sprite.get(x, 5), Some(black), "above, {x}");
+            let post = [35, 36, 43, 44].contains(&x);
+            assert_eq!(
+                sprite.get(x, 50),
+                Some(if post { white } else { black }),
+                "below, {x}"
+            );
+        }
+        for y in 5..=50 {
+            let arm = y == 30 || y == 31;
+            let want = Some(if arm { white } else { black });
+            assert_eq!(sprite.get(14, y), want, "left, {y}");
+            assert_eq!(sprite.get(65, y), want, "right, {y}");
+        }
+    }
+
     // ADR-1401 D7: the panic screen carries the drawing this build shows,
     // the ASCII drawing, and in a build with image support the sprite in
     // its place
@@ -137,7 +220,7 @@ mod tests {
                 vtium_render::Sprite::new(80, 80, &PALETTE, samples().expect("the samples"));
             assert!(sprite.is_whole());
             assert_eq!(sprite.get(0, 0), Some(Rgb::new(0, 0, 0)));
-            text.with_sprite(sprite)
+            text.with_sprite(sprite, sprite.crop(15, 6, 50, 44))
         };
         #[cfg(not(feature = "images"))]
         let want = text;

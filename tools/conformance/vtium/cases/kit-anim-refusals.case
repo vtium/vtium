@@ -1,0 +1,114 @@
+# The answers to kitty animation commands that fail or that kitty answers
+# in its own way. A missing image, a missing base frame and a composition
+# onto itself each get kitty's text. An edit of a missing frame, and a
+# rectangle past the image's edge, each make a frame as kitty does. An s
+# past 3 and a control on a missing frame get no answer. A raw frame
+# without s and v gets kitty's "Zero width/height not allowed". With both
+# images placed, the frame allowance frees the frames of the image used
+# least recently, and answers ENOSPC once nothing is left to free.
+#
+# References: ADR-1100 D15, ADR-1102 D1 and D2.
+# spec: kitty graphics protocol, "Animation"
+# covers: image.kitty-animation
+size 12 4
+cmd cell;w=8;h=16
+
+# The image budget is 1,350 bytes, so the frame allowance is five times that.
+cmd limit;b=1350
+
+# Image 1, 4×2 pixels of red, placed with C=1.
+# 4×2, every pixel opaque red (ff0000ff)
+send "\e_Ga=t,f=32,s=4,v=2,i=1;/wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP8=\e\\"
+send "\e_Ga=p,i=1,q=1,C=1\e\\"
+dump
+
+# A frame for image 9, which does not exist.
+# 1×1, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=9,s=1,v=1;/wAA/w==\e\\"
+
+# A frame on base frame 5, which does not exist.
+# 1×1, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=1,c=5,s=1,v=1;/wAA/w==\e\\"
+
+# An edit of frame 5, which does not exist, adds a frame.
+# 1×1, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=1,r=5,s=1,v=1;/wAA/w==\e\\"
+
+# A frame whose rectangle starts past the image's right edge.
+# 1×1, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=1,x=4,s=1,v=1;/wAA/w==\e\\"
+
+# A raw frame without s and v.
+# 5 pixels of data with no s or v, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=1;/wAA//8AAP//AAD//wAA//8AAP8=\e\\"
+dump
+
+# A composition of the whole root onto frame 2. A new frame 4. A
+# composition within frame 2 whose rectangles overlap, and one whose
+# destination leaves the image. A control on frame 7, which does not
+# exist, and a control with s=4.
+send "\e_Ga=c,i=1,r=1,c=2\e\\"
+# 4×2, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,i=1,s=4,v=2;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8=\e\\"
+send "\e_Ga=c,i=1,r=2,c=2,w=2,h=1,x=1\e\\"
+send "\e_Ga=c,i=1,r=1,c=2,x=3,w=2\e\\"
+send "\e_Ga=a,i=1,c=7\e\\"
+send "\e_Ga=a,i=1,s=4\e\\"
+dump
+
+# Image 2, 8×8 pixels, placed with C=1, then twenty frames of it.
+# 8×8, every pixel opaque red (ff0000ff)
+send "\e_Ga=t,f=32,s=8,v=8,i=2;/wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA/w==\e\\"
+send "\e_Ga=p,i=2,q=1,C=1\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,q=1,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+dump
+
+# One more frame frees the frames of image 1, used least recently.
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+dump
+
+# Another finds nothing left to free and is answered ENOSPC. A control
+# then names frame 2 of image 1, whose frames are gone.
+# 8×8, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,i=2,s=8,v=8;AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP//AAD//w==\e\\"
+send "\e_Ga=a,i=1,c=2\e\\"

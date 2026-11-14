@@ -99,7 +99,7 @@ pub use outcome::{
     DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
     Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
 };
-pub use parse::{Parsed, Reading, escape_label, parse, parse_sections, reading, sections};
+pub use parse::{Parsed, Reading, escape_label, parse, parse_sections, policy, reading, sections};
 pub use place::{By, Disposition, Lockout, Place, Placed, Placement, rule_for};
 pub use route::{Judged, Missing, Route, complete_route};
 pub use split::{Split, split};

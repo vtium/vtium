@@ -33,7 +33,7 @@ Under the open policy, two guards keep you from locking yourself out, whatever t
 - The anti-lockout guard makes every keyboard roam while no keyboard at all reaches a lit head. A head is lit when at least one of its displays is on.
 - The rescue key is `Ctrl-Alt-F<n>` for the VT that is already on screen. It makes the keyboard that pressed it roam until the next boot.
 
-Each head is a terminal of its own. Ctrl-Super-Up makes the next lit head the active head, and Ctrl-Super-Down makes the previous lit head the active head. Each head then shows a mark in its top-right corner for a few seconds. The mark is filled on the active head. A keyboard that a rule gives to a head keeps typing into that head when the active head moves.
+Each head is a terminal of its own. Ctrl-Super-Up makes the next lit head the active head, and Ctrl-Super-Down makes the previous lit head the active head. Each head then shows a mark in its top-right corner for a few seconds. The mark is filled on the active head. See [The on-screen display and notices](osd-and-notices.md) for what vtium draws and how the `osd` setting changes it. A keyboard that a rule gives to a head keeps typing into that head when the active head moves.
 
 The figure below shows three heads and the keyboards that type into each of them.
 
@@ -130,11 +130,12 @@ Under the closed policy, rules grant rights, as in "this keyboard belongs to the
 
 If vtium fails under the closed policy, its VT is left with no login prompt. vtium can end because it panics, because its VT hangs up, or because it cannot start a session. After such a failure, vtium's systemd unit normally starts a getty on the VT as a fallback. Under a closed policy the fallback skips the getty, because the kernel's login prompt that a getty shows would take any keyboard.
 
-The fallback belongs to vtium's unit alone, so the operator of a closed machine takes three more steps. See [systemd.md](../systemd.md) for details.
+The fallback belongs to vtium's unit alone, so the operator of a closed machine takes four more steps. See [systemd.md](../systemd.md) for details.
 
 - The operator disables any `getty@ttyN` that is enabled on vtium's VT. A later `systemctl start` could still put that getty there.
 - The operator masks the gettys on the other VTs. Once vtium has ended, the kernel acts on `Ctrl-Alt-F<n>` again, so the key could switch to one of those gettys.
 - The operator sets logind's `NAutoVTs=0` and `ReserveVT=0`. Then logind starts no other vtium on a VT when someone switches to it.
+- The operator sets a password on the boot loader. `vtium.enable=0` on the kernel command line turns vtium off for one boot. Under the closed policy, the fallback then skips the getty as well, so the key starts no login prompt. Other words on the kernel command line, such as `init=`, change what the machine runs at boot, and only a boot loader password keeps them out.
 
 When a login keeps ending as soon as it starts, vtium stops every head and keeps its VT. See [All screens stopped](#all-screens-stopped-a-session-kept-ending-as-soon-as-it-started) for details.
 
@@ -148,21 +149,21 @@ Reload is not built yet. Once it is, these rules apply to it:
 
 **With no display at start.** Under the open policy, vtium waits for the time that `display-wait` sets, 10 s by default, and then exits. Its unit, `vtium@ttyN`, then starts a getty on that VT. The getty shows the kernel's own login prompt, which any keyboard can type into. Under the closed policy, vtium keeps its VT and waits for a display however long it takes, so that getty never starts.
 
-Under either policy, vtium turns off a display that no rule matches. When the rules turn on no display at all, the display guard turns on the boot display. The boot display is the display that is on when vtium starts, or else the first connected one. See [Terms](../head-file.md#terms) for the exact order. In an open file, the boot display then shows the first head. In a closed file, it shows only a notice.
+**A display that no rule places.** When vtium.conf is valid and closed, vtium leaves such a display blank, with or without kernel VTs. When vtium.conf is valid and open, such a display shows a notice that says why it has no terminal, such as `DP-9 is not configured for any terminal.` An open vtium.conf with no head and no rule gives every display the built-in default terminal instead. A display that a rule sends to `off` stays blank under either policy.
 
-### No head has a connected display.
+When vtium.conf has errors and its rules turn on no display at all, the display guard turns on the boot display. The boot display is the display that is on when vtium starts, or else the first connected one. See [Terms](../head-file.md#terms) for the exact order. In an open file, the boot display then shows the first head. In a closed file, it shows only the file's console line, or the panic screen.
 
-![vtium's notice alone on the boot display, 800×480 pixels. A pale red box across the top of the screen holds two lines: "No head has a connected display." and "Connect a display that a rule in /etc/vtium/vtium.conf sends to a head." The rest of the screen is black.](../figures/concepts-notice-alone-no-display.png)
+### When no head has a display
 
-**Why.** The file is valid and closed, and it declares heads, but none of the heads has a display that is on. For example, the kiosk's monitor is unplugged at boot, and another display is connected. Or a rule names a monitor by its EDID serial, and the monitor was replaced. The display guard then turns on the boot display, and the boot display shows this notice alone. Of the notices about vtium.conf, this is the only one that a valid file shows. A closed file with no heads leaves every display dark and shows no notice.
+A valid closed file can declare heads that all lack a display that is on. For example, the kiosk's monitor is unplugged at boot, and another display is connected. Or a rule names a monitor by its EDID serial, and the monitor was replaced. Every display then stays blank, and vtium shows no notice. This holds on every machine, with or without kernel VTs.
 
-The notice says nothing about input, because what a keyboard does depends on its head:
+What a keyboard does then depends on its head:
 
 - A head whose display has never been on receives no keys.
 - A head whose last display went away keeps receiving keys from the keyboards that its rules give it. Its sessions run on unseen, as `when-display-lost` decides.
 - The keyboards of an isolated head never switch VTs. Under the closed policy, every head is isolated unless it sets `isolated = no`.
 
-**What to do.** Connect a display that a rule in vtium.conf sends to a head. When that display is on, its head shows on it, and the notice goes. To change the rule instead, edit the file over ssh, then restart vtium.
+**What to do.** Connect a display that a rule in vtium.conf sends to a head. When that display is on, its head shows on it. To change the rule instead, edit the file over ssh, then restart vtium.
 
 **How to avoid it.** Run `vtium check-config` with the displays connected before you install a file. It checks that a connected display reaches a head, and it says what is missing when none does. Name a display by its port, with `connector` or `connector-path`, when the monitor on that port may change. A rule that names the monitor by `edid` stops matching when the monitor is replaced.
 

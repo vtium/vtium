@@ -1,43 +1,11 @@
-# The scenarios whose transcripts wait for the maintainer's review: NAME<TAB>REASON.
-focus-reports	a new scenario; its transcript waits for the maintainer's review
-key-alt-meta	a new scenario; its transcript waits for the maintainer's review
-key-cursor-decckm	a new scenario; its transcript waits for the maintainer's review
-key-cursor-normal	a new scenario; its transcript waits for the maintainer's review
-key-editing-pad	a new scenario; its transcript waits for the maintainer's review
-key-function	a new scenario; its transcript waits for the maintainer's review
-key-modify-other-keys	a new scenario; its transcript waits for the maintainer's review
-keypad-deckpam	a new scenario; its transcript waits for the maintainer's review
-keypad-decnkm	a new scenario; its transcript waits for the maintainer's review
-mouse-encoding-sgr-pixels	a new scenario; its transcript waits for the maintainer's review
-mouse-encoding-sgr	a new scenario; its transcript waits for the maintainer's review
-mouse-encoding-urxvt	a new scenario; its transcript waits for the maintainer's review
-mouse-encoding-utf8	a new scenario; its transcript waits for the maintainer's review
-mouse-encoding-x10	a new scenario; its transcript waits for the maintainer's review
-mouse-mode-any-event	a new scenario; its transcript waits for the maintainer's review
-mouse-mode-button-event	a new scenario; its transcript waits for the maintainer's review
-mouse-mode-x10	a new scenario; its transcript waits for the maintainer's review
-mouse-x10-position-limit	a new scenario; its transcript waits for the maintainer's review
-palette-choice	a new scenario; its transcript waits for the maintainer's review
-paste-bracketed	a new scenario; its transcript waits for the maintainer's review
-paste-encoding	a new scenario; its transcript waits for the maintainer's review
-paste-plain	a new scenario; its transcript waits for the maintainer's review
-reply-decrqm	a new scenario; its transcript waits for the maintainer's review
-reply-device-attributes	a new scenario; its transcript waits for the maintainer's review
-reply-status-reports	a new scenario; its transcript waits for the maintainer's review
-reset-decstr	a new scenario; its transcript waits for the maintainer's review
-reset-ris	a new scenario; its transcript waits for the maintainer's review
-select-word	a new scenario; its transcript waits for the maintainer's review
-select-word-across-wrap	a new scenario; its transcript waits for the maintainer's review
-select-line	a new scenario; its transcript waits for the maintainer's review
-select-drag	a new scenario; its transcript waits for the maintainer's review
-select-wide	a new scenario; its transcript waits for the maintainer's review
-select-output	a new scenario; its transcript waits for the maintainer's review
-select-alternate-screen	a new scenario; its transcript waits for the maintainer's review
-select-follows-text	a new scenario; its transcript waits for the maintainer's review
-select-scrollback	a new scenario; its transcript waits for the maintainer's review
-view-scrollback	a new scenario; its transcript waits for the maintainer's review
-view-prompt-jump	a new scenario; its transcript waits for the maintainer's review
-key-backspace	a new scenario; its transcript waits for the maintainer's review
-reset-state	a new scenario; its transcript waits for the maintainer's review
-key-kitty-flags	the kitty keyboard protocol's flag 2 moves three replies of its transcript: a push of 31 and a set of 31 by mode 2 read back 3 where they read 1, and a clear of 1 by mode 3 then reads back 2 where it read 0; it waits for the maintainer's review again
-key-kitty-event-types	a new scenario; its transcript waits for the maintainer's review
+# The scenarios whose transcripts wait to be accepted (ADR-1503 D10): NAME<TAB>REASON.
+key-kitty-spec-flags	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; all 20 replies match the expectation written from the specification; its transcript waits for the maintainer's review
+key-kitty-spec-disambiguate	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 16 of 17 replies match the expectation written from the specification; Ctrl+KP_Multiply with NumLock carries the NumLock bit, which the specification's note on text-producing keys may leave out; its transcript waits for the maintainer's review
+key-kitty-spec-modifiers	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 17 of 18 replies match the expectation written from the specification; Alt+a with NumLock carries the NumLock bit, which the specification's note on text-producing keys may leave out; its transcript waits for the maintainer's review
+key-kitty-spec-functional-keys	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 29 of 31 replies match the expectation written from the specification; KP_Separator sends its text, and Ctrl+KP_Begin ends in u where the table gives 57427 ~; its transcript waits for the maintainer's review
+key-kitty-spec-alternate-keys	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; all 14 replies match the expectation written from the specification; its transcript waits for the maintainer's review
+key-kitty-spec-all-keys	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; all 24 replies match the expectation written from the specification; its transcript waits for the maintainer's review
+key-kitty-spec-associated-text	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 14 of 15 replies match the expectation written from the specification; a text event with keysym 0 is sent with the key number 229, where the specification asks for 0; its transcript waits for the maintainer's review
+key-kitty-spec-event-types	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; all 14 replies match the expectation written from the specification; its transcript waits for the maintainer's review
+key-kitty-spec-legacy	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 53 of 64 replies match the expectation written from the specification; under flag 2, Ctrl+Shift, Super, and Ctrl+Alt+Shift with text keys, Ctrl+`, Super with Enter and Escape, Alt+Shift+Tab, Ctrl+Backspace and Shift+F3 send other bytes than the specification's legacy section gives; its transcript waits for the maintainer's review
+key-kitty-spec-keypad-event-types	a new scenario derived from the kitty keyboard protocol's published specification, fetched 2026-11-13, and not reviewed yet; 19 of 22 key events match the expectation written from the specification; under flag 2 alone, the release of KP_1 with NumLock sends CSI 49 ; 1 : 3 u, where the specification's note on keys that make text sends nothing, and the repeat and the release of Alt+KP_1 send ESC 1 and nothing, where this scenario's reading of the legacy section sends CSI 49 ; 131 : 2 u and CSI 49 ; 131 : 3 u; its transcript waits for the maintainer's review

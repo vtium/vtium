@@ -760,7 +760,75 @@ fn a_gbm_buffer_imports_as_a_target_that_draws() {
     assert_eq!(out[(29 * 64 + 63) * 4..][..4], [0x12, 0x34, 0x56, 0xFF]);
     assert_eq!(out[(30 * 64 + 60) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
     assert_eq!(out[(31 * 64 + 63) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
-    gl.free_import(fb).unwrap();
+    gl.free_buffer(fb).unwrap();
+    gl.check().unwrap();
+}
+
+// ADR-1303 D9: the frame a head draws into for the staging copy is a
+// renderbuffer in GL's memory. A clear and a draw reach it, a read gives
+// them back, and a free takes it once; a buffer left unfreed goes with
+// its context
+#[test]
+fn a_buffer_in_gl_memory_draws_and_reads_back() {
+    let mut gl = software();
+    let fb = gl.create_buffer(64, 32).unwrap();
+    gl.clear(fb, (64, 32), rect(0, 0, 64, 32), 0x12_3456)
+        .unwrap();
+    let program = gl.compile(VERT, COPY).unwrap();
+    let texture = gl.create_texture(TextureFormat::Rgba8, 1, 1).unwrap();
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[0xAB, 0xCD, 0xEF, 0xFF], 4)
+        .unwrap();
+    copy(
+        &mut gl,
+        program,
+        fb,
+        (64, 32),
+        texture,
+        false,
+        &[quad([60, 30, 4, 2], [0, 0, 1, 1])],
+        Blend::Replace,
+        None,
+    );
+    let fence = gl.submit().unwrap();
+    gl.wait(fence).unwrap();
+    gl.check().unwrap();
+    let mut out = vec![0u8; 64 * 32 * 4];
+    gl.read(fb, rect(0, 0, 64, 32), &mut out).unwrap();
+    assert_eq!(out[..4], [0x12, 0x34, 0x56, 0xFF]);
+    assert_eq!(out[(29 * 64 + 63) * 4..][..4], [0x12, 0x34, 0x56, 0xFF]);
+    assert_eq!(out[(30 * 64 + 60) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
+    assert_eq!(out[(31 * 64 + 63) * 4..][..4], [0xAB, 0xCD, 0xEF, 0xFF]);
+    gl.free_buffer(fb).unwrap();
+    assert_eq!(gl.free_buffer(fb).unwrap_err().kind, ErrorKind::Misuse);
+    gl.free_texture(texture).unwrap();
+    gl.free_program(program).unwrap();
+    gl.check().unwrap();
+    gl.create_buffer(8, 8).unwrap();
+    drop(gl);
+}
+
+// An upright frame's free and a buffer's free each refuse the other's
+// framebuffer, reaching no GL: the refused free leaves the frame's texture
+// and the buffer as they were, and each frees by its own call
+#[test]
+fn a_frames_free_and_a_buffers_free_refuse_each_others_framebuffer() {
+    let mut gl = software();
+    let buffer = gl.create_buffer(4, 4).unwrap();
+    let (texture, frame) = gl.create_frame(4, 4).unwrap();
+    let e = gl.free_frame(buffer, texture).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    let e = gl.free_buffer(frame).unwrap_err();
+    assert_eq!(e.kind, ErrorKind::Misuse, "{e}");
+    gl.fill_texture(texture, rect(0, 0, 1, 1), &[0; 4], 4)
+        .unwrap();
+    gl.clear(buffer, (4, 4), rect(0, 0, 4, 4), 0x10_2030)
+        .unwrap();
+    gl.check().unwrap();
+    let mut out = vec![0u8; 4 * 4 * 4];
+    gl.read(buffer, rect(0, 0, 4, 4), &mut out).unwrap();
+    assert!(out.chunks(4).all(|p| p == [0x10, 0x20, 0x30, 0xFF]));
+    gl.free_frame(frame, texture).unwrap();
+    gl.free_buffer(buffer).unwrap();
     gl.check().unwrap();
 }
 

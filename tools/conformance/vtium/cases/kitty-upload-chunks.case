@@ -1,0 +1,8 @@
+# An upload in two chunks gets one reply, at its last chunk.
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support and available transmission mediums": "the terminal emulator will reply after trying to load the image, saying whether loading was successful or not"; ADR-1100 D16, "One answer for an upload"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "\e_Gm=0;AP8A\e\\"
+send "\e_Ga=p,i=1,C=1\e\\"

@@ -480,6 +480,28 @@ fn builtin_strike(name: Option<&'static str>, cell: Cell, locale: &str) -> (&'st
     (name.unwrap_or_else(|| builtin_name(height, locale)), height)
 }
 
+/// Whether a built-in glyph `drawn` pixels wide, in a cluster of
+/// `cells` cells of `cell`, is squeezed to fit them, the last step of the
+/// fallback (ADR-1302 D14): when it is exactly twice their width, or
+/// wider than them and 2 pixels more.
+pub fn squeezed(drawn: u32, cell: Cell, cells: u32) -> bool {
+    let w = cell.width.saturating_mul(cells);
+    drawn == w.saturating_mul(2) || drawn > w.saturating_add(2)
+}
+
+/// Whether the built-in fonts, drawing in `cell` under `locale`, squeeze
+/// `c` to fit its cells ([`squeezed`]); false where they lack it.
+pub fn builtin_squeezes(c: char, cell: Cell, locale: &str) -> bool {
+    let Some(face) = builtin_in(None, cell, locale) else {
+        return false;
+    };
+    let cells = u32::from(vtium_term::cluster_width(&[c]).max(1));
+    face.has_glyph(c)
+        && face
+            .draw(&[c], vtium_font::Style::default())
+            .is_some_and(|g| squeezed(g.width(), cell, cells))
+}
+
 /// The built-in face that draws in `cell`: the strike
 /// [`builtin_strike`] chooses, at its height.
 fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<DisplayFace> {
@@ -1154,6 +1176,34 @@ pub fn zoom(rungs: &[Rung], size: u32, dir: Zoom) -> Option<u32> {
 mod tests {
     use super::*;
     use crate::scratch::Scratch;
+    use vtium_font::Width;
+
+    // ADR-1302 D14: a glyph is squeezed when it is exactly twice its
+    // cells' width, or wider than them and 2 pixels more; the built-in
+    // GNU Unifont squeezes its 16-pixel Devanagari into one 8x16 cell,
+    // and neither a Latin letter nor, in tiny5's 6x9 cell, Unscii-8's
+    #[test]
+    fn a_built_in_glyph_is_squeezed_past_its_cells_and_two_pixels() {
+        let c816 = Cell {
+            width: 8,
+            height: 16,
+        };
+        assert!(squeezed(16, c816, 1));
+        assert!(squeezed(11, c816, 1));
+        assert!(!squeezed(10, c816, 1));
+        assert!(!squeezed(9, c816, 1));
+        assert!(!squeezed(8, c816, 1));
+        assert!(!squeezed(16, c816, 2));
+        assert!(squeezed(32, c816, 2));
+        assert!(builtin_squeezes('\u{915}', c816, "hi_IN"));
+        assert!(!builtin_squeezes('A', c816, "hi_IN"));
+        assert!(!builtin_squeezes('\u{4e00}', c816, "zh_CN"));
+        let tiny5 = Cell {
+            width: 6,
+            height: 9,
+        };
+        assert!(!builtin_squeezes('A', tiny5, "C"));
+    }
 
     fn config(args: &[&str]) -> Config {
         let args: Vec<std::ffi::OsString> = args.iter().map(Into::into).collect();
@@ -1600,17 +1650,15 @@ mod tests {
     }
 
     // ADR-1200 D7: a look's 6x16 cell is 16 pixels tall but narrower than
-    // unifont's 8 columns, so the built-ins draw Unscii-8 in it, cut a
-    // column from each side and centered down the cell, and OSC 50's query
-    // names the strike that draws
+    // unifont's 8 columns, so the built-ins draw Unscii-8 in it, centered
+    // down the cell and on it, its first column in the cell before it, and
+    // OSC 50's query names the strike that draws
     #[test]
     fn a_looks_cell_too_narrow_for_unifont_draws_and_names_unscii_8() {
         let font = Chosen::builtins(Some(cell(6, 16)));
         assert_eq!(font.name(16, "C"), "unscii-8");
-        let a = font
-            .face(16, "C")
-            .expect("a face")
-            .draw(&['A'], vtium_font::Style::default())
+        let a = vtium_font::Font::new(font.face(16, "C").expect("a face"))
+            .glyph(&['A'], Width::Narrow, vtium_font::Style::default())
             .expect("a glyph");
         assert_eq!((a.width(), a.height()), (6, 16));
         let unscii = Chosen::Builtin {
@@ -1626,6 +1674,10 @@ mod tests {
                 assert_eq!(a.pixel(x, y + 4), unscii.pixel(x + 1, y), "{x},{y}");
             }
         }
+        // Unscii-8's first column lies in the cell before, in the glyph's
+        // ink box where it holds ink
+        let first = (0..8).any(|y| unscii.pixel(0, y).is_some_and(|p| p[0] > 0));
+        assert_eq!(a.ink().map(|i| i.left()), first.then_some(-1));
         // a zoom to twice the cell, 12x32, fits unifont's 8x16 once, so
         // unifont draws there, and is named
         assert_eq!(font.name(32, "C"), "unifont");
@@ -1740,10 +1792,12 @@ mod tests {
         let f = frit_font(Some(cell(7, 12)));
         let face = f.face(12, "C").expect("a face");
         assert_eq!(face.cell(), cell(7, 12));
-        let a = face
-            .draw(&['A'], vtium_font::Style::default())
+        let a = vtium_font::Font::new(face)
+            .glyph(&['A'], Width::Narrow, vtium_font::Style::default())
             .expect("a glyph");
         assert_eq!((a.width(), a.height()), (7, 12));
+        // the 8th column, past the cell's right edge, is blank
+        assert!(a.ink().is_none());
         let unscii = Chosen::Builtin {
             name: Some("unscii-8"),
             cell: None,
@@ -1752,7 +1806,7 @@ mod tests {
         .expect("unscii-8")
         .draw(&['A'], vtium_font::Style::default())
         .expect("a glyph");
-        // Unscii-8's 8x8, two rows down, its last column cropped
+        // Unscii-8's 8x8, two rows down, its first 7 columns in the cell
         for y in 0..8 {
             for x in 0..7 {
                 assert_eq!(a.pixel(x, y + 2), unscii.pixel(x, y), "{x},{y}");
@@ -1760,15 +1814,18 @@ mod tests {
         }
     }
 
-    // ADR-1200 D7: Tiny5 Mono's 6x9 cell is narrower than Unscii-8's
-    // 8x8, so the built-in glyph is centered and cut evenly, a column off
-    // each side, as a glyph wider than its cells is cut; it is never
-    // scaled. It sits in the top 8 rows, its
-    // baseline on Tiny5 Mono's, and the 9th row is blank.
+    // covers: text.overhang
+    // ADR-1200 D7, ADR-1302 D14: Tiny5 Mono's 6x9 cell is narrower than
+    // Unscii-8's 8x8, so the built-in glyph keeps all 8 of its columns,
+    // centred on the cell: its first column lies in the cell before it and
+    // its 8th, which Unscii-8 leaves blank, in the cell after it. It is
+    // never squeezed, since it is at most 2 pixels wider than the cell. It
+    // sits in the top 8 rows, its baseline on Tiny5 Mono's, and the 9th row
+    // is blank.
     #[test]
-    fn unscii_8_in_a_narrower_cell_is_centered_and_cut_evenly() {
+    fn unscii_8_in_a_narrower_cell_keeps_every_column() {
         let f = frit_font(Some(cell(6, 9)));
-        let face = f.face(9, "C").expect("a face");
+        let face = vtium_font::Font::new(f.face(9, "C").expect("a face"));
         assert_eq!(face.cell(), cell(6, 9));
         let builtin = Chosen::Builtin {
             name: Some("unscii-8"),
@@ -1776,37 +1833,30 @@ mod tests {
         }
         .face(8, "C")
         .expect("unscii-8");
-        let rows = |g: &vtium_font::Glyph| -> Vec<String> {
-            (0..g.height())
-                .map(|y| {
-                    (0..g.width())
-                        .map(|x| {
-                            if g.pixel(x, y).is_some_and(|p| p.iter().any(|&b| b > 0)) {
-                                '#'
-                            } else {
-                                '.'
-                            }
-                        })
-                        .collect()
-                })
+        let rows = |px: &[u8], w: usize| -> Vec<String> {
+            px.chunks_exact(w)
+                .map(|r| r.iter().map(|&b| if b > 0 { '#' } else { '.' }).collect())
                 .collect()
         };
-        let draw = |face: &DisplayFace, c| {
-            face.draw(&[c], vtium_font::Style::default())
+        let draw = |c| {
+            face.glyph(&[c], Width::Narrow, vtium_font::Style::default())
                 .expect("a glyph")
         };
-        let m = draw(&face, 'M');
+        let m = draw('M');
         assert_eq!((m.width(), m.height()), (6, 9));
+        let ink = m.ink().expect("an ink box");
+        assert_eq!((ink.left(), ink.top(), ink.width()), (-1, 0, 7));
         assert_eq!(
-            rows(&m),
+            rows(ink.pixels(), 7),
             [
-                "#...##", "##.###", "######", "#.#.##", "#...##", "#...##", "#...##", "......",
-                "......"
+                "##...##", "###.###", "#######", "##.#.##", "##...##", "##...##", "##...##",
+                ".......", "......."
             ],
-            "Unscii-8's M less its first and last columns"
+            "Unscii-8's M, its first column in the cell before"
         );
         for c in ['A', 'M', 'g', 'y', '#', '|'] {
-            let (g, own) = (draw(&face, c), draw(&builtin, c));
+            let (g, own) = (draw(c), builtin.draw(&[c], vtium_font::Style::default()));
+            let own = own.expect("a glyph");
             for y in 0..8 {
                 for x in 0..6 {
                     assert_eq!(g.pixel(x, y), own.pixel(x + 1, y), "{c} at {x},{y}");
@@ -1816,6 +1866,7 @@ mod tests {
                 (0..6).all(|x| g.pixel(x, 8) == Some(&[0][..])),
                 "{c}'s 9th row"
             );
+            assert!(g.pixels().iter().all(|&p| p == 0 || p == 255), "{c}");
         }
     }
 

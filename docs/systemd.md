@@ -124,13 +124,23 @@ The unit's `IgnoreOnIsolate=yes` keeps vtium running when systemd isolates any o
 
 ### Turning vtium off for one boot
 
-**Where:** `crates/vtium/src/kernel.rs` (`off_at_start`). It reads `/proc/cmdline` as vtium's first step.
+**Where:** `crates/vtium/src/kernel.rs` (`off_at_start`). It reads `/proc/cmdline` as vtium's first step. `crates/vtium/src/getty.rs` writes the marker.
 
-**With systemd:** With `vtium.enable=0` on the kernel command line, vtium exits with status 1 at its start. It exits before it reads vtium.conf, and before it opens its VT or a card. It logs one line: "vtium is turned off for this boot: the kernel command line sets vtium.enable=0." The last `vtium.enable=` on the line decides. Any other value leaves vtium on. `vtium check-config`, `--help` and `--version` still run on such a boot, so you can check vtium.conf. The unit counts the exit as a failure, so the getty fallback gives each VT a login prompt. `systemd.unit=rescue.target` also works, and vtium steps aside for it, as [Rescue and emergency mode](#rescue-and-emergency-mode) describes.
+**With systemd:** With `vtium.enable=0` on the kernel command line, vtium exits with status 1 at its start. It exits before it opens its VT or a card. The last `vtium.enable=` on the line decides. Any other value leaves vtium on. `vtium check-config`, `--help` and `--version` still run on such a boot, so you can check vtium.conf.
+
+Before vtium exits, it reads the policy of vtium.conf, and no other line of the file. It checks the file's owner and mode first, as at any start. What happens next depends on the policy:
+
+- **Under the closed policy,** vtium writes the marker `/run/vtium/ttyN.closed` for its VT, as a start under the closed policy does. The unit counts the exit as a failure, and its getty fallback finds the marker and skips the getty. So no login prompt starts on the VT. A policy line that vtium cannot read counts as closed here too. vtium logs: "vtium is turned off for this boot: the kernel command line sets vtium.enable=0. vtium.conf's policy is closed, so no login prompt starts on this VT."
+- **Under the open policy,** vtium removes the marker if one is there. The getty fallback then gives the VT a login prompt. vtium logs: "vtium is turned off for this boot: the kernel command line sets vtium.enable=0."
+- **When vtium.conf is missing, or vtium cannot trust or read the file,** vtium reads no policy from it, so the open policy applies. vtium logs why it did not read the file, and the getty fallback gives the VT a login prompt.
+
+So on a closed machine, the key turns vtium off but starts no login prompt on vtium's VTs. The kernel command line can still change what the machine runs at boot in other ways, for example with `init=` or `systemd.unit=rescue.target`. If you run a closed vtium.conf, set a password on your boot loader, so that only you can edit the kernel command line.
+
+`systemd.unit=rescue.target` is the other way to boot once without vtium, under either policy. vtium steps aside for rescue mode, and the rescue shell asks for root's password. See [Rescue and emergency mode](#rescue-and-emergency-mode) for details.
 
 Masking vtium's unit does not turn vtium off on every VT. logind starts vtium on a VT through the template link `autovt@.service`. A mask such as `systemd.mask=vtium@tty2.service` does not reach a unit loaded through a link. After the claim, VT 1 has no getty enabled. So a mask of `vtium@tty1.service` leaves VT 1 with no console.
 
-**Without systemd:** `vtium.enable=0` makes vtium exit with status 1 in the same way. The init system then chooses what runs on the VT, as after any exit of vtium.
+**Without systemd:** `vtium.enable=0` makes vtium exit with status 1 in the same way, and vtium writes or removes the marker by the same policy. The init system then chooses what runs on the VT, as after any exit of vtium. No init system but systemd reads the marker.
 
 **Under elogind:** As without systemd.
 

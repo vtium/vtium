@@ -121,6 +121,14 @@ its crate:
 	the emoji sequences, the letters that join to their neighbors and the
 	script ranges that vtium-config's shaping reads.
 
+The locale data table, built into vtium: crates/vtium-font/src/letters/data.rs,
+which vtium-config's gen-shaping makes from the main exemplar characters of
+the Unicode Common Locale Data Repository (CLDR) 49, Copyright © 2001-2026
+Unicode, Inc., under the Unicode License v3, whose text is at the end of this
+file and in crates/vtium-config/gen-shaping/src/cldr-license.txt. It lists the
+everyday letters of each language that vtium check-config checks a font set
+for. The table carries the notice.
+
 The tests' Unicode data, crates/vtium-term/src/unicode/grapheme_break_test.txt
 and crates/vtium-term/src/unicode/above_marks.txt beside it, and
 crates/vtium-term/src/unicode/bidi/bidi_test.txt and
@@ -172,6 +180,30 @@ Open Font License 1.1. The licence's text is
 crates/vtium-config/tests/fixtures/NotoNaskhArabic-LICENSE.txt, and the
 fixtures' README says how the subset was made. The tests read it; vtium
 installs none of it.
+
+The shaping goldens, the test fixtures in crates/vtium-config/tests/harfbuzz/:
+cases.tsv, test cases from HarfRust 0.12.0's harfrust/tests/shaping/in_house.rs,
+which hold HarfBuzz's test inputs and the output of HarfBuzz's hb-shape for
+them, under HarfRust's MIT licence and HarfBuzz's MIT ("Old MIT") licence;
+and the fonts in fonts/ beside it, subsets of Noto fonts from HarfBuzz's
+tests, Copyright 2013-2018 Google Inc., 2019-2022 Google LLC and 2022 The
+Noto Project Authors, under the SIL Open Font License 1.1 or, for a build
+published before 2015-09-25, the Apache License 2.0. The licences' texts are
+HarfRust-LICENSE.txt, HarfBuzz-COPYING.txt, Noto-LICENSE.txt and
+Apache-2.0.txt in the same directory, and its README says how the cases were
+copied. The tests read them; vtium installs none of them.
+
+The real keyboard layouts of the keyboard tests, the files us.xkb, ru.xkb,
+de.xkb and fr.xkb in crates/vtium-platform/tests/keymaps/: xkeyboard-config
+2.49's US, Russian, German and French layouts, as `xkbcli compile-keymap`
+compiles them, unchanged. vtium does not change these layouts; it only uses
+them. They come under xkeyboard-config's copyright and permission notices, a
+set of X11 and MIT-style notices from the holders its COPYING file names,
+among them Joseph Moss, the Free Software Foundation, Digital Equipment
+Corporation and The Open Group. That COPYING file's text is
+crates/vtium-platform/tests/keymaps/xkeyboard-config-COPYING, unchanged, and
+the fixtures' README says how the files are made. vtium's tests read them; no
+vtium binary includes them, and no vtium package installs them.
 
 The panic screen's drawing of Tux, the Linux penguin, panicked inside a
 computer monitor (crates/vtium/art/), built into vtium: the maintainer's

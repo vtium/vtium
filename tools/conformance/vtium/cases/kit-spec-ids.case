@@ -1,0 +1,40 @@
+# Image ids and placement ids. A placement id on an image with no id is
+# ignored, so two such puts make two placements and no reply. The
+# largest id and placement id are answered with both. p=0 makes another
+# placement each time. Two overlapping placements at one z draw the
+# lower image id below, whatever order they arrive in. i and I together
+# are refused in a put and in a delete. d=n with p deletes only that
+# placement of the newest image with the number.
+#
+# References: ADR-1100 D4 and D15.
+# spec: kitty graphics protocol, "Display images on screen", "Controlling displayed image layout", "Deleting images" and "Requesting image ids from the terminal"
+# covers: image.kitty
+size 12 4
+
+# Two images with no id, each with p=3, at columns 1 and 3 of row 1.
+send "\e_Ga=T,f=24,s=1,v=1,p=3,C=1;/wAA\e\\"
+send "\e[1;3H\e_Ga=T,f=24,s=1,v=1,p=3,C=1;AP8A\e\\"
+
+# The largest image id and placement id, at column 5 of row 1.
+send "\e[1;5H\e_Ga=T,f=24,s=1,v=1,i=4294967295,p=4294967295,C=1;AAD/\e\\"
+
+# Image 5 put twice with p=0, at columns 1 and 3 of row 2.
+send "\e_Ga=t,f=24,s=1,v=1,i=5,q=1;////\e\\"
+send "\e[2;1H\e_Ga=p,i=5,p=0,C=1\e\\"
+send "\e[2;3H\e_Ga=p,i=5,p=0,C=1\e\\"
+
+# Image 9, then image 8, both at column 1 of row 3 and z 0.
+send "\e[3;1H\e_Ga=T,f=24,s=1,v=1,i=9,C=1;//8A\e\\"
+send "\e_Ga=T,f=24,s=1,v=1,i=8,C=1;AP//\e\\"
+dump
+
+# i and I together, in a put and in a delete. Neither changes anything.
+send "\e_Ga=p,i=5,I=5,C=1\e\\"
+send "\e_Ga=d,d=i,i=5,I=5\e\\"
+
+# Image number 20, put as placement 1 at column 1 and placement 2 at
+# column 3 of row 4. d=n with p=1 then deletes placement 1 only.
+send "\e_Ga=t,f=24,s=1,v=1,I=20;/wAA\e\\"
+send "\e[4;1H\e_Ga=p,I=20,p=1,C=1\e\\"
+send "\e[4;3H\e_Ga=p,I=20,p=2,C=1\e\\"
+send "\e_Ga=d,d=n,I=20,p=1\e\\"

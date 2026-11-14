@@ -25,6 +25,8 @@ pub(crate) struct Connector {
     /// The connector's number among those of its kind.
     pub(crate) kind_id: u32,
     pub(crate) connected: bool,
+    /// The kernel has not yet detected whether a monitor is connected.
+    pub(crate) unknown: bool,
     pub(crate) modes: Vec<Mode>,
     /// The physical size in millimetres, across and down, as the kernel
     /// reads it from the EDID; 0 where it has none.
@@ -42,6 +44,7 @@ pub(crate) struct ConnectorRead {
     pub(crate) kind: u32,
     pub(crate) kind_id: u32,
     pub(crate) connected: bool,
+    pub(crate) unknown: bool,
     pub(crate) mm: (u32, u32),
     pub(crate) encoder: u32,
     pub(crate) modes: usize,
@@ -142,7 +145,27 @@ pub(crate) trait Kms {
     /// reads, as when the connector was torn down and its id given to
     /// another. The caller reads it again the next time it needs it.
     fn connector(&self, id: u32) -> io::Result<Connector> {
-        let first = self.read_connector(id, &mut [], &mut [])?;
+        self.read_whole_connector(id, true)
+    }
+
+    /// Connector `id` as the kernel last detected it, read without a
+    /// probe: its first read has room for one mode, and the kernel probes
+    /// only for a read by DRM master with no room for modes
+    /// (`drm_mode_getconnector` in `drivers/gpu/drm/drm_connector.c`), as
+    /// libdrm's `drmModeGetConnectorCurrent` reads it.
+    fn connector_current(&self, id: u32) -> io::Result<Connector> {
+        self.read_whole_connector(id, false)
+    }
+
+    /// A connector in two reads, the first of which probes it where
+    /// `probe` asks.
+    fn read_whole_connector(&self, id: u32, probe: bool) -> io::Result<Connector> {
+        let mut room = [Mode::default()];
+        let first = if probe {
+            self.read_connector(id, &mut [], &mut [])?
+        } else {
+            self.read_connector(id, &mut room, &mut [])?
+        };
         let modes_len = within(first.modes, MODES_MAX, "modes")?;
         let encoders_len = within(first.encoders, ENCODERS_MAX, "encoders")?;
         // Room for one mode where it has none, so the second read does not
@@ -158,6 +181,7 @@ pub(crate) trait Kms {
             kind: info.kind,
             kind_id: info.kind_id,
             connected: info.connected,
+            unknown: info.unknown,
             modes,
             mm: info.mm,
             encoder: info.encoder,

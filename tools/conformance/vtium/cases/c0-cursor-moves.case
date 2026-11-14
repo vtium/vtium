@@ -1,0 +1,25 @@
+# BS moves the cursor left and stops at the first column, and from a
+# pending wrap it moves left from the last column. HT moves to the next
+# tab stop, or to the last column. CR moves to the first column. LF, VT
+# and FF move down and keep the column while LNM is reset, and also move
+# to the first column while it is set. At the last row, LF scrolls.
+# spec: ECMA-48 8.3.5 BS, 8.3.60 HT, 8.3.15 CR, 8.3.74 LF, 8.3.161 VT and 8.3.51 FF; the VT510 manual, LNM
+# covers: ANSI-20
+size 10 4
+send "\bab\bX"
+dump state
+send "\r0123456789"
+dump state
+send "\bY"
+dump state
+send "\r\tT\t\tU"
+dump state
+# RIS, then LF, VT and FF with LNM reset, and again with LNM set.
+send "\ec"
+send "a\nb\x0bc\x0cd"
+dump state
+send "\ec"
+send "\e[20ha\nb\x0bc\x0cd"
+dump state
+send "\n\n\n"
+dump state

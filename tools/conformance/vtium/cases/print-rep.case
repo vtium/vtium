@@ -1,0 +1,20 @@
+# REP prints the last printed character again, as many times as its
+# count says, where an omitted or zero count means 1. The copies take the
+# path printed text takes, so they wrap and scroll. REP repeats the last
+# character even after a carriage return and a line feed, and each copy
+# takes the pen in force when REP runs.
+# spec: ctlseqs, REP ("Repeat the preceding graphic character Ps times"); ECMA-48 8.3.103 REP
+# covers: text.rep
+size 10 4
+send "ab\e[3b"
+dump state
+send "\r\nx\e[b"
+dump state
+send "\r\nyz\e[0b"
+dump state
+send "\r\n\e[3b"
+dump state
+send "q\e[99b"
+dump state
+send "\e[4;9H\e[1;31mR\e[m\e[5b"
+dump state

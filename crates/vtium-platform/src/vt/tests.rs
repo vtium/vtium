@@ -41,6 +41,9 @@ fn key(mods: Mods, sym: u32) -> KeyEvent {
     KeyEvent {
         keycode: 0,
         ascii: 0,
+        unshifted: 0,
+        shifted: 0,
+        base: None,
         mods,
         keysyms: vec![sym],
         codepoints: vec![None],
@@ -1349,4 +1352,91 @@ fn the_vt_keys_switch_with_the_locks_on() {
         super::kernel::switch_target(&key(locks, keysyms::KEY_XF86Switch_VT_3)),
         Some(3)
     );
+}
+
+/// Runs `f` with SIGUSR2 blocked in this thread, as the loop's signalfd
+/// blocks it, and puts the thread's mask back after. A test raises the
+/// signal at its own thread, so no other test's thread sees it.
+fn with_release_blocked(f: impl FnOnce()) {
+    let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+    let mut old = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+    #[expect(unsafe_code, reason = "blocking SIGUSR2 in the test's thread")]
+    // SAFETY: sigemptyset initializes `set` before sigaddset and
+    // pthread_sigmask read it, and pthread_sigmask writes the old mask
+    // into `old` before it is read back.
+    unsafe {
+        libc::sigemptyset(set.as_mut_ptr());
+        libc::sigaddset(set.as_mut_ptr(), libc::SIGUSR2);
+        assert_eq!(
+            libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), old.as_mut_ptr()),
+            0
+        );
+    }
+    f();
+    #[expect(unsafe_code, reason = "putting the test thread's mask back")]
+    // SAFETY: `old` holds the mask pthread_sigmask wrote above.
+    unsafe {
+        libc::pthread_sigmask(libc::SIG_SETMASK, old.as_ptr(), std::ptr::null_mut());
+    }
+}
+
+/// Raises SIGUSR2 at this thread, as the kernel asks for the VT.
+fn raise_release() {
+    #[expect(unsafe_code, reason = "raising a blocked signal at this thread")]
+    // SAFETY: raise sends SIGUSR2 to the calling thread, which blocks it,
+    // so it only waits among the thread's pending signals.
+    let raised = unsafe { libc::raise(libc::SIGUSR2) };
+    assert_eq!(raised, 0);
+}
+
+/// The test that [`the_release_signal_is_seen_taken_once_and_reported`]
+/// runs in a process of its own.
+const SIGNAL_CASE: &str = "vt::tests::the_release_signal_in_a_process_of_its_own";
+
+// SIGUSR2 that waits blocked among the pending signals is the kernel's
+// request for the VT: the check sees it without taking it, the take takes
+// it once, and the VT then reports the release, so the turn that takes it
+// lets the VT go (ADR-1401 D2, "A VT release while display work runs").
+// SIGUSR1, the acquire, is none of these. The case runs in a process of
+// its own, because every other test that drops a KernelVt sets SIGUSR2 to
+// be ignored for the whole process, which discards a pending one.
+#[test]
+fn the_release_signal_is_seen_taken_once_and_reported() {
+    let exe = std::env::current_exe().unwrap_or_else(|e| panic!("the test binary: {e}"));
+    let out = std::process::Command::new(exe)
+        .args([SIGNAL_CASE, "--exact", "--ignored", "--test-threads=1"])
+        .output()
+        .unwrap_or_else(|e| panic!("run the case: {e}"));
+    let said = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success() && said.contains(&format!("test {SIGNAL_CASE} ... ok")),
+        "{said}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+#[ignore = "run alone by the_release_signal_is_seen_taken_once_and_reported"]
+fn the_release_signal_in_a_process_of_its_own() {
+    with_release_blocked(|| {
+        assert!(!super::kernel::release_waits(), "nothing waits yet");
+        raise_release();
+        assert!(super::kernel::release_waits(), "the request waits");
+        assert!(super::kernel::release_waits(), "seeing it takes nothing");
+        assert!(super::kernel::take_waiting_release(), "taken");
+        assert!(!super::kernel::release_waits(), "taken once");
+        assert!(!super::kernel::take_waiting_release(), "nothing left");
+    });
+    let (console, mut vt) = shown();
+    vt.events().for_each(drop);
+    console.0.borrow_mut().pending_switch = Some(4);
+    with_release_blocked(|| {
+        vt.take_release();
+        assert_eq!(vt.events().count(), 0, "no request, no release");
+        raise_release();
+        assert!(vt.release_check().is_some_and(|asked| asked()));
+        vt.take_release();
+        assert_eq!(vt.events().collect::<Vec<_>>(), [VtEvent::Release]);
+        assert!(!vt.release_check().is_some_and(|asked| asked()), "taken");
+    });
 }

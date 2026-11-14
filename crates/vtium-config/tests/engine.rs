@@ -882,6 +882,113 @@ fn a_character_of_text_presentation_alone_keeps_the_frits_order() {
     assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
 }
 
+// covers: text.emoji
+// ADR-1302 D14, step 2 of the fallback order: U+2764 alone presents as
+// text and takes one cell, so a later source's text glyph comes before an
+// earlier source's color glyph, which would have to draw in one cell
+#[test]
+fn a_text_glyph_from_a_later_source_comes_before_a_color_glyph_in_one_cell() {
+    let w = World::new("heart-color-first");
+    text_and_color(&w);
+    let color_then_text = "source=font:Test Color\nsource=font:Test Text\n";
+    let face = drawn_for(&w, color_then_text, &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!((g.format(), g.cells()), (Format::Mask, Width::Narrow));
+}
+
+// covers: text.overhang
+// ADR-1302 D5: with no text glyph for it, U+2764 alone draws the color
+// glyph in one cell: a square as wide as the 12-pixel cell and 2 pixels
+// more, 14x14, centred, cut from the drawing at the largest cell and
+// reaching 1 pixel into each neighbour through an RGBA ink box. Each of
+// its pixels is one of the picture's colors, never an average
+#[test]
+fn a_color_glyph_in_one_cell_is_a_square_two_pixels_wider() {
+    let w = World::new("heart-color-alone");
+    text_and_color(&w);
+    let face = drawn_for(&w, "source=font:Test Color\n", &[0x2764], &[]);
+    let g = face
+        .draw(&['\u{2764}'], Style::default())
+        .expect("the heart");
+    assert_eq!(
+        (g.format(), g.cells(), g.width(), g.height()),
+        (Format::Rgba, Width::Narrow, 12, 20)
+    );
+    let ink = g.ink().expect("an ink box");
+    assert_eq!(
+        (ink.left(), ink.top(), ink.width(), ink.height()),
+        (-1, 0, 14, 20)
+    );
+    let alpha = |x: usize, y: usize| ink.pixels()[(y * 14 + x) * 4 + 3];
+    let rows: Vec<usize> = (0..20)
+        .filter(|&y| (0..14).any(|x| alpha(x, y) > 0))
+        .collect();
+    // the square, rows 3 to 16, holds the picture's ink, wider than tall,
+    // across its whole width
+    assert!(rows.iter().all(|y| (3..17).contains(y)), "{rows:?}");
+    assert!(rows.iter().all(|&y| alpha(0, y) > 0 && alpha(13, y) > 0));
+    let colors: std::collections::BTreeSet<&[u8]> = ink.pixels().chunks(4).collect();
+    assert!(colors.len() <= 3, "{colors:?}");
+}
+
+// ADR-1401 D7: a coverage query's two answers. The font set's coverage
+// holds the letters its sources draw, and the installed font that covers
+// the most of the letters it lacks is named by its family: Test Color
+// holds U+2764 and U+231A, which Test Text holds too, and no font holds
+// U+10FFFD
+#[test]
+fn a_coverage_query_names_the_installed_font_that_covers_the_most() {
+    let w = World::new("coverage");
+    text_and_color(&w);
+    let engine = w.engine("source=font:Test Text\n").expect("the frit loads");
+    assert!(engine.coverage().binary_search(&0x2764).is_ok());
+    assert!(engine.coverage().binary_search(&0x10fffd).is_err());
+    let dirs = [w.path("fonts")];
+    let found = vtium_config::sources::font_covering(&['\u{2764}', '\u{231a}'], &dirs);
+    assert!(
+        matches!(found.as_deref(), Some("Test Color" | "Test Text")),
+        "{found:?}"
+    );
+    assert_eq!(
+        vtium_config::sources::font_covering(&['\u{10fffd}'], &dirs),
+        None
+    );
+    assert_eq!(vtium_config::sources::font_covering(&[], &dirs), None);
+}
+
+// ADR-1401 D7: an installed font whose family name holds a control
+// character, such as ESC or a newline, or a bidirectional override, is
+// never named: the name would inject itself into check-config's output
+// and break the source= line the note suggests
+#[test]
+fn a_family_name_that_does_not_print_as_itself_is_never_named() {
+    for (i, evil) in ["Evil\u{1b}[2J", "Two\nLines", "Turned\u{202e}", "\t"]
+        .into_iter()
+        .enumerate()
+    {
+        let w = World::new(&format!("evil-family-{i}"));
+        let mut font = ttf::test_mono();
+        font.family = evil.to_owned();
+        fs::write(w.path("fonts/Evil-Regular.ttf"), font.build()).expect("font");
+        let dirs = [w.path("fonts")];
+        assert_eq!(
+            vtium_config::sources::font_covering(&['A'], &dirs),
+            None,
+            "{evil:?}"
+        );
+        let mut clean = ttf::test_mono();
+        clean.family = "Clean Mono".to_owned();
+        fs::write(w.path("fonts/Clean-Regular.ttf"), clean.build()).expect("font");
+        assert_eq!(
+            vtium_config::sources::font_covering(&['A'], &dirs).as_deref(),
+            Some("Clean Mono"),
+            "{evil:?}"
+        );
+    }
+}
+
 // ADR-1200 D21, UTS #51 ED-8: U+FE0E asks for the text presentation, so the
 // heart with U+FE0E keeps the frit's order, and the text source draws it
 #[test]

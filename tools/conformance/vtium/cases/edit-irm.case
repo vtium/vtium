@@ -1,0 +1,18 @@
+# In insert mode (IRM), each printed character moves the rest of the
+# line right, and a character moved past the last column is lost. A wide
+# character that does not fit at the last column wraps whole to the next
+# row. With the mode reset, printed characters replace what is there.
+# spec: ECMA-48 7.2.10 IRM
+# covers: ANSI-4
+size 8 3
+send "abcdef\e[1;3H\e[4h"
+send "XY"
+dump state
+send "\e[1;7HZ"
+dump state
+send "\u{4e16}"
+dump state
+send "\e[2;1Hdefgh\e[2;1H\u{4e16}"
+dump state
+send "\e[4l\e[3;1H12345\e[3;2HW"
+dump state

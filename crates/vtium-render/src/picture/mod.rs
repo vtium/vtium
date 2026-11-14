@@ -299,6 +299,64 @@ fn geometry(p: &FramePlacement, (cw, ch): (u32, u32), (gw, gh): (i64, i64)) -> O
     })
 }
 
+/// The part of a placement's picture that the renderer draws, and its
+/// pixels: `width` by `height` display pixels at `x`, `y` from the grid's
+/// top left, premultiplied ARGB, row by row.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PlacedPicture {
+    pub x: i64,
+    pub y: i64,
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u32>,
+}
+
+/// The part of `p`'s picture that a renderer with cells of `cell` draws on
+/// a grid `grid` pixels wide and tall, with the pixels it draws there: the
+/// crop scaled to the whole picture's display size as a frame scales it,
+/// then cut to the part drawn. `None` when it draws nothing. A tool that
+/// sends a picture at its display size, as `make tier1-play` does, sends
+/// these pixels, and a renderer draws them at their own size.
+pub fn placed_picture(
+    p: &FramePlacement,
+    cell: (u32, u32),
+    (gw, gh): (u32, u32),
+) -> Option<PlacedPicture> {
+    let g = geometry(p, cell, (i64::from(gw), i64::from(gh)))?;
+    let (sx, sy, sw, sh) = g.src;
+    let (pw, ph) = (u32::try_from(g.pic.w).ok()?, u32::try_from(g.pic.h).ok()?);
+    let src = Source {
+        pixels: p.pixels.as_slice(),
+        stride: usize::try_from(p.image_width).ok()?,
+        x: sx,
+        y: sy,
+    };
+    let whole = scale::turned_copy(&src, (sw, sh), (pw, ph), Orientation::Normal);
+    let (cx, cy) = (
+        g.clip.x.checked_sub(g.pic.x)?,
+        g.clip.y.checked_sub(g.pic.y)?,
+    );
+    let (width, height) = (u32::try_from(g.clip.w).ok()?, u32::try_from(g.clip.h).ok()?);
+    let stride = usize::try_from(pw).ok()?;
+    let mut pixels =
+        Vec::with_capacity(usize::try_from(u64::from(width).checked_mul(u64::from(height))?).ok()?);
+    for row in 0..i64::from(height) {
+        let start = usize::try_from(cy.checked_add(row)?)
+            .ok()?
+            .checked_mul(stride)?;
+        let start = start.checked_add(usize::try_from(cx).ok()?)?;
+        let end = start.checked_add(usize::try_from(width).ok()?)?;
+        pixels.extend_from_slice(whole.get(start..end)?);
+    }
+    Some(PlacedPicture {
+        x: g.clip.x,
+        y: g.clip.y,
+        width,
+        height,
+        pixels,
+    })
+}
+
 /// The pictures of the frame being drawn, the copies kept between frames,
 /// and the placements the last frame drew.
 #[derive(Debug)]
@@ -796,6 +854,33 @@ mod tests {
                 out
             })
             .collect()
+    }
+
+    // a placed picture drawn at its own size is its pixels at its place,
+    // and one drawn in larger cells is scaled to their size there
+    #[test]
+    fn a_placed_picture_is_the_part_drawn_with_the_pixels_drawn_there() {
+        let all = placements();
+        let p = all.first().expect("one placement");
+        let own = placed_picture(p, (8, 16), (80, 64)).expect("drawn");
+        assert_eq!((own.x, own.y, own.width, own.height), (11, 21, 40, 30));
+        assert_eq!(own.pixels, p.pixels.as_slice());
+        let big = placed_picture(p, (16, 32), (160, 128)).expect("drawn");
+        assert_eq!((big.x, big.y, big.width, big.height), (22, 42, 80, 60));
+        let src = Source {
+            pixels: p.pixels.as_slice(),
+            stride: 40,
+            x: 0,
+            y: 0,
+        };
+        let scaled = scale::turned_copy(&src, (40, 30), (80, 60), Orientation::Normal);
+        assert_eq!(big.pixels, scaled);
+        // cut by the grid's right edge: the part drawn, its pixels the
+        // scaled picture's columns there
+        let cut = placed_picture(p, (16, 32), (64, 128)).expect("drawn");
+        assert_eq!((cut.x, cut.width, cut.height), (22, 42, 60));
+        assert_eq!(cut.pixels.get(..42), scaled.get(..42));
+        assert_eq!(cut.pixels.get(42..84), scaled.get(80..122));
     }
 
     // ADR-1100 D5: a copy that does not fit is drawn scaled for that frame,

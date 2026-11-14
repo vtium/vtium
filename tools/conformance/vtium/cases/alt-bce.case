@@ -1,0 +1,14 @@
+# Mode 1049 clears the alternate screen in the pen's background color,
+# and leaving it shows the main screen as it was, in its own colors.
+# Mode 47 with ED 2 leaves the main screen's colors as they were.
+# spec: ctlseqs, DECSET 47 and 1049; terminfo(5), bce
+# covers: DEC-1049
+size 4 3
+send "\e[44m\e[2J"
+send "\e[?1049h"
+dump state
+send "\e[42m\e[2J"
+send "\e[?1049l"
+dump state
+send "\e[m\e[?47h\e[2J\e[?47l"
+dump state

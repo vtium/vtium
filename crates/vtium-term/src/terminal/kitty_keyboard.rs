@@ -7,20 +7,31 @@
 
 use vtium_parse::Params;
 
+mod legacy;
+
 use super::State;
 use super::input::{Key, KeyEvent, key_char, sym};
 use super::reply::Query;
-use crate::bounds::KEYBOARD_FLAGS_MAX;
+use crate::bounds::{KEYBOARD_FLAGS_MAX, KEYS_HELD_MAX};
+pub(super) use legacy::legacy_release;
+pub(super) use legacy::main_key;
+use legacy::{legacy_code, legacy_csi_u};
 
 /// Flag 1, disambiguate escape codes.
 const DISAMBIGUATE: u8 = 1;
 /// Flag 2, report event types.
 const EVENT_TYPES: u8 = 2;
+/// Flag 4, report alternate keys.
+const ALTERNATES: u8 = 4;
+/// Flag 8, report all keys as escape codes.
+const ALL_KEYS: u8 = 8;
+/// Flag 16, report associated text.
+const TEXT: u8 = 16;
 
-/// The flags vtium implements: 1, disambiguate escape codes, and 2, report
-/// event types. A push or a set drops every other bit as it arrives, so the
-/// query reports only these (ADR-1005, D3 and D5).
-const IMPLEMENTED: u32 = (DISAMBIGUATE | EVENT_TYPES) as u32;
+/// The five flags the specification documents, 1 to 16. A push or a set
+/// drops every other bit as it arrives, so the query reports only these
+/// (ADR-1005, D3 and D5).
+const IMPLEMENTED: u32 = (DISAMBIGUATE | EVENT_TYPES | ALTERNATES | ALL_KEYS | TEXT) as u32;
 
 /// The flags saved under the set in force: one level fewer than the
 /// bound, which counts the set in force.
@@ -70,11 +81,23 @@ impl Stack {
     }
 }
 
+/// A key held whose release the program is owed: the keysym its press
+/// reported, and the flags in force at the press, which choose the
+/// release's form.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Held {
+    keysym: u32,
+    flags: u8,
+}
+
 /// The flags of the main screen and of the alternate screen (ADR-1005,
-/// D3).
+/// D3), and the keys held whose release the program is owed (D7), newest
+/// last.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Keyboard {
     stacks: [Stack; 2],
+    held: [Held; KEYS_HELD_MAX],
+    held_len: usize,
 }
 
 impl Keyboard {
@@ -88,6 +111,35 @@ impl Keyboard {
 
     fn stack(&mut self, alternate: bool) -> Option<&mut Stack> {
         self.stacks.get_mut(usize::from(alternate))
+    }
+
+    /// The press of the key that reports `keysym`: its release is owed,
+    /// with the flags `owed` gives, or not owed at all. A press with the
+    /// record full drops the oldest key held.
+    pub(super) fn pressed(&mut self, keysym: u32, owed: Option<u8>) {
+        self.take(keysym);
+        let Some(flags) = owed else {
+            return;
+        };
+        if self.held_len == KEYS_HELD_MAX {
+            self.held.copy_within(1.., 0);
+            self.held_len = KEYS_HELD_MAX - 1;
+        }
+        if let Some(slot) = self.held.get_mut(self.held_len) {
+            *slot = Held { keysym, flags };
+            self.held_len = self.held_len.saturating_add(1);
+        }
+    }
+
+    /// The release of the key that reports `keysym`: the flags in force at
+    /// its press when its release is owed, and the key is no longer held.
+    pub(super) fn take(&mut self, keysym: u32) -> Option<u8> {
+        let held = self.held.get(..self.held_len)?;
+        let i = held.iter().position(|h| h.keysym == keysym)?;
+        let flags = held.get(i)?.flags;
+        self.held.copy_within(i.saturating_add(1)..self.held_len, i);
+        self.held_len = self.held_len.saturating_sub(1);
+        Some(flags)
     }
 }
 
@@ -170,13 +222,39 @@ enum Kind {
     /// A keypad key that types `char` with its own number for the escape
     /// code.
     KeypadText(char, u32),
-    /// A modifier or lock key, which only flag 8 reports.
-    Modifier,
+    /// A modifier or lock key, which only flag 8 reports, with its number
+    /// from the table, or `None` for Shift_Lock, which the table does not
+    /// name.
+    Modifier(Option<u32>),
 }
 
 /// The kitty number of F13 to F35, and of the keypad's keys from KP_0.
 const F13: u32 = 57376;
 const KP_0: u32 = 57399;
+/// The first number of the Unicode Private Use Area, where the table
+/// numbers every key that has no legacy encoding.
+const PRIVATE_USE: u32 = 57344;
+
+/// The numbers of Shift_L to Hyper_R, in keysym order: Shift_L, Shift_R,
+/// Control_L, Control_R, Caps_Lock, Shift_Lock, Meta_L, Meta_R, Alt_L,
+/// Alt_R, Super_L, Super_R, Hyper_L and Hyper_R. The table names no
+/// Shift_Lock.
+const MODIFIER_KEYS: [Option<u32>; 14] = [
+    Some(57441),
+    Some(57447),
+    Some(57442),
+    Some(57448),
+    Some(57358),
+    None,
+    Some(57446),
+    Some(57452),
+    Some(57443),
+    Some(57449),
+    Some(57444),
+    Some(57450),
+    Some(57445),
+    Some(57451),
+];
 
 /// The specification's reading of a keysym, or `None` for a key that is
 /// either text or a key the specification gives no number.
@@ -206,9 +284,9 @@ fn kind(keysym: u32) -> Option<Kind> {
         // F1, F2 and F4 are letters; F3's `CSI R` would read as a cursor
         // position report, so it is `CSI 13 ~`. PF1 to PF4 are F1 to F4.
         sym::F1 | sym::KP_F1 => f(Letter(b'P')),
-        0xffbf | 0xff92 => f(Letter(b'Q')),
-        0xffc0 | 0xff93 => f(Tilde(13)),
-        0xffc1 | sym::KP_F4 => f(Letter(b'S')),
+        sym::F2 | sym::KP_F2 => f(Letter(b'Q')),
+        sym::F3 | sym::KP_F3 => f(Tilde(13)),
+        sym::F4 | sym::KP_F4 => f(Letter(b'S')),
         0xffc2..=0xffc9 => {
             const CODES: [u32; 8] = [15, 17, 18, 19, 20, 21, 23, 24];
             let i = usize::try_from(keysym.saturating_sub(0xffc2)).ok()?;
@@ -251,10 +329,13 @@ fn kind(keysym: u32) -> Option<Kind> {
         0x1008_ff11 => f(U(57438)),
         0x1008_ff13 => f(U(57439)),
         0x1008_ff12 => f(U(57440)),
-        sym::NUM_LOCK
-        | sym::SHIFT_L..=sym::HYPER_R
-        | sym::ISO_LEVEL3_SHIFT
-        | sym::ISO_LEVEL5_SHIFT => Some(Kind::Modifier),
+        sym::NUM_LOCK => Some(Kind::Modifier(Some(57360))),
+        sym::ISO_LEVEL3_SHIFT => Some(Kind::Modifier(Some(57453))),
+        sym::ISO_LEVEL5_SHIFT => Some(Kind::Modifier(Some(57454))),
+        sym::SHIFT_L..=sym::HYPER_R => {
+            let i = usize::try_from(keysym.saturating_sub(sym::SHIFT_L)).ok()?;
+            Some(Kind::Modifier(*MODIFIER_KEYS.get(i)?))
+        }
         _ => None,
     }
 }
@@ -264,6 +345,11 @@ fn kind(keysym: u32) -> Option<Kind> {
 /// text.
 const LOCKS: u8 = 64 | 128;
 const SHIFT: u8 = 1;
+const ALT: u8 = 2;
+const CTRL: u8 = 4;
+/// Super, Hyper and Meta, which no table of the legacy section has a
+/// column for.
+const SUPER_HYPER_META: u8 = 8 | 16 | 32;
 
 /// The event type a key's escape code carries, as "Event types" numbers
 /// them: a press 1, a repeat 2 and a release 3. A press is the default,
@@ -299,18 +385,75 @@ impl Event {
     }
 }
 
+/// One escape code in the specification's central form, `CSI key ;
+/// modifiers ; text final` ("An overview"). The key field is the key's
+/// number, then the shifted key and the base layout key after colons, the
+/// shifted key's sub-field left empty when only the base layout key is
+/// sent ("Key codes"). The modifiers field is 1 plus the modifier bits,
+/// then the event type after a colon for a repeat or a release ("Event
+/// types"). The text field is the text's code point ("Text as code
+/// points"). A field that holds nothing is left out, and the modifiers
+/// field is left empty where only the text follows it.
+#[derive(Clone, Copy, Debug)]
+struct Escape {
+    number: u32,
+    shifted: Option<u32>,
+    base: Option<u32>,
+    mods: u8,
+    event: Event,
+    text: Option<char>,
+    final_byte: u8,
+}
+
+impl Escape {
+    fn new(number: u32, mods: u8, event: Event, final_byte: u8) -> Self {
+        Self {
+            number,
+            shifted: None,
+            base: None,
+            mods,
+            event,
+            text: None,
+            final_byte,
+        }
+    }
+
+    fn bytes(&self) -> Vec<u8> {
+        use std::fmt::Write as _;
+        let mut out = format!("\x1b[{}", self.number);
+        if self.shifted.is_some() || self.base.is_some() {
+            out.push(':');
+            if let Some(shifted) = self.shifted {
+                let _ = write!(out, "{shifted}");
+            }
+            if let Some(base) = self.base {
+                let _ = write!(out, ":{base}");
+            }
+        }
+        let modifiers = self.mods != 0 || self.event != Event::Press;
+        if modifiers || self.text.is_some() {
+            out.push(';');
+        }
+        if modifiers {
+            let _ = write!(out, "{}", u16::from(self.mods) + 1);
+            if self.event != Event::Press {
+                let _ = write!(out, ":{}", self.event.number());
+            }
+        }
+        if let Some(text) = self.text {
+            let _ = write!(out, ";{}", u32::from(text));
+        }
+        out.push(char::from(self.final_byte));
+        out.into_bytes()
+    }
+}
+
 /// `CSI number ; modifiers final`, the modifiers left out when there are
 /// none and the event is a press, and `CSI number ; modifiers : event
 /// final` for a repeat or a release, the modifiers 1 when there are none
 /// ("Event types").
 fn csi(number: u32, mods: u8, event: Event, final_byte: u8) -> Vec<u8> {
-    let f = char::from(final_byte);
-    let m = u16::from(mods) + 1;
-    match event {
-        Event::Press if mods == 0 => format!("\x1b[{number}{f}").into_bytes(),
-        Event::Press => format!("\x1b[{number};{m}{f}").into_bytes(),
-        _ => format!("\x1b[{number};{m}:{}{f}", event.number()).into_bytes(),
-    }
+    Escape::new(number, mods, event, final_byte).bytes()
 }
 
 /// A functional key's code: `CSI number ; modifiers u` or `~`, or a
@@ -349,9 +492,60 @@ fn text_code(unshifted: u32, ch: char) -> u32 {
     }
 }
 
+/// The character a key that makes text made, after Shift, or `None` for a
+/// key that makes none.
+fn made_char(key: &Key, keysym: u32) -> Option<char> {
+    key_char(keysym, key.text)
+        .and_then(char::from_u32)
+        .or_else(|| keysym_char(keysym))
+}
+
+/// Whether a press under `flags` owes the program its release, decided as
+/// the press goes out (ADR-1005, D7). Only flag 2 reports releases.
+///
+/// - With flag 1 or flag 8, a key whose press is an escape code gets its
+///   release: every functional key, and a key held with a modifier other
+///   than Shift and the locks. A key that sends its text gets none, and
+///   neither do Enter, Tab and Backspace, unless flag 8 is in force, as
+///   "Report event types" says. Under flag 8 every key with a number gets
+///   one.
+/// - Without them, a key gets its release where "Legacy key event
+///   encoding" gives it an escape code with a modifiers field, apart from
+///   Enter, Tab and Backspace, and a key that makes text gets one too, as
+///   the maintainer decided on 2026-11-13.
+pub(super) fn owes_release(key: &Key, keysym: u32, unshifted: u32, flags: u8) -> bool {
+    if flags & EVENT_TYPES == 0 {
+        return false;
+    }
+    let all = flags & ALL_KEYS != 0;
+    let plain = key.mods.kitty() & !LOCKS & !SHIFT == 0;
+    if disambiguates(flags) {
+        return match kind(keysym) {
+            Some(Kind::Modifier(number)) => all && number.is_some(),
+            Some(Kind::Legacy(_)) => all,
+            Some(Kind::Functional(_)) => true,
+            Some(Kind::KeypadText(..)) => all || !plain,
+            None => made_char(key, keysym).is_some() && (all || !plain),
+        };
+    }
+    // The legacy section reports a keypad key as its equivalent key.
+    let keysym = main_key(keysym);
+    if legacy_code(keysym, key.mods.kitty() & !LOCKS).is_some() {
+        return true;
+    }
+    if let Some(Kind::Legacy(_)) = kind(keysym) {
+        return false;
+    }
+    if legacy_csi_u(key, keysym, unshifted).is_some() {
+        return true;
+    }
+    kind(keysym).is_none() && plain && made_char(key, keysym).is_some()
+}
+
 impl State {
     /// A key's bytes while the flags in force, `flags`, include flag 1,
-    /// disambiguate escape codes; `None` for a key that sends nothing.
+    /// disambiguate escape codes, or flag 8, report all keys as escape
+    /// codes, which implies flag 1; `None` for a key that sends nothing.
     /// `keysym` and `unshifted` are the key's, with Left and Right swapped
     /// as the host's direction asks.
     ///
@@ -359,18 +553,32 @@ impl State {
     ///   with their event types wherever the key is sent as an escape code
     ///   ("Event types"). Without it, a repeat is sent as a press and a
     ///   release sends nothing.
-    /// - Enter, Tab and Backspace send their legacy bytes with no modifier
-    ///   but the locks held, so a user can still type `reset`, and are
-    ///   `CSI 13 u`, `CSI 9 u` and `CSI 127 u` with one. They send no
-    ///   release, since flag 8 is not implemented.
+    /// - Without flag 8, Enter, Tab and Backspace send their legacy bytes
+    ///   with no modifier but the locks held, so a user can still type
+    ///   `reset`, and send no release; with a modifier they are `CSI 13
+    ///   u`, `CSI 9 u` and `CSI 127 u`. Under flag 8 they are always those
+    ///   codes, with their releases.
     /// - Every other key that sends no text is written as the
     ///   specification's table gives it, with every modifier held, the
-    ///   locks included; the keypad's keys have numbers of their own, and
-    ///   modifier keys send nothing, since flag 8 is not implemented.
-    /// - A key that sends text sends it, in the input's encoding, on a
-    ///   press and a repeat while only Shift and the locks are held, and
-    ///   nothing on its release; with any other modifier it is `CSI code ;
-    ///   modifiers u`.
+    ///   locks included; the keypad's keys have numbers of their own.
+    ///   Modifier keys send their own numbers under flag 8, and nothing
+    ///   without it.
+    /// - Without flag 8, a key that sends text sends it, in the input's
+    ///   encoding, on a press and a repeat while only Shift and the locks
+    ///   are held; with any other modifier it is `CSI code ; modifiers u`.
+    ///   A release reaches this function only where its press owed it
+    ///   ([`owes_release`]), so a release is always an escape code. Under flag 8 it is always `CSI code ;
+    ///   modifiers u`, the locks among the modifiers.
+    /// - Under flag 4, report alternate keys, a key that makes text and is
+    ///   sent as `CSI code u` carries the shifted key while Shift is held,
+    ///   the host's where it reports one and else the character the key
+    ///   made, and the base layout key the host reports, each only where
+    ///   it differs from the code ("Key codes").
+    /// - Under flags 8 and 16, report associated text, a key that makes
+    ///   text carries it in a third field, on a press and a repeat. A key
+    ///   makes text while only Shift and the locks are held, and the text
+    ///   never holds a control character ("Text as code points"). A text
+    ///   event with keysym 0 then has the code 0, on its release too.
     ///
     /// DECCKM, the keypad modes, modifyOtherKeys and modes 1034, 1035
     /// and 1036 are not consulted (ADR-1005, D6).
@@ -382,8 +590,11 @@ impl State {
         flags: u8,
     ) -> Option<Vec<u8>> {
         let event = Event::of(key, flags)?;
+        let all = flags & ALL_KEYS != 0;
         let mods = key.mods.kitty();
         let pressed = mods & !LOCKS;
+        // Only Shift and the locks are held, so the key makes its text.
+        let plain = pressed & !SHIFT == 0;
         let text = |ch: char| {
             if event == Event::Release {
                 return None;
@@ -392,8 +603,14 @@ impl State {
             self.push_char(ch, &mut out);
             Some(out)
         };
+        // Whether flag 16 puts the key's text inside the code, under flag
+        // 8. A release carries no text, but its code follows the press's.
+        let carries_text = |ch: char| all && flags & TEXT != 0 && plain && !ch.is_control();
+        let associated = |ch: char| (carries_text(ch) && event != Event::Release).then_some(ch);
         match kind(keysym) {
-            Some(Kind::Modifier) => None,
+            Some(Kind::Modifier(number)) if all => Some(csi(number?, mods, event, b'u')),
+            Some(Kind::Modifier(_)) => None,
+            Some(Kind::Legacy(code)) if all => Some(csi(code, mods, event, b'u')),
             Some(Kind::Legacy(_)) if event == Event::Release => None,
             Some(Kind::Legacy(code)) if pressed == 0 => Some(match code {
                 13 if self.modes.newline() => b"\r\n".to_vec(),
@@ -405,50 +622,49 @@ impl State {
             Some(Kind::Legacy(code)) => Some(csi(code, mods, event, b'u')),
             Some(Kind::Functional(code)) => Some(functional(code, mods, event)),
             Some(Kind::KeypadText(ch, n)) => {
-                if pressed & !SHIFT == 0 {
-                    text(key.text.filter(|c| !c.is_control()).unwrap_or(ch))
-                } else {
-                    Some(csi(n, mods, event, b'u'))
+                let ch = key.text.filter(|c| !c.is_control()).unwrap_or(ch);
+                if !all && plain && event != Event::Release {
+                    return text(ch);
                 }
+                let escape = Escape {
+                    text: associated(ch),
+                    ..Escape::new(n, mods, event, b'u')
+                };
+                Some(escape.bytes())
             }
             None => {
-                let ch = key_char(keysym, key.text)
-                    .and_then(char::from_u32)
-                    .or_else(|| keysym_char(keysym))?;
-                if pressed & !SHIFT == 0 {
-                    text(key.text.filter(|c| !c.is_control()).unwrap_or(ch))
-                } else {
-                    Some(csi(text_code(unshifted, ch), mods, event, b'u'))
+                let made = made_char(key, keysym)?;
+                let ch = key.text.filter(|c| !c.is_control()).unwrap_or(made);
+                if !all && plain && event != Event::Release {
+                    return text(ch);
                 }
+                // A text event whose keysym is 0, NoSymbol, has no key, so
+                // its code is 0 where the text field carries the text ("Text
+                // as code points"). Elsewhere the code keeps the character.
+                let code = if keysym == 0 && carries_text(ch) {
+                    0
+                } else {
+                    text_code(unshifted, made)
+                };
+                let mut escape = Escape::new(code, mods, event, b'u');
+                if flags & ALTERNATES != 0 {
+                    let shifted = keysym_char(key.shifted).unwrap_or(made);
+                    escape.shifted =
+                        Some(u32::from(shifted)).filter(|&s| mods & SHIFT != 0 && s != code);
+                    escape.base = key.base.map(u32::from).filter(|&b| b != code);
+                }
+                escape.text = associated(ch);
+                Some(escape.bytes())
             }
         }
     }
 }
 
-/// Whether the flags in force, not 0, include flag 1. Without it a key
-/// keeps the specification's legacy encoding.
+/// Whether the flags in force, not 0, include flag 1, or flag 8, which
+/// the specification says implies it ("Report all keys as escape codes").
+/// Without either, a key keeps the specification's legacy encoding.
 pub(super) fn disambiguates(flags: u8) -> bool {
-    flags & DISAMBIGUATE != 0
-}
-
-/// A repeat's or a release's escape code under flag 2 without flag 1, when
-/// the key's legacy encoding is an escape code with a modifiers field: the
-/// cursor, editing and function keys of "Legacy key event encoding", in the
-/// forms of "Functional key definitions", with the legacy encoding's
-/// modifiers, which leave out the locks. `None` for a press, and for every
-/// other key, whose release sends nothing and whose repeat sends its legacy
-/// bytes, as a press does.
-pub(super) fn legacy_event(key: &Key, keysym: u32, flags: u8) -> Option<Vec<u8>> {
-    let event = Event::of(key, flags)?;
-    if event == Event::Press {
-        return None;
-    }
-    match kind(keysym) {
-        Some(Kind::Functional(code @ (Code::Tilde(_) | Code::Letter(_)))) => {
-            Some(functional(code, key.mods.kitty() & !LOCKS, event))
-        }
-        _ => None,
-    }
+    flags & (DISAMBIGUATE | ALL_KEYS) != 0
 }
 
 #[cfg(test)]
@@ -493,7 +709,9 @@ mod tests {
         let mut seen = std::collections::BTreeMap::new();
         for keysym in (0xfe00..=0xffff).chain(0x1008_ff00..=0x1008_ffff) {
             let code = match kind(keysym) {
-                Some(Kind::Functional(Code::U(n)) | Kind::KeypadText(_, n)) => n,
+                Some(
+                    Kind::Functional(Code::U(n)) | Kind::KeypadText(_, n) | Kind::Modifier(Some(n)),
+                ) => n,
                 _ => continue,
             };
             if let Some(other) = seen.insert(code, keysym) {

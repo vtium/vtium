@@ -92,6 +92,12 @@ OPEN_LIMIT_KILLS = 2
 # is blank but for the cursor in its first cell.
 KERNEL_CELL = (8, 16)
 
+# What vtium logs when it finds no /dev/tty0 and runs on a fake VT
+# (crates/vtium/src/main.rs), and the start of what it logs of the kernel VT
+# it opens (vtium-platform's Tty::open). The no-vt check reads both.
+FAKE_VT_LINE = "vt: no VTs: using a fake VT"
+VT_LINE = "vt: using tty "
+
 # vtium's log line when no display came within display-wait under open
 # (crates/vtium/src/app.rs).
 NO_DISPLAY_LINE = re.compile(r"no display appeared within (\d+) s")
@@ -141,7 +147,8 @@ CHECKS = {
                       "crash, a hangup), and the unit's getty fallback read once systemd "
                       "has checked its condition. Correct under closed: systemd logged the "
                       "failure's result and started vtium again, which draws its first "
-                      "screen again, the fallback skipped once on its condition, the marker "
+                      "screen again, or logs again that a display no rule matches stays "
+                      "off, the fallback skipped once on its condition, the marker "
                       "still there, and no getty started on tty2 since boot and no login "
                       "session on it, read after each failure and once more at the end. "
                       "Correct under open: the fallback ran, the getty's start stopped "
@@ -206,15 +213,31 @@ CHECKS = {
                     "vtium logs that no display appeared within display-wait at least "
                     "display-wait after the switch back, since the wait starts again in full, "
                     "and the fallback starts a getty on tty2.",
+    "no-vt": "vtium on tty2 started through guest/t3-novt, which hides /dev/tty0 from vtium "
+             "alone, read once vtium runs. Correct: the guest's /dev/tty0 exists and the /dev "
+             "that vtium sees has none, vtium logged that it found no VTs and runs on a fake "
+             "VT, and no vtium logged a kernel VT it uses (ADR-1401 D3).",
+    "display-off": "A valid closed vtium.conf whose one rule places no display, on a machine "
+                   "without kernel VTs, read once vtium logged that the guest's display stays "
+                   "off. Correct: vtium turned the display's output off and set up no display, "
+                   "so it drew no notice. The capture is the screen, which QEMU draws for an "
+                   "output that is off (ADR-1401 D3, D9).",
 }
 
-# The console line of the outcome each first screen shows (ADR-1401 D7,
-# D9), which vtium also logs: a first screen is captured only once the
-# console has logged it.
+# The console line of the outcome each first screen shows (ADR-1401 D7),
+# which vtium also logs: a first screen is captured only once the console
+# has logged it.
 LINES = {"panic": "vtium.conf has errors and counts as closed: all input is off.",
          "policy-panic": "vtium.conf has errors and counts as closed: all input is off.",
-         "partly-notice": "vtium.conf has errors: running the parts without errors.",
-         "no-display-notice": "No head has a connected display."}
+         "partly-notice": "vtium.conf has errors: running the parts without errors."}
+
+# What vtium logs of a display, by its connector's name, that it leaves off
+# because no rule matches it. Under the closed policy a valid file leaves
+# such a display blank (ADR-1401 D3, D9), and vtium sets up no display.
+OFF_LINE = "display %s stays off: no rule in vtium.conf matches it"
+# What vtium logs as it sets a display's power state (vtium-platform's
+# drm2d), before the state: On or Off.
+DPMS_LINE = "setting DPMS of %s to "
 
 # The cases judged by a golden that no screen script draws: the console's
 # first screen, before any key.
@@ -238,10 +261,6 @@ FIRST = {
                      "do next (ADR-1401 D7). It covers the rows of the login prompt, "
                      "which takes keys as before. Correct: the notice over a screen "
                      "otherwise blank.",
-    "no-display-notice": "A closed vtium.conf whose one head matches no display: the "
-                         "display guard lights the guest's display for the notice "
-                         "`No head has a connected display.` alone, with what to do next "
-                         "(ADR-1401 D9). Correct: the notice, with no login prompt.",
 }
 
 
@@ -251,7 +270,9 @@ def parse_state(lines):
     "sub", "restarts"}}, "journal": [word], "gettys": {unit: (left inactive
     at, restarts)}, "queued", "timers": {unit: state}, "sessions": {id:
     tty}, "marker", "tty2", "logins", "fgconsole", "i8042", "xhci", "kbds",
-    "keys", "vtium": (pid, age) or None}; a field the answer lacks is None,
+    "keys", "vtium": (pid, age) or None, "tty0": (whether the guest's
+    /dev/tty0 exists, whether the /dev of vtium on tty2 holds it)}, each
+    reading of tty0 yes, no or none; a field the answer lacks is None,
     but "kbds", the keyboards the guest lists, which is empty, and the
     readings by unit or session, which are empty. The journal's words, in
     the order systemd logged them this boot, are failed:RESULT, restart:N,
@@ -259,7 +280,8 @@ def parse_state(lines):
     fallback."""
     out = {"units": {}, "gettys": {}, "timers": {}, "sessions": {}, "marker": None,
            "tty2": None, "logins": None, "fgconsole": None, "i8042": None, "xhci": None,
-           "kbds": [], "keys": None, "queued": [], "vtium": None, "systemd": None, "journal": None}
+           "kbds": [], "keys": None, "queued": [], "vtium": None, "systemd": None, "journal": None,
+           "tty0": None}
     for line in lines:
         f = line.split()
         if not f:
@@ -294,6 +316,8 @@ def parse_state(lines):
             out["queued"].append(" ".join(f[1:]))
         elif f[0] == "vtium" and len(f) == 3:
             out["vtium"] = (int(f[1]), float(f[2]))
+        elif f[0] == "tty0" and len(f) == 3:
+            out["tty0"] = (f[1], f[2])
     return out
 
 
@@ -1065,10 +1089,27 @@ def wait_restarted(variant, vm, work, path, pid, since, what):
                            % (what, e))
 
 
+def wait_off(variant, vm, pid, since, what):
+    """vtium on tty2 started again in place of the vtium of PID `pid`, where
+    the variant leaves its display off ("off"): its log since `since` in the
+    serial file shows the new vtium left that display off, as no rule
+    matches it (ADR-1401 D3)."""
+    line = OFF_LINE % variant["off"]
+    deadline = time.time() + STATE_TIMEOUT
+    while not any(int(p) != pid for p in re.findall(r"vtium\[(\d+)\]: " + re.escape(line),
+                                                     serial_after(vm, since))):
+        if time.time() > deadline:
+            raise RuntimeError("the vtium started again after the %s did not log %r; see %s"
+                               % (what, line, rel(vm.serial)))
+        time.sleep(0.2)
+
+
 def check_getty_fallback(variant, vm, work, caps, errors, log):
     """The getty-fallback check (CHECKS): each of the variant's failures in
     turn, judged once it has run its course. Under closed systemd starts
-    vtium again, judged by judge_restart; the agent's readings of the
+    vtium again, judged by judge_restart, and the new vtium must draw the
+    variant's first screen again, or log again that the display the variant
+    leaves off stays off (wait_off); the agent's readings of the
     gettys count from boot, so a getty that started and ended between two
     reads still shows, and they are judged once more when vtium runs on
     tty2 after the last failure. Under open, judged by judge_fallback, the
@@ -1100,6 +1141,8 @@ def check_getty_fallback(variant, vm, work, caps, errors, log):
             if why:
                 raise RuntimeError(why)
             path = os.path.join(work, case + ".ppm")
+            if closed and "off" in variant:
+                wait_off(variant, vm, before["vtium"][0], since, failure)
             if closed and "first" in variant:
                 wait_restarted(variant, vm, work, path, before["vtium"][0], since, failure)
                 caps[case] = path
@@ -1295,6 +1338,87 @@ def check_display_away(variant, vm, work, caps, errors, log):
         errors[case] = str(e)
 
 
+def judge_no_vt(state, serial):
+    """Why the agent's `state` and the console's log `serial` do not show
+    vtium on tty2 on the path for a machine without kernel VTs (CHECKS
+    "no-vt"); None when they do. The guest must hold /dev/tty0 and the /dev
+    that vtium sees must not, so that only vtium misses it. The vtium that
+    runs must log that it uses a fake VT, and no vtium may log a kernel VT."""
+    if state["tty0"] is None:
+        return "the agent gave no reading of /dev/tty0"
+    guest, seen = state["tty0"]
+    if guest != "yes":
+        return ("the guest has no /dev/tty0, so the check cannot show that vtium alone "
+                "misses it")
+    if state["vtium"] is None or seen == "none":
+        return "vtium does not run on tty2"
+    if seen != "no":
+        return "the /dev that vtium sees holds tty0, so nothing hid it from vtium"
+    pid = state["vtium"][0]
+    fake = [int(p) for p in re.findall(r"vtium\[(\d+)\]: " + re.escape(FAKE_VT_LINE), serial)]
+    if pid not in fake:
+        return "vtium on tty2 (PID %d) did not log %r" % (pid, FAKE_VT_LINE)
+    kernel = re.search(r"vtium\[\d+\]: " + re.escape(VT_LINE) + r".*", serial)
+    if kernel:
+        return "a vtium used a kernel VT: %s" % kernel.group(0)
+    return None
+
+
+def judge_display_off(serial, name):
+    """Why the console's log `serial` does not show vtium leaving display
+    `name` off (CHECKS "display-off"); None when it does. vtium must log
+    that no rule matches the display, the last power state it set on the
+    display must be off, and it must set up no display for drawing."""
+    if not re.search(r"vtium\[\d+\]: " + re.escape(OFF_LINE % name), serial):
+        return "vtium did not log %r" % (OFF_LINE % name)
+    power = re.findall(r"vtium\[\d+\]: " + re.escape(DPMS_LINE % name) + r"(\w+)", serial)
+    if not power or power[-1] != "Off":
+        return "vtium did not leave the output of %s off: %s" % (
+            name, ", ".join(power) or "it set no power state")
+    drawn = re.search(r"vtium\[\d+\]: Display %s with .*" % re.escape(name), serial)
+    if drawn:
+        return "vtium set up %s for drawing: %s" % (name, drawn.group(0))
+    return None
+
+
+def check_no_vt(variant, vm, work, caps, errors, log):
+    """The no-vt check (CHECKS): the agent's state once vtium runs on
+    tty2, and the console's log, judged by judge_no_vt. It passes with no
+    capture, since the screen shows nothing of the path vtium took."""
+    case = "no-vt"
+    try:
+        state = wait_state(vm, lambda s: unit(s, VTIUM_UNIT).get("active") == "active"
+                           and s["vtium"] is not None, "vtium running on tty2")
+        why = judge_no_vt(state, serial_after(vm, 0))
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        caps[case] = None
+    except RuntimeError as e:
+        errors[case] = str(e)
+
+
+def check_display_off(variant, vm, work, caps, errors, log):
+    """The display-off check (CHECKS): once vtium logged that the display
+    the variant leaves off ("off") stays off and turned its output off, the
+    screen captured once it has settled, then the console's log judged by
+    judge_display_off."""
+    case = "display-off"
+    name = variant["off"]
+    try:
+        vm.wait_serial(OFF_LINE % name, timeout=STATE_TIMEOUT)
+        vm.wait_serial((DPMS_LINE % name) + "Off", timeout=STATE_TIMEOUT)
+        path = os.path.join(work, case + ".ppm")
+        wait_stable(vm, path)
+        why = judge_display_off(serial_after(vm, 0), name)
+        log("%s: %s" % (case, why or "as wanted"))
+        if why:
+            raise RuntimeError(why)
+        caps[case] = path
+    except RuntimeError as e:
+        errors[case] = str(e)
+
+
 def judge_two_heads(displays, start, end, desk):
     """Why the two heads are not two (CHECKS "two-heads"), from the
     console's Display lines, the second output's capture before the login
@@ -1347,4 +1471,5 @@ CHECK_RUNS = {"no-login": check_no_login, "getty-fallback": check_getty_fallback
               "display-held": check_display_held, "display-exit": check_display_exit,
               "display-away": check_display_away,
               "two-heads": check_two_heads, "kiosk": check_kiosk,
-              "policy-line": check_policy_line, "session-survives": check_session_survives}
+              "policy-line": check_policy_line, "session-survives": check_session_survives,
+              "no-vt": check_no_vt, "display-off": check_display_off}

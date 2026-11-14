@@ -8,12 +8,11 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 
 - **The GPU path's remaining pieces.** A console built with the `gpu` feature renders on the GPU, through glow over EGL and GBM. It does so on each head whose `hwaccel` setting is on. `hwaccel` is off unless the build turns it on ([config.md](config.md)). The AUR's `vtium` and `vtium-git` packages turn it on from v0.1.0-alpha.6 on. A display wider than the GPU's largest texture is still rendered on the CPU. See [the texture tiling issue](https://github.com/vtium/vtium/issues/297).
 - **libseat,** for access to the seat through seatd or logind. A seat is the set of displays and input devices that one person uses. See [the libseat issue](https://github.com/vtium/vtium/issues/34). Today vtium opens the VT, the graphics cards, and the input devices itself, as root.
-- **Handing the display back without a VT switch,** through the `setBackground` sequence. See [the hand-back issue](https://github.com/vtium/vtium/issues/36).
+- **Handing the display to a graphical program without a VT switch.** A program in a console sends the `setBackground` sequence, and vtium lets go of the graphics cards of that console's head. The `setForeground` sequence takes them back. A program in a console that turns on focus reporting gets a focus-out when its head can no longer draw, and a focus-in when the display comes back. See [the hand-back issue](https://github.com/vtium/vtium/issues/36).
 
 These are also not built yet:
 
 - Ligatures, and shaping across character cells.
-- The rest of the kitty keyboard protocol. A program can already turn on the protocol's unambiguous escape codes, and its key repeat and release events. See [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42).
 - Input methods.
 - The rest of the configuration tool's job: identifying a device by a keypress, `vtium config status`, and staging a trial. See [the issue that tracks it](https://github.com/vtium/vtium/issues/367).
 - `vtium-clipboard`.
@@ -34,7 +33,7 @@ vtium shares the graphics card with every other program that draws on the machin
 Only one program at a time is the card's DRM master, which is the program allowed to set display modes. A program can drop master and take it again later ([kernel DRM documentation](https://docs.kernel.org/gpu/drm-uapi.html)). vtium hands the card over in the same way, whatever runs on the other VT:
 
 - vtium takes control of its VT's switching from the kernel (`VT_PROCESS`). When the kernel asks to switch away, vtium does these things in order. It blanks its buffers. It waits for a frame still on its way to the display, for at most 1 second (`FLIP_WAIT_MS`). It hides its cursor and overlay planes where they show something. It drops DRM master. Only then does it let the kernel switch.
-- When its VT comes back, vtium takes DRM master again and sets up every display. If the other program still holds master, vtium tries again every 50 ms, up to 40 times. After that, it tries again on the next key press, pointer action or hotplug.
+- When its VT comes back, vtium takes DRM master again and sets up every display. If the other program still holds master, vtium tries again every 50 ms, up to 40 times. After that, vtium tries again once a second for as long as its VT is shown. A key press, a pointer action or a hotplug also tries again at once. So a display with no keyboard, such as a kiosk's, lights up about a second after the other program lets go.
 - Where the card offers atomic commits, vtium presents each frame with an atomic commit. The commit carries the frame's damage, the regions that changed, as `FB_DAMAGE_CLIPS`. The kernel calls this an "optional plane property to mark damaged regions" ([KMS documentation](https://docs.kernel.org/gpu/drm-kms.html)). Where the card does not offer atomic commits, vtium uses the legacy calls and presents whole frames. Where there is no DRM, it presents through fbdev.
 - vtium.conf's rules can leave a display dark. vtium turns such a display off each time it sets the display modes, so a frame that another DRM master left on it goes dark. On a card with only the legacy calls, such a display still shows that frame.
 
@@ -58,11 +57,15 @@ vtium checks each display, keyboard and pointer against the rules from the top, 
 
 The file's policy, `open` or `closed`, decides what vtium does with any device the rules do not mention. Under `policy = closed`, vtium ignores any input device that no rule names. It also isolates every head unless the file says otherwise. An isolated head keeps its keyboards to itself: their VT-switch keys reach its session as plain keys, and no roaming keyboard types into it. The closed policy is the setup a kiosk needs. Under `policy = open`, a keyboard that no rule names types into the active head, and vtium guards against locking every keyboard out. [Heads](concepts/heads.md#two-policies-open-and-closed) explains the two policies.
 
+vtium shows which head is active in a small on-screen display at the top of each head. It tells you about a problem, such as an error in vtium.conf, in a notice. The `osd` setting chooses how much of this vtium draws, down to `silent`, which hides even the notices. See [The on-screen display and notices](concepts/osd-and-notices.md) for details.
+
 `vtium check-config FILE` checks a vtium.conf before you install it. It uses the same parser and rules that vtium uses when it starts. It refuses a file that leaves no keyboard able to reach a display. [heads.md](heads.md) gives the sections for each setup. The setups are the default, two heads with their own keyboards, a kiosk, a kiosk with an operator's head, one person at each head, and everything off. [head-file.md](head-file.md) is the reference for the sections.
 
 ## Input
 
 vtium reads keyboards and pointers directly from their devices. It uses libxkbcommon for the keymap.
+
+A program can ask for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which editors such as Neovim and Helix and shells such as fish use. Under it, the program can tell every key and modifier apart, Escape from the start of an escape sequence and Ctrl+I from Tab among them. It can also ask for a key's repeats and releases, for every key as an escape code, and for the text a key types. On a non-Latin layout it gets each key's place on the US layout too, so a shortcut such as Ctrl+C works there. See [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42).
 
 You select text with the pointer. The middle button and Shift+Insert paste it. A program can copy text into the same selection with OSC 52. A program cannot read the selection back.
 

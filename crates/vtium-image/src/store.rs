@@ -585,6 +585,11 @@ impl Store {
         }
     }
 
+    /// Whether the alternate buffer is the buffer in use.
+    pub fn in_alternate(&self) -> bool {
+        self.alt
+    }
+
     /// RIS: both buffers are emptied. vtium-term resets each handler first,
     /// and a handler's reset gives back every reservation it holds, so a
     /// build with debug assertions checks that the ledger is empty: a
@@ -1065,6 +1070,29 @@ impl Store {
         let credit = keep
             .and_then(|(b, k)| self.image(b, k))
             .map_or(0, |i| i.bytes.saturating_sub(i.owed));
+        self.reserve_bytes_with(bytes, keep, credit, screens)
+    }
+
+    /// Reserves `bytes` beside `keep`, an image that stays and keeps its
+    /// bytes counted: nothing it holds counts toward the request, and it
+    /// is not evicted to make room (ADR-1100, D16).
+    pub(super) fn reserve_bytes_beside(
+        &mut self,
+        bytes: u64,
+        keep: Option<(usize, ImageKey)>,
+        screens: Screens<'_>,
+    ) -> Result<u64, Refusal> {
+        self.reserve_bytes_with(bytes, keep, 0, screens)
+    }
+
+    /// Reserves `bytes`, of which `credit` is already held by `keep`.
+    fn reserve_bytes_with(
+        &mut self,
+        bytes: u64,
+        keep: Option<(usize, ImageKey)>,
+        credit: u64,
+        screens: Screens<'_>,
+    ) -> Result<u64, Refusal> {
         let need = bytes.saturating_sub(credit);
         self.keep = keep;
         let total = |s: &Self| s.used.saturating_sub(credit).saturating_add(bytes);

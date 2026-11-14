@@ -1,0 +1,158 @@
+#!/bin/sh
+# The checks of ADR-1400 D4, "The checks the build makes first", in the tier 3
+# guest (t3_rootchecks.py). The run's disc carries this script as its setup,
+# with the probe t3-probe (tools/tier3/probes) and vtium's PAM file. The boot
+# hook runs it with the disc's mount point; it copies the disc to
+# /run/rootchecks and starts itself again as the unit t3-rootchecks, after
+# the boot has reached multi-user.target, so logind, D-Bus and seatd's
+# package are all up. Every answer is a line "ROOTCHECK <check> <key>:
+# <value>" on the event port, ttyS1, and ROOTCHECKS-END ends the run, after
+# which the guest powers off.
+#
+# The probe's account is vtprobe, a system account made here with no home
+# and no shell, as the drawer's account would be. The checks use VTs 7 to 13,
+# above the six that logind starts a getty on when they are shown.
+set -u
+
+if [ "${1:-}" != run ]; then
+    mkdir -p /run/rootchecks
+    cp -a "$1"/. /run/rootchecks/
+    chmod 755 /run/rootchecks/t3-probe /run/rootchecks/setup
+    systemd-run --no-block --unit=t3-rootchecks --property=After=multi-user.target \
+        /bin/sh /run/rootchecks/setup run
+    echo TIER3-ROOTCHECKS-STARTED > /dev/ttyS0
+    exit 0
+fi
+
+exec >/dev/ttyS1 2>&1
+P=/run/rootchecks/t3-probe
+U=vtprobe
+say() { echo "ROOTCHECK $1 $2: $3"; }
+# A command's exit status and output on one line.
+run() { out=$("$@" 2>&1); rc=$?; echo "exit=$rc $(echo "$out" | tr '\n' '|' | sed 's/|$//; s/|/ | /g')"; }
+
+echo ROOTCHECKS-BEGIN
+say 0 kernel "$(uname -r)"
+say 0 packages "$(pacman -Q linux systemd seatd util-linux pam dbus-broker polkit 2>&1 | tr '\n' ';')"
+say 0 "kernel.dmesg_restrict" "$(cat /proc/sys/kernel/dmesg_restrict)"
+say 0 "kernel.yama.ptrace_scope" "$(cat /proc/sys/kernel/yama/ptrace_scope)"
+say 0 "LSMs" "$(cat /sys/kernel/security/lsm)"
+useradd --system --no-create-home --home-dir / --shell /usr/bin/nologin "$U"
+say 0 "the probe's account" "$(id "$U")"
+install -m 644 /run/rootchecks/vtium.pam /etc/pam.d/vtium
+say 0 "PAM service vtium" "vtium's own /etc/pam.d/vtium (crates/vtium/install/vtium.pam)"
+EV=$(for e in /dev/input/event*; do
+    if udevadm info -q property "$e" | grep -q '^ID_INPUT_KEYBOARD=1'; then echo "$e"; break; fi
+done)
+say 0 "the keyboard's device" "$EV $(udevadm info -q property "$EV" | grep '^NAME=')"
+say 0 "/dev/dri/card0" "$(stat -c '%A %U:%G' /dev/dri/card0)"
+
+# Check 9 runs first, while no session holds the card.
+"$P" drm --check 9 --user "$U" --vt 13
+
+# Checks 1 and 6: a session of the probe's account through vtium's PAM
+# stack, whose pam_systemd line gives the class greeter, as the broker would
+# open the drawer's (open question 2). The command it runs takes control of
+# the session and the card and the keyboard. Each VT starts in the keyboard
+# mode K_XLATE, so that the answers show whether the keyboard mode comes
+# back to the mode it had or to K_UNICODE.
+for vt in 8 9 10 11 12; do kbd_mode -a -C /dev/tty$vt; done
+"$P" session --check 6 --service vtium --user "$U" --vt 8 \
+    -- "$P" control --check 6 --device /dev/dri/card0 --device "$EV" --then exit
+"$P" session --check 1 --service vtium --user "$U" --vt 9 --env XDG_SESSION_TYPE=wayland \
+    -- "$P" control --check 1 --device /dev/dri/card0 --device "$EV" --then release
+# The same through root's session, as seat mode's unit vtium-seat@.service
+# opens vtium's own today (PAMName=vtium, User=root).
+"$P" session --check 1-root --service vtium --user root --vt 10 \
+    -- "$P" control --check 1-root --device /dev/dri/card0 --device "$EV" --then release
+
+# Check 2: seatd, with its socket open to the probe's account's group, and a
+# client of the probe's account on VT 11.
+chvt 11
+seatd -g "$U" -l info >/run/rootchecks/seatd.log 2>&1 &
+seatd_pid=$!
+for _ in $(seq 50); do [ -S /run/seatd.sock ] && break; sleep 0.1; done
+say 2 "seatd's socket" "$(stat -c '%A %U:%G' /run/seatd.sock 2>&1)"
+"$P" vt-state --check 2 --vt 11 --label "VT before the client"
+"$P" as --check 2 --user "$U" --vt 11 -- /usr/bin/env LIBSEAT_BACKEND=seatd \
+    "$P" seat-client --check 2 --device /dev/dri/card0 --device "$EV"
+"$P" vt-state --check 2 --vt 11 --label "VT after the client exited"
+kill "$seatd_pid"; wait "$seatd_pid" 2>/dev/null
+"$P" vt-state --check 2 --vt 11 --label "VT after seatd stopped"
+while IFS= read -r line; do say 2 "seatd's log" "$line"; done </run/rootchecks/seatd.log
+
+# Check 3: libseat's builtin backend, as root, then the client drops root:
+# first with the guest's own libseat, then with a libseat built with the
+# backend, when the run's disc carries one (t3_rootchecks.py --seatd-source).
+say 3 "the builtin backend in the guest's libseat.so.1" "$(grep -c 'embedded seatd' /usr/lib/libseat.so.1) matches of its log line 'embedded seatd'"
+LIBSEAT_BACKEND=builtin "$P" builtin --check 3 --user "$U" --vt 12
+if [ -e /run/rootchecks/builtin/libseat.so.1 ]; then
+    say 3-built "the libseat built with the builtin backend" "$(cat /run/rootchecks/builtin/VERSION)"
+    kbd_mode -a -C /dev/tty12
+    LD_LIBRARY_PATH=/run/rootchecks/builtin LIBSEAT_BACKEND=builtin "$P" builtin --check 3-built --user "$U" --vt 12
+fi
+
+# Check 4: util-linux's login run without root, on a pty that is its
+# controlling terminal, as the probe's account and as an ordinary user.
+say 4 "/usr/bin/login" "$(stat -c '%A %U:%G' /usr/bin/login)"
+# login run as root on the same kind of pty is the control: it logs tester
+# in and starts tester's shell.
+"$P" pty-run --check 4 --user root --label "login -f tester as root" -- /usr/bin/login -f tester
+for who in "$U" tester; do
+    "$P" pty-run --check 4 --user "$who" --label "login as $who" -- /usr/bin/login
+    "$P" pty-run --check 4 --user "$who" --label "login -f tester as $who" -- /usr/bin/login -f tester
+    say 4 "login as $who, its standard error" "$(run setpriv --reuid="$who" --regid="$who" --clear-groups /usr/bin/login </dev/null)"
+done
+journalctl -b --no-pager -o short-monotonic _COMM=login | while IFS= read -r line; do say 4 "login's journal" "$line"; done
+
+# Check 5: logind's power questions and systemd's StartTransientUnit, asked
+# by the probe's account outside any session. The same questions from
+# inside the greeter session are in checks 6 and 1.
+polkit_questions() {
+    phase=$1
+    for q in CanPowerOff CanReboot CanSuspend; do
+        say 5 "$q outside a session, $phase" "$(run setpriv --reuid="$U" --regid="$U" --clear-groups \
+            busctl call org.freedesktop.login1 /org/freedesktop/login1 org.freedesktop.login1.Manager "$q")"
+    done
+    say 5 "StartTransientUnit outside a session, $phase" "$(run setpriv --reuid="$U" --regid="$U" --clear-groups \
+        busctl call org.freedesktop.systemd1 /org/freedesktop/systemd1 org.freedesktop.systemd1.Manager \
+        StartTransientUnit 'ssa(sv)a(sa(sv))' "t3-probe-$phase-$$.service" fail 1 ExecStart 'a(sasb)' 1 /usr/bin/true 1 /usr/bin/true false 0)"
+}
+polkit_questions "no polkit"
+"$P" kmsg --check 7 --user "$U"
+
+# Check 8: with Yama's ptrace scope as the guest has it, then at 0, so that
+# what Yama refuses stands apart from what dumpability and landlock refuse.
+"$P" as --check 8 --user "$U" -- "$P" isolate --check 8
+yama=$(cat /proc/sys/kernel/yama/ptrace_scope)
+echo 0 >/proc/sys/kernel/yama/ptrace_scope
+"$P" as --check 8-yama0 --user "$U" -- "$P" isolate --check 8-yama0
+echo "$yama" >/proc/sys/kernel/yama/ptrace_scope
+
+# Check 5 again with polkit installed, from the Arch Linux Archive snapshot
+# the guest was provisioned from, over the run's network.
+say 5 "install polkit" "$(run pacman -Sy --noconfirm --needed polkit)"
+say 5 "polkit" "$(pacman -Q polkit 2>&1)"
+say 5 "start polkit" "$(run systemctl start polkit.service)"
+python3 -I - <<'EOF' | while IFS= read -r line; do echo "ROOTCHECK 5 $line"; done
+import xml.etree.ElementTree as ET
+wanted = {
+    "org.freedesktop.login1.policy": ["org.freedesktop.login1.power-off", "org.freedesktop.login1.reboot",
+                                      "org.freedesktop.login1.suspend"],
+    "org.freedesktop.systemd1.policy": ["org.freedesktop.systemd1.manage-units"],
+}
+for f, ids in wanted.items():
+    root = ET.parse("/usr/share/polkit-1/actions/" + f).getroot()
+    for a in root.findall("action"):
+        if a.get("id") in ids:
+            d = a.find("defaults")
+            vals = " ".join("%s=%s" % (k, d.findtext(k)) for k in ("allow_any", "allow_inactive", "allow_active"))
+            print("the default of %s: %s" % (a.get("id"), vals))
+EOF
+polkit_questions "with polkit"
+"$P" session --check 5 --service vtium --user "$U" --vt 8 \
+    -- "$P" control --check 5 --then release
+
+echo ROOTCHECKS-END
+sync
+systemctl poweroff

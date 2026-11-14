@@ -1,0 +1,5 @@
+# Sealed expectation for kitty-featq-wrong-action.case, written from upload-rules.md before any implementation.
+# Replies are exact. A '# expected in the dump' line says in words what the frame view must show.
+> size 20 10
+> send "\e_Ga=q,i=38,e=t,U=1,C=1,c=3\e\\"
+< reply "\e_Gi=38,e=t;OK\e\\"

@@ -361,6 +361,12 @@ pub(super) struct Output<M> {
     /// is on screen and clears the mark; a flip the bound takes as done
     /// clears it with no line, so a late event logs nothing.
     pub(super) modeset_flip: bool,
+    /// The number in [`Self::flips`] of the flip an atomic modeset's own
+    /// commit started. While that flip is in flight, a sleep leaves it to
+    /// the kernel and does not wait for it. A legacy modeset starts no
+    /// flip, so the frame flip after it is waited for as any frame's
+    /// (ADR-1401 D2, "A VT release while display work runs").
+    pub(super) modeset_flip_no: Option<u64>,
     pub(super) available: bool,
     pub(super) announced: bool,
     /// Bound after the card's first scan, as a display plugged in or

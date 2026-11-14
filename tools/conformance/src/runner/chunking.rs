@@ -63,14 +63,15 @@ fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {
 }
 
 /// What chunking must not change: the last block without its replies, its
-/// `changed` count and its placements' `changed` flags, the replies of the
-/// whole replay, and every test line in order. A block's `changed` count
-/// and a placement's flag say what changed since the block before, so an
-/// extra block moves them.
+/// `bell` line, its `changed` count and its placements' `changed` flags,
+/// the replies and the bells of the whole replay, and every test line in
+/// order. A block's `bell` line, `changed` count and placement flags say
+/// what happened since the block before, so an extra block moves them.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Outcome {
     pub last: Vec<String>,
     pub replies: String,
+    pub bells: u64,
     pub tests: Vec<String>,
 }
 
@@ -84,7 +85,7 @@ pub fn outcome(out: &str) -> Outcome {
         .iter()
         .skip(start)
         .filter(|l| {
-            !["reply ", "host: ", "test ", "changed "]
+            !["reply ", "host: ", "test ", "changed ", "bell "]
                 .iter()
                 .any(|p| l.starts_with(p))
         })
@@ -97,6 +98,10 @@ pub fn outcome(out: &str) -> Outcome {
         .iter()
         .filter_map(|l| l.strip_prefix("reply "))
         .collect();
+    let bells = lines
+        .iter()
+        .filter_map(|l| l.strip_prefix("bell ")?.parse::<u64>().ok())
+        .fold(0, u64::saturating_add);
     let tests = lines
         .iter()
         .filter(|l| l.starts_with("test "))
@@ -105,6 +110,7 @@ pub fn outcome(out: &str) -> Outcome {
     Outcome {
         last,
         replies,
+        bells,
         tests,
     }
 }
@@ -160,5 +166,19 @@ mod tests {
         let first = format!("size 2x1\n{p} changed\n");
         let later = format!("checkpoint 1\nsize 2x1\n{p} changed\ncheckpoint 2\nsize 2x1\n{p}\n");
         assert_eq!(outcome(&first), outcome(&later));
+    }
+
+    // A block's `bell` line counts the bells since the block before, so an
+    // extra cut after a BEL moves the count to an earlier block; the bells
+    // of the whole replay stay the same.
+    #[test]
+    fn the_outcome_counts_the_bells_of_the_whole_replay() {
+        let one = "size 2x1\nbell 2\nrow 0 |a|\n";
+        let two =
+            "checkpoint 1\nsize 2x1\nbell 1\nrow 0 ||\ncheckpoint 2\nsize 2x1\nbell 1\nrow 0 |a|\n";
+        let early = "checkpoint 1\nsize 2x1\nbell 2\nrow 0 ||\ncheckpoint 2\nsize 2x1\nrow 0 |a|\n";
+        assert_eq!(outcome(one), outcome(two));
+        assert_eq!(outcome(one), outcome(early));
+        assert_ne!(outcome(one), outcome("size 2x1\nbell 1\nrow 0 |a|\n"));
     }
 }

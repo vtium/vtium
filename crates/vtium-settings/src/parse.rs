@@ -154,8 +154,42 @@ fn each_line(
     n
 }
 
+/// The policy of vtium.conf's bytes, read from the lines above the first
+/// section alone, by the rules [`reading`] reads it by (ADR-1401 D7, D9):
+/// closed when a readable policy line says `closed` or vtium cannot read
+/// a policy line, a line the file bound cuts among them, and open when
+/// neither holds. vtium reads the policy alone this way when the kernel
+/// command line turns it off for the boot, so it reads no section and no
+/// other key of a file it then does not run.
+pub fn policy(bytes: &[u8]) -> Policy {
+    let mut p = Parser::default();
+    feed(&mut p, bytes, false);
+    of(&p.policies)
+}
+
+/// The policy that a file's `policy` lines give: closed when one of them
+/// says `closed` or vtium cannot read it, else open.
+fn of(policies: &[PolicyLine]) -> Policy {
+    let closes = |p: &PolicyLine| match p {
+        PolicyLine::Closed | PolicyLine::Unreadable => true,
+        PolicyLine::Open | PolicyLine::InSection => false,
+    };
+    if policies.iter().any(closes) {
+        Policy::Closed
+    } else {
+        Policy::Open
+    }
+}
+
 fn read(bytes: &[u8]) -> Reading {
     let mut p = Parser::default();
+    feed(&mut p, bytes, true);
+    p.finish()
+}
+
+/// Reads `bytes` into `p`: the lines above the first section, then, when
+/// `sections` is set, the sections from their heading on.
+fn feed(p: &mut Parser, bytes: &[u8], sections: bool) {
     let (within, cut) = if bytes.len() > FILE_MAX {
         p.error(None, Problem::TooLarge, Within::Top);
         let bounded = bytes.get(..FILE_MAX).unwrap_or_default();
@@ -184,20 +218,19 @@ fn read(bytes: &[u8]) -> Reading {
             for (n, raw) in numbered(parts.top, 1) {
                 p.top_line(n, raw.strip_suffix(b"\r").unwrap_or(raw));
             }
-            each_line(
-                &mut p,
-                parts.sections,
-                first.saturating_sub(1),
-                Parser::raw_line,
-            )
+            if !sections {
+                // the bound cuts a line below the first section, which is
+                // no policy line
+                return;
+            }
+            each_line(p, parts.sections, first.saturating_sub(1), Parser::raw_line)
         }
-        None => each_line(&mut p, parts.top, 0, Parser::top_line),
+        None => each_line(p, parts.top, 0, Parser::top_line),
     };
     // the lines end in an empty one, numbered as the line the bound cuts
     if p.top() && begins_policy(cut) {
         p.unreadable_policy(n, PolicyFault::Cut);
     }
-    p.finish()
 }
 
 /// Parses a head file's text, strictly: its [`Config`] when it holds no
@@ -1394,15 +1427,7 @@ impl Parser {
         }
         let late = std::mem::take(&mut self.late);
         self.errors.merge(late);
-        let closes = |p: &PolicyLine| match p {
-            PolicyLine::Closed | PolicyLine::Unreadable => true,
-            PolicyLine::Open | PolicyLine::InSection => false,
-        };
-        let policy = if self.policies.iter().any(closes) {
-            Policy::Closed
-        } else {
-            Policy::Open
-        };
+        let policy = of(&self.policies);
         let parsed = if self.whole {
             Parsed {
                 config: Config {

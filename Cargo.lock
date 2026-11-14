@@ -899,6 +899,7 @@ dependencies = [
  "rustix",
  "vtium",
  "vtium-platform",
+ "vtium-render",
  "vtium-term",
 ]
 
@@ -1018,6 +1019,7 @@ dependencies = [
  "vtium-font",
  "vtium-render",
  "vtium-term",
+ "vtium-testfont",
  "vtium-tier2",
 ]
 
@@ -1046,6 +1048,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-tier1-shots"
+version = "0.1.0-alpha.7"
+dependencies = [
+ "vtium",
+ "vtium-conformance",
+ "vtium-font",
+ "vtium-platform",
+ "vtium-render",
+ "vtium-specimens",
+ "vtium-term",
+ "vtium-tier2",
+]
+
+[[package]]
 name = "vtium-tier2"
 version = "0.1.0-alpha.7"
 dependencies = [
@@ -1057,6 +1073,13 @@ dependencies = [
  "vtium-settings",
  "vtium-term",
  "vtium-testfont",
+]
+
+[[package]]
+name = "vtium-tier3-probes"
+version = "0.1.0-alpha.7"
+dependencies = [
+ "libc",
 ]
 
 [[package]]

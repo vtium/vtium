@@ -1,0 +1,34 @@
+> size 20 2
+> needs key-forms
+> send "\e[>4u"
+> key a mods=ctrl
+< reply "\x01"
+> key A mods=shift
+< reply "A"
+> key Escape
+< reply "\e"
+> send "\e[=5u"
+> cmd key;sym=2b;ascii=2b;unicode=2b;unshifted=3d;base=3d;mods=5
+< reply "\e[61:43;6u"
+> cmd key;sym=21;ascii=21;unicode=21;unshifted=31;base=31;mods=9
+< reply "\e[49:33;4u"
+> key Up mods=shift
+< reply "\e[1;2A"
+> key ISO_Left_Tab mods=shift+ctrl
+< reply "\e[9;6u"
+> cmd key;sym=6d3;ascii=63;unicode=441;unshifted=6d3;base=63
+< reply "\xd1\x81"
+> send "\e[=13u"
+> cmd key;sym=6d3;ascii=63;unicode=441;unshifted=6d3;base=63
+< reply "\e[1089::99u"
+> cmd key;sym=61;ascii=61;unicode=61;unshifted=61;base=61
+< reply "\e[97u"
+> cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=2
+< reply "\e[97;65u"
+> cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=1
+< reply "\e[97:65;2u"
+> send "\e[=29u"
+> cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=1
+< reply "\e[97:65;2;65u"
+> cmd key;sym=6f3;ascii=43;unicode=421;unshifted=6d3;base=63;mods=1
+< reply "\e[1089:1057:99;2;1057u"

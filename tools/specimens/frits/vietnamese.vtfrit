@@ -1,0 +1,39 @@
+# vietnamese: a font set for Vietnamese (vtium/vtium#204). Noto Sans Mono
+# draws the text and sets the character cell. It holds every precomposed
+# Vietnamese letter, such as ấ (U+1EA5) and ộ (U+1ED9), so no letter falls
+# back to another font. vtium ships this font set, never the font. The
+# font helper leaves out a font that the machine lacks, and then the
+# built-in font draws the text.
+#
+# Vietnamese writes Latin letters with two marks stacked on one letter: a
+# vowel's own mark, such as the circumflex, and a tone mark over or under
+# it. On a capital letter such as Ấ, the stack stands above the line.
+# Line spacing of 25 adds an eighth of the text's height above each row and
+# an eighth below it, so a capital's tone mark stays clear of the
+# descenders of the row above.
+#
+# Licence, as the font's documentation gives it: SIL OFL 1.1.
+
+name=vietnamese
+license=OFL-1.1
+
+# Every character of Noto Sans Mono, in four sets. The Latin letters and
+# the combining marks may use the rows that line spacing adds. Box drawing
+# and the other characters keep their defaults: box drawing stretches to
+# the whole cell, and the rest keeps the font's size.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+# Latin, Latin-1, Latin Extended-A and B, IPA, spacing modifiers and the
+# combining marks.
+cover=U+0000-U+036F
+fit=room
+# Latin Extended Additional, which holds the precomposed Vietnamese
+# letters.
+cover=U+1E00-U+1EFF
+fit=room
+# The rest of the font: Greek and Cyrillic up to Latin Extended
+# Additional, and everything after it.
+cover=U+0370-U+1DFF
+cover=U+1F00-U+10FFFF
+
+line-spacing=25

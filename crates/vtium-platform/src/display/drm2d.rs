@@ -41,8 +41,8 @@ use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, 
 use super::mode::{self, Choice, Mode, ModePolicy};
 use super::path;
 use super::{
-    Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Loan, Memory,
-    Rect, SwapError, Swapped, Token, lock,
+    Ages, Buffers, Damage, DarkPolicy, Density, DisplayId, Dpms, Event, Identity, Interrupt, Loan,
+    Memory, Rect, SwapError, Swapped, Token, lock,
 };
 use back::needed;
 use buffers::{Buffer, Dumbs, FORMAT, Source};
@@ -57,6 +57,24 @@ use source::{Clock, Link, Timers};
 
 fn errno(e: &io::Error) -> Option<Errno> {
     e.raw_os_error().map(Errno::from_raw_os_error)
+}
+
+/// The error of display work that the kernel's request for the VT stopped.
+fn released() -> io::Error {
+    io::Error::new(
+        io::ErrorKind::Interrupted,
+        "the kernel asked for the VT, so the display work stopped",
+    )
+}
+
+/// A result whose error is [`released`] counts as done: the release
+/// that follows ends the work's retries.
+fn stopped(e: io::Error) -> io::Result<()> {
+    if e.kind() == io::ErrorKind::Interrupted {
+        Ok(())
+    } else {
+        Err(e)
+    }
 }
 
 /// Whether `e` says the kernel removed the card: every ioctl on a card
@@ -217,7 +235,8 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     /// or a mode owed's.
     waking: bool,
     /// The retries ran out with [`Event::WakeFailed`], and nothing has set
-    /// the displays since: the next input tries again.
+    /// the displays since: the next input tries again, and so does each
+    /// slow retry while the VT is shown ([`Self::retry_slowly`]).
     wake_failed: bool,
     /// The displays the last legacy modeset could not set, at the mode
     /// chosen or at the mode they were set to: each whose set failed for a
@@ -232,6 +251,9 @@ pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
     events: Vec<Event>,
     timers: Timers,
     link: Option<Box<dyn Link>>,
+    /// Whether the kernel has asked for the VT, asked between the steps
+    /// of a scan and before a modeset ([`Drm2d::set_interrupt`]).
+    interrupt: Option<Interrupt>,
 }
 
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
@@ -295,6 +317,7 @@ impl<K: Kms> Drm2d<K> {
             events: Vec::new(),
             timers: Timers::default(),
             link: None,
+            interrupt: None,
         })
     }
 }
@@ -305,6 +328,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// connector the scan finds from then on carries.
     pub fn set_card_path(&mut self, path: Option<String>) {
         self.card_path = path;
+    }
+
+    /// Gives the card the loop's check of whether the kernel has asked for
+    /// the VT. The card asks it before each connector read of a scan and
+    /// before a modeset, and stops its display work where it answers yes
+    /// (ADR-1401 D2, "A VT release while display work runs").
+    pub fn set_interrupt(&mut self, interrupt: Interrupt) {
+        self.interrupt = Some(interrupt);
     }
 
     /// Sets which displays are left dark, asked of each connector as it is
@@ -964,12 +995,20 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// Takes DRM master and sets every display up again. While another
     /// process holds master, or the setup fails, the wake-up is tried
     /// again every [`crate::WAKE_RETRY_MS`], at most
-    /// [`crate::WAKE_RETRIES`] times.
+    /// [`crate::WAKE_RETRIES`] times, and then every
+    /// [`crate::WAKE_RETRY_SLOW_MS`] while the VT is shown
+    /// ([`Self::retry_slowly`]).
     pub fn wake_up(&mut self) -> io::Result<()> {
         if self.gone {
             return Err(Errno::NODEV.into());
         }
         self.reap();
+        // A sleep still waiting for a flip is cancelled: the card keeps the
+        // master it holds, and the wake-up sets every display up again once
+        // the flip ends (ADR-1401 D16).
+        if self.waiting == Some(Waiting::Sleep) {
+            self.waiting = None;
+        }
         self.foreground = true;
         self.retries = None;
         let woken = self.try_wake(Scan::WakeUp);
@@ -977,7 +1016,10 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.retry(true);
         }
         self.settle();
-        woken
+        // A wake-up the kernel's request for the VT stopped is no failure:
+        // the sleep that follows ends its retries, and the acquire's
+        // wake-up does the work again.
+        woken.or_else(stopped)
     }
 
     /// Starts the retries, unless they run: a wake-up's when `wake`.
@@ -993,9 +1035,16 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// the atomic modeset left them, so the blank still powers them down.
     fn try_wake(&mut self, scan: Scan) -> io::Result<()> {
         if !self.master {
+            // After the fast retries ran out, each later try that fails
+            // logs at debug level, so the slow retries do not fill the log.
+            let level = if self.wake_failed {
+                log::Level::Debug
+            } else {
+                log::Level::Warn
+            };
             self.card.set_master().inspect_err(|e| {
                 if !card_removed(e) {
-                    log::warn!("cannot take DRM master: {e}");
+                    log::log!(level, "cannot take DRM master: {e}");
                 }
             })?;
             self.master = true;
@@ -1067,12 +1116,44 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                     o.hold_back_owed();
                 }
             } else {
-                log::error!("cannot wake the display after {tried} retries");
+                log::error!(
+                    "cannot wake the display after {tried} retries; the card tries again every {} ms while its VT is shown",
+                    crate::WAKE_RETRY_SLOW_MS
+                );
                 self.wake_failed = true;
                 self.events.push(Event::WakeFailed);
             }
         } else {
             self.retries = Some(tried.saturating_add(1));
+        }
+        self.settle();
+    }
+
+    /// Whether the slow retries run: the fast retries ran out with
+    /// [`Event::WakeFailed`], nothing has set the displays since, and the
+    /// card's VT is shown.
+    fn retrying_slowly(&self) -> bool {
+        self.wake_failed && self.foreground && self.retries.is_none() && !self.gone
+    }
+
+    /// The slow retry's timer fired. After [`Event::WakeFailed`], while
+    /// its VT is shown, the card tries once every
+    /// [`crate::WAKE_RETRY_SLOW_MS`]: the wake-up where it is asleep, or
+    /// else a modeset of every display. A try that fails leaves the next
+    /// one to the timer, and starts no fast retries. Blanked, an awake
+    /// card's scan commits nothing: it leaves the modeset owed to the input
+    /// that ends the blank, and the slow retries stop.
+    pub(crate) fn retry_slowly(&mut self) {
+        if !self.retrying_slowly() {
+            return;
+        }
+        let tried = if self.awake {
+            self.scan(Scan::Retry)
+        } else {
+            self.try_wake(Scan::WakeUp)
+        };
+        if tried.is_ok() {
+            self.wake_failed = false;
         }
         self.settle();
     }
@@ -1115,9 +1196,39 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.clear_front();
             }
         }
+        self.leave_modeset_flips();
         self.waiting = Some(Waiting::Sleep);
         self.resolve();
         self.settle();
+    }
+
+    /// Leaves each modeset's flip in flight to the kernel, so the sleep does
+    /// not wait for it: the flip counts as done, and its event, when it
+    /// comes, is dropped ([`Self::stale`]). The program that takes the card
+    /// may find that display busy for a commit that does not block until
+    /// the modeset ends, and a commit that blocks waits for it in the
+    /// kernel (ADR-1401 D2, "A VT release while display work runs").
+    fn leave_modeset_flips(&mut self) {
+        for o in &mut self.outputs {
+            if !(o.flipping && o.modeset_flip_no == Some(o.flips)) {
+                continue;
+            }
+            if let (Some(link), Some((t, _))) = (&self.link, o.flip_timer.take()) {
+                link.disarm(t);
+            }
+            let timer = self
+                .link
+                .as_ref()
+                .and_then(|l| l.arm(Clock::Stale(o.flip_crtc)));
+            self.stale.push((o.flip_crtc, timer));
+            o.flipping = false;
+            o.modeset_flip = false;
+            o.vblank = false;
+            log::debug!(
+                "display {}: the sleep leaves its modeset's flip to the kernel",
+                o.name
+            );
+        }
     }
 
     /// Ends the sleep once no flip is in flight: hides the planes that show
@@ -1268,7 +1379,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             self.retry(false);
         }
         self.settle();
-        scanned
+        scanned.or_else(stopped)
     }
 
     /// Reads the card's events: the page flips completed and the vblanks
@@ -1415,7 +1526,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
 
     /// Arms and disarms the loop's timers to match what waits: a bound for
     /// each flip in flight, armed when the flip starts, and the wake-up
-    /// retries.
+    /// retries, fast and slow.
     fn settle(&mut self) {
         self.let_card_go();
         let Some(link) = &self.link else {
@@ -1440,6 +1551,13 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             (false, Some(t)) => link.disarm(t),
             (_, t) => *token = t,
         }
+        let slow = self.retrying_slowly();
+        let token = &mut self.timers.slow_retry;
+        match (slow, token.take()) {
+            (true, None) => *token = link.arm(Clock::SlowRetry),
+            (false, Some(t)) => link.disarm(t),
+            (_, t) => *token = t,
+        }
     }
 
     /// The scan: lets go of the displays gone, binds a display to each new
@@ -1456,6 +1574,27 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         // falls asleep, so a scan always runs under master.
         debug_assert!(self.master, "an awake card holds DRM master");
         let res = self.card.resources()?;
+        // Every connector is read before the scan changes anything, and
+        // the loop is asked between the reads whether the kernel wants
+        // the VT, so a release stops the scan there with nothing changed.
+        // The wake-up at an acquire probes every connector, so it finds a
+        // monitor plugged in where the kernel detects none by itself. No
+        // program waits on vtium then, and the release check below still
+        // stops the scan between probes. The first wake-up and a hotplug probe only
+        // the connectors that may have a monitor (ADR-1401 D2).
+        let all = scan == Scan::WakeUp && self.scanned;
+        let mut read = Vec::with_capacity(res.connectors.len());
+        for &id in &res.connectors {
+            if self.interrupted() {
+                return Err(released());
+            }
+            let conn = self.connector(id, all);
+            // A connector the removed card cannot read is not unplugged.
+            if conn.is_none() && self.card.removed() {
+                return Err(Errno::NODEV.into());
+            }
+            read.push((id, conn));
+        }
         self.crtcs.clone_from(&res.crtcs);
         for o in &mut self.outputs {
             o.available = false;
@@ -1478,12 +1617,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         let mut seen = Vec::new();
         let mut new = Vec::new();
         let mut connected = Vec::new();
-        for &id in &res.connectors {
-            let Some(conn) = self.connector(id) else {
-                // A connector the removed card cannot read is not unplugged.
-                if self.card.removed() {
-                    return Err(Errno::NODEV.into());
-                }
+        for (id, conn) in read {
+            let Some(conn) = conn else {
                 continue;
             };
             if !conn.connected || conn.modes.is_empty() {
@@ -1717,8 +1852,29 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// logged at debug level; any other failure, a read refused because
     /// the connector changed between its two reads among them, is a
     /// warning.
-    fn connector(&self, id: u32) -> Option<Connector> {
+    ///
+    /// The connector is read first as the kernel last detected it. Only a
+    /// connector the kernel reports a monitor on, or has not checked yet,
+    /// is read again with a probe, and every connector when `all` asks, as
+    /// the wake-up at an acquire does. A probe of a connector with no
+    /// monitor can take seconds, as with a DisplayPort converter chip that
+    /// does not answer, and holds the loop meanwhile (ADR-1401 D2).
+    fn connector(&self, id: u32, all: bool) -> Option<Connector> {
+        let current = self.read_logged(id, self.card.connector_current(id))?;
+        if !all && !current.connected && !current.unknown {
+            return Some(current);
+        }
         self.read_logged(id, self.card.connector(id))
+    }
+
+    /// Whether the loop says the kernel has asked for the VT, which stops
+    /// the display work at the step that asks ([`Drm2d::set_interrupt`]).
+    fn interrupted(&self) -> bool {
+        let asked = self.interrupt.as_ref().is_some_and(|asked| asked());
+        if asked {
+            log::debug!("the kernel asks for the VT, so the card stops its display work");
+        }
+        asked
     }
 
     /// What a read of connector `id` gave, or `None`, logged as
@@ -1911,6 +2067,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             flip_crtc: crtc,
             flip_timer: None,
             modeset_flip: false,
+            modeset_flip_no: None,
             available: true,
             announced: false,
             returning: self.scanned,
@@ -2339,6 +2496,9 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// stays at the mode it is set to: held back where the card refused the
     /// mode, and else owed it, which starts the wake-up retries.
     fn modeset(&mut self) -> io::Result<()> {
+        if self.interrupted() {
+            return Err(released());
+        }
         // The legacy calls set each display on its own, so the displays set
         // are announced whatever failed for another. A moved display that
         // cannot be set on its new CRTC goes back, with each moved display
@@ -3103,6 +3263,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 o.cursor_set = o.cursor_shown();
                 o.start_flip();
                 o.modeset_flip = true;
+                o.modeset_flip_no = Some(o.flips);
                 o.damage.set_whole();
             } else {
                 if !self.card.removed() {
@@ -3356,6 +3517,12 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     pub(crate) fn waits(&self) -> (bool, bool) {
         (self.waiting.is_some(), self.retries.is_some())
     }
+
+    /// Whether the slow retry's timer is armed in the loop.
+    #[cfg(test)]
+    pub(crate) fn slow_armed(&self) -> bool {
+        self.timers.slow_retry.is_some()
+    }
 }
 
 /// Whether `now` names the monitor `was` named. Where both connectors have
@@ -3423,10 +3590,13 @@ impl Failure {
 
 impl<K: Kms, S: Source<K>> Drop for Drm2d<K, S> {
     fn drop(&mut self) {
-        if let Some(link) = &self.link
-            && let Some(token) = self.timers.wake_retry.take()
-        {
-            link.disarm(token);
+        if let Some(link) = &self.link {
+            for token in [self.timers.wake_retry.take(), self.timers.slow_retry.take()]
+                .into_iter()
+                .flatten()
+            {
+                link.disarm(token);
+            }
         }
         for o in std::mem::take(&mut self.outputs) {
             self.free(o);

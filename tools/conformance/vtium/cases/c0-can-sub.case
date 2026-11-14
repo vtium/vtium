@@ -1,0 +1,11 @@
+# CAN and SUB end a control sequence, an escape sequence, an OSC string
+# or a DCS string without acting on it, and SUB prints ¿ (U+00BF). The
+# text after each prints.
+# spec: ECMA-48 8.3.6 CAN and 8.3.148 SUB; the VT510 manual, SUB
+size 20 4
+send "a\e[1\x18mb"
+send "c\e[1\x1amd"
+send "\r\ne\e\x18f\e\x1ag"
+send "\r\n\e]0;title\x18h\e]0;title\x1ai"
+send "\r\n\eP1;2q\x18j\eP1;2q\x1ak"
+dump state

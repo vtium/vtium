@@ -12,7 +12,7 @@ vtium is judged in tiers: unit tests, tier 1's replays of byte streams compared 
 
 ### The goldens
 
-A golden is a saved expected result that a tier compares vtium's output with. Inside a change, its author never rewrites, widens or regenerates the golden that judges it. A golden moves only in a commit of its own, which lists each value that moved and why; a contributor may propose such a commit, and the maintainer reviews it before it lands. A new golden is provisional, and judges nothing, until the maintainer has reviewed it.
+A golden is a saved expected result that a tier compares vtium's output with. Inside a change, its author never rewrites, widens or regenerates the golden that judges it. A golden moves only in a commit of its own, which lists each value that moved and why. A contributor may propose such a commit, and never accepts its own golden. A new golden is provisional, and judges nothing, until it is accepted. Goldens are accepted in two tiers, which [ADR-1503 D10](docs/architecture/project/ADR-1503-vtium-judges-itself-by-its-own-goldens-and-its-committed-tree-names-no-c-fork.md) decides. The maintainer reviews each pixel golden, from tier 2, tier 3 or the specimens, by eye before it lands. A behaviour golden of tier 1 belongs to a readable case that cites the specification statement it tests in a `# spec:` line. You write the case's expected result from the specification, or take it from an outside reference, before you run vtium on the case. When that expectation agrees with vtium's output, a reviewer who did not write the case checks the citation. The golden is then accepted without the maintainer's review of each case. When a comparison fails, a reviewer who did not write the change settles it if the specification or a recorded decision leaves one reading. The maintainer decides the rest.
 
 Behaviour follows the protocol specifications. Where a specification leaves room, vtium's goldens decide.
 
@@ -33,6 +33,8 @@ Each new test or check is seen to fail before it is trusted: it fails without th
 The gates are the checks every change passes before review. [AGENTS.md](AGENTS.md#the-gates) lists them in order as one command line, and `make gates` runs the same commands and reports each one's result. CI runs them on every pull request. A gate that cannot run where you work, such as one that needs the network, is reported as not run, with the reason.
 
 `rust-toolchain.toml` pins the Rust toolchain that the gates and CI run on, and rustup installs it the first time you run cargo in the checkout. `rust-version` in `Cargo.toml` is the oldest Rust that vtium builds on, and `make msrv`, one of the gates, builds the workspace, its tests included, and the minspec profile with it. To move the pin, change `channel` in `rust-toolchain.toml`, fix what the gates then report, and put both in one commit.
+
+The keyboard tests read real keyboard layouts that `crates/vtium-platform/tests/keymaps/` holds as committed files, so `cargo test` needs nothing more. To compile those files again, `make keymaps` needs `xkbcli`, libxkbcommon's command line tool, and xkeyboard-config with its pkg-config file. The package libxkbcommon provides `xkbcli` on Arch, libxkbcommon-tools on Debian and libxkbcommon-utils on Fedora. The fixtures' README says when to run it.
 
 [AGENTS.md](AGENTS.md) also describes the rest of the working loop: the worktrees, the VT review, and how work reaches main.
 

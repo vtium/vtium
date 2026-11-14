@@ -1,0 +1,19 @@
+> size 20 2
+> send "\e[>2u"
+> cmd key;sym=61;ascii=61;unicode=61
+< reply "a"
+> cmd key;sym=61;ascii=61;unicode=61;event=release
+< reply "\e[97;1:3u"
+> send "\e[>3u"
+> cmd key;sym=61;ascii=61;unicode=61;mods=4
+< reply "\e[97;5u"
+> send "\e[<2u\e[?u"
+< reply "\e[?0u"
+> cmd key;sym=61;ascii=61;unicode=61;event=release
+< reply "\e[97;1:3u"
+> cmd key;sym=61;ascii=61;unicode=61;mods=4
+< reply "\x01"
+> send "\e[>2u\e[?u"
+< reply "\e[?2u"
+> cmd key;sym=61;ascii=61;unicode=61;event=release
+> cmd key;sym=ff52;event=release

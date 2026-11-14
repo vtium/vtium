@@ -1,0 +1,8 @@
+# After a delete ends the upload, a chunk that names every key is a command of its own.
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Deleting images": "If an image is being loaded in chunks and the upload is not complete when any delete command is received, the partial upload must be aborted."
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "\e_Ga=d\e\\"
+send "\e_Gf=24,s=2,v=1,i=1,m=0;AP8A\e\\"

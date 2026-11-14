@@ -1,0 +1,24 @@
+# CUP and HVP move the cursor to a row and a column, counted from 1. An
+# omitted or zero parameter means 1, and a row or column past the screen,
+# up to 999999999, stops at the last one.
+# spec: ECMA-48 8.3.21 CUP and 8.3.63 HVP
+# covers: ctl.edit
+size 10 6
+send "\e[H"
+dump state
+send "\e[3;4H"
+dump state
+send "\e[;4H"
+dump state
+send "\e[3H"
+dump state
+send "\e[0;0H"
+dump state
+send "\e[99;99H"
+dump state
+send "\e[2;3f"
+dump state
+send "\e[65535;65535H"
+dump state
+send "\e[999999999H"
+dump state

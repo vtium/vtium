@@ -108,12 +108,12 @@ pub use termcap::{Termcap, TermcapError};
 #[cfg(feature = "bidi")]
 pub use terminal::TextDirection;
 pub use terminal::{
-    BlankRequest, BlankTimeout, CursorStyle, Extent, GridRequest, Key, KeyEvent, Mods, MouseButton,
-    MouseEvent, MouseTracking, Terminal, VersionError,
+    BlankRequest, BlankTimeout, CursorStyle, DisplayRequest, Extent, GridRequest, Key, KeyEvent,
+    Mods, MouseButton, MouseEvent, MouseTracking, Terminal, VersionError,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};
-pub use unicode::{UNICODE_VERSION, cluster_width, is_rtl_class};
+pub use unicode::{ClusterWidth, UNICODE_VERSION, cluster_width, cluster_width_with, is_rtl_class};
 /// The image pipeline's types, which a build with images reaches through
 /// vtium-term (ADR-1100).
 #[cfg(feature = "images")]

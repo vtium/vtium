@@ -63,8 +63,8 @@ fn a_sprite_character_fills_its_cells() {
     assert_eq!(g, sprite::draw('│', 16, 32, 2));
 }
 
-// a glyph narrower than its cells is centred, a wider one
-// cut evenly from both sides
+// a glyph narrower than its cells is centred in them; a wider one is
+// squeezed into them (ADR-1302 D14), as the built-in Unifont's test shows
 #[test]
 fn a_glyph_is_boxed_to_its_cells() {
     let font = Font::new(small_psf());
@@ -288,15 +288,22 @@ mod unifont {
         );
     }
 
-    // a wide glyph in one cell keeps its middle
+    // a wide glyph in one cell is squeezed into it, each column the
+    // strongest of the two it takes (ADR-1302 D14)
     #[test]
-    fn a_wide_glyph_in_one_cell_keeps_its_middle() {
+    fn a_wide_glyph_in_one_cell_is_squeezed_into_it() {
         let font = Font::new(Unifont::new(16));
         let wide = font.face().render('中', plain()).expect("drawn");
-        let cut = font.glyph(&['中'], Width::Narrow, plain()).expect("drawn");
-        assert_eq!(cut.width(), 8);
-        for (a, b) in cut.rows().zip(wide.rows()) {
-            assert_eq!(a, &b[4..12]);
+        let squeezed = font.glyph(&['中'], Width::Narrow, plain()).expect("drawn");
+        assert_eq!(squeezed.width(), 8);
+        for (a, b) in squeezed.rows().zip(wide.rows()) {
+            let merged: Vec<u8> = b
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|[l, r]| *l.max(r))
+                .collect();
+            assert_eq!(a, merged.as_slice());
         }
     }
 
@@ -395,6 +402,113 @@ fn a_bitmap_glyph_is_handed_over_at_scale_1() {
             assert_eq!(small > 0, scale > 1, "{name} at scale {scale}");
         }
     }
+}
+
+/// The columns of `g` that hold ink in row `y`.
+fn inked_columns(g: &Glyph, y: usize) -> Vec<usize> {
+    let row = g.rows().nth(y).expect("a row");
+    (0..row.len()).filter(|&x| row[x] > 0).collect()
+}
+
+// covers: text.overhang
+// ADR-1302 D14: GNU Unifont draws the Devanagari vowel sign aa 16 pixels
+// wide, its stem in column 14, and the terminal gives it one 8-pixel
+// cell. The glyph is exactly twice the cell's width, so it is squeezed
+// 2:1 into the cell, two columns into one: the stem stands in the cell's
+// last column on rows 4 to 12, and the sign's top stroke, columns 12 to
+// 15, in its last two. At twice the size the glyph is drawn 32 pixels
+// wide into a 16-pixel cell, and the squeeze counts screen pixels: two
+// screen columns into one, so each of the font's columns becomes one
+// screen column, the stem column 14 alone and the top stroke columns 12
+// to 15, over rows twice as tall
+#[cfg(feature = "unifont")]
+#[test]
+fn unifont_vowel_sign_aa_keeps_its_stem_in_one_cell() {
+    for scale in [1usize, 2] {
+        let font = Font::new(vtium_font::Unifont::new(16 * scale as u32));
+        let aa = font
+            .glyph(&['\u{93e}'], Width::Narrow, plain())
+            .expect("drawn");
+        assert_eq!(aa.width(), 8 * scale as u32);
+        assert!(aa.ink().is_none(), "a 2:1 squeeze stays in its cell");
+        let (stem, top): (Vec<usize>, Vec<usize>) = match scale {
+            1 => (vec![7], vec![6, 7]),
+            _ => (vec![14], vec![12, 13, 14, 15]),
+        };
+        for y in 3 * scale..4 * scale {
+            assert_eq!(inked_columns(&aa, y), top, "row {y} at scale {scale}");
+        }
+        for y in 4 * scale..13 * scale {
+            assert_eq!(inked_columns(&aa, y), stem, "row {y} at scale {scale}");
+        }
+    }
+}
+
+// covers: text.overhang
+// ADR-1302 D14: a glyph drawn at a whole scale is squeezed in screen
+// pixels. Unifont's 16-column vowel sign aa drawn at twice its size is 32
+// pixels wide. In a 17-pixel cell it is squeezed to 19 pixels, the cell
+// and 1 screen pixel more on each side, by OR pooling: one bit, and its
+// stem and top stroke kept. In a 16-pixel cell it squeezes 2:1, as above
+#[cfg(feature = "unifont")]
+#[test]
+fn a_glyph_at_a_whole_scale_is_squeezed_in_screen_pixels() {
+    let font = Font::new(vtium_font::Unifont::new(32));
+    let wide = font
+        .glyph(&['\u{93e}'], Width::Wide, plain())
+        .expect("drawn");
+    assert_eq!(wide.width(), 32);
+    let in17 = wide.clone().fit(17, Width::Narrow).expect("fitted");
+    assert_eq!(in17.width(), 17);
+    let ink = in17.ink().expect("an ink box");
+    // squeezed to 19, from the cell's column -1; the sign has no ink in
+    // that first column, so the box starts at the cell and holds the
+    // column past its right edge
+    assert_eq!((ink.left(), ink.width()), (0, 18));
+    assert!(ink.pixels().iter().all(|&p| p == 0 || p == 255));
+    // the stem, font column 14, screen columns 28 and 29, covers columns
+    // 16 and 17 of the 19, which are columns 15 and 16 of the cell
+    let row = |y: usize| -> Vec<usize> {
+        let r = &ink.pixels()[y * 18..(y + 1) * 18];
+        (0..18).filter(|&x| r[x] > 0).collect()
+    };
+    assert_eq!(row(16), [15, 16]);
+    let in16 = wide.fit(16, Width::Narrow).expect("fitted");
+    assert!(in16.ink().is_none());
+    assert_eq!(inked_columns(&in16, 16), [14]);
+}
+
+// covers: text.overhang
+// ADR-1302 D14, D4: an italic Devanagari letter from GNU Unifont, 16
+// pixels wide and slanted, so its top leans past its 16th column, keeps
+// that lean when it is squeezed 2:1 into one 8-pixel cell: its lean
+// squeezes with its columns and reaches past the cell's right edge, so
+// none of its ink is cut
+#[cfg(feature = "unifont")]
+#[test]
+fn an_italic_unifont_letter_squeezed_into_one_cell_keeps_its_lean() {
+    let font = Font::new(vtium_font::Unifont::new(16));
+    let italic = Style {
+        italic: true,
+        ..plain()
+    };
+    let past = |g: &Glyph, edge: u32| -> usize {
+        let ink = g.ink().expect("an ink box");
+        let w = ink.width() as usize;
+        let from = (i64::from(edge) - i64::from(ink.left())) as usize;
+        (from..w)
+            .filter(|&x| ink.pixels().chunks_exact(w).any(|r| r[x] > 0))
+            .count()
+    };
+    let wide = font
+        .glyph(&['\u{915}'], Width::Wide, italic)
+        .expect("drawn");
+    assert_eq!(past(&wide, 16), 2, "the lean past 16 columns");
+    let narrow = font
+        .glyph(&['\u{915}'], Width::Narrow, italic)
+        .expect("drawn");
+    assert_eq!(narrow.width(), 8);
+    assert_eq!(past(&narrow, 8), 1, "the lean, squeezed, past the cell");
 }
 
 #[cfg(feature = "unifont")]

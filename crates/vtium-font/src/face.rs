@@ -1,7 +1,7 @@
 //! [`Face`], what a glyph source provides, and [`Font`], which draws a
 //! cluster into its cells from a face and the sprites.
 
-use crate::glyph::Glyph;
+use crate::glyph::{Format, Glyph};
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::script::{self, Kind, Origin, Script, Variant};
@@ -128,6 +128,15 @@ pub trait Face {
     /// character.
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph>;
 
+    /// [`Face::draw`] for a cluster the terminal gives `cells` cells, 1 or
+    /// 2. A face that builds a cluster from its characters' glyphs may lay
+    /// them out across those cells (ADR-1302 D14); the default draws the
+    /// cluster as [`Face::draw`] does, whatever its cells.
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        let _ = cells;
+        self.draw(cluster, style)
+    }
+
     /// The glyph drawn when the face lacks the character, U+25A1 and `?`.
     fn last_resort(&self, _style: Style) -> Option<Glyph> {
         None
@@ -229,6 +238,33 @@ pub trait Face {
     fn script(&self, _cluster: &[char], _variant: Variant) -> ScriptFrom {
         ScriptFrom::Normal
     }
+
+    /// A glyph from another font that draws `cluster` in `style` in
+    /// place of the face's own, which would draw as the last step of the
+    /// fallback (ADR-1302 D14): a mask wider than `width` pixels, which
+    /// would be squeezed, or, when `color`, a color glyph that would draw
+    /// in one cell. The other font's text glyph comes first for a
+    /// character that presents as text by default, and otherwise only a
+    /// glyph no wider than `width`. The default, for a face with no other
+    /// font behind it, is none.
+    fn fallback(
+        &self,
+        _cluster: &[char],
+        _style: Style,
+        _width: u32,
+        _color: bool,
+    ) -> Option<Glyph> {
+        None
+    }
+
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant`, which it draws without building it from parts: the
+    /// renderer draws a syllable joined across its clusters only while the
+    /// face holds every piece of it (ADR-1203 D4, [`crate::syllable`]).
+    /// The default, for a face that shapes nothing across clusters, is no.
+    fn holds(&self, _cluster: &[char], _variant: Variant) -> bool {
+        false
+    }
 }
 
 /// Where a face's superscript or subscript glyph comes from
@@ -268,6 +304,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     fn draw(&self, cluster: &[char], style: Style) -> Option<Glyph> {
         (**self).draw(cluster, style)
     }
+    fn draw_cells(&self, cluster: &[char], style: Style, cells: u32) -> Option<Glyph> {
+        (**self).draw_cells(cluster, style, cells)
+    }
     fn last_resort(&self, style: Style) -> Option<Glyph> {
         (**self).last_resort(style)
     }
@@ -306,6 +345,12 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn script(&self, cluster: &[char], variant: Variant) -> ScriptFrom {
         (**self).script(cluster, variant)
+    }
+    fn fallback(&self, cluster: &[char], style: Style, width: u32, color: bool) -> Option<Glyph> {
+        (**self).fallback(cluster, style, width, color)
+    }
+    fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        (**self).holds(cluster, variant)
     }
 }
 
@@ -406,6 +451,12 @@ impl<F: Face> Font<F> {
         }
     }
 
+    /// Whether the face holds a glyph made for the whole of `cluster` in
+    /// `variant` ([`Face::holds`]).
+    pub fn holds(&self, cluster: &[char], variant: Variant) -> bool {
+        self.face.holds(cluster, variant)
+    }
+
     /// Whether `c` draws as itself: a sprite always does.
     pub fn has_glyph(&self, c: char) -> bool {
         self.draws_sprite(c) || self.face.has_glyph(c)
@@ -447,9 +498,12 @@ impl<F: Face> Font<F> {
     /// draws nothing for, because it lacks the first character or holds no
     /// glyph for the cluster, otherwise draws as the font's missing glyph:
     /// the [`Missing`] glyph, whose last fallback is U+25A1, else `?`, else
-    /// the face's last resort. A glyph of another width is centred and cut
-    /// to the cells. `None` only for an empty cluster or a face that can
-    /// draw nothing.
+    /// the face's last resort. A glyph narrower than its cells is centred
+    /// in them. No column of a wider mask is cut: it is squeezed into its
+    /// cells, or drawn a pixel past them on each side, as [`Glyph::fit`]
+    /// says (ADR-1302 D14). A wider color glyph is drawn as a color emoji
+    /// in one cell (ADR-1302 D5).
+    /// `None` only for an empty cluster or a face that can draw nothing.
     pub fn drawn(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let &first = cluster.first()?;
         let cell = self.face.cell();
@@ -460,7 +514,9 @@ impl<F: Face> Font<F> {
                 return Some(Drawn::new(s.with_cells(width), 1, false));
             }
         }
-        let (glyph, missing) = match self.own(cluster, style, Face::draw) {
+        let cells = width.cells();
+        let own = |f: &F, c: &[char], s: Style| f.draw_cells(c, s, cells);
+        let (glyph, missing) = match self.own(cluster, style, own) {
             Some(g) => (g, false),
             None => {
                 let g = self
@@ -470,6 +526,17 @@ impl<F: Face> Font<F> {
                     .or_else(|| self.face.last_resort(style))?;
                 (g, true)
             }
+        };
+        // ADR-1302 D14: a squeeze, or a color emoji in one cell, is the
+        // last step of the fallback, after another font's glyph
+        let color = glyph.format() == Format::Rgba && width == Width::Narrow;
+        let squeezed = glyph.format() == Format::Mask && glyph.width() > w;
+        let glyph = match (color || squeezed) && !missing {
+            true => self
+                .face
+                .fallback(cluster, style, w, color)
+                .unwrap_or(glyph),
+            false => glyph,
         };
         Some(Drawn::new(glyph.fit(w, width)?, 1, missing))
     }
@@ -530,7 +597,7 @@ impl<F: Face> Font<F> {
             let drawn = style.without(origin.synth);
             let glyph = match chars {
                 [] => self.face.last_resort(drawn),
-                _ => self.face.draw(chars, drawn),
+                _ => self.face.draw_cells(chars, drawn, width.cells()),
             };
             Some((glyph?, origin))
         };
@@ -664,9 +731,10 @@ impl<F: Face> Font<F> {
     /// [`Font::drawn`] for a renderer that stores bitmap glyphs small: the
     /// glyph at the face's scale 1 with that scale, which drawn with each
     /// pixel a square `scale` across is exactly [`Font::glyph`]'s. A
-    /// sprite, a face that draws at its own size, and a glyph whose box
-    /// to its cells does not scale (centred in an odd number of spare
-    /// pixels) come at their drawn size, with scale 1.
+    /// sprite, a face that draws at its own size, a glyph wider than its
+    /// cells, which is squeezed in the screen's pixels (ADR-1302 D14), and
+    /// a glyph whose box to its cells does not scale (centred in an odd
+    /// number of spare pixels) come at their drawn size, with scale 1.
     pub fn glyph_unscaled(&self, cluster: &[char], width: Width, style: Style) -> Option<Drawn> {
         let drawn = || self.drawn(cluster, width, style);
         let scale = self.face.scale();
@@ -689,7 +757,9 @@ impl<F: Face> Font<F> {
             .or_else(|| self.face.draw_unscaled(&['?'], style))
             .or_else(|| self.face.last_resort_unscaled(style));
         match glyph {
-            Some(g) if w.abs_diff(g.width()) % 2 == 0 => {
+            // a glyph wider than its cells is squeezed in the screen's
+            // pixels (ADR-1302 D14), so it comes at its drawn size
+            Some(g) if g.width() <= w && w.abs_diff(g.width()) % 2 == 0 => {
                 Some(Drawn::new(g.fit(w, width)?, scale, missing))
             }
             _ => drawn(),

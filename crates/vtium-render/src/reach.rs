@@ -158,9 +158,12 @@ impl Block {
 
 /// A glyph's ink box as the renderer reads it (ADR-1306 D3): `width` by
 /// `height` pixels from `left`, `top`, offsets from the top left of the
-/// glyph's first cell, 0 or negative, in the glyph's format.
+/// glyph's first cell, 0 or negative, in the glyph's format: coverage,
+/// or premultiplied RGBA for a color emoji drawn in one cell (ADR-1302 D5)
+/// when `rgba`.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct InkBox<'a> {
+    pub(crate) rgba: bool,
     pub(crate) left: i32,
     pub(crate) top: i32,
     pub(crate) width: u32,
@@ -172,6 +175,7 @@ pub(crate) struct InkBox<'a> {
 /// place the renderer reads the font's box.
 pub(crate) fn ink_box(glyph: &Glyph) -> Option<InkBox<'_>> {
     glyph.ink().map(|ink: &Ink| InkBox {
+        rgba: glyph.format() == vtium_font::Format::Rgba,
         left: ink.left(),
         top: ink.top(),
         width: ink.width(),

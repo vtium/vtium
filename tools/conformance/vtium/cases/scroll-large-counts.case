@@ -1,0 +1,15 @@
+# On a screen of 300 rows, SU scrolls up by 140 and SD down by 200, and
+# SU by 299 leaves only the last row's text. DSR 6 reports the cursor's
+# position between them.
+# spec: ECMA-48 8.3.147 SU and 8.3.113 SD; ctlseqs, DSR
+# covers: ctl.edit
+size 3 300
+send "\e[1;1Ha\e[150;1Hb\e[300;1Hc"
+send "\e[140S"
+dump state
+send "\e[1;1H\e[6n\e[20;1H\e[6n"
+send "\e[10;1H\e[6n"
+send "\e[200T"
+send "\e[200;1H\e[300;1H"
+send "\e[2J\e[1;1Ha\e[300;1Hz\e[299S"
+dump state

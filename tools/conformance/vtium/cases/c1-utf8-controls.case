@@ -1,0 +1,18 @@
+# IND, NEL, HTS, RI, SS2, SS3, SCI and ST sent as UTF-8 code points do
+# nothing in UTF-8 input: the cursor stays on its row, no tab stop is set,
+# and no character set is shifted in.
+# spec: ECMA-48 5.3, which defines C1 for 7-bit and 8-bit codes only; vtium-parse's README, "C1 controls do nothing in UTF-8 mode"
+size 10 5
+send "ab\u{84}c"
+dump state
+send "\u{85}d"
+dump state
+send "\r\e[3g\e[4G\u{88}\r\tX"
+dump state
+send "\e[1;1H\u{8d}"
+dump state
+send "\e*0\e+0\u{8e}qq\u{8f}xx"
+dump state
+send "\u{9a}"
+send "\u{9c}Z"
+dump state

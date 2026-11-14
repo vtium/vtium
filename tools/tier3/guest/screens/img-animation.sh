@@ -31,8 +31,10 @@
 # v=2, which plays the frames once (ADR-1102 D4), so it stops on its last
 # frame by itself, which shows that vtium's animation clock plays it.
 #
-# Each a=f and each a=a asks for its reply, which the screen reports on the
-# event port; the transmissions carry q=2.
+# Each a=f asks for its reply, which names the frame it made (r) and which
+# the screen reports on the event port; the transmissions carry q=2. An
+# animation control (a=a) is answered only when its image does not exist
+# (ADR-1100 D15), so the screen asks for no reply to a=a.
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/img-common.inc"
 kitty_offered
 pictures_there
@@ -44,16 +46,16 @@ kitty_send "a=T,i=50,q=2,C=1,f=32,s=64,v=48" "$(pic64 quad.rgba)"
 ask_event "a=f,i=50,c=1,x=1,y=1,s=31,v=23" "$(pic64 patch-cyan.rgba)"
 ask_event "a=f,i=50,c=2,x=32,y=24,s=31,v=23,X=1" "$(pic64 patch-magenta.rgba)"
 ask_event "a=f,i=50,c=3,x=1,y=1,s=31,v=23" "$(pic64 patch-violet.rgba)"
-ask_event "a=a,i=50,r=1,z=200"
-ask_event "a=a,i=50,s=3,v=1"
-ask_event "a=a,i=50,c=3,s=1"
+kitty_send "a=a,i=50,r=1,z=200"
+kitty_send "a=a,i=50,s=3,v=1"
+kitty_send "a=a,i=50,c=3,s=1"
 
 at 3 20
 kitty_send "a=T,i=51,q=2,C=1,f=32,s=32,v=32" "$(pic64 child.rgba)"
 ask_event "a=f,i=51,c=1,x=1,y=1,s=15,v=15,z=100" "$(pic64 patch-yellow.rgba)"
 ask_event "a=f,i=51,c=2,x=16,y=16,s=15,v=15,z=100" "$(pic64 patch-yellow.rgba)"
-ask_event "a=a,i=51,r=1,z=100"
-ask_event "a=a,i=51,s=3,v=2"
+kitty_send "a=a,i=51,r=1,z=100"
+kitty_send "a=a,i=51,s=3,v=2"
 
 at 8 1
 printf 'Row 3, column 5: run looping, then stopped on frame 3 of 4 (c=3, s=1).\n'

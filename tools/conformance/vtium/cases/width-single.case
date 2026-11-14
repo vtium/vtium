@@ -1,0 +1,12 @@
+# Under cluster-width = single, every cluster keeps its first character's
+# cells and never widens after it is printed (ADR-1006 D8). Tamil ko,
+# Devanagari ki and the conjunct ksha, Malayalam kssma and Kannada rii
+# each take one cell, and a heart with VS16 still takes two.
+# spec: ADR-1006 D8; ADR-1200 D21
+# covers: text.grapheme
+size 12 2
+cmd cluster-width;rule=single
+send "\u{B95}\u{BCA}\u{915}\u{93F}\u{915}\u{94D}\u{937}"
+dump state
+send "\u{D15}\u{D4D}\u{D37}\u{D4D}\u{D2E}\u{CB0}\u{CC0}\u{2764}\u{FE0F}"
+dump state

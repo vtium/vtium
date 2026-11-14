@@ -4,13 +4,12 @@
 //! `--play` for a reviewer, and `--bin` for another replay program.
 
 use std::collections::BTreeMap;
-use std::io::{IsTerminal, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 
 use vtium_conformance::probes::Outcome;
 use vtium_conformance::runner::own;
-use vtium_conformance::scenario::play::{self, Step};
+use vtium_conformance::scenario::play::{self, Keys};
 use vtium_conformance::scenario::run::{Runner, Verdict, verdict, write_transcript};
 use vtium_conformance::scenario::{self, Scenario, Sort, transcript};
 use vtium_conformance::spec::Spec;
@@ -278,59 +277,6 @@ fn bin(runner: &Runner, scenarios: &[Scenario], args: &[String]) -> Result<bool,
         cuts_path.display()
     );
     Ok(true)
-}
-
-/// The reviewer's terminal in the mode `--play` reads keys in, one at a
-/// time without echo, put back as it was when dropped. On a standard input
-/// that is not a terminal, the player does not wait.
-struct Keys {
-    saved: Option<String>,
-}
-
-impl Keys {
-    fn new() -> Self {
-        if !std::io::stdin().is_terminal() {
-            return Self { saved: None };
-        }
-        let stty = |args: &[&str]| {
-            Command::new("stty")
-                .args(args)
-                .stdin(Stdio::inherit())
-                .stderr(Stdio::inherit())
-                .output()
-                .ok()
-                .filter(|o| o.status.success())
-                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_owned())
-        };
-        let saved = stty(&["-g"]);
-        if saved.is_some() {
-            let _ = stty(&["-icanon", "-echo", "min", "1"]);
-        }
-        Self { saved }
-    }
-
-    fn wait(&self) -> Step {
-        if self.saved.is_none() {
-            return Step::Next;
-        }
-        let mut byte = [0u8; 1];
-        match std::io::stdin().read(&mut byte) {
-            Ok(1) if matches!(byte[0], b'q' | b'Q' | 0x03 | 0x04) => Step::Quit,
-            Ok(1) => Step::Next,
-            _ => Step::Quit,
-        }
-    }
-}
-
-impl Drop for Keys {
-    fn drop(&mut self) {
-        if let Some(saved) = &self.saved {
-            let _ = Command::new("stty")
-                .arg(saved)
-                .stdin(Stdio::inherit())
-                .status();
-        }
-    }
 }
 
 /// `--play NAME...`: plays each behaviour scenario for a reviewer.

@@ -135,6 +135,7 @@ use crate::video::Video;
 use crate::wait::Wait;
 
 mod enter_switch;
+mod hand_over;
 mod held;
 #[cfg(feature = "logind")]
 pub mod keyboard_layout;
@@ -301,6 +302,10 @@ pub struct App {
     /// needs a notice, so a display unplugged and plugged in again adds no
     /// head.
     spare_notices: Vec<usize>,
+    /// Under `osd = silent`, each display that no path catches on this VT,
+    /// by its device and its connector, whose notice vtium logged in place
+    /// of showing it. Each is logged once while it stays unused.
+    silenced: BTreeSet<(PathBuf, String)>,
     /// The displays a DRM card announces for their notices though the rules
     /// leave them dark, by device and connector, which each card's dark
     /// policy reads.
@@ -385,6 +390,9 @@ pub struct App {
     retaking: BTreeSet<PathBuf>,
     /// Devices a release waits on.
     releasing: Option<BTreeSet<PathBuf>>,
+    /// Device events a test hands the next turn, as udev would.
+    #[cfg(test)]
+    queued_devices: Vec<DeviceEvent>,
     /// The start's wait for a display.
     wait: Wait,
     /// A frame has been on screen since the start.
@@ -464,6 +472,8 @@ pub struct App {
     /// The child writing `/sys/power/state` has not exited: the machine
     /// sleeps, or is going to.
     sleeping: Rc<Cell<bool>>,
+    /// The hand-overs of the display in force (ADR-1401 D16).
+    hand_overs: hand_over::HandOvers,
 }
 
 /// Reads the configuration again, as [`crate::config::load`] read it at
@@ -549,6 +559,7 @@ impl App {
             natural_scrolling: config.switch(&keys::NATURAL_SCROLLING),
             power: Box::new(power::System),
             sleeping: Rc::default(),
+            hand_overs: hand_over::HandOvers::default(),
             modes,
             use_original,
             display_buffers: crate::video::display_buffers(config.display_buffers()),
@@ -566,6 +577,7 @@ impl App {
             screen: None,
             notices: BTreeMap::new(),
             spare_notices: Vec::new(),
+            silenced: BTreeSet::new(),
             kernel: None,
             kernel_deferral: crate::kernel::Deferral::configured(&config),
             wanted: Rc::default(),
@@ -608,6 +620,8 @@ impl App {
             retake_owed: false,
             retaking: BTreeSet::new(),
             releasing: None,
+            #[cfg(test)]
+            queued_devices: Vec::new(),
             wait,
             presented: false,
             timer_due: None,
@@ -654,6 +668,7 @@ impl App {
         self.built = self.heads.len();
         self.notices.clear();
         self.spare_notices.clear();
+        self.silenced.clear();
         self.wanted.borrow_mut().clear();
         self.screen = (rules.policy == Policy::Closed).then(|| {
             let term = crate::head::terminal(&self.config, (0, 0), 0, Rc::clone(&self.clock));
@@ -965,11 +980,17 @@ impl App {
             .flatten()
     }
 
-    /// Adds a video device, woken while the VT is ours and else put to
-    /// sleep, which lets go of the DRM master a card's open took; the VT's
-    /// acquire wakes it (vtium/vtium#139).
+    /// Adds a video device, woken while the VT is ours and no hand-over
+    /// holds its place, and else put to sleep, which lets go of the DRM
+    /// master a card's open took; the VT's acquire, or the hand-over's
+    /// end, wakes it (vtium/vtium#139).
     pub fn add_video(&mut self, node: PathBuf, mut video: Box<dyn Video>) {
-        if self.awake {
+        if let Some(check) = self.vt.release_check() {
+            video.set_interrupt(check);
+        }
+        // A card a hand-over gave up stays asleep until the hand-over ends
+        // (ADR-1401 D16).
+        if self.awake && !self.hand_overs.given_up(&node) {
             if let Err(e) = video.wake_up() {
                 log::warn!("cannot wake {}: {e}", node.display());
             }
@@ -1407,13 +1428,20 @@ impl App {
 
     /// What `render-timer` asks for: whether the console writes each
     /// display's figures to the log, and whether it draws them on screen.
+    /// The figures describe the state of the system, which `osd = silent`
+    /// hides from whoever is at the screen, so under `silent` they go to
+    /// the log alone, or nowhere under `render-timer = osd`.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The key `osd` and the render timer".
     fn render_timer(&self) -> (bool, bool) {
-        match self.config.text(&keys::RENDER_TIMER) {
+        let (log, screen) = match self.config.text(&keys::RENDER_TIMER) {
             Some("log") => (true, false),
             Some("osd") => (false, true),
             Some("both") => (true, true),
             _ => (false, false),
-        }
+        };
+        (log, screen && !self.osd.silent())
     }
 
     /// Whether the console measures each display's frames, for the log,
@@ -1478,6 +1506,9 @@ impl App {
     /// announces one ([`open_video`]), a framebuffer does.
     fn darken(&mut self) {
         for (node, id) in self.dark.keys() {
+            if self.hand_overs.given_up(node) {
+                continue;
+            }
             if let Some(video) = self.videos.get_mut(node)
                 && let Err(e) = video.set_dpms(*id, Dpms::Off)
             {
@@ -1659,10 +1690,14 @@ impl App {
         true
     }
 
-    /// Mode 1004's focus (ADR-1401 D5): the terminal of each head a
+    /// Mode 1004's focus (ADR-1401 D5): the shown console of each head a
     /// keyboard delivers to has it, lit or not, so several hold it at
-    /// once; each change goes to a program that asked for it.
-    fn report_focus(&mut self) {
+    /// once. It holds only while vtium's VT is shown, and only while the
+    /// head is not wholly paused by a hand-over of its displays (D16). So
+    /// a VT release, under a seat manager the seat's disable, takes it
+    /// from every head, and setBackground from each head it wholly
+    /// pauses. Each change goes to a program that asked for it.
+    pub(super) fn report_focus(&mut self) {
         // A keyboard that could not be opened, or went at a wake-up, is
         // gone from the seat's input; with no seat input, as a test drives
         // the seat, a device counts as open.
@@ -1670,10 +1705,17 @@ impl App {
         let open = |id: Option<DeviceId>| {
             input.is_none_or(|i| id.is_some_and(|id| i.disposition(id).is_some()))
         };
+        // A release under way counts as the VT gone. The VT stays ours
+        // until the turn lets it go, once the displays are asleep, and the
+        // release reports the focus-out before that.
+        let shown = self.vt.is_active() && self.releasing.is_none();
+        let paused = self.paused_heads();
         for (h, head) in self.heads.iter_mut().enumerate() {
-            let focused = self
-                .routes
-                .keyboard_reaches(&self.vt_heads, h, self.focus, open);
+            let focused = shown
+                && !paused.contains(&h)
+                && self
+                    .routes
+                    .keyboard_reaches(&self.vt_heads, h, self.focus, open);
             if focused != head.focused {
                 head.focused = focused;
                 if head.console.term.terminal.focus(focused) {
@@ -2078,8 +2120,11 @@ impl App {
             self.blank.input(now);
             return;
         }
-        for video in self.videos.values_mut() {
-            power_down(video.as_mut());
+        // A card a hand-over gave up is the program's to power.
+        for (node, video) in &mut self.videos {
+            if !self.hand_overs.given_up(node) {
+                power_down(video.as_mut());
+            }
         }
         self.deactivate();
     }
@@ -2122,6 +2167,10 @@ impl App {
         if !self.vt.is_active() {
             return;
         }
+        if self.osd.silent() {
+            self.silence_notices(unused);
+            return;
+        }
         let gone: Vec<(PathBuf, String)> = self
             .notices
             .keys()
@@ -2151,9 +2200,7 @@ impl App {
                 self.add_display(&view.0, view.1);
             }
         }
-        let Some(vt) = self.vt_heads.vt() else {
-            return;
-        };
+        let vt = self.vt_heads.vt();
         // Which VTs vtium runs on, asked once for every notice that needs
         // it (ADR-1401 D3, "Enter on a head's own keyboard").
         let mut running = None;
@@ -2236,6 +2283,40 @@ impl App {
             {
                 log::warn!("{}: hotplug: {e}", key.0.display());
             }
+        }
+    }
+
+    /// Under `osd = silent`, a display of `unused`, which no path catches
+    /// on this VT, shows no notice. vtium leaves it off, since the rules
+    /// place it nowhere, and a key press or a switch back to this VT leaves
+    /// it off too. The log names each display and what its notice would
+    /// say, once while the display stays unused. Such a display ends the
+    /// start's wait for a display: a display came, and vtium leaves it off
+    /// on purpose, so vtium must not exit and hand the VT to a getty.
+    ///
+    /// References:
+    /// - ADR-1401 D3, "What a display with no path shows".
+    fn silence_notices(&mut self, unused: &[((PathBuf, String), Option<usize>)]) {
+        let vt = self.vt_heads.vt();
+        self.silenced
+            .retain(|key| unused.iter().any(|(u, _)| u == key));
+        for (key, owner) in unused {
+            if !self.silenced.insert(key.clone()) {
+                continue;
+            }
+            let named =
+                owner
+                    .and_then(|h| self.rules.heads.get(h))
+                    .map(|head| crate::notice::Owner {
+                        head: &head.name,
+                        vts: &head.vts,
+                    });
+            let text = crate::notice::unused_display(vt, &key.1, named.as_ref());
+            log::info!(
+                "display {}: {text} Because osd = silent, vtium shows no notice and leaves the display off.",
+                key.1
+            );
+            self.presented = true;
         }
     }
 
@@ -2359,6 +2440,11 @@ impl App {
         if self.blank.input(now) {
             let retake = std::mem::take(&mut self.retake_owed);
             for (node, video) in &mut self.videos {
+                // A card a hand-over gave up stays asleep, and its end
+                // wakes it whole.
+                if self.hand_overs.given_up(node) {
+                    continue;
+                }
                 // A display the rules leave dark is never unblanked: a
                 // device holding one powers up its other displays alone.
                 let dark: Vec<DisplayId> = self
@@ -2404,6 +2490,9 @@ impl App {
     fn vt_event(&mut self, event: VtEvent, now: Instant) {
         match event {
             VtEvent::Acquired => {
+                // vtium's VT shown again ends every hand-over, and the
+                // wake-up below takes their cards back (ADR-1401 D16).
+                self.hand_over_vt_shown();
                 // The wake-up sets every device up, an owed re-take's too,
                 // and each `Awake` it brings counts as activity.
                 self.retake_owed = false;
@@ -2453,6 +2542,9 @@ impl App {
                         painter.release();
                     }
                 }
+                // The focus-out goes now, before the turn lets the VT go
+                // (ADR-1401 D5).
+                self.report_focus();
             }
             VtEvent::Retaken if self.blank.blanked() => {
                 // As a hotplug while blanked: the set-up waits for the
@@ -2462,6 +2554,10 @@ impl App {
             }
             VtEvent::Retaken => {
                 for (node, video) in &mut self.videos {
+                    // A card a hand-over gave up stays the program's.
+                    if self.hand_overs.given_up(node) {
+                        continue;
+                    }
                     self.retaking.insert(node.clone());
                     if let Err(e) = video.wake_up() {
                         log::warn!("cannot set up {} again: {e}", node.display());
@@ -2634,10 +2730,23 @@ impl App {
             }
             Event::WakeFailed => {
                 self.retaking.remove(node);
-                log::warn!(
-                    "{}: the displays did not wake; the next key tries again",
-                    node.display()
-                );
+                // A DRM card goes on trying once a second while its VT is
+                // shown; a framebuffer waits for the next key.
+                let slowly = self
+                    .videos
+                    .get(node)
+                    .is_some_and(|video| video.backend() == "drm2d");
+                if slowly {
+                    log::warn!(
+                        "{}: the displays did not wake. vtium tries again once a second while this VT is shown, and at once at the next key press",
+                        node.display()
+                    );
+                } else {
+                    log::warn!(
+                        "{}: the displays did not wake. vtium tries again at the next key press",
+                        node.display()
+                    );
+                }
             }
         }
     }
@@ -2746,7 +2855,8 @@ impl App {
                     place => self.vt_heads.head(place),
                 };
                 Some((key.clone(), h?))
-            });
+            })
+            .filter(|&(_, h)| Some(h) != screen || self.screen_shows());
         if lighting != self.guard_lit {
             if let Some((key, _)) = self.guard_lit.take() {
                 self.unlight(key);
@@ -2841,6 +2951,20 @@ impl App {
         self.bound_pointers();
         // The guard may have sent a keyboard to another head.
         self.rehover();
+    }
+
+    /// Whether the screen the display guard lights for a notice alone has
+    /// anything to show. Under `osd = silent` the file's console line does
+    /// not show, so the screen shows only the two states in which vtium can
+    /// serve nothing: the panic screen and the notice of a crash loop that
+    /// stopped every head. They show at every level, since the person at
+    /// the console has no other way to learn why nothing works.
+    ///
+    /// References:
+    /// - ADR-1401 D9: what the display guard lights under `osd = silent`.
+    /// - ADR-1401 D5, "What every level shows".
+    fn screen_shows(&self) -> bool {
+        !self.osd.silent() || self.stopped || self.report.is_some()
     }
 
     /// What the screen the display guard lights for a notice alone shows
@@ -2983,6 +3107,61 @@ impl App {
         if let Some(exit) = session::exit_due(&self.heads) {
             self.request_exit(exit);
         }
+    }
+
+    /// The device events of one turn. Each card scans once for all the
+    /// hotplugs it had in the turn. Between a card's display work and the
+    /// next, the loop reads a request for the VT, and once one comes it
+    /// lets the VT go in this turn and skips the scans that remain. The
+    /// VT comes back to vtium only through an acquire, whose wake-up scans
+    /// every card, so a skipped scan needs no record (ADR-1401 D2, "A VT
+    /// release while display work runs").
+    fn device_events(&mut self, events: Vec<DeviceEvent>, now: Instant) {
+        let mut hotplugs: Vec<PathBuf> = Vec::new();
+        for e in events {
+            match e {
+                DeviceEvent::Hotplug { node, .. } => {
+                    if !hotplugs.contains(&node) {
+                        hotplugs.push(node);
+                    }
+                }
+                DeviceEvent::Added(dev) if dev.kind != DeviceKind::Input => {
+                    // A card added wakes up, and so reads its connectors,
+                    // only while the VT is vtium's.
+                    self.release_now(now);
+                    self.device_event(DeviceEvent::Added(dev));
+                }
+                e => self.device_event(e),
+            }
+        }
+        for node in hotplugs {
+            if self.release_now(now) {
+                continue;
+            }
+            if let Some(video) = self.videos.get_mut(&node)
+                && let Err(e) = video.hotplug()
+            {
+                log::warn!("{}: hotplug: {e}", node.display());
+            }
+        }
+        self.release_now(now);
+    }
+
+    /// Reads a request for the VT that waits, as a card's display work may
+    /// have stopped for, and handles it now, so the turn lets the VT go.
+    /// Returns whether the VT is being released.
+    fn release_now(&mut self, now: Instant) -> bool {
+        let asked = self.releasing.is_none()
+            && self.vt.is_active()
+            && self.vt.release_check().is_some_and(|asked| asked());
+        if asked {
+            self.vt.take_release();
+            let events: Vec<VtEvent> = self.vt.events().collect();
+            for e in events {
+                self.vt_event(e, now);
+            }
+        }
+        self.releasing.is_some()
     }
 
     /// A device of the seat came, went or changed. A framebuffer a DRM
@@ -3222,11 +3401,16 @@ impl App {
                 // ends its notices. An Esc that dismisses the kernel's
                 // messages stays with vtium (ADR-1401 D15).
                 self.focus_settled |= h.is_some();
-                let kept = h.and_then(|h| self.heads.get_mut(h)).is_some_and(|head| {
-                    let dismissed = head.has_kernel() && dismisses(&key);
-                    head.end_notices();
-                    dismissed
-                });
+                // A head a program holds the displays of keeps its notices
+                // (ADR-1401 D16).
+                let shown = h.filter(|&h| !self.wholly_paused(h));
+                let kept = shown
+                    .and_then(|h| self.heads.get_mut(h))
+                    .is_some_and(|head| {
+                        let dismissed = head.has_kernel() && dismisses(&key);
+                        head.end_notices();
+                        dismissed
+                    });
                 self.activity(now);
                 if !kept {
                     self.key(h, node, &key, from, now);
@@ -3258,13 +3442,8 @@ impl App {
         let Some(to) = self.held.released(node, key.keycode) else {
             return;
         };
-        let Some(&keysym) = key.keysyms.first() else {
+        let Some(release) = term_key(key, TermKeyEvent::Release) else {
             return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let release = Key {
-            event: TermKeyEvent::Release,
-            ..Key::press(keysym, key.ascii, Mods::from_bits(key.mods.bits()), unicode)
         };
         self.send_release(to, &release);
     }
@@ -3291,10 +3470,12 @@ impl App {
     /// of the keys held, as the next call after them finds.
     fn let_go_of_held_keys(&mut self) {
         let awake = self.awake && self.vt.is_active();
+        let paused = self.paused_heads();
         let (heads, routes, vt_heads, focus) =
             (&self.heads, &self.routes, &self.vt_heads, self.focus);
         let owed = self.held.leave(|node, to| {
             awake
+                && !paused.contains(&to.head)
                 && node.is_none_or(|n| routes.knows(n))
                 && routes.elsewhere(node).is_none()
                 && routes.head(vt_heads, node, focus) == Some(to.head)
@@ -3392,7 +3573,9 @@ impl App {
                 return;
             }
         }
-        let Some(h) = h else {
+        // While a program holds every display of the head, its pointer
+        // events reach no console (ADR-1401 D16).
+        let Some(h) = h.filter(|&h| !self.wholly_paused(h)) else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -3467,8 +3650,13 @@ impl App {
             }
             return;
         }
+        // While a program holds every display of the head, the head takes
+        // no key, console chord or grab: only the roaming chord, which
+        // moves the roaming inputs to a head that draws (ADR-1401 D16).
+        let paused = h.is_some_and(|h| self.wholly_paused(h));
         if let Some(grab::Action::Head(chord)) = action
             && (from.roaming || chord.is_console())
+            && !(paused && chord.is_console())
         {
             // One action a press, as the power keys.
             if !key.repeat {
@@ -3476,7 +3664,7 @@ impl App {
             }
             return;
         }
-        let Some(h) = h else {
+        let Some(h) = h.filter(|_| !paused) else {
             return;
         };
         let Some(head) = self.heads.get_mut(h) else {
@@ -3533,19 +3721,13 @@ impl App {
         {
             return;
         }
-        let Some(&keysym) = key.keysyms.first() else {
-            return;
-        };
-        let unicode = key.codepoints.first().copied().flatten();
-        let mods = Mods::from_bits(key.mods.bits());
         let event = if key.repeat {
             TermKeyEvent::Repeat
         } else {
             TermKeyEvent::Press
         };
-        let pressed = Key {
-            event,
-            ..Key::press(keysym, key.ascii, mods, unicode)
+        let Some(pressed) = term_key(key, event) else {
+            return;
         };
         if !key.repeat {
             let to = held::Console {
@@ -3594,6 +3776,17 @@ impl App {
             | HeadChord::PreviousConsole
             | HeadChord::OpenConsole
             | HeadChord::CloseConsole => {
+                // setBackground and setForeground are judged against the
+                // console shown when they came, before the chord shows
+                // another (ADR-1401 D16). A setBackground that pauses the
+                // head takes the chord with it, as a paused head takes no
+                // chord.
+                if let Some(h) = h {
+                    self.display_requests(h);
+                    if self.wholly_paused(h) {
+                        return;
+                    }
+                }
                 let changed = match (h, chord) {
                     // Under closed the count is fixed: the chord is taken,
                     // and does nothing (D1, D5).
@@ -3609,8 +3802,12 @@ impl App {
                             .get_mut(h)
                             .and_then(|head| head.close_shown(visible))
                             .map(|console| console.id);
-                        // Its session ended, and with it the switch it made
-                        // (ADR-1201 D11).
+                        // Its session ended, and with it the hand-over it
+                        // began (ADR-1401 D16).
+                        if let Some(id) = closed {
+                            self.hand_over_session_ended(h, id);
+                        }
+                        // And the switch it made (ADR-1201 D11).
                         if let Some(id) = closed.filter(|&id| {
                             self.heads
                                 .get(h)
@@ -3634,10 +3831,14 @@ impl App {
             }
         };
         self.focus_settled = true;
-        // only to a lit head that can be the active head (D5)
+        // only to a lit head that can be the active head (D5), and never
+        // to one a program holds every display of (ADR-1401 D16)
+        let paused = self.paused_heads();
         let (heads, rules, vt_heads) = (self.heads(), &self.rules, &self.vt_heads);
         let lit = |h: usize| {
-            heads.get(h).is_some_and(|head| !head.views.is_empty()) && !vt_heads.isolated(rules, h)
+            heads.get(h).is_some_and(|head| !head.views.is_empty())
+                && !vt_heads.isolated(rules, h)
+                && !paused.contains(&h)
         };
         if let Some(to) = chord::step(self.focus, heads.len(), back, lit) {
             self.move_focus(to);
@@ -3705,9 +3906,12 @@ impl App {
         // leaves the run alive: the console leaves, and the head says so,
         // since vtium never keeps a console with no session (the README's
         // "The session").
-        // That the console did not open is a notice of a problem, which
-        // shows whatever `osd` says, and goes as the guards' notices go
-        // (ADR-1401 D5, D7).
+        // That the console did not open is a notice of a problem. It shows
+        // at every level of `osd` but `silent`, where the log line alone
+        // holds it, and it goes as the guards' notices go.
+        //
+        // References:
+        // - ADR-1401 D5: the notice of a console that did not open.
         if let Err(why) = self.start_session(h, id) {
             if let Some(head) = self.heads.get_mut(h) {
                 log::warn!("head {}: console {id} does not open: {why}", head.name());
@@ -3837,6 +4041,9 @@ impl App {
             } else {
                 log::info!("child exited: {status}");
             }
+            // The session that sent setBackground ended: its hand-over
+            // ends (ADR-1401 D16).
+            self.hand_over_session_ended(h, id);
             let Some(head) = self.heads.get_mut(h) else {
                 return;
             };
@@ -4121,14 +4328,15 @@ impl App {
         // After the VT's events, so none shows once the VT is released, and
         // before the devices', so a flip they queue is read this turn.
         self.frames(now);
-        let devices: Vec<DeviceEvent> = self
+        #[cfg_attr(not(test), expect(unused_mut, reason = "a test adds its events"))]
+        let mut devices: Vec<DeviceEvent> = self
             .udev
             .as_mut()
             .map(|u| u.events().collect())
             .unwrap_or_default();
-        for e in devices {
-            self.device_event(e);
-        }
+        #[cfg(test)]
+        devices.splice(0..0, std::mem::take(&mut self.queued_devices));
+        self.device_events(devices, now);
         self.settled_videos();
         let nodes: Vec<PathBuf> = self.videos.keys().cloned().collect();
         for node in nodes {
@@ -4254,6 +4462,9 @@ impl App {
         if let Some(request) = grid {
             self.request_grid(h, request);
         }
+        // setBackground and setForeground under `allow-display-ops`, from
+        // every console, before the exits, which end a hand-over too.
+        self.display_requests(h);
         // After the exit, whose respawn's RIS returns the blank to
         // `dpms-timeout` for the next session.
         self.child_exited(h, now);
@@ -4361,6 +4572,7 @@ impl App {
     /// first frame that draws it, or always under `never`.
     fn osd(&mut self, now: Instant) {
         let Osd { mode, timeout } = self.osd;
+        let draws = self.osd.draws_status();
         let changes = mode == osd::Mode::Full && self.osd.shows_on_change();
         // the notice screen is no head, and shows no status
         for (h, head) in self
@@ -4378,7 +4590,7 @@ impl App {
             if changes && was.is_some_and(|was| Some(was) != seen) {
                 head.show_osd();
             }
-            let shown = mode != osd::Mode::Off && (timeout.is_none() || head.osd_shown);
+            let shown = draws && (timeout.is_none() || head.osd_shown);
             if let Some(time) = timeout.filter(|_| shown && head.osd_due.is_none())
                 && !head.views.is_empty()
             {
@@ -4396,7 +4608,8 @@ impl App {
             });
             // The brief line answers one press at a cap: for `osd-timeout`,
             // or 3 s under `never`, from its first frame, in place of the
-            // full line. [`Head::show_brief`] sets none under `off`.
+            // full line. [`Head::show_brief`] sets none under `off` or
+            // `silent`.
             head.arm_brief(after(now, timeout.unwrap_or(BRIEF_NEVER)));
             let status = head.brief().map(str::to_owned).or(full);
             if head.mark != mark || head.status != status {
@@ -5008,7 +5221,7 @@ fn to_usize(n: u64) -> usize {
 
 /// The locale in `env`, found as locale(7) says: the first of `LC_ALL`,
 /// `LC_CTYPE` and `LANG` set and not empty, else `C`.
-fn locale(env: &[(OsString, OsString)]) -> String {
+pub(crate) fn locale(env: &[(OsString, OsString)]) -> String {
     ["LC_ALL", "LC_CTYPE", "LANG"]
         .iter()
         .find_map(|name| {
@@ -5127,6 +5340,24 @@ fn depth(config: &Config, levels: Option<u8>) -> Depth {
     }
 }
 
+/// vtium-term's description of the key event `key` from vtium-platform,
+/// as `event`: its first keysym and that keysym's character, the ASCII
+/// layout's keysym, the unshifted key, the shifted key, the base layout key
+/// and the modifiers, whose bits the two crates share (ADR-1005, D1 and
+/// D2). `None` for an event with no keysym.
+pub fn term_key(key: &KeyEvent, event: TermKeyEvent) -> Option<Key> {
+    let &keysym = key.keysyms.first()?;
+    let unicode = key.codepoints.first().copied().flatten();
+    let mods = Mods::from_bits(key.mods.bits());
+    Some(Key {
+        event,
+        unshifted: key.unshifted,
+        shifted: key.shifted,
+        base: key.base,
+        ..Key::press(keysym, key.ascii, mods, unicode)
+    })
+}
+
 #[cfg(test)]
 #[expect(
     clippy::disallowed_methods,
@@ -5181,6 +5412,11 @@ mod tests {
         /// A draw no key caused waits for its flip in flight, as on a DRM
         /// display with two or three buffers (ADR-1401 D2).
         waits_for_flip: bool,
+        /// The scans its hotplugs ran.
+        pub(super) hotplugs: u32,
+        /// Set during each scan, as when the kernel asks for the VT while
+        /// a slow probe holds the loop.
+        pub(super) asks_for_vt: Option<Rc<std::cell::Cell<bool>>>,
     }
 
     impl Still {
@@ -5205,6 +5441,8 @@ mod tests {
                 committed: 0,
                 unplug_at_commit: false,
                 waits_for_flip: false,
+                hotplugs: 0,
+                asks_for_vt: None,
             }
         }
 
@@ -5327,6 +5565,10 @@ mod tests {
             Ok(())
         }
         fn hotplug(&mut self) -> io::Result<()> {
+            self.hotplugs = self.hotplugs.saturating_add(1);
+            if let Some(asks) = &self.asks_for_vt {
+                asks.set(true);
+            }
             Ok(())
         }
         fn as_any(&mut self) -> &mut dyn Any {
@@ -5975,7 +6217,7 @@ mod tests {
     fn a_hidden_consoles_clock_arms_no_timer() {
         let t = Instant::now();
         let ms = |n: u64| t + Duration::from_millis(n);
-        let heads = "version = 1\n[head one]\nconsoles = 2\n";
+        let heads = "version = 1\n[head one]\nconsoles = 2\n[rules]\ndisplay * -> one\n";
         let (_lp, mut app) = drawn_under(Some(heads), &animated(false), t);
         assert_eq!(clock(&app), (Some(ms(30)), Some(1)));
         let App {
@@ -6046,6 +6288,26 @@ mod tests {
         assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
     }
 
+    // ADR-1401 D5: the focus holds only while vtium's VT is shown. A
+    // release under way takes it, though the VT stays vtium's until the
+    // displays are asleep and vtium lets the VT go.
+    // covers: platform.heads.focus
+    #[test]
+    fn a_release_under_way_takes_the_focus() {
+        let (_lp, mut app) = seat(None, no_fonts());
+        app.vt.activate().unwrap();
+        app.focus = Some(0);
+        let keyboard =
+            vtium_settings::Identity::input().with_class(vtium_settings::Class::Keyboard);
+        app.add_input(Path::new("/dev/input/event9"), keyboard);
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(true));
+        app.releasing = Some(BTreeSet::from([PathBuf::from("/dev/dri/card0")]));
+        assert!(app.vt.is_active(), "the VT is still vtium's");
+        app.report_focus();
+        assert_eq!(app.heads.first().map(|h| h.focused), Some(false));
+    }
+
     // vtium/vtium#229: on a fake VT the app holds one wake-up of the input
     // for as long as it runs, so the keyboards stay open after
     // Ctrl+Super+F12 releases it, and the same chord can take it back; a
@@ -6056,6 +6318,9 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6095,6 +6360,9 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: char::from_u32(keysym)
@@ -6144,6 +6412,9 @@ mod tests {
             InputEvent::Key(KeyEvent {
                 keycode: 0,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: vec![None],
@@ -6197,6 +6468,9 @@ mod tests {
         let chord = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6526,8 +6800,17 @@ mod tests {
     /// A seat on one display under `render-timer=value`, shown at the
     /// returned time, its first frames handed back.
     fn timer_seat(value: &str) -> (Loop<App>, App, Instant) {
+        timer_seat_with(value, &[])
+    }
+
+    /// [`timer_seat`], with the options `more` too.
+    fn timer_seat_with(value: &str, more: &[&str]) -> (Loop<App>, App, Instant) {
         let option = format!("--render-timer={value}");
-        let (mut lp, mut app) = seat_with(&["--font-size=16", &option], None, no_fonts());
+        let options: Vec<&str> = ["--font-size=16", option.as_str()]
+            .into_iter()
+            .chain(more.iter().copied())
+            .collect();
+        let (mut lp, mut app) = seat_with(&options, None, no_fonts());
         app.add_video(
             PathBuf::from("/dev/mem0"),
             Box::new(Still::new(&[(1, "A")])),
@@ -6596,17 +6879,22 @@ mod tests {
     /// giving up on it while the count runs, and `no-blink` arms no blink
     /// timer, so the box's count is the loop's only timer.
     fn kernel_seat() -> (Loop<App>, App, Queued, Instant) {
+        kernel_seat_with(&[])
+    }
+
+    /// [`kernel_seat`], with the options `more` too.
+    fn kernel_seat_with(more: &[&str]) -> (Loop<App>, App, Queued, Instant) {
         let queued: Queued = Rc::default();
-        let (mut lp, mut app) = seat_with(
-            &[
-                "--font-size=16",
-                "--kernel-messages=always",
-                "--display-wait=forever",
-                "--no-blink",
-            ],
-            None,
-            no_fonts(),
-        );
+        let options: Vec<&str> = [
+            "--font-size=16",
+            "--kernel-messages=always",
+            "--display-wait=forever",
+            "--no-blink",
+        ]
+        .into_iter()
+        .chain(more.iter().copied())
+        .collect();
+        let (mut lp, mut app) = seat_with(&options, None, no_fonts());
         app.set_kernel(Box::new(QueuedKernel(Rc::clone(&queued))));
         app.add_video(
             PathBuf::from("/dev/mem0"),
@@ -6631,6 +6919,9 @@ mod tests {
         InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::empty(),
             keysyms: vec![keysym],
             codepoints: char::from_u32(keysym)
@@ -6700,6 +6991,9 @@ mod tests {
         let f12 = InputEvent::Key(KeyEvent {
             keycode: 0,
             ascii: 0,
+            unshifted: 0,
+            shifted: 0,
+            base: None,
             mods: InputMods::CTRL.union(InputMods::LOGO),
             keysyms: vec![0xffc9],
             codepoints: vec![None],
@@ -6875,6 +7169,51 @@ mod tests {
                 "{value}: in the on-screen display's colors"
             );
         }
+    }
+
+    /// Under `osd = silent`, vtium draws no render timer figures on screen.
+    /// `render-timer = osd` then shows nothing, so vtium measures nothing,
+    /// and `render-timer = both` measures for the log line alone.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The key `osd` and the render timer".
+    #[test]
+    fn under_osd_silent_the_render_timer_draws_no_figures() {
+        for (value, measures) in [("osd", false), ("both", true)] {
+            let (mut lp, mut app, t) = timer_seat_with(value, &["--osd=silent"]);
+            let measured = app
+                .heads
+                .first()
+                .and_then(|h| h.views.values().next())
+                .is_some_and(|v| v.timer.is_some());
+            assert_eq!(measured, measures, "{value}: the console measures");
+            let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+            let still = still.as_any().downcast_mut::<Still>().unwrap();
+            still.events.extend([Event::Flipped(DisplayId(1)); 3]);
+            let second = t + Duration::from_secs(1);
+            app.turn(second);
+            settle_frames(&mut lp, &mut app, second);
+            assert_eq!(box_text(&app), None, "{value}: no line on screen");
+        }
+    }
+
+    /// Under `osd = silent`, the kernel's messages still show. They are the
+    /// kernel's text, not vtium's own notices, and `kernel-messages`
+    /// governs them.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "The kernel's messages".
+    #[test]
+    fn under_osd_silent_the_kernels_messages_still_show() {
+        let (mut lp, mut app, queued, t) = kernel_seat_with(&["--osd=silent"]);
+        kernel_log(&queued, "usb 1-2: device descriptor read/64, error -71");
+        kernel_turn(&mut lp, &mut app, t);
+        assert_eq!(
+            box_text(&app).as_deref(),
+            Some(
+                "usb 1-2: device descriptor read/64, error -71\nPress Esc to dismiss this message (15)"
+            )
+        );
     }
 
     // ADR-1401 D5: a render timer line measured before the VT switched
@@ -7312,5 +7651,166 @@ mod tests {
         app.turn(Instant::now());
         assert_eq!(asked.borrow().len(), 1, "not asked again");
         assert!(!app.videos.contains_key(&fb));
+    }
+
+    /// A VT the kernel asks for while the test says, as SIGUSR2 waits in
+    /// the signalfd, counting the releases vtium acknowledged.
+    struct Asks {
+        active: bool,
+        asked: Rc<std::cell::Cell<bool>>,
+        released: Rc<std::cell::Cell<u32>>,
+        events: Vec<VtEvent>,
+    }
+
+    impl Vt for Asks {
+        fn release_check(&self) -> Option<vtium_platform::display::Interrupt> {
+            let asked = Rc::clone(&self.asked);
+            Some(Rc::new(move || asked.get()))
+        }
+        fn take_release(&mut self) {
+            if self.asked.replace(false) {
+                self.events.push(VtEvent::Release);
+            }
+        }
+        fn events(&mut self) -> std::vec::Drain<'_, VtEvent> {
+            self.events.drain(..)
+        }
+        fn acknowledge_release(&mut self) -> io::Result<()> {
+            self.active = false;
+            self.released.set(self.released.get().saturating_add(1));
+            Ok(())
+        }
+        fn refuse_release(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn activate(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn leave(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn wait(&mut self) -> io::Result<vtium_platform::vt::Switch> {
+            Ok(vtium_platform::vt::Switch::Done)
+        }
+        fn is_active(&self) -> bool {
+            self.active
+        }
+        fn key(&mut self, _: &KeyEvent) -> bool {
+            false
+        }
+        fn restore(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+        fn bell(&mut self) {}
+        fn number(&self) -> Option<u16> {
+            Some(1)
+        }
+    }
+
+    /// The seat on an [`Asks`] VT it has acquired, with two cards. Returns
+    /// the app, the cell through which the kernel asks for the VT, the
+    /// count of releases vtium acknowledged and both cards.
+    fn asking_seat() -> (
+        App,
+        Rc<std::cell::Cell<bool>>,
+        Rc<std::cell::Cell<u32>>,
+        PathBuf,
+        PathBuf,
+    ) {
+        let loaded = crate::config::load(&["--font-size=16".into()], &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let released = Rc::new(std::cell::Cell::new(0));
+        let vt = Asks {
+            active: true,
+            asked: Rc::new(std::cell::Cell::new(false)),
+            released: Rc::clone(&released),
+            events: vec![VtEvent::Acquired],
+        };
+        let check = Rc::clone(&vt.asked);
+        let mut app = App::new(
+            loaded.config,
+            Box::new(vt),
+            lp.handle(),
+            Rc::new(Instant::now),
+            Vec::new(),
+        );
+        app.set_font_sources(no_fonts());
+        let (card0, card1) = (
+            PathBuf::from("/dev/dri/card0"),
+            PathBuf::from("/dev/dri/card1"),
+        );
+        let mut first = Still::new(&[(1, "A")]);
+        first.like_a_device = true;
+        let mut second = Still::new(&[(2, "B")]);
+        second.like_a_device = true;
+        app.add_video(card0.clone(), Box::new(first));
+        app.add_video(card1.clone(), Box::new(second));
+        app.turn(Instant::now());
+        assert!(app.awake, "the VT is vtium's");
+        (app, check, released, card0, card1)
+    }
+
+    fn hotplug(node: &Path) -> DeviceEvent {
+        DeviceEvent::Hotplug {
+            kind: DeviceKind::Drm,
+            node: node.to_owned(),
+        }
+    }
+
+    fn hotplugs(app: &mut App, card: &Path) -> u32 {
+        app.videos
+            .get_mut(card)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .hotplugs
+    }
+
+    // A request for the VT that comes while a card scans, as during a
+    // slow connector probe, is answered in the same turn: the loop lets the
+    // VT go before the turn ends and leaves the other card's scan to the
+    // acquire (ADR-1401 D2, "A VT release while display work runs").
+    // covers: platform.vt-switch
+    #[test]
+    fn a_release_asked_during_a_scan_is_acknowledged_in_that_turn() {
+        let (mut app, asked, released, card0, card1) = asking_seat();
+        app.videos
+            .get_mut(&card0)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .asks_for_vt = Some(asked);
+        app.queued_devices = vec![hotplug(&card0), hotplug(&card1)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card0), 1, "card0 scanned");
+        assert_eq!(hotplugs(&mut app, &card1), 0, "left to the acquire");
+        assert_eq!(released.get(), 1, "the VT went in the same turn");
+    }
+
+    // A request for the VT that comes during the turn's last scan is
+    // answered in that turn too, though no other card's work follows it.
+    // covers: platform.vt-switch
+    #[test]
+    fn a_release_asked_during_the_last_scan_is_acknowledged_in_that_turn() {
+        let (mut app, asked, released, card0, _) = asking_seat();
+        app.videos
+            .get_mut(&card0)
+            .and_then(|v| v.as_any().downcast_mut::<Still>())
+            .unwrap()
+            .asks_for_vt = Some(asked);
+        app.queued_devices = vec![hotplug(&card0)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card0), 1, "card0 scanned");
+        assert_eq!(released.get(), 1, "the VT went in the same turn");
+    }
+
+    // A card scans once for all the hotplugs udev reported for it in one
+    // turn (ADR-1401 D2, "A VT release while display work runs").
+    #[test]
+    fn a_card_scans_once_for_the_hotplugs_of_a_turn() {
+        let (mut app, _, released, card0, card1) = asking_seat();
+        app.queued_devices = vec![hotplug(&card1), hotplug(&card1), hotplug(&card1)];
+        app.turn(Instant::now());
+        assert_eq!(hotplugs(&mut app, &card1), 1, "one scan for three hotplugs");
+        assert_eq!(hotplugs(&mut app, &card0), 0);
+        assert_eq!(released.get(), 0, "the VT stays");
     }
 }

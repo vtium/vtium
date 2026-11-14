@@ -1,0 +1,17 @@
+size 20x10
+cursor 0,0
+flags AUTO_WRAP
+host: 1 t=f flags=- O=0 max=0 min=3 name=/tmp/white len=0
+reply 1b5f47693d333b4f4b1b5c1b5f47693d333b4f4b1b5c
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+row 8 ||
+row 9 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 1x1 src 0,0 1x1 cell 8x16 z 0 above-text kitty image 0 opaque
+image 0 1x1 digest e3160fb1

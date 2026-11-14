@@ -1,0 +1,52 @@
+> size 20 2
+> needs key-forms
+> send "\e[>8u"
+> key Escape
+< reply "\e[27u"
+> key a mods=alt
+< reply "\e[97;3u"
+> key Up
+< reply "\e[A"
+> key F1
+< reply "\e[P"
+> key space
+< reply "\e[32u"
+> key space mods=ctrl
+< reply "\e[32;5u"
+> key A mods=shift
+< reply "\e[97;2u"
+> cmd key;sym=21;ascii=21;unicode=21;unshifted=31;base=31;mods=1
+< reply "\e[49;2u"
+> key A mods=lock
+< reply "\e[97;65u"
+> key eacute
+< reply "\e[233u"
+> key Cyrillic_es
+< reply "\e[1089u"
+> key KP_1 mods=num char="1"
+< reply "\e[57400;129u"
+> key KP_Enter
+< reply "\e[57414u"
+> key Return mods=shift
+< reply "\e[13;2u"
+> key Shift_R mods=shift
+< reply "\e[57447;2u"
+> key Control_L mods=ctrl
+< reply "\e[57442;5u"
+> key Alt_L mods=alt
+< reply "\e[57443;3u"
+> key Super_R mods=logo
+< reply "\e[57450;9u"
+> key 0xffed mods=hyper
+< reply "\e[57445;17u"
+> key Meta_L mods=meta
+< reply "\e[57446;33u"
+> key Num_Lock mods=num
+< reply "\e[57360;129u"
+> key 0xfe03
+< reply "\e[57453u"
+> key 0xfe11
+< reply "\e[57454u"
+> send "\e[<u"
+> key A mods=shift
+< reply "A"

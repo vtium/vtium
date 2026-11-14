@@ -80,7 +80,7 @@ Your login works as in the default build: `pam_systemd` registers it with logind
 
 Your login is kept off the seat on purpose. If your login registered on `seat0` with vtium's VT, logind would make your login the seat's active session. logind would then take vtium's devices away, and vtium could no longer draw or read the keyboard. So when you log in, vtium starts `login` in a systemd scope of its own. A scope is a group of processes that systemd tracks apart from vtium. vtium also leaves out the seat variables when it starts `login`. `pam_systemd` then gives you a logind session of your own with no seat. That session has your runtime directory, `XDG_RUNTIME_DIR`, and your user's `user@.service`, which two logins by the same user share.
 
-Because your session has no seat, polkit treats it as inactive. Actions that polkit allows only to the active session, such as powering off, ask for a password. The uaccess rules give your session no devices either, so you have no sound card or removable disks unless your Unix groups give them to you.
+polkit counts a session as one at the machine only when the session has a seat. Your session has no seat, so polkit applies the rule it has for any process, as it does for a login over SSH. For most actions, such as powering off, that rule asks for an administrator's password. The uaccess rules give your session no devices either, so you have no sound card or removable disks unless your Unix groups give them to you.
 
 When systemd cannot make the scope, vtium logs one line that says why. `login` then runs inside vtium's own session and gets no session of its own. polkit then judges your login by vtium's session, which is the seat's active session, so it allows you what it allows a login in direct mode.
 
@@ -114,7 +114,7 @@ VT 6 is logind's reserved VT, where logind starts a console at every switch to i
 
 `vtium console enable` with no mode changes nothing. It tells you what it finds on the machine. It says whether systemd runs, whether logind manages `seat0`, and whether this vtium is built with libseat and logind. It also names the display manager that keeps VT 1. Then it names the mode it recommends and why, and says whether seat mode can run on this machine. Last, it prints the command that turns the recommended mode on. When you name a VT, as in `vtium console enable 3`, the command is for that VT: `sudo vtium console enable --direct 3`. When you name no VT, or `--all`, the command is for every VT: `sudo vtium console enable --direct --all`. The advice leaves out `sudo` when you run it as root. Any user can ask for the advice.
 
-It recommends direct mode on every systemd machine. Direct mode gives your login an active session on the seat, as a getty does. In seat mode, vtium gets its own devices from logind. That changes nothing you can see or use after you log in. What you do notice is that your login's session is inactive. So the advice names seat mode as a choice, with that cost.
+It recommends direct mode on every systemd machine. Direct mode gives your login an active session on the seat, as a getty does. In seat mode, vtium gets its own devices from logind. That changes nothing you can see or use after you log in. What you do notice is that your login's session has no seat, so polkit asks for a password more often. So the advice names seat mode as a choice, with that cost.
 
 ### With elogind
 
@@ -141,3 +141,148 @@ vtium finds no seat manager when it starts, so it runs on the kernel's VT exactl
 | no seat manager | vtium | nobody | no session: your Unix groups decide your devices |
 
 On a systemd machine, keep direct mode. Choose seat mode only if you want vtium to get its devices through logind, and you accept that your logins then lose the seat's devices. `vtium console enable` with no mode tells you what it sees on your machine. [Install VTium](../install.md#direct-mode-and-seat-mode) shows how to move a VT between modes, and [systemd.md](../systemd.md) lists every place vtium touches systemd, logind and elogind.
+
+## What you see in each mode
+
+This section is about a systemd machine with logind that runs the `vtium` package. It shows how you tell the two modes apart. It then follows a VT in seat mode from boot to your login, through VT switches and a keyboard you plug in. The examples come from a laptop with SDDM, a display manager, on VT 2 and vtium in seat mode on VTs 3 to 6. Its user names, process numbers and times are made generic.
+
+### Which mode a VT runs in
+
+Each mode has a systemd unit of its own. A VT in direct mode runs `vtium@ttyN.service`, and a VT in seat mode runs `vtium-seat@ttyN.service`, where N is the VT's number. To see which units run now, list them:
+
+```
+$ systemctl list-units 'vtium*'
+  vtium-seat@tty3.service  loaded active running vtium in seat mode on tty3
+  vtium-seat@tty4.service  loaded active running vtium in seat mode on tty4
+  vtium-seat@tty5.service  loaded active running vtium in seat mode on tty5
+  vtium-seat@tty6.service  loaded active running vtium in seat mode on tty6
+```
+
+`vtium console status` shows the units of VTs 1 to 6 in three columns. The first names the unit that systemd starts at boot. The second names the unit that logind starts when you switch to a VT where nothing runs. The third names what runs on the VT now.
+
+```
+$ vtium console status
+On a VT with no link of its own, logind starts vtium in seat mode: autovt@.service links to vtium-seat@.service.
+The display manager is sddm.service (/etc/systemd/system/display-manager.service links to it).
+VT  at boot                                     when switched to  running
+1   getty@tty1, display manager (sddm.service)  -                 -
+2   -                                           vtium-seat@tty2   login screen of sddm (sddm-greeter), /usr/lib/Xorg (sddm.service)
+3   vtium-seat@tty3, no getty to restore        vtium-seat@tty3   vtium-seat@tty3
+4   vtium-seat@tty4, no getty to restore        vtium-seat@tty4   vtium-seat@tty4
+5   vtium-seat@tty5, no getty to restore        vtium-seat@tty5   vtium-seat@tty5
+6   vtium-seat@tty6, no getty to restore        vtium-seat@tty6   vtium-seat@tty6
+```
+
+To move a VT to the other mode, see [Moving a VT between modes](#moving-a-vt-between-modes).
+
+### Your login in `loginctl`
+
+`loginctl list-sessions` lists every logind session. vtium gives each login a pseudo-terminal (a pty), the kind of terminal that a terminal window gives a shell. So in both modes, the `TTY` column of your login names a pty such as `pts/0`, not the VT.
+
+In direct mode, vtium has no session of its own. Your login is a session of the class `user` on `seat0`:
+
+```
+SESSION  UID USER  SEAT  LEADER CLASS   TTY   IDLE SINCE
+      4 1000 alice seat0 1906   user    pts/0 no   -
+```
+
+`loginctl session-status 4` names the VT on its `Seat:` line, as in `Seat: seat0; vc3`. Its `State:` line reads `active` while VT 3 is shown, and `online` while another VT is shown.
+
+In seat mode, the list has a session of vtium's own for each VT, and your login has no seat:
+
+```
+SESSION  UID USER  SEAT  LEADER CLASS         TTY   IDLE SINCE
+      1    0 root  -     1349   manager-early -     no   -
+     11 1000 alice -     2465   user          pts/0 no   -
+     12 1000 alice -     2524   manager       -     no   -
+      2  969 sddm  -     1473   manager-early -     no   -
+     c1    0 root  seat0 1337   greeter       tty5  no   -
+     c2    0 root  seat0 1335   greeter       tty3  no   -
+     c3    0 root  seat0 1336   greeter       tty4  no   -
+     c4    0 root  seat0 1338   greeter       tty6  no   -
+     c5  969 sddm  seat0 1435   greeter       tty2  no   -
+```
+
+Each of the sessions `c1` to `c4` is a vtium. Each runs as root on `seat0` and on its own VT. Its class is `greeter`, the class of a display manager's login screen. The session `c5` is SDDM's login screen on VT 2. Session 11 is your login, of the class `user`, with no seat. A session of the class `manager` or `manager-early` is systemd's service manager for one user, and you see those in both modes.
+
+`loginctl session-status` shows one session in detail. This is vtium's session on VT 3, shortened:
+
+```
+c2 - root (0)
+  State: active
+ Leader: 1335 (vtium)
+   Seat: seat0; vc3
+    TTY: tty3
+Service: vtium
+  Class: greeter
+   Unit: session-c2.scope
+         ├─1335 /usr/bin/vtium --vt=tty3 --no-switchvt
+         └─1394 "(sd-pam)"
+```
+
+The `Service:` line names the PAM file `/etc/pam.d/vtium`, which opened the session. The `State:` line reads `active` while VT 3 is shown, and `online` while another VT is shown.
+
+This is your login, shortened:
+
+```
+11 - alice (1000)
+  State: active
+ Leader: 2465 (login)
+    TTY: pts/0
+Service: login
+  Class: user
+   Unit: session-11.scope
+         ├─2465 "login -- alice"
+         └─2534 -zsh
+```
+
+Your session has no `Seat:` line. Its `State:` line reads `active` even while another VT is shown, because logind counts every session with no seat as active. polkit looks at the seat as well, so it still asks you for a password more often. See [Seat mode](#seat-mode) for details.
+
+Before you log in, `login` runs in a systemd scope named for the VT and its process, such as `vtium-login-tty3-2465.scope`. Once you log in, `pam_systemd` moves your login into the scope of your own session, such as `session-11.scope`.
+
+### When vtium gets the seat
+
+In seat mode, systemd starts a vtium on each of its VTs at boot. Each vtium opens `seat0` through logind at once. logind gives the seat's devices only to the active session, which is the session on the VT that is shown. So each vtium whose VT is not shown waits. Its log says so:
+
+```
+seat: the seat seat0 is open
+seat: waiting for the seat manager to give vtium the seat
+```
+
+To read the log of the vtium on VT 3, run `journalctl -u vtium-seat@tty3.service`.
+
+While a vtium waits, it has not drawn anything yet. You do not see that, because its VT is not shown. When you switch to its VT, logind makes vtium's session the active one and gives vtium the seat. vtium then takes the graphics card and the keyboards, and draws its login prompt. When you switch to a VT where no vtium runs yet, logind starts one there, as the column "when switched to" of `vtium console status` shows. That vtium gets the seat as soon as it starts, because its VT is already shown.
+
+### Switching VTs in seat mode
+
+In seat mode, logind switches VTs, and vtium asks it to. vtium turns the kernel's keyboard handling off on its VT and reads the keys itself. When you press Ctrl+Alt and a function key, vtium asks logind, through libseat, to show that VT. The keys of the VT already shown do nothing.
+
+When logind is about to show another VT, it asks vtium to give the seat back. vtium stops drawing, closes its keyboards and pointers, and lets go of the graphics card. vtium then tells logind that it is done, and logind shows the other VT. Another program that switches VTs, such as a display manager, goes through the same steps. Your programs keep running while another VT is shown.
+
+When you switch back, logind gives vtium the seat again. vtium opens its keyboards and pointers again, and draws the whole screen with what your programs wrote meanwhile. Each time vtium gets the seat, its log has a line for each keyboard and pointer it opens, such as `seat: opened /dev/input/event10 through the seat manager`.
+
+### Plugging in a keyboard or a mouse
+
+vtium watches for keyboards and pointers that appear on `seat0`. When you plug one in while vtium's VT is shown, vtium asks logind to open the device, and you can use it at once. The log then has a line such as `seat: opened /dev/input/event10 through the seat manager`. When you plug one in while another VT is shown, vtium opens the device the next time it gets the seat.
+
+When you unplug a device, vtium closes it. The log then has a line for each of the device's files, such as `input: cannot read /dev/input/event10: No such device (os error 19)`. These lines are expected.
+
+### Beside a display manager
+
+A display manager, such as SDDM, shows its login screen on a VT of its own. Its session there is also of the class `greeter`, and it is on `seat0` beside vtium's sessions. When you switch to the display manager's VT, logind gives the seat to the display manager's session, and vtium lets the seat go as for any other VT.
+
+`vtium console enable` passes by every VT that another program holds. It leaves VT 1 to a display manager that is enabled, as [What is the same everywhere](#what-is-the-same-everywhere) describes. It also passes by a VT where a login screen, a desktop session or another console runs now. In the example, SDDM's X server holds VT 2, so `vtium console status` names that program on VT 2, and `vtium console enable --all` leaves VT 2 alone.
+
+### What has been checked
+
+The maintainer ran seat mode on a laptop with logind on 2026-11-13, with vtium 0.1.0-alpha.7 from the AUR. They logged in and typed, and they saw that their login got a session with no seat. They switched to another vtium VT, to SDDM's VT, and back again. They unplugged a keyboard and plugged it in again.
+
+Tier 3, vtium's test of the installed console in a virtual machine, runs seat mode under logind, and the libseat build under seatd, both on a systemd machine. It logs in, checks that the login gets a session with no seat, and switches VTs through the seat manager. It also logs in twice on one VT, and restarts vtium while a shell is logged in. See [How vtium is judged](how-vtium-is-judged.md) for the tiers.
+
+No test checks these cases yet:
+
+- seatd on a machine without systemd;
+- seat mode under elogind;
+- a seat manager that stops while vtium runs. When libseat reports that the connection to the seat manager failed, vtium logs an error and exits. systemd then handles the exit as any failure of vtium. See [When vtium fails on a VT](../install.md#when-vtium-fails-on-a-vt) for details.
+
+See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.

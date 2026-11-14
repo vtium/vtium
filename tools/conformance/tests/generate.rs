@@ -1,7 +1,4 @@
-//! The generator against the copied corpus: every synthetic case it
-//! writes is the copy byte for byte, its stream, its cuts and its
-//! fixtures, and every case of `cases.list` it does not write is a
-//! recording.
+//! The generator against the copied corpus: every synthetic case it writes is the copy byte for byte, its stream, its cuts and its fixtures. Every case of `cases.list` that the generator does not write is a recording or a readable case, `corpus/cases/NAME.case`. A readable case is the only source of its case.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -44,6 +41,15 @@ fn the_generator_reproduces_every_synthetic_case() {
     let dir = cases_dir();
     let mut faults = Vec::new();
     for case in &made {
+        let readable = dir.join(format!("{}.case", case.name));
+        if readable.exists() {
+            faults.push(format!(
+                "{}: The corpus holds this case as a readable case, {}, and the generator still writes it. Remove the case's recipe from src/generate/.",
+                case.name,
+                readable.display()
+            ));
+            continue;
+        }
         let bin = dir.join(format!("{}.bin", case.name));
         match std::fs::read(&bin) {
             Ok(copy) if copy == case.stream => {}
@@ -88,6 +94,7 @@ fn the_generator_reproduces_every_synthetic_case() {
         .lines()
         .filter_map(|l| l.split('#').next()?.split_whitespace().next())
         .filter(|name| !made.iter().any(|c| c.name == *name))
+        .filter(|name| !dir.join(format!("{name}.case")).exists())
         .collect();
     assert_eq!(unmade, ["prog-shell", "prog-less", "prog-vim", "prog-tmux"]);
     for case in &made {
@@ -114,7 +121,7 @@ fn the_generator_writes_into_an_empty_directory_only() {
     let cases = generate::cases(&inputs);
     let first = generate::write(&dir, &cases);
     let again = generate::write(&dir, &cases);
-    assert_eq!(first.map(|list| list.lines().count()), Ok(160));
+    assert_eq!(first.map(|list| list.lines().count()), Ok(158));
     let why = again.err().unwrap_or_default();
     assert!(why.contains("is not empty"), "{why}");
 }

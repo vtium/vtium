@@ -522,8 +522,9 @@ pub enum Fate {
 pub enum Remark {
     /// No rule names the head declared on the line it names.
     Unnamed { head: Quoted },
-    /// No rule names the first head of an open file, which the display
-    /// guard gives the boot display while no head has a display.
+    /// No rule names the first head of what survives of an open file with
+    /// errors, which the display guard gives the boot display while no head
+    /// has a display.
     UnnamedLitByGuard { head: Quoted },
     /// Every head is isolated, so no keyboard can switch the VT and no head
     /// can be the active head.

@@ -170,3 +170,44 @@ fn a_notice_on_a_turned_display_draws_on_the_cpu_paths_pixels_on_llvmpipe() {
         );
     }
 }
+
+// ADR-1302 D5: the edges that the one-cell color heart sends 1 pixel into a
+// selected cell and into a block cursor's cell keep the heart's own colors.
+// On the GPU path, cell.frag draws that color ink in the branch for ink a
+// neighbour receives from a color glyph, and on llvmpipe the screen draws
+// on the CPU path's pixels.
+#[test]
+fn a_one_cell_color_emojis_edge_in_a_marked_cell_draws_alike_on_llvmpipe() {
+    let case = CASES
+        .iter()
+        .find(|c| c.screen.name == "emoji-rgba-marks")
+        .unwrap();
+    let cpu = vtium_tier2::draw::draw(&case.screen).unwrap();
+    let w = cpu.width() as usize;
+    let at = |x: usize, y: usize| &cpu.rgb()[(y * w + x) * 3..(y * w + x) * 3 + 3];
+    // the background of the selection and of the cursor: no ink there
+    assert_eq!(at(20, 18), [0xe5, 0xe5, 0xe5]);
+    for (x, y, cell) in [
+        (16, 5, "the selected b"),
+        (47, 5, "the selected a"),
+        (16, 21, "the cursor's cell, from the heart before it"),
+        (23, 21, "the cursor's cell, from the heart after it"),
+    ] {
+        let p = at(x, y);
+        assert!(p[0] > p[1].saturating_add(0x30), "{cell}: {p:?}");
+    }
+    let mut gl = gpu::llvmpipe().unwrap();
+    let out = Path::new(env!("CARGO_TARGET_TMPDIR")).join("gpu-marks");
+    let _ = fs::remove_dir_all(&out);
+    fs::create_dir_all(&out).unwrap();
+    let reports = gpu::reports(&[case.screen], &root(), &mut gl, (&out, &out));
+    let got: Vec<(String, &str)> = reports
+        .iter()
+        .map(|r| (r.name.clone(), r.status.name()))
+        .collect();
+    assert_eq!(
+        got,
+        [("emoji-rgba-marks@gpu".to_owned(), "pass")],
+        "{reports:?}"
+    );
+}

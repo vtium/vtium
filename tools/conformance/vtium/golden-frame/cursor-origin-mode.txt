@@ -1,0 +1,169 @@
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 29
+size 10x8
+cursor 0,2
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 80
+frame-cursor 0,2 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 54
+size 10x8
+cursor 2,3
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 2,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 80
+size 10x8
+cursor 1,5
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 1,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 105
+size 10x8
+cursor 0,5
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 129
+size 10x8
+cursor 0,3
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 157
+size 10x8
+cursor 3,3
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 3,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 184
+size 10x8
+cursor 0,0
+flags AUTO_WRAP
+reply 1b5b323b3452
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 209
+size 10x8
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 | Z|
+row 2 ||
+row 3 | X|
+row 4 ||
+row 5 |Y|
+row 6 ||
+row 7 ||

@@ -1,0 +1,12 @@
+# SS2 and SS3 map the next printed character through G2 or G3, here DEC
+# special graphics and, since ESC + < designates ASCII in UTF-8 input,
+# ASCII. The next printed character takes the shift even when it is a
+# space, and a control before it leaves the shift waiting.
+# spec: the VT220 manual, 4.4.4; ctlseqs, SS2 and SS3
+# covers: text.charsets
+size 20 3
+send "\e*0\e+<"
+send "\eNqq\eOaa"
+send "\eN \bq"
+send "\eN\r\nq"
+dump state

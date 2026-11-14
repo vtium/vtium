@@ -390,13 +390,12 @@ fn clusters(order: &[&RawStrike]) -> Result<Option<(Vec<u8>, usize)>, WriteError
 }
 
 /// Checks `ink` as the box of a glyph of strike `s`, `wide` or not: in
-/// an R8 or 1-bit strike, its bytes the box's, inside a chunk, spanning
-/// the glyph's cells, past them on at least one side and inside their
-/// reach (ADR-1302 D1, D6, ADR-1306 D1, D3).
+/// an R8 or 1-bit strike, or of a color emoji in one cell, reaching at
+/// most 1 pixel past it on each side and inside its row (ADR-1302 D5);
+/// its bytes the box's, inside a chunk, spanning the glyph's cells, past
+/// them on at least one side and inside their reach (ADR-1302 D1, D6,
+/// ADR-1306 D1, D3).
 fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> {
-    if s.format == FORMAT_RGBA {
-        return Err("an ink box in a color strike");
-    }
     let cell = (i64::from(s.cell_width), i64::from(s.cell_height));
     let cells = (cell.0.saturating_mul(if wide { 2 } else { 1 }), cell.1);
     let boxed = InkRect {
@@ -405,6 +404,9 @@ fn check_ink(s: &RawStrike, wide: bool, ink: &RawInk) -> Result<(), WriteError> 
         width: i64::from(ink.width),
         height: i64::from(ink.height),
     };
+    if s.format == FORMAT_RGBA && !boxed.is_emoji_edge(cell, wide) {
+        return Err("an ink box in a color strike past 1 pixel beside a one-cell glyph");
+    }
     if !boxed.in_reach(cell, cells) {
         return Err("an ink box outside its glyph's reach, or not past its cells");
     }

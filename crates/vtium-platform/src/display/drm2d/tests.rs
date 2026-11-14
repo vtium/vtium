@@ -22,6 +22,7 @@ use crate::display::fake::{BufferCall, Color, Commit, FakeCard, ListRead, Plane,
 use crate::display::mode::mode;
 use crate::display::{Blank, DPMS_TIMEOUT, Wanted};
 use crate::scratch::Scratch;
+use std::rc::Rc;
 
 const A: u32 = 41;
 const B: u32 = 42;
@@ -762,6 +763,32 @@ fn a_sleep_waits_for_the_pending_flip() {
     assert!(matches!(v.commit(DisplayId(A)), Err(SwapError::Off)));
 }
 
+// A wake-up while a sleep still waits for its flip, as a hand-over of the
+// display that ends at once does (ADR-1401 D16), cancels the sleep: the
+// card keeps DRM master, wakes, and draws whole, and the flip's end lets
+// nothing go.
+// covers: platform.hand-back
+#[test]
+fn a_wake_up_while_a_sleep_waits_for_its_flip_keeps_the_card() {
+    let mut v = awake(one());
+    frame(&mut v, &[DOT]).unwrap();
+    v.sleep();
+    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
+    v.wake_up().unwrap();
+    assert!(events(&mut v).contains(&Event::Awake));
+    flip(&mut v);
+    assert!(
+        !events(&mut v).contains(&Event::Asleep),
+        "the flip's end lets nothing go"
+    );
+    assert!(v.card().state().master, "the card keeps DRM master");
+    // The wake-up's modeset ran once the flip ended, and draws once its own
+    // flip ends.
+    flip(&mut v);
+    assert!(!events(&mut v).contains(&Event::Asleep));
+    assert!(lends(&mut v, A), "the display takes frames");
+}
+
 // A VT release while a frame's flip is in flight waits for it even where
 // no plane shows anything, so the program that takes the card can commit
 // on that CRTC at once: the kernel refuses a commit that does not block
@@ -788,27 +815,202 @@ fn a_sleep_waits_for_a_frames_flip_and_commits_nothing_to_hide() {
     );
 }
 
-// A VT release before the first frame, as when another program takes the
-// VT while the first modeset's flip is in flight, waits for that flip. Its
-// bound running out during the sleep is no warning, since the program
-// taking the card may hold the flip up, and the sleep commits nothing.
+// A VT release while a modeset's flip is in flight, as when another
+// program takes the VT during vtium's first modeset, does not wait for that
+// flip: the card falls asleep in the same call, commits nothing, and warns
+// of nothing. The modeset's late event is dropped, and the next wake-up
+// sets the display again (ADR-1401 D2, "A VT release while display work
+// runs").
+// covers: platform.vt-switch
 #[test]
-fn a_sleep_over_the_first_modesets_flip_warns_of_nothing() {
+fn a_sleep_does_not_wait_for_a_modesets_flip() {
     let mut v = one();
     v.wake_up().unwrap();
     v.events().for_each(drop);
     let commits = v.card().state().commits.len();
     logs::capture();
     v.sleep();
-    assert!(events(&mut v).is_empty(), "the sleep waits for the flip");
-    v.flip_expired(100);
-    assert_eq!(events(&mut v), [Event::Asleep]);
+    assert_eq!(events(&mut v), [Event::Asleep], "asleep in the same call");
+    assert!(!v.card().state().master, "the card let DRM master go");
     assert_eq!(v.card().state().commits.len(), commits, "nothing to hide");
     assert!(
         logs::at_least(Level::Warn).is_empty(),
         "{:?}",
         logs::at_least(Level::Warn)
     );
+    // The modeset's event comes late and is dropped.
+    flip(&mut v);
+    assert!(events(&mut v).is_empty());
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(lends(&mut v, A), "the display takes frames again");
+}
+
+/// Gives `v` a check of whether the kernel asked for the VT, which the
+/// test answers through the cell it returns.
+fn release_check(v: &mut Drm2d<FakeCard>) -> Rc<std::cell::Cell<bool>> {
+    let asked = Rc::new(std::cell::Cell::new(false));
+    let check = Rc::clone(&asked);
+    v.set_interrupt(Rc::new(move || check.get()));
+    asked
+}
+
+/// A card with two connected displays, A and B, asleep, whose wake-up is
+/// asked for the VT once connector `at` is read. Returns the card, the
+/// cell that answers the check, and whether connector B was read.
+fn asked_during_read(
+    at: u32,
+) -> (
+    Drm2d<FakeCard>,
+    Rc<std::cell::Cell<bool>>,
+    Rc<std::cell::Cell<bool>>,
+) {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    let asked = release_check(&mut v);
+    let read_b = Rc::new(std::cell::Cell::new(false));
+    let seen = Rc::clone(&read_b);
+    v.card()
+        .after_read(ListRead::Connector(B), move |_| seen.set(true));
+    let set = Rc::clone(&asked);
+    v.card()
+        .after_read(ListRead::Connector(at), move |_| set.set(true));
+    (v, asked, read_b)
+}
+
+// A VT release asked while the wake-up reads connector A, as during a slow
+// probe, stops the scan before the next read: the card reads no other
+// connector and sets no mode, so the sleep lets the card go at once. The
+// acquire's wake-up does the work again (ADR-1401 D2, "A VT release while
+// display work runs").
+// covers: platform.vt-switch
+#[test]
+fn a_release_asked_during_a_connector_read_stops_the_scan() {
+    let (mut v, asked, read_b) = asked_during_read(A);
+    logs::capture();
+    v.wake_up().unwrap();
+    assert!(!read_b.get(), "the scan stopped before connector B");
+    assert!(v.card().state().commits.is_empty(), "no mode was set");
+    assert!(!events(&mut v).contains(&Event::Awake));
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep], "asleep in the same call");
+    assert!(!v.card().state().master);
+    asked.set(false);
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert!(lends(&mut v, A) && lends(&mut v, B), "the acquire set both");
+}
+
+// A VT release asked after the last connector read stops the scan before
+// its modeset: the card sets no mode.
+// covers: platform.vt-switch
+#[test]
+fn a_release_asked_before_a_modeset_sets_no_mode() {
+    let (mut v, _asked, read_b) = asked_during_read(B);
+    v.wake_up().unwrap();
+    assert!(read_b.get(), "the scan read every connector");
+    assert!(v.card().state().commits.is_empty(), "no mode was set");
+    v.sleep();
+    assert_eq!(events(&mut v), [Event::Asleep]);
+}
+
+// A scan probes a connector only where the kernel reports a monitor on it,
+// or has not detected yet whether one is there. A connector the kernel
+// reports disconnected is read as the kernel last detected it, with no
+// probe, as a probe of it can take seconds (ADR-1401 D2).
+#[test]
+fn a_scan_probes_only_connectors_that_may_have_a_monitor() {
+    const C: u32 = 47;
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, Vec::new()),
+        (C, Vec::new()),
+    ]);
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let c = card.state().connectors.get_mut(&C).map(|c| {
+        c.connected = false;
+        c.unknown = true;
+    });
+    assert!(c.is_some());
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    assert_eq!(v.card().state().probes, [A, C]);
+}
+
+// A sleep leaves only an atomic modeset's own flip to the kernel. The
+// frame flipped after a modeset is waited for, on the atomic path and on
+// the legacy one, whose modeset starts no flip of its own, so the next
+// master's first page flip on that CRTC is not refused as busy.
+// covers: platform.vt-switch
+#[test]
+fn a_sleep_waits_for_the_first_frames_flip_after_a_modeset() {
+    for atomic in [true, false] {
+        let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)])]);
+        card.state().atomic = atomic;
+        let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+        frame(&mut v, &[DOT]).unwrap();
+        v.sleep();
+        assert!(
+            events(&mut v).is_empty(),
+            "atomic {atomic}: the sleep waits for the frame's flip"
+        );
+        assert!(v.card().state().master, "atomic {atomic}");
+        flip(&mut v);
+        assert_eq!(events(&mut v), [Event::Asleep], "atomic {atomic}");
+    }
+}
+
+// A hotplug's scan that a VT release stops is no failure: the poll answers
+// Ok and warns of nothing, and the sleep that follows ends its retries.
+#[test]
+fn a_hotplug_a_release_stops_answers_ok() {
+    let card = FakeCard::new(&[
+        (A, vec![mode(640, 480, 60, true)]),
+        (B, vec![mode(640, 480, 60, true)]),
+    ]);
+    let mut v = awake(Drm2d::with(card, ModePolicy::default()).unwrap());
+    let asked = release_check(&mut v);
+    let set = Rc::clone(&asked);
+    v.card()
+        .after_read(ListRead::Connector(A), move |_| set.set(true));
+    logs::capture();
+    assert!(v.poll().is_ok(), "the stopped hotplug is no failure");
+    assert!(asked.get(), "the kernel asked during the scan");
+    assert!(
+        logs::at_least(Level::Warn).is_empty(),
+        "{:?}",
+        logs::at_least(Level::Warn)
+    );
+    v.sleep();
+    assert_eq!(events(&mut v).last(), Some(&Event::Asleep));
+}
+
+// The first wake-up and a hotplug probe only the connectors that may have
+// a monitor. The wake-up at an acquire probes every connector, so it finds
+// a monitor that the kernel cannot detect by itself (ADR-1401 D2).
+#[test]
+fn the_acquires_wake_up_probes_every_connector() {
+    let card = FakeCard::new(&[(A, vec![mode(640, 480, 60, true)]), (B, Vec::new())]);
+    card.state().connectors.get_mut(&B).unwrap().connected = false;
+    let mut v = Drm2d::with(card, ModePolicy::default()).unwrap();
+    v.wake_up().unwrap();
+    flip(&mut v);
+    assert_eq!(v.card().state().probes, [A], "the first wake-up");
+    v.card().state().probes.clear();
+    v.poll().unwrap();
+    assert_eq!(v.card().state().probes, [A], "a hotplug");
+    v.sleep();
+    v.card().state().probes.clear();
+    v.wake_up().unwrap();
+    assert_eq!(v.card().state().probes, [A, B], "the acquire's wake-up");
 }
 
 #[test]
@@ -3200,6 +3402,145 @@ fn input_after_a_hotplugs_retries_ran_out_sets_the_modes() {
     );
 }
 
+/// Wakes `v` while another program holds DRM master, and runs the fast
+/// retries out: the card is asleep in the foreground after
+/// [`Event::WakeFailed`].
+fn slow_after_wake_failed(v: &mut Drm2d<FakeCard>) {
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(v), [Event::WakeFailed]);
+}
+
+// The maintainer's decision of 2026-11-13 on the display hand-back: once
+// the fast retries run out, the card tries the wake-up again at each slow
+// retry, and wakes at the first one after the other program lets go of
+// DRM master, with no input. A slow try that fails starts no fast retries.
+// covers: platform.hand-back
+#[test]
+fn a_slow_retry_wakes_the_card_once_master_is_let_go() {
+    let mut v = one();
+    slow_after_wake_failed(&mut v);
+    for _ in 0..3 {
+        v.retry_slowly();
+        assert_eq!(v.waits(), (false, false), "a failed slow try");
+    }
+    assert!(events(&mut v).is_empty());
+    v.card().state().master_elsewhere = false;
+    v.retry_slowly();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+    let commits = v.card().state().commits.len();
+    v.retry_slowly();
+    assert_eq!(v.card().state().commits.len(), commits, "the card is awake");
+}
+
+// In the loop, the slow retry's timer is armed once the fast retries run
+// out, and it wakes the card with no input once the other program lets go
+// of master. The test counts the loop's turns until the card wakes.
+#[test]
+fn the_loop_wakes_the_card_at_a_slow_retry() {
+    let (mut lp, mut app) = in_loop(one());
+    slow_after_wake_failed(&mut app.0);
+    assert!(app.0.slow_armed());
+    app.0.card().state().master_elsewhere = false;
+    let mut turns = 0;
+    turn_until(&mut lp, &mut app, |app| {
+        turns += 1;
+        assert!(!app.0.waits().1, "a fast retry ran");
+        app.0.events().any(|e| e == Event::Awake)
+    });
+    assert!(turns > 1, "the card woke before the slow retry fired");
+    assert!(!app.0.slow_armed());
+    assert_eq!(app.0.waits(), (false, false));
+}
+
+// A VT release stops the slow retries, and the acquire that follows starts
+// the fast ones again.
+#[test]
+fn a_vt_release_stops_the_slow_retries() {
+    let (_lp, mut app) = in_loop(one());
+    let v = &mut app.0;
+    slow_after_wake_failed(v);
+    assert!(v.slow_armed());
+    v.sleep();
+    assert!(!v.slow_armed());
+    assert_eq!(events(v), [Event::Asleep]);
+    v.card().state().master_elsewhere = false;
+    v.retry_slowly();
+    assert!(events(v).is_empty(), "a slow try after the release");
+    assert!(!v.card().state().master);
+    v.card().state().master_elsewhere = true;
+    assert!(v.wake_up().is_err());
+    assert_eq!(v.waits(), (false, true));
+    assert!(!v.slow_armed());
+}
+
+// While the slow retries run, a key press or a pointer action tries the
+// wake-up at once, without waiting for the next slow try.
+#[test]
+fn input_tries_at_once_while_the_slow_retries_run() {
+    let mut v = one();
+    slow_after_wake_failed(&mut v);
+    v.card().state().master_elsewhere = false;
+    v.input().unwrap();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(A)), Event::Awake]);
+    assert!(v.card().state().master);
+}
+
+// After a failed hotplug's retries run out, master is kept, and a slow
+// retry sets the modes. Blanked, the slow retry commits nothing: the
+// modeset is owed to the input that ends the blank, and the slow retries
+// stop.
+#[test]
+fn a_slow_retry_sets_the_modes_unless_blanked() {
+    let mut v = a_then_b(ModePolicy::default());
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 200]);
+    assert!(v.poll().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(&mut v), [Event::WakeFailed]);
+    v.retry_slowly();
+    assert!(events(&mut v).is_empty(), "the card still refuses");
+    v.card().state().commit_errors.clear();
+    v.retry_slowly();
+    assert_eq!(events(&mut v), [Event::Added(DisplayId(B))]);
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+
+    let (_lp, mut app) = in_loop(a_then_b(ModePolicy::default()));
+    let v = &mut app.0;
+    v.card().state().listed.push(B);
+    v.card().state().commit_errors.extend([Errno::INVAL; 200]);
+    assert!(v.poll().is_err());
+    while v.waits().1 {
+        v.retry_wake();
+    }
+    assert_eq!(events(v), [Event::WakeFailed]);
+    v.card().state().commit_errors.clear();
+    let (mut blank, at) = blanked(v);
+    assert!(v.slow_armed());
+    let commits = v.card().state().commits.len();
+    v.retry_slowly();
+    assert_eq!(v.card().state().commits.len(), commits, "blanked");
+    assert!(!v.slow_armed(), "the slow retries stop while blanked");
+    assert!(blank.input(at));
+    v.input().unwrap();
+    v.unblank().unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(
+        (c.get(100, "ACTIVE"), c.get(101, "ACTIVE")),
+        (Some(1), Some(1))
+    );
+}
+
 // Finding 2 and the frame contract, rule 6: a display powered down lends
 // no token, so no frame is drawn and lost; powered on, every buffer is
 // age 0, its next frame goes whole, and the owner is told to redraw.
@@ -3668,6 +4009,7 @@ fn virtio_gpu() -> FakeCard {
                 kind: 15,
                 kind_id: 1,
                 connected: true,
+                unknown: false,
                 modes: vec![mode(1366, 768, 60, true)],
                 mm: (0, 0),
                 encoder: 0,
@@ -4580,6 +4922,7 @@ fn shared_dark_card() -> FakeCard {
                 kind: 10,
                 kind_id: 1,
                 connected: false,
+                unknown: false,
                 encoder: 201,
                 encoders: vec![201],
                 ..Connector::default()

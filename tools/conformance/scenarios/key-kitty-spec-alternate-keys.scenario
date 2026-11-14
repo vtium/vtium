@@ -1,0 +1,32 @@
+# The kitty keyboard protocol's flag 4, report alternate keys. Flag 4
+# alone changes no key, because it only adds to keys that another flag
+# already sends as escape codes: Ctrl+A, Shift+A and Escape keep their
+# legacy bytes. Under flags 5, Ctrl+Shift+= on a US layout, which makes
+# +, sends the code 61 and the shifted key 43. Shift+Alt+1 sends 49 and
+# 33. A functional key and Tab carry no alternate key. Cyrillic es with
+# no modifier still sends its text. Under flags 13, the same key sends
+# its base layout key 99 after an empty shifted key, and A with Caps Lock
+# but no Shift sends no shifted key. Under flags 29, Shift+A sends the
+# shifted key and the text, and Shift with Cyrillic es sends all three.
+# spec: kitty's Comprehensive keyboard handling in terminals: Report alternate keys, Key codes, Text as code points; ADR-1005 D9 and D13 slice 3
+# covers: input.kitty-keyboard
+size 20 2
+needs key-forms
+send "\e[>4u"
+key a mods=ctrl
+key A mods=shift
+key Escape
+send "\e[=5u"
+cmd key;sym=2b;ascii=2b;unicode=2b;unshifted=3d;base=3d;mods=5
+cmd key;sym=21;ascii=21;unicode=21;unshifted=31;base=31;mods=9
+key Up mods=shift
+key ISO_Left_Tab mods=shift+ctrl
+cmd key;sym=6d3;ascii=63;unicode=441;unshifted=6d3;base=63
+send "\e[=13u"
+cmd key;sym=6d3;ascii=63;unicode=441;unshifted=6d3;base=63
+cmd key;sym=61;ascii=61;unicode=61;unshifted=61;base=61
+cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=2
+cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=1
+send "\e[=29u"
+cmd key;sym=41;ascii=41;unicode=41;unshifted=61;base=61;mods=1
+cmd key;sym=6f3;ascii=43;unicode=421;unshifted=6d3;base=63;mods=1

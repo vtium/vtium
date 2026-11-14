@@ -1,0 +1,16 @@
+# ECH erases characters from the cursor and leaves the cursor where it
+# is. An omitted or zero count means 1, and a count past the line stops
+# at its end. From a pending wrap, ECH erases from the last column.
+# spec: ECMA-48 8.3.38 ECH
+# covers: ctl.edit
+size 8 2
+send "abcdefgh\e[1;3H\e[X"
+dump state
+send "\e[2X"
+dump state
+send "\e[0X"
+dump state
+send "\e[1;6H\e[99X"
+dump state
+send "\e[2;1H01234567\e[2X"
+dump state

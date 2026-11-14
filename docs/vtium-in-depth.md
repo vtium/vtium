@@ -56,7 +56,7 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 - vtium runs as root, as getty does, so it can start the system’s login program. It currently opens the VT, graphics cards, and input devices directly. Support for obtaining those resources from a seat manager such as seatd or logind through libseat has been designed but is not yet complete.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
 - vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
-- Ligatures, input methods, the kitty keyboard protocol, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
+- Ligatures, input methods, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
 
 ## Requirements
 

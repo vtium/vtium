@@ -1615,7 +1615,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily restart script start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily pointer restart script start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1904,7 +1904,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily restart script start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily pointer restart script start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -3794,7 +3794,7 @@ class Package(Case):
         # It never installs onto the machine, nor into install-tree's default:
         # an empty DESTDIR, or one that is the root, would write
         # /usr/local/lib/systemd/system/vtium@.service over the packaged unit.
-        for target in ("install", "install-terminfo"):
+        for target in ("install", "install-terminfo", "install-fonts"):
             for args, why in (([], f"{target}: name DESTDIR=DIR"),
                               (["DESTDIR="], f"{target}: DESTDIR is empty"),
                               (["DESTDIR=/"], f"{target}: DESTDIR=/ is this machine's root"),
@@ -3891,6 +3891,27 @@ class Package(Case):
         p = self.make("install-terminfo", f"DESTDIR={self.dest}", "PREFIX=/usr", f"TERMINFO_SRC={src}.missing")
         self.assertNotEqual(p.returncode, 0)
         self.assertIn("install-terminfo: no", p.stderr)
+        self.assertEqual(self.staged(), [])
+
+    # ADR-1500 D8: vtium-fonts ships the frits for scripts with marks and the
+    # four CJK frits, one for each region, beside the fonts they name, and
+    # make install-fonts stages them for its recipe.
+    SCRIPT_FRITS = ("arabic", "hebrew", "indic", "thai-lao", "vietnamese",
+                    "cjk-sc", "cjk-tc", "cjk-jp", "cjk-kr")
+
+    def test_install_fonts_stages_the_script_frits_alone(self):
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "PREFIX=/usr")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self.staged(), sorted("etc/vtium/fonts/%s.vtfrit" % n for n in self.SCRIPT_FRITS))
+        for n in self.SCRIPT_FRITS:
+            self.assertEqual(read(os.path.join(self.dest, "etc/vtium/fonts/%s.vtfrit" % n)),
+                             read(os.path.join(ROOT, "tools/specimens/frits/%s.vtfrit" % n)), n)
+        self.assertEqual(self.s.calls_of("cargo"), [])
+        # A frit vtium does not hold stops it before it stages anything.
+        shutil.rmtree(self.dest)
+        p = self.make("install-fonts", f"DESTDIR={self.dest}", "FONTS_FRITS=arabic absent")
+        self.assertNotEqual(p.returncode, 0)
+        self.assertIn("no frit absent in", p.stderr)
         self.assertEqual(self.staged(), [])
 
     def units(self, *args, out=None):

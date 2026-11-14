@@ -75,6 +75,10 @@ pub enum Command {
         unicode: Option<u32>,
         mods: u8,
         event: KeyAction,
+        /// The unshifted key, 0 for none (the feature `key-forms`).
+        unshifted: u32,
+        /// The base layout key's code point (the feature `key-forms`).
+        base: Option<u32>,
     },
     Mouse {
         col: u64,
@@ -114,6 +118,9 @@ pub enum Command {
     Backspace {
         del: bool,
     },
+    /// What a cluster with a spacing mark or a virama conjunct takes, as
+    /// vtium.conf's `cluster-width` chooses it (ADR-1006 D8).
+    ClusterWidth(vtium_term::ClusterWidth),
     State,
     /// Whether the host takes OSC 50, as `allow-font-ops` sets it.
     FontOps(bool),
@@ -123,6 +130,10 @@ pub enum Command {
     /// Whether the host takes XTWINOPS 8, as `allow-window-ops` sets it.
     WindowOps(bool),
     GridRequest,
+    /// Whether the host takes setBackground and setForeground, as
+    /// `allow-display-ops` sets it.
+    DisplayOps(bool),
+    DisplayRequest,
     Cell {
         width: u32,
         height: u32,
@@ -189,7 +200,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.8, in the order of its describe blocks:
+/// Every command of interface 1.11, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -226,7 +237,15 @@ pub const SPECS: &[Spec] = &[
     spec(
         "key",
         Some("input"),
-        &["sym", "ascii", "unicode", "mods", "event"],
+        &[
+            "sym",
+            "ascii",
+            "unicode",
+            "mods",
+            "event",
+            "unshifted",
+            "base",
+        ],
         true,
     ),
     spec(
@@ -252,6 +271,9 @@ pub const SPECS: &[Spec] = &[
     spec("font-request", Some("font-ops"), &[], true),
     spec("window-ops", Some("window-ops"), &["on"], true),
     spec("grid-request", Some("window-ops"), &[], true),
+    spec("display-ops", Some("display-ops"), &["on"], true),
+    spec("display-request", Some("display-ops"), &[], true),
+    spec("cluster-width", Some("cluster-width"), &["rule"], true),
 ];
 
 const fn spec(
@@ -466,6 +488,11 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
                 )?,
                 None => KeyAction::Press,
             },
+            unshifted: to_u32(f.hex("unshifted", 0x1fff_ffff, Some(0))?),
+            base: match f.get("base") {
+                Some(_) => Some(to_u32(f.hex("base", 0x10_ffff, None)?)),
+                None => None,
+            },
         },
         "mouse" => {
             let button = f.name_of(
@@ -568,6 +595,13 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "backspace" => Command::Backspace {
             del: f.flag("del", None)?,
         },
+        "cluster-width" => Command::ClusterWidth(f.name_of(
+            "rule",
+            &[
+                ("double", vtium_term::ClusterWidth::Double),
+                ("single", vtium_term::ClusterWidth::Single),
+            ],
+        )?),
         "state" => Command::State,
         "font-ops" => Command::FontOps(f.flag("on", Some(true))?),
         "font-name" => {
@@ -586,6 +620,8 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "font-request" => Command::FontRequest,
         "window-ops" => Command::WindowOps(f.flag("on", Some(true))?),
         "grid-request" => Command::GridRequest,
+        "display-ops" => Command::DisplayOps(f.flag("on", Some(true))?),
+        "display-request" => Command::DisplayRequest,
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         "cell" => Command::Cell {
@@ -696,8 +732,25 @@ mod tests {
                 unicode: Some(0x62),
                 mods: 0,
                 event: KeyAction::Press,
+                unshifted: 0,
+                base: None,
             })
         );
+        // INTERFACE-vtium.md, the feature key-forms
+        assert_eq!(
+            parse(b"key;sym=6d3;unicode=441;unshifted=6d3;base=63;mods=4"),
+            Ok(Command::Key {
+                sym: 0x6d3,
+                ascii: 0,
+                unicode: Some(0x441),
+                mods: 4,
+                event: KeyAction::Press,
+                unshifted: 0x6d3,
+                base: Some(0x63),
+            })
+        );
+        assert_eq!(code("key;sym=61;base=110000"), Some(2));
+        assert_eq!(code("key;sym=61;unshifted=20000000"), Some(2));
         // INTERFACE-vtium.md, the feature key-events
         for (name, event) in [
             ("press", KeyAction::Press),
@@ -713,6 +766,8 @@ mod tests {
                     unicode: None,
                     mods: 4,
                     event,
+                    unshifted: 0,
+                    base: None,
                 }),
                 "{text}"
             );
@@ -799,6 +854,14 @@ mod tests {
             parse(b"backspace;del=0"),
             Ok(Command::Backspace { del: false })
         );
+        assert_eq!(
+            parse(b"cluster-width;rule=single"),
+            Ok(Command::ClusterWidth(vtium_term::ClusterWidth::Single))
+        );
+        assert_eq!(
+            parse(b"cluster-width;rule=double"),
+            Ok(Command::ClusterWidth(vtium_term::ClusterWidth::Double))
+        );
         assert_eq!(parse(b"state"), Ok(Command::State));
         assert_eq!(parse(b"font-ops"), Ok(Command::FontOps(true)));
         assert_eq!(parse(b"font-ops;on=0"), Ok(Command::FontOps(false)));
@@ -813,6 +876,9 @@ mod tests {
         assert_eq!(parse(b"window-ops"), Ok(Command::WindowOps(true)));
         assert_eq!(parse(b"window-ops;on=0"), Ok(Command::WindowOps(false)));
         assert_eq!(parse(b"grid-request"), Ok(Command::GridRequest));
+        assert_eq!(parse(b"display-ops"), Ok(Command::DisplayOps(true)));
+        assert_eq!(parse(b"display-ops;on=0"), Ok(Command::DisplayOps(false)));
+        assert_eq!(parse(b"display-request"), Ok(Command::DisplayRequest));
     }
 
     #[cfg(feature = "images")]
@@ -889,6 +955,8 @@ mod tests {
             "hover;col=1;row=1;ctrl=2",
             "backspace",
             "backspace;del=2",
+            "cluster-width",
+            "cluster-width;rule=packed",
             "state;x=1",
         ] {
             assert_eq!(code(text), Some(2), "{text:?}");

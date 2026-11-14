@@ -1,0 +1,80 @@
+test state margins 0-6 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 140
+size 6x7
+cursor 0,5
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 42
+frame-cursor 0,5 default visible w=1 fg=#0000ee bg=#e5e5e5 ul=#0000ee
+row 0 |aa|
+cells 0 2-5 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 1 |   bbb|
+cells 1 0-2 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 2 |cc  cc|
+cells 2 2-3 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 3 |dd ddd|
+cells 3 2-2 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 4 |eeeee|
+cells 4 5-5 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 5 ||
+cells 5 0-5 w=1 fg=#e5e5e5 bg=#0000ee ul=#e5e5e5
+row 6 |ffffff|
+test state margins 0-6 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 170
+size 6x7
+cursor 0,5
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 42
+frame-cursor 0,5 default visible w=1 fg=#cd0000 bg=#e5e5e5 ul=#cd0000
+row 0 ||
+cells 0 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 1 ||
+cells 1 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 2 ||
+cells 2 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 3 ||
+cells 3 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 4 ||
+cells 4 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 5 ||
+cells 5 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 6 ||
+cells 6 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+test state margins 0-6 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen bg=3
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 200
+size 6x7
+cursor 0,6
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 42
+frame-cursor 0,6 default visible w=1 fg=#cdcd00 bg=#e5e5e5 ul=#cdcd00
+row 0 ||
+cells 0 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 1 ||
+cells 1 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 2 ||
+cells 2 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 3 ||
+cells 3 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 4 ||
+cells 4 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 5 ||
+cells 5 0-5 w=1 fg=#e5e5e5 bg=#cd0000 ul=#e5e5e5
+row 6 ||
+cells 6 0-5 w=1 fg=#e5e5e5 bg=#cdcd00 ul=#e5e5e5

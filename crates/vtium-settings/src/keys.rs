@@ -482,14 +482,14 @@ pub const HEAD_CONSOLES_MAX: Key = Key {
 pub const OSD: Key = Key {
     name: "osd",
     short: None,
-    kind: Kind::Choice(&["off", "minimal", "full"]),
+    kind: Kind::Choice(&["full", "minimal", "off", "silent"]),
     default: Default::Text("minimal"),
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
     what: "What the on-screen display shows at the top of each screen after a change, such as a console switch.\n\n\
-           `minimal` shows a dot in the top-right character cell: filled on the active head, hollow on the others. `full` shows a line across the top, such as `● desk · console 2 of 3`. `off` shows nothing.\n\n\
-           A notice about a problem appears whatever `osd` says.",
+           `full` shows a line across the top, such as `● desk · console 2 of 3`. `minimal` shows a dot in the top-right character cell: filled on the active head, hollow on the others. `off` shows nothing. Under these three, a notice about a problem still appears, such as one about errors in vtium.conf.\n\n\
+           `silent` shows nothing, and it hides vtium's notices too. vtium still writes each notice to its log. Two screens appear even under `silent`, because no console runs while they show. One is the panic screen of a closed vtium.conf that cannot run. The other is the notice that vtium stopped every screen because a session kept ending.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -531,7 +531,7 @@ pub const NOTICE_FOREGROUND: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The text color of a notice. A notice is a box that reports a problem, such as errors in vtium.conf. It appears whatever `osd` says.",
+    what: "The text color of a notice. A notice is a box that reports a problem, such as errors in vtium.conf. It appears at every level of `osd` except `silent`.",
     cite: "[the on-screen display issue](https://github.com/vtium/vtium/issues/169)",
 };
 
@@ -1591,6 +1591,23 @@ pub const ALLOW_WINDOW_OPS: Key = Key {
     cite: "[the font and window operations issue](https://github.com/vtium/vtium/issues/44)",
 };
 
+pub const ALLOW_DISPLAY_OPS: Key = Key {
+    name: "allow-display-ops",
+    short: None,
+    kind: Kind::Switch,
+    default: Default::Switch(true),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Let a program in a console hand the display to a graphical program, such as a video player or a kiosk application, and take it back, without a VT switch.\n\n\
+           The program sends `OSC setBackground ST` to hand the display over, and `OSC setForeground ST` to take it back. These are kmscon's private sequences. Only the console that a head shows may hand the display over. A head is the terminal that vtium runs on one or more displays.\n\n\
+           vtium then gives up each graphics card that drives a display of that head, so the graphical program can open the card and draw. Other heads with displays on those cards pause on those displays. vtium sends no keys or pointer events to a head whose every display has paused. The VT switch keys keep working.\n\n\
+           vtium takes the display back at setForeground from the same console, when that console's session ends, when you switch away from vtium's VT and back, or when vtium restarts.\n\n\
+           When off, vtium ignores both sequences. It is on by default.\n\n\
+           [docs] When a seat manager, logind or seatd, gives vtium its seat, vtium ignores setBackground and logs that it did. A graphical program then runs in a session of its own on another VT.",
+    cite: "[the display hand-back issue](https://github.com/vtium/vtium/issues/36)",
+};
+
 pub const GLYPH_SOURCE: Key = Key {
     name: "glyph-source",
     short: None,
@@ -1705,6 +1722,22 @@ pub const TEXT_DIRECTION: Key = Key {
     cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
 };
 
+pub const CLUSTER_WIDTH: Key = Key {
+    name: "cluster-width",
+    short: None,
+    kind: Kind::Choice(&["double", "single"]),
+    default: Default::Text("double"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium-term",
+    what: "How many character cells a syllable takes when it has a spacing vowel sign or a virama that joins two consonants, in Tamil, Devanagari and other scripts of South and Southeast Asia.\n\n\
+           `double`, the default, gives such a syllable two cells, so கொ takes two. `single` gives it one cell and squeezes it to fit.\n\n\
+           [docs] For example, the Tamil syllable கொ is the letter க with the vowel sign ொ. Under `double` it is drawn at full size, and the shell's line editor counts it as two cells too. `single` suits programs that count one cell for each syllable, such as Neovim.\n\n\
+           [docs] The choice comes from each character's Unicode properties, never from the font. A syllable takes two cells when a spacing vowel sign (General_Category Mc) follows its first letter, or when a virama joins a consonant to it, as Python wcwidth's specification counts them. No syllable takes more than two cells. A program that resets mode 2027 gives each character its own cells under either value.\n\n\
+           vtium reads this key when it starts, so a change takes effect when vtium restarts.",
+    cite: "[the syllabic scripts issue](https://github.com/vtium/vtium/issues/144)",
+};
+
 pub const GLYPH_CACHE: Key = Key {
     name: "glyph-cache",
     short: None,
@@ -1758,7 +1791,8 @@ pub const RENDER_TIMER: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium-render",
-    what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.",
+    what: "Measure each display's frame times once a second, and write the figures to the log, show them on screen, or both.\n\n\
+           With `render-timer = osd`, vtium shows the figures at the top of each display, in the on-screen display's box. When `osd = silent`, vtium shows no figures on screen: `render-timer = osd` then shows nothing, and `render-timer = both` writes only the log.",
     cite: "[the CPU compositor issue](https://github.com/vtium/vtium/issues/16)",
 };
 
@@ -2136,7 +2170,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 127] = [
+pub static KEYS: [Key; 129] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2244,6 +2278,7 @@ pub static KEYS: [Key; 127] = [
     CELL,
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
+    ALLOW_DISPLAY_OPS,
     GLYPH_SOURCE,
     GLYPH_SOURCE_BOX,
     GLYPH_SOURCE_BLOCK,
@@ -2253,6 +2288,7 @@ pub static KEYS: [Key; 127] = [
     GLYPH_SOURCE_LEGACY,
     MISSING,
     TEXT_DIRECTION,
+    CLUSTER_WIDTH,
     GLYPH_CACHE,
     DISPLAY_DEPTH,
     DISPLAY_DPI,
@@ -2332,8 +2368,16 @@ pub const SECTIONS: [Section; 11] = [
                 keys: &[&ALLOW_WINDOW_OPS],
             },
             Group {
+                title: "The display handed to a graphical program",
+                keys: &[&ALLOW_DISPLAY_OPS],
+            },
+            Group {
                 title: "Right-to-left text",
                 keys: &[&TEXT_DIRECTION],
+            },
+            Group {
+                title: "Syllables with vowel signs and joined consonants",
+                keys: &[&CLUSTER_WIDTH],
             },
         ],
     },
@@ -2730,6 +2774,34 @@ mod tests {
             "{}",
             key.what
         );
+    }
+
+    // ADR-1006 D8: `cluster-width` takes `double`, the default, and
+    // `single`, at vtium.conf's top level and on the command line, read by
+    // vtium-term, its description giving கொ as the example and saying that
+    // a change takes effect when vtium restarts.
+    #[test]
+    fn cluster_width_takes_double_or_single_and_defaults_to_double() {
+        let key = find("cluster-width").unwrap_or(&HELP);
+        assert_eq!(key.name, "cluster-width");
+        assert_eq!(key.kind, Kind::Choice(&["double", "single"]));
+        assert_eq!(key.default, Default::Text("double"));
+        assert_eq!(key.tree_default(), Default::Text("double"));
+        assert_eq!(key.scope, Scope::Anywhere);
+        assert_eq!(key.levels, Levels::TOP);
+        assert_eq!(key.reader, "vtium-term");
+        assert!(key.what.contains("கொ"), "{}", key.what);
+        assert!(
+            key.what
+                .contains("a change takes effect when vtium restarts"),
+            "{}",
+            key.what
+        );
+        let group = SECTIONS
+            .iter()
+            .find(|s| s.groups.iter().any(|g| g.keys.contains(&&CLUSTER_WIDTH)))
+            .map(|s| s.title);
+        assert_eq!(group, Some("Fonts and text"));
     }
 
     #[test]

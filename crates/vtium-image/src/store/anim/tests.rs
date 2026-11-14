@@ -916,3 +916,105 @@ fn an_edit_of_a_frame_reports_the_placements_once_the_clock_picks_the_frame() {
     send(&mut s, key, edit(3)).unwrap();
     assert_eq!(s.take_changed(), boxes, "frame 3 may be on show");
 }
+
+// Once a command has set the animation running, the store knows the frame
+// on show again only from a command that names it: `c` while stopped, `c`
+// with `s=1` in one command, or deleted or freed frames, which show the
+// root. A stop alone keeps the frame the clock was showing, which the
+// store cannot know, and `c` while running is soon passed by the clock.
+// While the store knows the frame on show, an edit or a composition of
+// another frame reports nothing.
+// covers: image.kitty-animation
+#[test]
+fn a_command_that_names_the_frame_on_show_makes_edits_of_other_frames_report_nothing() {
+    let (mut s, key, boxes) = placed_twice();
+    send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
+    send(&mut s, key, data(0, 0, 16, 16, RED)).unwrap();
+    let edit = |s: &mut Store, n: u32| {
+        let mut d = data(1, 1, 1, 1, HALF_GREEN);
+        d.edit = n;
+        send(s, key, d).unwrap();
+        s.take_changed()
+    };
+    let control = |s: &mut Store, current: u32, run: u32, loops: u32| {
+        let c = Control {
+            current,
+            run,
+            loops,
+            ..Control::default()
+        };
+        s.control_animation(key, c).unwrap();
+        assert_eq!(s.take_changed(), vec![], "a control itself marks no box");
+    };
+    // running, then stopped by s=1 alone: the clock picked the frame
+    control(&mut s, 0, 3, 0);
+    control(&mut s, 0, 1, 0);
+    assert_eq!(edit(&mut s, 3), boxes, "stopped where the clock was");
+    // c while stopped shows frame 2, and v keeps it
+    control(&mut s, 2, 0, 0);
+    control(&mut s, 0, 0, 3);
+    assert_eq!(edit(&mut s, 3), vec![], "frame 3 behind c=2");
+    assert_eq!(edit(&mut s, 1), vec![], "the root behind c=2");
+    assert_eq!(edit(&mut s, 2), boxes, "frame 2 on show");
+    // c while running is passed by the clock
+    control(&mut s, 0, 2, 0);
+    control(&mut s, 1, 0, 0);
+    assert_eq!(edit(&mut s, 3), boxes, "running after c=1");
+    // c with s=1 makes frame 3 current, then stops on it
+    control(&mut s, 3, 1, 0);
+    assert_eq!(edit(&mut s, 1), vec![], "the root behind c=3,s=1");
+    let c = Compose {
+        src: 1,
+        dst: 2,
+        width: 4,
+        height: 4,
+        ..Compose::default()
+    };
+    s.compose_frames(key, c).unwrap();
+    assert_eq!(s.take_changed(), vec![], "frame 2 composed behind c=3,s=1");
+    assert_eq!(edit(&mut s, 3), boxes, "frame 3 on show");
+    // deleted frames show the root, stopped
+    control(&mut s, 0, 3, 0);
+    s.delete_frames(key);
+    assert_eq!(s.take_changed(), vec![], "a delete itself marks no box");
+    send(&mut s, key, data(0, 0, 16, 16, BLUE)).unwrap();
+    assert_eq!(edit(&mut s, 2), vec![], "frame 2 behind the root");
+    assert_eq!(edit(&mut s, 1), boxes, "the root on show");
+}
+
+// Frames freed for the allowance show the root, stopped, as deleted
+// frames do, so an edit of a later frame of that image reports nothing.
+// covers: image.kitty-animation
+#[test]
+fn frames_freed_for_the_allowance_show_the_root_and_edits_of_other_frames_report_nothing() {
+    let lines: Vec<crate::LineKey> = (0..4).map(crate::LineKey::new).collect();
+    // 256 by 256: a whole frame is 256 KiB, and the allowance of a 128 KiB
+    // budget, 640 KiB, holds two of them
+    let mut s = store(64 << 20);
+    let a = image(&mut s, 1, 256, 256, RED);
+    let b = image(&mut s, 2, 256, 256, RED);
+    s.set_limit(128 << 10);
+    s.place(a, crate::Place::default(), screens_of(&lines), 80)
+        .expect("placed");
+    let boxes = s.take_changed();
+    assert_eq!(send(&mut s, a, data(0, 0, 256, 256, BLUE)), Ok(2));
+    let run = Control {
+        run: 3,
+        ..Control::default()
+    };
+    s.control_animation(a, run).unwrap();
+    // b's second frame frees a's
+    assert_eq!(send(&mut s, b, data(0, 0, 256, 256, BLUE)), Ok(2));
+    assert_eq!(send(&mut s, b, data(0, 0, 256, 256, BLUE)), Ok(3));
+    assert_eq!(s.animation(a).unwrap().frames, 1, "a's frames went");
+    assert_eq!(s.take_changed(), vec![], "freeing itself marks no box");
+    assert_eq!(send(&mut s, a, data(0, 0, 256, 256, BLUE)), Ok(2));
+    let edit = |s: &mut Store, n: u32| {
+        let mut d = data(1, 1, 1, 1, HALF_GREEN);
+        d.edit = n;
+        send(s, a, d).unwrap();
+        s.take_changed()
+    };
+    assert_eq!(edit(&mut s, 2), vec![], "frame 2 behind the root");
+    assert_eq!(edit(&mut s, 1), boxes, "the root on show");
+}

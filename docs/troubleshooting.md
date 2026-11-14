@@ -33,7 +33,7 @@ When vtium fails, systemd starts it again. From systemd 254 on, each failure als
 
 ## Notices on the screen
 
-vtium tells you about a problem on the screen itself, in a notice. A notice is a pale red box across the top of the screen. Most notices appear over the session, and the session keeps running under them. Such a notice goes after 30 seconds, or sooner when you press a key that reaches that screen. A screen shows at most 4 notices at a time, and a fifth one replaces the oldest.
+vtium tells you about a problem on the screen itself, in a notice. A notice is a pale red box across the top of the screen. Most notices appear over the session, and the session keeps running under them. Such a notice goes after 30 seconds, or sooner when you press a key that reaches that screen. A screen shows at most 4 notices at a time, and a fifth one replaces the oldest. Under `osd = silent`, vtium shows only two of them, the panic screen and `All screens stopped`, and writes every notice to its log. See [The on-screen display and notices](concepts/osd-and-notices.md#what-silent-changes) for details.
 
 Some notices stay instead:
 
@@ -48,7 +48,6 @@ Find the first words of the notice on your screen in this table, and read the se
 | `vtium.conf has errors: running the parts without errors.` | [vtium.conf has errors, and vtium runs what is left](concepts/start-up.md#vtiumconf-has-errors-running-the-parts-without-errors) |
 | `vtium.conf has errors and counts as closed: all input is off.` | [The panic screen: nothing of a closed vtium.conf can run](concepts/start-up.md#vtiumconf-has-errors-and-counts-as-closed-all-input-is-off) |
 | `No keyboard found. Connect one to type.` | [vtium found no keyboard at start](concepts/start-up.md#no-keyboard-found-connect-one-to-type) |
-| `No head has a connected display.` | [No display of a closed vtium.conf's heads is on](concepts/heads.md#no-head-has-a-connected-display) |
 | `Every keyboard now types into NAME` | [The anti-lockout guard moved every keyboard](concepts/flows.md#every-keyboard-now-types-into-name) |
 | `Keyboard DEVICE now types into NAME, the active screen` | [The rescue key moved a keyboard](concepts/flows.md#keyboard-device-now-types-into-name-the-active-screen) |
 | `Keyboard DEVICE now types into the active screen` | [The rescue key moved a keyboard, but no head is active](concepts/flows.md#keyboard-device-now-types-into-the-active-screen) |

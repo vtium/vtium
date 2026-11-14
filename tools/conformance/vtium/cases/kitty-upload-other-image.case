@@ -1,0 +1,10 @@
+# A whole image that names another id, sent while an upload is open, is the upload's last chunk.
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "Subsequent chunks must have only the m and optionally q keys."
+# covers: image.kitty
+size 20 10
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "\e_Ga=t,f=24,s=1,v=1,i=2;AAD/\e\\"
+send "\e_Gm=0;AP8A\e\\"
+send "\e_Ga=p,i=1,C=1\e\\"
+send "\e_Ga=p,i=2,C=1\e\\"

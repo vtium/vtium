@@ -67,9 +67,37 @@ fn shape(c: char) -> &'static [Ink] {
     }
 }
 
+/// The color emoji `@` draws in one cell (ADR-1302 D5): a 10x10 square of
+/// red fading to blue down its rows, partly transparent in its last row,
+/// whose first and last columns lie a pixel past each side of its cell,
+/// in its ink box.
+fn emoji() -> Option<Glyph> {
+    let (w, h) = (CW as i32, CH as i32);
+    let px = |x: i32, y: i32| -> [u8; 4] {
+        if !(-1..w + 1).contains(&x) || !(3..13).contains(&y) {
+            return [0; 4];
+        }
+        let k = (y - 3) as u8;
+        match y {
+            12 => [60, 0, 10, 120],
+            _ => [255 - 20 * k, 0, 20 * k, 255],
+        }
+    };
+    let own = (0..h)
+        .flat_map(|y| (0..w).flat_map(move |x| px(x, y)))
+        .collect();
+    let boxed = (0..h)
+        .flat_map(|y| (-1..w + 1).flat_map(move |x| px(x, y)))
+        .collect();
+    Glyph::from_pixels(CW, CH, FontFormat::Rgba, own)?.with_ink((-1, 0), (CW + 2, CH), boxed)
+}
+
 /// `c`'s glyph: its pixels inside its cell, and its ink box when its ink
 /// passes the cell.
 fn glyph(c: char) -> Option<Glyph> {
+    if c == '@' {
+        return emoji();
+    }
     let rects = shape(c);
     let (cells, width) = match c {
         'W' => (2, FontWidth::Wide),
@@ -469,6 +497,35 @@ fn the_selection_takes_the_ink_inside_it_and_a_selected_letters_ink_outside_keep
         let cpu = whole_selected(&s, &st, Orientation::Normal, &sel);
         assert_same(&g, &cpu, &format!("selected {sel:?}"));
     }
+}
+
+// ADR-1302 D5, D7, D8, D10: a color emoji drawn in one cell sends its
+// 1-pixel edge into each neighbour on the GPU path as on the CPU path:
+// under the neighbour's own glyph, and in the emoji's own colors inside a
+// selection and under a block cursor
+// covers: text.overhang
+#[test]
+fn a_color_emojis_edge_draws_as_on_the_cpu_path() {
+    let mut s = screen(5, 2);
+    s.text(0, 0, "x@x@", style(rgb("f0f0f0"), rgb("2040c0")));
+    s.text(0, 1, "@x", style(rgb("40c040"), rgb(BG)));
+    let mut g = Gpu::new(&s);
+    let st = state(&s, true);
+    g.frame(&mut s, &st);
+    assert_same(&g, &whole(&s, &st), "the emoji beside letters");
+    for sel in [vec![0..1, 0..0], vec![2..3, 1..2], vec![0..5, 0..5]] {
+        g.sel = sel.clone();
+        s.damage.mark_rows(0..2);
+        g.frame(&mut s, &st);
+        let cpu = whole_selected(&s, &st, Orientation::Normal, &sel);
+        assert_same(&g, &cpu, &format!("selected {sel:?}"));
+    }
+    g.sel = Vec::new();
+    s.cursor.visible = true;
+    (s.cursor.col, s.cursor.row, s.cursor.shape) = (2, 0, CursorShape::Block);
+    s.damage.mark_rows(0..2);
+    g.frame(&mut s, &st);
+    assert_same(&g, &whole(&s, &st), "a block cursor beside the emoji");
 }
 
 /// An opaque blue kitty picture of one cell at the cell `col`, `row` of

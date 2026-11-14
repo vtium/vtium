@@ -1,0 +1,107 @@
+# Kitty animation frames, as the store records them. The case makes
+# frames on a color and on an earlier frame, by blending and by
+# replacement, edits frames, composes frames onto each other, controls the
+# animation, and deletes frames. The `anim` lines print what the store
+# holds after each step. A second image's frame blends a pixel at half
+# alpha over another, which lands between 0 and 255.
+#
+# References: ADR-1102.
+# spec: kitty graphics protocol, "Animation"
+# covers: image.kitty-animation
+size 12 4
+cmd cell;w=8;h=16
+
+# The root frame: image 1, 4×2 pixels of red, placed with C=1.
+# 4×2, every pixel opaque red (ff0000ff)
+send "\e_Ga=T,f=32,s=4,v=2,i=1,C=1;/wAA//8AAP//AAD//wAA//8AAP//AAD//wAA//8AAP8=\e\\"
+dump
+
+# Frame 2 starts from the color Y (opaque blue) and blends a 2×1 pixel
+# rectangle onto it.
+# 2×1, every pixel green at half alpha (00800080)
+send "\e_Ga=f,i=1,s=2,v=1,Y=65535;AIAAgACAAIA=\e\\"
+dump
+
+# Frame 3 starts from frame 2 and replaces (X=1) a 2×2 rectangle. An
+# edit of frame 3 (r=3) then blends one pixel onto it.
+# 2×2, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,i=1,c=2,X=1,x=2,s=2,v=2;AAD//wAA//8AAP//AAD//w==\e\\"
+# 1×1, every pixel green at half alpha (00800080)
+send "\e_Ga=f,i=1,r=3,x=3,y=1,s=1,v=1;AIAAgA==\e\\"
+dump
+
+# The root's gap is set to 100 ms, the animation runs and loops forever,
+# and frame 3 is made current, which the image's digest then shows.
+send "\e_Ga=a,i=1,r=1,z=100\e\\"
+send "\e_Ga=a,i=1,s=3,v=1\e\\"
+send "\e_Ga=a,i=1,c=3\e\\"
+dump
+
+# Frame 1 is made current again, and an edit of the root frame changes
+# the root's digest.
+send "\e_Ga=a,i=1,c=1\e\\"
+# 1×1, every pixel opaque white (ffffffff)
+send "\e_Ga=f,i=1,r=1,s=1,v=1;/////w==\e\\"
+dump
+
+# A composition of frame 3 onto the root frame, by replacement.
+send "\e_Ga=c,i=1,r=3,c=1,w=2,h=1,C=1\e\\"
+dump
+
+# d=f without an image does nothing. Then frame 3 is made current.
+send "\e_Ga=d,d=f\e\\"
+send "\e_Ga=a,i=1,c=3\e\\"
+dump
+
+# d=F with image 1 deletes every frame but the root. A control then names
+# frame 2, which no longer exists.
+send "\e_Ga=d,d=F,i=1\e\\"
+send "\e_Ga=a,i=1,c=2\e\\"
+dump
+
+# New frames: frame 2 is gapless (z=-1), and frame 3 starts from it with
+# a gap of 60 ms.
+# 4×2, every pixel opaque green (00ff00ff)
+send "\e_Ga=f,i=1,s=4,v=2,z=-1;AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8A/wD/AP8=\e\\"
+# 2×1, every pixel opaque blue (0000ffff)
+send "\e_Ga=f,i=1,c=2,x=1,y=0,s=2,v=1,z=60;AAD//wAA//8=\e\\"
+dump
+
+# An edit of frame 3 sets its gap with z. An edit of frame 2, which frame
+# 3 is laid on, keeps its gap with z=0 and keeps frame 3's pixels.
+# 1×1, every pixel white at half alpha (ffffff80)
+send "\e_Ga=f,i=1,r=3,x=0,y=1,s=1,v=1,z=150;////gA==\e\\"
+# 1×1, every pixel opaque red (ff0000ff)
+send "\e_Ga=f,i=1,r=2,x=3,y=1,s=1,v=1,z=0;/wAA/w==\e\\"
+dump
+
+# A composition from the root onto frame 2, a frame past the root.
+send "\e_Ga=c,i=1,r=1,c=2,X=2,Y=0,x=0,y=0,w=2,h=2\e\\"
+dump
+
+# Loading mode (s=2), then three loops (v=3), then a stop with c.
+send "\e_Ga=a,i=1,s=2\e\\"
+dump
+send "\e_Ga=a,i=1,v=3\e\\"
+dump
+send "\e_Ga=a,i=1,s=1,c=2\e\\"
+dump
+
+# a=a sets the gap of frame 2, and an edit of the root frame sets the
+# root's gap with z.
+send "\e_Ga=a,i=1,r=2,z=70\e\\"
+dump
+# 1×1, every pixel blue at half alpha (0000ff80)
+send "\e_Ga=f,i=1,r=1,x=1,y=1,s=1,v=1,z=90;AAD/gA==\e\\"
+dump
+
+# d=f with image 1 deletes the frames.
+send "\e_Ga=d,d=f,i=1\e\\"
+dump
+
+# A second image, one pixel of green at half alpha, and a frame that
+# blends the same pixel over it.
+# 1×1, every pixel green at half alpha (00800080)
+send "\e_Ga=T,f=32,s=1,v=1,i=2,C=1,q=2;AIAAgA==\e\\"
+# 1×1, every pixel green at half alpha (00800080)
+send "\e_Ga=f,i=2,c=1,s=1,v=1,q=2;AIAAgA==\e\\"

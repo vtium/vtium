@@ -1,0 +1,12 @@
+# Malayalam conjuncts and a spacing vowel sign under cluster-width =
+# double, the default (ADR-1006 D1). Kssma, three consonants joined by two
+# viramas, is one cluster and takes two cells, the most a cluster takes.
+# Stri, with the vowel sign ii, takes two cells, and so does ko, ka with
+# the spacing vowel sign o.
+# spec: Python wcwidth 0.9.4's specification, "Virama Conjunct Formation" and "Width of 2"; ADR-1006 D1, D2
+# covers: text.grapheme
+size 10 2
+send "\u{D15}\u{D4D}\u{D37}\u{D4D}\u{D2E}"
+dump state
+send "\u{D38}\u{D4D}\u{D24}\u{D4D}\u{D30}\u{D40}\u{D15}\u{D4A}"
+dump state

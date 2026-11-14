@@ -225,6 +225,10 @@ pub enum Problem {
     /// The file fails the ownership check, so none of it is read
     /// (ADR-1403 D3).
     Untrusted(vtium_settings::Untrusted),
+    /// `osd = silent` does not apply, because another `osd` line has a
+    /// value vtium cannot read: vtium runs as `osd = off`, so its notices
+    /// still show.
+    NotSilent,
     /// This many reports more were not kept.
     More(usize),
 }
@@ -248,6 +252,7 @@ impl Problem {
             | Problem::SwitchesVt { key: k, .. }
             | Problem::BoundTwice { then: k, .. }
             | Problem::Renamed { new: k, .. } => Some(k),
+            Problem::NotSilent => Some(keys::OSD.name),
             Problem::NoKey
             | Problem::Nul
             | Problem::NotUtf8
@@ -357,6 +362,10 @@ impl fmt::Display for Problem {
                 write!(f, "--login needs a command after --, ignored")
             }
             Problem::Untrusted(why) => write!(f, "{}", why.refusal()),
+            Problem::NotSilent => write!(
+                f,
+                "osd=silent does not apply, because another osd line has a value vtium cannot read. vtium runs as osd=off instead, so its notices still show. Correct the other osd line to hide them."
+            ),
             Problem::More(n) => write!(f, "{n} more warnings"),
         }
     }
@@ -381,10 +390,14 @@ pub(crate) struct Reports {
     list: Vec<Report>,
     unknown: BTreeSet<String>,
     dropped: usize,
+    /// A report named `osd`, kept or not: a value of `osd` that vtium
+    /// could not read, which keeps `osd = silent` from applying.
+    osd_unread: bool,
 }
 
 impl Reports {
     pub(crate) fn push(&mut self, origin: Origin, problem: Problem) {
+        self.osd_unread |= problem.key() == Some(keys::OSD.name);
         if let Problem::UnknownKey(name) = &problem
             && !self.unknown.insert(name.clone())
         {
@@ -830,6 +843,7 @@ pub fn load(
     for a in given {
         config.set(a);
     }
+    keep_notices_on_a_mistake(&mut config, &mut reports);
     config.resolve_bindings(&mut reports);
     Loaded {
         config,
@@ -840,6 +854,32 @@ pub fn load(
         path,
         file: found,
     }
+}
+
+/// vtium goes silent only on an `osd` line that says so in a form vtium
+/// can read. Where the lines vtium can read make `osd` `silent`, but
+/// another `osd` line, in the file or on the command line, has a value
+/// vtium cannot read, vtium runs as `osd = off` instead, so the notice of
+/// the mistake still shows, and a report on the `silent` line says why.
+/// The person asked vtium to hide its notices and made a mistake in the
+/// very key that hides them, so vtium shows the mistake rather than guess.
+///
+/// References:
+/// - ADR-1401 D7, "`osd = silent` in a file with errors".
+fn keep_notices_on_a_mistake(config: &mut Config, reports: &mut Reports) {
+    if config.text(&keys::OSD) != Some("silent") || !reports.osd_unread {
+        return;
+    }
+    let origin = config
+        .origin(&keys::OSD)
+        .cloned()
+        .unwrap_or(Origin::Default);
+    config.set(Assignment {
+        key: &keys::OSD,
+        value: Value::Text("off".to_owned()),
+        origin: origin.clone(),
+    });
+    reports.push(origin, Problem::NotSilent);
 }
 
 /// The error [`read_file`] gives for a path that is no regular file.

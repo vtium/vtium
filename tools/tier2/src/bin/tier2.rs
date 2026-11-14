@@ -255,6 +255,7 @@ fn fetch_fonts() -> ExitCode {
     let fonts = vtium_tier2::fonts::FONTS
         .iter()
         .chain(&vtium_tier2::fonts::SCRIPT_FONTS)
+        .chain(&vtium_tier2::fonts::SHIPPED_FONTS)
         .copied()
         .collect::<Vec<_>>();
     match vtium_tier2::fonts::fetch(&dir, &fonts) {

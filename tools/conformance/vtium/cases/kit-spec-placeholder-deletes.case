@@ -1,0 +1,46 @@
+# Which kitty deletes reach a virtual placement. Only d=i, I, r, R, n and
+# N delete one. Every delete that selects placements by where they are,
+# or by z, passes over it, and so does a delete aimed at the placeholder
+# cells, since the picture drawn there is no placement of its own.
+#
+# References: ADR-1100 D13.
+# spec: kitty graphics protocol, "Unicode placeholders" and "Deleting images"
+# covers: image.kitty-placeholders
+size 12 4
+
+# Image 5, 2×4 pixels, red above blue, with a virtual placement of 2×2
+# cells shown by four placeholder cells at the top left.
+send "\e_Ga=t,f=24,s=2,v=4,i=5,q=2;/wAA/wAA/wAA/wAAAAD/AAD/AAD/AAD/\e\\"
+send "\e_Ga=p,U=1,i=5,c=2,r=2,q=2\e\\"
+send "\e[1;1H\e[38;5;5m\u{10EEEE}\u{305}\u{305}\u{10EEEE}\u{305}\u{30D}\e[2;1H\u{10EEEE}\u{30D}\u{305}\u{10EEEE}\u{30D}\u{30D}\e[m"
+
+# Image 6, one green pixel, placed as an ordinary placement at row 4.
+send "\e[4;1H\e_Ga=T,f=24,s=1,v=1,i=6,C=1;AP8A\e\\"
+dump
+
+# d=a and d=A take image 6's placement and pass over the virtual one.
+send "\e_Ga=d,d=a\e\\"
+send "\e_Ga=p,i=6,C=1,q=1\e\\"
+send "\e_Ga=d,d=A\e\\"
+dump
+
+# The deletes by cell, cell and z, column, row, z and cursor, lower and
+# upper case, all aimed at the placeholder cells.
+send "\e_Ga=d,d=p,x=1,y=1\e\\\e_Ga=d,d=P,x=2,y=2\e\\"
+send "\e_Ga=d,d=q,x=1,y=1,z=0\e\\\e_Ga=d,d=Q,x=2,y=1,z=0\e\\"
+send "\e_Ga=d,d=x,x=1\e\\\e_Ga=d,d=X,x=2\e\\"
+send "\e_Ga=d,d=y,y=1\e\\\e_Ga=d,d=Y,y=2\e\\"
+send "\e_Ga=d,d=z,z=0\e\\\e_Ga=d,d=Z,z=0\e\\"
+send "\e[1;1H\e_Ga=d,d=c\e\\\e_Ga=d,d=C\e\\"
+dump
+
+# d=r over ids 5 to 5 deletes the virtual placement and keeps the image.
+send "\e_Ga=d,d=r,x=5,y=5\e\\"
+dump
+
+# A new virtual placement shows in the cells again. d=I then deletes it
+# and frees the image, so a put finds no image 5.
+send "\e_Ga=p,U=1,i=5,c=2,r=2,q=2\e\\"
+dump
+send "\e_Ga=d,d=I,i=5\e\\"
+send "\e_Ga=p,i=5,C=1\e\\"

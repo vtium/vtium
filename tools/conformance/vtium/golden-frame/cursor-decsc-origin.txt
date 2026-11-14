@@ -1,0 +1,84 @@
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 43
+size 10x8
+cursor 2,4
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 80
+frame-cursor 2,4 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 64
+size 10x8
+cursor 5,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 5,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |    X|
+row 2 ||
+row 3 ||
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 109
+size 10x8
+cursor 2,3
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 2,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |    X|
+row 2 ||
+row 3 | Y|
+row 4 ||
+row 5 ||
+row 6 ||
+row 7 ||
+test state margins 2-5 0-9
+test state tabs 0,8
+test state modes ansi 8,12 dec 6,7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 154
+size 10x8
+cursor 7,5
+flags AUTO_WRAP|REL_ORIGIN
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 7,5 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |    X|
+row 2 ||
+row 3 | Y|
+row 4 ||
+row 5 |      Z|
+row 6 ||
+row 7 ||

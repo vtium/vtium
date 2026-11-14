@@ -12,6 +12,8 @@ the font helper refuses to run as root	crates/vtium-config/src/serve.rs	refuse_r
 the font helper's limits: memory, CPU, file size, no children, no core	crates/vtium-config/src/serve.rs	limits
 the font helper's landlock: no writes, no network, no signals	crates/vtium-config/src/serve.rs	lock_out
 the font helper's seccomp filter refuses sockets	crates/vtium-config/src/serve.rs	refuse_sockets
+without landlock, the font helper installs a second seccomp filter in its place	crates/vtium-config/src/serve.rs	fall_back
+vtium's log says that the font helper runs without landlock	crates/vtium/src/helper.rs	sandbox_notice
 the helper program checks: absolute, regular, owner, mode	crates/vtium/src/helper.rs	open_program
 the helper program's refusals	crates/vtium/src/helper.rs	refusal
 the image helper runs as the session's user, or vtium-image before login	crates/vtium-platform/src/image_helper/identity.rs	PRELOGIN_ACCOUNTS

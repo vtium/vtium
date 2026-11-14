@@ -8,6 +8,8 @@ use std::process::{Command, Output};
 #[path = "common/scratch.rs"]
 mod scratch;
 use scratch::Scratch;
+#[path = "common/helper.rs"]
+mod stand_in;
 
 /// The sections of a vtium.conf that check clean, but for the notes
 /// outside the status, which follow a test's own keys.
@@ -523,4 +525,44 @@ fn a_candidate_with_only_notes_exits_0_and_prints_them_on_stdout() {
         file.display()
     );
     assert!(notes.lines().any(|l| l == weak), "{notes}");
+}
+
+// ADR-1401 D7: check-config asks the glyph helper which of the locale's
+// letters a font set covers. Here the console's Helper::coverage asks
+// vtium-config's real serve mode. For a font set the helper reads, the
+// answer names the letters the font set covers. For a font set the helper
+// draws nothing from, the answer is the helper's reason.
+#[test]
+fn the_real_helper_answers_a_coverage_query() {
+    let d = Scratch::new("coverage-real-helper");
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the query's clock stands at the real time, so its wait is the whole wait"
+    )]
+    let at = std::time::Instant::now();
+    let ask = |name: &str, text: &str, letters: &[u32]| {
+        let command = stand_in::real_helper(&d.join(format!("{name}.kinds")), None);
+        let launcher = vtium::helper::Launcher::open(command).expect("the helper's program");
+        let mut helper = vtium::helper::Helper::new(
+            launcher,
+            std::sync::Arc::new(|| {}),
+            at,
+            vtium::helper::FritText {
+                name: name.to_owned(),
+                text: text.to_owned(),
+            },
+            None,
+            vtium::deferred::Shared::default(),
+            0,
+        );
+        helper.coverage(letters, std::time::Duration::from_secs(30), &|| at)
+    };
+    // unscii-8 has a glyph for A and none for U+10FFFD, a private-use
+    // codepoint
+    let letters = [u32::from('A'), 0x10_fffd];
+    let (covered, _font) = ask("unscii", "source=builtin:unscii-8\n", &letters).expect("an answer");
+    assert_eq!(covered, [u32::from('A')]);
+    let why = ask("missing", "source=file:/nonexistent/vtium.psf\n", &letters)
+        .expect_err("a font set that draws nothing has no coverage");
+    assert!(why.contains("/nonexistent/vtium.psf"), "{why}");
 }

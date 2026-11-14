@@ -27,7 +27,7 @@ pub struct Report {
 fn declared(s: &Scenario) -> Option<&str> {
     match &s.sort {
         Sort::Capability(name) => Some(name),
-        Sort::Behaviour => None,
+        Sort::Behaviour | Sort::Case => None,
     }
 }
 

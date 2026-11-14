@@ -1,0 +1,6 @@
+# Relative placement keys.
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "The terminal emulator will include in its reply every key from the feature query that has a non-default value which it supports for that action, with that value, as well as e itself"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=39,e=p,P=1,Q=2,H=1,V=-1,p=7,z=-5\e\\"

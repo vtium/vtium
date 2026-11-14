@@ -1,0 +1,17 @@
+# IND and NEL move the cursor down and RI up, and each scrolls the region
+# at its margin; NEL also moves to the first column. Outside the region,
+# they stop at the screen's first or last row and scroll nothing.
+# spec: the VT510 manual, IND and NEL; the VT220 manual, chapter 4, RI; ECMA-48 8.3.86 NEL and 8.3.104 RI
+# covers: ctl.edit
+size 10 5
+send "1\r\n2\r\n3\r\n4\r\n5"
+send "\e[1;1H\eM"
+dump state
+send "\e[2;4r\e[4;3H\eDX\eDY"
+dump state
+send "\e[2;3H\eMZ\eMW"
+dump state
+send "\e[5;3H\eE\eEN"
+dump state
+send "\e[1;3H\eMQ"
+dump state

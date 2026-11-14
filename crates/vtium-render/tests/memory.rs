@@ -136,10 +136,12 @@ fn the_cache_holds_what_adr_1300_records() {
     // 16 bytes a narrow 8x16 glyph at 1 bit, 32 a wide one
     assert_eq!(min.bytes, 522_240);
     assert_eq!(perf.bytes, 1_044_480);
-    // stored at the font's own size: a quarter the glyphs, the same bytes
+    // a quarter the glyphs; each ideograph drawn into one cell is squeezed
+    // in the screen's pixels and held at its drawn size, 16 by 32 pixels
+    // at 1 bit, and each wide one at the font's own size (ADR-1302 D14)
     assert_eq!((min2.cols, min2.rows), (85, 24));
-    assert_eq!(min2.bytes, 130_560);
-    assert_eq!(perf2.bytes, 261_120);
+    assert_eq!(min2.bytes, 326_400);
+    assert_eq!(perf2.bytes, 652_800);
     // 128 bytes a narrow glyph at 8 bits, 256 a wide one
     assert_eq!(min_aa.bytes, 4_177_920);
     assert_eq!(perf_aa.bytes, 8_355_840);

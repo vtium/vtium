@@ -191,11 +191,21 @@ PAM_SESSION := $(and $(filter libseat,$(subst $(comma), ,$(FEATURES))),$(filter 
 # install ships a font.
 FRITS := desktop minspec-16 minspec-8
 FRIT_DIRS := crates/vtium-config/frits tools/specimens/frits
-frit_files = $(foreach f,$(FRITS),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+# The frits the optional vtium-fonts package ships beside the fonts they
+# name, which make install-fonts stages: the five for scripts whose marks
+# need room above and below the letters, and the four for Chinese, Japanese
+# and Korean, one for each region's forms of Han (ADR-1500 D8). make
+# install stages any of them that FRITS names too.
+FONTS_FRITS := arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr
+frit_paths = $(foreach f,$(1),$(or $(firstword $(wildcard $(addsuffix /$(f).vtfrit,$(FRIT_DIRS)))),$(error no frit $(f) in $(FRIT_DIRS))))
+frit_files = $(call frit_paths,$(FRITS))
 # A frit vtium does not hold stops the install as make reads this file,
 # before anything is built.
 ifneq ($(filter install install-build install-tree,$(MAKECMDGOALS)),)
 _frits := $(frit_files)
+endif
+ifneq ($(filter install-fonts,$(MAKECMDGOALS)),)
+_fonts_frits := $(call frit_paths,$(FONTS_FRITS))
 endif
 # The picture gallery tool, which a console with images ships as
 # vtium-gallery (ADR-1500 D8).
@@ -239,7 +249,8 @@ endif
 # vtium as a package ships it, staged under DESTDIR with PREFIX, so that a
 # package's build can be one call: make install DESTDIR="$pkgdir"
 # PREFIX=/usr PKGNAME="$pkgname" (ADR-1500 D1, D3). packaging/arch's AUR
-# recipes call this target and install-terminfo. make install stages the
+# recipes call this target and install-terminfo, and the vtium-fonts
+# recipe calls install-fonts. make install stages the
 # console, built with the minspec profile and FEATURES and made to start its
 # glyph helper at PREFIX/bin/vtium-config, the helper, with images in
 # FEATURES the image helper, which the console starts at
@@ -321,15 +332,15 @@ endif
 # Both stage under DESTDIR alone: DESTDIR is named, not empty, and not the
 # machine's own root, so neither writes a file over the packaged vtium's or
 # beside it in /usr/local.
-ifneq ($(filter install install-terminfo,$(MAKECMDGOALS)),)
+ifneq ($(filter install install-terminfo install-fonts,$(MAKECMDGOALS)),)
 ifeq ($(origin DESTDIR),file)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): name DESTDIR=DIR, the directory it stages the files under; it never installs onto this machine)
 endif
 ifeq ($(strip $(DESTDIR)),)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR is empty, which would install onto this machine; name the directory it stages the files under)
 endif
 ifeq ($(shell readlink -m -- '$(DESTDIR)'),/)
-$(error $(firstword $(filter install install-terminfo,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
+$(error $(firstword $(filter install install-terminfo install-fonts,$(MAKECMDGOALS))): DESTDIR=$(DESTDIR) is this machine's root; name the directory it stages the files under)
 endif
 endif
 
@@ -364,6 +375,10 @@ endif
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
+
+.PHONY: install-fonts
+install-fonts: ## Stage the frits the vtium-fonts package ships, FONTS_FRITS='...' (default arabic hebrew indic thai-lao vietnamese cjk-sc cjk-tc cjk-jp cjk-kr), in /etc/vtium/fonts under DESTDIR=DIR
+	install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(call frit_paths,$(FONTS_FRITS))
 
 .PHONY: install-terminfo
 install-terminfo: ## Stage vtium's terminfo entry, compiled as xterm-vtium and its alias vtium, under DESTDIR=DIR for PREFIX and PKGNAME (default vtium-terminfo) (needs tic)
@@ -436,6 +451,10 @@ define deny-version
 @v=$$(cargo deny --version 2>/dev/null) || v=; [ "$$v" = "cargo-deny $(DENY_VERSION)" ] || { echo "$@ needs cargo-deny $(DENY_VERSION), and this machine has $${v:-no cargo-deny}. Install it with: $(DENY_INSTALL)" >&2; exit 1; }
 endef
 
+.PHONY: keymaps
+keymaps: ## Compile the keyboard tests' keymap fixtures again from this machine's xkeyboard-config with xkbcli, and record its version (needs xkbcli)
+	tools/keymaps/compile
+
 .PHONY: deny
 deny: ## Check the license and the source of every crate that a lock file of vtium's names against deny.toml (needs cargo-deny at DENY_VERSION)
 	$(deny-version)
@@ -494,7 +513,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I -B tools/tier3/test_t3img.py
@@ -510,10 +529,11 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/stage/test_check.py
 	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
+	cargo test -q -p vtium-tier1-shots --features draw
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
-	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
+	@if command -v shellcheck >/dev/null; then shellcheck -S warning -x tools/vt/*.sh tools/vt/checks/*.sh tools/vt/sections/*.sh tools/tier3/fetch-image.sh tools/tier3/fetch-debian.sh tools/tier3/showcase.sh tools/gallery/gallery tools/tier3/guest/setup tools/tier3/guest/t3 tools/tier3/guest/t3-agent tools/tier3/guest/t3-novt tools/tier3/guest/tier3-install tools/tier3/guest-sysvinit/setup tools/tier3/guest-sysvinit/tier3-install tools/tier3/guest-sysvinit/t3-console tools/arm/sysroot tools/arm/wrap tools/vendor/archive && echo "shellcheck: clean at warning"; else echo "shellcheck: not installed, skipped"; fi
 
 # The key table's crates' unit tests, built as the vtium package builds
 # them, with VTIUM_HWACCEL=on, VTIUM_DISPLAY_BUFFERS=3 (ADR-1500 D8) and
@@ -679,6 +699,27 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
+# gate. tier1-shots replays every case of the corpus and of vtium's own
+# cases, and every behaviour scenario, through vtium-replay's code, checks
+# each against its goldens, and draws the terminal through vtium's renderer
+# into PNGs with a manifest (tools/conformance/README.md, "Tier 1's
+# pictures"). A screen that shows Arabic draws in tier 2's scripts font
+# set, which make tier2-fonts fetches. OUT must be new, empty or an earlier run's output.
+# tier1-play is each picture's live path: it plays one case or scenario in
+# this terminal from the same replay, one screen at a time, so a vtium
+# console draws each screen itself.
+TIER1_SHOTS := $(or $(OUT),$(or $(CARGO_TARGET_DIR),target)/tier1-shots)
+.PHONY: tier1-shots tier1-play
+tier1-shots: ## Draw every tier 1 golden as a PNG through vtium's renderer in unifont, and Arabic in tier 2's scripts fonts, with manifest.json, into OUT=DIR (default target/tier1-shots)
+	cargo build --release -p vtium-tier1-shots --features draw --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier1-shots $(TIER1_SHOTS)
+
+tier1-play: ## Play one tier 1 case (CASE=NAME) or scenario (SCENARIO=NAME) in this terminal, one screen at a time from the replay its pictures come from; q stops
+	@if [ -n "$(CASE)" ] && [ -z "$(SCENARIO)" ]; then :; elif [ -z "$(CASE)" ] && [ -n "$(SCENARIO)" ]; then :; else echo "make tier1-play takes CASE=NAME or SCENARIO=NAME" >&2; exit 2; fi
+	cargo build --release -p vtium-tier1-shots --features draw --bins
+	$(or $(CARGO_TARGET_DIR),target)/release/tier1-play $(if $(CASE),case $(CASE),scenario $(SCENARIO))
+
 # What the maintainer reviews vtium-config's TUI screen goldens on
 # (crates/vtium-config/README.md, "Reviewing the screens"); neither is a gate.
 # tui-shots plays the bytes the golden tests capture through vtium's
@@ -780,6 +821,14 @@ tier3-minimal: tier3-image ## Tier 3 on the minspec machine, 1 vCPU and 512 MB: 
 .PHONY: tier3-images
 tier3-images: tier3-image ## Tier 3's pictures: the install tree built with images, then the images variants on the minspec machine at 640x480
 	$(T3_RUN) --features '$(sort images $(subst $(comma), ,$(FEATURES)))' --tree-target install-tree $(or $(VARIANTS),images-640x480 images-640x480-nobody)
+
+# The checks of ADR-1400 D4 (tools/tier3/README.md, "The checks of the
+# privilege split"): the probe in tools/tier3/probes, run in the guest as root
+# and as a system account. SEATD_SRC=DIR, an unpacked seatd source tree, adds
+# check 3's run with a libseat built with its builtin backend.
+.PHONY: tier3-rootchecks
+tier3-rootchecks: tier3-image ## Measure ADR-1400 D4's checks in the tier 3 guest, answers in target/tier3/rootchecks/answers.txt (SEATD_SRC=DIR for the builtin backend)
+	$(T3_PY) $(T3_DIR)/t3_rootchecks.py $(if $(SEATD_SRC),--seatd-source $(SEATD_SRC))
 
 .PHONY: tier3-run
 tier3-run: ## Tier 3 on a tree built already: the last run's, or TREE=DIR (VARIANTS=, JOBS= as for tier3; FEATURES= the TREE was built with)

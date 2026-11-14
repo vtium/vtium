@@ -1,0 +1,10 @@
+# A composition between chunks is carried out, and the upload continues.
+# References: ADR-1100 D16.
+# spec: ADR-1100 D16, "What leaves an upload open"
+# covers: image.kitty image.kitty-animation
+size 20 10
+send "\e_Ga=t,f=24,s=1,v=1,i=2;AAD/\e\\"
+send "\e_Ga=f,i=2,f=24,s=1,v=1;////\e\\"
+send "\e_Ga=t,f=24,s=2,v=1,i=1,m=1;/wAA\e\\"
+send "\e_Ga=c,i=2,r=2,c=1\e\\"
+send "\e_Gm=0;AP8A\e\\"

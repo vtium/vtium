@@ -1,5 +1,5 @@
-//! A context's objects: textures, upright frames, imported buffers and
-//! programs.
+//! A context's objects: textures, upright frames, buffers, imported or
+//! made in GL's memory, and programs.
 //!
 //! OpenGL ES 3.0 has a row length (`GL_UNPACK_ROW_LENGTH`), so an upload
 //! takes a rectangle of a larger image in one call.
@@ -7,7 +7,7 @@
 use glow::HasContext;
 
 use super::{
-    Context, Import, Location, TextureFormat, TextureInfo, bound, int, ints, misuse, name, param,
+    Buffer, Context, Location, TextureFormat, TextureInfo, bound, int, ints, misuse, name, param,
 };
 use crate::display::{DmaBuf, Rect};
 use crate::gpu::{Error, ErrorKind};
@@ -294,23 +294,82 @@ impl Context {
                 return Err(e);
             }
         };
-        self.imports.insert(
+        self.buffers.insert(
             fb.0.get(),
-            Import {
+            Buffer {
                 renderbuffer,
-                image,
+                image: Some(image),
             },
         );
         if let Err(e) = self.complete("an imported buffer") {
-            let _ = self.free_import(fb.0.get());
+            let _ = self.free_buffer(fb.0.get());
             return Err(import(e.detail));
         }
         Ok(fb.0.get())
     }
 
-    /// Frees an upright frame's framebuffer and texture.
+    /// A `width` by `height` RGBA8 renderbuffer in GL's memory, and a
+    /// framebuffer that draws into it, which a read copies back: the frame
+    /// a head draws for the staging copy (ADR-1303 D9). Gives the
+    /// framebuffer. `GL_MAX_RENDERBUFFER_SIZE` bounds it, and the largest
+    /// texture does not. A refusal of its storage, as out of memory,
+    /// reaches the caller at the next check, as a texture's does.
+    pub fn create_buffer(&mut self, width: u32, height: u32) -> Result<u32, Error> {
+        self.current()?;
+        let (w, h) = (int(width)?, int(height)?);
+        // SAFETY: GL calls on the current context with no pointer.
+        #[expect(unsafe_code, reason = "a renderbuffer's storage and its framebuffer")]
+        let made = unsafe {
+            let renderbuffer = self
+                .gl
+                .create_renderbuffer()
+                .map_err(|e| Error::new(ErrorKind::Gl(0), e))?;
+            self.gl
+                .bind_renderbuffer(glow::RENDERBUFFER, Some(renderbuffer));
+            self.gl
+                .renderbuffer_storage(glow::RENDERBUFFER, glow::RGBA8, w, h);
+            match self.gl.create_framebuffer() {
+                Ok(fb) => {
+                    self.gl.bind_framebuffer(glow::FRAMEBUFFER, Some(fb));
+                    self.gl.framebuffer_renderbuffer(
+                        glow::FRAMEBUFFER,
+                        glow::COLOR_ATTACHMENT0,
+                        glow::RENDERBUFFER,
+                        Some(renderbuffer),
+                    );
+                    Ok((fb, renderbuffer))
+                }
+                Err(e) => {
+                    self.gl.delete_renderbuffer(renderbuffer);
+                    Err(Error::new(ErrorKind::Gl(0), e))
+                }
+            }
+        };
+        let (fb, renderbuffer) = made?;
+        self.buffers.insert(
+            fb.0.get(),
+            Buffer {
+                renderbuffer,
+                image: None,
+            },
+        );
+        if let Err(e) = self.complete("a buffer") {
+            let _ = self.free_buffer(fb.0.get());
+            return Err(e);
+        }
+        Ok(fb.0.get())
+    }
+
+    /// Frees an upright frame's framebuffer and texture. Refused, reaching
+    /// no GL, when the framebuffer is a buffer's, which
+    /// [`Context::free_buffer`] frees.
     pub fn free_frame(&mut self, framebuffer: u32, texture: u32) -> Result<(), Error> {
         let fb = glow::NativeFramebuffer(name(framebuffer)?);
+        if self.buffers.contains_key(&framebuffer) {
+            return Err(misuse(format!(
+                "framebuffer {framebuffer} is a buffer's, not an upright frame's"
+            )));
+        }
         self.free_texture(texture)?;
         // SAFETY: a GL call on the current context with no pointer.
         #[expect(unsafe_code, reason = "glDeleteFramebuffers")]
@@ -320,22 +379,27 @@ impl Context {
         Ok(())
     }
 
-    /// Frees an imported buffer's framebuffer, its renderbuffer and its
-    /// image.
-    pub fn free_import(&mut self, framebuffer: u32) -> Result<(), Error> {
+    /// Frees a buffer's framebuffer and its renderbuffer, and an imported
+    /// buffer's image. Refused, reaching no GL, unless the framebuffer is a
+    /// buffer this context imported or made and keeps.
+    pub fn free_buffer(&mut self, framebuffer: u32) -> Result<(), Error> {
         let fb = glow::NativeFramebuffer(name(framebuffer)?);
-        self.current()?;
-        let import = self.imports.remove(&framebuffer);
-        // SAFETY: GL calls on the current context with no pointer.
-        #[expect(unsafe_code, reason = "glDeleteFramebuffers and glDeleteRenderbuffers")]
-        unsafe {
-            self.gl.delete_framebuffer(fb);
-            if let Some(i) = &import {
-                self.gl.delete_renderbuffer(i.renderbuffer);
-            }
+        if !self.buffers.contains_key(&framebuffer) {
+            return Err(misuse(format!(
+                "framebuffer {framebuffer} is no buffer of this context's"
+            )));
         }
-        if let Some(i) = import {
-            self.egl.destroy_image(i.image);
+        self.current()?;
+        if let Some(buffer) = self.buffers.remove(&framebuffer) {
+            // SAFETY: GL calls on the current context with no pointer.
+            #[expect(unsafe_code, reason = "glDeleteFramebuffers and glDeleteRenderbuffers")]
+            unsafe {
+                self.gl.delete_framebuffer(fb);
+                self.gl.delete_renderbuffer(buffer.renderbuffer);
+            }
+            if let Some(image) = buffer.image {
+                self.egl.destroy_image(image);
+            }
         }
         Ok(())
     }

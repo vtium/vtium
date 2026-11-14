@@ -38,13 +38,14 @@ The figures of vtium's documentation pages outside the decision records, which k
 | `concepts-notice-head-file.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's notice that vtium.conf has errors and vtium runs the parts without errors, over a shell session | Converted from tier 2's golden `notice-head-file-800x480`, below |
 | `concepts-notice-alone-partly.png` | [concepts/start-up.md](../concepts/start-up.md): the same notice alone on the boot display, under the closed policy, with no session behind it | Converted from tier 2's golden `notice-alone-partly-800x480`, below |
 | `concepts-notice-no-keyboard.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's notice that it found no keyboard at start, over a shell session | Converted from tier 2's golden `notice-no-keyboard-800x480`, below |
-| `concepts-notice-alone-no-display.png` | [concepts/heads.md](../concepts/heads.md): vtium's notice that no head has a connected display, alone on the boot display | Converted from tier 2's golden `notice-alone-no-display-800x480`, below |
 | `concepts-notice-oneshot.png` | [concepts/heads.md](../concepts/heads.md): vtium's notice that a session ended under `oneshot`, over the session's last screen | Converted from tier 2's golden `notice-oneshot-800x480`, below |
 | `concepts-notice-no-console-opened.png` | [concepts/heads.md](../concepts/heads.md): vtium's notice that a console the open chord opened did not open, over a shell session | Converted from tier 2's golden `notice-no-console-opened-800x480`, below |
 | `concepts-notice-alone-stopped.png` | [concepts/heads.md](../concepts/heads.md): vtium's notice that a crash loop stopped every head under the closed policy, alone on the boot display | Converted from tier 2's golden `notice-alone-stopped-800x480`, below |
 | `concepts-notice-anti-lockout.png` | [concepts/flows.md](../concepts/flows.md): the anti-lockout guard's notice, over a shell session | Converted from tier 2's golden `notice-anti-lockout-800x480`, below |
 | `concepts-notice-rescue.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while the head `desk` is active, over a shell session | Converted from tier 2's golden `notice-rescue-800x480`, below |
 | `concepts-notice-rescue-no-head.png` | [concepts/flows.md](../concepts/flows.md): the rescue key's notice while no head is active, over a shell session | Converted from tier 2's golden `notice-rescue-no-head-800x480`, below |
+| `concepts-osd-full.png` | [concepts/osd-and-notices.md](../concepts/osd-and-notices.md): vtium's on-screen display under `osd = full` on the active head, over a shell session | Converted from tier 2's golden `osd-full-800x480`, below |
+| `concepts-osd-minimal.png` | [concepts/osd-and-notices.md](../concepts/osd-and-notices.md): vtium's on-screen display under `osd = minimal` on the active head, over a shell session | Converted from tier 2's golden `osd-minimal-800x480`, below |
 | `concepts-panic.png` | [concepts/start-up.md](../concepts/start-up.md): vtium's panic screen for a closed vtium.conf whose errors leave no head, alone on the boot display, with the ASCII drawing of a panicked Tux beside the report | Converted from tier 2's golden `panic-800x480`, below |
 
 The screens are tier 2's screens ([tools/tier2](https://github.com/vtium/vtium/blob/main/tools/tier2/README.md)), drawn into memory by vtium-term and vtium-render and converted from PPM with ImageMagick, `-strip` keeping the PNG free of timestamps so a redraw gives the same bytes. From the repository's root:
@@ -92,8 +93,16 @@ cp DIR/flow-shared-vts-120x32.png docs/figures/concepts-flow-two-vts.png
 The pictures of vtium's notices are tier 2's own goldens. Each one is settled, which means that `tools/tier2/provisional.tsv` does not list it. Each golden is drawn at 800×480 in unifont's 8×16 cells, and converted the same way, at its own size. From the repository's root:
 
 ```sh
-for n in notice-head-file-two notice-head-file notice-alone-partly notice-no-keyboard notice-alone-no-display notice-oneshot notice-no-console-opened notice-alone-stopped notice-anti-lockout notice-rescue notice-rescue-no-head; do
+for n in notice-head-file-two notice-head-file notice-alone-partly notice-no-keyboard notice-oneshot notice-no-console-opened notice-alone-stopped notice-anti-lockout notice-rescue notice-rescue-no-head; do
   magick tools/tier2/goldens/$n-800x480.ppm -strip docs/figures/concepts-$n.png
 done
 magick tools/tier2/goldens/panic-800x480.ppm -strip docs/figures/concepts-panic.png
+```
+
+The two pictures of the on-screen display are tier 2's own goldens too, settled and drawn the same way, converted from the repository's root:
+
+```sh
+for n in osd-full osd-minimal; do
+  magick tools/tier2/goldens/$n-800x480.ppm -strip docs/figures/concepts-$n.png
+done
 ```

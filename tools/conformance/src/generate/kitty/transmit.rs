@@ -1,14 +1,13 @@
-//! Transmitting images: direct, chunked and aborted uploads, ids and
-//! numbers, replacement, the replies q chooses, queries, and the commands
-//! refused or cancelled.
+//! Transmitting images: direct uploads, one large chunk, ids and numbers, replacement, the replies q chooses, queries, and the commands refused or cancelled.
+//!
+//! The chunked upload and the aborted uploads are readable cases, `corpus/cases/kit-chunked.case` and `corpus/cases/kit-chunk-abort.case`. Each readable case is the only source of its case, so the generator has no recipe for them.
 
-use super::{BLUE3, GREEN, RED, chunks, kitty, kt, raw, rgb, rgba};
+use super::{BLUE3, RED, chunks, kitty, kt, raw, rgb, rgba};
 use crate::generate::sixel::{BLUE, six_at};
-use crate::generate::{APC, Case, DSR, Inputs, Made, ST, cell, cup, sized};
+use crate::generate::{APC, Case, DSR, Inputs, Made, cell, cup, sized};
 
 pub(in crate::generate) const CASES: &[Case] = &[
     sized("kit-transmit", 12, 4, transmit),
-    sized("kit-chunked", 12, 4, chunked),
     // a chunk of 131072 base64 characters, the size kitten icat sends, 32
     // times the protocol's "no larger than 4096 bytes": the payload is
     // streamed, so the chunk is accepted whole and the image is the one
@@ -24,7 +23,6 @@ pub(in crate::generate) const CASES: &[Case] = &[
         .concat()
         .into()
     }),
-    sized("kit-chunk-abort", 12, 4, chunk_abort),
     sized("kit-ids", 12, 4, ids),
     sized("kit-replace", 12, 4, replace),
     sized("kit-replace-refused", 12, 4, replace_refused),
@@ -78,14 +76,6 @@ pub(in crate::generate) const CASES: &[Case] = &[
     }),
 ];
 
-/// A chunked transmission's first chunk, its ST included, and the rest.
-fn split_first(chunks: &str) -> (String, &str) {
-    match chunks.split_once(ST) {
-        Some((first, rest)) => ([first, ST].concat(), rest),
-        None => (chunks.to_owned(), ""),
-    }
-}
-
 /// `w` x `h` pixels of f=24 whose color encodes their position, so a
 /// lost, doubled or misplaced byte changes the image's digest.
 fn ramp(w: usize, h: usize) -> Vec<u8> {
@@ -114,56 +104,6 @@ fn transmit(_: &Inputs) -> Made {
         &kitty("a=t,f=32,s=8,v=8,i=3", &rgba(8, 8, [0, 0, 255, 128])),
         DSR,
         &cup(3, 1),
-        &kitty("a=p,i=3", b""),
-        DSR,
-    ]
-    .concat()
-    .into()
-}
-
-/// Chunked direct transmission: the keys on the first chunk, m=1 until the
-/// last; a chunk may change q. Text between chunks is not a graphics
-/// command and leaves the upload pending; the placement is at the cursor
-/// when the last chunk arrives.
-fn chunked(_: &Inputs) -> Made {
-    let first = chunks("a=T,f=24,s=8,v=16,i=1", &rgb(8, 16, BLUE3), 8);
-    let (one, rest) = split_first(&first);
-    [
-        &cell(8, 16),
-        &one,
-        "ab",
-        rest,
-        DSR,
-        &chunks("a=T,f=32,s=8,v=8,i=2,q=1", &rgba(8, 8, GREEN), 12),
-        DSR,
-    ]
-    .concat()
-    .into()
-}
-
-/// A pending upload is aborted by a delete, by any other graphics command,
-/// and by CAN; its later chunks then arrive as commands of their own,
-/// which are refused (no s and v) without a reply (no id).
-fn chunk_abort(_: &Inputs) -> Made {
-    let c = |i: u32| chunks(&format!("a=T,f=24,s=8,v=16,i={i}"), &rgb(8, 16, BLUE3), 8);
-    let (c1, c2, c3) = (c(1), c(2), c(3));
-    let (f1, r1) = split_first(&c1);
-    let (f2, r2) = split_first(&c2);
-    let (f3, r3) = split_first(&c3);
-    [
-        &cell(8, 16),
-        &f1,
-        &kitty("a=d", b""),
-        r1,
-        &f2,
-        &kitty("a=p,i=9", b""),
-        r2,
-        &f3,
-        APC,
-        "Gm=1;AAAA\x18",
-        r3,
-        &kitty("a=p,i=1", b""),
-        &kitty("a=p,i=2", b""),
         &kitty("a=p,i=3", b""),
         DSR,
     ]

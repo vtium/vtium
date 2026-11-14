@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use xkbcommon::xkb::{self, Keycode, Keysym, compose, keysyms};
 
-use super::{KeyEvent, Mods};
+use super::{InputEvent, KeyEvent, Mods};
 use crate::ioctl::{LED_CAPSL, LED_NUML, LED_SCROLLL};
 
 /// evdev's key codes start 8 below xkb's.
@@ -193,7 +193,32 @@ impl Keymap {
         }
     }
 
-    /// A compose table from `text`, for `locale`.
+    /// The events a keyboard with this keymap reports for `keys`, each an
+    /// evdev key code pressed (`true`) or released (`false`), in order,
+    /// from a fresh keyboard state with no lock on: each press as
+    /// [`InputEvent::Key`] and each release as [`InputEvent::Release`], as
+    /// [`super::Input`] drains them from such a keyboard, with no repeat.
+    /// A press that goes into a compose sequence reports nothing, as from a
+    /// keyboard. vtium's tests drive the binary and vtium-term with real
+    /// layouts through it (ADR-1005).
+    pub fn key_events(&self, keys: &[(u16, bool)]) -> Vec<InputEvent> {
+        let mut keyboard = Keyboard::new(self);
+        let mut events = Vec::with_capacity(keys.len());
+        for &(code, pressed) in keys {
+            let state = if pressed {
+                KeyState::Pressed
+            } else {
+                KeyState::Released
+            };
+            let out = keyboard.process(state, code);
+            events.extend(out.release.map(InputEvent::Release));
+            events.extend(out.key.map(InputEvent::Key));
+        }
+        events
+    }
+
+    /// A compose table from `text`, for `locale`, which the tests and
+    /// [`Self::with_compose_table`] set.
     pub(crate) fn set_compose_table(&mut self, text: &[u8], locale: &str) {
         if locale.contains('\0') {
             return;
@@ -206,6 +231,16 @@ impl Keymap {
             compose::COMPILE_NO_FLAGS,
         )
         .ok();
+    }
+
+    /// This keymap with the compose table `text`, a table in the text
+    /// format of Compose(5), for `locale`; with no table where `text` does
+    /// not compile. vtium's tests compose dead keys with a table of their
+    /// own, so that a test does not depend on the machine's locale.
+    #[must_use]
+    pub fn with_compose_table(mut self, text: &[u8], locale: &str) -> Keymap {
+        self.set_compose_table(text, locale);
+        self
     }
 
     /// A keymap compiled from `text`, with no compose table.
@@ -347,6 +382,11 @@ struct Special {
     num: xkb::ModMask,
     hyper: xkb::ModMask,
     meta: xkb::ModMask,
+    /// The real modifiers behind the modifiers the kitty keyboard
+    /// protocol encodes: Shift, Lock, Control, Alt, Super, NumLock, and
+    /// Hyper and Meta where vtium reports them. A modifier outside them,
+    /// such as AltGr's, chooses a symbol the protocol cannot describe.
+    encodable: xkb::ModMask,
 }
 
 impl Special {
@@ -364,13 +404,23 @@ impl Special {
             | real(xkb::MOD_NAME_ALT)
             | real(xkb::MOD_NAME_LOGO);
         let own = |mask: xkb::ModMask| if mask & taken == 0 { mask } else { 0 };
+        let num = set_by(keymap, &[keysyms::KEY_Num_Lock]);
+        let hyper = own(set_by(
+            keymap,
+            &[keysyms::KEY_Hyper_L, keysyms::KEY_Hyper_R],
+        ));
+        let meta = own(set_by(keymap, &[keysyms::KEY_Meta_L, keysyms::KEY_Meta_R]));
         Special {
-            num: set_by(keymap, &[keysyms::KEY_Num_Lock]),
-            hyper: own(set_by(
-                keymap,
-                &[keysyms::KEY_Hyper_L, keysyms::KEY_Hyper_R],
-            )),
-            meta: own(set_by(keymap, &[keysyms::KEY_Meta_L, keysyms::KEY_Meta_R])),
+            num,
+            hyper,
+            meta,
+            encodable: taken
+                | num
+                | hyper
+                | meta
+                | real(xkb::MOD_NAME_SHIFT)
+                | real(xkb::MOD_NAME_CAPS)
+                | real(xkb::MOD_NAME_CTRL),
         }
     }
 }
@@ -401,6 +451,42 @@ fn set_by(keymap: &xkb::Keymap, syms: &[u32]) -> xkb::ModMask {
         }
     });
     mask
+}
+
+/// The character the key with evdev's key code `code` types on the US
+/// PC-101 layout, unshifted: the base layout key of the kitty keyboard
+/// protocol (ADR-1005, D9). The kernel names its key codes after their
+/// places on that keyboard (`linux/input-event-codes.h`), `KEY_1` 2 to
+/// `KEY_EQUAL` 13, `KEY_Q` 16 to `KEY_RIGHTBRACE` 27, `KEY_A` 30 to
+/// `KEY_GRAVE` 41, `KEY_BACKSLASH` 43, `KEY_Z` 44 to `KEY_SLASH` 53 and
+/// `KEY_SPACE` 57, so the table holds whatever layout is configured. A key
+/// the layout types no character with, such as `KEY_102ND`, the extra key
+/// of ISO keyboards, has none.
+pub(crate) fn base_layout_key(code: u32) -> Option<char> {
+    const ROWS: [(u32, &str); 5] = [
+        (2, "1234567890-="),
+        (16, "qwertyuiop[]"),
+        (30, "asdfghjkl;'`"),
+        (43, "\\zxcvbnm,./"),
+        (57, " "),
+    ];
+    ROWS.iter().find_map(|&(first, keys)| {
+        let i = usize::try_from(code.checked_sub(first)?).ok()?;
+        keys.chars().nth(i)
+    })
+}
+
+/// `sym`, or for a keysym outside Latin-1 and below the function keys that
+/// stands for a character, the Unicode keysym of that character, which
+/// xkb treats as the same symbol: Cyrillic_es, 0x6d3, is 0x1000441.
+fn unicode_keysym(sym: u32) -> u32 {
+    if !(0x100..0xfd00).contains(&sym) {
+        return sym;
+    }
+    match xkb::keysym_to_utf32(Keysym::new(sym)) {
+        0 => sym,
+        c => c.saturating_add(0x0100_0000),
+    }
 }
 
 /// One keyboard's state: modifiers held on it apply to it alone.
@@ -507,6 +593,9 @@ impl Keyboard {
         KeyEvent {
             keycode: keycode.raw(),
             ascii: self.ascii(keycode, syms),
+            unshifted: self.unshifted(keycode),
+            shifted: self.shifted(keycode),
+            base: base_layout_key(keycode.raw().wrapping_sub(EVDEV_KEYCODE_OFFSET)),
             mods: self.mods(),
             keysyms: syms.iter().map(|s| s.raw()).collect(),
             codepoints: syms
@@ -605,6 +694,56 @@ impl Keyboard {
                     _ => None,
                 }
             })
+            .unwrap_or(keysyms::KEY_NoSymbol)
+    }
+
+    /// The unshifted key: the one keysym the key makes at the first level
+    /// of its layout now, or 0 when the key makes several there, or when a
+    /// modifier held chose the key's level that the kitty keyboard
+    /// protocol cannot encode, such as AltGr's or the level-five shift's.
+    /// Without that rule, AltGr+Q, which makes @ on a German layout, would
+    /// be reported as Q, and a program could not tell it from Q (ADR-1005,
+    /// D9).
+    fn unshifted(&self, keycode: Keycode) -> u32 {
+        let consumed = self.state.key_get_consumed_mods(keycode)
+            & self.state.serialize_mods(xkb::STATE_MODS_EFFECTIVE);
+        if consumed & !self.special.encodable != 0 {
+            return keysyms::KEY_NoSymbol;
+        }
+        let keymap = self.state.get_keymap();
+        let layout = self.state.key_get_layout(keycode);
+        match keymap.key_get_syms_by_level(keycode, layout, 0) {
+            [sym] => unicode_keysym(sym.raw()),
+            _ => keysyms::KEY_NoSymbol,
+        }
+    }
+
+    /// The shifted key: the one keysym the key makes at the level of its
+    /// layout that Shift alone chooses, or 0 where no level is Shift's
+    /// alone, or where a modifier the kitty keyboard protocol cannot
+    /// encode chose the key's level, as [`Self::unshifted`] says.
+    fn shifted(&self, keycode: Keycode) -> u32 {
+        if self.unshifted(keycode) == keysyms::KEY_NoSymbol {
+            return keysyms::KEY_NoSymbol;
+        }
+        let keymap = self.state.get_keymap();
+        let shift = match keymap.mod_get_index(xkb::MOD_NAME_SHIFT) {
+            xkb::MOD_INVALID => return keysyms::KEY_NoSymbol,
+            i => 1u32.checked_shl(i).unwrap_or(0),
+        };
+        let layout = self.state.key_get_layout(keycode);
+        (0..keymap.num_levels_for_key(keycode, layout))
+            .find(|&level| {
+                let mut masks = [0; 8];
+                let n = keymap.key_get_mods_for_level(keycode, layout, level, &mut masks);
+                masks.get(..n).is_some_and(|m| m.contains(&shift))
+            })
+            .and_then(
+                |level| match keymap.key_get_syms_by_level(keycode, layout, level) {
+                    [sym] => Some(unicode_keysym(sym.raw())),
+                    _ => None,
+                },
+            )
             .unwrap_or(keysyms::KEY_NoSymbol)
     }
 

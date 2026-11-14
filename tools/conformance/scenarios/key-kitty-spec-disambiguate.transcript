@@ -1,0 +1,36 @@
+> size 20 2
+> send "\e[>1u"
+> key c mods=ctrl
+< reply "\e[99;5u"
+> key Escape mods=ctrl
+< reply "\e[27;5u"
+> key Escape mods=alt
+< reply "\e[27;3u"
+> key space mods=alt
+< reply "\e[32;3u"
+> key A mods=shift+ctrl+alt
+< reply "\e[97;8u"
+> key ISO_Left_Tab mods=shift+ctrl
+< reply "\e[9;6u"
+> key eacute
+< reply "\xc3\xa9"
+> key eacute mods=alt
+< reply "\e[233;3u"
+> key eacute mods=ctrl
+< reply "\e[233;5u"
+> key Up mods=lock
+< reply "\e[1;65A"
+> key F5 mods=num
+< reply "\e[15;129~"
+> key Delete mods=ctrl+num
+< reply "\e[3;133~"
+> key F2
+< reply "\e[Q"
+> key F4 mods=alt
+< reply "\e[1;3S"
+> key End mods=ctrl
+< reply "\e[1;5F"
+> key KP_Equal mods=shift+num char="="
+< reply "="
+> key KP_Multiply mods=ctrl+num char="*"
+< reply "\e[57411;133u"

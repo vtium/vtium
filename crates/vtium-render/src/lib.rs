@@ -81,6 +81,8 @@ mod picture;
 mod reach;
 mod renderer;
 mod stored;
+#[cfg(feature = "bidi")]
+pub mod syllable;
 mod target;
 mod timer;
 mod trig;
@@ -100,7 +102,7 @@ pub use notice::{
     Colors, Drawing, Mark, Notice, NoticeReport, Picture, Placed, Surface, TEXT_BESIDE_MIN, quote,
 };
 #[cfg(feature = "images")]
-pub use picture::{PictureCounts, SELECTION_TINT};
+pub use picture::{PictureCounts, PlacedPicture, SELECTION_TINT, placed_picture};
 #[doc(hidden)]
 pub use renderer::TestInk;
 pub use renderer::{

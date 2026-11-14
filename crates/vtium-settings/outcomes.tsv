@@ -12,7 +12,7 @@ trusted	open	headless	no-head	open	as-set	-	rules	first-head	-	as-set	roaming	on
 trusted	open	empty	builtin	open	as-set	-	rules	first-head	-	as-set	shipped	on	on	off	-
 trusted	open	partly	survivors	open	forced	vtium.conf has errors: running the parts without errors.	rules	first-head	-	as-set	shipped	on	on	off	-
 trusted	open	broken	builtin	open	as-set	vtium.conf not used: running the built-in configuration.	rules	first-head	-	as-set	shipped	on	on	off	-
-trusted	closed	valid	file	closed	as-set	-	rules	notice-only	No head has a connected display.	forever	ignore	off	off	set|on	unset,shared,isolated
+trusted	closed	valid	file	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset,shared,isolated
 trusted	closed	headless	no-head	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset
 trusted	closed	empty	no-head	closed	as-set	-	rules	notice-only	-	forever	ignore	off	off	set|on	unset
 trusted	closed	partly	survivors	closed	sticky	vtium.conf has errors: running the parts without errors.	rules	notice-only	vtium.conf has errors: running the parts without errors.	forever	ignore	off	off	set|on	unset,shared,isolated

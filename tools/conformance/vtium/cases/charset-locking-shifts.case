@@ -1,0 +1,12 @@
+# LS2 and LS3 invoke G2 and G3 into GL, and SI invokes G0 again. LS1R,
+# LS2R and LS3R invoke a set into GR, and in UTF-8 input each character
+# from U+00A0 up still prints as itself.
+# spec: the VT220 manual, 4.4.3; ctlseqs, LS2, LS3, LS1R, LS2R and LS3R
+# covers: text.charsets
+size 30 6
+send "\e*0\e+<"
+send "\enlmq\eolmq\x0flmq"
+send "\r\n\u{a1}\u{e0}\u{ec}\e~\u{a1}\u{e0}\u{ec}"
+send "\e}\u{e0}\u{ec}\u{ed}\e|\u{e0}\u{ec}\u{a4}"
+send "\r\n\u{a0}\u{ff}\u{100}"
+dump state

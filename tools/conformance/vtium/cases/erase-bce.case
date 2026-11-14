@@ -1,0 +1,20 @@
+# The cells that EL, ECH, ICH, DCH, IL and ED erase take the pen's
+# background color, as does the row a line feed scrolls in.
+# spec: terminfo(5), bce; ECMA-48 8.3.41 EL, 8.3.38 ECH and 8.3.39 ED
+# covers: ctl.bce
+size 6 7
+send "aaaaaa\r\nbbbbbb\r\ncccccc\r\ndddddd\r\neeeeee\r\nffffff\r\ngggggg"
+send "\e[44;4;7m"
+send "\e[1;3H\e[K"
+send "\e[2;3H\e[1K"
+send "\e[3;3H\e[2X"
+send "\e[4;3H\e[@"
+send "\e[5;3H\e[P"
+send "\e[6;1H\e[L"
+send "\e[m"
+dump state
+send "\e[41m\e[2J\e[m"
+dump state
+send "\e[43m"
+send "\e[7;1H\n"
+dump state

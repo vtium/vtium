@@ -16,8 +16,11 @@ use swash::scale::image::{Content, Image};
 use swash::zeno::{Placement, Transform};
 
 use super::{Ask, Kind};
+use crate::outline::InkBox;
 use crate::outline::Placed;
-use crate::outline::raster::{Cell, Drawer, FOREGROUND, div255, pixel, place_drawn};
+use crate::outline::raster::{
+    Cell, Drawer, FOREGROUND, cells as outline_cells, div255, pixel, place_drawn,
+};
 
 /// One glyph of a shaped cluster: its glyph, its position from the
 /// cluster's origin in font units, the index in the cluster of the
@@ -102,14 +105,24 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
             }
     };
     for ask in asks {
-        let mut shaped = shape(&shaper, &ask.key);
+        // a syllable's piece shapes the syllable's whole text, and keeps
+        // the piece's key (ADR-1203 D3)
+        let piece = vtium_font::syllable::piece_of(&ask.key);
+        let text = piece.map_or(ask.key.as_slice(), |(text, _)| text);
+        let mut shaped = shape(&shaper, text);
+        shaped.key.clone_from(&ask.key);
         shaped.kind = ask.kind;
         // a character and U+FE0F, which a color font draws with the
         // character's own glyph (ADR-1200 D21): kept when that glyph is a
         // color one, which only drawing it tells
         shaped.own = ask.kind == Kind::Emoji && presented(&shaped.glyphs, &ask.key, &charmap);
-        if shaped.own || keeps(ask.kind, &ask.key, &shaped.glyphs) {
+        if shaped.own || keeps(ask.kind, text, &shaped.glyphs) {
             out.push(shaped);
+            continue;
+        }
+        // a syllable the font cannot draw whole draws split, each cluster
+        // as the console asks for it on its own (ADR-1203 D4)
+        if piece.is_some() {
             continue;
         }
         let Some(part) = drawn_part(ask, &shaped.glyphs) else {
@@ -293,73 +306,43 @@ pub(crate) fn draw_all(
         base - i32::try_from(cell.height).unwrap_or(0) - i32::try_from(cell.reach.1).unwrap_or(0),
     );
     let mut seen: BTreeMap<Placed, u32> = BTreeMap::new();
+    // each syllable drawn across all its cells, once for all its pieces
+    let mut syllables: BTreeMap<(&[u32], u8), Option<Placed>> = BTreeMap::new();
     let mut out = Vec::new();
     for s in shaped {
-        let wide = match s.kind {
-            // the cells the terminal gives the cluster (ADR-1200 D21)
-            Kind::Emoji | Kind::Marks => super::wide(&s.key),
-            // a cell for each letter, the marks on it taking none: lam-alef
-            // takes the two its letters do
-            Kind::Joining => {
-                s.key
-                    .iter()
-                    .filter(|&&c| c != super::ZWJ && super::mark_side(c).is_none())
-                    .count()
-                    > 1
+        let piece = vtium_font::syllable::piece_of(&s.key);
+        let placed = match piece {
+            Some((text, p)) => syllables
+                .entry((text, p.total))
+                .or_insert_with(|| {
+                    place(
+                        drawer,
+                        s,
+                        (text, u32::from(p.total), true),
+                        (scale, row),
+                        cell,
+                    )
+                })
+                .as_ref()
+                .and_then(|whole| cut(whole, p, cell)),
+            None => {
+                let cells = match s.kind {
+                    // the cells the terminal gives the cluster (ADR-1200 D21)
+                    Kind::Emoji | Kind::Marks => super::cells(&s.key, cell.cluster_width),
+                    // a cell for each letter, the marks on it taking none:
+                    // lam-alef takes the two its letters do
+                    Kind::Joining => outline_cells(
+                        s.key
+                            .iter()
+                            .filter(|&&c| c != super::ZWJ && super::mark_side(c).is_none())
+                            .count()
+                            > 1,
+                    ),
+                };
+                place(drawer, s, (&s.key, cells, false), (scale, row), cell)
             }
         };
-        let letters = s
-            .key
-            .iter()
-            .filter(|&&c| c != super::ZWJ && super::joins(c))
-            .count();
-        let indic = s
-            .key
-            .iter()
-            .find(|&&c| c != super::ZWJ)
-            .is_some_and(|&c| super::indic(c));
-        let advance_px = s.advance as f32 * scale;
-        let span = cell.width as f32 * if wide { 2.0 } else { 1.0 };
-        let mut laid = s.glyphs.clone();
-        let mut shift = 0.0;
-        let (advance, sx) = match (s.kind, letters) {
-            (Kind::Emoji, _) => (Some(advance_px), 1.0),
-            // ADR-1307 D1: an Indic cluster wider than its cell is squeezed
-            // sideways to it, at full height, its pen on the cell's left edge
-            (_, 0) if indic && advance_px > span => (None, span / advance_px),
-            // ADR-1302 D2: any other cluster is placed by its advance
-            (_, 0) => (Some(advance_px), 1.0),
-            // ADR-1302 D2: a joining letter wider than its cells is squeezed
-            // to them, with the marks on it, its pen on the left edge
-            (_, 1) if advance_px > span => (None, span / advance_px),
-            // ADR-1302 D2, amended 2026-11-12: a joining letter no wider
-            // than its cells, and a ligature such as lam-alef, keep their
-            // width, against the side where they meet the letter read
-            // before them, and a tatweel fills toward the letter read after
-            _ => {
-                (laid, shift) = fill(drawer, s, scale, span);
-                (None, 1.0)
-            }
-        };
-        let Some(placed) = place_drawn(
-            &mut |ppem, fit| {
-                compose(
-                    drawer,
-                    &laid,
-                    ppem / upem.max(1.0),
-                    ppem,
-                    fit,
-                    Some(row),
-                    (sx, shift),
-                )
-            },
-            wide,
-            advance,
-            // a cluster's marks keep to the reach by the mark rule (ADR-1302
-            // D3, ADR-1306 D2), not by being drawn smaller
-            false,
-            cell,
-        ) else {
+        let Some(placed) = placed else {
             continue;
         };
         // a text font's own glyph for the character is the character's, which
@@ -382,6 +365,125 @@ pub(crate) fn draw_all(
     }
     out.sort();
     Ok(out)
+}
+
+/// The shaped cluster `s`, whose text is `text`, placed across `cells`
+/// cells of `cell` at `scale` pixels to a font unit, its ink kept inside
+/// the reach `row` gives: as a joining letter, squeezed to its cells where
+/// it is an Indic cluster or a syllable of any script wider than them
+/// (ADR-1307 D1, ADR-1203 D5), or any other cluster by its advance.
+fn place(
+    drawer: &mut Drawer<'_>,
+    s: &Shaped,
+    (text, cells, syllable): (&[u32], u32, bool),
+    (scale, row): (f32, (i32, i32)),
+    cell: &Cell,
+) -> Option<Placed> {
+    let upem = f32::from(drawer.font.metrics(&[]).units_per_em);
+    let letters = text
+        .iter()
+        .filter(|&&c| c != super::ZWJ && super::joins(c))
+        .count();
+    let indic = text
+        .iter()
+        .find(|&&c| c != super::ZWJ)
+        .is_some_and(|&c| super::indic(c));
+    let advance_px = s.advance as f32 * scale;
+    let span = (cell.width * cells) as f32;
+    let mut laid = s.glyphs.clone();
+    let mut shift = 0.0;
+    let (advance, sx) = match (s.kind, letters) {
+        (Kind::Emoji, _) => (Some(advance_px), 1.0),
+        // ADR-1307 D1: an Indic cluster wider than its cell, and a syllable
+        // of any script wider than its cells (ADR-1203 D5), is squeezed
+        // sideways to them, at full height, its pen on the left edge
+        (_, 0) if (indic || syllable) && advance_px > span => (None, span / advance_px),
+        // ADR-1302 D2: any other cluster is placed by its advance
+        (_, 0) => (Some(advance_px), 1.0),
+        // ADR-1302 D2: a joining letter wider than its cells is squeezed
+        // to them, with the marks on it, its pen on the left edge
+        (_, 1) if advance_px > span => (None, span / advance_px),
+        // ADR-1302 D2, amended 2026-11-12: a joining letter no wider
+        // than its cells, and a ligature such as lam-alef, keep their
+        // width, against the side where they meet the letter read
+        // before them, and a tatweel fills toward the letter read after
+        _ => {
+            (laid, shift) = fill(drawer, s, scale, span);
+            (None, 1.0)
+        }
+    };
+    place_drawn(
+        &mut |ppem, fit| {
+            compose(
+                drawer,
+                &laid,
+                ppem / upem.max(1.0),
+                ppem,
+                fit,
+                Some(row),
+                (sx, shift),
+            )
+        },
+        cells,
+        advance,
+        // a cluster's marks keep to the reach by the mark rule (ADR-1302
+        // D3, ADR-1306 D2), not by being drawn smaller
+        false,
+        cell,
+    )
+}
+
+/// The part of `whole`, a syllable placed across its `piece.total` cells
+/// of `cell`, that lies in the cells of `piece`: its pixels in those cells,
+/// and its ink past them, which reaches past the syllable's cells only from
+/// its first and last pieces (ADR-1203 D3). The pieces together are the
+/// syllable's drawing.
+fn cut(whole: &Placed, piece: vtium_font::syllable::Piece, cell: &Cell) -> Option<Placed> {
+    let bpp: u32 = if whole.color { 4 } else { 1 };
+    let cw = cell.width;
+    let total = cw.checked_mul(u32::from(piece.total))?;
+    let x0 = cw.checked_mul(u32::from(piece.start))?;
+    let w = cw.checked_mul(u32::from(piece.cells))?;
+    let mut pixels = Vec::with_capacity((w * cell.height * bpp) as usize);
+    for y in 0..cell.height {
+        let from = ((y * total + x0) * bpp) as usize;
+        pixels.extend_from_slice(whole.pixels.get(from..from + (w * bpp) as usize)?);
+    }
+    let first = piece.start == 0;
+    let last = piece.start.checked_add(piece.cells)? == piece.total;
+    let ink = whole.ink.as_ref().and_then(|ink| {
+        // the box's columns in the piece, from the whole glyph's first cell
+        let (x0, w) = (i32::try_from(x0).ok()?, i32::try_from(w).ok()?);
+        let right = ink.left.checked_add(i32::try_from(ink.width).ok()?)?;
+        let from = if first { ink.left } else { x0 };
+        let to = if last { right } else { x0 + w };
+        let height = i32::try_from(cell.height).ok()?;
+        let bottom = ink.top.checked_add(i32::try_from(ink.height).ok()?)?;
+        if (from, to, ink.top, bottom) == (x0, x0 + w, 0, height) {
+            return None;
+        }
+        let width = u32::try_from(to - from).ok()?;
+        let skip = usize::try_from(from - ink.left).ok()?;
+        let pixels = ink
+            .pixels
+            .chunks(ink.width as usize)
+            .flat_map(|row| row.get(skip..skip + width as usize).unwrap_or_default())
+            .copied()
+            .collect();
+        Some(InkBox {
+            left: from - x0,
+            top: ink.top,
+            width,
+            height: ink.height,
+            pixels,
+        })
+    });
+    Some(Placed {
+        wide: piece.cells == 2,
+        color: whole.color,
+        pixels,
+        ink,
+    })
 }
 
 /// Whether the joining cluster `key` joins the letter read after it: it
@@ -832,11 +934,84 @@ fn remap(part: &mut (Image, i32, i32), from: i32, to: i32, f: f32) {
 #[expect(
     clippy::indexing_slicing,
     clippy::expect_used,
+    clippy::panic,
+    reason = "a test fails by panicking"
+)]
+#[path = "harfbuzz.rs"]
+mod harfbuzz;
+
+#[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    clippy::expect_used,
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::{Ask, Drawer, Kind, draw_parts, shape_all, span};
+    use super::{Ask, Drawer, Kind, cut, draw_parts, shape_all, span};
     use crate::frit::Hinting;
+    use crate::outline::{InkBox, Placed};
+    use vtium_font::syllable::Piece;
+
+    // ADR-1203 D3: a syllable drawn across three cells is cut at its
+    // clusters' edges; the pieces' pixels side by side are the whole
+    // drawing, the ink past the syllable's left side goes to the first
+    // piece, past its right side to the last, and the ink above its row to
+    // each piece in its own columns
+    #[test]
+    fn a_syllable_is_cut_into_its_pieces() {
+        let cell = crate::outline::raster::Cell {
+            width: 2,
+            height: 2,
+            baseline: 2,
+            ppem: 2.0,
+            reach: (1, 0),
+            script: vtium_font::Script::Baseline,
+            cluster_width: vtium_term::ClusterWidth::Double,
+        };
+        // six columns of two rows, each pixel its column's number, and a
+        // box from one column before the first cell to one after the last,
+        // one row above the cells
+        let pixels: Vec<u8> = (0..2).flat_map(|_| 1..=6).collect();
+        let ink: Vec<u8> = (0..3).flat_map(|_| 10..18).collect();
+        let whole = Placed {
+            wide: false,
+            color: false,
+            pixels,
+            ink: Some(InkBox {
+                left: -1,
+                top: -1,
+                width: 8,
+                height: 3,
+                pixels: ink,
+            }),
+        };
+        let piece = |start, cells| {
+            cut(&whole, Piece::new(start, cells, 3).expect("a piece"), &cell).expect("a piece")
+        };
+        let (a, b, c) = (piece(0, 1), piece(1, 1), piece(2, 1));
+        assert_eq!(a.pixels, [1, 2, 1, 2]);
+        assert_eq!(b.pixels, [3, 4, 3, 4]);
+        assert_eq!(c.pixels, [5, 6, 5, 6]);
+        let boxed = |p: &Placed| {
+            let i = p.ink.as_ref().expect("a piece");
+            (i.left, i.top, i.width, i.height, i.pixels.clone())
+        };
+        assert_eq!(boxed(&a), (-1, -1, 3, 3, [10, 11, 12].repeat(3)));
+        assert_eq!(boxed(&b), (0, -1, 2, 3, [13, 14].repeat(3)));
+        assert_eq!(boxed(&c), (0, -1, 3, 3, [15, 16, 17].repeat(3)));
+        // a piece two cells wide is wide
+        let wide = cut(&whole, Piece::new(1, 2, 3).expect("a piece"), &cell).expect("a piece");
+        assert!(wide.wide && !a.wide);
+        assert_eq!(wide.pixels, [3, 4, 5, 6, 3, 4, 5, 6]);
+        // with no box, no piece has one
+        let bare = Placed { ink: None, ..whole };
+        assert!(
+            cut(&bare, Piece::new(1, 1, 3).expect("a piece"), &cell)
+                .expect("a piece")
+                .ink
+                .is_none()
+        );
+    }
 
     /// Each glyph of lam, shadda and fatha (U+0644 U+0651 U+064E) in the
     /// subset of DejaVu Sans Mono in `tests/fixtures/`, as its glyph id

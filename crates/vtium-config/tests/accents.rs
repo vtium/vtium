@@ -80,6 +80,7 @@ fn helper(
         height: text + band.added(),
     };
     let request = ServeRequest {
+        cluster_width: Default::default(),
         kind: ASK,
         frit: FritText {
             name: "accents".to_owned(),
@@ -130,6 +131,7 @@ fn uncut(path: &Path, text: u32, width: u32, key: &[char]) -> Vec<u8> {
     let base = baseline(&font, "", text, None, Hinting::Light).unwrap();
     let scalars: Vec<u32> = key.iter().map(|&c| u32::from(c)).collect();
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         font: font.into(),
         family: String::new(),
         cells: vec![(width, 3 * text)],

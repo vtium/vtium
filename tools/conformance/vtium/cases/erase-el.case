@@ -1,0 +1,20 @@
+# EL 0 erases from the cursor to the line's end, EL 1 from its start to
+# the cursor, and EL 2 the whole line; EL 3 does nothing. From a pending
+# wrap, EL 0 erases the last column and EL 1 the whole line.
+# spec: ECMA-48 8.3.41 EL
+# covers: ctl.edit
+size 6 3
+send "aaaaaa\r\nbbbbbb\r\ncccccc\e[2;3H\e[K"
+dump state
+send "\e[2;1Hbbbbbb\e[2;3H\e[0K"
+dump state
+send "\e[2;1Hbbbbbb\e[2;3H\e[1K"
+dump state
+send "\e[2;1Hbbbbbb\e[2;3H\e[2K"
+dump state
+send "\e[2;1Hbbbbbb\e[2;3H\e[3K"
+dump state
+send "\e[2;1Hbbbbbb\e[K"
+dump state
+send "\e[2;1Hbbbbbb\e[1K"
+dump state

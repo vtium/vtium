@@ -51,7 +51,7 @@ use crate::links::LinkStore;
 use crate::palette::Palette;
 use crate::scrollback::{Scrollback, lines_bytes_max, sb_memory_held};
 use crate::style::Style;
-use crate::unicode::Segmenter;
+use crate::unicode::{ClusterWidth, Segmenter};
 
 pub use edit::Erase;
 use links::Hover;
@@ -153,6 +153,9 @@ pub struct Screen {
     /// The codepoint that started the last printed cell, which REP repeats.
     last_printed: Option<char>,
     width_method: WidthMethod,
+    /// vtium.conf's `cluster-width`: what a cluster with a spacing mark or
+    /// a virama conjunct takes while mode 2027 is set (ADR-1006 D8).
+    cluster_width: ClusterWidth,
     selection: Selection,
     cursor_shape: CursorShape,
     cursor_blink: bool,
@@ -201,6 +204,7 @@ impl Screen {
             segment: None,
             last_printed: None,
             width_method: WidthMethod::default(),
+            cluster_width: ClusterWidth::default(),
             selection: Selection::default(),
             cursor_shape: CursorShape::default(),
             cursor_blink: true,
@@ -507,6 +511,22 @@ impl Screen {
     /// after the change starts a cell of its own.
     pub fn set_width_method(&mut self, method: WidthMethod) {
         self.width_method = method;
+        self.segment = None;
+    }
+
+    /// vtium.conf's `cluster-width` (ADR-1006 D8).
+    pub fn cluster_width(&self) -> ClusterWidth {
+        self.cluster_width
+    }
+
+    /// Sets what a cluster with a spacing mark or a virama conjunct takes
+    /// while mode 2027 is set: two cells under [`ClusterWidth::Double`],
+    /// its first character's under [`ClusterWidth::Single`] (ADR-1006 D8).
+    /// The host sets it when the terminal starts. Text already on the
+    /// screen keeps its cells, and text printed after the change starts a
+    /// cell of its own.
+    pub fn set_cluster_width(&mut self, rule: ClusterWidth) {
+        self.cluster_width = rule;
         self.segment = None;
     }
 

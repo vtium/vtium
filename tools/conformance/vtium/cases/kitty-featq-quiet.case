@@ -1,0 +1,6 @@
+# q=1 hides the reply.
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Suppressing responses from the terminal": "Set it to 1 to suppress OK responses and to 2 to suppress failure responses."; ADR-1100 D14, "What a feature query never does"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=45,e=T,U=1,q=1\e\\"

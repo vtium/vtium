@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# compile - compile the keyboard tests' keymap fixtures from xkeyboard-config
+#
+# Usage: tools/keymaps/compile        (or: make keymaps)
+#
+# Compiles each layout that crates/vtium-platform/tests/keymaps/README.md
+# lists with xkbcli compile-keymap, from this machine's xkeyboard-config, into
+# crates/vtium-platform/tests/keymaps/<layout>.xkb, and writes the versions it
+# used into that README between its version markers. The tests read the
+# committed fixtures, so cargo test needs no xkbcli. A fixture is never edited
+# by hand: to change one, run this script and commit what it writes.
+set -euo pipefail
+
+dir="$(cd "$(dirname "$0")/../.." && pwd)/crates/vtium-platform/tests/keymaps"
+readme="$dir/README.md"
+
+if ! command -v xkbcli >/dev/null 2>&1; then
+    echo "make keymaps needs xkbcli, libxkbcommon's command line tool, and this machine has none." >&2
+    echo "Install it with the package that provides it: libxkbcommon on Arch, libxkbcommon-tools on Debian, libxkbcommon-utils on Fedora." >&2
+    exit 1
+fi
+if ! xkb=$(pkg-config --modversion xkeyboard-config 2>/dev/null); then
+    echo "make keymaps reads xkeyboard-config's version with pkg-config, and pkg-config finds no xkeyboard-config." >&2
+    echo "Install xkeyboard-config: xkeyboard-config on Arch and Fedora, xkb-data on Debian." >&2
+    exit 1
+fi
+cli=$(xkbcli --version)
+
+# The layouts, and the command that compiles each, as the README records them.
+for layout in us ru de fr; do
+    xkbcli compile-keymap --output-format 1 --rules evdev --model pc105 \
+        --layout "$layout" --variant '' --options '' >"$dir/$layout.xkb.new"
+    mv "$dir/$layout.xkb.new" "$dir/$layout.xkb"
+    echo "keymaps: wrote $layout.xkb"
+done
+
+line="The fixtures were compiled from xkeyboard-config $xkb with xkbcli $cli (libxkbcommon)."
+awk -v line="$line" '
+    /^<!-- keymaps version: written by make keymaps -->$/ { print; print line; skip = 1; next }
+    /^<!-- end of keymaps version -->$/ { skip = 0 }
+    !skip { print }
+' "$readme" >"$readme.new"
+mv "$readme.new" "$readme"
+echo "keymaps: $line"

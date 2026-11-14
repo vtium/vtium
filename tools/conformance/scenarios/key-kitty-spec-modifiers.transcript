@@ -1,0 +1,40 @@
+> size 20 2
+> needs key-events
+> send "\e[>1u"
+> key Delete mods=shift
+< reply "\e[3;2~"
+> key Delete mods=alt
+< reply "\e[3;3~"
+> key Delete mods=ctrl
+< reply "\e[3;5~"
+> key Delete mods=logo
+< reply "\e[3;9~"
+> key Delete mods=hyper
+< reply "\e[3;17~"
+> key Delete mods=meta
+< reply "\e[3;33~"
+> key Delete mods=lock
+< reply "\e[3;65~"
+> key Delete mods=num
+< reply "\e[3;129~"
+> key Delete mods=shift+lock+ctrl+alt+logo+num+hyper+meta
+< reply "\e[3;256~"
+> key a mods=alt+num
+< reply "\e[97;131u"
+> send "\e[=11u"
+> cmd key;sym=ffe3;mods=4
+< reply "\e[57442;5u"
+> cmd key;sym=ffe4;mods=4
+< reply "\e[57448;5u"
+> cmd key;sym=ffe3;mods=4;event=release
+< reply "\e[57442;5:3u"
+> cmd key;sym=ffe4;event=release
+< reply "\e[57448;1:3u"
+> cmd key;sym=ffe5;mods=2
+< reply "\e[57358;65u"
+> cmd key;sym=ffe5;mods=2;event=release
+< reply "\e[57358;65:3u"
+> cmd key;sym=ffe5
+< reply "\e[57358u"
+> cmd key;sym=ffe5;event=release
+< reply "\e[57358;1:3u"

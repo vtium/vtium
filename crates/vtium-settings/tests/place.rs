@@ -316,12 +316,18 @@ fn desk_and_panel() -> Vec<Identity> {
     ]
 }
 
+/// `text` with one more rule, which names a head the file does not declare,
+/// so the file has an error that drops that rule alone.
+fn with_error(text: &str) -> String {
+    format!("{text}input path:usb-0:9 -> nowhere\n")
+}
+
 // covers: platform.heads.guards
 #[test]
 fn under_open_the_display_guard_lights_the_boot_display_in_the_first_head() {
     let devices = desk_and_panel();
-    let dark = "version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> off\n";
-    let p = config(dark).place(&devices, None);
+    let dark = with_error("version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> off\n");
+    let p = survivors(&dark).place(&devices, None);
     assert!(p.never_dark);
     assert_eq!(
         p.placed[0],
@@ -334,7 +340,7 @@ fn under_open_the_display_guard_lights_the_boot_display_in_the_first_head() {
 
     let mut lit = devices.clone();
     lit[1].lit_at_start = true;
-    let p = config(dark).place(&lit, None);
+    let p = survivors(&dark).place(&lit, None);
     assert_eq!(
         p.placed[1].place,
         Place::Head(0),
@@ -344,23 +350,23 @@ fn under_open_the_display_guard_lights_the_boot_display_in_the_first_head() {
 
     let mut boot = devices.clone();
     boot[1].on_boot_card = true;
-    let p = config(dark).place(&boot, None);
+    let p = survivors(&dark).place(&boot, None);
     assert_eq!(
         p.placed[1].place,
         Place::Head(0),
         "the kernel's first connector on the boot card"
     );
 
-    let p = config("version = 1\n").place(&devices, None);
+    let p = survivors(&with_error("version = 1\n[rules]\n")).place(&devices, None);
     assert_eq!(
         p.placed[0].place,
         Place::DefaultHead,
         "a file with no head lights the default head"
     );
 
-    let p = config(
+    let p = survivors(&with_error(
         "version = 1\n[head a]\n[rules]\ndisplay connector:*/HDMI-* -> a\ndisplay * -> off\n",
-    )
+    ))
     .place(&devices, None);
     assert!(
         !p.never_dark,
@@ -369,6 +375,28 @@ fn under_open_the_display_guard_lights_the_boot_display_in_the_first_head() {
     assert_eq!(
         (p.placed[0].place, p.placed[1].place),
         (Place::Off, Place::Head(0))
+    );
+
+    // a valid file keeps the table, with or without a VT number: the
+    // displays the rules turn off stay blank, and a file that defines
+    // nothing runs the built-in default
+    let p = config("version = 1\n[head desk]\n[head panel]\n[rules]\ndisplay * -> off\n")
+        .place(&devices, None);
+    assert!(!p.never_dark);
+    assert_eq!(
+        (p.placed[0].place, p.placed[1].place),
+        (Place::Off, Place::Off)
+    );
+    let p = config("version = 1\n").place(&devices, None);
+    assert_eq!(
+        (p.placed[0], p.never_dark),
+        (
+            Placed {
+                place: Place::DefaultHead,
+                by: By::Builtin
+            },
+            false
+        )
     );
 }
 
@@ -385,7 +413,10 @@ fn with_no_display_lit_at_start_and_none_on_the_boot_card_the_first_connected_on
     second.card_order = 1;
     second.order = 5;
     let devices = [later, first, second];
-    let p = config("version = 1\n[head a]\n[rules]\ndisplay * -> off\n").place(&devices, None);
+    let p = survivors(&with_error(
+        "version = 1\n[head a]\n[rules]\ndisplay * -> off\n",
+    ))
+    .place(&devices, None);
     assert!(p.never_dark, "a connected display always lights");
     let lit: Vec<Place> = p.placed.iter().map(|p| p.place).collect();
     assert_eq!(
@@ -887,8 +918,10 @@ fn a_keyboard_the_rescue_key_moved_roams_and_counts_for_the_anti_lockout_guard()
 #[test]
 fn under_closed_the_display_guard_lights_the_boot_display_for_a_notice_alone() {
     let devices = desk_and_panel();
-    let dark = "version = 1\n[head desk]\nisolated = no\n[head panel]\n[rules]\ndisplay * -> off\ninput class:keyboard -> desk\n";
-    let p = config(&closed(dark)).place(&devices, None);
+    let dark = with_error(
+        "version = 1\n[head desk]\nisolated = no\n[head panel]\n[rules]\ndisplay * -> off\ninput class:keyboard -> desk\n",
+    );
+    let p = survivors(&closed(&dark)).place(&devices, None);
     assert!(p.never_dark);
     assert_eq!(
         p.placed[0],

@@ -67,6 +67,7 @@ fn stored(c: char) -> Stored {
         .flat_map(|y| (l..r).map(move |x| cov(c, x, y)))
         .collect();
     let ink = InkBox {
+        rgba: false,
         left: l,
         top: t,
         width: (r - l) as u32,

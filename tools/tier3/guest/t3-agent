@@ -12,8 +12,9 @@
 #                    on tty2, the logins, the VT shown, the PS/2 keyboard's
 #                    and the USB controller's interrupts, the keyboards the
 #                    guest lists, the key presses the second keyboard sent
-#                    once watched, and the PID and age of vtium on tty2, one
-#                    line each
+#                    once watched, the PID and age of vtium on tty2, and
+#                    whether /dev/tty0 exists in the guest and in the /dev
+#                    that vtium on tty2 sees, one line each
 #   watch            counts the key presses of the keyboard in the USB hub's
 #                    port 3.3, the kiosk's second keyboard, read from its own
 #                    evdev node, until it is pulled out
@@ -28,9 +29,9 @@
 #                    holds; and each answer a line typed in a session wrote
 #                    to /tmp/t3-answer-WHAT (the session-survives check)
 #   reset-failed     clears the failed state and start count of vtium's unit
-#   limit            sends SIGKILL to each new vtium on tty2 until its unit
-#                    stops restarting, and once the unit failed on its start
-#                    limit, starts it once more
+#   limit            sends SIGKILL to each new vtium on tty2, once its unit
+#                    is active, until the unit stops restarting, and once
+#                    the unit failed on its start limit, starts it once more
 #   logins           vtium's process id on tty2, each logind session (id,
 #                    uid, seat, VT, class, whether active, tty, leader),
 #                    each logged-in shell's uid, its control group and its
@@ -77,6 +78,12 @@
 #                    guest's monotonic clock, then switches there with chvt, which returns once the VT is shown,
 #                    and answers the VT shown and the PID and age of vtium
 #                    on tty2 (t3_heads.py's display-away check)
+#   hand-over        plays the graphical program of a display hand-over
+#                    (t3_handover.py): runs t3-probe take-master, which
+#                    takes /dev/dri/card0 once vtium lets it go, draws a
+#                    frame and lets the card go again; then makes the
+#                    marker /tmp/t3-hand-over.done that the session waits
+#                    for, and answers the probe's lines and the VT shown
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -167,14 +174,34 @@ state() {
     done
     [ -e "$keys" ] && echo "keys $(cat "$keys")"
     vtium_age
+    tty0
+}
+
+# Whether /dev/tty0 exists in the guest, and whether it exists in the /dev
+# that vtium on tty2 sees, its unit's main process: yes, no, or none when
+# the unit runs nothing. vtium's root under /proc shows the mounts of
+# vtium's own mount namespace, so this reading sees what guest/t3-novt
+# hides from vtium (the no-vt check, t3_heads.py).
+tty0() {
+    local pid guest=no seen=none
+    [ ! -e /dev/tty0 ] || guest=yes
+    pid=$(systemctl show -P MainPID "${units[0]}")
+    if [ "${pid:-0}" != 0 ]; then
+        if [ -e "/proc/$pid/root/dev/tty0" ]; then seen=yes; else seen=no; fi
+    fi
+    echo "tty0 $guest $seen"
 }
 
 # Fails vtium on tty2 past its unit's start limit: sends SIGKILL to each new
 # vtium its unit runs, at most 12 times, until the unit stops restarting,
-# that is until it is failed or inactive and not waiting to restart. Each
-# wait for the next vtium is bounded at 10 s. When the unit failed on its
-# start limit, it then starts the unit once more, at once, so within the
-# limit's 10 s window, and reports whether systemd refused that start.
+# that is until it is failed or inactive and not waiting to restart. A new
+# vtium is killed only once its unit is active: the unit is Type=notify, so
+# systemd counts the start, and logs "Started", only once vtium has sent
+# READY=1, while MainPID names vtium from its fork. Each wait for the next
+# vtium to be active is bounded at 10 s, and a vtium that is not active by
+# then is reported and not killed. When the unit failed on its start limit,
+# it then starts the unit once more, at once, so within the limit's 10 s
+# window, and reports whether systemd refused that start.
 limit() {
     local u=${units[0]} last=0 pid kills=0 active sub
     while [ "$kills" -lt 12 ]; do
@@ -183,14 +210,17 @@ limit() {
             pid=$(systemctl show -P MainPID "$u")
             active=$(systemctl show -P ActiveState "$u")
             sub=$(systemctl show -P SubState "$u")
-            [ "${pid:-0}" != 0 ] && [ "$pid" != "$last" ] && break
-            pid=0
+            [ "${pid:-0}" != 0 ] && [ "$pid" != "$last" ] && [ "$active" = active ] && break
             case "$active $sub" in
-                "failed failed" | "inactive dead") break ;;
+                "failed failed" | "inactive dead") pid=0; break ;;
             esac
             sleep 0.1
         done
-        [ "$pid" != 0 ] || break
+        if [ "${pid:-0}" != 0 ] && [ "$pid" != "$last" ] && [ "$active" != active ]; then
+            echo "vtium $pid is $active $sub, not active, after 10 s"
+            break
+        fi
+        [ "${pid:-0}" != 0 ] && [ "$pid" != "$last" ] || break
         kill -s KILL "$pid" && echo "sent KILL to $pid"
         last=$pid
         kills=$((kills + 1))
@@ -464,6 +494,14 @@ while True:
             fi
             echo "shown $(fgconsole)"
             vtium_age
+            ;;
+        hand-over)
+            rm -f /tmp/t3-hand-over.done
+            timeout 20 /usr/local/sbin/t3-probe take-master --check hand-over \
+                --card /dev/dri/card0
+            touch /tmp/t3-hand-over.done
+            chmod 644 /tmp/t3-hand-over.done
+            echo "shown $(fgconsole)"
             ;;
         *) echo "refused $request" ;;
     esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done

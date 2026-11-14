@@ -5,8 +5,8 @@ use std::any::Any;
 use std::io;
 
 use vtium_platform::display::{
-    Buffers, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Rect, SwapError,
-    Swapped, Token,
+    Buffers, Card, Density, DisplayId, Dpms, Drm2d, Event, Fb, Fbdev, Identity, Interrupt, Rect,
+    SwapError, Swapped, Token,
 };
 use vtium_render::Arrow;
 use vtium_settings::keys::DISPLAY_BUFFERS_BUILD;
@@ -119,6 +119,11 @@ pub trait Video: Any {
     fn input(&mut self) -> io::Result<()>;
     /// The connectors changed.
     fn hotplug(&mut self) -> io::Result<()>;
+    /// Gives the device the loop's check of whether the kernel has asked
+    /// for the VT, which a DRM card asks between the steps of its display
+    /// work (ADR-1401 D2, "A VT release while display work runs"). A device
+    /// whose work cannot take long ignores it.
+    fn set_interrupt(&mut self, _: Interrupt) {}
     fn as_any(&mut self) -> &mut dyn Any;
     /// Puts the pointer's `arrow` on the display's cursor plane, hidden. A
     /// device without one refuses it as unsupported, and a display not
@@ -284,6 +289,9 @@ macro_rules! drm2d_video {
             }
             fn hotplug(&mut self) -> io::Result<()> {
                 <$device>::poll(self)
+            }
+            fn set_interrupt(&mut self, interrupt: Interrupt) {
+                <$device>::set_interrupt(self, interrupt);
             }
             fn dark(&self) -> Vec<Identity> {
                 <$device>::dark(self).cloned().collect()
@@ -506,6 +514,7 @@ mod tests {
         fn gone(&self) -> bool {
             self.gone
         }
+        fn set_interrupt(&mut self, _: Interrupt) {}
     }
 
     drm2d_video!(Probe);

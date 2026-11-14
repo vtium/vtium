@@ -116,7 +116,7 @@ impl Start {
 
 /// The VT's device for the `vt` key: a number names `/dev/ttyN`, a name
 /// is under `/dev`, a path is itself.
-fn vt_path(vt: &str) -> PathBuf {
+pub(crate) fn vt_path(vt: &str) -> PathBuf {
     if !vt.is_empty() && vt.bytes().all(|b| b.is_ascii_digit()) {
         PathBuf::from(format!("/dev/tty{vt}"))
     } else if vt.starts_with('.') || vt.starts_with('/') {

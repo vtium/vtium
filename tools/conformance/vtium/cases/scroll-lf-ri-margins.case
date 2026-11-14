@@ -1,0 +1,19 @@
+# A line feed at the bottom margin scrolls the region up, and RI at the
+# top margin scrolls it down. Below the region, a line feed stops at the
+# last row; above the region, RI stops at the first row; neither scrolls.
+# Text printed past the last column at the bottom margin wraps and
+# scrolls the region.
+# spec: the VT510 manual, IND and DECAWM; the VT220 manual, chapter 4, RI
+# covers: ctl.edit
+size 4 6
+send "1111\r\n2222\r\n3333\r\n4444\r\n5555\r\n6666"
+send "\e[2;4r\e[4;1H\nX"
+dump state
+send "\e[2;1H\eMY"
+dump state
+send "\e[5;1H\n\n\nZ"
+dump state
+send "\e[1;1H\eMW"
+dump state
+send "\e[4;1Habcdefgh"
+dump state

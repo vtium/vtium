@@ -124,6 +124,11 @@ if [ -f "$disc"/t3-agent ]; then
     install -m755 "$disc"/t3-agent /usr/local/sbin/t3-agent
     install -m644 "$disc"/t3-agent.service /etc/systemd/system/t3-agent.service
 fi
+# The probe the agent runs as root, in the variant that hands the display
+# to a graphical program (t3_handover.py).
+if [ -f "$disc"/t3-probe ]; then
+    install -m755 "$disc"/t3-probe /usr/local/sbin/t3-probe
+fi
 # The mode vtium runs in on the guest's VTs (ADR-1400 D3): direct, through
 # vtium@.service, unless the variant names seat mode, through
 # vtium-seat@.service, which a tree built with libseat and logind ships.
@@ -146,6 +151,20 @@ if [ -f "$disc"/seat ]; then
     if [ "$backend" = seatd ]; then
         systemctl start --no-block seatd.service
     fi
+fi
+# A variant on a machine without kernel VTs (t3_heads.py) starts vtium
+# through t3-novt, which hides /dev/tty0 from vtium alone. The drop-in
+# starts vtium with none of the unit's options. vtium@.service names the VT
+# with --vt=%I, and vtium uses a VT it is given whether or not /dev/tty0
+# exists. Without --vt, vtium looks for /dev/tty0 itself, finds none, and
+# runs on a fake VT. The unit's --no-switchvt makes vtium wait until
+# something shows its VT, and nothing shows a fake VT, so the drop-in leaves
+# that option out too. The drop-in keeps vtium's name on its log lines,
+# which the driver reads them by.
+if [ -f "$disc"/t3-novt ]; then
+    install -m755 "$disc"/t3-novt /usr/local/sbin/t3-novt
+    printf '[Service]\nExecStart=\nExecStart=/usr/local/sbin/t3-novt /usr/bin/vtium\nSyslogIdentifier=vtium\n' \
+        > /etc/systemd/system/$unit.d/t3-novt.conf
 fi
 # vtium takes the guest's VTs the way a user gives them to it. The base
 # image leaves autovt@.service, the unit logind starts on a VT the driver

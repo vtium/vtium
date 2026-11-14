@@ -1,0 +1,17 @@
+# CAN and SUB end an OSC string without acting on it, and SUB prints
+# U+00BF. An ESC that does not start ST ends the string and starts its
+# own sequence. A CSI sent as a UTF-8 code point is part of the string,
+# and so are the C0 controls inside it. An unterminated string takes in
+# the text after it until a BEL ends it.
+# spec: ECMA-48 5.6, control strings; vtium-parse's README, "A string acts only when its terminator completes it"
+size 20 3
+send "\e]2;can\x18A"
+send "\e]2;sub\x1aB"
+send "\e]2;esc\e[1mC\e[m"
+send "\e]2;c1\u{9b}1mD\e[m"
+send "\e]2;ctl\x01\x08\x7f\x1fok\a"
+send "\e]2;unterminated"
+send "E"
+send "\a"
+send "\e]0;bel\a\aF"
+dump state

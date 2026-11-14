@@ -141,6 +141,10 @@ pub struct Head {
     /// the head runs, else the console chord's.
     ended_notice: String,
     ended_notice_console: String,
+    /// vtium.conf sets `osd = silent`: the head draws none of vtium's
+    /// ordinary notices, the ended session's included. The caller logs
+    /// each one, and the kernel's messages still show.
+    silent: bool,
     /// vtium's notices to the head (ADR-1401 D7), each once and at most
     /// [`NOTICES_MAX`], the oldest going first, until a key reaches the
     /// head or [`NOTICE_SHOWN`] after they are first drawn, when they end.
@@ -176,7 +180,8 @@ pub struct Head {
     pub(crate) status: Option<String>,
     /// The on-screen display's brief line, which answers one press of the
     /// open chord at a cap, until `brief_due` (ADR-1401 D5). Only
-    /// [`Head::show_brief`] sets it, which sets none under `osd = off`.
+    /// [`Head::show_brief`] sets it, which sets none under `osd = off` or
+    /// `osd = silent`.
     brief: Option<String>,
     /// When the brief line goes, armed at its first frame.
     brief_due: Option<Instant>,
@@ -303,6 +308,7 @@ pub(crate) fn terminal(
     terminal.set_palette(config.palette());
     terminal.set_font_ops(config.switch(&keys::ALLOW_FONT_OPS));
     terminal.set_window_ops(config.switch(&keys::ALLOW_WINDOW_OPS));
+    terminal.set_display_ops(config.switch(&keys::ALLOW_DISPLAY_OPS));
     // Every build reads `text-direction`; a build without the bidi
     // feature does nothing with it (ADR-1004 D13).
     let direction = config.text(&keys::TEXT_DIRECTION);
@@ -314,6 +320,12 @@ pub(crate) fn terminal(
     });
     #[cfg(not(feature = "bidi"))]
     let _ = direction;
+    // `cluster-width`: what a syllable with a spacing vowel sign or a
+    // virama conjunct takes (ADR-1006 D8)
+    terminal.set_cluster_width(match config.text(&keys::CLUSTER_WIDTH) {
+        Some("single") => vtium_term::ClusterWidth::Single,
+        _ => vtium_term::ClusterWidth::Double,
+    });
     if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
     {
         terminal.set_termcap(table);
@@ -469,6 +481,7 @@ impl Head {
             login: None,
             ended_notice: crate::notice::session_ended(&bindings),
             ended_notice_console: crate::notice::session_ended_console(&bindings),
+            silent: crate::osd::silent(config),
             notices: Vec::new(),
             kernel: Vec::new(),
             kernel_due: None,
@@ -641,6 +654,12 @@ impl Head {
         self.at
     }
 
+    /// Whether a console of the head, shown or hidden, holds a
+    /// setBackground or setForeground that the seat has not taken yet.
+    pub fn display_requested(&self) -> bool {
+        self.consoles().any(|c| c.term.terminal.display_requested())
+    }
+
     /// Where the pointer is on the head's grid, in its pixels, while shown.
     pub fn pointer(&self) -> Option<(u32, u32)> {
         self.pointer
@@ -649,8 +668,11 @@ impl Head {
     }
 
     /// What vtium shows on the head of its own: that the shown console's
-    /// session ended for good, above its notices, which always show too
-    /// (ADR-1401 D5).
+    /// session ended for good, above its notices, then the kernel's
+    /// messages. Under `osd = silent` only the kernel's messages show.
+    ///
+    /// References:
+    /// - ADR-1401 D5: the notices every level but `silent` shows.
     pub fn notice(&self) -> Option<&str> {
         (!self.shown.is_empty()).then_some(self.shown.as_str())
     }
@@ -658,7 +680,7 @@ impl Head {
     /// Writes what the head shows of its own again, after its notices,
     /// its shown console or a console's session changed.
     pub(crate) fn compose_notices(&mut self) {
-        let ended = self.console.ended.then(|| {
+        let ended = (self.console.ended && !self.silent).then(|| {
             if self.hidden.iter().any(|c| !c.ended) {
                 &self.ended_notice_console
             } else {
@@ -702,11 +724,14 @@ impl Head {
     }
 
     /// The on-screen display shows `line` as its brief line from the
-    /// head's next frame, which answers one press (ADR-1401 D5). Under
-    /// `osd = off`, which `osd` gives, vtium shows no brief line, so the
+    /// head's next frame, which answers one press. Under `osd = off` and
+    /// `osd = silent`, which `osd` gives, vtium shows no brief line, so the
     /// press leaves the screen as it was and draws no frame.
+    ///
+    /// References:
+    /// - ADR-1401 D5: the brief line at a console cap.
     pub(crate) fn show_brief(&mut self, line: String, osd: crate::osd::Osd) {
-        if osd.mode == crate::osd::Mode::Off {
+        if !osd.draws_status() {
             return;
         }
         self.brief = Some(line);
@@ -757,9 +782,13 @@ impl Head {
 
     /// Adds `text` to the head's notices, which show from its next frame
     /// for [`NOTICE_SHOWN`] afresh; a notice the head already shows is
-    /// left as it is, its time with it.
+    /// left as it is, its time with it. Under `osd = silent` the head adds
+    /// nothing, and the caller's log line is all that holds the notice.
+    ///
+    /// References:
+    /// - ADR-1401 D5, "Notices that only `osd = silent` hides".
     pub(crate) fn add_notice(&mut self, text: &str) {
-        if self.notices.iter().any(|n| n == text) {
+        if self.silent || self.notices.iter().any(|n| n == text) {
             return;
         }
         if self.notices.len() >= NOTICES_MAX {
@@ -1244,6 +1273,10 @@ impl Head {
             shown.clusters.sort_unstable();
             shown.clusters.dedup();
         }
+        let rule = self.console.term.terminal.screen().cluster_width();
+        for shown in &mut all {
+            shown.cluster_width = rule;
+        }
         all
     }
 
@@ -1266,6 +1299,12 @@ impl Head {
         let mut all = vec![Shown::default()];
         crate::deferred::read_shown(&frame, &mut all);
         crate::deferred::settle(&mut all);
+        // the helper places the clusters in the cells this terminal gives
+        // them (ADR-1006 D8)
+        let rule = self.console.term.terminal.screen().cluster_width();
+        for shown in &mut all {
+            shown.cluster_width = rule;
+        }
         all
     }
 
@@ -2148,6 +2187,34 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // ADR-1006 D8: what a head shows carries its terminal's cluster width,
+    // so the helper places each cluster in the cells the terminal gives it
+    #[test]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn what_a_head_shows_carries_its_cluster_width() {
+        for (text, want) in [
+            ("", vtium_term::ClusterWidth::Double),
+            ("cluster-width = single\n", vtium_term::ClusterWidth::Single),
+        ] {
+            let config = crate::config::load(&[], &mut |p: &std::path::Path| {
+                Ok((p == std::path::Path::new("/etc/vtium/vtium.conf"))
+                    .then(|| text.as_bytes().to_vec()))
+            })
+            .config;
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            head.console.term.terminal.input("\x1b[1mक्ष".as_bytes());
+            let shown = head.visible();
+            assert!(shown.len() >= 2, "{shown:?}");
+            assert!(shown.iter().all(|s| s.cluster_width == want), "{text:?}");
+        }
     }
 
     // ADR-1401 D7, D9: the screen the display guard lights for a notice

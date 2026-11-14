@@ -1,0 +1,56 @@
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 42
+size 6x3
+cursor 6,1
+flags AUTO_WRAP
+row 0 |aaPPaa|
+attr 0 2-3 protect
+row 1 |bbbbbb|
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 70
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+row 0 |  PP|
+attr 0 2-3 protect
+row 1 |bbbbbb|
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 92
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+row 0 |  PP|
+attr 0 2-3 protect
+row 1 ||
+row 2 ||
+test state margins 0-2 0-5
+test state tabs 0
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 143
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+row 0 |  PP|
+attr 0 2-3 protect
+row 1 ||
+row 2 ||

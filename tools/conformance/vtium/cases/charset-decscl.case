@@ -1,0 +1,19 @@
+# DECSCL makes a soft reset and chooses the input. Level 61 chooses
+# 7-bit input, and levels 62 to 64 choose 8-bit input, where each byte is
+# one character and GR maps the bytes from A0 up. Any other level, such
+# as 65, chooses UTF-8 input again.
+# spec: the VT510 manual, DECSCL; the VT220 manual, 4.4
+# covers: ctl.decscl
+size 20 4
+send "\e[61\"p"
+dump state
+send "\e[62;1\"p"
+dump state
+send "\e[63;2\"p"
+dump state
+send "\e[64\"p"
+dump state
+send "\e[65\"p"
+dump state
+send "\e[62\"p\u{e0}\u{a1}"
+dump state

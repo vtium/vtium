@@ -52,12 +52,12 @@
 //! (ADR-1202 D14).
 //!
 //! ```text
-//! request  magic "VTVSREQ6", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQ9", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
-//!          says how its glyphs were made), frit name length u32, the name (ADR-1200 D1's
+//!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
-//!          u32 (0 for a cell or sources query), cell height u32 (for a
-//!          sources query 0, for a cell query
+//!          u32 (0 for a query), cell height u32 (for a sources or
+//!          coverage query 0, for a cell query
 //!          the height an outline font is drawn at, or 0), the rows line
 //!          spacing adds above and below the cell's text band u32 and u32
 //!          (both 0 for a query, and together less than the cell's
@@ -65,11 +65,14 @@
 //!          regular, 1 bold, 2 italic, 3 bold italic; an ask's alone may
 //!          name one other than regular), script u32 (0 normal, 1
 //!          superscript, 2 subscript; an ask's alone may name one other
-//!          than normal), capabilities
+//!          than normal), cluster width u32 (0 double, 1 single, the
+//!          console's `cluster-width`, ADR-1006 D8; an ask's alone may
+//!          name single), capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
-//!          wanted, a fill's first; none for a cell query), cluster count
+//!          wanted, a fill's first, a coverage query's letters; none for
+//!          a cell or sources query), cluster count
 //!          u32, each cluster's length u32 and scalar values u32 (an ask's
 //!          alone), held range
 //!          count u32, each range's first and last codepoint u32 (what the
@@ -99,8 +102,14 @@
 //!          kind 12 a sources query's answer for a frit the helper draws
 //!          nothing from (UTF-8 reason); kind 13 how an ask of kind 7
 //!          made its superscript and subscript glyphs, once before its
-//!          done frame ([`Made::encode_all`]); kind 3 a failure (UTF-8 reason),
-//!          the helper's own, as when it fails as it starts
+//!          done frame ([`Made::encode_all`]); kind 14 the parts of the
+//!          helper's sandbox in force, once before its first answer
+//!          ([`FRAME_SANDBOX`], a u32 of bits); kind 15 a coverage
+//!          query's answer, the count u32 and each codepoint u32 of the
+//!          letters asked that the frit covers, then the family of an
+//!          installed font that covers the most of the rest (UTF-8, empty
+//!          when none does); kind 3 a failure (UTF-8
+//!          reason), the helper's own, as when it fails as it starts
 //! ```
 //!
 //! Little-endian throughout. The console checks every frame before it
@@ -193,6 +202,7 @@ pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
+use vtium_term::ClusterWidth;
 
 /// The command that makes the binary the helper.
 pub const SERVE_ARG: &str = "serve";
@@ -204,7 +214,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ6";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -245,6 +255,18 @@ pub const FRAME_DRAWS_NOTHING: u32 = 12;
 /// How an [`ASK_MADE`] made the superscript and subscript glyphs it drew
 /// ([`Made::encode_all`]), sent once before its [`FRAME_DONE`].
 pub const FRAME_MADE: u32 = 13;
+/// The parts of the helper's sandbox in force, sent once before its first
+/// answer, which the console logs when the landlock domain is not among
+/// them (ADR-1200 D15): a u32 of [`SANDBOX_DOMAIN`], [`SANDBOX_FALLBACK`]
+/// and [`SANDBOX_SOCKETS`]. A console of another build never meets it,
+/// since its request's magic is refused first.
+pub const FRAME_SANDBOX: u32 = 14;
+/// A coverage query's answer ([`COVERAGE`], ADR-1401 D7): the count u32
+/// and each codepoint u32 of the letters asked that the frit's sources
+/// cover, then the family of an installed outline font that covers the
+/// most of the rest, UTF-8, empty when none does
+/// ([`crate::sources::font_covering`]).
+pub const FRAME_COVERAGE: u32 = 15;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -259,6 +281,12 @@ pub const ASK_PARTS: u32 = 6;
 pub const ASK_MADE: u32 = 7;
 /// A fill: the cell's coverage, in order, around the asks.
 pub const FILL: u32 = 2;
+/// A coverage query asks which of the letters it names the frit covers,
+/// and which installed font covers the rest, for `vtium check-config`'s
+/// warning on a font set that leaves the locale's everyday letters to the squeeze
+/// (ADR-1401 D7, ADR-1302 D14). It carries a cell of 0 by 0 and the
+/// letters as its codepoints.
+pub const COVERAGE: u32 = 8;
 /// The end of a cell's fill.
 pub const STOP: u32 = 3;
 /// A cell query asks for the frit's own cell. It carries a width of 0, the
@@ -321,6 +349,10 @@ pub struct ServeRequest {
     /// Where an ask's glyphs sit in their cells (ADR-1202 D11): normal, or
     /// superscript or subscript; normal for every other request.
     pub script: Script,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the helper places
+    /// an ask's clusters in; `double` for every other request.
+    pub cluster_width: ClusterWidth,
     /// An ask's codepoints, or the codepoints a fill draws first: those on
     /// the screen.
     pub codepoints: Vec<u32>,
@@ -396,6 +428,7 @@ impl ServeRequest {
         put32(&mut out, self.band.below);
         put32(&mut out, style_code(self.style));
         put32(&mut out, script_code(self.script));
+        put32(&mut out, cluster_width_code(self.cluster_width));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -469,7 +502,7 @@ impl ServeRequest {
         let kind = f.u32()?;
         if !matches!(
             kind,
-            ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES
+            ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES | COVERAGE
         ) {
             return Err("an unknown request kind".to_owned());
         }
@@ -488,14 +521,14 @@ impl ServeRequest {
             width: f.u32()?,
             height: f.u32()?,
         };
-        let query = matches!(kind, OWN_CELL | SOURCES);
+        let query = matches!(kind, OWN_CELL | SOURCES | COVERAGE);
         if query && (cell.width != 0 || cell.height > CELL_SIDE_MAX) {
             return Err(format!(
                 "a cell query at a cell, or at a height of more than {CELL_SIDE_MAX} pixels"
             ));
         }
-        if kind == SOURCES && cell.height != 0 {
-            return Err("a sources query at a height".to_owned());
+        if matches!(kind, SOURCES | COVERAGE) && cell.height != 0 {
+            return Err("a sources or coverage query at a height".to_owned());
         }
         if !query
             && (!(1..=CELL_SIDE_MAX).contains(&cell.width)
@@ -524,11 +557,19 @@ impl ServeRequest {
         if !ask && script != Script::Baseline {
             return Err("a superscript or subscript on a request that is not an ask".to_owned());
         }
+        let cluster_width = cluster_width_of(f.u32()?).ok_or("an unknown cluster width")?;
+        if !ask && cluster_width != ClusterWidth::Double {
+            return Err("a cluster width on a request that is not an ask".to_owned());
+        }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
         }
         let n = f.count(
-            if query { 0 } else { FIRST_MAX },
+            if query && kind != COVERAGE {
+                0
+            } else {
+                FIRST_MAX
+            },
             "the codepoints asked for",
         )?;
         let mut codepoints = Vec::with_capacity(n);
@@ -606,6 +647,7 @@ impl ServeRequest {
             band,
             style,
             script,
+            cluster_width,
             codepoints,
             clusters,
             held,
@@ -618,6 +660,23 @@ impl ServeRequest {
 /// carries its style.
 pub fn style_code(style: Style) -> u32 {
     u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// A cluster width as a request carries it: `double` 0, `single` 1.
+pub fn cluster_width_code(rule: ClusterWidth) -> u32 {
+    match rule {
+        ClusterWidth::Double => 0,
+        ClusterWidth::Single => 1,
+    }
+}
+
+/// The cluster width a request's code names.
+fn cluster_width_of(code: u32) -> Option<ClusterWidth> {
+    match code {
+        0 => Some(ClusterWidth::Double),
+        1 => Some(ClusterWidth::Single),
+        _ => None,
+    }
 }
 
 /// A script as a request carries it: normal 0, superscript 1, subscript
@@ -838,6 +897,10 @@ pub struct Engine {
     /// How the outline sources' glyphs are hinted: the frit's `hinting=`
     /// (ADR-1200 D1).
     hinting: Hinting,
+    /// The cells the console's terminal gives a cluster with a spacing
+    /// mark or a virama conjunct (ADR-1006 D8), which the ask being
+    /// answered names ([`Engine::set_cluster_width`]).
+    cluster_width: std::cell::Cell<ClusterWidth>,
     /// Each bitmap source's smaller sizes by its place in `sources`, in
     /// the order D3 names them: a CPI source's other heights, then the
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
@@ -1182,6 +1245,14 @@ fn smaller_fonts(
 }
 
 impl Engine {
+    /// Places the clusters the engine draws next in the cells that `rule`
+    /// gives a cluster with a spacing mark or a virama conjunct, as the
+    /// console's terminal gives them (ADR-1006 D8): the ask being answered
+    /// names it, and every other drawing takes `double`, the default.
+    pub fn set_cluster_width(&self, rule: ClusterWidth) {
+        self.cluster_width.set(rule);
+    }
+
     /// Parses `frit` and reads each source it names, as this process's
     /// account; a source missing or unreadable is left out, and the frit
     /// fails only when none is left. A source that is on this machine and
@@ -1296,6 +1367,7 @@ impl Engine {
         coverage.dedup();
         // `Frit::parse` refuses a name that is not valid
         Ok(Engine {
+            cluster_width: std::cell::Cell::default(),
             name: frit.name,
             sources,
             coverage,
@@ -1895,6 +1967,7 @@ impl Engine {
         let (num, den) = vtium_font::SCRIPT_SCALE;
         let small = size * num as f32 / den as f32;
         Some(OutlineRequest {
+            cluster_width: Default::default(),
             sizes: vec![small.to_bits()],
             baselines: vec![script_baseline(
                 script,
@@ -1986,6 +2059,9 @@ impl Engine {
             strike(PixelFormat::Rgba),
         );
         let mut mapped: BTreeSet<u32> = BTreeSet::new();
+        // color glyphs in one cell held back for a text glyph from a later
+        // source, the first source's for each character
+        let mut in_one_cell: Vec<(char, Placed, Fit)> = Vec::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
@@ -2202,6 +2278,7 @@ impl Engine {
                         cells: vec![(cell.width, cell.height)],
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
+                        cluster_width: self.cluster_width.get(),
                         baselines: self.baseline(i, cell.height).into_iter().collect(),
                         sizes: self
                             .size(i, cell.height)
@@ -2247,39 +2324,12 @@ impl Engine {
                         continue;
                     };
                     let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
-                    let mut index = |(g, fit): (u32, Fit),
-                                     target: &mut StrikeBuilder,
-                                     glyph: &Placed| {
-                        *placed.entry((g, fit)).or_insert_with(|| {
-                            let width = if glyph.wide {
-                                Width::Wide
-                            } else {
-                                Width::Narrow
-                            };
-                            let format = if glyph.color {
-                                vtium_font::Format::Rgba
-                            } else {
-                                vtium_font::Format::Mask
-                            };
-                            let size = (cell.width * width.cells(), cell.height);
-                            let (pixels, ink) = spacing::place_rows(
-                                &glyph.pixels,
-                                size,
-                                format,
-                                glyph.ink.as_ref(),
-                                (band, fit, false),
-                            )?;
-                            let at = target.glyph(width, pixels);
-                            // a box past a set's chunk is not sent, and
-                            // the glyph is cut to its cells (ADR-1306 D3)
-                            let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
-                            if let Some(ink) = ink {
-                                let at_box = ((ink.left, ink.top), (ink.width, ink.height));
-                                target.ink(at, at_box.0, at_box.1, ink.pixels);
-                            }
-                            Some(at)
-                        })
-                    };
+                    let mut index =
+                        |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
+                            *placed
+                                .entry((g, fit))
+                                .or_insert_with(|| put_placed(target, glyph, (cell, band, fit)))
+                        };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
                         else {
@@ -2289,6 +2339,20 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
+                            continue;
+                        }
+                        // a character that presents as text by default
+                        // takes a later source's text glyph before a color
+                        // glyph in one cell (ADR-1302 D14, step 2)
+                        if glyph.color
+                            && !glyph.wide
+                            && !color_only
+                            && script == Script::Baseline
+                            && !crate::shaping::emoji_by_default(c)
+                        {
+                            if !in_one_cell.iter().any(|(d, ..)| *d == ch) {
+                                in_one_cell.push((ch, glyph.clone(), Engine::fit(source, c)));
+                            }
                             continue;
                         }
                         let target = if glyph.color { &mut rgba } else { &mut r8 };
@@ -2350,6 +2414,16 @@ impl Engine {
                 }
             }
         }
+        for (ch, glyph, fit) in in_one_cell {
+            let c = u32::from(ch);
+            if mapped.contains(&c) {
+                continue;
+            }
+            if let Some(at) = put_placed(&mut rgba, &glyph, (cell, band, fit)) {
+                rgba.map(ch, at);
+                mapped.insert(c);
+            }
+        }
         if mapped.is_empty() && shaped.is_empty() && parts.is_empty() {
             return Ok(None);
         }
@@ -2361,6 +2435,60 @@ impl Engine {
         }
         set.write().map(Some).map_err(|e| e.to_string())
     }
+}
+
+/// `glyph`, placed by the helper's outline engine in cells of `cell`,
+/// added to `target` placed in a cell taller by `band` as `fit` says
+/// (ADR-1302 D13), with its ink box where it has one that fits a set's
+/// chunk; a box past a chunk is not sent, and the glyph is cut to its cells
+/// (ADR-1306 D3). Gives the glyph's number in `target`.
+fn put_placed(
+    target: &mut StrikeBuilder,
+    glyph: &Placed,
+    (cell, band, fit): (Cell, Band, Fit),
+) -> Option<u32> {
+    let width = if glyph.wide {
+        Width::Wide
+    } else {
+        Width::Narrow
+    };
+    let format = if glyph.color {
+        vtium_font::Format::Rgba
+    } else {
+        vtium_font::Format::Mask
+    };
+    let size = (cell.width * width.cells(), cell.height);
+    let (pixels, ink) = spacing::place_rows(
+        &glyph.pixels,
+        size,
+        format,
+        glyph.ink.as_ref(),
+        (band, fit, false),
+    )?;
+    let at = target.glyph(width, pixels);
+    let ink = ink.filter(|i| i.pixels.len() <= SET_CHUNK_BYTES as usize);
+    if let Some(ink) = ink {
+        target.ink(at, (ink.left, ink.top), (ink.width, ink.height), ink.pixels);
+    }
+    Some(at)
+}
+
+/// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
+/// frit's sorted `coverage` holds, and the family of an installed font
+/// under `dirs` that covers the most of the rest.
+fn coverage_payload(coverage: &[u32], letters: &[u32], dirs: &[PathBuf]) -> Vec<u8> {
+    let (covered, rest): (Vec<u32>, Vec<u32>) = letters
+        .iter()
+        .partition(|c| coverage.binary_search(c).is_ok());
+    let rest: Vec<char> = rest.into_iter().filter_map(char::from_u32).collect();
+    let font = crate::sources::font_covering(&rest, dirs).unwrap_or_default();
+    let mut out = Vec::new();
+    put32(&mut out, len32(covered.len()));
+    for c in covered {
+        put32(&mut out, c);
+    }
+    out.extend_from_slice(font.as_bytes());
+    out
 }
 
 /// One bit for each Unicode codepoint.
@@ -2604,7 +2732,7 @@ pub fn serve(
     paths: &Paths,
     idle: Duration,
 ) -> u8 {
-    answer_requests(&read_requests(input), out, paths, idle)
+    answer_requests(&read_requests(input), out, paths, idle, None)
 }
 
 /// The helper's work: the asks waiting, in order, and the fills.
@@ -2677,6 +2805,17 @@ impl Work<'_> {
                     Err(why) => reason(out, FRAME_NO_OWN_CELL, &why),
                 };
             }
+            COVERAGE => {
+                let dirs = self.paths.font_dirs.clone();
+                return match self.engine(&request.frit) {
+                    Ok(engine) => {
+                        let payload =
+                            coverage_payload(engine.coverage(), &request.codepoints, &dirs);
+                        write_frame(out, FRAME_COVERAGE, &payload)
+                    }
+                    Err(why) => reason(out, FRAME_DRAWS_NOTHING, &why.clone()),
+                };
+            }
             SOURCES => {
                 return match self.engine(&request.frit) {
                     Ok(engine) => {
@@ -2719,6 +2858,7 @@ impl Work<'_> {
         let mut made = BTreeMap::new();
         match self.engine(&request.frit) {
             Ok(engine) => {
+                engine.set_cluster_width(request.cluster_width);
                 let batches = want
                     .chunks(BATCH)
                     .map(|w| (w, &[][..]))
@@ -2796,7 +2936,13 @@ impl Work<'_> {
     }
 }
 
-fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Duration) -> u8 {
+fn answer_requests(
+    rx: &Requests,
+    out: &mut dyn Write,
+    paths: &Paths,
+    idle: Duration,
+    mut report: Option<u32>,
+) -> u8 {
     let mut work = Work {
         paths,
         engines: BTreeMap::new(),
@@ -2822,6 +2968,15 @@ fn answer_requests(rx: &Requests, out: &mut dyn Write, paths: &Paths, idle: Dura
             };
             match next {
                 Ok(Ok(Some(r))) => {
+                    // the sandbox's report goes before the first answer,
+                    // once the request has shown the console to be of this
+                    // build, so a console of another build is told so
+                    // instead of meeting a frame it does not know
+                    if let Some(parts) = report.take()
+                        && write_frame(out, FRAME_SANDBOX, &parts.to_le_bytes()).is_err()
+                    {
+                        return 1;
+                    }
                     if work.take(r, out).is_err() {
                         return 1;
                     }
@@ -2932,74 +3087,88 @@ fn lock_out() -> Result<bool, String> {
 /// Installs the helper's socket filter on the calling thread and the
 /// threads it starts later (ADR-1200 D15, the maintainer, 2026-11-04): a
 /// seccomp filter under which `socket`, `socketpair` and the three
-/// io_uring calls answer EPERM and every other call goes on as before, so
-/// the helper makes no socket of any kind on any kernel, the UDP and Unix
-/// sockets landlock leaves open included. io_uring is refused whole
-/// because its `IORING_OP_SOCKET`, from Linux 5.19, makes a socket without
-/// calling `socket`. It is built as the image helper builds its worker's filter
-/// (`vtium-image-helper`'s `sandbox::filter::refuse`). Returns whether the
-/// filter is in force; on 32-bit ARM, which seccompiler builds no filter
-/// for, there is none.
+/// io_uring calls answer EPERM and every other call goes on, so the helper
+/// makes no socket of any kind on any kernel, the UDP and Unix sockets
+/// landlock leaves open included ([`crate::seccomp::socket_filter`]).
+/// Returns whether the filter is in force; on an architecture that
+/// [`crate::seccomp`] has no table of call numbers for, there is none.
 fn refuse_sockets() -> Result<bool, String> {
-    #[cfg(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
+    #[cfg(all(
+        target_endian = "little",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "arm"
+        )
     ))]
     {
-        seccompiler::apply_filter(&socket_filter()?)
+        let filter = crate::seccomp::socket_filter()
+            .map_err(|e| format!("the helper cannot build its socket filter: {e}"))?;
+        crate::seccomp::install(&filter)
             .map_err(|e| format!("the helper cannot install its socket filter: {e}"))?;
-        Ok(true)
     }
-    #[cfg(not(any(
-        target_arch = "x86_64",
-        target_arch = "aarch64",
-        target_arch = "riscv64"
-    )))]
-    Ok(false)
+    Ok(crate::seccomp::BUILT)
 }
 
-/// The helper's socket filter, compiled ([`refuse_sockets`]).
-#[cfg(any(
-    target_arch = "x86_64",
-    target_arch = "aarch64",
-    target_arch = "riscv64"
-))]
-fn socket_filter() -> Result<seccompiler::BpfProgram, String> {
-    use seccompiler::{BpfProgram, SeccompAction, SeccompFilter, TargetArch};
-    #[cfg(target_arch = "x86_64")]
-    const ARCH: TargetArch = TargetArch::x86_64;
-    #[cfg(target_arch = "aarch64")]
-    const ARCH: TargetArch = TargetArch::aarch64;
-    #[cfg(target_arch = "riscv64")]
-    const ARCH: TargetArch = TargetArch::riscv64;
-    // io_uring's IORING_OP_SOCKET (Linux 5.19) makes a socket without
-    // calling socket, so the helper gets no io_uring at all
-    let rules = [
-        libc::SYS_socket,
-        libc::SYS_socketpair,
-        libc::SYS_io_uring_setup,
-        libc::SYS_io_uring_enter,
-        libc::SYS_io_uring_register,
-    ]
-    .into_iter()
-    .map(|n| (n, Vec::new()))
-    .collect();
-    let eperm = u32::try_from(libc::EPERM).unwrap_or(1);
-    SeccompFilter::new(
-        rules,
-        SeccompAction::Allow,
-        SeccompAction::Errno(eperm),
-        ARCH,
-    )
-    .and_then(BpfProgram::try_from)
-    .map_err(|e| format!("the helper cannot build its socket filter: {e}"))
+/// Installs the helper's fallback filter on the calling thread and the
+/// threads it starts later, in place of the landlock domain on a kernel
+/// without landlock (ADR-1200 D15, the maintainer, 2026-11-13): a seccomp
+/// filter that refuses the file, signal and tracing calls the domain
+/// refuses ([`crate::seccomp::fallback_filter`]). Returns whether the
+/// filter is in force; on an architecture that [`crate::seccomp`] has no
+/// table of call numbers for, there is none.
+fn fall_back() -> Result<bool, String> {
+    #[cfg(all(
+        target_endian = "little",
+        any(
+            target_arch = "x86_64",
+            target_arch = "aarch64",
+            target_arch = "riscv64",
+            target_arch = "arm"
+        )
+    ))]
+    {
+        let pid = rustix::process::getpid().as_raw_nonzero().get();
+        let pid = u32::try_from(pid).map_err(|_| "the helper's process id is negative")?;
+        let filter = crate::seccomp::fallback_filter(pid)
+            .map_err(|e| format!("the helper cannot build its fallback filter: {e}"))?;
+        crate::seccomp::install(&filter)
+            .map_err(|e| format!("the helper cannot install its fallback filter: {e}"))?;
+    }
+    Ok(crate::seccomp::BUILT)
 }
 
-/// `vtium-config serve`: no-new-privileges, the socket filter, the
-/// landlock domain, the requests' reader, the limits, then the requests on
-/// stdin answered on stdout until [`HELPER_IDLE_MS`] passes with none. A
-/// failure to sandbox is written as a failed frame, so the console logs it.
+/// The parts of the helper's sandbox in force, as the bits of its
+/// [`FRAME_SANDBOX`]: its landlock domain, its fallback filter, which
+/// stands in for the domain on a kernel without landlock, and its socket
+/// filter.
+pub const SANDBOX_DOMAIN: u32 = 1;
+pub const SANDBOX_FALLBACK: u32 = 2;
+pub const SANDBOX_SOCKETS: u32 = 4;
+
+/// Sandboxes the calling thread and the threads it starts later: the
+/// socket filter, then the landlock domain, or the fallback filter where
+/// the kernel offers no landlock. Returns the parts in force, as
+/// [`FRAME_SANDBOX`] reports them, or why a part failed to install.
+fn sandbox() -> Result<u32, String> {
+    let mut parts = 0;
+    if refuse_sockets()? {
+        parts |= SANDBOX_SOCKETS;
+    }
+    if lock_out()? {
+        parts |= SANDBOX_DOMAIN;
+    } else if fall_back()? {
+        parts |= SANDBOX_FALLBACK;
+    }
+    Ok(parts)
+}
+
+/// `vtium-config serve`: no-new-privileges, the sandbox, the requests'
+/// reader, the limits, then the requests on stdin answered on stdout until
+/// [`HELPER_IDLE_MS`] passes with none, the first answer led by the
+/// sandbox's report. A failure to sandbox is written as a failed frame, so
+/// the console logs it.
 pub fn command(paths: &Paths) -> u8 {
     let mut out = io::stdout().lock();
     if let Some(why) = shed_inherited() {
@@ -3013,16 +3182,15 @@ pub fn command(paths: &Paths) -> u8 {
         );
         return 1;
     }
-    // before the reader's thread starts, which inherits the filter and the
-    // domain, and before any font is read
-    if let Err(why) = refuse_sockets() {
-        let _ = failed(&mut out, &why);
-        return 1;
-    }
-    if let Err(why) = lock_out() {
-        let _ = failed(&mut out, &why);
-        return 1;
-    }
+    // before the reader's thread starts, which inherits the filters and
+    // the domain, and before any font is read
+    let parts = match sandbox() {
+        Ok(parts) => parts,
+        Err(why) => {
+            let _ = failed(&mut out, &why);
+            return 1;
+        }
+    };
     let requests = read_requests(io::stdin());
     if let Err(why) = limits() {
         let _ = failed(&mut out, &why);
@@ -3033,6 +3201,7 @@ pub fn command(paths: &Paths) -> u8 {
         &mut out,
         paths,
         Duration::from_millis(HELPER_IDLE_MS),
+        Some(parts),
     )
 }
 
@@ -3110,6 +3279,7 @@ mod tests {
 
     fn request(kind: u32, frit: FritText, codepoints: &[char]) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             kind,
             frit,
             cell: CELL,
@@ -3159,6 +3329,7 @@ mod tests {
     #[test]
     fn a_request_reads_back() {
         let r = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x41, 0x5a), (0x4e00, 0x4e00)],
             console: Some(ConsoleFont {
                 width: 8,
@@ -3184,6 +3355,7 @@ mod tests {
     #[test]
     fn an_ask_made_says_how_each_script_glyph_was_made() {
         let sup = ServeRequest {
+            cluster_width: Default::default(),
             script: Script::Super,
             ..request(ASK_MADE, frit("source=builtin:unifont\n"), &['x', '2'])
         };
@@ -3212,7 +3384,10 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1202 D11's script moved the magic from VTVSREQ5 to VTVSREQ6, as
+    // ADR-1006 D8's cluster width moved the magic from VTVSREQ8 to
+    // VTVSREQ9, as ADR-1401 D7's coverage query and ADR-1302 D5's color
+    // emoji's box moved it from VTVSREQ7 to VTVSREQ8, as ADR-1200 D15's report
+    // of the sandbox moved it from VTVSREQ6 to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
     // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
     // from VTVSREQ3 to VTVSREQ4: a request of an older layout
     // is refused whole, with the reason a person can act on, and one of no
@@ -3221,13 +3396,21 @@ mod tests {
     #[test]
     fn the_old_magic_and_a_style_off_an_ask_are_refused() {
         let ask = ServeRequest {
+            cluster_width: Default::default(),
             style: BOLD_ITALIC,
             script: Script::Baseline,
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
         };
         let bytes = ask.encode();
         assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
-        for magic in [b"VTVSREQ3", b"VTVSREQ4", b"VTVSREQ5"] {
+        for magic in [
+            b"VTVSREQ3",
+            b"VTVSREQ4",
+            b"VTVSREQ5",
+            b"VTVSREQ6",
+            b"VTVSREQ7",
+            b"VTVSREQ8",
+        ] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
             assert_eq!(
@@ -3244,6 +3427,7 @@ mod tests {
         for kind in [FILL, STOP, OWN_CELL, SOURCES] {
             let query = matches!(kind, OWN_CELL | SOURCES);
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 style: ITALIC,
                 script: Script::Baseline,
                 cell: if query {
@@ -3260,6 +3444,7 @@ mod tests {
             let e = ServeRequest::read(&mut &r.encode()[..]).unwrap_err();
             assert!(e.contains("style"), "{kind}: {e}");
             let regular = ServeRequest {
+                cluster_width: Default::default(),
                 style: REGULAR,
                 script: Script::Baseline,
                 ..r
@@ -3274,8 +3459,8 @@ mod tests {
     #[test]
     fn a_malformed_request_is_refused_before_allocation() {
         // the frit `a` with no text: its cell at 21, its line spacing at 29,
-        // its style at 37, its script at 41, its capabilities at 45, its
-        // codepoint at 53
+        // its style at 37, its script at 41, its cluster width at 45, its
+        // capabilities at 49, its codepoint at 57
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -3304,15 +3489,15 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         // the kind, the cell's width and height, line spacing above and
         // below that leaves no text band, a style past bold italic, a
-        // script past subscript, capabilities not yet read, the codepoint,
-        // the cluster count
+        // script past subscript, a cluster width past single, capabilities
+        // not yet read, the codepoint, the cluster count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
@@ -3321,21 +3506,40 @@ mod tests {
             (33, 16),
             (37, 4),
             (41, 3),
-            (45, 1),
-            (53, 0xd800),
-            (57, u32::MAX),
+            (45, 2),
+            (49, 1),
+            (57, 0xd800),
+            (61, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
             assert!(ServeRequest::read(&mut &bad[..]).is_err(), "{at}");
         }
+        // ADR-1006 D8: an ask carries its cluster width, and a request
+        // that is not an ask carries `double`
+        let single = ServeRequest {
+            cluster_width: ClusterWidth::Single,
+            ..request(ASK, a.clone(), &['A'])
+        };
+        let read = ServeRequest::read(&mut &single.encode()[..])
+            .unwrap()
+            .unwrap();
+        assert_eq!(read.cluster_width, ClusterWidth::Single);
+        let fill = ServeRequest {
+            cluster_width: ClusterWidth::Single,
+            ..request(FILL, a.clone(), &[])
+        };
+        let e = ServeRequest::read(&mut &fill.encode()[..]).unwrap_err();
+        assert!(e.contains("cluster width"), "{e}");
         let backwards = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x42, 0x41)],
             ..request(FILL, a, &[])
         };
         assert!(ServeRequest::read(&mut &backwards.encode()[..]).is_err());
         for name in ["", "a\nb"] {
             let named = ServeRequest {
+                cluster_width: Default::default(),
                 frit: FritText {
                     name: name.to_owned(),
                     text: String::new(),
@@ -3361,6 +3565,7 @@ mod tests {
     #[test]
     fn a_frit_that_draws_nothing_has_an_answer_of_its_own() {
         let ask = |text: &str| ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 0,
                 height: 0,
@@ -3393,6 +3598,7 @@ mod tests {
             height: 0,
         };
         let query = ServeRequest {
+            cluster_width: Default::default(),
             cell: empty,
             band: Band::NONE,
             ..request(SOURCES, frit("source=builtin:unifont\n"), &[])
@@ -3405,6 +3611,7 @@ mod tests {
             (
                 "a width",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     cell: Cell {
                         width: 1,
                         height: 0,
@@ -3416,6 +3623,7 @@ mod tests {
             (
                 "a height",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     cell: Cell {
                         width: 0,
                         height: 16,
@@ -3427,6 +3635,7 @@ mod tests {
             (
                 "a codepoint",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     codepoints: vec![0x41],
                     ..query.clone()
                 },
@@ -3434,6 +3643,7 @@ mod tests {
             (
                 "a held range",
                 ServeRequest {
+                    cluster_width: Default::default(),
                     held: vec![(0x41, 0x42)],
                     ..query.clone()
                 },
@@ -3453,6 +3663,7 @@ mod tests {
         let acute = vec![0x65, 0x301];
         let family = vec![0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467];
         let ask = ServeRequest {
+            cluster_width: Default::default(),
             clusters: vec![acute.clone(), family],
             ..request(ASK, frit("source=builtin:unifont\n"), &['A'])
         };
@@ -3461,6 +3672,7 @@ mod tests {
         let longest = CLUSTER_SCALARS_MAX as usize;
         for bad in [vec![], vec![0x41; longest + 1], vec![0x65, 0xd800]] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 clusters: vec![bad.clone()],
                 ..ask.clone()
             };
@@ -3470,12 +3682,14 @@ mod tests {
             );
         }
         let longest_ok = ServeRequest {
+            cluster_width: Default::default(),
             clusters: vec![vec![0x41; longest]],
             ..ask.clone()
         };
         assert!(ServeRequest::read(&mut &longest_ok.encode()[..]).is_ok());
         for kind in [FILL, STOP] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 clusters: vec![acute.clone()],
                 ..request(kind, frit("source=builtin:unifont\n"), &[])
             };
@@ -3668,6 +3882,7 @@ mod tests {
             height: 528,
         };
         let asked = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: huge,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &['A', 'B'])
@@ -3691,6 +3906,7 @@ mod tests {
         }
         // a fill at that cell is answered too
         let filled = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: huge,
             band: Band::NONE,
             ..request(FILL, frit, &[])
@@ -3744,6 +3960,7 @@ mod tests {
     /// A cell query for `frit`: at no cell, naming nothing.
     fn query(frit: FritText) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 0,
                 height: 0,
@@ -3821,6 +4038,7 @@ mod tests {
     /// an outline first source is drawn at.
     fn query_at(frit: FritText, height: u32) -> ServeRequest {
         ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell { width: 0, height },
             band: Band::NONE,
             ..query(frit)
@@ -3986,6 +4204,7 @@ mod tests {
             height: 20,
         };
         let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band: Band::NONE,
             ..request(ASK, frit, &['L', 'A'])
@@ -3997,6 +4216,41 @@ mod tests {
         let ink = l.ink().unwrap();
         assert_eq!((ink.left(), ink.width()), (-3, 15));
         assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
+    }
+
+    // ADR-1006 D8: an ask under `cluster-width = single` has the conjunct
+    // ka, virama, ssa drawn in one cell, as the console's terminal gives it,
+    // and the same ask under `double` in two
+    #[test]
+    fn an_ask_places_its_clusters_by_its_cluster_width() {
+        let mut font = super::ttf::test_mono();
+        let first = u16::try_from(font.glyphs.len()).unwrap();
+        for (i, c) in [0x915u32, 0x94d, 0x937].into_iter().enumerate() {
+            font.glyphs
+                .push(super::ttf::Glyph::rect(900, 0, 0, 900, 500));
+            font.cmap.push((c, first + u16::try_from(i).unwrap()));
+        }
+        font.cmap.sort_unstable();
+        let (frit, _dir) = outline_frit("cluster-width", "", &[Ok(font)]);
+        let key = vec![0x915, 0x94d, 0x937];
+        let cells = |rule: ClusterWidth| {
+            let frames = run(&[ServeRequest {
+                cluster_width: rule,
+                clusters: vec![key.clone()],
+                ..request(ASK, frit.clone(), &[])
+            }]);
+            let set = frames
+                .iter()
+                .find(|(k, _)| *k == FRAME_GLYPHS)
+                .map(|(_, p)| Arc::new(Set::from_bytes(p.clone()).unwrap()))
+                .unwrap();
+            let face = SetFace::new(set, 16).unwrap();
+            face.cluster(&['\u{915}', '\u{94d}', '\u{937}'], Style::default())
+                .unwrap()
+                .cells()
+        };
+        assert_eq!(cells(ClusterWidth::Single), Width::Narrow);
+        assert_eq!(cells(ClusterWidth::Double), Width::Wide);
     }
 
     // ADR-1302 D3: every request draws a font on one baseline, found from
@@ -4020,6 +4274,7 @@ mod tests {
             height: 12,
         };
         let ask = |c: char| ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &[c])
@@ -4067,6 +4322,7 @@ mod tests {
         ] {
             let text = format!("{key}source=outline:{font}\n");
             let frames = run(&[ServeRequest {
+                cluster_width: Default::default(),
                 cell,
                 band: Band::NONE,
                 ..request(ASK, frit(&text), &['H'])
@@ -4077,6 +4333,7 @@ mod tests {
             let face = SetFace::new(Arc::new(set), 16).unwrap();
             let drawn = face.draw(&['H'], Style::default()).unwrap();
             let want = rasterise(&OutlineRequest {
+                cluster_width: Default::default(),
                 font: std::fs::read(font).unwrap().into(),
                 cells: vec![(9, 16)],
                 cover: vec![(0x48, 0x48)],
@@ -4102,6 +4359,7 @@ mod tests {
         font.cmap.sort_unstable();
         let (frit, _dir) = outline_frit("two-heights", "", &[Ok(font)]);
         let at = |h| ServeRequest {
+            cluster_width: Default::default(),
             cell: Cell {
                 width: 7,
                 height: h,
@@ -4161,6 +4419,7 @@ mod tests {
         chars: &[char],
     ) -> (Vec<Vec<Vec<u8>>>, (Decorations, u32)) {
         let bytes = run_bytes(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band,
             ..request(ASK, frit.clone(), chars)
@@ -4242,6 +4501,7 @@ mod tests {
         assert_eq!(base, plain_base + 2);
         let lean = |cell: Cell, band: Band| -> Vec<Vec<u8>> {
             let frames = run(&[ServeRequest {
+                cluster_width: Default::default(),
                 cell,
                 band,
                 ..request(ASK, unscii.clone(), &['A'])
@@ -4341,6 +4601,7 @@ mod tests {
         };
         let band = Band { above: 3, below: 3 };
         let bytes = run_bytes(&[ServeRequest {
+            cluster_width: Default::default(),
             cell,
             band,
             ..request(ASK, mono, &['\u{2191}'])
@@ -4371,6 +4632,7 @@ mod tests {
         let unscii = frit("source=builtin:unscii-8\n");
         let band = Band { above: 2, below: 2 };
         let fill = |band| ServeRequest {
+            cluster_width: Default::default(),
             band,
             ..request(FILL, unscii.clone(), &['A'])
         };
@@ -4398,6 +4660,7 @@ mod tests {
         let unscii = frit("source=builtin:unscii-8\n");
         let band = Band { above: 2, below: 1 };
         let at = |kind| ServeRequest {
+            cluster_width: Default::default(),
             band,
             ..request(kind, unscii.clone(), &['A'])
         };
@@ -4425,6 +4688,7 @@ mod tests {
             (11, 0, 11, false),
         ] {
             let r = ServeRequest {
+                cluster_width: Default::default(),
                 cell: Cell {
                     width: 8,
                     height: cell_h,
@@ -4436,6 +4700,7 @@ mod tests {
             assert_eq!(read.is_ok(), ok, "{above}+{below} of {cell_h}");
         }
         let query = ServeRequest {
+            cluster_width: Default::default(),
             band: Band { above: 1, below: 0 },
             ..super::tests::query(unscii)
         };
@@ -4454,6 +4719,7 @@ mod tests {
             height: 20,
         };
         let asked = run(&[ServeRequest {
+            cluster_width: Default::default(),
             cell: stated,
             band: Band::NONE,
             ..request(ASK, frit.clone(), &['W'])
@@ -4478,11 +4744,13 @@ mod tests {
         assert_eq!((read.cell.width, read.cell.height), (0, CELL_SIDE_MAX));
         for bad in [
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: CELL,
                 band: Band::NONE,
                 ..query(frit(""))
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: Cell {
                     width: 8,
                     height: 0,
@@ -4492,11 +4760,13 @@ mod tests {
             },
             query_at(frit(""), CELL_SIDE_MAX + 1),
             ServeRequest {
+                cluster_width: Default::default(),
                 codepoints: vec![0x41],
                 clusters: Vec::new(),
                 ..query(frit(""))
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 held: vec![(0x41, 0x41)],
                 ..query(frit(""))
             },
@@ -4512,6 +4782,7 @@ mod tests {
     fn a_frit_name_outside_d1s_set_is_refused() {
         let named = |name: &str| {
             ServeRequest {
+                cluster_width: Default::default(),
                 frit: FritText {
                     name: name.to_owned(),
                     text: String::new(),
@@ -4552,6 +4823,7 @@ mod tests {
     fn a_fill_draws_the_screen_then_latin_and_box_then_the_rest_once() {
         let frit = frit("source=builtin:unscii-8\n");
         let fill = ServeRequest {
+            cluster_width: Default::default(),
             held: vec![(0x42, 0x42)],
             ..request(FILL, frit, &['α'])
         };
@@ -4706,11 +4978,13 @@ mod tests {
         };
         let frames = run(&[
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: small,
                 band: Band::NONE,
                 ..request(ASK, frit.clone(), &['A'])
             },
             ServeRequest {
+                cluster_width: Default::default(),
                 cell: small,
                 band: Band::NONE,
                 ..request(FILL, frit, &['A'])
@@ -4966,7 +5240,7 @@ mod tests {
             eprintln!("skipped: this kernel refuses io_uring already: {outside:?}");
             return;
         }
-        let inside = errnos(&socket_filter().unwrap());
+        let inside = errnos(&crate::seccomp::socket_filter().unwrap());
         assert_eq!(
             inside,
             Some(vec![libc::EPERM; 3]),

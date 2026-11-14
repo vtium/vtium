@@ -1043,8 +1043,8 @@ fn play_shows_each_command_its_side_effects_and_each_dumped_screen_then_waits() 
         "no transcript on file yet",
         "> send \"\\e[31mred\"",
         "< reply \"\\e[0n\"",
-        "┌──────┐",
-        "\x1b[0;38;2;205;0;0;48;2;0;0;0mr",
+        "\r\n──────\r\n",
+        "\x1b[0;38;2;205;0;0;48;2;0;0;0m\x1b[1Gr",
         "cursor 3,0",
         "Its assertions: pass",
     ] {

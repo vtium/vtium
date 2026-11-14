@@ -11,7 +11,7 @@
 //! reads.
 //!
 //! This file sets the context up and reads its errors; `objects.rs` makes,
-//! fills and frees its textures, frames, imported buffers and programs, and
+//! fills and frees its textures, frames, buffers and programs, and
 //! `draw.rs` draws, clears, submits and reads back.
 
 use std::cell::Cell;
@@ -107,11 +107,12 @@ struct TextureInfo {
     height: u32,
 }
 
-/// An imported buffer's renderbuffer and image, which its framebuffer
-/// draws into.
-struct Import {
+/// The renderbuffer a buffer's framebuffer draws into, and for an imported
+/// buffer the EGL image that is the renderbuffer's storage. A buffer the
+/// context made itself has no image: GL holds its storage.
+struct Buffer {
     renderbuffer: glow::NativeRenderbuffer,
-    image: egl::Image,
+    image: Option<egl::Image>,
 }
 
 fn misuse(detail: impl Into<String>) -> Error {
@@ -192,7 +193,8 @@ pub struct Context {
     image_target: Option<ImageTargetRenderbuffer>,
     reset_status: Option<ResetStatus>,
     textures: BTreeMap<u32, TextureInfo>,
-    imports: BTreeMap<u32, Import>,
+    /// Each buffer's renderbuffer, imported or made, by its framebuffer.
+    buffers: BTreeMap<u32, Buffer>,
     /// Whether a frame's end makes an EGL fence sync, or waits in place
     /// with `glFinish` where the display or GL cannot make one.
     fence_sync: bool,
@@ -387,7 +389,7 @@ impl Context {
             image_target,
             reset_status,
             textures: BTreeMap::new(),
-            imports: BTreeMap::new(),
+            buffers: BTreeMap::new(),
             fence_sync,
             fences: BTreeMap::new(),
             wait_fault: None,
@@ -508,9 +510,9 @@ impl Drop for Context {
         for sync in std::mem::take(&mut self.fences).into_values().flatten() {
             self.egl.destroy_sync(sync);
         }
-        let fbs: Vec<u32> = self.imports.keys().copied().collect();
+        let fbs: Vec<u32> = self.buffers.keys().copied().collect();
         for fb in fbs {
-            let _ = self.free_import(fb);
+            let _ = self.free_buffer(fb);
         }
         if self.current().is_ok() {
             // SAFETY: GL calls on the current context with no pointer.

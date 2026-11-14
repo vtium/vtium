@@ -84,6 +84,13 @@ pub struct Identity {
 /// master left included, and no display announced for it.
 pub type DarkPolicy = dyn Fn(&Identity) -> bool;
 
+/// Whether the kernel has asked for the VT. The loop gives each card this
+/// check, which the card asks between the steps of its display work: before
+/// each connector read and before a modeset. When it answers yes, the card
+/// stops the work there, so the loop can let the VT go in the same turn
+/// (ADR-1401 D2, "A VT release while display work runs").
+pub type Interrupt = std::rc::Rc<dyn Fn() -> bool>;
+
 /// A rectangle of pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Rect {
@@ -182,7 +189,8 @@ pub enum Event {
     Asleep,
     /// Waking up, a modeset or an unblank failed, and the retries ran out.
     /// The device's `input`, at the user's next key press or pointer
-    /// action, tries again.
+    /// action, tries again. A DRM card also tries again every
+    /// [`crate::WAKE_RETRY_SLOW_MS`] while its VT is shown.
     WakeFailed,
 }
 

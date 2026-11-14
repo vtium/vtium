@@ -29,6 +29,7 @@ fn ask(cs: &[char], kind: Kind) -> Ask {
 /// `Test Shaping` at a 20-pixel cell, asked for `asks`.
 fn request(asks: Vec<Ask>) -> OutlineRequest {
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -234,6 +235,7 @@ fn two_glyph_lam_alef(asks: Vec<Ask>) -> OutlineRequest {
     let mut f = ttf::test_shaping();
     f.gsub.retain(|(tag, _)| tag != b"rlig");
     OutlineRequest {
+        cluster_width: Default::default(),
         font: f.build().into(),
         ..request(asks)
     }
@@ -331,6 +333,7 @@ fn lam_shadda_fatha_is_scaled_to_fit_the_row_it_is_drawn_in() {
     .expect("the fixture");
     let stack = ['\u{644}', '\u{651}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: font.into(),
         cells: vec![(9, 16)],
@@ -387,6 +390,7 @@ fn marked(keys: &[&[char]], height: u32, reach: Option<u32>) -> OutlineRequest {
     add(0x308, ttf::Glyph::rect(0, -350, 0, -250, 1500));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -525,6 +529,7 @@ fn a_cluster_with_a_negative_advance_is_placed_as_one_with_none() {
     let key = ['x', '\u{307}'];
     let drawn = |by: Option<i16>| {
         let o = rasterise(&OutlineRequest {
+            cluster_width: Default::default(),
             fit: false,
             synth: Default::default(),
             script: Default::default(),
@@ -566,6 +571,7 @@ fn alef_damma(reach: Option<u32>) -> OutlineRequest {
     f.cmap.push((0x64f, 9));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -714,6 +720,7 @@ fn a_vocalised_letter_with_a_joiner_draws_as_a_joining_form() {
         .map(|k| vtium_config::shaping::ask(&key(k)))
         .collect();
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: font.build().into(),
         ..request(asks)
@@ -756,6 +763,7 @@ fn a_mark_left_at_the_pen_is_centred_over_its_base() {
     f.cmap.sort_unstable();
     let key = ['x', '\u{302}', '\u{301}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -803,6 +811,7 @@ fn a_squeezed_cluster_keeps_its_marks_over_its_letter() {
     f.cmap.sort_unstable();
     let key = ['\u{628}', '\u{64e}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
         script: Default::default(),
@@ -842,6 +851,7 @@ fn devanagari(keys: &[&[char]], fit: bool) -> OutlineRequest {
         (0x94d, ttf::Glyph::rect(0, -300, -150, -100, -50)),
     ]);
     OutlineRequest {
+        cluster_width: Default::default(),
         fit,
         synth: Default::default(),
         script: Default::default(),
@@ -870,22 +880,81 @@ fn ink_edges(p: &Placed) -> ((usize, usize), (usize, usize)) {
     )
 }
 
-// ADR-1307 D1: the conjunct ka, virama, ssa takes the one cell its first
-// character takes, and its advance, 1,800 units, is three cells wide. The
-// helper squeezes it sideways to its cell at full height: its ink fills
-// the cell from edge to edge, none of it passes the cell, and its bars
-// span the rows the vowel a's bar spans, which fits its cell unsqueezed
+// ADR-1307 D1: ka with a virama and no consonant after it takes the one
+// cell its first character takes (ADR-1006 D1), and its advance, 900
+// units, is a cell and a half wide. The helper squeezes it sideways to its
+// cell at full height: its ink fills the cell from edge to edge, none of it
+// passes the cell, and its bar spans the rows the vowel a's bar spans,
+// which fits its cell unsqueezed
 #[test]
 fn an_indic_cluster_wider_than_its_cell_is_squeezed_to_it_at_full_height() {
-    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let key = ['\u{915}', '\u{94d}'];
     let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
     assert_eq!(o.strikes[0].width, 12);
-    let g = cluster(&o, &key).expect("the conjunct");
+    let g = cluster(&o, &key).expect("ka and virama");
     assert!(!g.wide && g.ink.is_none(), "inside its cell: {:?}", g.ink);
     let a = codepoint(&o, '\u{905}');
     let (rows, cols) = ink_edges(g);
     assert_eq!(cols, (0, 11), "across the whole cell");
     assert_eq!(rows.0, ink_edges(a).0.0, "the bars' top at the vowel's");
+}
+
+// ADR-1006 D1 and D6, with ADR-1307 D1: the conjunct ka, virama, ssa takes
+// two cells, and its advance, 1,800 units, is three cells wide. The helper
+// squeezes it sideways to its two cells at full height: its ink fills both
+// cells from edge to edge, none of it passes them, and its bars span the
+// rows the vowel a's bar spans
+#[test]
+fn a_virama_conjunct_takes_two_cells_and_is_squeezed_to_them() {
+    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
+    assert_eq!(o.strikes[0].width, 12);
+    let g = cluster(&o, &key).expect("the conjunct");
+    assert!(g.wide, "two cells");
+    assert!(g.ink.is_none(), "inside its cells: {:?}", g.ink);
+    let cols = inked_columns(g, 24);
+    assert_eq!(
+        (cols.first().copied(), cols.last().copied()),
+        (Some(0), Some(23)),
+        "across both cells"
+    );
+    let rows: Vec<usize> = (0..20).filter(|&y| !inked(g, 24, y).is_empty()).collect();
+    let a = codepoint(&o, '\u{905}');
+    assert_eq!(
+        rows.first().copied(),
+        Some(ink_edges(a).0.0),
+        "the bars' top at the vowel's"
+    );
+}
+
+// ADR-1006 D8: under `cluster-width = single` the console's terminal gives
+// the conjunct ka, virama, ssa the one cell of its first letter, and the
+// request says so. The helper places the conjunct in that one cell,
+// squeezed sideways to it at full height (ADR-1307 D1), where under
+// `double` it takes two
+#[test]
+fn a_cluster_takes_the_cells_the_requests_cluster_width_gives_it() {
+    let key = ['\u{915}', '\u{94d}', '\u{937}'];
+    let single = OutlineRequest {
+        cluster_width: vtium_term::ClusterWidth::Single,
+        ..devanagari(&[&key], false)
+    };
+    let o = rasterise(&single).expect("rasterised");
+    let g = cluster(&o, &key).expect("the conjunct");
+    assert!(!g.wide, "one cell");
+    assert_eq!(g.pixels.len(), 12 * 20);
+    assert!(g.ink.is_none(), "inside its cell: {:?}", g.ink);
+    let cols = inked_columns(g, 12);
+    assert_eq!(
+        (cols.first().copied(), cols.last().copied()),
+        (Some(0), Some(11))
+    );
+    // the same request under `double` places it in two
+    let o = rasterise(&devanagari(&[&key], false)).expect("rasterised");
+    assert!(cluster(&o, &key).expect("the conjunct").wide);
+    // the rule crosses the pipe to the parser's child
+    let back = OutlineRequest::decode(&single.encode()).expect("decoded");
+    assert_eq!(back.cluster_width, vtium_term::ClusterWidth::Single);
 }
 
 // ADR-1307 D1 and D2: a single Indic letter wider than its cell, from a
@@ -918,6 +987,7 @@ fn narrow_beh(asks: Vec<Ask>) -> OutlineRequest {
     f.cmap.push((0x640, tatweel));
     f.cmap.sort_unstable();
     OutlineRequest {
+        cluster_width: Default::default(),
         font: f.build().into(),
         ..request(asks)
     }
@@ -1010,6 +1080,7 @@ fn an_unplaced_mark_in_right_to_left_text_is_placed_over_its_letter() {
     ]);
     let (accent, hamza) = (['\u{5d0}', '\u{592}'], [ALEF, '\u{655}']);
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1088,6 +1159,7 @@ fn a_letter_drawn_as_several_glyphs_is_one_base_for_an_unplaced_mark() {
     ]);
     let k = ['\u{1e0d}', '\u{302}'];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1143,6 +1215,7 @@ fn a_joining_form_the_font_draws_as_several_glyphs_is_kept() {
         &[BEH, FATHA, ZWJ],
     ];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: naskh().into(),
         cells: vec![(12, 24)],
@@ -1186,6 +1259,7 @@ fn a_joining_cluster_drawn_as_its_letter_alone_is_left_out() {
     f.gsub = vec![(*b"ccmp", ttf::Lookup::Single(vec![(beh, other)]))];
     let keys = [[BEH, ZWJ], [ZWJ, BEH]];
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1224,6 +1298,7 @@ fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
     f.gsub = vec![(*b"fina", ttf::Lookup::Single(vec![(composed, fina)]))];
     let (after, before) = ([ALEF, '\u{654}', ZWJ], [ZWJ, ALEF, '\u{654}']);
     let o = rasterise(&OutlineRequest {
+        cluster_width: Default::default(),
         fit: false,
         font: f.build().into(),
         family: "Test Mono".to_owned(),
@@ -1243,4 +1318,117 @@ fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
         cluster(&o, &before).is_some(),
         "alef and hamza in alef's final form"
     );
+}
+
+/// HarfBuzz's subset of Noto Sans Kannada UI, which holds ka, ra and the
+/// virama, and ra's below-base form, at a 32-pixel cell, asked for `asks`.
+fn kannada(asks: Vec<Ask>) -> OutlineRequest {
+    let font = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/harfbuzz/fonts/3c96e7a303c58475a8c750bf4289bbe73784f37d.ttf"),
+    )
+    .expect("the font");
+    OutlineRequest {
+        cluster_width: Default::default(),
+        font: font.into(),
+        family: "Noto Sans Kannada UI".to_owned(),
+        cells: vec![(14, 32)],
+        ..request(asks)
+    }
+}
+
+/// The key of the piece of `text` from cell `start` of `total`, one cell
+/// wide.
+fn piece_key(text: &[char], start: u8, total: u8) -> Vec<char> {
+    let mut k = Vec::new();
+    vtium_font::syllable::Piece::new(start, 1, total)
+        .expect("a piece")
+        .key(text, &mut k);
+    k
+}
+
+// ADR-1203 D3: the helper shapes ka, virama and ra once, across the two
+// cells of its two clusters, and cuts the drawing into a piece for each
+// cell. Joined, ra stands under ka and no virama shows, so the first piece
+// differs from ka with its virama on its own; the drawing is squeezed
+// sideways to the two cells (ADR-1307 D1), so its ink reaches past
+// neither side of them
+#[test]
+fn a_syllable_is_drawn_across_its_clusters_cells_and_cut() {
+    const KA_RA: [char; 3] = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+    let (first, second) = (piece_key(&KA_RA, 0, 2), piece_key(&KA_RA, 1, 2));
+    let o = rasterise(&kannada(vec![
+        ask(&first, Kind::Marks),
+        ask(&second, Kind::Marks),
+        ask(&KA_RA[..2], Kind::Marks),
+    ]))
+    .expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let h = o.strikes[0].height as usize;
+    let a = cluster(&o, &first).expect("the first piece");
+    let b = cluster(&o, &second).expect("the second piece");
+    let alone = cluster(&o, &KA_RA[..2]).expect("ka and its virama");
+    for p in [a, b] {
+        assert!(!p.wide);
+        assert_eq!(p.pixels.len(), w * h);
+    }
+    assert_ne!(a.pixels, alone.pixels, "joined, no virama shows");
+    assert!(!inked_columns(a, w).is_empty() && !inked_columns(b, w).is_empty());
+    assert!(
+        a.ink.as_ref().is_none_or(|i| i.left == 0),
+        "nothing past the left side"
+    );
+    assert!(
+        b.ink
+            .as_ref()
+            .is_none_or(|i| i.left + i.width as i32 <= w as i32),
+        "nothing past the right side"
+    );
+}
+
+// ADR-1203 D4: a piece of a syllable the font cannot draw whole is left
+// out, so the console draws its clusters on their own; here the font has
+// no glyph for the Kannada letter ga
+#[test]
+fn a_syllable_the_font_cannot_draw_whole_is_left_out() {
+    let text = ['\u{c95}', '\u{ccd}', '\u{c97}'];
+    let first = piece_key(&text, 0, 2);
+    let o = rasterise(&kannada(vec![ask(&first, Kind::Marks)])).expect("rasterised");
+    assert!(cluster(&o, &first).is_none());
+}
+
+// ADR-1307 D1, as ADR-1203 D5 amends it for every script: a Brahmi
+// syllable of ka, virama and kha, whose advance, 2,400 units, is four
+// cells wide, is squeezed sideways to its two cells at full height, so no
+// ink of it passes the syllable's sides
+#[test]
+fn a_brahmi_syllable_wider_than_its_cells_is_squeezed_to_them() {
+    let f = unpositioned(&[
+        (0x11013, ttf::Glyph::rect(1200, 0, 0, 1200, 500)),
+        (0x11014, ttf::Glyph::rect(1200, 0, 0, 1200, 500)),
+        (0x11046, ttf::Glyph::rect(0, -300, -150, -100, -50)),
+    ]);
+    let text = ['\u{11013}', '\u{11046}', '\u{11014}'];
+    let (first, second) = (piece_key(&text, 0, 2), piece_key(&text, 1, 2));
+    let request = OutlineRequest {
+        font: f.build().into(),
+        family: "Test Mono".to_owned(),
+        cells: vec![(0, 20)],
+        ..request(vec![ask(&first, Kind::Marks), ask(&second, Kind::Marks)])
+    };
+    let o = rasterise(&request).expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let a = cluster(&o, &first).expect("the first piece");
+    let b = cluster(&o, &second).expect("the second piece");
+    assert!(a.ink.as_ref().is_none_or(|i| i.left == 0), "{:?}", a.ink);
+    assert!(
+        b.ink
+            .as_ref()
+            .is_none_or(|i| i.left + i.width as i32 <= w as i32),
+        "{:?}",
+        b.ink
+    );
+    // the ink fills both cells, edge to edge
+    assert_eq!(inked_columns(a, w).first().copied(), Some(0));
+    assert_eq!(inked_columns(b, w).last().copied(), Some(w - 1));
 }

@@ -241,6 +241,18 @@ impl InkRect {
             && bottom <= span.1.saturating_add(down)
             && (self.left, right, self.top, bottom) != (0, span.0, 0, span.1)
     }
+
+    /// Whether the box is one a color glyph may carry: a color emoji
+    /// drawn in one cell `cell_width` pixels wide, which reaches at most 1
+    /// pixel past each side of it and stays in its row (ADR-1302 D5). A
+    /// glyph `wide` across two cells carries none.
+    pub(crate) fn is_emoji_edge(self, cell: (i64, i64), wide: bool) -> bool {
+        !wide
+            && self.left >= -1
+            && self.top >= 0
+            && self.left.saturating_add(self.width) <= cell.0.saturating_add(1)
+            && self.top.saturating_add(self.height) <= cell.1
+    }
 }
 
 /// Whether `name` is a set name ADR-1200 D1 admits: 1 to 64 characters of

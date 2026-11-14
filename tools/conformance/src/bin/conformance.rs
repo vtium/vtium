@@ -55,7 +55,7 @@ const OPTIONAL: [&str; 8] = [
 /// not declare them, and a scenario that needs one fails as absent. A
 /// `--describe` that declares one is refused, so the change that adds the
 /// feature also takes it off this list.
-const OWED: [&str; 1] = ["key-forms"];
+const OWED: [&str; 0] = [];
 
 const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance generate DIR
@@ -65,7 +65,8 @@ const USAGE: &str = "usage: conformance [run] [--seed N] [--rounds N]
        conformance scenarios [NAME...]
        conformance scenarios --write [--replace] NAME...
        conformance scenarios --play NAME...
-       conformance scenarios --bin NAME DIR";
+       conformance scenarios --bin NAME DIR
+       conformance cases --bin NAME DIR";
 
 struct Options {
     seed: u64,
@@ -375,6 +376,56 @@ fn write_cases(o: &Options) -> Result<bool, String> {
     Ok(true)
 }
 
+/// `conformance cases --bin NAME DIR`: writes the replay input of the
+/// case NAME, of the corpus or of vtium's own cases, into DIR as the files
+/// vtium-replay reads (`Corpus::write_input`), and prints the command line
+/// of each view the runner judges the case in, with the golden it judges
+/// that view by.
+fn cases_command(args: &[String]) -> Result<bool, String> {
+    let [flag, name, dir] = args else {
+        return Err(format!(
+            "`conformance cases --bin` takes a case's name and a directory.\n{USAGE}"
+        ));
+    };
+    if flag != "--bin" {
+        return Err(format!("unknown option {flag}\n{USAGE}"));
+    }
+    let corpus = corpus()?;
+    let own_cases = Corpus::open(&Path::new(TOOL).join(OWN_CASES))?;
+    let (set, case) = runner::find(&[&corpus, &own_cases], name)?;
+    let written = set.write_input(case, Path::new(dir))?;
+    let (bin, cuts) = (written.bin.display(), written.cuts.display());
+    match &written.fixtures {
+        Some(files) => println!(
+            "wrote {bin} and {cuts}, with the fixtures in {}",
+            files.display()
+        ),
+        None => println!("wrote {bin} and {cuts}"),
+    }
+    println!(
+        "Each line below plays the case in one view. Build vtium-replay as make conformance does, with --features images,bidi, so that it prints what the goldens hold."
+    );
+    for (flag, view, golden_dir) in [
+        ("", "screen", "golden"),
+        ("--frame ", "frame", "golden-frame"),
+        ("--display ", "display", "golden-display"),
+    ] {
+        let golden = set.root.join(golden_dir).join(format!("{}.txt", case.name));
+        if golden.is_file() {
+            println!(
+                "The {view} view, which the runner judges against {}:\nvtium-replay {flag}{} {} {bin} {cuts}",
+                golden.display(),
+                case.cols,
+                case.rows
+            );
+        }
+    }
+    println!(
+        "The runner masks each nonzero changed count and each placement's changed flag before it compares. Those can differ from the golden and still pass."
+    );
+    Ok(true)
+}
+
 /// The capability list judged through the capability scenarios under
 /// `scenarios/` (ADR-1504 D4): a scenario whose capability the list does
 /// not name, a name no scenario declares, and a verdict that disagrees
@@ -540,6 +591,8 @@ fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = if args.first().is_some_and(|a| a == "scenarios") {
         scenario_command(args.get(1..).unwrap_or_default())
+    } else if args.first().is_some_and(|a| a == "cases") {
+        cases_command(args.get(1..).unwrap_or_default())
     } else {
         options(&args).and_then(|mut o| {
             let command = if o.rest.is_empty() {

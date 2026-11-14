@@ -267,6 +267,9 @@ mod tests {
             KeyEvent {
                 keycode,
                 ascii: 0,
+                unshifted: 0,
+                shifted: 0,
+                base: None,
                 mods,
                 keysyms: vec![keysym],
                 codepoints: vec![char::from_u32(keysym).filter(|_| keysym < 0x100)],

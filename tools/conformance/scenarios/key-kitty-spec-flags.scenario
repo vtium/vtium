@@ -1,0 +1,32 @@
+# The kitty keyboard protocol's flags, written from the specification's
+# own statements. The flags start at 0. A push with no number pushes 0. A
+# set with no mode sets the flags exactly, mode 1 does the same, mode 2
+# sets bits and mode 3 clears bits. A pop with no number pops one entry,
+# and a pop of 2 pops two. A pop that empties the stack puts 0 in force.
+# A program that sets every bit reads back the five flags the
+# specification defines. The alternate screen keeps a stack of its own
+# when modes 47 and 1047 show it, and finds that stack again when it
+# comes back.
+# spec: kitty's Comprehensive keyboard handling in terminals: Progressive enhancement, Detection of support for this protocol; ADR-1005 D3 and D4
+# covers: input.kitty-keyboard
+size 20 2
+send "\e[?u"
+send "\e[>u\e[?u"
+send "\e[=5u\e[?u"
+send "\e[=10;1u\e[?u"
+send "\e[=5;2u\e[?u"
+send "\e[=6;3u\e[?u"
+send "\e[<u\e[?u"
+send "\e[>1u\e[>2u\e[>4u\e[?u"
+send "\e[<2u\e[?u"
+send "\e[<u\e[?u"
+send "\e[>31u\e[?u"
+send "\e[=255u\e[?u"
+send "\e[<5u\e[?u"
+send "\e[>1u"
+send "\e[?47h\e[?u"
+send "\e[>2u\e[?u"
+send "\e[?47l\e[?u"
+send "\e[?1047h\e[?u"
+send "\e[<u\e[?u"
+send "\e[?1047l\e[?u"

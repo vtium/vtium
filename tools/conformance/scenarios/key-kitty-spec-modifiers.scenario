@@ -1,0 +1,33 @@
+# The kitty keyboard protocol's modifiers field. Under flag 1, Delete
+# carries each of the eight modifiers in its own bit: Shift 1, Alt 2,
+# Ctrl 4, Super 8, Hyper 16, Meta 32, Caps Lock 64 and NumLock 128, and
+# the field is 1 more than the bits. A key that makes text drops the lock
+# bits. Under flags 11, a modifier key's own event carries the state that
+# the event leaves. When both Ctrl keys are held and one is let go, its
+# release still has the Ctrl bit set. Caps Lock's press that turns the
+# lock on carries the lock's bit, and the press that turns it off does
+# not.
+# spec: kitty's Comprehensive keyboard handling in terminals: Modifiers, Event types, Disambiguate escape codes, Report all keys as escape codes, Functional key definitions; ADR-1005 D7
+# covers: input.kitty-keyboard
+size 20 2
+needs key-events
+send "\e[>1u"
+key Delete mods=shift
+key Delete mods=alt
+key Delete mods=ctrl
+key Delete mods=logo
+key Delete mods=hyper
+key Delete mods=meta
+key Delete mods=lock
+key Delete mods=num
+key Delete mods=shift+lock+ctrl+alt+logo+num+hyper+meta
+key a mods=alt+num
+send "\e[=11u"
+cmd key;sym=ffe3;mods=4
+cmd key;sym=ffe4;mods=4
+cmd key;sym=ffe3;mods=4;event=release
+cmd key;sym=ffe4;event=release
+cmd key;sym=ffe5;mods=2
+cmd key;sym=ffe5;mods=2;event=release
+cmd key;sym=ffe5
+cmd key;sym=ffe5;event=release

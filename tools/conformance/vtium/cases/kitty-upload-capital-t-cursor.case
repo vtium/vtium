@@ -1,0 +1,10 @@
+# An a=T upload places its picture at the cursor as it is at the last chunk, with the first chunk's keys.
+# References: ADR-1100 D16.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Remote client": "the cursor position used to display the image must be the position when the final chunk is received"
+# covers: image.kitty
+size 20 10
+send "\e[1;1H\e_Ga=T,f=24,s=2,v=1,i=1,c=4,r=2,C=1,m=1;/wAA\e\\"
+send "\e[5;10H"
+send "\e_GC=0,c=8,m=0;AP8A\e\\"
+dump frame
+send "\e[6n"

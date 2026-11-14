@@ -1,0 +1,6 @@
+# The specification's first example.
+# References: ADR-1100 D14.
+# spec: kitty graphics protocol (sw.kovidgoyal.net/kitty/graphics-protocol, read 2026-11-13), "Querying support for protocol features": "<ESC>_Ga=q,i=31,e=T,U=1,C=1<ESC>\ to which a terminal that supports both will reply: <ESC>_Gi=31,e=T,C=1,U=1;OK<ESC>\"
+# covers: image.kitty
+size 20 10
+send "\e_Ga=q,i=31,e=T,U=1,C=1\e\\"

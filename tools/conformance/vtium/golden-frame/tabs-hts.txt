@@ -1,0 +1,48 @@
+test state margins 0-2 0-29
+test state tabs 4,11
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 39
+size 30x3
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 90
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+test state margins 0-2 0-29
+test state tabs 4,11
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 63
+size 30x3
+cursor 30,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 3
+frame-cursor 29,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |    a      b                 c|
+row 1 ||
+row 2 ||
+test state margins 0-2 0-29
+test state tabs none
+test state modes ansi 8,12 dec 7,8,12,25,1007,1034,1035,1036,1042,1070,1243,2027,2028
+test state scrollback lines 0 view 0 max 0
+test state pen
+test state colors fg=#e5e5e5 bg=#000000 cursor=default
+checkpoint 104
+size 30x3
+cursor 30,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 1
+frame-cursor 29,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |    a      b                 z|
+row 1 ||
+row 2 ||
