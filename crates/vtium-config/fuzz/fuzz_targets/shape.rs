@@ -8,7 +8,11 @@
 //! glyphs (ADR-1302 D4): bold emboldens each outline and italic slants it.
 //! The bits above them pick the script (ADR-1202 D2, D5): normal,
 //! superscript or subscript, whose color glyphs fit two thirds of their
-//! cells against the cell's top or bottom.
+//! cells against the cell's top or bottom. Each cluster is also asked for
+//! as a piece of a syllable (ADR-1203 D3), its place among the syllable's
+//! cells taken from its own scalar values, and the font of an odd input
+//! is asked for a piece of Kannada ka, virama and ra too, so a syllable is
+//! placed across its cells and cut into its pieces.
 #![no_main]
 
 use std::sync::Arc;
@@ -41,6 +45,24 @@ fn clusters(mut bytes: &[u8]) -> Vec<Vec<u32>> {
     out
 }
 
+/// `key` as the key of a piece of a syllable whose text it is, when it
+/// holds 2 to 15 scalar values: the piece's place among the syllable's
+/// cells comes from its first two scalar values.
+fn piece(key: &[u32]) -> Option<Vec<u32>> {
+    use vtium_font::syllable::{Piece, SYLLABLE_SCALARS_MAX};
+    let n = key.len();
+    if !(2..=SYLLABLE_SCALARS_MAX).contains(&n) {
+        return None;
+    }
+    let total = u8::try_from(n).ok()?.saturating_mul(2);
+    let start = u8::try_from(key[0] % u32::from(total)).ok()?;
+    let cells = 1 + u8::try_from(key[1] % 2).ok()?;
+    let p = Piece::new(start, cells, total).or_else(|| Piece::new(start, 1, total))?;
+    let mut out = key.to_vec();
+    out.push(u32::from(p.mark()));
+    Some(out)
+}
+
 fuzz_target!(|data: &[u8]| {
     let [pick, rest @ ..] = data else {
         return;
@@ -53,12 +75,15 @@ fuzz_target!(|data: &[u8]| {
             &ttf::FLAG[..],
             &['1', '\u{fe0f}', '\u{20e3}'][..],
             &['e', '\u{302}', '\u{301}'][..],
+            &['\u{c95}', '\u{ccd}', '\u{cb0}'][..],
         ]
         .iter()
         .map(|k| k.iter().map(|&c| u32::from(c)).collect())
         .collect();
         (rest.into(), keys)
     };
+    let pieces: Vec<Vec<u32>> = keys.iter().filter_map(|k| piece(k)).collect();
+    let keys: Vec<Vec<u32>> = keys.into_iter().chain(pieces).collect();
     let cover: Vec<(u32, u32)> = keys.iter().flatten().map(|&c| (c, c)).collect();
     let request = OutlineRequest {
         fit: false,

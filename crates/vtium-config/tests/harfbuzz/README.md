@@ -13,13 +13,13 @@ The files here are the goldens that judge the glyph helper's shaper on syllabic 
 
 ## How the test judges the shaper
 
-Each case gives a text and a font. The test writes the text on the first row of a vtium terminal and reads the clusters back, one cell at a time. Those are the clusters that the console asks the helper for. The test shapes each cluster with the helper's own code, `shaping::shape::shape_all`, and lays the clusters end to end. The result must be `hb-shape`'s glyphs, at `hb-shape`'s places, with `hb-shape`'s advance. The test compares glyph ids and positions in font units. It does not compare `hb-shape`'s cluster numbers, because the helper numbers each glyph by the character it comes from.
+Each case gives a text and a font. The test writes the text on the first row of a vtium terminal and reads the clusters back, one cell at a time. Where the clusters of one syllable link, the test joins them, as the console joins the cells that hold them (ADR-1203). For example, ka with its virama links to the ra after it. Those are the clusters and syllables that the console asks the helper for. The test shapes each of them with the helper's own code, `shaping::shape::shape_all`, and lays them end to end. The result must be `hb-shape`'s glyphs, at `hb-shape`'s places, with `hb-shape`'s advance. The test compares glyph ids and positions in font units. It does not compare `hb-shape`'s cluster numbers, because the helper numbers each glyph by the character it comes from.
 
 106 of the cases are one cluster each, and 74 are several clusters. 168 cases draw exactly as `hb-shape` draws them. `differs.tsv` lists the other 12, each under one of three reasons:
 
 - **left-out:** the font has no glyph for a character, so `hb-shape` draws the font's .notdef glyph. The helper leaves such a cluster out, so that a later font in the frit, or the console, draws the cluster.
 - **never-asked:** the text is only marks. A vtium terminal stores no mark at the start of a row, so the console never asks for such a text.
-- **cut:** the terminal cuts the text into several clusters by Unicode's grapheme cluster rules (UAX #29), and the font shapes or positions glyphs across them. The helper shapes one cluster at a time, so it cannot do that. For example, Unicode's rules join no Kannada conjunct, so the terminal gives ka, virama and ra two clusters, and the font cannot draw the conjunct.
+- **cut:** the terminal cuts the text into several clusters by Unicode's grapheme cluster rules (UAX #29), and the font shapes or positions glyphs across them. The helper shapes one cluster or one syllable at a time, so it cannot do that where the clusters are not one syllable. For example, the font kerns Tamil ta and virama against the superscript three after them, which no syllable joins.
 
 The test fails when a case that `differs.tsv` does not list draws differently from `hb-shape`. It also fails when a listed case no longer differs for its reason, so the list stays true.
 

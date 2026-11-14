@@ -1244,3 +1244,81 @@ fn a_letter_composed_with_its_mark_and_not_joined_is_left_out() {
         "alef and hamza in alef's final form"
     );
 }
+
+/// HarfBuzz's subset of Noto Sans Kannada UI, which holds ka, ra and the
+/// virama, and ra's below-base form, at a 32-pixel cell, asked for `asks`.
+fn kannada(asks: Vec<Ask>) -> OutlineRequest {
+    let font = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/harfbuzz/fonts/3c96e7a303c58475a8c750bf4289bbe73784f37d.ttf"),
+    )
+    .expect("the font");
+    OutlineRequest {
+        font: font.into(),
+        family: "Noto Sans Kannada UI".to_owned(),
+        cells: vec![(14, 32)],
+        ..request(asks)
+    }
+}
+
+/// The key of the piece of `text` from cell `start` of `total`, one cell
+/// wide.
+fn piece_key(text: &[char], start: u8, total: u8) -> Vec<char> {
+    let mut k = text.to_vec();
+    k.push(
+        vtium_font::syllable::Piece::new(start, 1, total)
+            .expect("a piece")
+            .mark(),
+    );
+    k
+}
+
+// ADR-1203 D3: the helper shapes ka, virama and ra once, across the two
+// cells of its two clusters, and cuts the drawing into a piece for each
+// cell. Joined, ra stands under ka and no virama shows, so the first piece
+// differs from ka with its virama on its own; the drawing is squeezed
+// sideways to the two cells (ADR-1307 D1), so its ink reaches past
+// neither side of them
+#[test]
+fn a_syllable_is_drawn_across_its_clusters_cells_and_cut() {
+    const KA_RA: [char; 3] = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+    let (first, second) = (piece_key(&KA_RA, 0, 2), piece_key(&KA_RA, 1, 2));
+    let o = rasterise(&kannada(vec![
+        ask(&first, Kind::Marks),
+        ask(&second, Kind::Marks),
+        ask(&KA_RA[..2], Kind::Marks),
+    ]))
+    .expect("rasterised");
+    let w = o.strikes[0].width as usize;
+    let h = o.strikes[0].height as usize;
+    let a = cluster(&o, &first).expect("the first piece");
+    let b = cluster(&o, &second).expect("the second piece");
+    let alone = cluster(&o, &KA_RA[..2]).expect("ka and its virama");
+    for p in [a, b] {
+        assert!(!p.wide);
+        assert_eq!(p.pixels.len(), w * h);
+    }
+    assert_ne!(a.pixels, alone.pixels, "joined, no virama shows");
+    assert!(!inked_columns(a, w).is_empty() && !inked_columns(b, w).is_empty());
+    assert!(
+        a.ink.as_ref().is_none_or(|i| i.left == 0),
+        "nothing past the left side"
+    );
+    assert!(
+        b.ink
+            .as_ref()
+            .is_none_or(|i| i.left + i.width as i32 <= w as i32),
+        "nothing past the right side"
+    );
+}
+
+// ADR-1203 D4: a piece of a syllable the font cannot draw whole is left
+// out, so the console draws its clusters on their own; here the font has
+// no glyph for the Kannada letter ga
+#[test]
+fn a_syllable_the_font_cannot_draw_whole_is_left_out() {
+    let text = ['\u{c95}', '\u{ccd}', '\u{c97}'];
+    let first = piece_key(&text, 0, 2);
+    let o = rasterise(&kannada(vec![ask(&first, Kind::Marks)])).expect("rasterised");
+    assert!(cluster(&o, &first).is_none());
+}

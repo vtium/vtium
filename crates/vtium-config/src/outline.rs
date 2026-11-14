@@ -1745,7 +1745,7 @@ pub(crate) mod raster {
             let sx = span / advance;
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_stretched(g, ppem, bounds, sx),
-                wide,
+                cells(wide),
                 None,
                 false,
                 cell,
@@ -1759,7 +1759,7 @@ pub(crate) mod raster {
             };
             return place_drawn(
                 &mut |ppem, bounds| drawer.draw_moved(g, ppem, bounds, dx),
-                wide,
+                cells(wide),
                 None,
                 false,
                 cell,
@@ -1767,15 +1767,23 @@ pub(crate) mod raster {
         }
         place_drawn(
             &mut |ppem, bounds| drawer.draw(g, ppem, bounds),
-            wide,
+            cells(wide),
             Some(advance),
             fit,
             cell,
         )
     }
 
-    /// What `draw` draws at a size and within a box, placed in `cell`, two
-    /// cells wide when `wide`. A mask is placed by the font (ADR-1302 D2):
+    /// The cells a glyph two cells wide when `wide` spans.
+    pub(crate) fn cells(wide: bool) -> u32 {
+        if wide { 2 } else { 1 }
+    }
+
+    /// What `draw` draws at a size and within a box, placed across `cells`
+    /// cells of `cell`: 1 or 2 for a character or a cluster, and the cells
+    /// of all its clusters for a syllable (ADR-1203 D3), which
+    /// [`super::super::shaping::shape`] then cuts into its pieces. A mask
+    /// is placed by the font (ADR-1302 D2):
     /// its pen starts at the cell's left edge, moved right by half of what
     /// its cells' width exceeds its advance rounded to the nearest pixel,
     /// rounded down, which is a move left when the advance is wider, and
@@ -1792,13 +1800,13 @@ pub(crate) mod raster {
     /// baseline as far as the row allows.
     pub(crate) fn place_drawn(
         draw: &mut dyn FnMut(f32, (u32, u32)) -> Option<Image>,
-        wide: bool,
+        cells: u32,
         advance: Option<f32>,
         fit: bool,
         cell: &Cell,
     ) -> Option<Placed> {
         let h = cell.height;
-        let bw = cell.width * if wide { 2 } else { 1 };
+        let bw = cell.width * cells;
         // a superscript or subscript color glyph fits two thirds of its
         // cells (ADR-1202 D1, D5), as a normal one fits all of them
         let script = cell.script != Script::Baseline;
@@ -1809,7 +1817,7 @@ pub(crate) mod raster {
         };
         let mut image = draw(cell.ppem, (fw, fh))?;
         let color = image.content == Content::Color;
-        if color && !wide && !script {
+        if color && cells == 1 && !script {
             return emoji_in_one_cell(draw, cell);
         }
         let (bw_i, h_i, base) = (bw as i32, h as i32, cell.baseline as i32);
@@ -1889,7 +1897,7 @@ pub(crate) mod raster {
             ink_box(&image, cell, bw, (left, top))
         };
         Some(Placed {
-            wide,
+            wide: cells == 2,
             color,
             pixels: copy(&image, color, bw, h, left, top),
             ink,
@@ -2082,8 +2090,8 @@ mod tests {
             reach: (10, 10),
             script: vtium_font::Script::Baseline,
         };
-        let placed = place_drawn(&mut |_, _| Some(bar(10)), false, Some(-10.0), false, &cell)
-            .expect("placed");
+        let placed =
+            place_drawn(&mut |_, _| Some(bar(10)), 1, Some(-10.0), false, &cell).expect("placed");
         let row: Vec<usize> = (0..12).filter(|&x| placed.pixels[x] > 0).collect();
         assert_eq!(row, [6]);
     }

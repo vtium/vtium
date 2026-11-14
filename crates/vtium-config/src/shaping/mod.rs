@@ -83,8 +83,13 @@ const KEYCAP: u32 = 0x20e3;
 /// letter, such as a fatha, are not letters here ([`mark_side`]). Else an
 /// emoji sequence when Unicode lists it as one or it holds U+200D, U+FE0F,
 /// a regional indicator, an emoji modifier, a tag or the keycap mark; else
-/// a letter and its marks.
+/// a letter and its marks. A syllable's piece is judged as a letter and
+/// its marks, by the syllable's whole text (ADR-1203 D3), whatever joiner
+/// follows its virama.
 pub fn kind(key: &[u32]) -> Kind {
+    if vtium_font::syllable::piece_of(key).is_some() {
+        return Kind::Marks;
+    }
     let letters = key.iter().filter(|&&c| c != ZWJ && mark_side(c).is_none());
     let joiner = key.contains(&ZWJ) || letters.clone().count() > 1;
     if joiner && letters.clone().count() > 0 && letters.clone().all(|&c| joins(c)) {

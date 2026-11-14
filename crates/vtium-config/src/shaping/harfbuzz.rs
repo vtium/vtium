@@ -2,8 +2,10 @@
 //! Each case in `tests/harfbuzz/cases.tsv` is a text in a syllabic script,
 //! a font, and the glyphs and positions that HarfBuzz's hb-shape gives for
 //! the text. The test cuts the text into the clusters a vtium terminal
-//! cuts it into, shapes each cluster as the helper shapes a cluster the
-//! console asks for, and lays the clusters end to end. The result must be
+//! cuts it into, joins the clusters of each syllable as the console joins
+//! the cells that hold them (ADR-1203 D1), shapes each cluster or syllable
+//! as the helper shapes what the console asks for, and lays them end to
+//! end. The result must be
 //! hb-shape's glyphs at hb-shape's places. `tests/harfbuzz/differs.tsv`
 //! lists the cases where it cannot be, each with the reason.
 //! `tests/harfbuzz/README.md` says where the cases come from.
@@ -12,6 +14,8 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use skrifa::MetadataProvider;
+
+use vtium_font::syllable::{Piece, SYLLABLE_SCALARS_MAX, joins};
 
 use super::shape_all;
 use crate::shaping::{Ask, kind};
@@ -131,15 +135,48 @@ fn names(data: &[u8]) -> BTreeMap<String, u16> {
         .collect()
 }
 
+/// `clusters` joined into syllables as the console joins the cells that
+/// hold them (ADR-1203 D1): each run of clusters that link, whose text
+/// holds at most [`SYLLABLE_SCALARS_MAX`] scalar values, as the key of its
+/// first piece, which the helper shapes from the syllable's whole text;
+/// each other cluster as itself.
+fn syllables(clusters: &[Vec<u32>]) -> Vec<Vec<u32>> {
+    let chars = |k: &[u32]| -> Vec<char> { k.iter().filter_map(|&c| char::from_u32(c)).collect() };
+    let mut runs: Vec<Vec<&Vec<u32>>> = Vec::new();
+    for key in clusters {
+        match runs.last_mut() {
+            Some(run) if run.last().is_some_and(|l| joins(&chars(l), &chars(key))) => {
+                run.push(key);
+            }
+            _ => runs.push(vec![key]),
+        }
+    }
+    let width = |k: &[u32]| vtium_term::cluster_width(&chars(k)).max(1);
+    let mut out = Vec::new();
+    for run in runs {
+        let text: Vec<u32> = run.iter().flat_map(|k| k.iter().copied()).collect();
+        if run.len() < 2 || text.len() > SYLLABLE_SCALARS_MAX {
+            out.extend(run.into_iter().cloned());
+            continue;
+        }
+        let total: u8 = run.iter().map(|k| width(k)).sum();
+        let piece = Piece::new(0, width(run[0]), total).expect("a piece");
+        let mut key = text;
+        key.push(u32::from(piece.mark()));
+        out.push(key);
+    }
+    out
+}
+
 /// `clusters` shaped by the font in `data` as the helper shapes each
-/// cluster the console asks for, and laid end to end; `None` when the
-/// helper leaves one of them out, as it leaves out a cluster the font
-/// cannot draw whole.
+/// cluster or syllable the console asks for ([`syllables`]), and laid end
+/// to end; `None` when the helper leaves one of them out, as it leaves out
+/// a cluster the font cannot draw whole.
 fn drawn(data: &[u8], clusters: &[Vec<u32>]) -> Option<Drawn> {
     let font = swash::FontRef::from_index(data, 0).expect("a font");
     let mut pen = 0;
     let mut glyphs = Vec::new();
-    for key in clusters {
+    for key in &syllables(clusters) {
         let ask = Ask {
             key: key.clone(),
             kind: kind(key),
