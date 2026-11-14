@@ -21,6 +21,21 @@ related:
   - ADR-1502
   - ADR-1507
 extends: ADR-1502
+considered:
+  - operator: aaronsb
+    said: "The site page docs/releases/VERSION.md is the only text of the release notes, and the GitHub release body is generated from it. As written."
+    via: the steering session's questions on 2026-11-14, on the site records
+    paraphrase: true
+    covers: [one text]
+  - operator: aaronsb
+    said: "The releases list sits under Home, beside Showcase. As written."
+    via: the steering session's questions on 2026-11-14, on the site records
+    paraphrase: true
+    covers: [where releases sit]
+  - operator: aaronsb
+    said: "make api joins the gate line and make gates, whatever it costs."
+    via: the steering session's questions on 2026-11-14, on the site records
+    paraphrase: true
 ---
 
 # ADR-1508: The site publishes the crates' interfaces under /api/ and a page for each release, and each release's notes are written once
@@ -31,6 +46,7 @@ extends: ADR-1502
 - **Trades away:** the docs job takes longer, by a rustdoc build of the workspace, and the published site grows by rustdoc's files. A release's notes are written in the repository before the release is tagged, so a late fix to the notes is a commit, not an edit on GitHub. The pages for past releases are copies, made once, of what GitHub shows today.
 - **One-way?** No. Both parts are files the site builds or copies, and removing them removes them. The addresses `/api/CRATE/` and `/releases/VERSION/` are the parts people keep.
 - **Probes:** *Confident (one text):* you want each release's notes written once. The page on the site is that text, and the GitHub release shows the same words, with its links pointing at the site. *Not confident (where releases sit):* the releases sit in the Home section beside the showcase, so a reader who asks what is new finds them from the first page. You may prefer a tab of their own in the top bar, or a place beside the guide for installing vtium.
+- **Answered 2026-11-14** (`considered`): the maintainer kept the site page as the only text of each release's notes, kept the releases under Home beside the showcase, and kept `make api` in the gate line and `make gates` whatever it costs.
 - **Inversion:** Between "GitHub is the only place" and "the site is a second copy". In the first, release notes and the crates' interfaces stay on GitHub and in the source, and a reader on the site must leave it. In the second, the site holds its own text, which drifts from GitHub's. The answer makes the site's files the one source and generates what GitHub shows from them.
 
 ## Context
@@ -54,7 +70,7 @@ The notes of vtium's eight releases so far were written for each release and pas
 - **Examples.** The doc tests and any `examples/` programs are the examples. `cargo test` already compiles both.
 - **Links.** Zensical's strict build does not see rustdoc's pages, so the pages in `docs/api/` link a crate's reference by its full address on the site. The rustdoc flags are the check of every link inside rustdoc.
 - **The menu.** "For contributors" gains "The crates' interfaces", which is `docs/api/index.md`, beside the link to the crates' folders on GitHub. The two other pages are reached from the index and listed in `not_in_nav`.
-- **The gate.** `make api` joins the gate line and `make gates`, because it needs no network, and because a broken intra-doc link then fails on this machine before a push.
+- **The gate.** `make api` joins the gate line and `make gates`, because it needs no network, and because a broken intra-doc link then fails on this machine before a push. It stays there however long the build takes, as the maintainer decided (`considered`).
 - **Doc comments.** No crate sets the `missing_docs` lint yet. A count of the public items without a doc comment in each crate, taken once with the lint as a warning, starts the work that writes the missing comments. That work turns `missing_docs` on for each crate it finishes. Doc comments follow AGENTS.md's Writing section.
 
 ### D2: a page for each release
@@ -82,7 +98,7 @@ The notes of vtium's eight releases so far were written for each release and pas
 
 ### Negative
 
-- The docs job and the gates each gain a rustdoc build of every crate, which takes time on every pull request. That time is not measured yet.
+- The docs job and the gates each gain a rustdoc build of every crate, which takes time on every pull request. That time is not measured yet, and it does not decide whether `make api` stays a gate.
 - Rustdoc's output adds files to the published site. Their size is not measured yet.
 - Rustdoc's output changes with the toolchain, so a change of the pinned toolchain changes every page under `/api/`. Nobody reviews those pages, since they are generated and not committed.
 - The release's steps gain a page to write and a command to run, and the notes must be final when `stage` moves, before the tag.

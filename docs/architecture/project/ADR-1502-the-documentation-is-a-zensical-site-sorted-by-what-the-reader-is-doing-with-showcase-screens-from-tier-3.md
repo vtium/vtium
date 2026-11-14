@@ -75,6 +75,10 @@ considered:
     said: "The hero rule: a card that draws something new adds a scene to its category or updates the category's hero. Cards do not run make showcase; the steering session runs it once per wave."
     via: the steering session's questions on 2026-11-14, on the wave plan
     paraphrase: true
+  - operator: aaronsb
+    said: "The shell screen takes a ninth value, '# category: front page'. As written."
+    via: the steering session's questions on 2026-11-14, on the site records
+    paraphrase: true
 status: accepted
 date: 2026-11-03
 deciders:
