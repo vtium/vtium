@@ -86,6 +86,7 @@ fn the_helper_answers_under_its_sandbox_and_exits_when_the_console_closes() {
         return;
     }
     let request = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -168,6 +169,7 @@ fn the_helper_without_landlock_answers_under_its_fallback_filter() {
     let font = dir.join("mono.ttf");
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
     let request = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -255,6 +257,7 @@ fn a_source_that_fails_as_it_draws_is_left_out_and_the_rest_answer() {
     };
     std::fs::write(&font, flat.build()).unwrap();
     let request = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -321,6 +324,7 @@ fn a_cell_stopped_and_filled_again_is_filled_again() {
         return;
     }
     let request = |kind| ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -409,6 +413,7 @@ fn each_fill_sends_the_cells_coverage_in_full_once() {
         return;
     }
     let fill = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -466,6 +471,7 @@ fn an_outline_frits_cell_query_answers_the_w_rule_at_its_height() {
     let font = dir.join("mono.ttf");
     std::fs::write(&font, ttf::test_mono().build()).unwrap();
     let query = |text: String, height: u32| ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -539,6 +545,7 @@ fn parts_sent(kind: u32) -> Vec<Vec<char>> {
         .join("tests/fixtures/DejaVuSansMono-lam-shadda-fatha.ttf");
     let whole: Vec<u32> = vec![0x644, 0x651, 0x64e, 0x670];
     let request = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -596,6 +603,7 @@ fn an_asks_clusters_are_shaped_and_drawn_whole() {
     let q_acute = ['q', '\u{301}'];
     let man_girl = ['\u{1f468}', '\u{200d}', '\u{1f467}'];
     let request = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -682,6 +690,7 @@ fn the_helper_sheds_a_descriptor_it_inherits() {
         .unwrap();
     drop(leaked);
     let query = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
@@ -758,6 +767,7 @@ fn every_thread_of_the_helper_runs_under_its_socket_filter() {
         .spawn()
         .unwrap();
     let query = ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         style: Default::default(),
         script: vtium_font::Script::Baseline,
