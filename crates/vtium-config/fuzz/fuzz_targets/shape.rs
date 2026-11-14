@@ -46,7 +46,7 @@ fn clusters(mut bytes: &[u8]) -> Vec<Vec<u32>> {
 }
 
 /// `key` as the key of a piece of a syllable whose text it is, when it
-/// holds 2 to 15 scalar values: the piece's place among the syllable's
+/// holds 2 to 14 scalar values: the piece's place among the syllable's
 /// cells comes from its first two scalar values.
 fn piece(key: &[u32]) -> Option<Vec<u32>> {
     use vtium_font::syllable::{Piece, SYLLABLE_SCALARS_MAX};
@@ -58,8 +58,8 @@ fn piece(key: &[u32]) -> Option<Vec<u32>> {
     let start = u8::try_from(key[0] % u32::from(total)).ok()?;
     let cells = 1 + u8::try_from(key[1] % 2).ok()?;
     let p = Piece::new(start, cells, total).or_else(|| Piece::new(start, 1, total))?;
-    let mut out = key.to_vec();
-    out.push(u32::from(p.mark()));
+    let mut out = Vec::new();
+    p.key(key, &mut out);
     Some(out)
 }
 

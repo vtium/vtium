@@ -224,12 +224,11 @@ impl Syllable {
         Piece::new(start, members.get(index)?.cells, total)
     }
 
-    /// Appends to `out` the key of the cluster at `index`'s piece: the
-    /// syllable's text and the piece's mark.
+    /// Appends to `out` the key of the cluster at `index`'s piece
+    /// ([`Piece::key`]): the syllable's text, U+001F and the piece's mark.
     pub fn key(&self, index: usize, out: &mut Vec<char>) -> Option<Piece> {
         let piece = self.piece(index)?;
-        out.extend_from_slice(self.text());
-        out.push(piece.mark());
+        piece.key(self.text(), out);
         Some(piece)
     }
 
@@ -385,11 +384,12 @@ mod tests {
         assert!(Syllable::find(&frame, (2, 0), &ka).is_none());
         let ra = frame.cell(1, 0).unwrap();
         assert!(Syllable::find(&frame, (0, 1), &ra).is_none());
-        // eight clusters of ka and virama, then ka: 17 scalar values
-        let long: String = "ಕ್".repeat(8) + "ಕ";
+        // seven clusters of ka and virama, then ka: 15 scalar values; six,
+        // then ka with its vowel sign aa: 14, which fit
+        let long: String = "ಕ್".repeat(7) + "ಕ";
         assert!(syllables(&long).is_empty(), "past the bound");
-        let fits: String = "ಕ್".repeat(7) + "ಕ";
-        assert_eq!(syllables(&fits), [(0..8).collect::<Vec<_>>()]);
+        let fits: String = "ಕ್".repeat(6) + "ಕ\u{cbe}";
+        assert_eq!(syllables(&fits), [(0..7).collect::<Vec<_>>()]);
         assert_eq!(syllables("\u{11003}\u{11013}"), [vec![0, 1]], "Brahmi");
         assert_eq!(syllables("\u{11460}\u{1140e}"), [vec![0, 1]], "Newa");
     }
@@ -410,10 +410,10 @@ mod tests {
         let mut key = Vec::new();
         let piece = s.key(2, &mut key).unwrap();
         assert_eq!(
-            &key[..key.len() - 1],
+            &key[..key.len() - 2],
             "ಸ್ತ್ರೀ".chars().collect::<Vec<_>>().as_slice()
         );
-        assert_eq!(key.last(), Some(&piece.mark()));
+        assert_eq!(key[key.len() - 2..], ['\u{1f}', piece.mark()]);
         assert_eq!(piece.start, 2);
     }
 

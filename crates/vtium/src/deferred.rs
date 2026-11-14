@@ -1256,7 +1256,9 @@ impl DeferredFace {
                 let held = lock(&self.generated).draw(self.at(), cluster, variant);
                 // a syllable's piece is the helper's or nothing: the
                 // renderer draws its clusters on their own while the store
-                // lacks it (ADR-1203 D4)
+                // lacks it (ADR-1203 D4). Only the console's syllable
+                // finder makes a piece's key, and no cell's own cluster is
+                // one ([`vtium_font::syllable`])
                 #[cfg(feature = "bidi")]
                 if vtium_font::syllable::piece_of_chars(cluster).is_some() {
                     return held;
@@ -4162,8 +4164,8 @@ mod tests {
             let bold = all.iter().find(|s| s.variant.style.bold).unwrap();
             let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
             for start in [0, 1] {
-                let mut key = text.to_vec();
-                key.push(Piece::new(start, 1, 2).unwrap().mark());
+                let mut key = Vec::new();
+                Piece::new(start, 1, 2).unwrap().key(&text, &mut key);
                 assert!(
                     bold.clusters.contains(&key),
                     "{bytes:?}: {key:?} in {bold:?}"
@@ -4172,6 +4174,7 @@ mod tests {
                     !bold.chars.contains(key.last().unwrap()),
                     "the mark is no character"
                 );
+                assert!(!bold.chars.contains(&'\u{1f}'), "nor the separator");
             }
             assert!(
                 bold.clusters.contains(&text[..2].to_vec()),
@@ -4179,6 +4182,45 @@ mod tests {
             );
             assert!(bold.chars.contains(&'\u{cb0}'), "ra on its own");
         }
+    }
+
+    // ADR-1203 D3: only the console's syllable finder names a piece. A
+    // program's own cluster that ends with a piece's mark is ordinary text:
+    // rule GB9b of UAX #29 keeps two Arabic number signs, U+0600, and the
+    // mark of the first piece of two cells in one cluster, and the console
+    // asks the helper for it as a cluster and draws it from its characters
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_programs_cluster_is_no_piece() {
+        use vtium_font::syllable::{Piece, piece_of_chars};
+        let mark = Piece::new(0, 1, 2).unwrap().mark();
+        let cluster = ['\u{600}', '\u{600}', mark];
+        let mut t = vtium_term::Terminal::new(8, 1, 0);
+        t.input(cluster.iter().collect::<String>().as_bytes());
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let text: String = cluster.iter().collect();
+        assert_eq!(
+            frame.cell(0, 0).unwrap().glyph,
+            vtium_term::Glyph::Cluster(&text),
+            "one cluster"
+        );
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all);
+        settle(&mut all);
+        let asked: Vec<&Text> = all.iter().flat_map(|s| &s.clusters).collect();
+        assert!(asked.contains(&&cluster.to_vec()), "{asked:?}");
+        assert!(
+            asked.iter().all(|k| piece_of_chars(k).is_none()),
+            "no piece: {asked:?}"
+        );
+        let generated = Shared::default();
+        let f = face(&generated);
+        let drawn = f.draw_cells(&cluster, Style::default(), 1).unwrap();
+        assert_eq!(
+            Some(drawn),
+            f.draw(&cluster[..2], Style::default()),
+            "the number signs, drawn from their characters"
+        );
     }
 
     // ADR-1203 D4: the console's face holds a syllable's piece once the
@@ -4189,10 +4231,10 @@ mod tests {
     fn a_piece_is_held_or_drawn_as_nothing() {
         use vtium_font::syllable::Piece;
         let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
-        let mut held = text.to_vec();
-        held.push(Piece::new(0, 1, 2).unwrap().mark());
-        let mut lacked = text.to_vec();
-        lacked.push(Piece::new(1, 1, 2).unwrap().mark());
+        let mut held = Vec::new();
+        Piece::new(0, 1, 2).unwrap().key(&text, &mut held);
+        let mut lacked = Vec::new();
+        Piece::new(1, 1, 2).unwrap().key(&text, &mut lacked);
         let mut s = StrikeBuilder::new(PixelFormat::R8, CELL, Style::default());
         let g = s.glyph(Width::Narrow, vec![7; (CELL.width * CELL.height) as usize]);
         s.cluster(&held, g);

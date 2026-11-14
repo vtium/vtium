@@ -725,10 +725,7 @@ fn drawn_text<F: Face>(
 ) {
     let mut scratch = Vec::new();
     match joined_syllable(font, p, at, fc, &mut scratch) {
-        Some((s, piece)) => {
-            out.extend_from_slice(s.text());
-            out.push(piece.mark());
-        }
+        Some((s, piece)) => piece.key(s.text(), out),
         None => {
             crate::joined::drawn(p.frame, at, fc, p.held, out);
         }

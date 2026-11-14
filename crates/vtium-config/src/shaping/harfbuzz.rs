@@ -161,8 +161,8 @@ fn syllables(clusters: &[Vec<u32>]) -> Vec<Vec<u32>> {
         }
         let total: u8 = run.iter().map(|k| width(k)).sum();
         let piece = Piece::new(0, width(run[0]), total).expect("a piece");
-        let mut key = text;
-        key.push(u32::from(piece.mark()));
+        let mut key = Vec::new();
+        piece.key(&text, &mut key);
         out.push(key);
     }
     out

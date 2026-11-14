@@ -22,13 +22,17 @@
 //! Character Database.
 //!
 //! Each cluster of a syllable draws its own part of the syllable's glyph,
-//! its [`Piece`], in its own cells. A piece is named by the syllable's text
-//! followed by one character, its mark ([`Piece::mark`]), which says where
-//! the cluster's cells lie among the syllable's. The mark is a character of
-//! Supplementary Private Use Area-B. A program can write one, but never
-//! into a cluster that holds a syllable's text before it, since UAX #29
-//! breaks a cluster before a private use character after a letter. So no
-//! cell's own cluster is ever a piece's key.
+//! its [`Piece`], in its own cells. A piece's key ([`Piece::key`]) is the
+//! syllable's text, then U+001F INFORMATION SEPARATOR ONE, then the
+//! piece's mark ([`Piece::mark`]), a character of Supplementary Private
+//! Use Area-B that says where the cluster's cells lie among the
+//! syllable's. Only the console's syllable finder makes a key, for the
+//! cells it finds in a syllable. A program can write a mark, and rule GB9b
+//! of UAX #29 keeps one in a cluster after a Prepend character such as
+//! U+0600. But U+001F is a control character: rules GB4 and GB5 break a
+//! cluster on both sides of it, so no cluster of two characters or more
+//! holds it. So no cell's own cluster is a piece's key, and a cluster that
+//! ends with a mark draws as ordinary text.
 
 mod data;
 
@@ -38,14 +42,20 @@ use crate::bounds::CLUSTER_SCALARS_MAX;
 pub const UNICODE_VERSION: &str = data::VERSION;
 
 /// The most scalar values a syllable's text holds: one key's worth, less
-/// the piece's mark that follows the text in each piece's key. A run of
-/// joined clusters whose text is longer draws split (ADR-1203 D1).
-pub const SYLLABLE_SCALARS_MAX: usize = CLUSTER_SCALARS_MAX as usize - 1;
+/// the separator and the piece's mark that follow the text in each piece's
+/// key. A run of joined clusters whose text is longer draws split
+/// (ADR-1203 D1).
+pub const SYLLABLE_SCALARS_MAX: usize = CLUSTER_SCALARS_MAX as usize - 2;
+
+/// U+001F INFORMATION SEPARATOR ONE, which stands between a piece key's
+/// text and its mark. UAX #29 never puts a control character in a cluster
+/// with another character, so no cell's cluster holds it.
+const SEPARATOR: char = '\u{1f}';
 
 /// The most cells a syllable takes: two for each of its scalar values.
 #[expect(
     clippy::cast_possible_truncation,
-    reason = "30 cells, which the test of the marks holds the bound to"
+    reason = "28 cells, which the test of the marks holds the bound to"
 )]
 const TOTAL_MAX: u8 = 2 * SYLLABLE_SCALARS_MAX as u8;
 
@@ -174,7 +184,7 @@ pub struct Piece {
 }
 
 impl Piece {
-    /// The piece, when it lies inside a syllable of 2 to 30 cells, two for
+    /// The piece, when it lies inside a syllable of 2 to 28 cells, two for
     /// each of [`SYLLABLE_SCALARS_MAX`], and is 1 or 2 cells wide.
     pub fn new(start: u8, cells: u8, total: u8) -> Option<Piece> {
         let fits = (2..=TOTAL_MAX).contains(&total)
@@ -196,6 +206,15 @@ impl Piece {
         char::from_u32(MARK_BASE | n).unwrap_or('\u{10ffff}')
     }
 
+    /// Appends to `out` the key of this piece of the syllable whose text is
+    /// `text`: the text, U+001F and the piece's mark. The console makes a
+    /// key only for a cell its syllable finder puts in a syllable.
+    pub fn key<T: Copy + From<char>>(self, text: &[T], out: &mut Vec<T>) {
+        out.extend_from_slice(text);
+        out.push(T::from(SEPARATOR));
+        out.push(T::from(self.mark()));
+    }
+
     /// The piece `c` names, when it is a piece's mark.
     pub fn of_mark(c: u32) -> Option<Piece> {
         let n = c.checked_sub(MARK_BASE).filter(|&n| n < 1 << 11)?;
@@ -207,22 +226,25 @@ impl Piece {
 }
 
 /// The syllable's text and the piece that `key` names, when `key` is a
-/// piece's key: the text of a syllable, of 2 to [`SYLLABLE_SCALARS_MAX`]
-/// scalar values, then the piece's mark.
+/// piece's key ([`Piece::key`]): the text of a syllable, of 2 to
+/// [`SYLLABLE_SCALARS_MAX`] scalar values, then U+001F and the piece's
+/// mark.
 pub fn piece_of(key: &[u32]) -> Option<(&[u32], Piece)> {
-    let (&mark, text) = key.split_last()?;
-    let piece = Piece::of_mark(mark)?;
-    (2..=SYLLABLE_SCALARS_MAX)
-        .contains(&text.len())
+    let [text @ .., separator, mark] = key else {
+        return None;
+    };
+    let piece = Piece::of_mark(*mark)?;
+    (*separator == u32::from(SEPARATOR) && (2..=SYLLABLE_SCALARS_MAX).contains(&text.len()))
         .then_some((text, piece))
 }
 
 /// [`piece_of`] for a key of characters.
 pub fn piece_of_chars(key: &[char]) -> Option<(&[char], Piece)> {
-    let (&mark, text) = key.split_last()?;
-    let piece = Piece::of_mark(u32::from(mark))?;
-    (2..=SYLLABLE_SCALARS_MAX)
-        .contains(&text.len())
+    let [text @ .., separator, mark] = key else {
+        return None;
+    };
+    let piece = Piece::of_mark(u32::from(*mark))?;
+    (*separator == SEPARATOR && (2..=SYLLABLE_SCALARS_MAX).contains(&text.len()))
         .then_some((text, piece))
 }
 
@@ -338,15 +360,15 @@ mod tests {
     }
 
     // A piece's mark names its place, and only a place inside a syllable
-    // of 2 to 30 cells is a piece
+    // of 2 to 28 cells is a piece
     #[test]
     fn a_pieces_mark_names_its_place() {
-        for (start, cells, total) in [(0, 1, 2), (1, 1, 2), (2, 2, 4), (28, 2, 30)] {
+        for (start, cells, total) in [(0, 1, 2), (1, 1, 2), (2, 2, 4), (26, 2, 28)] {
             let p = Piece::new(start, cells, total).expect("a piece");
             assert_eq!(Piece::of_mark(u32::from(p.mark())), Some(p));
             assert!(u32::from(p.mark()) >= 0x10_0000);
         }
-        for (start, cells, total) in [(0, 1, 1), (1, 2, 2), (0, 3, 4), (0, 1, 31)] {
+        for (start, cells, total) in [(0, 1, 1), (1, 2, 2), (0, 3, 4), (0, 1, 29)] {
             assert_eq!(
                 Piece::new(start, cells, total),
                 None,
@@ -356,15 +378,34 @@ mod tests {
         assert_eq!(Piece::of_mark(0x41), None);
         assert_eq!(Piece::of_mark(0x10_ffff), None);
         let ka_ra: Vec<u32> = [0xc95, 0xccd, 0xcb0].into();
-        let mut key = ka_ra.clone();
+        let mut key = Vec::new();
         let p = Piece::new(1, 1, 2).expect("a piece");
-        key.push(u32::from(p.mark()));
+        p.key(&ka_ra, &mut key);
+        assert_eq!(key[3..], [0x1f, u32::from(p.mark())]);
         assert_eq!(piece_of(&key), Some((ka_ra.as_slice(), p)));
         assert_eq!(piece_of(&ka_ra), None, "no mark");
+        let mut unseparated = ka_ra.clone();
+        unseparated.push(u32::from(p.mark()));
+        assert_eq!(piece_of(&unseparated), None, "no separator");
         let long = vec![0xc95; SYLLABLE_SCALARS_MAX + 1];
-        let mut key = long.clone();
-        key.push(u32::from(p.mark()));
+        let mut key = Vec::new();
+        p.key(&long, &mut key);
         assert_eq!(piece_of(&key), None, "a text past the bound");
-        assert_eq!(SYLLABLE_SCALARS_MAX, 15);
+        assert_eq!(SYLLABLE_SCALARS_MAX, 14);
+        assert_eq!(key.len(), CLUSTER_SCALARS_MAX as usize + 1, "one past");
+    }
+
+    // ADR-1203 D3: a cluster a program writes is no piece's key. Rule GB9b
+    // of UAX #29 keeps U+0600, U+0600 and a mark in one cluster, and it
+    // names no piece, since no cluster holds the separator
+    #[test]
+    fn a_programs_cluster_that_ends_with_a_mark_is_no_key() {
+        let mark = Piece::new(0, 1, 2).expect("a piece").mark();
+        assert_eq!(piece_of_chars(&['\u{600}', '\u{600}', mark]), None);
+        let mut key = Vec::new();
+        Piece::new(0, 1, 2)
+            .expect("a piece")
+            .key(&['\u{600}', '\u{600}'], &mut key);
+        assert!(piece_of_chars(&key).is_some(), "the console's key");
     }
 }

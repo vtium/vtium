@@ -84,8 +84,8 @@ impl Face for Pieces {
 /// The key of the piece from cell `start` of a syllable of `total` cells,
 /// one cell wide.
 fn key(text: &[char], start: u8, total: u8) -> Vec<char> {
-    let mut k = text.to_vec();
-    k.push(Piece::new(start, 1, total).unwrap().mark());
+    let mut k = Vec::new();
+    Piece::new(start, 1, total).unwrap().key(text, &mut k);
     k
 }
 
@@ -339,8 +339,8 @@ fn a_wide_cluster_draws_its_piece_across_its_two_cells() {
     let mut c = Canvas::new(48, 16, 0);
     r.draw(&frame, &mut c, 0, &state(&t));
     let got = drawn.take();
-    let mut wide = KA_RA.to_vec();
-    wide.push(Piece::new(1, 2, 3).unwrap().mark());
+    let mut wide = Vec::new();
+    Piece::new(1, 2, 3).unwrap().key(&KA_RA, &mut wide);
     assert!(got.contains(&wide), "{got:?}");
     assert!(got.contains(&key(&KA_RA, 0, 3)), "{got:?}");
     let fg = px(t.palette().fg());

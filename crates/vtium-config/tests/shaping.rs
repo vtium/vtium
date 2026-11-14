@@ -1340,12 +1340,10 @@ fn kannada(asks: Vec<Ask>) -> OutlineRequest {
 /// The key of the piece of `text` from cell `start` of `total`, one cell
 /// wide.
 fn piece_key(text: &[char], start: u8, total: u8) -> Vec<char> {
-    let mut k = text.to_vec();
-    k.push(
-        vtium_font::syllable::Piece::new(start, 1, total)
-            .expect("a piece")
-            .mark(),
-    );
+    let mut k = Vec::new();
+    vtium_font::syllable::Piece::new(start, 1, total)
+        .expect("a piece")
+        .key(text, &mut k);
     k
 }
 
