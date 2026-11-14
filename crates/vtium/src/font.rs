@@ -749,6 +749,9 @@ pub enum Chosen {
         /// (ADR-1302 D13), which vtium.conf's `font-line-spacing`
         /// overrides.
         line_spacing: Option<u32>,
+        /// Its `fit=` lines, which place the built-in glyphs drawn in its
+        /// cell (ADR-1302 D13).
+        fits: std::sync::Arc<crate::deferred::FritFits>,
         generated: Shared,
     },
 }
@@ -790,6 +793,7 @@ impl Chosen {
         let cell = frit_cell(&frit.text)?;
         let size = frit_size(&frit.text)?;
         let line_spacing = frit_line_spacing(&frit.text)?;
+        let fits = std::sync::Arc::new(crate::deferred::FritFits::of(&frit.text));
         let outline = frit_outline(&frit.text);
         let name = frit.name.clone();
         if !frit_name(&name) {
@@ -804,6 +808,7 @@ impl Chosen {
             own: None,
             heights: std::collections::BTreeMap::new(),
             line_spacing,
+            fits,
             generated: Shared::default(),
         })
     }
@@ -970,7 +975,10 @@ impl Chosen {
             )));
         }
         if let Chosen::Frit {
-            generated, heights, ..
+            generated,
+            heights,
+            fits,
+            ..
         } = self
         {
             let at = Chosen::BUILTINS.face(height, locale)?;
@@ -992,13 +1000,10 @@ impl Chosen {
             };
             let builtin = builtin_in(None, cell, locale)?;
             let band = self.band(cell.height, spacing);
-            return Some(Box::new(DeferredFace::spaced(
-                builtin,
-                cell,
-                band,
-                step,
-                std::sync::Arc::clone(generated),
-            )));
+            return Some(Box::new(
+                DeferredFace::spaced(builtin, cell, band, step, std::sync::Arc::clone(generated))
+                    .with_fits(std::sync::Arc::clone(fits)),
+            ));
         }
         let face: DisplayFace = match self.builtin_at(height, locale) {
             "unifont" => Box::new(Unifont::new(height)),
@@ -1527,6 +1532,31 @@ mod tests {
             .draw(&[c], vtium_font::Style::default())
             .expect("a glyph");
         g.rows().map(<[u8]>::to_vec).collect()
+    }
+
+    // ADR-1302 D13: the frit's fit= reaches the glyphs the console draws
+    // itself in the frit's cell. Box drawing fills the taller cell by
+    // default; under the frit's fit=natural for U+2500 to U+257F a box line
+    // keeps the text band's rows, with the added rows blank
+    #[test]
+    fn a_frits_fit_places_the_built_in_glyphs_in_its_cell() {
+        let natural = frit_of(
+            "source=kbd:x\nsource=kbd:y\ncover=U+2500-U+257F\nfit=natural\nline-spacing=20\n",
+            false,
+        );
+        let plain = frit_of("source=kbd:x\nline-spacing=20\n", false);
+        let at = |f: &Chosen| f.face_spaced(16, "C", None).expect("a face");
+        // 20% of 16 is 3.2: 3 rows, 2 above and 1 below
+        let inked = |f: &Chosen| -> Vec<usize> {
+            glyph_rows(&at(f), '\u{2502}')
+                .iter()
+                .enumerate()
+                .filter(|(_, row)| row.iter().any(|&p| p != 0))
+                .map(|(y, _)| y)
+                .collect()
+        };
+        assert_eq!(inked(&plain), (0..19).collect::<Vec<_>>());
+        assert_eq!(inked(&natural), (2..18).collect::<Vec<_>>());
     }
 
     // ADR-1302 D13: a frit's `line-spacing=`, and vtium.conf's

@@ -162,12 +162,14 @@ impl Fit {
 
     /// How `c` uses the taller row when its set has no `fit=`: line and
     /// block characters are `fill`; Arabic, Hebrew, Syriac, Thaana, N'Ko
-    /// and a combining mark of any script, which `mark` says `c` is, are
-    /// `room`; everything else is `natural`.
-    pub fn default_for(c: u32, mark: bool) -> Fit {
+    /// and a combining mark of any script ([`crate::marks::is_mark`]) are
+    /// `room`; everything else is `natural`. The console and the font
+    /// helper both call this, so a glyph either of them draws takes the
+    /// same default.
+    pub fn default_for(c: u32) -> Fit {
         if within(FILL_DEFAULT, c) {
             Fit::Fill
-        } else if mark || within(ROOM_DEFAULT, c) {
+        } else if crate::marks::is_mark(c) || within(ROOM_DEFAULT, c) {
             Fit::Room
         } else {
             Fit::Natural
@@ -463,14 +465,17 @@ mod tests {
         for c in [
             0x2500, 0x257f, 0x2588, 0x2591, 0x2800, 0x28ff, 0xe0b0, 0x1fb00, 0x1fb3c, 0x1cd00,
         ] {
-            assert_eq!(Fit::default_for(c, false), Fit::Fill, "{c:x}");
+            assert_eq!(Fit::default_for(c), Fit::Fill, "{c:x}");
         }
         for c in [0x05d0, 0x0628, 0x0710, 0x0780, 0x07ca, 0xfe8f, 0xfb2a] {
-            assert_eq!(Fit::default_for(c, false), Fit::Room, "{c:x}");
+            assert_eq!(Fit::default_for(c), Fit::Room, "{c:x}");
         }
-        assert_eq!(Fit::default_for(0x0301, true), Fit::Room);
+        // a combining mark of any script, a spacing mark among them
+        for c in [0x0301, 0x0903, 0x093e, 0x20dd] {
+            assert_eq!(Fit::default_for(c), Fit::Room, "{c:x}");
+        }
         for c in [u32::from('A'), u32::from('0'), 0x1f600, 0x4e00, 0x25a1] {
-            assert_eq!(Fit::default_for(c, false), Fit::Natural, "{c:x}");
+            assert_eq!(Fit::default_for(c), Fit::Natural, "{c:x}");
         }
         for (name, fit) in Fit::NAMES {
             assert_eq!(Fit::parse(name), Some(fit));

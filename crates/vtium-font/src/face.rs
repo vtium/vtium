@@ -5,7 +5,7 @@ use crate::glyph::{Format, Glyph};
 use crate::hex;
 use crate::policy::{Coverage, Missing, RangeCoverage, Source, SpritePolicy};
 use crate::script::{self, Kind, Origin, Script, Variant};
-use crate::spacing::Band;
+use crate::spacing::{Band, Fit};
 use crate::sprite::{self, Range};
 
 /// How a glyph is drawn. Bitmap faces draw bold by widening each row by a
@@ -210,6 +210,14 @@ pub trait Face {
         Band::NONE
     }
 
+    /// How the face's own glyph for `c` in `style` uses a cell that line
+    /// spacing makes taller ([`Face::band`]), where [`Font`] draws `c`
+    /// itself as a sprite: `c`'s default fit, unless the face knows a
+    /// font set's `fit=` for it.
+    fn fit(&self, c: char, _style: Style) -> Fit {
+        Fit::default_for(u32::from(c))
+    }
+
     /// The built-in fonts fitted to this face's cell, which the console
     /// draws its own notices and focus mark with (ADR-1401 D5, D7), for a
     /// face that draws a font set's glyphs over the built-in fonts. `None`
@@ -336,6 +344,9 @@ impl<F: Face + ?Sized> Face for Box<F> {
     }
     fn band(&self) -> Band {
         (**self).band()
+    }
+    fn fit(&self, c: char, style: Style) -> Fit {
+        (**self).fit(c, style)
     }
     fn builtins(&self) -> Option<Box<dyn Face + '_>> {
         (**self).builtins()
@@ -509,8 +520,21 @@ impl<F: Face> Font<F> {
         let cell = self.face.cell();
         let w = cell.width.saturating_mul(width.cells());
         if let Some(c) = self.sprite_base(cluster) {
+            // a sprite fills the whole cell, the rows line spacing adds
+            // included, unless the face's fit for it keeps it to the text
+            // band (ADR-1302 D13)
+            let band = self.face.band();
+            let fit = self.face.fit(c, style);
+            let height = match fit {
+                Fit::Fill => cell.height,
+                Fit::Natural | Fit::Room => cell.height.saturating_sub(band.added()),
+            };
             let thick = sprite::light_line(cell.height);
-            if let Some(s) = sprite::draw(c, w, cell.height, thick) {
+            if let Some(s) = sprite::draw(c, w, height, thick) {
+                let s = match height == cell.height {
+                    true => s,
+                    false => crate::spacing::place(&s, band, fit, true)?,
+                };
                 return Some(Drawn::new(s.with_cells(width), 1, false));
             }
         }

@@ -51,8 +51,10 @@ use vtium_font::{
 };
 
 mod data;
+mod fits;
 #[cfg(feature = "bidi")]
 mod joined;
+pub use fits::FritFits;
 #[cfg(feature = "bidi")]
 pub use joined::{presentation, presented};
 
@@ -234,9 +236,10 @@ pub fn settle(all: &mut [Shown]) {
     }
 }
 
-/// Whether `c` is a combining mark, drawn over its base.
+/// Whether `c` is a combining mark, drawn over or beside its base. The
+/// font helper reads the same table ([`vtium_font::marks`]).
 fn is_mark(c: char) -> bool {
-    within(&data::MARKS, c)
+    vtium_font::marks::is_mark(u32::from(c))
 }
 
 /// Whether `c` is a default ignorable, drawn as nothing.
@@ -1169,7 +1172,8 @@ impl Generated {
 /// Where line spacing adds rows above and below the text band (ADR-1302
 /// D13), the helper sends glyphs already placed in the whole cell, and a
 /// built-in glyph is fitted to the text band and placed in the whole cell
-/// by its default fit ([`Fit::default_for`]): a line or block character
+/// by the frit's `fit=` for the set that holds the character, else by its
+/// default fit ([`FritFits`]): by default a line or block character
 /// stretches, by repeating its top and bottom rows, and the rest keeps its
 /// size with blank rows above and below.
 pub struct DeferredFace {
@@ -1178,6 +1182,7 @@ pub struct DeferredFace {
     band: Band,
     step: u32,
     generated: Shared,
+    fits: Arc<FritFits>,
 }
 
 impl DeferredFace {
@@ -1205,7 +1210,15 @@ impl DeferredFace {
             band,
             step,
             generated,
+            fits: Arc::default(),
         }
+    }
+
+    /// The face with the frit's `fit=` lines, `fits`, which place the
+    /// built-in glyphs it draws in a cell made taller by line spacing.
+    #[must_use]
+    pub fn with_fits(self, fits: Arc<FritFits>) -> DeferredFace {
+        DeferredFace { fits, ..self }
     }
 
     /// The cell and band the store holds the face's glyphs by.
@@ -1289,9 +1302,10 @@ impl DeferredFace {
         Some(font.drawn_variant(&[c], normal.cells(), variant)?.glyph)
     }
 
-    /// `c`'s glyph in `style` from the built-in font, fitted to the cell.
+    /// `c`'s glyph in `style` from the built-in font, fitted to the cell
+    /// and placed in it by the frit's `fit=` for `c`, else `c`'s default.
     fn built_in(&self, c: char, style: Style) -> Option<Glyph> {
-        let fit = Fit::default_for(u32::from(c), is_mark(c));
+        let fit = self.fits.fit(u32::from(c), style);
         self.fit(self.builtin.draw(&[c], style)?, fit)
     }
 
@@ -1683,6 +1697,13 @@ impl Face for DeferredFace {
         self.band
     }
 
+    /// The frit's `fit=` for `c`, else `c`'s default ([`FritFits`]), which
+    /// places a sprite as [`DeferredFace::built_in`] places a built-in
+    /// glyph.
+    fn fit(&self, c: char, style: Style) -> Fit {
+        self.fits.fit(u32::from(c), style)
+    }
+
     /// For a character the store lacks, and for the last resort, the
     /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
     /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
@@ -1860,6 +1881,10 @@ impl Face for Builtins<'_> {
         self.0.band
     }
 
+    fn fit(&self, c: char, style: Style) -> Fit {
+        self.0.fits.fit(u32::from(c), style)
+    }
+
     /// The built-in font's origin, as it draws the cluster's first
     /// character, so the placeholder for a superscript or subscript glyph
     /// on its way is made small as the built-in font's own (ADR-1202 D4,
@@ -1911,6 +1936,72 @@ mod tests {
 
     /// [`CELL`] with no line spacing.
     const AT: SpacedCell = SpacedCell::plain(CELL);
+
+    // ADR-1302 D13: a frit that gives a character's set no fit= leaves the
+    // character to its default fit, and the font helper and the console
+    // both place a glyph of that character in a taller row. The two must
+    // give every character the same default, or a glyph moves when the
+    // helper's version of it arrives: they once read two different tables
+    // of combining marks, and disagreed on 707 characters
+    // ADR-1302 D13: a built-in glyph in a cell made taller by line spacing
+    // takes the fit= of the frit's set that holds its character. Box
+    // drawing fills the whole cell by default, so its lines join from row
+    // to row; under fit=natural it keeps the text band's rows, with the
+    // added rows blank
+    #[test]
+    fn a_built_in_glyph_takes_the_frits_fit_for_its_set() {
+        let band = Band { above: 3, below: 2 };
+        let face = |fits: &str| {
+            DeferredFace::spaced(
+                Box::new(Unifont::new(16)),
+                CELL,
+                band,
+                16,
+                Shared::default(),
+            )
+            .with_fits(Arc::new(FritFits::of(fits)))
+        };
+        let inked = |face: DeferredFace, c: char| -> Vec<u32> {
+            let glyph = Font::new(face)
+                .glyph(&[c], Width::Narrow, Style::default())
+                .unwrap();
+            assert_eq!(glyph.height(), 21, "{c}");
+            (0..glyph.height())
+                .filter(|&y| (0..glyph.width()).any(|x| glyph.pixel(x, y).unwrap()[0] != 0))
+                .collect()
+        };
+        let none = || face("source=font:Main\n");
+        let natural =
+            || face("source=font:Main\nsource=font:Lines\ncover=U+2500-U+257F\nfit=natural\n");
+        // the vertical line, a sprite, runs the whole cell by default, and
+        // the text band's 16 rows under fit=natural
+        assert_eq!(inked(none(), '\u{2502}'), (0..21).collect::<Vec<_>>());
+        assert_eq!(inked(natural(), '\u{2502}'), (3..19).collect::<Vec<_>>());
+        // the full block, which no cover= line of the frit names, keeps its
+        // default and fills the cell
+        assert_eq!(inked(natural(), '\u{2588}'), (0..21).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn the_helper_and_the_console_give_every_character_the_same_default_fit() {
+        let console = FritFits::default();
+        let mut differ = Vec::new();
+        for c in 0..=0x10_ffff_u32 {
+            let ours = console.fit(c, Style::default());
+            let helpers = vtium_config::serve::default_fit(c);
+            if ours != helpers {
+                differ.push(format!(
+                    "U+{c:04X}: the console {ours:?}, the helper {helpers:?}"
+                ));
+            }
+        }
+        assert!(
+            differ.is_empty(),
+            "{} differ: {:?}",
+            differ.len(),
+            &differ[..differ.len().min(8)]
+        );
+    }
 
     const CELL: Cell = Cell {
         width: 8,

@@ -122,6 +122,10 @@ pub enum InkFonts {
     /// ([`crate::fonts::SHIPPED_FONTS`]), and its rows made taller by its
     /// own `line-spacing=`.
     Shipped(crate::fonts::ShippedFrit),
+    /// DejaVu Sans Mono, which [`crate::fonts`] fetches, with the merged
+    /// symbol test font [`crate::fitfont`] behind it for the Private Use
+    /// Area, then the frit lines `extra` ([`crate::fitfont::frit_text`]).
+    Merged { extra: &'static str },
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -804,6 +808,12 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     crate::fonts::check_scripts(&fetched)?;
                     let text = crate::fonts::scripts_frit_text(&fetched);
                     ("tier2-scripts", text, fetched.as_path())
+                }
+                InkFonts::Merged { extra } => {
+                    crate::fonts::check(&fetched)?;
+                    let symbols = crate::fitfont::dir()?;
+                    let text = crate::fitfont::frit_text(&fetched, symbols, percent, extra);
+                    ("tier2-merged", text, fetched.as_path())
                 }
                 InkFonts::Shipped(frit) => {
                     crate::fonts::check_shipped(&fetched)?;

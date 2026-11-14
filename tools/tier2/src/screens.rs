@@ -2943,7 +2943,68 @@ const BASE: &[Case] = &[
         b"\x1b[2;5H\x1b[4 q\x1b[?25h",
         LINES_OUTLINE,
     ),
+    Case {
+        screen: merged("glyph-fit", GLYPH_FIT_DESC, GLYPH_FIT, None, ""),
+    },
+    Case {
+        screen: merged(
+            "glyph-fit-spaced",
+            GLYPH_FIT_SPACED_DESC,
+            GLYPH_FIT_SPACED,
+            Some(SPACED_30),
+            "cover=U+1FB00-U+1FBFF\nfit=natural\n",
+        ),
+    },
 ];
+
+/// The `glyph-fit` screens: a Powerline prompt and two icons from the
+/// merged symbol font, Latin letters with combining marks, and the box
+/// drawing and block elements vtium draws itself.
+const GLYPH_FIT: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\x1b[7m ok \x1b[0m\r\n",
+    "\u{f015} home  \u{f07b} src  gjpqy\r\n",
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303}\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2502}\u{2502}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2588}\u{2588}\u{2588} \u{2502}\u{2502}",
+)
+.as_bytes();
+
+/// The `glyph-fit-spaced` screen: the `glyph-fit` screen's rows, with two
+/// full-height bars of Legacy Computing beside the box lines, which no
+/// font of the font set holds, so vtium draws them itself.
+const GLYPH_FIT_SPACED: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\x1b[7m ok \x1b[0m\r\n",
+    "\u{f015} home  \u{f07b} src  gjpqy\r\n",
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303}\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2502}\u{2502} \u{1fb70}\u{1fb73}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2588}\u{2588}\u{2588} \u{2502}\u{2502} \u{1fb70}\u{1fb73}",
+)
+.as_bytes();
+
+const GLYPH_FIT_DESC: &str = "A font set of DejaVu Sans Mono with a short symbol font merged behind it by cover= for the Private Use Area, 24 by 5 cells at 16 and 32 pixels, with no line spacing. The symbol font's ascent and descent span 0.8 em, where DejaVu Sans Mono's span about 1.16 em. The first row is a prompt of Powerline segments: solid triangles between colored segments, a thin separator, and a left-pointing triangle before a reversed segment. The second row has a house icon and a folder icon beside letters with descenders. The third row has Latin letters with combining marks, and the last two rows have box drawing and block elements, which vtium draws itself. Correct: each separator runs from the top row of its cell to the bottom row, so the colored segments join it with no gap above or below. Each icon stands in the middle of its cell. Each mark sits over or under its letter. The box lines and blocks fill their cells and join from row to row.";
+
+const GLYPH_FIT_SPACED_DESC: &str = "The glyph-fit screen with 30 per cent of line spacing, which adds 5 rows to the 16-pixel text and 10 to the 32-pixel text, 3 and 5 of them above the text. Two full-height bars of Legacy Computing, U+1FB70 and U+1FB73, stand beside the box lines in the last two rows. No font of the font set holds them, so vtium draws them itself. The font set's fit= gives Legacy Computing, U+1FB00 to U+1FBFF, the value natural, and leaves everything else at its default. Correct: the Powerline separators stretch to the whole taller cell, since they are fill by default, so the segments still join them. The icons and letters keep their size on the text's baseline, with blank rows above and below. The box lines and blocks, which vtium draws itself and no fit= line names, stretch to the whole cell and join from row to row. The two Legacy Computing bars keep the text band's height under fit=natural, so they show a gap between the rows.";
+
+/// A screen of `bytes`, 24 by 5 cells, in the merged font set ([`InkFonts::Merged`])
+/// at 16 and 32 pixels, its rows made taller by `spacing` when it is
+/// set, with the frit lines `extra` after the symbol font's `source=`
+/// and `cover=` lines.
+const fn merged(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    spacing: Option<Spacing>,
+    extra: &'static str,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_16_AND_32,
+            spacing,
+            fonts: InkFonts::Merged { extra },
+        },
+        ..Screen::new(name, desc, bytes, 24, 5)
+    }
+}
 
 /// Three rows of text, which the `osd` screen draws the render timer's
 /// line over.
