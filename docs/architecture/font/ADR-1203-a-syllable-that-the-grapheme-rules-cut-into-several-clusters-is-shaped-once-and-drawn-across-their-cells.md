@@ -28,7 +28,10 @@ considered:
     said: "All virama scripts"
     via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1203's scripts probe
     covers: [scripts]
-status: proposed
+  - operator: aaronsb
+    said: "1203 seems fine and what we discussed"
+    via: the maintainer, in the steering session, 2026-11-13, after reading the revised record on the pushed branch docs/indic-records
+status: accepted
 date: 2026-11-13
 deciders:
   - aaronsb
