@@ -235,6 +235,37 @@ considered:
   - operator: aaronsb
     said: "in all these questions we are assuming the login picture is full screen too. it could be a small badge, printed on the display like a MOTD or a login banner, displacing the login prompt by some number of rows"
     via: the steering session's questions on 2026-11-14, on the small records
+  - operator: aaronsb
+    said: "The names login-image, login-image-fit and login-image-rows are suitable."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "One key: login-image-fit=banner picks the banner, as written."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "The default form is a background with cover, as written."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "A banner takes its own pixels by default, with login-image-rows to fix a height, as written."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "Add a position key for the banner, login-image-position, taking left, center or right, with left as the default. A background ignores it."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "The first login prompt waits for the picture, at most 2 seconds, as written."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "The login picture's keys belong to a look and the top level, not to a head's section."
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
+    paraphrase: true
+  - operator: aaronsb
+    said: "because a banner that can be part of a look makes more sense than in the config, globally"
+    via: the steering session's questions on 2026-11-14, on the login picture's two forms
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -526,8 +557,9 @@ Each setting takes the name another terminal gives it, as the C reference's did,
 | `login-image` | Ghostty's `background-image`, renamed because the picture belongs to the login prompt | unset | A PNG or JPEG file that vtium places each time a login prompt of the head starts (D17). |
 | `login-image-fit` | Ghostty's `background-image-fit`, with `banner` added | `cover` | `cover`, `contain`, `stretch` or `none` place a background; `banner` prints a banner above the login prompt (D17). |
 | `login-image-rows` | vtium's own | unset | A banner's height in text rows; unset, the banner takes its own size (D17). |
+| `login-image-position` | vtium's own | `left` | Where a banner sits across the screen: `left`, `center` or `right` (D17). |
 
-> Edited 2026-11-14: the three `login-image` rows are new, with D17, which is proposed.
+> Edited 2026-11-14: the four `login-image` rows are new, with D17, which is proposed. A `[look NAME]` section and the top level set them; a head's section does not.
 
 The replay interface's reference host sets the budget to 320,000,000 bytes for each screen, which vtium reads as each console's store, and turns both protocols on.
 
@@ -722,6 +754,8 @@ Four terms. An *upload* is a picture or a frame whose data comes in several comm
 
 > Edited 2026-11-14, later: the maintainer pointed out that a login picture can also be a small badge, printed like a message of the day, with the login prompt below it (`considered`). The decision now has two forms, a background and a banner, and the keys are renamed from `background-image` and `background-image-fit` to `login-image` and `login-image-fit`, with `login-image-rows` added. The draft before this edit is in git at d97d52ec.
 
+> Edited 2026-11-14, last: the maintainer settled the questions on the two forms (`considered`). The names, the form chosen by `login-image-fit=banner`, the background with `cover` as the default, the banner's own size by default and the wait of at most 2 seconds stand as written. `login-image-position` is new, and the four keys are now look keys and top-level keys. The keys' paragraph read: "A head's section in vtium.conf may set all three keys, so each head can show its own picture. The three keys join D11's table." The banner sat at the left margin always.
+
 The person who sets up vtium can name one picture for a head, and choose one of two forms for it. As a background, the picture fills the display beneath the text. As a banner, vtium prints the picture at the top of the screen like a message of the day, and the login prompt starts on the row below it. In both forms vtium places the picture each time it starts a login prompt in one of the head's consoles. From then on the picture is an ordinary picture placement in that console's store (D2). It travels with its lines, so it scrolls up and away as the text scrolls. A screen clear removes it, and a program can remove it with a kitty graphics delete command. vtium needs no sign of when login ends.
 
 #### The keys
@@ -731,8 +765,9 @@ The person who sets up vtium can name one picture for a head, and choose one of 
 | `login-image` | unset | The path of a PNG or JPEG file. Unset, vtium places no picture. |
 | `login-image-fit` | `cover` | The form, and for a background how the picture fits the display: `cover`, `contain`, `stretch` or `none` place a background, and `banner` prints a banner. |
 | `login-image-rows` | unset | For a banner, its height in text rows. Unset, the banner takes its own size in pixels, rounded up to whole cells. A background ignores it. |
+| `login-image-position` | `left` | Where a banner sits across the screen: `left`, `center` or `right`. A background ignores it. |
 
-A head's section in vtium.conf may set all three keys, so each head can show its own picture. The three keys join D11's table. The form is a value of `login-image-fit`, so that one key says how the picture goes on the screen and no combination of keys contradicts another. For example, `login-image=/etc/vtium/logo.png` with `login-image-fit=banner` prints the logo at its own size above the login prompt.
+The four keys are look keys. A `[look NAME]` section sets them, and a head shows the picture of the look it names, so the picture belongs with the look's font set and size. They are also top-level keys, under ADR-1403 D5's three levels: a key that a head's look leaves unset takes the top level's value. A configuration with no `[look]` section therefore shows the picture that its top-level lines name. A head's own section cannot set them. The four keys join D11's table. The form is a value of `login-image-fit`, so that one key says how the picture goes on the screen and no combination of keys contradicts another. For example, `login-image=/etc/vtium/logo.png` with `login-image-fit=banner` prints the logo at its own size above the login prompt.
 
 #### When vtium places the picture
 
@@ -748,8 +783,9 @@ A head's section in vtium.conf may set all three keys, so each head can show its
 
 #### The banner form
 
-- **Where it sits.** The banner is a kitty placement with no image id, at the same z as a background, anchored to the screen's top line at the left margin. Its rows hold no text when vtium places it, so it shows through the default background of those cells. vtium then moves the cursor to the first column of the row below the banner, before the login prompt starts. The login prompt and everything after it print below the banner, as text prints below a message of the day.
+- **Where it sits.** The banner is a kitty placement with no image id, at the same z as a background, anchored to the screen's top line. Its rows hold no text when vtium places it, so it shows through the default background of those cells. vtium then moves the cursor to the first column of the row below the banner, before the login prompt starts. The login prompt and everything after it print below the banner, as text prints below a message of the day.
 - **Its size.** Unset, `login-image-rows` lets the banner take its own size: its width and height in pixels, rounded up to whole cells at the cell size of the head's first lit display. The picture then draws one to one, at the top left of its box. With `login-image-rows=N`, the helper scales the picture, keeping its shape, so that it is N rows tall, and its width follows in whole cells.
+- **Across the screen.** `login-image-position` places the banner's box at the left margin, the default, against the right margin, or centered. Centered, the spare columns are split in two, and when their number is odd, the extra column goes on the right, so the banner starts at column (spare ÷ 2, rounded down). For example, a banner 9 columns wide on a grid of 80 columns leaves 71 spare columns, so it starts after 35 columns and leaves 36 on its right. Inside its box, the picture sits at the box's top left, so the position moves the picture by whole cells.
 - **Its limits.** A banner is never wider than the grid, and never taller than the grid's rows less 2, so the login prompt always has room on the screen. A banner larger than that is scaled down, keeping its shape, until it fits.
 - **What it shares with text.** The banner is part of the screen's text flow. It scrolls up with the login prompt's lines, into the scrollback and away. A width change rewraps the lines around it, and the banner keeps its box, as every placement does (D8).
 
@@ -769,6 +805,7 @@ A head's section in vtium.conf may set all three keys, so each head can show its
 | A placement in the store, made when the login prompt starts | the strip outside the grid shows no picture, and a zoom or resize leaves the picture's box as it was | | Taken: it scrolls away, a screen clear or a kitty delete removes it, and it needs no new rule |
 | A background and a banner, chosen by one value of `login-image-fit` | `banner` sits among values that otherwise say how a picture scales | | Taken: one key says how the picture goes on the screen |
 | A separate key for the form, beside the fit | a fourth key, and a fit that a banner ignores | | Not taken: more keys for the same choice |
+| A head's section setting the picture | a picture apart from the font set and size the head draws with | | Rejected (the maintainer): a banner belongs with a look |
 | The banner sized by rows only | a picture made at the size its maker wanted is scaled anyway | | Not taken: its own size is the default, and rows are there when wanted |
 | The picture as the default background, outside every store, for as long as the setting names it | a program cannot remove it, and vtium cannot tell when login ends | Ghostty's `background-image` | Rejected by the maintainer: a login picture is not needed after login |
 | The picture at the login prompt only, removed when login ends | vtium would need a sign of login's end that it does not have | | Rejected: vtium cannot tell the login prompt from the shell |
@@ -797,7 +834,7 @@ The strip outside the grid, and the box that stays as it was after a resize, may
 - **Palette-index pictures and short data** (D15): an `f=8` and an `f=16` picture store the premultiplied colors their indices give under a known palette, 250 to 253 included with the selection and cursor colors set and unset; a color change after the picture arrives, through each of OSC 4, 10, 11, 12, 17 and 19 and their resets, converts its pixels again and marks its cells changed, and a color change between its chunks takes effect for the whole picture; an `f=8` and an `f=16` picture from a file, from shared memory and with `o=z` store the same colors as the same picture sent directly; `f=16`'s alpha is applied; and raw data short of its picture in each of `f=8`, `f=16`, `f=24` and `f=32` is answered ENODATA. A test fails for each of these planted defects: the colors read at the first chunk, no conversion after a color change, ENODATA reverted to EINVAL, and `f=16`'s alpha ignored.
 - **Replies and the draw order under the specification's text** (D4, D15): no kitty reply holds a byte outside printable ASCII and the space. A placement that names itself as its parent is answered ECYCLE. A kitty picture sent without an id draws below one with an id at the same z, whichever arrived first. With the line feed put back, with EINVAL for a placement that names itself, and with an id-less picture put on top, each planted, a test fails.
 - **Uploads in chunks and feature queries** (D16, D14): vtium's own readable cases, written from the rules before the code that follows them, each with its answers fixed in advance. There is a case for each kind of command that can arrive while an upload is open, for `q` across chunks, for a first chunk refused by its keys, and for each feature-query rule. Each case also runs through the chunking check. With a whole picture that names another id handled on its own during an upload, planted, the case for it fails. With `q` taken from the first chunk alone, planted, the case for `q` fails. With a delete that leaves the upload open, planted, the case for deletes fails. A replacement whose reservation fits the budget alone but not beside the old image is refused at its first chunk, and with the old image left out of the count, planted, that case fails. A chunk that takes an upload past its reservation fails the upload, and with the cap removed, planted, that case fails.
-- **The login picture** (D17): tier 2 draws a login prompt over a background at two resolutions and in two orientations, with `cover` and `contain`, and a login prompt below a banner at its own size and at `login-image-rows=3`. A background made at the display's resolution draws one to one under `cover`, and so does a banner at its own size. The login prompt's first line is the row below the banner, and with the cursor move planted out, that test fails. A banner larger than the grid is scaled down so that two rows stay free. A cell with a background color of its own covers a background, and a test fails with that cell planted to show the picture through. Line feeds past the bottom scroll the picture up with its lines. ED 2, `a=d` and `d=z` with the lowest z each remove it, and ED 0, ED 1 and EL leave it; with ED 2's removal planted out, that test fails. A kitty query by every id a program can name finds no login picture. A respawned session gets one placement again, and with the reset planted out a test counts two. A missing file, a file that does not decode and a file past `LOGIN_IMAGE_FILE_MAX` each start the login prompt without the picture. Each logs one line, and a test counts the lines. A build without `images` logs its one line and draws no picture. Tier 3 boots to a login prompt over a background, and to one below a banner.
+- **The login picture** (D17): tier 2 draws a login prompt over a background at two resolutions and in two orientations, with `cover` and `contain`, and a login prompt below a banner at its own size, at `login-image-rows=3`, and at each `login-image-position`. A centered banner with an odd number of spare columns leaves the extra column on its right. A head shows the picture of the look it names, and a head whose look sets none shows the top level's. A background made at the display's resolution draws one to one under `cover`, and so does a banner at its own size. The login prompt's first line is the row below the banner, and with the cursor move planted out, that test fails. A banner larger than the grid is scaled down so that two rows stay free. A cell with a background color of its own covers a background, and a test fails with that cell planted to show the picture through. Line feeds past the bottom scroll the picture up with its lines. ED 2, `a=d` and `d=z` with the lowest z each remove it, and ED 0, ED 1 and EL leave it; with ED 2's removal planted out, that test fails. A kitty query by every id a program can name finds no login picture. A respawned session gets one placement again, and with the reset planted out a test counts two. A missing file, a file that does not decode and a file past `LOGIN_IMAGE_FILE_MAX` each start the login prompt without the picture. Each logs one line, and a test counts the lines. A build without `images` logs its one line and draws no picture. Tier 3 boots to a login prompt over a background, and to one below a banner.
 - **Coverage:** each test that drives an `image.*` row of ADR-1000 through vtium-image carries its `covers:` tag.
 
 ### Passages this record changes
@@ -815,6 +852,7 @@ These wait for their owners:
 - **The conformance runner's departures list** gains the draw-order cases D4 names.
 - **ADR-1101 D7, the request's pixel description,** carries RGB and RGBA. D15 and this record's pixel description give it the two palette-index layouts, which the helper returns unconverted. ADR-1101 changes in the change that builds them (2026-11-14).
 - **ADR-1101 D7, the request,** gains a request for the login picture (D17): an open file that the console hands over, and the size the picture's form needs, answered with one picture scaled to that size. ADR-1101 changes in the change that builds the background picture (2026-11-14).
+- **ADR-1403 D5's list of the keys a look takes** gains `login-image`, `login-image-fit`, `login-image-rows` and `login-image-position` (D17). ADR-1403 changes in the change that builds the login picture (2026-11-14).
 - **ADR-1000's `image.login` row** says that nothing is built yet and that its issue writes a design note first. D17 is that note, and the row's status changes in the change that builds the picture (2026-11-14).
 - **ADR-1102 D2,** which refuses composition and frames on a palette-index picture, stays as it is. A palette-index picture that the store converts again after a color change takes no frames, so its pixels are always the indices' colors.
 
