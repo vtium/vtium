@@ -14,6 +14,17 @@
 //! (Grapheme_Cluster_Break V or T). It takes two when its East_Asian_Width
 //! is W or F, or it has Emoji_Presentation; an unassigned codepoint in a
 //! range EastAsianWidth.txt's header names is W. Any other takes one.
+//!
+//! A grapheme cluster takes its first codepoint's width, or two for an
+//! emoji-style base with U+FE0F (ADR-1200 D21). Under `cluster-width =
+//! double`, the default, two rules of Python wcwidth's specification widen
+//! it (ADR-1006 D1). A codepoint of General_Category Mc after a first
+//! codepoint of nonzero width gives the cluster two cells. A codepoint of
+//! Indic_Syllabic_Category Consonant after one of Virama or
+//! Invisible_Stacker, with only U+200D or nonspacing marks between them,
+//! adds its width to the cluster's. A virama of category Mc counts as a
+//! virama, and no cluster takes more than two cells. Under `single`
+//! neither rule applies.
 
 #[cfg(feature = "bidi")]
 pub(crate) mod bidi;
@@ -46,19 +57,14 @@ pub(crate) fn char_width(c: char) -> u8 {
     Props::of(c).width()
 }
 
-/// Whether `c` is the base of an emoji-style variation sequence, which VS16
-/// (U+FE0F) widens to two cells.
-pub(crate) fn is_vs16_base(c: char) -> bool {
-    Props::of(c).vs16_base()
-}
-
 /// A codepoint's property word, as `data.rs` encodes it.
 #[derive(Clone, Copy)]
 struct Props(u16);
 
 /// The properties of a codepoint outside every run, which the runs starting
 /// at U+0000 rule out: those of an unassigned one.
-const UNLISTED: Props = Props(data::GCB_OTHER | data::INCB_NONE | data::WIDTH_1);
+const UNLISTED: Props =
+    Props(data::GCB_OTHER | data::INCB_NONE | data::WIDTH_1 | data::MARK_OTHER | data::ISC_OTHER);
 
 impl Props {
     fn of(c: char) -> Self {
@@ -112,6 +118,48 @@ impl Props {
     fn vs16_base(self) -> bool {
         self.0 & data::VS16_BASE != 0
     }
+
+    fn mark(self) -> Mark {
+        match self.0 & data::MARK {
+            data::MARK_MN => Mark::Mn,
+            data::MARK_MC => Mark::Mc,
+            _ => Mark::Other,
+        }
+    }
+
+    fn isc(self) -> Isc {
+        match self.0 & data::ISC {
+            data::ISC_VIRAMA => Isc::Virama,
+            data::ISC_INVISIBLE_STACKER => Isc::InvisibleStacker,
+            data::ISC_CONSONANT => Isc::Consonant,
+            _ => Isc::Other,
+        }
+    }
+
+    /// Indic_Syllabic_Category Virama or Invisible_Stacker: a consonant
+    /// after it forms a conjunct (ADR-1006 D1).
+    fn virama(self) -> bool {
+        matches!(self.isc(), Isc::Virama | Isc::InvisibleStacker)
+    }
+}
+
+/// The General_Category values a cluster's width reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Mark {
+    Other,
+    /// Nonspacing_Mark.
+    Mn,
+    /// Spacing_Mark.
+    Mc,
+}
+
+/// The Indic_Syllabic_Category values a cluster's width reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Isc {
+    Other,
+    Virama,
+    InvisibleStacker,
+    Consonant,
 }
 
 /// Grapheme_Cluster_Break.
@@ -225,26 +273,73 @@ impl Segmenter {
     }
 }
 
+/// What vtium-term gives a grapheme cluster with a spacing mark after its
+/// first character, or with a virama conjunct: vtium.conf's
+/// `cluster-width` (ADR-1006 D8).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ClusterWidth {
+    /// `double`, the default: such a cluster takes two cells, by Python
+    /// wcwidth's rules (ADR-1006 D1).
+    #[default]
+    Double,
+    /// `single`: every cluster takes its first character's cells, or two
+    /// for an emoji-style base with U+FE0F (ADR-1200 D21).
+    Single,
+}
+
 /// The cells the grapheme cluster `cluster` takes on a screen whose
-/// clusters follow UAX #29 (mode 2027 set, the terminal's default): its
-/// first codepoint's width, 0, 1 or 2, or two when that codepoint is the
-/// base of an emoji-style variation sequence and U+FE0F follows it. It is
-/// the width the screen stores for the cluster, given here so that the
-/// glyph helper places each glyph in the cells the terminal gives it.
+/// clusters follow UAX #29 (mode 2027 set, the terminal's default) under
+/// `cluster-width = double`, the default: its first codepoint's width, 0,
+/// 1 or 2, or two when that codepoint is the base of an emoji-style
+/// variation sequence and U+FE0F follows it, widened by ADR-1006's two
+/// rules (the module's notes). It is the width the screen stores for the
+/// cluster, given here so that the glyph helper places each glyph in the
+/// cells the terminal gives it.
 pub fn cluster_width(cluster: &[char]) -> u8 {
-    width_of(cluster.iter().copied())
+    cluster_width_with(cluster, ClusterWidth::Double)
+}
+
+/// [`cluster_width`] under the rule `rule`, the value of vtium.conf's
+/// `cluster-width`.
+pub fn cluster_width_with(cluster: &[char], rule: ClusterWidth) -> u8 {
+    width_of(cluster.iter().copied(), rule)
 }
 
 /// [`cluster_width`] of a cluster's characters as an iterator gives them,
 /// the one place the rule is written.
-pub(crate) fn width_of(mut chars: impl Iterator<Item = char>) -> u8 {
+pub(crate) fn width_of(mut chars: impl Iterator<Item = char>, rule: ClusterWidth) -> u8 {
     let Some(first) = chars.next() else {
         return 1;
     };
-    if is_vs16_base(first) && chars.any(|c| c == '\u{FE0F}') {
-        return 2;
+    let base = Props::of(first);
+    let mut width = base.width();
+    // the cluster so far ends in a virama or an invisible stacker, perhaps
+    // followed by a ZWJ or nonspacing marks
+    let mut conjunct = base.virama();
+    for c in chars {
+        if c == '\u{FE0F}' && base.vs16_base() {
+            width = 2;
+        }
+        if rule == ClusterWidth::Single {
+            continue;
+        }
+        let p = Props::of(c);
+        if p.virama() {
+            // a spacing virama counts as a virama, not as a spacing mark
+            conjunct = true;
+        } else if conjunct && p.isc() == Isc::Consonant {
+            width = width.saturating_add(p.width());
+            conjunct = false;
+        } else if p.mark() == Mark::Mc {
+            if base.width() > 0 {
+                width = 2;
+            }
+            conjunct = false;
+        } else if c != '\u{200D}' && p.mark() != Mark::Mn {
+            conjunct = false;
+        }
     }
-    char_width(first)
+    width.min(2)
 }
 
 #[cfg(test)]
@@ -254,11 +349,11 @@ mod tests {
 
     // cluster_width gives the width the screen stores for each cluster a
     // terminal prints by the Unicode width method: an ideograph, the heart with
-    // VS16, with VS15 and alone, a letter and its combining acute, and the
-    // ZWJ family
+    // VS16, with VS15 and alone, a letter and its combining acute, the ZWJ
+    // family, Tamil ko and Devanagari ksha (ADR-1006 D1)
     #[test]
     fn a_clusters_width_is_the_one_the_screen_stores() {
-        let clusters: [&[char]; 6] = [
+        let clusters: [&[char]; 8] = [
             &['\u{4E2D}'],
             &['\u{2764}', '\u{FE0F}'],
             &['\u{2764}', '\u{FE0E}'],
@@ -271,9 +366,11 @@ mod tests {
                 '\u{200D}',
                 '\u{1F467}',
             ],
+            &['\u{B95}', '\u{BCA}'],
+            &['\u{915}', '\u{94D}', '\u{937}'],
         ];
         let widths: Vec<u8> = clusters.iter().map(|k| cluster_width(k)).collect();
-        assert_eq!(widths, [2, 2, 1, 1, 1, 2]);
+        assert_eq!(widths, [2, 2, 1, 1, 1, 2, 2, 2]);
         for cluster in clusters {
             // a terminal prints by the Unicode width method from its start
             let mut term = crate::Terminal::new(10, 1, 0);
@@ -288,6 +385,93 @@ mod tests {
         }
         assert_eq!(cluster_width(&[]), 1);
         assert_eq!(cluster_width(&['\u{301}']), 0, "a mark alone");
+    }
+
+    /// `text`'s codepoints, for a test's table.
+    fn chars(text: &str) -> Vec<char> {
+        text.chars().collect()
+    }
+
+    // ADR-1006 D1: under `double`, a cluster with a spacing mark (Mc) after
+    // a first character of nonzero width takes two cells, and a virama or
+    // invisible stacker followed by a consonant adds the consonant's width,
+    // two at most. Python wcwidth 0.9.4's specification gives each of these
+    // clusters the width here ("Width of 2", "Virama Conjunct Formation"),
+    // and its wcswidth, run on each on 2026-11-13, agrees, apart from Thai
+    // sara am. glibc 2.44's wcswidth, run through ctypes in the C.UTF-8
+    // locale on the same day, sums its code points' widths, an Mc taking 1:
+    // the last column, which agrees with vtium up to two cells.
+    #[test]
+    fn a_spacing_mark_or_a_virama_conjunct_takes_two_cells() {
+        // each line: the cluster, its width under `double`, and glibc's
+        // wcswidth of it, which the test does not check
+        for (text, double, _glibc) in [
+            ("\u{B95}\u{BCA}", 2, Some(2)),        // Tamil ko, vowel sign o (Mc)
+            ("\u{B95}\u{BC8}", 2, Some(2)),        // Tamil kai
+            ("\u{B95}\u{BC2}", 2, Some(2)),        // Tamil koo
+            ("\u{BAE}\u{BBF}", 2, Some(2)),        // Tamil mi
+            ("\u{B95}\u{BBE}", 2, Some(2)),        // Tamil kaa, an Mc that is Extend
+            ("\u{915}\u{93F}", 2, Some(2)),        // Devanagari ki
+            ("\u{915}\u{903}", 2, Some(2)),        // Devanagari ka, visarga (Mc)
+            ("\u{915}\u{93C}\u{93F}", 2, Some(2)), // ka, nukta (Mn), i: Mn between
+            ("\u{CB0}\u{CC0}", 2, Some(2)),        // Kannada rii
+            ("\u{DC3}\u{DD2}\u{D82}", 2, Some(2)), // Sinhala si, anusvara (Mc)
+            ("\u{1780}\u{17B6}", 2, Some(2)),      // Khmer kaa
+            ("\u{915}\u{94D}\u{937}", 2, Some(2)), // Devanagari ksha, a conjunct
+            ("\u{930}\u{94D}\u{92E}", 2, Some(2)), // Devanagari rma
+            ("\u{915}\u{94D}\u{200D}\u{937}", 2, Some(2)), // ZWJ after the virama
+            ("\u{915}\u{94D}\u{93C}\u{937}", 2, Some(2)), // Mn after the virama
+            ("\u{1000}\u{1039}\u{1000}", 2, Some(2)), // Myanmar, an invisible stacker
+            ("\u{1780}\u{17D2}\u{1780}", 2, Some(2)), // Khmer coeng
+            // at most two, where glibc sums to more
+            ("\u{938}\u{94D}\u{924}\u{94D}\u{930}\u{940}", 2, Some(4)), // Devanagari stri
+            ("\u{D15}\u{D4D}\u{D37}\u{D4D}\u{D2E}", 2, Some(3)),        // Malayalam kssma
+            ("\u{D38}\u{D4D}\u{D24}\u{D4D}\u{D30}\u{D40}", 2, Some(4)), // Malayalam stri
+            // a spacing virama counts as a virama, not as a spacing mark
+            ("\u{A98F}\u{A9C0}", 1, Some(2)), // Javanese ka, pangkon (Mc)
+            ("\u{1B13}\u{1B44}\u{1B13}", 2, Some(3)), // Balinese ka, adeg adeg, ka
+            // what takes the width it takes today
+            ("\u{915}\u{941}", 1, Some(1)), // Devanagari ku, vowel sign u (Mn)
+            ("\u{B95}\u{BCD}", 1, Some(1)), // Tamil k, virama, no consonant
+            ("\u{CB8}\u{CCD}", 1, Some(1)), // Kannada s, virama
+            ("\u{93F}", 1, Some(1)),        // a spacing mark alone
+            ("e\u{301}", 1, Some(1)),       // e, combining acute
+            // ADR-1006 D1 takes only the two rules: Thai sara am is Lo, not
+            // Mc, so ko kai with it keeps one cell, where Python wcwidth
+            // gives two
+            ("\u{E01}\u{E33}", 1, Some(2)),
+        ] {
+            let cluster = chars(text);
+            assert_eq!(
+                cluster_width_with(&cluster, ClusterWidth::Double),
+                double,
+                "{cluster:x?} under double"
+            );
+            assert_eq!(cluster_width(&cluster), double, "{cluster:x?}: the default");
+            // ADR-1006 D8: under `single` each takes its first character's
+            // width
+            let first = cluster.first().map_or(1, |&c| char_width(c));
+            assert_eq!(
+                cluster_width_with(&cluster, ClusterWidth::Single),
+                first,
+                "{cluster:x?} under single"
+            );
+        }
+    }
+
+    // ADR-1006 D1: no cluster takes three cells, however its rules add up,
+    // and a wide first character with a spacing mark stays two
+    #[test]
+    fn no_cluster_takes_more_than_two_cells() {
+        for text in [
+            "\u{915}\u{94D}\u{937}\u{94D}\u{937}\u{94D}\u{937}\u{93F}",
+            "\u{4E2D}\u{93F}",
+            "\u{2764}\u{FE0F}\u{93F}",
+            "\u{1000}\u{1039}\u{1000}\u{1039}\u{1000}\u{102B}",
+        ] {
+            let cluster = chars(text);
+            assert_eq!(cluster_width(&cluster), 2, "{cluster:x?}");
+        }
     }
 
     #[test]
@@ -324,7 +508,7 @@ mod tests {
             ('\u{4E2D}', false),
             ('\u{FE0F}', false),
         ] {
-            assert_eq!(is_vs16_base(c), base, "U+{:04X}", u32::from(c));
+            assert_eq!(Props::of(c).vs16_base(), base, "U+{:04X}", u32::from(c));
         }
     }
 

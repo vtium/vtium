@@ -10,7 +10,7 @@ mod common;
 
 use common::{rows, scrollback, term};
 use vtium_term::{
-    Attrs, Color, Glyph, LineFlags, Rgb, Screen, Style, Terminal, Width, WidthMethod,
+    Attrs, ClusterWidth, Color, Glyph, LineFlags, Rgb, Screen, Style, Terminal, Width, WidthMethod,
 };
 
 fn cursor(t: &Terminal) -> (usize, usize) {
@@ -332,6 +332,110 @@ fn vs16_widens_and_a_wide_character_wraps_whole() {
     t.input("abc\u{4E2D}".as_bytes());
     assert_eq!(rows(t.screen()), ["abc", ""]);
     assert_eq!(cursor(&t), (3, 0));
+}
+
+// ADR-1006 D1 and D3: a spacing mark after its cluster's first character
+// widens the cluster to two cells when it arrives, as a VS16 does. Tamil
+// ka then vowel sign o: the cluster takes the cell after it, and the
+// cursor moves one cell further. A virama conjunct widens when its second
+// consonant arrives: Devanagari ka, virama, then ssa.
+// covers: text.grapheme
+#[test]
+fn a_spacing_mark_or_a_conjunct_widens_its_cluster_as_it_arrives() {
+    let mut t = Terminal::new(6, 2, 0);
+    t.input("\u{B95}".as_bytes());
+    assert_eq!(cursor(&t), (1, 0));
+    t.input("\u{BCA}x".as_bytes());
+    let s = t.screen();
+    assert_eq!(glyph(s, 0, 0), ("\u{B95}\u{BCA}".into(), Width::Wide));
+    assert_eq!(glyph(s, 0, 1), (String::new(), Width::WideTail));
+    assert_eq!(glyph(s, 0, 2), ("x".into(), Width::Narrow));
+    assert_eq!(cursor(&t), (3, 0));
+
+    let mut t = Terminal::new(6, 2, 0);
+    t.input("\u{915}\u{94D}".as_bytes());
+    assert_eq!(glyph(t.screen(), 0, 0).1, Width::Narrow, "ka and virama");
+    assert_eq!(cursor(&t), (1, 0));
+    t.input("\u{937}".as_bytes());
+    assert_eq!(
+        glyph(t.screen(), 0, 0),
+        ("\u{915}\u{94D}\u{937}".into(), Width::Wide)
+    );
+    assert_eq!(cursor(&t), (2, 0));
+
+    // the widening writes over the cell after the cluster
+    let t = term(6, 2, "xyz\x1b[H\u{B95}\u{BCA}".as_bytes());
+    assert_eq!(rows(t.screen()), ["\u{B95}\u{BCA}z", ""]);
+    assert_eq!(cursor(&t), (2, 0));
+    let t = term(6, 2, "ab\u{B95}\u{BCA}cd".as_bytes());
+    assert_eq!(rows(t.screen()), ["ab\u{B95}\u{BCA}cd", ""]);
+    assert_eq!(cursor(&t), (6, 0));
+}
+
+// ADR-1006 D3: in the last column with autowrap, a cluster a spacing mark
+// widens moves to the start of the next line, and the cell it left is
+// cleared as a wide character leaves it (a pad). Without autowrap it stays
+// one cell wide, and so it does on a screen one column wide.
+// covers: text.grapheme
+#[test]
+fn a_cluster_widened_in_the_last_column_wraps_or_stays_narrow() {
+    let t = term(4, 2, "abc\u{B95}\u{BCA}".as_bytes());
+    assert_eq!(rows(t.screen()), ["abc", "\u{B95}\u{BCA}"]);
+    assert_eq!(glyph(t.screen(), 0, 3), (String::new(), Width::Pad));
+    assert_eq!(
+        glyph(t.screen(), 1, 0),
+        ("\u{B95}\u{BCA}".into(), Width::Wide)
+    );
+    assert_eq!(cursor(&t), (2, 1));
+
+    let mut t = Terminal::new(4, 2, 0);
+    t.screen_mut().set_auto_wrap(false);
+    t.input("abc\u{B95}\u{BCA}".as_bytes());
+    assert_eq!(rows(t.screen()), ["abc\u{B95}\u{BCA}", ""]);
+    assert_eq!(
+        glyph(t.screen(), 0, 3),
+        ("\u{B95}\u{BCA}".into(), Width::Narrow)
+    );
+
+    // the line keeps only ka, past its cluster budget (ADR-1001), and the
+    // cell stays one wide
+    let t = term(1, 2, "\u{B95}\u{BCA}".as_bytes());
+    assert_eq!(glyph(t.screen(), 0, 0), ("\u{B95}".into(), Width::Narrow));
+    assert_eq!(rows(t.screen()), ["\u{B95}", ""]);
+}
+
+// ADR-1006 D3: in insert mode the cells after a cluster a spacing mark
+// widens move right by one. Ka moves abcde right by one cell, and the
+// vowel sign i moves abcd right by one more, so e is lost at the edge.
+// covers: text.grapheme
+#[test]
+fn insert_mode_moves_the_cells_after_a_widened_cluster() {
+    let t = term(6, 1, "abcde\x1b[1;1H\x1b[4h\u{915}\u{93F}".as_bytes());
+    assert_eq!(rows(t.screen()), ["\u{915}\u{93F}abcd"]);
+    assert_eq!(cursor(&t), (2, 0));
+}
+
+// ADR-1006 D8: under `cluster-width = single`, a cluster keeps its first
+// character's cells whatever follows, and the cursor moves one cell.
+// covers: text.grapheme
+#[test]
+fn under_single_a_cluster_keeps_its_first_characters_cells() {
+    let mut t = Terminal::new(6, 1, 0);
+    t.set_cluster_width(ClusterWidth::Single);
+    assert_eq!(t.screen().cluster_width(), ClusterWidth::Single);
+    t.input("\u{B95}\u{BCA}\u{915}\u{94D}\u{937}x".as_bytes());
+    let s = t.screen();
+    assert_eq!(glyph(s, 0, 0), ("\u{B95}\u{BCA}".into(), Width::Narrow));
+    assert_eq!(
+        glyph(s, 0, 1),
+        ("\u{915}\u{94D}\u{937}".into(), Width::Narrow)
+    );
+    assert_eq!(glyph(s, 0, 2), ("x".into(), Width::Narrow));
+    assert_eq!(cursor(&t), (3, 0));
+    // RIS keeps the host's setting
+    t.input("\x1bc\u{B95}\u{BCA}".as_bytes());
+    assert_eq!(t.screen().cluster_width(), ClusterWidth::Single);
+    assert_eq!(cursor(&t), (1, 0));
 }
 
 // REP (ECMA-48 8.3.103): the base of the last printed cell, each copy a

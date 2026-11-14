@@ -1722,6 +1722,22 @@ pub const TEXT_DIRECTION: Key = Key {
     cite: "[the right-to-left text issue](https://github.com/vtium/vtium/issues/43)",
 };
 
+pub const CLUSTER_WIDTH: Key = Key {
+    name: "cluster-width",
+    short: None,
+    kind: Kind::Choice(&["double", "single"]),
+    default: Default::Text("double"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium-term",
+    what: "How many character cells a syllable with a vowel sign or a virama takes, in Tamil, Devanagari and other scripts of South and Southeast Asia.\n\n\
+           `double`, the default, gives such a syllable two cells, so கொ takes two. `single` gives it one cell and squeezes it to fit.\n\n\
+           [docs] For example, the Tamil syllable கொ is the letter க with the vowel sign ொ. Under `double` it is drawn at full size, and the shell's line editor counts it as two cells too. `single` suits programs that count one cell for each syllable, such as Neovim.\n\n\
+           [docs] The choice comes from each character's Unicode properties, never from the font. A syllable takes two cells when a spacing vowel sign (General_Category Mc) follows its first letter, or when a virama joins a consonant to it, as Python wcwidth's specification counts them. No syllable takes more than two cells. A program that resets mode 2027 gives each character its own cells under either value.\n\n\
+           vtium reads this key when it starts, so a change takes effect when vtium restarts.",
+    cite: "[the syllabic scripts issue](https://github.com/vtium/vtium/issues/144)",
+};
+
 pub const GLYPH_CACHE: Key = Key {
     name: "glyph-cache",
     short: None,
@@ -2154,7 +2170,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 128] = [
+pub static KEYS: [Key; 129] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2272,6 +2288,7 @@ pub static KEYS: [Key; 128] = [
     GLYPH_SOURCE_LEGACY,
     MISSING,
     TEXT_DIRECTION,
+    CLUSTER_WIDTH,
     GLYPH_CACHE,
     DISPLAY_DEPTH,
     DISPLAY_DPI,
@@ -2357,6 +2374,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Right-to-left text",
                 keys: &[&TEXT_DIRECTION],
+            },
+            Group {
+                title: "Syllables with vowel signs and joined consonants",
+                keys: &[&CLUSTER_WIDTH],
             },
         ],
     },
@@ -2753,6 +2774,34 @@ mod tests {
             "{}",
             key.what
         );
+    }
+
+    // ADR-1006 D8: `cluster-width` takes `double`, the default, and
+    // `single`, at vtium.conf's top level and on the command line, read by
+    // vtium-term, its description giving கொ as the example and saying that
+    // a change takes effect when vtium restarts.
+    #[test]
+    fn cluster_width_takes_double_or_single_and_defaults_to_double() {
+        let key = find("cluster-width").unwrap_or(&HELP);
+        assert_eq!(key.name, "cluster-width");
+        assert_eq!(key.kind, Kind::Choice(&["double", "single"]));
+        assert_eq!(key.default, Default::Text("double"));
+        assert_eq!(key.tree_default(), Default::Text("double"));
+        assert_eq!(key.scope, Scope::Anywhere);
+        assert_eq!(key.levels, Levels::TOP);
+        assert_eq!(key.reader, "vtium-term");
+        assert!(key.what.contains("கொ"), "{}", key.what);
+        assert!(
+            key.what
+                .contains("a change takes effect when vtium restarts"),
+            "{}",
+            key.what
+        );
+        let group = SECTIONS
+            .iter()
+            .find(|s| s.groups.iter().any(|g| g.keys.contains(&&CLUSTER_WIDTH)))
+            .map(|s| s.title);
+        assert_eq!(group, Some("Fonts and text"));
     }
 
     #[test]

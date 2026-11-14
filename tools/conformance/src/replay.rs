@@ -102,6 +102,21 @@ pub fn run_with(
     }
 }
 
+/// Replays `input` as [`run`] does, on a host whose `cluster-width` is
+/// `rule` from the start (ADR-1006 D8), where the reference host's is
+/// `double`. The test that compares the two rules on every case uses it.
+pub fn run_with_cluster_width(
+    input: &Input,
+    rule: vtium_term::ClusterWidth,
+) -> Result<String, Failure> {
+    let mut r = Replay::new(input);
+    r.term.set_cluster_width(rule);
+    match r.play(input, &mut |_, _| {}) {
+        Ok(()) => Ok(r.out),
+        Err(f) => Err(Failure { output: r.out, ..f }),
+    }
+}
+
 /// A cut inside a test command's introducer is a usage failure; one later
 /// in the command leaves its segment without the ST, which [`Replay::feed`]
 /// refuses.
@@ -441,6 +456,7 @@ impl<'a> Replay<'a> {
             Command::Link { col, row } => links::link(t, (col, row), &mut self.out)?,
             Command::Hover { at, ctrl } => links::hover(t, at, ctrl, &mut self.out)?,
             Command::Backspace { del } => t.set_backspace_sends_delete(del),
+            Command::ClusterWidth(rule) => t.set_cluster_width(rule),
             Command::State => state(t, &mut self.out),
             Command::FrameSince(caller) => {
                 let slot = self.callers.get_mut(usize::from(caller));

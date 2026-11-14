@@ -11,8 +11,8 @@ mod common;
 
 use common::{rows, term};
 use vtium_term::{
-    Age, Cursor, CursorShape, CursorStyle, Key, Mods, MouseButton, MouseEvent, Palette, Terminal,
-    WidthMethod,
+    Age, ClusterWidth, Cursor, CursorShape, CursorStyle, Glyph, Key, Mods, MouseButton, MouseEvent,
+    Palette, Terminal, Width, WidthMethod,
 };
 
 /// DECRQM's answer for a mode: 0 not recognised, 1 set, 2 reset, 3
@@ -489,6 +489,27 @@ fn mode_2027_reports_and_resets_to_the_configured_method() {
     t.set_default_width_method(WidthMethod::Unicode);
     t.input(b"\x1bc");
     assert_eq!(rqm(&mut t, true, 2027), 1);
+}
+
+// ADR-1006 D4 and D8: with mode 2027 reset, each codepoint of Tamil ko
+// takes its own cell under either value of `cluster-width`, and DECRQM of
+// mode 2027 answers set or reset as it does under both.
+// covers: DEC-2027
+#[test]
+fn mode_2027_reset_gives_each_codepoint_its_own_cell_under_either_cluster_width() {
+    for rule in [ClusterWidth::Double, ClusterWidth::Single] {
+        let mut t = term(8, 2, b"");
+        t.set_cluster_width(rule);
+        assert_eq!(rqm(&mut t, true, 2027), 1, "{rule:?}");
+        t.input(b"\x1b[?2027l");
+        assert_eq!(rqm(&mut t, true, 2027), 2, "{rule:?}");
+        t.input("\u{B95}\u{BCA}x".as_bytes());
+        assert_eq!(rows(t.screen()), ["\u{B95}\u{BCA}x", ""], "{rule:?}");
+        assert_eq!(t.screen().cursor(), (3, 0), "{rule:?}");
+        let line = t.screen().line(0).expect("a row");
+        assert_eq!(line.cell(0).width(), Width::Narrow, "{rule:?}");
+        assert_eq!(line.glyph(line.cell(1)), Glyph::Char('\u{BCA}'), "{rule:?}");
+    }
 }
 
 // ADR-1000, "The target set": an ignored or refused mode answers DECRQM

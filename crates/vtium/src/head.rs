@@ -320,6 +320,12 @@ pub(crate) fn terminal(
     });
     #[cfg(not(feature = "bidi"))]
     let _ = direction;
+    // `cluster-width`: what a syllable with a spacing vowel sign or a
+    // virama conjunct takes (ADR-1006 D8)
+    terminal.set_cluster_width(match config.text(&keys::CLUSTER_WIDTH) {
+        Some("single") => vtium_term::ClusterWidth::Single,
+        _ => vtium_term::ClusterWidth::Double,
+    });
     if let Some(Ok(table)) = crate::termcap::for_term(config.text(&keys::TERM).unwrap_or_default())
     {
         terminal.set_termcap(table);
