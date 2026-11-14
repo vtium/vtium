@@ -230,6 +230,9 @@ considered:
   - operator: aaronsb
     said: "I think that can be an optional package for vtium? [asked whether a separate package or inside vtium-fonts:] Inside vtium-fonts"
     via: the maintainer, in the steering session and its question tool, 2026-11-13, refining an earlier answer of "Ship by default" for the Arabic, Hebrew, Indic, Thai and Vietnamese font sets
+  - operator: aaronsb
+    said: "One set per region"
+    via: the maintainer, through the steering session's question tool, 2026-11-13, asked how vtium-fonts ships CJK font sets given that Noto Sans CJK draws some Han characters differently by region
 observable:
   - "Installing vtium-git on this machine beside kmscon and kmscon-terminfo reports no conflicting file, and `pacman -Qo` on each file the package lists names vtium-git alone"
   - "Following vtium-arch's README for every VT on a machine with no C reference console gives vtium on VT 1 and on each VT logind spawns, and its way back leaves autovt@.service linked to getty@.service and getty@tty1 enabled, as the preset made them"
