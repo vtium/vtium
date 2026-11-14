@@ -1,0 +1,27 @@
+# A kitty palette-index picture, f=8 or f=16, is drawn in the terminal's
+# colors of now. When a program changes a color the picture names, the
+# picture takes the new color, whenever it arrived. Image 1 (f=8) shows
+# indices 1, 248 and 249: color 1, the default background and the default
+# foreground. Image 2 (f=16) shows the same indices with the alphas 128,
+# 255 and 0. OSC 4 changes color 1 and OSC 11 the default background, and
+# images 3 and 4, sent after the change, show what images 1 and 2 must now
+# show. OSC 104 and OSC 111 put the colors back, and images 1 and 2 return
+# to the pixels they first had.
+#
+# References: ADR-1100 D15.
+# spec: kitty graphics protocol, "Indexed color data": "The image is drawn using the current colors of the terminal and is automatically redrawn when they change"
+# covers: image.kitty
+size 12 4
+send "\e_Ga=T,i=1,f=8,s=3,v=1,C=1;Afj5\e\\"
+send "\e[1;3H\e_Ga=T,i=2,f=16,s=3,v=1,C=1;AYD4//kA\e\\"
+dump
+
+send "\e]4;1;#123456\e\\"
+send "\e]11;#204060\e\\"
+send "\e[2;1H\e_Ga=T,i=3,f=8,s=3,v=1,C=1;Afj5\e\\"
+send "\e[2;3H\e_Ga=T,i=4,f=16,s=3,v=1,C=1;AYD4//kA\e\\"
+dump
+
+send "\e]104;1\e\\"
+send "\e]111\e\\"
+dump

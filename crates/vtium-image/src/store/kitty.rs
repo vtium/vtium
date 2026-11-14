@@ -18,13 +18,81 @@
 //! A relative placement is chosen by the cells it draws on, and goes with
 //! its parent (ADR-1100, D13). A virtual placement has no cells, so only
 //! the selectors by image reach it, `i`, `n` and `r`, as the spec says.
+//!
+//! # Palette-index pictures
+//!
+//! Kitty's `f=8` and `f=16` send each pixel as an index into the
+//! terminal's colors, and the spec says such a picture "is drawn using the
+//! current colors of the terminal and is automatically redrawn when they
+//! change". The store keeps such a picture's indices, as [`Indices`],
+//! beside its pixels, and its charge counts them. When the terminal's
+//! colors change, [`Store::recolor`] makes the pixels of every such
+//! picture in both buffers again from its indices. The compositor draws a
+//! palette-index picture from its pixels as it draws any other.
+//!
+//! References: ADR-1100 D5, D15.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use super::{Drawn, Edit, Link, Placing, Reservation, Screens, Spot, Store};
-use crate::image::{ImageKey, Place, PlacementKey, Refusal};
+use crate::decode::convert::indexed_into;
+use crate::image::{ImageKey, NewImage, Place, PlacementKey, Refusal};
 use crate::rules::Protocol;
 use crate::rules::rules;
+
+/// A palette-index picture's indices as they arrived: one byte a pixel for
+/// `f=8`, or an index and then its alpha, two bytes a pixel, for `f=16`.
+/// Shared, so a copy of the store holds them without a copy of the bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Indices {
+    pub(crate) data: Arc<Vec<u8>>,
+    /// Each index has an alpha after it, `f=16`.
+    pub(crate) alpha: bool,
+}
+
+impl Indices {
+    /// Indices of `data`, with an alpha after each index when `alpha`.
+    pub(crate) fn new(data: Vec<u8>, alpha: bool) -> Self {
+        Self {
+            data: Arc::new(data),
+            alpha,
+        }
+    }
+
+    /// The bytes one pixel takes.
+    fn bpp(&self) -> u64 {
+        if self.alpha { 2 } else { 1 }
+    }
+
+    /// Whether they hold one group for each of `pixels` pixels.
+    pub(super) fn fits(&self, pixels: u64) -> bool {
+        u64::try_from(self.data.len()).ok() == pixels.checked_mul(self.bpp())
+    }
+
+    /// The store's pixels they give in `colors`, into `out`, which holds a
+    /// pixel for each; whether any pixel changed.
+    fn paint(&self, colors: &[[u8; 3]; 256], out: &mut [u32]) -> bool {
+        indexed_into(colors, &self.data, self.alpha, out)
+    }
+}
+
+impl Edit<'_> {
+    /// Stores a palette-index picture, whose pixels `image` holds in the
+    /// colors in force now, with the `indices` they were made from, which
+    /// the store keeps to make them again when the colors change. Its
+    /// charge counts the indices beside the pixels. See
+    /// [`Store::add_image`].
+    pub(crate) fn add_indexed(
+        &mut self,
+        image: NewImage,
+        indices: Indices,
+        reservation: Option<Reservation>,
+    ) -> Result<ImageKey, Refusal> {
+        self.store
+            .add_image_kept(image, Some(indices), reservation, self.screens)
+    }
+}
 
 /// What a delete chooses, from kitty's `d` key and the keys it reads.
 /// Columns and rows count from 0 at the screen's top left.
@@ -63,6 +131,58 @@ pub(crate) struct Delete {
 }
 
 impl Store {
+    /// Makes the pixels of every palette-index picture in both buffers again
+    /// from its indices, in `colors`, the color of each index as the
+    /// terminal resolves it now. vtium-term calls this after each change of
+    /// the terminal's colors. A picture whose pixels change takes a new
+    /// pixel revision, so a frame draws it anew and a renderer drops what it
+    /// kept of the old pixels. A frame that already holds the old pixels
+    /// keeps them until it is drawn, since the store then writes the new
+    /// pixels into a new buffer. Each pixel looked at counts as input work
+    /// (D5), so a flood of color changes stops an input call early. The use
+    /// clock does not move, since no command named a picture. A buffer that
+    /// cannot be had leaves that picture's pixels as they were.
+    pub fn recolor(&mut self, colors: &[[u8; 3]; 256]) {
+        let mut work = 0u64;
+        let mut changed = Vec::new();
+        for (b, buf) in self.buffers.iter_mut().enumerate() {
+            for (&key, image) in &mut buf.images {
+                let Some(indices) = image.indices.as_ref() else {
+                    continue;
+                };
+                let n = image.pixels.as_slice().len();
+                work = work.saturating_add(u64::try_from(n).unwrap_or(u64::MAX));
+                let moved = match image.pixels.get_mut() {
+                    Some(own) => indices.paint(colors, own),
+                    None => {
+                        // a frame holds these pixels: the new ones go in a
+                        // buffer of their own, and only when they differ
+                        let mut fresh = Vec::new();
+                        if fresh.try_reserve_exact(n).is_err() {
+                            continue;
+                        }
+                        fresh.extend_from_slice(image.pixels.as_slice());
+                        let moved = indices.paint(colors, &mut fresh);
+                        if moved {
+                            image.pixels = crate::image::Pixels::new(fresh);
+                        }
+                        moved
+                    }
+                };
+                if moved {
+                    changed.push((b, key));
+                }
+            }
+        }
+        self.work = self.work.saturating_add(work);
+        for (b, key) in changed {
+            let revision = self.bump();
+            if let Some(image) = self.image_mut(b, key) {
+                image.revision = revision;
+            }
+        }
+    }
+
     /// The kitty id of image `key` of the buffer in use, 0 for an image
     /// sent with neither an id nor a number.
     pub(crate) fn kitty_id(&self, key: ImageKey) -> Option<u32> {

@@ -247,6 +247,8 @@ impl State {
         }
         if self.colors != before {
             self.screen.recolor();
+            #[cfg(feature = "images")]
+            self.recolor_images();
         }
         true
     }
@@ -346,6 +348,8 @@ impl State {
             if self.colors != palette {
                 self.colors = palette;
                 self.screen.recolor();
+                #[cfg(feature = "images")]
+                self.recolor_images();
             }
         }
     }
@@ -370,6 +374,8 @@ impl State {
         }
         if self.colors != before {
             self.screen.recolor();
+            #[cfg(feature = "images")]
+            self.recolor_images();
         }
     }
 

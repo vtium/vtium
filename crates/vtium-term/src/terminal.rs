@@ -655,6 +655,8 @@ impl Terminal {
         if self.state.colors != palette {
             self.state.colors = palette.clone();
             self.state.screen.recolor();
+            #[cfg(feature = "images")]
+            self.state.recolor_images();
         }
         self.state.host.palette = palette;
         self.state.report_scheme_change(scheme);

@@ -438,21 +438,22 @@ fn reset_and_withdraw_end_the_upload_with_no_answer() {
     }
 }
 
+// The handler takes the terminal's colors when the last chunk has arrived,
+// so a color change between chunks takes effect for the whole picture.
+//
+// References:
+// - ADR-1100 D15: where the colors come from.
 // covers: image.kitty
 #[test]
-fn a_palette_change_between_chunks_leaves_the_picture_as_its_first_chunk_found_it() {
+fn a_color_change_between_chunks_takes_effect_for_the_whole_picture() {
     let (mut k, mut h) = (Kitty::default(), Host::new());
     send(&mut k, &mut h, "a=t,f=8,s=2,v=1,i=1,m=1;Bw==");
-    let first = h.colors.clone().unwrap();
     h.colors.as_mut().unwrap().table[7] = [1, 2, 3];
     h.colors.as_mut().unwrap().table[8] = [4, 5, 6];
     send(&mut k, &mut h, "m=0;CA==");
     send(&mut k, &mut h, &put(1));
     assert_eq!(h.take(), format!("{}{}", ok(1), ok(1)));
-    assert_eq!(
-        h.top_pixels(),
-        vec![opaque(first.table[7]), opaque(first.table[8])]
-    );
+    assert_eq!(h.top_pixels(), vec![opaque([1, 2, 3]), opaque([4, 5, 6])]);
 }
 
 /// Feeds `data` as one kitty string that CAN or SUB cuts off.

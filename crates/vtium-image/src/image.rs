@@ -88,6 +88,12 @@ impl Pixels {
         Arc::try_unwrap(self.0).map_err(Self)
     }
 
+    /// The buffer to change in place, when nothing else holds these pixels;
+    /// `None` while a frame still holds them.
+    pub(crate) fn get_mut(&mut self) -> Option<&mut Vec<u32>> {
+        Arc::get_mut(&mut self.0)
+    }
+
     /// Whether `other` shares these pixels, as a frame's do.
     pub fn same(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)

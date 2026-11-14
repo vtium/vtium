@@ -1,0 +1,8 @@
+# Sealed expectation for kit-spec-replies.case, written from the kitty graphics protocol's text and ADR-1100 D13 and D15 before vtium ran the case.
+# Replies are exact.
+< reply "\e_Gi=1,p=1;OK\e\\"
+< reply "\e_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\e\\"
+< reply "\e_Gi=1,p=1;ECYCLE:relative placement would make a cycle\e\\"
+# p=2 follows p=1 and answers OK under q=1, so nothing
+< reply "\e_Gi=1,p=1;ECYCLE:relative placement would make a cycle\e\\"
+# expected in the dump: two placements of image 1, p=1 at the top left and p=2 drawn at p=1's origin
