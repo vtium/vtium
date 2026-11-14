@@ -49,7 +49,13 @@ considered:
     said: "cluster-width and if there's a better phrasing (maybe just double or single) that's fine"
     via: the maintainer, through the steering session's question tool, 2026-11-13, answering ADR-1006's Setting probe
     covers: [Setting]
-status: proposed
+  - operator: aaronsb
+    said: "I think cluster width is a good compromise because it could be wired to a specific vt on a machine"
+    via: the maintainer, in the steering session, 2026-11-13, after the setting became cluster-width = double | single
+  - operator: aaronsb
+    said: "let's accept 1006"
+    via: the maintainer, in the steering session, 2026-11-13
+status: accepted
 date: 2026-11-13
 deciders:
   - aaronsb
