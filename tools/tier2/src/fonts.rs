@@ -228,18 +228,26 @@ macro_rules! shipped {
 }
 
 /// The shipped font sets the `frit-` screens draw, in their screens' order.
-pub const SHIPPED_FRITS: [ShippedFrit; 5] = [
+/// Of the four CJK sets, the three whose Han forms differ from the
+/// Simplified Chinese ones that the `cjk` and `wide-deco` screens draw have
+/// a screen each.
+pub const SHIPPED_FRITS: [ShippedFrit; 8] = [
     shipped!("arabic"),
     shipped!("hebrew"),
     shipped!("indic"),
     shipped!("thai-lao"),
     shipped!("vietnamese"),
+    shipped!("cjk-jp"),
+    shipped!("cjk-tc"),
+    shipped!("cjk-kr"),
 ];
 
 /// Every font the shipped font sets name, each the file of its family in
 /// the Noto project's release of September 2024: Noto Sans Mono, which
-/// sets every one of their cells, then each script's font.
-pub const SHIPPED_FONTS: [Pinned; 15] = [
+/// sets every one of their cells, then each script's font, then the
+/// regional faces of Noto Sans CJK 2.004, one file for each region, from
+/// the release the test frit's Noto Sans CJK SC comes from.
+pub const SHIPPED_FONTS: [Pinned; 18] = [
     Pinned {
         file: "NotoSansMono-Regular.ttf",
         sha256: "65b5e2b2c4a1fba9ae8be1f026cb35b03dcb8886d9b2a4147054fde12f7e767d",
@@ -349,6 +357,36 @@ pub const SHIPPED_FONTS: [Pinned; 15] = [
         sha256: "0a86e5e1ccfe34ca78c43fac6829dc751b42bcc469272a9a55325aae587bfbe7",
         origin: Origin::Url(
             "https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansLao/hinted/ttf/NotoSansLao-Regular.ttf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansCJKjp-Regular.otf",
+        sha256: "68a3fc98800b2a27b371f2fb79991daf3633bd89309d4ffaa6946fd587f375b5",
+        origin: Origin::Url(
+            "https://github.com/notofonts/noto-cjk/raw/Sans2.004/Sans/OTF/Japanese/NotoSansCJKjp-Regular.otf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansCJKtc-Regular.otf",
+        sha256: "dce08bd4fd91aa8aa76ed8fea4b694c2dfb8550f67871e326843212ddbeb88b4",
+        origin: Origin::Url(
+            "https://github.com/notofonts/noto-cjk/raw/Sans2.004/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf",
+        ),
+        style: FritStyle::Regular,
+        cover: &[],
+        color: false,
+    },
+    Pinned {
+        file: "NotoSansCJKkr-Regular.otf",
+        sha256: "6bcb2a0703aa137e874fc2dffa85f6c21ba9a67fa329e81b8c801663af7e992a",
+        origin: Origin::Url(
+            "https://github.com/notofonts/noto-cjk/raw/Sans2.004/Sans/OTF/Korean/NotoSansCJKkr-Regular.otf",
         ),
         style: FritStyle::Regular,
         cover: &[],
@@ -1071,10 +1109,18 @@ mod tests {
                 let Origin::Font(family) = source.origin else {
                     panic!("{}: {} is no family", frit.name, source.spelling);
                 };
-                named.insert(format!("{}-Regular.ttf", family.replace(' ', "")));
+                named.insert(format!("{}-regular", family.replace(' ', "")).to_lowercase());
             }
         }
-        let pinned: BTreeSet<String> = SHIPPED_FONTS.iter().map(|f| f.file.to_owned()).collect();
+        // a file is its family's when its name, less its extension and
+        // with case ignored, is the family's without blanks and `-Regular`
+        let pinned: BTreeSet<String> = SHIPPED_FONTS
+            .iter()
+            .map(|f| {
+                let stem = f.file.rsplit_once('.').map_or(f.file, |(stem, _)| stem);
+                stem.to_lowercase()
+            })
+            .collect();
         assert_eq!(pinned, named);
         assert_eq!(pinned.len(), SHIPPED_FONTS.len(), "each font pinned once");
     }

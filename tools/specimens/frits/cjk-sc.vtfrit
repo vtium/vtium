@@ -1,0 +1,39 @@
+# cjk-sc: a font set for Chinese, Japanese and Korean, with Han characters in
+# the forms Simplified Chinese uses, as mainland China and Singapore write
+# them (vtium/vtium#204). Noto Sans Mono draws Latin text and sets the
+# character cell, and Noto Sans CJK SC draws Han, kana and Hangul at Noto Sans
+# Mono's size. vtium ships this font set, never the fonts. The font helper
+# leaves out a font that the machine lacks, and then the built-in font draws
+# those characters.
+#
+# Unicode encodes each Han character once, even where China, Taiwan, Japan and
+# Korea each write it in a slightly different form, such as 直, 骨 and 刃.
+# Noto Sans CJK holds each region's forms in a face of its own, so vtium ships
+# one font set for each region: cjk-sc for mainland China and Singapore,
+# cjk-tc for Taiwan, cjk-jp for Japan and cjk-kr for Korea. The four sets draw
+# the same characters, and only the forms of Han differ between them.
+#
+# Han, kana and Hangul carry no marks above or below the letters, and Noto
+# Sans CJK draws them inside the text's height. At 32 pixels of text, its ink
+# leaves 5 rows blank above it and 4 below it, so the set adds no line
+# spacing.
+#
+# Licences, as each source's documentation gives them:
+# - Noto Sans Mono: SIL OFL 1.1.
+# - Noto Sans CJK: SIL OFL 1.1.
+
+name=cjk-sc
+license=OFL-1.1
+
+# Latin text, setting the cell at each size. It holds no Han, kana or
+# Hangul.
+source=font:Noto Sans Mono
+# Arch's noto-fonts installs it.
+
+# Han, kana, Hangul and full-width punctuation, which Noto Sans Mono lacks,
+# each two cells wide. They keep the font's own size.
+source=font:Noto Sans CJK SC
+# Arch's noto-fonts-cjk installs it, as one face of the collection
+# NotoSansCJK-Regular.ttc, which holds every region's face.
+
+line-spacing=0

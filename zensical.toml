@@ -26,7 +26,7 @@ nav = [
       { "Install vtium and give it VTs" = "install.md" },
       { "Configure vtium" = "configure.md" },
       { "Choose a font" = "fonts.md" },
-      { "Fonts for scripts with marks" = "fonts-for-scripts.md" },
+      { "Fonts for other scripts" = "fonts-for-scripts.md" },
       { "Set up heads" = "heads.md" },
       { "Find out what went wrong" = "troubleshooting.md" },
   ] },

@@ -9,3 +9,6 @@ frit-arabic	#204: a new screen of a shipped font set for a script that needs roo
 frit-hebrew	#204: a new screen of a shipped font set for a script that needs room, drawn by vtium; not reviewed yet
 frit-thai-lao	#204: a new screen of a shipped font set for a script that needs room, drawn by vtium; not reviewed yet
 frit-vietnamese	#204: a new screen of a shipped font set for a script that needs room, drawn by vtium; not reviewed yet
+frit-cjk-jp	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
+frit-cjk-tc	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet
+frit-cjk-kr	#204: a new screen of a shipped CJK font set, drawn by vtium in its region's forms of Han; not reviewed yet

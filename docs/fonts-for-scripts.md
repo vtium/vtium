@@ -1,8 +1,8 @@
-# Fonts for scripts with marks
+# Fonts for other scripts
 
 Many writing systems put marks above and below their letters. Arabic writes its vowels as marks, Hebrew adds vowel points under its letters, and Vietnamese stacks two marks on one letter. In a terminal's tight rows, those marks can touch the row above or below.
 
-vtium ships five ready-made font sets for these scripts. A font set, or frit, is a short text file in `/etc/vtium/fonts` that lists the fonts vtium renders text with. Each of these sets names a font for its script, makes the rows taller, and lets the script's marks use the added room. This guide shows you how to install one and use it. See [the issue for ready-made font sets](https://github.com/vtium/vtium/issues/204) for the plans behind them.
+vtium ships five ready-made font sets for these scripts. A font set, or frit, is a short text file in `/etc/vtium/fonts` that lists the fonts vtium renders text with. Each of these sets names a font for its script, makes the rows taller, and lets the script's marks use the added room. vtium also ships four font sets for Chinese, Japanese and Korean, one for each region's forms of Han characters. This guide shows you how to install one and use it. See [the issue for ready-made font sets](https://github.com/vtium/vtium/issues/204) for the plans behind them.
 
 In the commands below, `#` marks a command you run as root, for example with sudo. `$` marks a command you run as your own user.
 
@@ -24,9 +24,24 @@ The extra rows are room for the script's marks. A mark may reach into them, so i
 
 The `indic` set renders some scripts poorly for now. Tamil, Malayalam and Sinhala come out smaller than the text, and Kannada shows its conjuncts as separate letters. See [the shaping issue](https://github.com/vtium/vtium/issues/144) for the work that fixes this.
 
+## Chinese, Japanese and Korean
+
+Chinese, Japanese and Korean all use Han characters. Unicode encodes each Han character once, even where China, Taiwan, Japan and Korea write it in slightly different forms. For example, 直, 骨 and 刃 each look a little different in each region. Noto Sans CJK has a face for each region's forms, and vtium ships one font set for each face:
+
+| Font set | Han in the forms of | Its font |
+|---|---|---|
+| `cjk-sc` | Simplified Chinese, as mainland China and Singapore write it | Noto Sans CJK SC |
+| `cjk-tc` | Traditional Chinese, as Taiwan writes it | Noto Sans CJK TC |
+| `cjk-jp` | Japanese | Noto Sans CJK JP |
+| `cjk-kr` | Korean | Noto Sans CJK KR |
+
+Each of the four sets renders Chinese, Japanese and Korean text, with Japanese kana and Korean Hangul. Only the forms of Han differ between them, so choose the set for the forms you read. Like the other sets, each one renders Latin text in Noto Sans Mono. Each Chinese, Japanese or Korean character takes two character cells.
+
+These four sets add no line spacing. Han, kana and Hangul have no marks above or below the letters, and they fit inside the text's height.
+
 ## Install the font sets and their fonts
 
-vtium ships the font sets, never the fonts. The optional `vtium-fonts` package installs all five sets in `/etc/vtium/fonts`, and it depends on the fonts they name. From its next publish, installing it gives you both:
+vtium ships the font sets, never the fonts. The optional `vtium-fonts` package installs all nine sets in `/etc/vtium/fonts`, and it depends on the fonts they name. From its next publish, installing it gives you both:
 
 ```
 $ git clone https://aur.archlinux.org/vtium-fonts.git
@@ -34,7 +49,7 @@ $ cd vtium-fonts
 $ makepkg -si
 ```
 
-On Arch Linux, those fonts come from the `noto-fonts` package. On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
+On Arch Linux, those fonts come from the `noto-fonts` package, and Noto Sans CJK comes from `noto-fonts-cjk`. On another distribution, install Noto Sans Mono and the Noto font for your script from its packages.
 
 When you build vtium from a checkout, name the sets in `FRITS` beside the default ones, and `make install` stages them too:
 
@@ -42,7 +57,7 @@ When you build vtium from a checkout, name the sets in `FRITS` beside the defaul
 $ make install DESTDIR=DIR PREFIX=/usr FRITS='desktop minspec-16 minspec-8 arabic'
 ```
 
-`make install-fonts DESTDIR=DIR` stages the five sets alone. Their files are in `tools/specimens/frits`.
+`make install-fonts DESTDIR=DIR` stages the nine sets alone. Their files are in `tools/specimens/frits`.
 
 When a font is missing, vtium leaves it out and says nothing. The characters it would have rendered then come from vtium's built-in font. To see which fonts a set still lacks, run:
 
