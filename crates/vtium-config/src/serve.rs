@@ -5687,6 +5687,14 @@ mod tests {
         8 + 4 + 4 + frit.name.len() + 4 + frit.text.len() + 8 + 8 + 4 + 4 + 4
     }
 
+    /// The one glyph frame `frames` holds, as [`answered`] reads it; fails,
+    /// saying `what`, unless there is exactly one.
+    fn one_answer(frames: &[(u32, Vec<u8>)], what: &str) -> (Arc<Set>, Vec<Cell>) {
+        let mut all = answered(frames);
+        assert_eq!(all.len(), 1, "{what}");
+        all.remove(0)
+    }
+
     /// The coverage in each of `g`'s rows, added up.
     fn row_ink(g: &Glyph) -> Vec<u64> {
         g.pixels()
@@ -5772,14 +5780,10 @@ mod tests {
         let font = frit(&format!("source=outline:{DEJAVU}\n"));
         let chars = ['H', 'g', 'o'];
         let normal = run(&[doubled_ask(font.clone(), &chars, None)]);
-        let [(normal, _)] = &answered(&normal)[..] else {
-            panic!("one glyph frame at the normal size");
-        };
+        let (normal, _) = &one_answer(&normal, "one glyph frame at the normal size");
         let normal = SetFace::new(Arc::clone(normal), 16).unwrap();
         let wide = run(&[doubled_ask(font.clone(), &chars, Some(Doubled::Width))]);
-        let [(wide, cells)] = &answered(&wide)[..] else {
-            panic!("one glyph frame at double width");
-        };
+        let (wide, cells) = &one_answer(&wide, "one glyph frame at double width");
         assert_eq!(
             cells,
             &[Cell {
@@ -5789,9 +5793,7 @@ mod tests {
         );
         let wide = SetFace::new(Arc::clone(wide), 16).unwrap();
         let tall = run(&[doubled_ask(font, &chars, Some(Doubled::Height))]);
-        let [(tall, cells)] = &answered(&tall)[..] else {
-            panic!("one glyph frame at double height");
-        };
+        let (tall, cells) = &one_answer(&tall, "one glyph frame at double height");
         assert_eq!(
             cells,
             &[Cell {
@@ -5860,15 +5862,11 @@ mod tests {
             path.display()
         ));
         let normal = run(&[doubled_ask(font.clone(), &['A', 'B'], None)]);
-        let [(normal, _)] = &answered(&normal)[..] else {
-            panic!("one glyph frame at the normal size");
-        };
+        let (normal, _) = &one_answer(&normal, "one glyph frame at the normal size");
         let normal = SetFace::new(Arc::clone(normal), 16).unwrap();
         assert!(normal.has_glyph('A') && normal.has_glyph('B'));
         let frames = run(&[doubled_ask(font, &['A', 'B'], Some(Doubled::Width))]);
-        let [(wide, _)] = &answered(&frames)[..] else {
-            panic!("one glyph frame at double width");
-        };
+        let (wide, _) = &one_answer(&frames, "one glyph frame at double width");
         let wide = SetFace::new(Arc::clone(wide), 16).unwrap();
         assert!(!wide.has_glyph('A'));
         assert!(wide.has_glyph('B'));

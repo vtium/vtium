@@ -2547,7 +2547,7 @@ mod tests {
             (&[0x41], &[vec!['e', '\u{301}']]),
             &[(0x42, 0x43)],
         );
-        let mut want = b"VTVSREQ9".to_vec();
+        let mut want = b"VTVSREQA".to_vec();
         want.extend_from_slice(&ASK.to_le_bytes());
         want.extend_from_slice(&1u32.to_le_bytes());
         want.extend_from_slice(b"t");
@@ -2555,10 +2555,11 @@ mod tests {
         want.extend_from_slice(b"x=y\n");
         // the cell, the rows line spacing adds above and below it, the
         // style, bold 1 and italic 2, the script, normal 0, the cluster
-        // width, single 1, the reserved capabilities, the codepoint, the
-        // cluster of two, the held range, no console font
+        // width, single 1, the line size, normal 0, the reserved
+        // capabilities, the codepoint, the cluster of two, the held range,
+        // no console font
         for v in [
-            8u32, 16, 2, 1, 3, 0, 1, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
+            8u32, 16, 2, 1, 3, 0, 1, 0, 0, 1, 0x41, 1, 2, 0x65, 0x301, 1, 0x42, 0x43, 0,
         ] {
             want.extend_from_slice(&v.to_le_bytes());
         }
