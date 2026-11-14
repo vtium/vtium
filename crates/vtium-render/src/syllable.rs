@@ -340,6 +340,28 @@ mod tests {
         );
     }
 
+    // ADR-1203 D1: two cells join only where they were written left to
+    // right, so ka with its virama next to ra joins, and joins neither
+    // when ka resolves right to left, as under U+202E RIGHT-TO-LEFT
+    // OVERRIDE, nor when ra does
+    #[test]
+    fn a_cell_that_resolves_right_to_left_joins_nothing() {
+        let l = line("ಕ್ರ", 4);
+        let damage = Damage::new(4, 1);
+        let p = palette();
+        let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
+        let (ka, ra) = (frame.cell(0, 0).unwrap(), frame.cell(0, 1).unwrap());
+        assert!(linked(&ka, &ra), "left to right");
+        assert!(
+            !linked(&FrameCell { rtl: true, ..ka }, &ra),
+            "ka right to left"
+        );
+        assert!(
+            !linked(&ka, &FrameCell { rtl: true, ..ra }),
+            "ra right to left"
+        );
+    }
+
     // ADR-1203 D1: a syllable stays on its row; a run past the bound is no
     // syllable and draws split; a Brahmi or Newa stacker joins
     #[test]
