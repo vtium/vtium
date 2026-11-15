@@ -225,7 +225,32 @@ fn picture(
     if !request.inflate {
         ignored = pic.rest;
     }
+    if let Some(fitting) = &request.fit {
+        let (width, height, rgba) = fitted(fitting, &pic)?;
+        return Ok((width, height, rgba, ignored));
+    }
     Ok((pic.width, pic.height, pic.rgba, ignored))
+}
+
+/// The login picture `pic` fitted as `fitting` asks: only the pixels the
+/// screen shows, as R, G, B, A bytes, so the console never holds the
+/// picture at its decoded size. The fit reads the decoded bytes in place.
+///
+/// References:
+/// - ADR-1100 D17: the helper scales the picture to the size its form
+///   needs and returns only that.
+fn fitted(
+    fitting: &vtium_image::login::Fitting,
+    pic: &decode::Picture,
+) -> Result<(u32, u32, Vec<u8>), Failure> {
+    let source = vtium_image::login::Source::Rgba(&pic.rgba);
+    let (width, height, pixels) = vtium_image::login::fit(fitting, (pic.width, pic.height), source)
+        .ok_or_else(|| Failure::new(Status::TooLarge, "the screen has no room for the picture"))?;
+    let rgba = pixels
+        .iter()
+        .flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8])
+        .collect();
+    Ok((width, height, rgba))
 }
 
 /// Whether `file` begins as a GIF does.
@@ -438,6 +463,7 @@ mod tests {
             }),
             largest: (100, 100),
             largest_bytes: 1 << 20,
+            fit: None,
         }
     }
 
@@ -612,5 +638,31 @@ mod tests {
             &Locked::unsandboxed(),
         );
         assert_eq!((o.status, o.shm), (Status::TooShort, None));
+    }
+
+    // ADR-1100 D17: the helper hands back only the pixels the screen shows
+    #[test]
+    fn a_login_picture_comes_back_fitted_to_the_screen() {
+        use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
+        let fitting = Fitting {
+            form: Form {
+                fit: Fit::Cover,
+                rows: None,
+                position: Position::Left,
+            },
+            geometry: Geometry {
+                display: (80, 48),
+                cell: (8, 16),
+                grid: (10, 3),
+            },
+        };
+        let pic = decode::Picture {
+            width: 160,
+            height: 96,
+            rgba: [0x10, 0x20, 0x30, 0xff].repeat(160 * 96),
+            rest: 0,
+        };
+        let fit = fitted(&fitting, &pic).map_err(|f| f.reason);
+        assert_eq!(fit, Ok((80, 48, [0x10, 0x20, 0x30, 0xff].repeat(80 * 48))));
     }
 }
