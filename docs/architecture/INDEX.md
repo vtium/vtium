@@ -47,7 +47,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1201](./font/ADR-1201-vtium-config-manages-the-console-s-fonts-and-settings-trying-each-choice-on-the-live-console.md) | vtium config manages the console's fonts and settings, trying each choice on the live console | accepted |
 | [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | accepted |
 | [ADR-1203](./font/ADR-1203-a-syllable-that-the-grapheme-rules-cut-into-several-clusters-is-shaped-once-and-drawn-across-their-cells.md) | A syllable that the grapheme rules cut into several clusters is shaped once and drawn across their cells | accepted |
-| [ADR-1204](./font/ADR-1204-a-shipped-font-set-combines-fonts-only-for-a-named-role-in-a-fixed-order-from-fonts-that-are-open-and-packaged.md) | A shipped font set combines fonts only for a named role, in a fixed order, from fonts that are open and packaged | proposed |
+| [ADR-1204](./font/ADR-1204-vtium-ships-a-catalog-of-font-sets-by-category-each-built-from-a-text-font-and-shared-layers-and-each-names-the-fonts-it-needs.md) | vtium ships a catalog of font sets by category, each built from a text font and shared layers, and each names the fonts it needs | proposed |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
