@@ -1,0 +1,48 @@
+# The login picture (vtium/vtium#63, ADR-1100 D17): a picture vtium.conf
+# names with login-image, placed each time a login prompt starts, as a
+# background beneath the text or as a banner above the prompt.
+#
+# The development VT's vtium needs a build with images and these lines in
+# the configuration it reads, before the run starts:
+#
+#   login-image=/usr/share/pixmaps/archlinux-logo.png
+#   login-image-fit=cover
+#
+# Any PNG or JPEG file root can read will do. The guide runs as the
+# session of a console that started with the picture.
+#
+#   make vt-check GUIDE=login
+
+title: the login picture at the login prompt
+
+step: The picture behind the login prompt
+do: look at the whole screen before you press anything.
+expect: the picture *fills the screen* behind the text, keeping its shape,
+expect: with no band at any edge but a strip *less than one character*
+expect: wide at the right or the bottom. Every line of text reads cleanly
+expect: over it.
+
+step: Colored cells cover the picture
+run: printf '\033[44m blue cells \033[0m plain text \033[7m reverse \033[0m\n'
+do: read the line the command printed.
+expect: the blue cells and the reversed word are *solid*, with no picture
+expect: showing through them, and the plain text draws over the picture.
+
+step: A screen clear removes it
+run: clear
+do: look at the whole screen.
+expect: the picture is *gone*, with the default background everywhere, and
+expect: the prompt at the top.
+
+step: A new console gets its own picture
+do: open a new console with the open chord, look at its login prompt, then
+do: close it and come back here.
+expect: the new console's login prompt shows the picture behind it
+expect: *at once*, as the first step did.
+
+step: A program cannot name it
+do: open a new console with the open chord and log in. At the shell type
+do: printf '\033_Ga=d,d=i,i=1\033\\' then Enter, then printf
+do: '\033_Ga=d,d=z,z=-2147483648\033\\' then Enter. Then close it.
+expect: the first command *leaves the picture* as it was, since the picture
+expect: has no image id; the second, a delete by its depth, *removes it*.
