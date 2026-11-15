@@ -1,0 +1,55 @@
+checkpoint 27
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |  abCD ef|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 36
+size 10x4
+cursor 5,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 5,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |  ab ef|
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 63
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |  ab ef|
+row 2 |T|
+row 3 |T|
+checkpoint 72
+size 10x4
+cursor 0,3
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 0,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 |  ab ef|
+row 2 ||
+row 3 ||
+checkpoint 99
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 |  ab ef|
+row 3 ||

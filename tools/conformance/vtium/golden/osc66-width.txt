@@ -1,0 +1,6 @@
+size 14x3
+cursor 11,0
+flags AUTO_WRAP
+row 0 |abc  x y ❤️Zqk|
+row 1 |   x y|
+row 2 ||
