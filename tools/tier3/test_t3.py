@@ -5970,7 +5970,7 @@ class ShowcaseTest(unittest.TestCase):
     SCREENS = ["showcase-shell", "showcase-double-size",
                "showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
                "showcase-fonts-jetbrains", "showcase-glyph-fit",
-               "showcase-scripts", "showcase-emoji",
+               "showcase-syllables", "showcase-emoji", "showcase-scripts",
                "showcase-text", "showcase-color", "showcase-boxes", "showcase-pictures"]
     # Each scene's category and whether it is the category's hero, as
     # ADR-1502 D6 and its hero rule place them.
@@ -5978,8 +5978,9 @@ class ShowcaseTest(unittest.TestCase):
               "showcase-double-size.sh": ("text and fonts", True),
               "showcase-fonts.inc": ("text and fonts", False),
               "showcase-glyph-fit.sh": ("text and fonts", False),
+              "showcase-syllables.sh": ("scripts and emoji", True),
               "showcase-emoji.sh": ("scripts and emoji", False),
-              "showcase-scripts.sh": ("scripts and emoji", True),
+              "showcase-scripts.sh": ("scripts and emoji", False),
               "showcase-text.sh": ("styles and modes", True),
               "showcase-color.sh": ("color", True),
               "showcase-boxes.sh": ("lines and blocks", True),
@@ -6050,7 +6051,7 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual((found[0].script, found[0].image), ("showcase-shell.sh", "hero.png"))
         self.assertEqual([s.image for s in found],
                          ["hero.png", "double-size.png", "fonts.png", "glyph-fit.png",
-                          "scripts.png", "emoji.png", "text.png", "color.png",
+                          "syllables.png", "emoji.png", "scripts.png", "text.png", "color.png",
                           "boxes.png", "pictures.png"])
         self.assertEqual(t3_showcase.header_faults(), [])
         for scene in found:
@@ -6263,6 +6264,21 @@ class ShowcaseTest(unittest.TestCase):
                 text = re.sub(rb"\x1b\[[0-9;:]*m", b"", line[3:]).decode()
                 self.assertLessEqual(len(text), 60, text)
 
+    def test_syllables_scene_keeps_one_color_in_each_syllable(self):
+        # A change of foreground color or style inside a syllable draws its
+        # clusters apart, so the syllables scene changes only the
+        # background between the clusters of a tile, and every tile's
+        # syllable is Tamil, Devanagari or Kannada.
+        data = self.scene_bytes("showcase-syllables").decode()
+        tiles = re.findall(r"((?:\x1b\[48;2;[0-9;]+m[^\x1b ]+)+)\x1b\[0m", data)
+        self.assertGreater(len(tiles), 15)
+        for tile in tiles:
+            with self.subTest(tile):
+                self.assertNotRegex(tile, r"\x1b\[(?!48;)")
+                text = re.sub(r"\x1b\[[0-9;]+m", "", tile)
+                self.assertTrue(all("\u0900" <= c <= "\u097f" or "\u0b80" <= c <= "\u0bff" or
+                                    "\u0c80" <= c <= "\u0cff" for c in text), text)
+
     def test_scripts_scene_runs_right_to_left_lines_from_the_right(self):
         # The scripts scene writes Devanagari, Bengali, Georgian and
         # Ethiopic each on one line; the danda, in the Devanagari block, ends
@@ -6363,7 +6379,9 @@ class ShowcaseTest(unittest.TestCase):
         tier2 = {f.file: (f.url, f.sha256) for f in t3_showcase.FONTS
                  if "tier2" in f.source}
         self.assertEqual(sorted(tier2), ["NotoSansArabic-Regular.ttf",
-                                         "NotoSansHebrew-Regular.ttf"])
+                                         "NotoSansHebrew-Regular.ttf",
+                                         "NotoSansKannada-Regular.ttf",
+                                         "NotoSansTamil-Regular.ttf"])
         with open(t3_showcase.TIER2_FONTS) as f:
             rs = f.read()
         for url, sha in tier2.values():
@@ -6760,7 +6778,7 @@ class ShowcaseTest(unittest.TestCase):
                                     "Color", "Lines and blocks", "Pictures", "Input and pointer",
                                     "Small machines", "How these screens are made"])
         self.assertLess(page.index(shows("showcase-shell.sh")), page.index("## Text and fonts"))
-        for script in ("showcase-double-size.sh", "showcase-scripts.sh", "showcase-text.sh"):
+        for script in ("showcase-double-size.sh", "showcase-syllables.sh", "showcase-text.sh"):
             self.assertIn(shows(script), page)
         self.assertNotIn(shows("showcase-glyph-fit.sh"), page)
         self.assertIn("## Input and pointer\n\n" + figure("showcase-osc52-copy.svg") +

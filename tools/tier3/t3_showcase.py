@@ -185,6 +185,10 @@ FONTS = [
           "d3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346"),
     _noto("Ethiopic", "2.102", "Amharic in the scripts scene, in the Ethiopic script",
           "f6f7fc379db9438959a2b0527e7a2cf36ea9c84626d56ec444fff37fc24c3c10"),
+    _tier2("Noto Sans Tamil", "2.004", "SIL Open Font License 1.1",
+           "Tamil in the syllables scene", "NotoSansTamil-Regular.ttf"),
+    _tier2("Noto Sans Kannada", "2.005", "SIL Open Font License 1.1",
+           "Kannada in the syllables scene", "NotoSansKannada-Regular.ttf"),
     _specimen("Symbols Nerd Font Mono", "3.4.0", "MIT", "the prompt's symbols",
               "SymbolsNerdFontMono-Regular.ttf"),
 ]
