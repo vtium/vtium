@@ -191,3 +191,4 @@ line-size-select 10 4
 line-size-reverse-wrap 10 4
 line-size-irm-wide 10 3
 line-size-irm-tall 10 3
+line-size-irm-widen 10 3

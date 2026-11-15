@@ -1,0 +1,12 @@
+# In insert mode (IRM) on a double-width line, a character that a VS16
+# widens to two cells takes one more cell, so the line's letters move one
+# more place right, up to the line's last column, column 5 of 10. The
+# letters pushed past that column are lost. DECSWL then makes the line
+# single size again, and the columns past the center stay blank.
+# spec: the VT100 User Guide, DECDWL: "The use of double-width characters reduces the number of characters per line by half"; "If the line was single-width single-height, all characters to the right of the screen are lost"; the VT510 manual, IRM: "If IRM mode is set, then new characters move characters in page memory to the right. Characters moved past the page's right border are lost"; the corpus case vs16-insert-mode: "VS16 widening in insert mode moves the rest of the line right instead of overwriting the cell after the cluster"; ADR-1006 D3: "vtium-term widens the stored cluster as it widens one for U+FE0F"
+# covers: ANSI-4, text.line-size
+size 10 3
+send "\e#6abcde\e[1;2H\e[4h\u{2764}\u{fe0f}"
+dump
+send "\e#5"
+dump
