@@ -22,8 +22,8 @@ use super::{
 /// its Enter, Tab and space are the main ones, PF1 to PF4 are F1 to F4,
 /// and its cursor and editing keys are the main ones, which DECCKM still
 /// changes. So DECKPAM and mode 66 never reach a key here. The keypad's
-/// Begin stays itself, since the main keys' Begin has no form of its own:
-/// [`legacy_code`] gives it `CSI E`'s forms.
+/// Begin stays itself, since the main keys' Begin has no form of its own;
+/// the table of functional keys gives it `CSI E`'s forms.
 pub(in crate::terminal) fn main_key(keysym: u32) -> u32 {
     match keysym {
         sym::KP_ENTER => sym::RETURN,
@@ -59,7 +59,6 @@ pub(in crate::terminal) fn main_key(keysym: u32) -> u32 {
 ///   modifiers ~` too. The legacy table's `SS3 R` would become `CSI 1 ;
 ///   modifiers R`, and the table of functional keys removes that form
 ///   because a program can take it for a cursor position report.
-/// - The keypad's Begin has the forms of `CSI E`.
 /// - Menu is the section's `CSI 29 ~`.
 /// - A key the section does not describe and the table numbers from
 ///   57344, such as F13 to F35, is sent in the standard `CSI number u`
@@ -72,7 +71,6 @@ pub(in crate::terminal) fn main_key(keysym: u32) -> u32 {
 pub(super) fn legacy_code(keysym: u32, mods: u8) -> Option<(Code, bool)> {
     use Code::{Letter, Tilde, U};
     match keysym {
-        sym::KP_BEGIN => Some((Letter(b'E'), false)),
         sym::MENU => Some((Tilde(29), true)),
         sym::F3 => Some((Tilde(13), mods != 0)),
         _ => match kind(keysym)? {
