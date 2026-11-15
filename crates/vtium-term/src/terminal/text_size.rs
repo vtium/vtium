@@ -271,6 +271,28 @@ mod tests {
             (0..4).map(|y| row(&t, y)).collect::<Vec<_>>(),
             ["", "   I", "   I", ""]
         );
+        // I is still one run of two rows, which moved up one row.
+        let shares: Vec<Option<(usize, usize, usize)>> = (1..3)
+            .map(|y| {
+                let line = t.screen().line(y)?;
+                line.run_at(3).map(|r| (r.col(), r.cols(), r.row()))
+            })
+            .collect();
+        assert_eq!(shares, [Some((3, 2, 0)), Some((3, 2, 1))]);
+    }
+
+    // covers: text.kitty-sizing
+    #[test]
+    fn il_erases_a_run_that_the_bottom_margin_cuts() {
+        // T of s=2 on rows 1 and 2, then a scrolling region of rows 0 and
+        // 1, which cuts T, and IL at the top of the region.
+        let mut t = term(10, 3, b"\x1b[2;1H\x1b]66;s=2;T\x1b\\\x1b[1;2r");
+        assert_eq!(
+            (0..3).map(|y| row(&t, y)).collect::<Vec<_>>(),
+            ["", "T", "T"]
+        );
+        t.input(b"\x1b[L");
+        assert_eq!((0..3).map(|y| row(&t, y)).collect::<Vec<_>>(), ["", "", ""]);
     }
 
     // covers: text.kitty-sizing
@@ -278,7 +300,12 @@ mod tests {
     fn a_run_whose_rows_scroll_off_with_no_scrollback_goes_whole() {
         // With no scrollback, the line feed that drops T's top row deletes
         // it, so T goes whole and its lower row is erased.
-        let t = term(6, 3, b"\x1b[2;1H\x1b]66;s=2;T\x1b\\\x1b[3;1H\n\n");
+        let mut t = term(6, 3, b"\x1b[2;1H\x1b]66;s=2;T\x1b\\\x1b[3;1H\n");
+        assert_eq!(
+            (0..3).map(|y| row(&t, y)).collect::<Vec<_>>(),
+            ["T", "T", ""]
+        );
+        t.input(b"\n");
         assert_eq!((0..3).map(|y| row(&t, y)).collect::<Vec<_>>(), ["", "", ""]);
     }
 
