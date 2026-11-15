@@ -37,7 +37,7 @@ Programs running in vtium get these features:
 
 A single vtium process manages every display it finds. By default, it shows the same terminal on all of them. You can use `/etc/vtium/vtium.conf` to assign displays and keyboards to separate terminals, called *heads*. For example, one monitor could run a kiosk while another provides an operator’s shell. See [Set up heads](heads.md) for details.
 
-The console process never opens font or image files directly. Instead, two helper programs handle them: `vtium-config serve` reads and rasterizes fonts, and `vtium-image` decodes images. Both run in sandboxes without root privileges. The console validates their output before rendering it.
+vtium's main process never opens font or image files directly. Instead, two helper programs handle them: `vtium-config serve` reads and rasterizes fonts, and `vtium-image` decodes images. Both run in sandboxes without root privileges. vtium validates their output before rendering it.
 
 The default build, called *minspec*, is intended for small machines. It renders on the CPU, uses bitmap fonts, and is tested in a virtual machine with one CPU, 512 MB of memory, and a display as small as 320×240.
 
@@ -51,7 +51,7 @@ The default build, called *minspec*, is intended for small machines. It renders 
 
 See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it.
 
-- vtium runs as root, as getty does, so it can start the system’s login program. By default, it opens the VT, graphics cards, and input devices directly. A build with the `libseat` feature can get them from a seat manager, seatd or logind, through libseat instead. See [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) for details.
+- vtium runs as root, as getty does, so it can start the system’s login program. By default, it opens the VT, graphics cards, and input devices directly. A build with the `libseat` feature gets them from seatd instead, where seatd runs. In seat mode, such a build gets them from logind. See [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) for details.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
 - vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
 - Programming ligatures, input methods, and configuration reloads without a restart are not built yet. See [Status](features.md#status) for the full list, with the issue that tracks each one.
@@ -87,7 +87,7 @@ On another distribution, you can run `make vt-shell` from a checkout of this rep
 
 vtium reads its configuration from `/etc/vtium/vtium.conf`. If the file does not exist, it uses the defaults. Packages include `/etc/vtium/vtium.conf.example`, which lists every setting and its default value.
 
-Run `vtium config tui` to open the full-screen configuration tool. It lets you inspect settings and preview fonts on the running console. Changes stay in a draft until you install them.
+Run `vtium config tui` to open vtium-config, vtium's setup tool, in its full-screen view. It lets you inspect settings and preview fonts on the running console. Changes stay in a draft until you install them.
 
 You can also validate a configuration file before installing it with `vtium check-config FILE`. [Configure vtium](configure.md) explains both tools.
 
