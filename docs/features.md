@@ -119,11 +119,11 @@ When the width changes, vtium rewraps the main screen and its scrollback. It car
 
 The default build, minspec, is the smallest build that is still a complete terminal. It holds the CPU renderer, the two built-in bitmap fonts, the parser and screen, the pty, and input. Like every build, it draws outline fonts and color emoji through the font helper when a frit names them. It is built for a single-board computer with ARM cores of the Cortex-A53 class or older, 512 MB of memory or less, and no GPU. Its smallest display is a 320×240 panel with 8×8 cells, which gives 40 columns by 30 rows. `make arm` builds it for aarch64 and armv7.
 
-Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. These figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01:
+Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. The memory and install tree figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01. The binary's size comes from `make minspec` for x86_64, run on 2026-11-15:
 
 | Measure | Value |
 |---|---|
-| Console binary | 3,216,864 bytes. The run fails past a budget of 4,259,840 bytes (4 MiB + 64 KiB). |
+| Console binary | 4,226,160 bytes. A tier 3 run fails past a budget of 4,259,840 bytes (4 MiB + 64 KiB). |
 | Install tree, the font helper included | 7.63 MiB |
 | Peak resident memory at 320×240, 8×8 cells | 5.81 MiB |
 | Peak resident memory at 640×480, 8×16 cells | 7.77 MiB |
