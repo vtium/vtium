@@ -39,7 +39,7 @@ A single vtium process manages every display it finds. By default, it shows the 
 
 vtium's main process never opens font or image files directly. Instead, two helper programs handle them: `vtium-config serve` reads and rasterizes fonts, and `vtium-image` decodes images. Both run in sandboxes without root privileges. vtium validates their output before rendering it.
 
-The default build, called *minspec*, is intended for small machines. It renders on the CPU, uses bitmap fonts, and is tested in a virtual machine with one CPU, 512 MB of memory, and a display as small as 320×240.
+The default build, called *minspec*, is intended for small machines. It renders on the CPU and carries two bitmap fonts of its own. Like every build, it draws outline fonts and color emoji through the font helper when a frit names them. It is tested in a virtual machine with one CPU, 512 MB of memory, and a display as small as 320×240.
 
 ![vtium on a 320×240 display with 40 columns and 30 rows, showing a colored directory listing, 16 background colors, text styles, CPU and memory figures, a progress bar, and a prompt.](showcase/small/small-console.png)
 

@@ -4,7 +4,7 @@ This page lists what vtium renders and does, and what is still to come. [Concept
 
 ## Status
 
-See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it. A checkout of the source builds and runs everything on this page. These parts are not built yet, and each has an issue that tracks it:
+This page describes vtium's `main` branch, which may be ahead of [the latest release](https://github.com/vtium/vtium/releases). A checkout of `main` builds and runs everything on this page. These parts are not built yet, and each has an issue that tracks it:
 
 - Programming ligatures, and shaping across character cells. See [the ligatures issue](https://github.com/vtium/vtium/issues/23).
 - An input method for composing Chinese, Japanese, or Korean text. See [the input method issue](https://github.com/vtium/vtium/issues/45).
@@ -85,7 +85,7 @@ vtium's main process never parses a font file. A frit is a font set file, `/etc/
 
 ## Images
 
-vtium shows images in a build with the `images` feature. The default build, minspec, leaves that feature out. The `vtium` and `vtium-git` packages build it when `VTIUM_FEATURES` names `images` ([install.md](install.md#arch-linux)). A build with images handles four kinds of image. It also ships `vtium-gallery`, a tool that shows PNG images as a grid of thumbnails:
+vtium shows images in a build with the `images` feature. The default build, minspec, leaves that feature out. The `vtium` and `vtium-git` packages build it unless `VTIUM_FEATURES` names other features. See [Arch Linux](install.md#arch-linux) for details. A build with images handles four kinds of image. It also ships `vtium-gallery`, a tool that shows PNG images as a grid of thumbnails:
 
 - **Sixel.**
 - **The kitty graphics protocol.** A program sends the pixels directly, or names a file, a temporary file or a shared-memory object that holds them. A placement, one showing of an image on the screen, can sit relative to another placement (the `P`, `Q`, `H` and `V` keys). A program can also show a virtual placement by writing Unicode placeholder cells (`U=1`).
@@ -118,7 +118,7 @@ When the width changes, vtium rewraps the main screen and its scrollback. It car
 
 ## Small machines
 
-The default build, minspec, is the smallest build that is still a complete terminal. It holds the CPU renderer, bitmap fonts, the parser and screen, the pty, and input. It is built for a single-board computer with ARM cores of the Cortex-A53 class or older, 512 MB of memory or less, and no GPU. Its smallest display is a 320×240 panel with 8×8 cells, which gives 40 columns by 30 rows. `make arm` builds it for aarch64 and armv7.
+The default build, minspec, is the smallest build that is still a complete terminal. It holds the CPU renderer, the two built-in bitmap fonts, the parser and screen, the pty, and input. Like every build, it draws outline fonts and color emoji through the font helper when a frit names them. It is built for a single-board computer with ARM cores of the Cortex-A53 class or older, 512 MB of memory or less, and no GPU. Its smallest display is a 320×240 panel with 8×8 cells, which gives 40 columns by 30 rows. `make arm` builds it for aarch64 and armv7.
 
 Tier 3 measures minspec in a virtual machine guest with 1 vCPU and 512 MB of memory. These figures come from `make tier3-minimal` at commit `c107f9a`, run on 2026-11-01:
 

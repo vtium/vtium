@@ -22,6 +22,10 @@ The AUR (the Arch User Repository) carries vtium's packages for Arch. Each packa
 
 Each of those six depends on a terminfo package. A build from the release tag depends on `vtium-terminfo`, and a build from `main` depends on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe, and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
 
+Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
+
+Out of the box, the `vtium` package builds every feature listed below and renders through the GPU path. A head whose GPU set-up fails renders on the CPU. vtium draws text in its built-in fonts until you install the fonts its frits name, and the install gives vtium every free VT. The paragraphs below give the details.
+
 A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are five features:
 
 - The `images` feature renders sixel and kitty graphics images.
@@ -30,7 +34,7 @@ A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
 - The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. These are the features of the packages that the AUR carries. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
 From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 
@@ -40,13 +44,13 @@ v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a l
 
 No package ships a font. vtium renders text in its two built-in fonts, unifont and unscii-8, until a frit names fonts that the machine has. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
 
-makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. The example builds the features that the recipe builds by default: images, the power keys, the GPU path, right-to-left text, and seat mode.
+makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
 $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
-$ VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si
+$ makepkg -si
 ```
 
 `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A` fetches the same key from a keyserver instead. `vtium-git` checks no signature, because GitHub signs the merge commits on `main` with its own key.
@@ -113,7 +117,7 @@ To install a branch of your own as a package, point the `vtium-git` recipe at yo
 $ VTIUM_GIT_URL=file:///home/me/src/vtium VTIUM_GIT_BRANCH=my-branch makepkg -si
 ```
 
-On another distribution, a package build can call two make targets:
+vtium is packaged only for Arch so far. [The issue for Fedora, RHEL, Debian and Ubuntu](https://github.com/vtium/vtium/issues/378) and [the issue for Alpine, Void and Artix](https://github.com/vtium/vtium/issues/377) track other distributions. On another distribution, a package build can call two make targets:
 
 - `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that the `vtium` package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.

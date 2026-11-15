@@ -35,16 +35,16 @@ The full steps are in [Find out what went wrong](troubleshooting.md) and [Upgrad
 
 ## Where to start
 
-On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. These are the only packages so far; [Install vtium and give it VTs](install.md) also covers building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
+On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. Both build vtium with images, right-to-left text, the GPU path, seat mode, and the power keys, and they turn the GPU path on. vtium is packaged only for Arch so far. [Install vtium and give it VTs](install.md) covers the other Arch packages, other distributions, and building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
 $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
-$ VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si
+$ makepkg -si
 ```
 
-Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version.
+Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version. This site describes vtium's `main` branch, which may be ahead of the latest release.
 
 vtium-config, vtium's setup tool, runs in a terminal. Its Flow view draws your vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. A head is vtium's name for a terminal that spans one or more displays. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts view previews each font on the live console as you move through the list. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
 
@@ -56,7 +56,5 @@ vtium-config, vtium's setup tool, runs in a terminal. Its Flow view draws your v
 | understand how vtium works and why | [VTium in depth](vtium-in-depth.md), [Why vtium](why-vtium.md), and [Concepts](concepts/index.md) |
 | read the reasoning behind a decision | [Decision records](architecture/INDEX.md) |
 | contribute | [For contributors](architecture.md), [CONTRIBUTING.md](https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md), and [AGENTS.md](https://github.com/vtium/vtium/blob/main/AGENTS.md) |
-
-This site describes vtium's `main` branch, which may be ahead of [the latest release](https://github.com/vtium/vtium/releases).
 
 vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](vtium-in-depth.md#provenance) tells in full. The source is at [github.com/vtium/vtium](https://github.com/vtium/vtium).
