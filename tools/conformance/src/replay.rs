@@ -458,6 +458,12 @@ impl<'a> Replay<'a> {
             Command::Backspace { del } => t.set_backspace_sends_delete(del),
             Command::ClusterWidth(rule) => t.set_cluster_width(rule),
             Command::State => state(t, &mut self.out),
+            Command::CursorBlink => match t.cursor_blink_ms() {
+                Some(ms) => {
+                    let _ = writeln!(self.out, "test cursor-blink ms={ms}");
+                }
+                None => self.out.push_str("test cursor-blink default\n"),
+            },
             Command::FrameSince(caller) => {
                 let slot = self.callers.get_mut(usize::from(caller));
                 if let Some(since) = slot {
