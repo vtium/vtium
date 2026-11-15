@@ -78,6 +78,7 @@ mod mono;
 mod notice;
 #[cfg(feature = "images")]
 mod picture;
+mod pointer_file;
 mod reach;
 mod renderer;
 mod stored;
@@ -106,6 +107,7 @@ pub use notice::{
 };
 #[cfg(feature = "images")]
 pub use picture::{PictureCounts, PlacedPicture, SELECTION_TINT, placed_picture};
+pub use pointer_file::{PictureSizes, PointerPictures, svg as pointer_file_svg};
 #[doc(hidden)]
 pub use renderer::TestInk;
 pub use renderer::{
