@@ -1083,6 +1083,44 @@ class RunVt(Case):
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
         self.assertFalse(os.path.exists(stage))
 
+    def test_a_guide_with_a_config_beside_it_runs_vtium_with_that_config(self):
+        # A guide NAME.guide with NAME.conf beside it, as login.guide brings
+        # its login picture, runs vtium with that file in place of the
+        # review's, copied as the review's is. A guide with none, and a run
+        # with no guide, keep the review's.
+        review = os.path.join(VT, "config", "vtium.conf")
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        guide = os.path.join(self.s.tmp, "t.guide")
+        conf = os.path.join(self.s.tmp, "t.conf")
+        write(guide, "title: T\nstep: S\ndo: d\nexpect: e\n", 0o644)
+        p = self.run_vt(f"--guide={guide}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {review} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertNotIn("the guide's own configuration", p.stdout)
+        write(conf, "login-image=/usr/share/pixmaps/t.png\nlogin-image-fit=cover\n", 0o644)
+        p = self.run_vt(f"--guide={guide}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertIn(f"vtium reads the guide's own configuration, {conf}", p.stdout)
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {review} {stage}/config/vtium.conf\n", p.stdout)
+        # A real run: the copy holds the guide's file, mode 0644.
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt(f"--guide={guide}", "8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        copy = os.path.join(seen, "config", "vtium.conf")
+        self.assertEqual(read(copy), read(conf))
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        # The guide's file is held to the review file's rules, a dangling
+        # link included.
+        os.chmod(conf, 0o664)
+        self.refused(self.run_vt(f"--guide={guide}", "--dry-run", "8"), "is writable by group or others")
+        os.remove(conf)
+        os.symlink(os.path.join(self.s.tmp, "nowhere.conf"), conf)
+        self.refused(self.run_vt(f"--guide={guide}", "--dry-run", "8"), "t.conf is a symlink")
+
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
             with self.subTest(mode=oct(mode)):
@@ -1950,7 +1988,9 @@ class Make(Case):
                               "FEATURES=images", "HWACCEL=on", "DISPLAY_BUFFERS=2")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 calls = self.s.calls_of("cargo")
-                want = builds if target == "vt-accept" else builds - {"build --release -p vtium-image-helper"}
+                # vt-accept and vt-check, whose guides may judge pictures,
+                # build the image helper too.
+                want = builds if target in ("vt-accept", "vt-check") else builds - {"build --release -p vtium-image-helper"}
                 self.assertEqual({c for c in want if any(f" {c} " in f" {call} " for call in calls)}, want, calls)
                 for call in calls:
                     self.assertTrue(call.startswith("VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 "), call)

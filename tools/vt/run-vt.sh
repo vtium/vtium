@@ -69,7 +69,10 @@
 # --configdir naming that directory. vtium reads a vtium.conf only when root
 # owns it and no one else can write it or a directory above it (ADR-1403
 # D3), which a file in the checkout never is, so the run reads the copy and
-# never the system's /etc/vtium/vtium.conf.
+# never the system's /etc/vtium/vtium.conf. With --guide=DIR/NAME.guide, a
+# file DIR/NAME.conf beside the guide takes the place of the review's
+# configuration, under the same rules, so a guide that needs settings of its
+# own, such as login.guide's login picture, brings them.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -476,8 +479,12 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 done
 # The review's vtium.conf, which root copies into a directory of root's for
 # vtium to read, is held to the frits' rules: a regular file of root's or the
-# user's with one link, writable by no one else.
+# user's with one link, writable by no one else. A guide's own NAME.conf
+# beside it takes its place.
 config_src=$here/config/vtium.conf
+if [[ $guide == *.guide ]] && { [ -e "${guide%.guide}.conf" ] || [ -L "${guide%.guide}.conf" ]; }; then
+	config_src=${guide%.guide}.conf
+fi
 [ ! -L "$config_src" ] || die "$config_src is a symlink; the run copies only the file it checked"
 [ -f "$config_src" ] || die "no $config_src, the configuration the review's vtium reads"
 fetch "$config_src" || die "$user cannot read $config_src"
@@ -718,6 +725,8 @@ if [ -n "$login" ]; then
 elif [ -n "$guide" ]; then
 	what="follow each step of $guide${steps:+ (steps $steps)}
      and answer y, n or s; the run ends after the last step"
+	[ "$config_src" = "$here/config/vtium.conf" ] || what+="
+     vtium reads the guide's own configuration, $config_src"
 elif [ -n "$shell" ]; then
 	what="use $login_shell, which runs as $user in $home;
      exit it to end the run${transcript:+; the session is recorded in

@@ -617,7 +617,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on the development VT or a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', FEATURES='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,
