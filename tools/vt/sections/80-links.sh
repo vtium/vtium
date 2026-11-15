@@ -1,8 +1,8 @@
 #!/bin/bash
-# look-for: A link takes a dashed underline only under the pointer, both parts
-# look-for: of "one link" together. Ctrl shows its address on the bottom row.
-# look-for: Ctrl+Shift+O puts a, s and d, inverted, on the three links and
-# look-for: underlines them. Typing s copies the second address, shown after
+# look-for: Under the pointer, a link gets a dashed underline, on both parts
+# look-for: of "one link" at once. Ctrl shows its address on the bottom row.
+# look-for: Ctrl+Shift+O labels the three links a, s and d, inverted and
+# look-for: underlined. Typing s copies the second address, shown after
 # look-for: "Copied:".
 # wrong-looks-like: Links underlined with the pointer elsewhere, plain text
 # wrong-looks-like: underlined, one part of "one link" alone, or no address;
