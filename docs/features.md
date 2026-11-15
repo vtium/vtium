@@ -1,22 +1,16 @@
 # What vtium does
 
-This page lists what vtium renders and does, and what is still to come. [Concepts](concepts/index.md) explains how its parts fit together. [why-vtium.md](why-vtium.md) compares it with the other consoles for the Linux VT.
+This page lists what vtium renders and does, and what is still to come. [Concepts](concepts/index.md) explains how its parts fit together, and [Why vtium](why-vtium.md) explains why vtium suits the console of every kind of machine.
 
 ## Status
 
-See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it. A checkout of the source builds and runs everything on this page, except the items below. These items are designed and being built, but they are not finished yet:
+See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it. A checkout of the source builds and runs everything on this page. These parts are not built yet, and each has an issue that tracks it:
 
-- **The GPU path's remaining pieces.** A console built with the `gpu` feature renders on the GPU, through glow over EGL and GBM. It does so on each head whose `hwaccel` setting is on. `hwaccel` is off unless the build turns it on ([config.md](config.md)). The AUR's `vtium` and `vtium-git` packages turn it on from v0.1.0-alpha.6 on. A display wider than the GPU's largest texture is still rendered on the CPU. See [the texture tiling issue](https://github.com/vtium/vtium/issues/297).
-- **libseat,** for access to the seat through seatd or logind. A seat is the set of displays and input devices that one person uses. See [the libseat issue](https://github.com/vtium/vtium/issues/34). Today vtium opens the VT, the graphics cards, and the input devices itself, as root.
-- **Handing the display to a graphical program without a VT switch.** A program in a console sends the `setBackground` sequence, and vtium lets go of the graphics cards of that console's head. The `setForeground` sequence takes them back. A program in a console that turns on focus reporting gets a focus-out when its head can no longer draw, and a focus-in when the display comes back. See [the hand-back issue](https://github.com/vtium/vtium/issues/36).
-
-These are also not built yet:
-
-- Ligatures, and shaping across character cells.
-- Input methods.
-- The rest of the configuration tool's job: identifying a device by a keypress, `vtium config status`, and staging a trial. See [the issue that tracks it](https://github.com/vtium/vtium/issues/367).
-- `vtium-clipboard`.
-- Reading a changed vtium.conf without a restart.
+- Programming ligatures, and shaping across character cells. See [the ligatures issue](https://github.com/vtium/vtium/issues/23).
+- An input method for composing Chinese, Japanese, or Korean text. See [the input method issue](https://github.com/vtium/vtium/issues/45).
+- The rest of the configuration tool's job: identifying a device by a keypress, `vtium config status`, and staging a trial. See [the vtium-config issue](https://github.com/vtium/vtium/issues/367).
+- `vtium-clipboard`, a tool that gives scripts the console's clipboard. See [the vtium-clipboard issue](https://github.com/vtium/vtium/issues/113).
+- Reading a changed vtium.conf without a restart. See [the reload issue](https://github.com/vtium/vtium/issues/86).
 
 The plan and its order are in [the tracker issue](https://github.com/vtium/vtium/issues/47).
 
@@ -24,7 +18,7 @@ The plan and its order are in [the tracker issue](https://github.com/vtium/vtium
 
 - vtium renders into DRM dumb buffers. A dumb buffer is a plain memory buffer that the display reads its picture from. vtium sets display modes with atomic modesetting where the graphics card offers it, and with the legacy calls where it does not. On fbdev, vtium renders at 32, 24 or 16 bits per pixel, or at 1 bit per pixel for monochrome panels.
 - vtium follows displays as they are plugged in and out. It powers displays down after an idle time, and it renders in four orientations. When a monitor is swapped for another on a connector without a disconnect in between, vtium sets it up again as a new display. When a connector lists new modes, vtium chooses its mode again. When the card refuses a mode, the display keeps the mode it has and vtium holds the refused mode back. The display does not freeze, and vtium does not flood the card with retries. When only the refresh rate changes, vtium paces the display's frames to the new rate. See [crates/vtium-platform/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium-platform/README.md) for details.
-- The CPU renderer is the default build's renderer, and it works on every machine. In a build with the `gpu` feature, the GPU renderer renders each head whose `hwaccel` setting is on. The GPU renderer produces the same pixels as the CPU renderer. Tier 2, vtium's pixel tests, renders each screen with both renderers, the GPU one under llvmpipe, a software GPU driver. Tier 2 requires the same bytes from both, except for images scaled with filtering. [Status](#status) lists the GPU renderer's remaining pieces.
+- The CPU renderer is the default build's renderer, and it works on every machine. In a build with the `gpu` feature, the GPU renderer renders each head whose `hwaccel` setting is on, through glow over EGL and GBM. `hwaccel` is off unless the build turns it on ([config.md](config.md)), and the AUR's `vtium` and `vtium-git` packages turn it on. A display larger than the GPU's largest texture renders on the GPU too, in tiles that each fit that texture. The GPU renderer produces the same pixels as the CPU renderer. Tier 2, vtium's pixel tests, renders each screen with both renderers, the GPU one under llvmpipe, a software GPU driver. Tier 2 requires the same bytes from both, except for images scaled with filtering.
 
 ## Sharing the display
 
@@ -37,6 +31,8 @@ Only one program at a time is the card's DRM master, which is the program allowe
 - Where the card offers atomic commits, vtium presents each frame with an atomic commit. The commit carries the frame's damage, the regions that changed, as `FB_DAMAGE_CLIPS`. The kernel calls this an "optional plane property to mark damaged regions" ([KMS documentation](https://docs.kernel.org/gpu/drm-kms.html)). Where the card does not offer atomic commits, vtium uses the legacy calls and presents whole frames. Where there is no DRM, it presents through fbdev.
 - vtium.conf's rules can leave a display dark. vtium turns such a display off each time it sets the display modes, so a frame that another DRM master left on it goes dark. On a card with only the legacy calls, such a display still shows that frame.
 
+A graphical program can also take the display without a VT switch, such as a video player or a kiosk application started from a console. The program in the console sends the `setBackground` sequence, and vtium lets go of the graphics cards that drive that console's head. vtium accepts the sequence only from a console that a head shows. The `setForeground` sequence from the same console takes the cards back, and so does the end of that console's session. If the program still holds a card when the hand-over ends, vtium keeps trying to wake the card, so the head lights up again soon after the program lets go. A program that turns on focus reporting gets a focus-out when its head stops drawing, and a focus-in when the head draws again. The `allow-display-ops` setting turns the hand-over off ([config.md](config.md)). In seat mode, vtium ignores `setBackground`.
+
 With systemd, vtium runs on a VT in a getty's place, and `pam_systemd` registers the login with logind. If vtium fails, a fallback unit starts a getty. The fallback unit starts no getty when vtium.conf's policy is closed, or when starting the getty would stop another program, such as a display manager.
 
 The package and `make install` both install the unit as `vtium@.service`, with its fallback `vtium-getty@.service`. They give vtium no VT at first. `vtium console enable N` gives vtium VT N, and `vtium console enable --all` gives it every free VT. systemd then starts vtium on those VTs at boot, where it would otherwise start a getty. logind starts vtium on a free VT from 2 to 6 where vtium has stopped. `make install-tree` makes the install tree that tier 3, vtium's virtual machine tests, installs in its guest. That tree installs the same two units. Tier 3 gives vtium the guest's VTs with `vtium console enable --all`, as a user does.
@@ -45,7 +41,7 @@ Without systemd, another init system runs `vtium --vt=ttyN --no-switchvt` where 
 
 Tier 3 boots vtium under sysvinit on Debian 13, with no logind, from an inittab line. It boots vtium once with the udev daemon running (`sysvinit-640x480`) and once with it stopped (`sysvinit-no-udev`). There, vtium's reboot and power-off keys go through sysvinit. The screens vtium renders there match vtium's own goldens to the pixel. A golden is a saved expected result. Those goldens still wait for the maintainer's review. [systemd.md](systemd.md) lists each place vtium touches systemd, logind or PID 1, and what it does without them.
 
-With libseat, vtium gets the VT, the graphics cards, and the input devices from the seat manager. The seat manager is seatd or logind, whichever is running. libseat is the seat management library "allowing applications to use whatever seat management is available" ([seatd's README](https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md)). The vtium process still runs as root, so that it can start `/bin/login`. libseat support is designed and being built. See [Status](#status).
+vtium runs in one of two modes. In direct mode, it opens the VT, the graphics cards, and the input devices itself. In seat mode, a build with the `libseat` feature gets them from the seat manager through libseat. The seat manager is seatd or logind, whichever is running. libseat is the seat management library "allowing applications to use whatever seat management is available" ([seatd's README](https://git.sr.ht/~kennylevinsen/seatd/blob/master/README.md)). `vtium console enable --seat N` gives VT N to vtium in seat mode, through `vtium-seat@.service`. When no seat manager answers, vtium runs in direct mode instead. In both modes the vtium process runs as root, so that it can start `/bin/login`. [Seats and sessions](concepts/seats-and-sessions.md) explains both modes.
 
 ## Heads: a terminal per display
 
@@ -65,7 +61,7 @@ vtium shows which head is active in a small on-screen display at the top of each
 
 vtium reads keyboards and pointers directly from their devices. It uses libxkbcommon for the keymap.
 
-A program can ask for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which editors such as Neovim and Helix and shells such as fish use. Under it, the program can tell every key and modifier apart, Escape from the start of an escape sequence and Ctrl+I from Tab among them. It can also ask for a key's repeats and releases, for every key as an escape code, and for the text a key types. On a non-Latin layout it gets each key's place on the US layout too, so a shortcut such as Ctrl+C works there. See [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42).
+A program can ask for the [kitty keyboard protocol](https://sw.kovidgoyal.net/kitty/keyboard-protocol/), which editors such as Neovim and Helix and shells such as fish use. Under it, the program can tell every key and modifier apart, Escape from the start of an escape sequence and Ctrl+I from Tab among them. It can also ask for a key's repeats and releases, for every key as an escape code, and for the text a key types. On a non-Latin layout it gets each key's place on the US layout too, so a shortcut such as Ctrl+C works there.
 
 You select text with the pointer. The middle button and Shift+Insert paste it. A program can copy text into the same selection with OSC 52. A program cannot read the selection back.
 
