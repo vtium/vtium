@@ -81,7 +81,6 @@ nav = [
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
       { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
-      { "The crates' interfaces" = "api/index.md" },
   ] },
 ]
 
@@ -89,7 +88,16 @@ nav = [
 # for agents that work under docs/ (AGENTS.md and CLAUDE.md), the tables (a
 # page links a TSV by its GitHub address), and the notes on how each figure
 # is made. The patterns are read as a .gitignore's are.
+#
+# The pages under api/ link each crate's reference, which rustdoc builds
+# under /api/. The docs workflow does not build that reference yet, because
+# make api still fails on rustdoc warnings in several crates, so the site
+# leaves the pages out until it does. The work that fixes those warnings
+# adds make site-api to the docs workflow, gives the index a place in the
+# menu under "For contributors", and lists the other two pages in
+# not_in_nav.
 exclude_docs = """
+/api/
 /scripts/
 /AGENTS.md
 /CLAUDE.md
@@ -102,8 +110,7 @@ exclude_docs = """
 # vt-review.md describe, the specimen profiles, which specimens/README.md
 # links, and the tutorial Your first frit, which joins the menu once it is
 # written.
-# The pages under api/ and releases/, other than their index pages, are
-# reached from those index pages.
+# The release pages, other than their index, are reached from the index.
 not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
@@ -111,8 +118,6 @@ not_in_nav = """
 /specimens/*/README.md
 /specimens/simulated/*/README.md
 /showcase/*.md
-/api/getting-started.md
-/api/conventions.md
 /releases/*.md
 """
 
