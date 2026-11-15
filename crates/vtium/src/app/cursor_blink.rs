@@ -16,7 +16,7 @@ use vtium_platform::display::Event;
 use vtium_platform::event_loop::Loop;
 
 use super::App;
-use super::tests::{Still, no_fonts, seat_with, settle, shown};
+use super::tests::{Still, no_fonts, seat_with, settle, shown_at};
 
 /// The seat under `options` on one display, shown and settled at `t`.
 fn seat_at(options: &[&str], t: Instant) -> (Loop<App>, App) {
@@ -26,7 +26,7 @@ fn seat_at(options: &[&str], t: Instant) -> (Loop<App>, App) {
         PathBuf::from("/dev/mem0"),
         Box::new(Still::new(&[(1, "A")])),
     );
-    shown(&mut app);
+    shown_at(&mut app, t);
     settle(&mut lp, &mut app, t);
     (lp, app)
 }

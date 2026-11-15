@@ -5852,8 +5852,17 @@ mod tests {
 
     /// Shows the VT and runs a turn, which sets every device up.
     pub(super) fn shown(app: &mut App) {
+        shown_at(app, Instant::now());
+    }
+
+    /// [`shown`] with its turn at `t`. The turn that shows the VT starts
+    /// the blink timers, so a test that counts turns at times measured from
+    /// `t` shows the VT at `t` too. A turn at the host's clock would start
+    /// the phases however long after `t` the seat took to set up, and the
+    /// test's timers would then depend on how loaded the machine is.
+    pub(super) fn shown_at(app: &mut App, t: Instant) {
         app.vt.activate().unwrap();
-        app.turn(Instant::now());
+        app.turn(t);
     }
 
     // ADR-1401 D9 and vtium-settings's Identity: a display's order is its
