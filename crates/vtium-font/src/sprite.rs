@@ -952,3 +952,84 @@ const OCTANTS: [u8; 0xe6] = [
     0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf6,
     0xf7, 0xf8, 0xf9, 0xfb, 0xfd, 0xfe,
 ];
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    clippy::arithmetic_side_effects,
+    reason = "a test fails by panicking, on small known sizes"
+)]
+mod tests {
+    use super::*;
+    use crate::face::Cell;
+    use crate::spacing::Band;
+
+    /// A face whose text is 8×16 in a cell that line spacing makes 8×20,
+    /// 2 rows above the text and 2 below. It draws nothing itself, so the
+    /// font draws the full block as a sprite, and it fits the block as
+    /// `fit`, as a font set's `fit=` can.
+    struct Spaced {
+        fit: Fit,
+    }
+
+    impl Face for Spaced {
+        fn cell(&self) -> Cell {
+            Cell {
+                width: 8,
+                height: 20,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, _: char) -> bool {
+            false
+        }
+        fn draw(&self, _: &[char], _: Style) -> Option<Glyph> {
+            None
+        }
+        fn band(&self) -> Band {
+            Band { above: 2, below: 2 }
+        }
+        fn fit(&self, _: char, _: Style) -> Fit {
+            self.fit
+        }
+    }
+
+    /// The rows of `g` that hold ink, counted from the top.
+    fn inked(g: &Glyph) -> Vec<u32> {
+        (0..g.height())
+            .filter(|&y| {
+                (0..g.width()).any(|x| g.pixel(x, y).is_some_and(|p| p.iter().any(|&b| b != 0)))
+            })
+            .collect()
+    }
+
+    // A full block that keeps to the text band stays in the doubled band on
+    // a line of double size. A pair of double-height lines draws a cell of
+    // 16×40, with 4 rows of spacing above the text and 4 below, so the block
+    // fills rows 4 to 35 and leaves the spacing clear. A line of double
+    // width keeps the cell's 2 rows above and below. A block that fills the
+    // cell fills every row at both sizes.
+    // covers: text.line-size
+    #[test]
+    fn a_sprite_on_a_line_of_double_size_keeps_to_the_doubled_text_band() {
+        let block = ['\u{2588}'];
+        let at = |fit, size| {
+            let font = Font::new(Spaced { fit });
+            doubled(&font, &block, (Width::Narrow, Style::default()), size).unwrap()
+        };
+        for fit in [Fit::Natural, Fit::Room] {
+            let tall = at(fit, Doubled::Height);
+            assert_eq!((tall.width(), tall.height()), (16, 40), "{fit:?}");
+            assert_eq!(inked(&tall), (4..36).collect::<Vec<_>>(), "{fit:?}");
+            let wide = at(fit, Doubled::Width);
+            assert_eq!((wide.width(), wide.height()), (16, 20), "{fit:?}");
+            assert_eq!(inked(&wide), (2..18).collect::<Vec<_>>(), "{fit:?}");
+        }
+        let tall = at(Fit::Fill, Doubled::Height);
+        assert_eq!(inked(&tall), (0..40).collect::<Vec<_>>());
+        let wide = at(Fit::Fill, Doubled::Width);
+        assert_eq!(inked(&wide), (0..20).collect::<Vec<_>>());
+    }
+}
