@@ -83,6 +83,15 @@ SIL Open Font License 1.1, whose text is crates/vtium-font/data/OFL-1.1.txt in
 vtium's source. An installed vtium console carries the same text as
 OFL-1.1.txt beside this file.
 
+Terminus Font 4.49.1 (crates/vtium-font/data/ter-u16n.bdf and ter-u32n.bdf),
+from which vtium-font cuts the 8x16 and 16x32 strikes of its built-in font,
+"vtium built-in": Copyright (C) 2020 Dimitar Toshkov Zhekov, with Reserved
+Font Name "Terminus Font", licensed under the SIL Open Font License 1.1, whose
+text is crates/vtium-font/data/OFL-1.1.txt in vtium's source and OFL-1.1.txt
+beside this file in an installed console. The strikes are a modified version
+of the font, so they carry vtium's name and not the reserved name. The 8x8
+strike is cut from Unscii-8, by Viznut, which is in the public domain.
+
 The geometry of vtium-font's sprites (crates/vtium-font/src/sprite.rs) is
 adapted from Ghostty's sprite font, by way of the C fork's font_box.c, under
 the MIT licence: Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors.
