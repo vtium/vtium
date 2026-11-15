@@ -419,7 +419,7 @@ class Screens(unittest.TestCase):
         out, floor, _, state_at = typepad.draw("tall", 80, 24, 6)
         # Five rows of keys on 80 columns, and a blank row.
         self.assertEqual(floor, 7)
-        self.assertTrue(out.startswith(b"\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
+        self.assertTrue(out.startswith(b"\x1b[4l\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
         self.assertIn(b"\x1b[4;1H        F3 to F6 change the size of the whole line the cursor is on", out)
         self.assertTrue(out.endswith(b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H"))
         # Without --insert the key list does not say whether insert mode is on.
@@ -569,10 +569,24 @@ class Screens(unittest.TestCase):
                     else:
                         self.assertIn("Wrong:", expect, title)
 
-    def test_every_step_of_the_insert_guide_runs_the_pad_with_insert(self):
-        for heading, _, _, args in guide_steps(INSERT_GUIDE):
+    def test_the_pad_starts_with_insert_mode_off(self):
+        # The pad turns the terminal's insert mode off before it draws, with
+        # or without --insert, so typing never pushes letters right unless
+        # F2 turned insert mode on in this run.
+        for insert in (False, True):
+            with self.subTest(insert=insert):
+                self.assertTrue(typepad.draw("insert", 80, 25, None, insert=insert)[0].startswith(b"\x1b[4l\x1b[H"))
+
+    def test_only_the_insert_guides_steps_that_press_f2_run_the_pad_with_insert(self):
+        # The maintainer pressed F2 in the last step, which checks the wrap
+        # with insert mode off, and saw letters pushed off the right edge.
+        # A step that does not ask for F2 runs the pad without --insert, so
+        # F2 does nothing there and the key list does not offer it.
+        steps = guide_steps(INSERT_GUIDE)
+        self.assertEqual([("--insert" in args) for _, _, _, args in steps], [True] * 6 + [False])
+        for heading, do, expect, args in steps:
             with self.subTest(step=heading):
-                self.assertIn("--insert", args)
+                self.assertEqual("--insert" in args, "Press F2" in do.replace("\n", " "), do)
 
     def test_the_step_comes_from_guide_shs_environment(self):
         self.assertIsNone(typepad.step_text({}))

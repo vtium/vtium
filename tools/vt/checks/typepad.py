@@ -54,7 +54,9 @@ there: it saves the cursor (DECSC, ESC 7), writes the word, and restores
 the cursor (DECRC, ESC 8), which also brings back a pending wrap. The pad
 writes the word while insert mode is off, so the word replaces the old one
 instead of pushing the key list right. The pad turns insert mode off when
-it ends, with or without --insert.
+it starts and when it ends, with or without --insert, so that insert mode
+is on only after F2 has turned it on in this run. Without --insert, F2
+does nothing and typing always replaces.
 
 The screen's top shows the step that guide.sh runs the pad for: its
 heading, its do: lines and its expect: lines, which guide.sh hands a run:
@@ -631,14 +633,15 @@ def state_position(text):
 
 
 def draw(name, cols, rows, cursor_style, step=None, pair=False, insert=False):
-    """The bytes that clear the screen, set the cursor's style, write the
-    step's text and the key list and draw the screen, the first row of the
+    """The bytes that turn insert mode off, clear the screen, set the
+    cursor's style, write the step's text and the key list and draw the
+    screen, the first row of the
     screen's lines, the screen's double-height pairs (in pair mode), and
     where the key list says whether insert mode is on (state_position)."""
     lines, (row, col) = screen(name, cols)
     text = layout(cols, rows, lines, step, pair, insert)
     floor = len(text) + 1
-    out = CSI + b"H" + CSI + b"2J"
+    out = INSERT_OFF + CSI + b"H" + CSI + b"2J"
     if cursor_style is not None:
         out += CSI + b"%d q" % cursor_style
     for i, line in enumerate(text):
