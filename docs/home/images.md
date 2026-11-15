@@ -2,6 +2,6 @@
 
 vtium shows images sent with sixel, the kitty graphics protocol, or iTerm2's inline images. It plays kitty graphics animations and renders the protocol's Unicode placeholders. Each image is anchored to a line of text and scrolls with it.
 
-A separate program, the image helper, reads and decodes every image. It runs as your user, never as root, inside a sandbox.
+A separate program, the image helper, reads and decodes every image inside a sandbox, so vtium's root process never decodes an image format itself. [Where vtium runs](where-it-runs.md#what-runs-as-root) says which user the helper runs as.
 
-More in [Images](../features.md#images) in What vtium does: which builds show images, and the details of each protocol.
+Images need a build with the `images` feature, which the `vtium` and `vtium-git` packages include. [Images](../features.md#images) covers each protocol in detail.

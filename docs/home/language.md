@@ -6,18 +6,14 @@ From DEC's VT terminals, vtium implements the editing features that the [VT510 m
 
 Among the newer protocols, vtium supports sixel, the kitty graphics and keyboard protocols, OSC 8 links, OSC 133 prompt marks, OSC 52 copy, synchronized output, and resize reports. The kitty text sizing protocol is still to come; see [the text sizing issue](https://github.com/vtium/vtium/issues/60).
 
-## The rules vtium follows
-
-Four rules decide what a sequence does:
+## How vtium interprets a sequence
 
 - Each sequence follows its defining specification.
-- vtium adopts a capability when both xterm's control sequences and another terminal's documentation define it, when the maintainer asks for it, or when the console has a use for it.
-- Where two specifications give one sequence different meanings, vtium's feature table records which meaning vtium uses.
+- Where two specifications give one sequence different meanings, vtium's feature table records which meaning vtium uses. For example, `CSI s` sets the left and right margins (DECSLRM) while mode 69 is set.
 - Where a specification leaves a choice open, vtium's own tests settle it, and the choice is written down.
 
-One rule overrides all four: a program's output never reads from or controls your machine. vtium builds every reply from its own state, so text a program prints cannot type into the program that reads the replies.
+Above all of these, a reply carries only vtium's own state. When a program asks a question, such as where the cursor is, vtium answers from what it knows, from fixed text, and from numbers. It never copies text from the program's output into the answer. So a sequence hidden in a file you `cat` can change what your screen shows, but it can never make vtium type a command into your shell.
 
-## More about the language
+## What vtium aims to support
 
-- [Modes](../modes.md): every mode vtium recognizes.
-- [The terminal](../features.md#the-terminal) in What vtium does: everything else vtium implements.
+vtium aims to support the capabilities that xterm's control sequences and other terminals' documentation both define, plus others chosen because they are useful on a console. [Modes](../modes.md) lists every mode vtium recognizes, and [The terminal](../features.md#the-terminal) covers the rest of what it implements.
