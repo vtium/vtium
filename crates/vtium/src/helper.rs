@@ -361,6 +361,29 @@ impl Launcher {
         holds_account(&status, account)
     }
 
+    /// Starts a helper with its input and output piped, as the glyph
+    /// helper starts, and checks the account it dropped to. The pointer
+    /// file's client starts one this way for its pointer asks
+    /// ([`crate::pointer_file`]), apart from the glyph helper, so that its
+    /// answers never reach the glyph asks' queue.
+    pub(crate) fn spawn_piped(&self) -> Result<Child, String> {
+        vtium_platform::cloexec_above_stdio()
+            .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
+        let mut child = self
+            .process()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| self.failed(&e))?;
+        if let Err(why) = self.dropped(child.id()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(why);
+        }
+        Ok(child)
+    }
+
     /// Why a start failed with `e`. vtium starts the helper from the file it
     /// opened, through `/proc/self/fd`, so the message says `/proc` must be
     /// mounted: with `/proc` unmounted the start fails there, not at the

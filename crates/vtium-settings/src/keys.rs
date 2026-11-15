@@ -1362,7 +1362,7 @@ pub const NATURAL_SCROLLING: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Reverse the mouse wheel.\n\n\
-           The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
+           [docs] The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
            [docs] This includes the arrow keys vtium sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
     cite: "kmscon's `natural-scrolling` key",
 };
@@ -1376,7 +1376,7 @@ pub const POINTER_CHAR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Show the mouse pointer as this character, drawn with the console's font.\n\n\
-           When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
+           [docs] When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
            [docs] The character fills the character cell under the pointer, white with a dark outline, like the arrow.",
     cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
 };
@@ -1389,10 +1389,9 @@ pub const POINTER_THEME: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "Draw the mouse pointer with the pictures in this file or folder.\n\n\
-           The value is an absolute path: an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as `/usr/share/icons/Adwaita`. vtium installs its own pictures as `/usr/share/vtium/pointers.svg`, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).\n\n\
-           When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape.\n\n\
-           [docs] The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.",
+    what: "The SVG file or cursor theme folder whose pictures the pointer takes.\n\n\
+           [docs] The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as `/usr/share/icons/Adwaita`. vtium installs its own pictures as `/usr/share/vtium/pointers.svg`, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).\n\n\
+           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.",
     cite: "the decision on pointer pictures from a file, ADR-1309",
 };
 
@@ -1409,8 +1408,8 @@ pub const POINTER_SIZE: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "The size of a cursor theme's pictures, as a desktop's cursor size setting names it.\n\n\
-           When unset, vtium picks the size nearest the height of a character cell. An SVG pointer file ignores this key, because vtium draws it a cell tall.",
+    what: "The size of a cursor theme's pointer.\n\n\
+           [docs] It is the size a desktop's cursor size setting names. When unset, vtium picks the size nearest the height of a character cell. An SVG pointer file ignores this key, because vtium draws it a cell tall.",
     cite: "the decision on pointer pictures from a file, ADR-1309",
 };
 

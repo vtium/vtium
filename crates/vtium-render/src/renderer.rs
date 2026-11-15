@@ -1172,9 +1172,15 @@ impl<F: Face> Renderer<F> {
         self.pictures.as_ref()
     }
 
+    /// The cell height the pointer's pictures are picked at: the height an
+    /// SVG pointer file is drawn for.
+    pub fn pointer_cell_height(&self) -> u32 {
+        u32::try_from(self.layout.ch).unwrap_or(0)
+    }
+
     /// The pointer's image again, for the shape and the pictures held.
     fn redraw_pointer_image(&mut self) {
-        let ch = u32::try_from(self.layout.ch).unwrap_or(0);
+        let ch = self.pointer_cell_height();
         self.upright_arrow = pointer_image(
             &self.font,
             ch,

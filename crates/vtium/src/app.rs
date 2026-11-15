@@ -421,6 +421,9 @@ pub struct App {
     /// The glyph helper's program, opened at the start, which every helper
     /// starts from; why not, when it cannot be.
     launcher: Result<helper::Launcher, String>,
+    /// Whether the pointer file `pointer-theme` names has started loading
+    /// ([`App::pointer_turn`]).
+    pointer_file_started: bool,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -612,6 +615,7 @@ impl App {
             gpu_source: None,
             reread: None,
             launcher: helper::Launcher::configured(&config),
+            pointer_file_started: false,
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -1943,6 +1947,59 @@ impl App {
             }
         }
         self.frits.get_mut(name)?.helper.as_mut()
+    }
+
+    /// Starts loading the pointer file `pointer-theme` names at the first
+    /// turn, with a wake-up into the loop for its pictures, and draws every
+    /// head once its pictures change, so that each display's pointer takes
+    /// them. A helper that cannot start leaves vtium's own pictures.
+    ///
+    /// References:
+    /// - ADR-1309 D5: the compiled-in pictures draw until the font helper answers.
+    fn pointer_turn(&mut self) {
+        if !self.pointer_file_started {
+            self.pointer_file_started = true;
+            let size = self
+                .config
+                .number(&crate::config::keys::POINTER_SIZE)
+                .and_then(|n| u32::try_from(n).ok());
+            if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
+                let path = PathBuf::from(path);
+                let wake = vtium_platform::calloop::ping::make_ping()
+                    .map_err(|e| format!("cannot make its wake-up: {e}"))
+                    .and_then(|(ping, source)| {
+                        self.handle
+                            .insert_source(source, |(), (), _: &mut App| {})
+                            .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
+                        Ok(ping)
+                    });
+                match self.launcher.clone().and_then(|l| wake.map(|w| (l, w))) {
+                    Ok((launcher, ping)) => {
+                        let ping = std::sync::Mutex::new(ping);
+                        crate::pointer_file::start(
+                            &path,
+                            size,
+                            font::trust(),
+                            launcher,
+                            std::sync::Arc::new(move || {
+                                if let Ok(p) = ping.lock() {
+                                    p.ping();
+                                }
+                            }),
+                        );
+                    }
+                    Err(why) => log::warn!(
+                        "The font helper cannot draw the pointer file {} ({why}), so vtium draws its own pointer pictures.",
+                        path.display()
+                    ),
+                }
+            }
+        }
+        if crate::pointer_file::take_changed() {
+            for head in &mut self.heads {
+                head.draw_now = true;
+            }
+        }
     }
 
     /// Takes each helper's answers: each display at a set's cell, of every
@@ -4457,6 +4514,7 @@ impl App {
         }
         self.timers(now);
         self.helper_turn(now);
+        self.pointer_turn();
         if self.awake {
             self.draw(now);
         }
