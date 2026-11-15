@@ -166,7 +166,7 @@ Two rules go with the table. The steering session sizes each card to finish in w
 
 ### The VT review
 
-In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT. [docs/vt-review.md](docs/vt-review.md#this-machines-vts) describes this machine's VTs, the development VT that each run borrows, and how the development VT is refreshed after a merge.
+In the VT review, the maintainer checks a build by eye on a real VT. The review runs one build at a time and starts it from one place, so that no other vtium build is left running on a VT. [docs/vt-review.md](docs/vt-review.md#this-machines-vts) describes this machine's VTs, the development VT that each run borrows, and how the development VT is refreshed after a merge. A guide asks the maintainer to judge what a person sees through a program, such as the test editor `tools/vt/checks/vim-vt510.py`. Some terminal behaviour looks broken by design, such as letters lost at the right edge in insert mode. Tier 1 proves that behaviour, and a guide shows it only as an Explore step.
 
 - The steering session starts the run with `make vt-check GUIDE=...` without asking first, and tells the maintainer which VT to switch to. A delegated agent never starts a run.
 - The maintainer switches to that VT (Ctrl-Alt-F<n>), follows each step of the guide, and answers y, n or skip, with a note. Sudo asks for its password in the terminal where the run started.
