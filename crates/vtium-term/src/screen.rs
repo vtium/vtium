@@ -135,6 +135,14 @@ pub struct Screen {
     /// last column: the cursor is on the margin's column, and the next
     /// printed character wraps first. Every cursor movement ends it.
     margin_wrap: bool,
+    /// Whether OSC 66 has written a sized run on this screen since it was
+    /// made. It never goes back to false, so while it is false no line of
+    /// either screen or the scrollback holds a run, and the run checks of
+    /// printing and editing stop at it without reading a line.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    sized_runs: bool,
     tabs: Vec<bool>,
     scrollback: Scrollback,
     /// While `sb-memory` follows the grid, the most it may be; `None` once
@@ -192,6 +200,7 @@ impl Screen {
             left: 0,
             right: cols.saturating_sub(1),
             margin_wrap: false,
+            sized_runs: false,
             tabs: default_tabs(cols),
             scrollback: Scrollback::new(scrollback_cap),
             sb_memory_cap: Some(SB_MEMORY_MAX),

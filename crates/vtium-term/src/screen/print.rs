@@ -67,6 +67,8 @@
 //! - ADR-1308 D4: writing a run, its cursor and the overwriting rules.
 //! - ADR-1308 D7: a run on a double-size line takes only its width.
 
+use core::ops::Range;
+
 use super::{Screen, Segment, WidthMethod};
 use crate::bounds::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX};
 use crate::cell::Width;
@@ -88,10 +90,11 @@ impl Screen {
                 WidthMethod::Wcwidth => width == 0,
             };
             if joins {
-                if self
-                    .line(segment.y)
-                    .and_then(|l| l.run_at(segment.x))
-                    .is_some()
+                if self.row_has_runs(segment.y)
+                    && self
+                        .line(segment.y)
+                        .and_then(|l| l.run_at(segment.x))
+                        .is_some()
                 {
                     self.append_to_run(segment.x, segment.y, c, segment.state);
                 } else {
@@ -468,7 +471,16 @@ impl Screen {
     /// References:
     /// - ADR-1308 D4, "Overwriting", rule 4, and vtium's reading where the
     ///   run reaches the margin.
+    #[inline]
     fn skip_lower_rows(&mut self, last: usize) -> bool {
+        !self.row_has_runs(self.cursor_y) || self.step_past_lower_rows(last)
+    }
+
+    /// The work of [`skip_lower_rows`](Self::skip_lower_rows) on a row that
+    /// holds runs.
+    #[cold]
+    #[inline(never)]
+    fn step_past_lower_rows(&mut self, last: usize) -> bool {
         // Each pass moves the cursor right or down, so the screen's cells
         // bound the passes.
         for _ in 0..self.cols.saturating_mul(self.rows).saturating_add(1) {
@@ -566,6 +578,7 @@ impl Screen {
         if cols == 0 || cols > self.line_cols(self.cursor_y) || rows > self.rows {
             return;
         }
+        self.sized_runs = true;
         self.segment = None;
         let last = self.last_print_row(self.cursor_y);
         // A pending wrap goes first, as it does before printed text.
@@ -678,6 +691,21 @@ impl Screen {
         self.set_segment(run.col(), y, state);
     }
 
+    /// Erases each sized run on row `y` that a write of the cells `cols`
+    /// cuts or covers, whole: with `insert` the margin where insert mode
+    /// moves the row's cells up to, each run the move would cut as well.
+    /// The erase also takes each run across the boundaries the write
+    /// splits wide characters at, so the write splits only characters.
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_written_over(&mut self, y: usize, cols: Range<usize>, insert: Option<usize>) {
+        if let Some(margin) = insert {
+            let n = cols.len();
+            self.erase_runs_shifted(y..=y, cols.start, n, margin, true);
+        }
+        self.erase_runs_in(y, cols);
+    }
+
     /// Writes `glyph`, `len` cells wide, at `x`, `y` in `style`, its tail
     /// cell taking the same style and link so an erase that skips protected
     /// cells keeps or clears both halves. In insert mode the rest of the line
@@ -710,16 +738,15 @@ impl Screen {
             end.saturating_sub(1)
         };
         self.images_cut(y, x, last);
-        if insert {
-            self.erase_runs_shifted(y..=y, x, len, margin, true);
+        if self.row_has_runs(y) {
+            self.erase_runs_written_over(y, x..end, insert.then_some(margin));
         }
-        self.erase_runs_in(y, x..end);
-        self.split_wide(y, x);
+        self.split_wide_char(y, x);
         if insert {
             if len < margin {
-                self.split_wide(y, margin.saturating_sub(len));
+                self.split_wide_char(y, margin.saturating_sub(len));
             }
-            self.split_wide(y, margin);
+            self.split_wide_char(y, margin);
             if len < margin && x < margin.saturating_sub(len) {
                 let blank = self.blank_style();
                 if let Some(line) = self.line_mut(y) {
@@ -728,7 +755,7 @@ impl Screen {
                 self.mark_cells(y, x..margin);
             }
         } else {
-            self.split_wide(y, end);
+            self.split_wide_char(y, end);
         }
         let width = if len == 2 { Width::Wide } else { Width::Narrow };
         if let Some(line) = self.line_mut(y) {

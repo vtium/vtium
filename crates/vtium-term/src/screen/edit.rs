@@ -101,11 +101,16 @@ impl Screen {
     /// A sized run that lies on both sides of the boundary goes whole too,
     /// on every row of it.
     pub(super) fn split_wide(&mut self, y: usize, x: usize) {
-        if let Some(run) = self.line(y).and_then(|l| l.run_at(x))
-            && run.col() < x
-        {
-            self.erase_run(y, run);
+        if self.row_has_runs(y) {
+            self.erase_run_across(y, x);
         }
+        self.split_wide_char(y, x);
+    }
+
+    /// The wide character part of [`split_wide`](Self::split_wide): a
+    /// wide character across the boundary before cell `x` of row `y` goes
+    /// whole, and a sized run there stays.
+    pub(super) fn split_wide_char(&mut self, y: usize, x: usize) {
         let Some(line) = self.line(y) else {
             return;
         };
@@ -119,6 +124,38 @@ impl Screen {
             return;
         }
         self.erase_cells(y, lead..x.saturating_add(1));
+    }
+
+    /// Whether row `y` holds a share of any sized run. Each run check of
+    /// the print and edit paths asks this first and keeps its work on the
+    /// runs in a function of its own, which the compiler leaves out of
+    /// line. The paths that print and edit plain text then stay as small
+    /// as they are without runs. A screen that OSC 66 never wrote to
+    /// answers without reading the row.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    #[inline]
+    pub(super) fn row_has_runs(&self, y: usize) -> bool {
+        self.sized_runs && self.line(y).is_some_and(Line::has_runs)
+    }
+
+    /// Whether any row of `top..=bottom` holds a share of a sized run.
+    #[inline]
+    fn rows_have_runs(&self, top: usize, bottom: usize) -> bool {
+        self.sized_runs && (top..=bottom).any(|y| self.row_has_runs(y))
+    }
+
+    /// Erases the sized run that lies on both sides of the boundary before
+    /// cell `x` of row `y`, if one does, on every row of it.
+    #[cold]
+    #[inline(never)]
+    fn erase_run_across(&mut self, y: usize, x: usize) {
+        if let Some(run) = self.line(y).and_then(|l| l.run_at(x))
+            && run.col() < x
+        {
+            self.erase_run(y, run);
+        }
     }
 
     /// The rows of the screen that the sized run whose share on row `y` is
@@ -151,7 +188,16 @@ impl Screen {
     }
 
     /// Erases each sized run with a cell in `cols` of row `y`, whole.
+    #[inline]
     pub(super) fn erase_runs_in(&mut self, y: usize, cols: Range<usize>) {
+        if self.row_has_runs(y) {
+            self.erase_runs_in_row(y, cols);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_in_row(&mut self, y: usize, cols: Range<usize>) {
         let runs: Vec<SizedRun> = self.line(y).map_or_else(Vec::new, |l| {
             l.runs()
                 .iter()
@@ -170,7 +216,23 @@ impl Screen {
     /// one the deleted cells touch, one pushed partly past `end`, and one
     /// among the moving cells that has a row outside `rows`, since only
     /// some of its rows would move.
+    #[inline]
     pub(super) fn erase_runs_shifted(
+        &mut self,
+        rows: RangeInclusive<usize>,
+        x: usize,
+        n: usize,
+        end: usize,
+        insert: bool,
+    ) {
+        if self.rows_have_runs(*rows.start(), *rows.end()) {
+            self.erase_runs_shifted_rows(rows, x, n, end, insert);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_shifted_rows(
         &mut self,
         rows: RangeInclusive<usize>,
         x: usize,
@@ -217,7 +279,23 @@ impl Screen {
     /// one that a margin cuts. With `into_scrollback`, the rows that leave
     /// the region's top go into the scrollback, so a run that leaves the
     /// first row in part stays whole there and on the screen.
+    #[inline]
     fn erase_runs_moved(
+        &mut self,
+        (top, bottom): (usize, usize),
+        n: usize,
+        up: bool,
+        into_scrollback: bool,
+        cols: Option<Range<usize>>,
+    ) {
+        if self.rows_have_runs(top, bottom) {
+            self.erase_runs_moved_rows((top, bottom), n, up, into_scrollback, cols);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_moved_rows(
         &mut self,
         (top, bottom): (usize, usize),
         n: usize,
@@ -439,6 +517,9 @@ impl Screen {
     /// selective erase (`which` [`Erase::Unprotected`]) spares a run whose
     /// style DECSCA protected.
     fn erase_touched_runs(&mut self, y: usize, cols: Range<usize>, which: Erase) {
+        if !self.row_has_runs(y) {
+            return;
+        }
         let runs: Vec<SizedRun> = self.line(y).map_or_else(Vec::new, |l| {
             l.runs()
                 .iter()

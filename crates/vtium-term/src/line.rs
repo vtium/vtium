@@ -987,9 +987,22 @@ impl Line {
         self.tables.as_ref().map_or(&[], |t| t.runs.as_slice())
     }
 
+    /// Whether the line holds a share of any sized run. Every run check on
+    /// the print and edit paths asks this first, so a line without runs
+    /// pays one test of its tables for them and nothing more.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    #[inline]
+    pub(crate) fn has_runs(&self) -> bool {
+        // A run marks the line wide, so a line that is not wide answers
+        // from the line itself, without reading its tables.
+        self.wide && self.tables.as_ref().is_some_and(|t| !t.runs.is_empty())
+    }
+
     /// The share of the sized run that holds column `col`, if a run does.
     pub fn run_at(&self, col: usize) -> Option<SizedRun> {
-        if !self.cells.get(col).is_some_and(|c| c.in_run()) {
+        if !self.has_runs() || !self.cells.get(col).is_some_and(|c| c.in_run()) {
             return None;
         }
         self.runs()
@@ -1071,12 +1084,17 @@ impl Line {
     /// or partly overwrite, goes whole, as a wide character does. On this
     /// line that is this row of the run. The screen takes the run's other
     /// rows off their lines.
+    #[inline]
     fn drop_runs(&mut self, cols: Range<usize>) {
-        self.drop_runs_where(|r| r.col() < cols.end && r.span().end > cols.start);
+        if self.has_runs() {
+            self.drop_runs_where(|r| r.col() < cols.end && r.span().end > cols.start);
+        }
     }
 
     /// Takes each run that `gone` holds for off the line, as
     /// [`drop_runs`](Self::drop_runs) does.
+    #[cold]
+    #[inline(never)]
     fn drop_runs_where(&mut self, gone: impl Fn(SizedRun) -> bool) {
         let Some(t) = self.tables.as_mut() else {
             return;
@@ -1110,7 +1128,7 @@ impl Line {
     /// one across `at`, across `end`, across the deleted cells, or pushed
     /// partly past `end`, goes from the line first.
     fn shift_runs(&mut self, at: usize, n: usize, end: usize, insert: bool) {
-        if self.runs().is_empty() {
+        if !self.has_runs() {
             return;
         }
         let cut = |r: SizedRun| {
