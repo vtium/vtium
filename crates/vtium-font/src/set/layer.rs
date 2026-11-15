@@ -79,6 +79,11 @@ impl fmt::Display for Role {
 /// holds besides its sources.
 pub const SOURCE_KEYS: [&str; 5] = ["cover", "fit", "render", "style", "strike"];
 
+/// The keys that describe a frit's own `source=` line and that a layer's
+/// source does not take: a console font's Unicode table, a CPI font's
+/// height and a bitmap font's smaller size.
+pub const FRIT_ONLY_SOURCE_KEYS: [&str; 3] = ["unimap", "cp-size", "script-source"];
+
 /// The keys of the set as a whole, which apply to every source, a
 /// layer's included, and which a layer therefore cannot hold.
 pub const SET_KEYS: [&str; 10] = [
@@ -163,7 +168,7 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
                 return Err(err(
                     n,
                     format!(
-                        "a layer starts with role=, and this line is {key}= (role= takes script, symbols, emoji or fallback)"
+                        "a layer starts with role=, and this line is {key}=. role= takes script, symbols, emoji or fallback"
                     ),
                 ));
             }
@@ -199,6 +204,14 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
                     ),
                 ));
             }
+            k if FRIT_ONLY_SOURCE_KEYS.contains(&k) => {
+                return Err(err(
+                    n,
+                    format!(
+                        "a layer's source does not take {k}=. It takes cover=, fit=, render=, style= and strike="
+                    ),
+                ));
+            }
             k => return Err(err(n, format!("unknown key {k}"))),
         }
         body.push_str(piece);
@@ -210,9 +223,10 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
     Ok(Layer { role, body })
 }
 
-/// Whether `name` can name a layer: a frit's name, 1 to 64 characters of
-/// `A-Z a-z 0-9 . _ + -`, not starting with `.`, so that no name reaches
-/// outside the layers' folder.
+/// Whether `name` can name a layer: 1 to 64 characters of `A-Z a-z 0-9 .
+/// _ + -`, not starting with `.`, as [`NAME_RULE`] says. A name holds no
+/// `/` and cannot be `.` or `..`, so no name reaches outside the layers'
+/// folder.
 pub fn valid_name(name: &str) -> bool {
     (1..=64).contains(&name.len())
         && !name.starts_with('.')
@@ -221,15 +235,24 @@ pub fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
-/// Where a line of a spliced frit came from.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum From {
-    /// The frit's own line, from 1.
-    Set(usize),
-    /// A layer's line, from 1: the layer is [`Expanded::placed`]'s entry
-    /// at `layer`.
-    Layer { layer: usize, line: usize },
-}
+/// How the name rule reads in a message: what a layer's name may hold.
+pub const NAME_RULE: &str = "A layer's name has 1 to 64 characters: letters, digits, '.', '_', '+' and '-', and it does not start with a dot.";
+
+/// The most sources a font set holds, its layers' sources included.
+pub const SET_SOURCES_MAX: usize = 16;
+
+/// The most bytes a font set's text holds, with its layers in place.
+pub const SET_BYTES_MAX: usize = 64 * 1024;
+
+/// The most `layer=` lines of a font set that vtium reads. Each layer adds
+/// one source at least, so a set reaches [`SET_SOURCES_MAX`] before it
+/// runs out of these.
+pub const LAYERS_MAX: usize = SET_SOURCES_MAX;
+
+/// The line that closes a layer's lines in a spliced frit. On its own,
+/// outside a layer's lines, it stands for a `layer=` line that added
+/// nothing.
+pub const END: &str = "layer=";
 
 /// A layer put in place: its name, its role and the frit's `layer=` line.
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -256,6 +279,14 @@ pub enum Problem {
     /// The layer's role is one a set holds once, and the layer `by`, on
     /// the set's line `at`, already brings it.
     RoleTaken { role: Role, by: String, at: usize },
+    /// The layer would give the set this many sources, more than
+    /// [`SET_SOURCES_MAX`].
+    TooManySources(usize),
+    /// The layer would make the set's text larger than [`SET_BYTES_MAX`].
+    TooLarge,
+    /// The set already has [`LAYERS_MAX`] `layer=` lines above this one,
+    /// so vtium does not read the layer.
+    TooManyLayers,
 }
 
 /// A `layer=` line that added nothing, and why. The set draws without
@@ -272,22 +303,17 @@ pub struct Note {
 /// A frit with its layers in place.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct Expanded {
-    /// The frit's text with each `layer=` line replaced by its layer's
-    /// sources, and dropped where the layer adds nothing.
+    /// The spliced text: the frit's text, where each `layer=NAME` line
+    /// that adds a layer is followed by every line of the layer, its
+    /// `role=` line left blank, and then by an [`END`] line. A `layer=`
+    /// line that adds nothing becomes an [`END`] line on its own. So the
+    /// glyph helper still reads one list of sources, and [`lines`] tells
+    /// from the text alone which file and line each line came from.
     pub text: String,
-    /// Where each line of [`Expanded::text`] came from, in order.
-    pub lines: Vec<From>,
     /// The layers put in place, in the set's order.
     pub placed: Vec<Placed>,
     /// Each `layer=` line that added nothing.
     pub notes: Vec<Note>,
-}
-
-impl Expanded {
-    /// Where line `n` of the spliced text, from 1, came from.
-    pub fn from(&self, n: usize) -> Option<From> {
-        n.checked_sub(1).and_then(|i| self.lines.get(i)).copied()
-    }
 }
 
 /// What reading a layer by name gives: its text; `Ok(None)` when the
@@ -295,54 +321,88 @@ impl Expanded {
 /// follow "because" and ending in a full stop.
 pub type Read<'a> = &'a mut dyn FnMut(&str) -> Result<Option<String>, String>;
 
-/// The frit `text` with each `layer=NAME` line replaced by the sources of
-/// the layer that `read` gives for NAME, in place, so that the sources
-/// keep the set's order.
+/// The frit `text` with each layer that the `layer=NAME` lines name put in
+/// place, as [`Expanded::text`] describes, so that the sources keep the
+/// set's order.
 ///
 /// A `layer=` line adds nothing, with a [`Note`] that says why, when its
 /// name is not a layer's, when the layer is missing or cannot be read,
 /// when its structure is wrong, when an earlier line adds the same layer,
-/// and when the set already holds a layer of the same single-use role.
-/// The set then draws without that layer: the first of two layers of one
-/// role is the one the set keeps, because the set names it first.
+/// when the set already holds a layer of the same single-use role, and
+/// when the layer would take the set past [`SET_SOURCES_MAX`] sources or
+/// [`SET_BYTES_MAX`] bytes. The set then draws without that layer: of two
+/// layers of one role, the set keeps the one it names first. vtium reads
+/// [`LAYERS_MAX`] `layer=` lines at most, and notes each one past them.
 pub fn expand(text: &str, read: Read<'_>) -> Expanded {
     let mut out = Expanded::default();
+    let mut sources = text
+        .split('\n')
+        .filter(|line| matches!(key_value(line), Some(("source", _))))
+        .count();
+    let mut bytes = text.len();
+    let mut layer_lines = 0usize;
     for (piece, n) in text.split_inclusive('\n').zip(1usize..) {
         let line = piece.strip_suffix('\n').unwrap_or(piece);
         let layer = match key_value(line) {
             Some(("layer", value)) => value,
             _ => {
                 out.text.push_str(piece);
-                out.lines.push(From::Set(n));
                 continue;
             }
         };
-        let note = |problem| Note {
-            line: n,
-            layer: layer.to_owned(),
-            problem,
+        layer_lines = layer_lines.saturating_add(1);
+        let placed = if layer_lines > LAYERS_MAX {
+            Err(Problem::TooManyLayers)
+        } else {
+            place(&out.placed, layer, read)
         };
-        match place(&out.placed, layer, read) {
-            Ok((role, body)) => {
-                let index = out.placed.len();
+        let region = placed.and_then(|(role, body)| {
+            let region = format!("{line}\n{}{END}\n", lines_of(&body));
+            let added = body
+                .split('\n')
+                .filter(|l| matches!(key_value(l), Some(("source", _))))
+                .count();
+            let grown = bytes
+                .saturating_add(region.len())
+                .saturating_sub(piece.len());
+            if sources.saturating_add(added) > SET_SOURCES_MAX {
+                Err(Problem::TooManySources(sources.saturating_add(added)))
+            } else if grown > SET_BYTES_MAX {
+                Err(Problem::TooLarge)
+            } else {
+                sources = sources.saturating_add(added);
+                bytes = grown;
+                Ok((role, region))
+            }
+        });
+        match region {
+            Ok((role, region)) => {
                 out.placed.push(Placed {
                     name: layer.to_owned(),
                     role,
                     line: n,
                 });
-                for (body_line, m) in body.split('\n').zip(1usize..) {
-                    if key_value(body_line).is_some() {
-                        out.text.push_str(body_line);
-                        out.text.push('\n');
-                        out.lines.push(From::Layer {
-                            layer: index,
-                            line: m,
-                        });
-                    }
-                }
+                out.text.push_str(&region);
             }
-            Err(problem) => out.notes.push(note(problem)),
+            Err(problem) => {
+                out.text.push_str(END);
+                out.text.push('\n');
+                out.notes.push(Note {
+                    line: n,
+                    layer: layer.to_owned(),
+                    problem,
+                });
+            }
         }
+    }
+    out
+}
+
+/// `body` with each of its lines ending in a newline, the last included.
+fn lines_of(body: &str) -> String {
+    let mut out = body.to_owned();
+    if !out.is_empty() && !out.ends_with('\n') {
+        out.push('\n');
     }
     out
 }
@@ -374,6 +434,58 @@ fn place(placed: &[Placed], name: &str, read: Read<'_>) -> Result<(Role, String)
     Ok((layer.role, layer.body))
 }
 
+/// Where a line of a spliced frit came from.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Line<'a> {
+    /// The frit's own line, from 1. A layer's opening `layer=NAME` line
+    /// and its closing [`END`] line are both the frit's `layer=` line.
+    Set(usize),
+    /// Line `line`, from 1, of the layer `name`, which the frit's line
+    /// `at` adds.
+    Layer {
+        name: &'a str,
+        line: usize,
+        at: usize,
+    },
+}
+
+/// Where each line of `spliced`, a text that [`expand`] gave, came from, in
+/// order: one entry for each line that `spliced.split('\n')` gives. It is
+/// read from the text alone, so the glyph helper, which is handed the
+/// spliced text with no file, names a layer's file and line in its
+/// messages as vtium-config does.
+pub fn lines(spliced: &str) -> Vec<Line<'_>> {
+    let mut out = Vec::new();
+    let mut own = 0usize;
+    // the layer whose lines are being read: its name, the frit's line
+    // that adds it, and the layer's last line read
+    let mut open: Option<(&str, usize, usize)> = None;
+    for line in spliced.split('\n') {
+        let kv = key_value(line);
+        match (open, kv) {
+            (Some(_), Some(("layer", ""))) => {
+                open = None;
+                out.push(Line::Set(own));
+            }
+            (Some((name, at, n)), _) => {
+                let n = n.saturating_add(1);
+                out.push(Line::Layer { name, line: n, at });
+                open = Some((name, at, n));
+            }
+            (None, kv) => {
+                own = own.saturating_add(1);
+                if let Some(("layer", name)) = kv
+                    && !name.is_empty()
+                {
+                    open = Some((name, own, 0));
+                }
+                out.push(Line::Set(own));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 #[expect(
     clippy::unwrap_used,
@@ -403,18 +515,36 @@ mod tests {
         let out = expand(set, &mut read);
         assert_eq!(
             out.text,
-            "cell=8x16\nsource=font:Fira Code\nsource=font:Symbols Nerd Font Mono\ncover=U+E000-U+F8FF\nsource=font:DejaVu Sans Mono\nsource=font:Noto Color Emoji\nline-spacing=10\n"
+            "cell=8x16\nsource=font:Fira Code\nlayer=nerd-symbols\n# icons\n\nsource=font:Symbols Nerd Font Mono\ncover=U+E000-U+F8FF\nlayer=\nsource=font:DejaVu Sans Mono\nlayer=noto-emoji\n\nsource=font:Noto Color Emoji\nlayer=\nline-spacing=10\n"
         );
+        let symbols = |line| Line::Layer {
+            name: "nerd-symbols",
+            line,
+            at: 3,
+        };
+        let emoji = |line| Line::Layer {
+            name: "noto-emoji",
+            line,
+            at: 5,
+        };
         assert_eq!(
-            out.lines,
+            lines(&out.text),
             vec![
-                From::Set(1),
-                From::Set(2),
-                From::Layer { layer: 0, line: 3 },
-                From::Layer { layer: 0, line: 4 },
-                From::Set(4),
-                From::Layer { layer: 1, line: 2 },
-                From::Set(6),
+                Line::Set(1),
+                Line::Set(2),
+                Line::Set(3),
+                symbols(1),
+                symbols(2),
+                symbols(3),
+                symbols(4),
+                Line::Set(3),
+                Line::Set(4),
+                Line::Set(5),
+                emoji(1),
+                emoji(2),
+                Line::Set(5),
+                Line::Set(6),
+                Line::Set(7),
             ]
         );
         assert_eq!(
@@ -445,10 +575,8 @@ mod tests {
         ] {
             let out = expand(text, &mut read);
             assert_eq!(out.text, text);
-            assert_eq!(
-                out.lines.len(),
-                text.split('\n').count() - usize::from(text.ends_with('\n'))
-            );
+            let own: Vec<Line> = (1..=text.split('\n').count()).map(Line::Set).collect();
+            assert_eq!(lines(&out.text), own);
         }
     }
 
@@ -466,8 +594,18 @@ mod tests {
         let out = expand(set, &mut read);
         assert_eq!(
             out.text,
-            "source=font:A\nsource=font:Noto Color Emoji\nsource=font:Symbols Nerd Font Mono\ncover=U+E000-U+F8FF\n"
+            "source=font:A\nlayer=noto-emoji\n\nsource=font:Noto Color Emoji\nlayer=\nlayer=\nlayer=\nlayer=\nlayer=\nlayer=\nlayer=\nlayer=nerd-symbols\n# icons\n\nsource=font:Symbols Nerd Font Mono\ncover=U+E000-U+F8FF\nlayer=\n"
         );
+        // each line that adds nothing keeps its place, so the frit's own
+        // lines keep their numbers
+        let own: Vec<usize> = lines(&out.text)
+            .into_iter()
+            .filter_map(|l| match l {
+                Line::Set(n) => Some(n),
+                Line::Layer { .. } => None,
+            })
+            .collect();
+        assert_eq!(own, [1, 2, 2, 3, 4, 5, 6, 7, 8, 9, 9, 10]);
         let problems: Vec<(usize, Problem)> =
             out.notes.into_iter().map(|n| (n.line, n.problem)).collect();
         assert_eq!(
@@ -497,6 +635,57 @@ mod tests {
                 ),
             ]
         );
+    }
+
+    // A layer that would take the set past its 16 sources or its 64 KiB of
+    // text adds nothing, so the set draws without it instead of the helper
+    // refusing the whole set. vtium reads 16 layer= lines at most.
+    #[test]
+    fn a_layer_that_would_overfill_the_set_adds_nothing() {
+        let six = "role=script\nsource=font:A\nsource=font:B\nsource=font:C\nsource=font:D\nsource=font:E\nsource=font:F\n";
+        let mut read = |_: &str| Ok(Some(six.to_owned()));
+        let out = expand("source=font:Text\nlayer=a\nlayer=b\nlayer=c\n", &mut read);
+        assert_eq!(out.placed.len(), 2);
+        assert_eq!(out.notes.len(), 1);
+        assert_eq!(
+            (out.notes[0].line, &out.notes[0].problem),
+            (4, &Problem::TooManySources(19))
+        );
+        let big = format!(
+            "role=script\nsource=font:A\n# {}\n",
+            "x".repeat(SET_BYTES_MAX / 2)
+        );
+        let mut read = |_: &str| Ok(Some(big.clone()));
+        let out = expand("source=font:Text\nlayer=a\nlayer=b\n", &mut read);
+        assert_eq!(out.placed.len(), 1);
+        assert_eq!(out.notes[0].problem, Problem::TooLarge);
+        assert!(out.text.len() <= SET_BYTES_MAX);
+        let mut asked = 0usize;
+        let mut read = |_: &str| {
+            asked += 1;
+            Ok(None)
+        };
+        let many: String = (0..LAYERS_MAX + 2)
+            .map(|i| format!("layer=l{i}\n"))
+            .collect();
+        let out = expand(&many, &mut read);
+        assert_eq!(asked, LAYERS_MAX);
+        let past: Vec<&Problem> = out.notes[LAYERS_MAX..].iter().map(|n| &n.problem).collect();
+        assert_eq!(past, [&Problem::TooManyLayers, &Problem::TooManyLayers]);
+    }
+
+    // A layer's name keeps the layer inside the layers' folder: no '/', no
+    // leading dot, 1 to 64 characters.
+    #[test]
+    fn a_layers_name_stays_inside_the_layers_folder() {
+        for name in ["a/b", "x/../../y", "", ".hidden", "..", "a b", "a\\b"] {
+            assert!(!valid_name(name), "{name:?}");
+        }
+        assert!(valid_name(&"a".repeat(64)));
+        assert!(!valid_name(&"a".repeat(65)));
+        for name in ["nerd-symbols", "noto-emoji", "cjk.sc", "a_b+c", "x..y"] {
+            assert!(valid_name(name), "{name:?}");
+        }
     }
 
     #[test]
@@ -555,6 +744,15 @@ mod tests {
             let e = refused(text);
             assert_eq!(e.line, line, "{text:?}");
             assert!(e.why.starts_with(why), "{text:?}: {}", e.why);
+        }
+        for key in ["unimap", "cp-size", "script-source"] {
+            let e = refused(&format!("role=symbols\nsource=font:A\n{key}=x\n"));
+            assert_eq!(
+                e.why,
+                format!(
+                    "a layer's source does not take {key}=. It takes cover=, fit=, render=, style= and strike="
+                )
+            );
         }
         for key in ["check", "sha256", "url"] {
             let e = refused(&format!("role=symbols\nsource=font:A\n{key}=x\n"));

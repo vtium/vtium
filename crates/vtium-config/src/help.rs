@@ -452,6 +452,7 @@ Options:
   --udev-data DIR       udev's database, instead of /run/udev/data
   --helper PROGRAM      the font helper to start, instead of this program's serve
   --root DIR            the root directory report reads the machine under, instead of /
+  --locale LOCALE       the console's locale, which serve picks the built-in font by, instead of C
   --help [TOPIC], --version
 ";
 

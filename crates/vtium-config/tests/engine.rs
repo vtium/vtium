@@ -135,6 +135,7 @@ impl World {
             font_dirs: vec![self.path("fonts")],
             vconsole_conf: self.path("vconsole.conf"),
             kernel_cmdline: self.path("cmdline"),
+            ..Paths::default()
         }
     }
 
@@ -283,21 +284,40 @@ fn a_cpi_font_draws_at_its_cp_size() {
     }
 }
 
+// A family names a kbd font with case and blanks ignored. A family this
+// machine lacks is the set's missing text font, so the built-in font draws
+// the text in its place: the frit has no own cell, and the helper leaves
+// every character the built-in font holds to the console, even where a
+// later source holds it. With every source missing, the frit fails.
+//
+// References:
+// - ADR-1204 D5 and D7: the built-in font draws the text when the set's
+//   text font is missing, and the cell comes from the configuration.
 #[test]
-fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
+fn a_family_resolves_and_a_missing_one_leaves_the_text_to_the_built_in_font() {
     let w = World::new("family");
     let font = fs::read(w.path("kbd/consolefonts/ter-v16n.psf.gz")).expect("the font");
     let psf = Psf::parse(&font).expect("the font parses");
-    // the family matches the kbd font with case and blanks ignored
     let set = w.drawn("source=font:Ter-V16N\n", cell(8, 16));
     draws_as(set, &psf, &chars());
-    // a family not on this machine is left out, and the next source gives
-    // the glyphs
-    let set = w.drawn(
-        "source=font:Nonesuch Mono\nsource=kbd:ter-v16n\n",
-        cell(8, 16),
+    let missing = w
+        .engine("source=font:Nonesuch Mono\nsource=kbd:ter-v16n\n")
+        .expect("the frit loads");
+    let why = missing.own_cell(16).expect_err("no own cell");
+    assert!(
+        why.contains("source=font:Nonesuch Mono is missing"),
+        "{why}"
     );
-    draws_as(set, &psf, &chars());
+    let want: Vec<u32> = chars().into_iter().map(u32::from).collect();
+    let held: Vec<char> = match missing.draw(cell(8, 16), &want).expect("draws") {
+        None => Vec::new(),
+        Some(bytes) => {
+            let set = Arc::new(Set::from_bytes(bytes).expect("the set reads"));
+            let face = SetFace::new(set, 16).expect("a strike");
+            chars().into_iter().filter(|&c| face.has_glyph(c)).collect()
+        }
+    };
+    assert!(held.is_empty(), "{held:?}");
     // with every source missing, the frit fails, naming each
     let why = w
         .engine("source=font:Nonesuch Mono\nsource=kbd:also-missing\n")

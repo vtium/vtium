@@ -324,6 +324,27 @@ impl Launcher {
         Launcher::open(command)
     }
 
+    /// This launcher, starting each helper with the console's `locale`
+    /// (`--locale`), so that the helper picks the built-in font the console
+    /// draws, which in a zh, ja or ko locale is Unifont at every height.
+    ///
+    /// References:
+    /// - ADR-1200 D7: the built-in font for a cell height and locale.
+    /// - ADR-1204 D5: the built-in font draws the text of a set whose text
+    ///   font is missing.
+    pub fn with_locale(mut self, locale: &str) -> Launcher {
+        self.command
+            .args
+            .extend([OsString::from("--locale"), OsString::from(locale)]);
+        self
+    }
+
+    /// The arguments each helper starts with, for a test.
+    #[cfg(test)]
+    pub(crate) fn args(&self) -> &[OsString] {
+        &self.command.args
+    }
+
     /// The process that starts a helper: the opened program, through
     /// `/proc/self/fd`, which the kernel lets a process read as any
     /// account, with the program's path as its name.
@@ -518,13 +539,17 @@ pub struct FritText {
 }
 
 impl FritText {
-    /// The frit at `path`, named for its file less `.vtfrit`, read once
-    /// the ownership check `trust` makes passes
-    /// ([`crate::font::frit_text`]), with its layers in place
-    /// ([`crate::font::with_layers`]). Each sentence about a `layer=` line
-    /// that adds nothing is logged once a boot.
-    pub fn read(path: &Path, trust: &vtium_settings::Trust) -> Result<FritText, String> {
-        let (frit, notes) = FritText::read_noting(path, trust)?;
+    /// The frit at `path` in the frits' directory `frits`, named for its
+    /// file less `.vtfrit`, read once the ownership check `trust` makes
+    /// passes ([`crate::font::frit_text`]), with the layers of the frits'
+    /// directory in place ([`crate::font::with_layers`]). Each sentence
+    /// about a `layer=` line that adds nothing is logged once a boot.
+    pub fn read(
+        path: &Path,
+        frits: &Path,
+        trust: &vtium_settings::Trust,
+    ) -> Result<FritText, String> {
+        let (frit, notes) = FritText::read_noting(path, frits, trust)?;
         for note in &notes {
             crate::font::log_layer_note(note);
         }
@@ -536,6 +561,7 @@ impl FritText {
     /// caller reports.
     pub fn read_noting(
         path: &Path,
+        frits: &Path,
         trust: &vtium_settings::Trust,
     ) -> Result<(FritText, Vec<String>), String> {
         let name = path
@@ -546,7 +572,7 @@ impl FritText {
             .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
         let text = crate::font::frit_text(path, trust)
             .map_err(|why| crate::font::refusal(name, path, &why))?;
-        let (text, notes) = crate::font::with_layers(name, path, &text, trust);
+        let (text, notes) = crate::font::with_layers(name, frits, &text, trust);
         Ok((
             FritText {
                 name: name.to_owned(),
@@ -3144,8 +3170,8 @@ mod tests {
         let path = dir.join("ter-v16n.vtfrit");
         std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
         let trust = crate::font::trust().below(&dir);
-        let read = FritText::read(&path, &trust);
-        let gone = FritText::read(&dir.join("gone.vtfrit"), &trust);
+        let read = FritText::read(&path, &dir, &trust);
+        let gone = FritText::read(&dir.join("gone.vtfrit"), &dir, &trust);
         assert_eq!(
             read,
             Ok(FritText {
@@ -4992,6 +5018,10 @@ mod tests {
         let opened = Launcher::configured(&sh).unwrap();
         assert_eq!(opened.command.program, shell);
         assert_eq!(opened.command.args, ["serve"]);
+        // the console's locale goes with it, for the built-in font the
+        // helper leaves characters to
+        let localized = opened.with_locale("ja_JP.UTF-8");
+        assert_eq!(localized.command.args, ["serve", "--locale", "ja_JP.UTF-8"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
     }

@@ -112,7 +112,8 @@ fn judge(file: &Path, trust: &Trust) -> Judged {
 }
 
 /// What check-config says of the layers the frit `name` at `file` adds,
-/// read under `trust` as the start reads them: a sentence for each
+/// read from the frits' directory `frits` under `trust` as the start reads
+/// them: a sentence for each
 /// `layer=` line that adds nothing, such as a missing layer, a layer the
 /// ownership check refuses or a layer whose `role=` is wrong. Each counts
 /// against the configuration, as a look's missing frit does, since the
@@ -121,10 +122,10 @@ fn judge(file: &Path, trust: &Trust) -> Judged {
 ///
 /// References:
 /// - ADR-1204 D5: `vtium check-config` reads a set's layers too.
-fn frit_layers(name: &str, file: &Path, trust: &Trust) -> Vec<String> {
+fn frit_layers(name: &str, file: &Path, frits: &Path, trust: &Trust) -> Vec<String> {
     font::frit_text(file, trust).map_or_else(
         |_| Vec::new(),
-        |text| font::with_layers(name, file, &text, trust).1,
+        |text| font::with_layers(name, frits, &text, trust).1,
     )
 }
 
@@ -511,7 +512,7 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
     // the font-name frit, which at the start the font's own read reports
     let (refused, root_refuses) = font_name_frit(&loaded.config, settings.frits, &settings.trust);
     let layers = named_frit(&loaded.config, settings.frits)
-        .map(|(name, file)| frit_layers(&name, &file, &settings.trust))
+        .map(|(name, file)| frit_layers(&name, &file, settings.frits, &settings.trust))
         .unwrap_or_default();
     let stderr: Vec<String> = stderr.into_iter().chain(refused).chain(layers).collect();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
@@ -534,7 +535,7 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
     let ask = |frit: &helper::FritText, letters: &[u32]| {
-        let launcher = helper::Launcher::configured(&loaded.config)?;
+        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
         let mut helper = helper::Helper::new(
             launcher,
             std::sync::Arc::new(|| {}),
@@ -794,7 +795,7 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         // a font set the account reads is checked for its layers and for
         // the locale's letters
         if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
-            for said in frit_layers(&named.value, &file, &settings.trust) {
+            for said in frit_layers(&named.value, &file, settings.frits, &settings.trust) {
                 out.counted.push(at(path, line, said).to_string());
             }
             let said = settings
@@ -838,7 +839,7 @@ fn squeeze_note(
 ) -> Option<String> {
     let script = vtium_font::letters::script_of(sq.locale)?;
     // the layers' sentences are frit_layers' to report, so none is logged
-    let (frit, _) = helper::FritText::read_noting(file, &settings.trust).ok()?;
+    let (frit, _) = helper::FritText::read_noting(file, settings.frits, &settings.trust).ok()?;
     let cell = font::frit_cell(&frit.text)
         .ok()
         .flatten()
@@ -1350,9 +1351,12 @@ mod tests {
         );
     }
 
-    // ADR-1204 D5: check-config reads a set's layers as the start reads
-    // them, and reports a missing layer, a layer the ownership check
-    // refuses and a layer whose role= is wrong
+    // check-config reads a set's layers as the start reads them, and
+    // reports a missing layer, a layer the ownership check refuses and a
+    // layer whose role= is wrong.
+    //
+    // References:
+    // - ADR-1204 D5: vtium check-config reads a set's layers too.
     #[test]
     #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
     fn check_config_reports_a_sets_layers() {
@@ -1389,7 +1393,7 @@ mod tests {
             0o644,
         );
         let trust = font::trust().below(&dir);
-        let said = frit_layers("set", &set, &trust);
+        let said = frit_layers("set", &set, &dir, &trust);
         let file = |name: &str| font::quoted(&layers.join(format!("{name}.vtlayer")));
         assert_eq!(
             said,

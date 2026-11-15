@@ -230,10 +230,15 @@ fn trusted_text(path: &Path, trust: &Trust) -> Result<Option<String>, String> {
         .map_err(|_| "the file is not UTF-8 text.".to_owned())
 }
 
-/// The folder that holds the layers of the frit at `frit`: `layers/` in
-/// the frit's own directory.
-pub fn layers_dir(frit: &Path) -> PathBuf {
-    frit.parent().unwrap_or(Path::new("/")).join(layer::DIR)
+/// The folder that holds the layers of every frit in the frits'
+/// directory `frits`: its `layers/` folder, wherever in the directory the
+/// frit itself is.
+///
+/// References:
+/// - ADR-1204 D5 and D9: the layers live in the `layers/` folder of the
+///   frits' directory.
+pub fn layers_dir(frits: &Path) -> PathBuf {
+    frits.join(layer::DIR)
 }
 
 /// The file of the layer `name` in the layers' folder `dir`.
@@ -241,20 +246,21 @@ fn layer_file(dir: &Path, name: &str) -> PathBuf {
     dir.join(format!("{name}{}", layer::SUFFIX))
 }
 
-/// The frit `name`'s `text`, read from `path`, with the sources of each
-/// layer it names in place of the layer's `layer=` line, and a sentence
-/// for each `layer=` line that adds nothing. vtium reads each layer from
-/// the layers' folder beside the frit, under the ownership check `trust`
-/// that the frit passed, and draws the set without a layer that is
-/// missing, that the check refuses or whose structure is wrong. The glyph
-/// helper then reads one list of sources, as it reads a frit with no
-/// layers, and it checks the layers' values as it checks the frit's own.
+/// The frit `name`'s `text` with the sources of each layer it names in
+/// place of the layer's `layer=` line, and a sentence for each `layer=`
+/// line that adds nothing. vtium reads each layer from the layers' folder
+/// of the frits' directory `frits`, under the ownership check `trust` that
+/// the frit passed. It draws the set without a layer that is missing, that
+/// the check refuses, whose structure is wrong, or that would take the set
+/// past its 16 sources or 64 KiB. The glyph helper then reads one list of
+/// sources, as it reads a frit with no layers, and it checks the layers'
+/// values as it checks the frit's own.
 ///
 /// References:
 /// - ADR-1204 D5: the splice in place, and the ownership check a layer
 ///   passes.
-pub fn with_layers(name: &str, path: &Path, text: &str, trust: &Trust) -> (String, Vec<String>) {
-    let dir = layers_dir(path);
+pub fn with_layers(name: &str, frits: &Path, text: &str, trust: &Trust) -> (String, Vec<String>) {
+    let dir = layers_dir(frits);
     let mut read = |layer: &str| trusted_text(&layer_file(&dir, layer), trust);
     let expanded = layer::expand(text, &mut read);
     let notes = expanded
@@ -273,7 +279,8 @@ pub fn layer_note(name: &str, dir: &Path, note: &layer::Note) -> String {
     let file = || quoted(&layer_file(dir, layer));
     match &note.problem {
         layer::Problem::BadName => format!(
-            "font set {name}: line {n}: layer={layer} does not name a layer. A layer's name is 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with a dot. vtium draws the font set without it."
+            "font set {name}: line {n}: layer={layer} does not name a layer. {} vtium draws the font set without it.",
+            layer::NAME_RULE
         ),
         layer::Problem::Missing => format!(
             "font set {name}: line {n}: the layer {layer} is missing, because there is no file {}. vtium draws the font set without that layer.",
@@ -292,6 +299,18 @@ pub fn layer_note(name: &str, dir: &Path, note: &layer::Note) -> String {
         ),
         layer::Problem::RoleTaken { role, by, at } => format!(
             "font set {name}: line {n}: the layer {layer} is a second {role} layer, after {by} on line {at}. A font set holds one {role} layer, so vtium draws the font set without {layer}."
+        ),
+        layer::Problem::TooManySources(count) => format!(
+            "font set {name}: line {n}: the layer {layer} would give the font set {count} sources, and a font set holds {} at most. vtium draws the font set without that layer.",
+            layer::SET_SOURCES_MAX
+        ),
+        layer::Problem::TooLarge => format!(
+            "font set {name}: line {n}: the layer {layer} would make the font set larger than {} bytes. vtium draws the font set without that layer.",
+            layer::SET_BYTES_MAX
+        ),
+        layer::Problem::TooManyLayers => format!(
+            "font set {name}: line {n}: the font set has more than {} layer= lines, so vtium does not read the layer {layer}.",
+            layer::LAYERS_MAX
         ),
     }
 }
@@ -346,7 +365,13 @@ pub fn refusal(name: &str, path: &Path, reason: &str) -> String {
 /// for a second.
 fn frit_line<'a>(text: &'a str, key: &str) -> Result<Option<(usize, &'a str)>, String> {
     let mut found = None;
-    for (line, n) in text.split('\n').zip(1usize..) {
+    // a frit with its layers in place names the frit's own lines
+    let own = layer::lines(text);
+    let lines = text.split('\n').zip(own.into_iter().map(|line| match line {
+        layer::Line::Set(n) => n,
+        layer::Line::Layer { at, .. } => at,
+    }));
+    for (line, n) in lines {
         let body = line.split('#').next().unwrap_or_default();
         let Some((k, value)) = body.split_once('=') else {
             continue;
@@ -782,7 +807,7 @@ pub fn wanted(config: &Config, vconsole_conf: &str, cmdline: &str) -> Option<Wan
 /// is why the frit of that name cannot be read.
 pub fn frit_named(sources: &Sources, wanted: &Wanted) -> Result<FritText, String> {
     if let Some(path) = frit(&sources.frits, &wanted.name) {
-        return FritText::read(&path, &sources.trust);
+        return FritText::read(&path, &sources.frits, &sources.trust);
     }
     Ok(FritText {
         name: wanted.name.clone(),
@@ -824,7 +849,7 @@ pub fn by_name(
         return Ok(builtin);
     }
     let frit = match frit(&sources.frits, name) {
-        Some(path) => FritText::read(&path, &sources.trust)?,
+        Some(path) => FritText::read(&path, &sources.frits, &sources.trust)?,
         None => made
             .filter(|made| made.name == name)
             .cloned()
@@ -2420,10 +2445,13 @@ mod tests {
         );
     }
 
-    // ADR-1204 D5: the console puts each layer's sources in place of the
-    // set's layer= line, reads each layer under the ownership check the
-    // frit passes, and draws the set without a layer it does not read,
-    // with one sentence for each
+    // The console puts each layer's sources in place of the set's layer=
+    // line, reads each layer from the layers' folder of the frits'
+    // directory under the ownership check the frit passes, and draws the
+    // set without a layer it does not read, with one sentence for each.
+    //
+    // References:
+    // - ADR-1204 D5: the splice in place and the ownership check.
     #[test]
     fn a_frits_layers_go_in_place_under_the_frits_ownership_check() {
         use std::os::unix::fs::PermissionsExt;
@@ -2469,7 +2497,20 @@ mod tests {
         let frit = frit_named(&sources, &wanted).expect("the frit");
         assert_eq!(
             frit.text,
-            "cell=8x16\nsource=kbd:text\nsource=font:Symbols\ncover=U+E000-U+F8FF\nsource=font:Emoji\nline-spacing=10\n"
+            "cell=8x16\nsource=kbd:text\nlayer=symbols\n\nsource=font:Symbols\ncover=U+E000-U+F8FF\nlayer=\nlayer=\nlayer=\nlayer=emoji\n\nsource=font:Emoji\nlayer=\nline-spacing=10\n"
+        );
+        // a key of the set after a layer is named by the frit's own line
+        assert_eq!(frit_line_spacing(&frit.text), Ok(Some(10)));
+        let after = with_layers(
+            "set",
+            &dir,
+            "source=kbd:text\nlayer=symbols\ncell=8\n",
+            &sources.trust,
+        )
+        .0;
+        assert!(
+            frit_cell(&after).unwrap_err().starts_with("line 3: "),
+            "{after}"
         );
         let by_osc_50 = match by_name(&sources, "set", false, None, None).expect("the frit") {
             Chosen::Frit { frit, .. } => frit.text,
@@ -2477,7 +2518,23 @@ mod tests {
         };
         assert_eq!(by_osc_50, frit.text);
         let (_, notes) =
-            FritText::read_noting(&dir.join("set.vtfrit"), &sources.trust).expect("the frit");
+            FritText::read_noting(&dir.join("set.vtfrit"), &dir, &sources.trust).expect("the frit");
+        // a frit elsewhere takes its layers from the frits' directory, not
+        // from a layers/ folder beside it
+        let elsewhere = Scratch::new("font-layers-elsewhere");
+        mode(&elsewhere, 0o755);
+        write(
+            &elsewhere.join("draft.vtfrit"),
+            "source=kbd:text\nlayer=emoji\n",
+        );
+        let (draft, missing) = FritText::read_noting(
+            &elsewhere.join("draft.vtfrit"),
+            &dir,
+            &trust().below(&elsewhere),
+        )
+        .expect("the draft");
+        assert!(missing.is_empty(), "{missing:?}");
+        assert!(draft.text.contains("source=font:Emoji\n"), "{}", draft.text);
         let theirs = layers.join("theirs.vtlayer");
         assert_eq!(
             notes,

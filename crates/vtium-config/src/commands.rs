@@ -109,7 +109,13 @@ pub fn check(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn
     };
     let path = Path::new(file);
     if path.extension().is_some_and(|e| e == "vtfrit") {
-        return match Frit::load(path) {
+        // a frit's layers are in the layers' folder of the frits'
+        // directory, wherever the frit being checked is
+        let frits = paths
+            .frits
+            .clone()
+            .unwrap_or_else(|_| path.parent().unwrap_or(Path::new("/")).to_owned());
+        return match Frit::load_in(path, &frits.join(layer::DIR)) {
             Ok(frit) => {
                 for warning in &frit.warnings {
                     let _ = writeln!(out, "warning\t{warning}");
@@ -554,7 +560,8 @@ pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String
     for name in names {
         if !layer::valid_name(name) {
             return Err(format!(
-                "{name:?} cannot be a layer's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-'"
+                "{name:?} cannot be a layer's name. {}",
+                layer::NAME_RULE
             ));
         }
         if roles.iter().any(|&(_, n)| n == name) {
@@ -581,6 +588,38 @@ pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String
     Ok(roles.into_iter().map(|(_, n)| n.to_owned()).collect())
 }
 
+/// Checks the frit `text`, to be installed at `path` in the frits'
+/// directory, with the layers of that directory in place, as the console
+/// will hand it to the helper. A layer that this machine lacks or cannot
+/// read passes, since the console draws the set without it until it is
+/// there. Any other `layer=` line that would add nothing is refused, such
+/// as a layer that would take the set past its 16 sources, and so is a
+/// value in a layer that the helper would refuse.
+///
+/// References:
+/// - ADR-1204 D5: the splice the console makes, and `new-frit --layer`.
+fn check_layers(text: &str, path: &Path, name: &str) -> Result<(), String> {
+    let layers = path.parent().unwrap_or(Path::new("/")).join(layer::DIR);
+    let expanded = layer::expand(text, &mut |n| crate::frit::read_layer(&layers, n));
+    if let Some(note) = expanded.notes.iter().find(|note| {
+        !matches!(
+            note.problem,
+            layer::Problem::Missing | layer::Problem::Unread(_)
+        )
+    }) {
+        let file = crate::frit::layer_file(&layers, &note.layer);
+        return Err(format!(
+            "{}:{}: {}",
+            path.display(),
+            note.line,
+            crate::frit::layer_why(&file, note)
+        ));
+    }
+    Frit::parse_spliced(expanded.text.as_bytes(), path, name, &layers)
+        .map(drop)
+        .map_err(|e| e.to_string())
+}
+
 /// The plan that installs the frit `text` as `name` in `paths`' frits,
 /// once the frit reader takes it strictly, as the helper reads it.
 pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> {
@@ -595,6 +634,9 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
         .map_err(Clone::clone)?
         .join(format!("{name}.vtfrit"));
     let frit = Frit::parse(text.as_bytes(), &path, name).map_err(|e| e.to_string())?;
+    if !frit.layers.is_empty() {
+        check_layers(text, &path, name)?;
+    }
     if frit.name != name {
         return Err(format!(
             "the font set says name={}, but it would be installed as {name}. Make the two names the same.",

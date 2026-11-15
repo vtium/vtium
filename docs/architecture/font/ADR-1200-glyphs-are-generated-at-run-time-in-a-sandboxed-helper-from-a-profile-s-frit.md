@@ -565,7 +565,7 @@ With no font named, a head takes the default profile and its default frit (D16),
 
 The C reference loaded its font before its first frame and took the font's cell. vtium knows the cell just as surely, from the profile, without waiting on a font. It waits only for the cell of a frit that states none, and only for a bounded time.
 
-> Note 2026-11-15: ADR-1204 D5 changes which source sets the cell when the first source is missing. The first source is the set's text font. When the machine lacks it or cannot read it, the built-in font takes its place, and the cell is the frit's `cell=`, else the cell for the configured size, as for a console with no font named. The next source no longer sets the cell, so a layer's font never does. A first source that fails as it draws still leaves the cell to the next source.
+> Note 2026-11-15: ADR-1204 D5 changes which source sets the cell when the first source is missing. The first source is the set's text font. When the machine lacks it or cannot read it, or the set holds only layers, the built-in font takes its place: it draws each character it holds, and the later sources draw only what it lacks. The cell is the frit's `cell=`, else the cell for the configured size, as for a console with no font named. The next source no longer sets the cell, so a layer's font never does. A first source that fails as it draws leaves the cell to the set's next own source, never to a layer's.
 
 > Edited 2026-11-14: the maintainer's direction of 2026-11-05 on outline glyphs behind a bitmap first source (D1's `render=` row and its note). The paragraph's last sentence ended at "span the cell's height.", and such glyphs drew antialiased.
 
