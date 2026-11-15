@@ -1,3 +1,5 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+bitmap-outline	new: outline glyphs behind a bitmap first source drawn 1-bit by default (vtium/vtium#311), for the maintainer to review
+bitmap-outline-smooth	new: the same font set with render=smooth under each outline source (vtium/vtium#311), for the maintainer to review
