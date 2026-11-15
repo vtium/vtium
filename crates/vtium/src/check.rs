@@ -253,8 +253,63 @@ pub fn notes(config: &Config) -> Vec<String> {
         .chain(helper_note(&helper::program(config), me))
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
-    let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
+    let notes = notes
+        .chain(image_helper_note(&crate::head::images::program(config), me))
+        .chain(
+            config
+                .text(&keys::LOGIN_IMAGE)
+                .and_then(|path| login_image_note(None, Path::new(path), me)),
+        );
     notes.collect()
+}
+
+/// What check-config notes of the login picture at `path`, which the top
+/// level names, or the look `look` names: why vtium could not use the
+/// file, in the words of the start's log line. check-config looks at the
+/// file as the account it runs as, `me`, and vtium reads it as root, so a
+/// file that account may not read is noted as one check-config cannot
+/// check. The note stands outside the exit status, because the file
+/// belongs to the machine and not to vtium.conf.
+///
+/// References:
+/// - ADR-1100 D17, "A file vtium cannot use": check-config reports a
+///   login picture's file it cannot open.
+#[cfg(feature = "images")]
+fn login_image_note(look: Option<&str>, path: &Path, me: u32) -> Option<String> {
+    let why = crate::head::images::login_image_unusable(path)?;
+    let path = crate::font::quoted(path);
+    let (what, its) = match look {
+        None => ("login-image".to_owned(), "the"),
+        Some(look) => (format!("Look {look:?}"), "its"),
+    };
+    Some(
+        if me != 0 && why == crate::head::images::LOGIN_IMAGE_DENIED {
+            format!(
+                "{what}: this account may not read {its} login picture {path}, so check-config cannot check it. vtium reads it as root."
+            )
+        } else {
+            format!(
+                "{what}: vtium cannot show {its} login picture {path}, because {why}. vtium would start the login prompt without it."
+            )
+        },
+    )
+}
+
+/// What check-config notes of each look's login picture, on the look's
+/// `login-image` line ([`login_image_note`]).
+#[cfg(feature = "images")]
+fn look_login_images(out: &mut HeadCheck, path: &Path, parsed: &Parsed, me: u32) {
+    for look in &parsed.config.looks {
+        let named = look
+            .settings
+            .iter()
+            .find(|s| s.key.name == keys::LOGIN_IMAGE.name);
+        if let Some(named) = named {
+            let said = login_image_note(Some(&look.name), Path::new(&named.value), me);
+            out.notes
+                .extend(said.map(|said| at(path, Some(named.line), said).to_string()));
+        }
+    }
 }
 
 /// What check-config notes of `font-paths` (ADR-1200 D25): each folder
@@ -831,6 +886,8 @@ fn findings(
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     look_frits(out, path, parsed, settings);
+    #[cfg(feature = "images")]
+    look_login_images(out, path, parsed, rustix::process::geteuid().as_raw());
     if parsed.more_warnings > 0 {
         out.counted.push(
             at(
@@ -1555,6 +1612,69 @@ mod tests {
         assert_eq!(
             run_with(&["--image-helper=bin/vtium-image"], ""),
             (Vec::new(), 0)
+        );
+    }
+
+    // A login picture that vtium could not use, at the top level or in a
+    // look, is noted on standard output with the reason the start would
+    // log, outside the exit status; a PNG file draws no note.
+    #[cfg(feature = "images")]
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_login_picture_vtium_cannot_use_is_noted() {
+        let dir = Scratch::new("check-login-image");
+        let png = dir.join("login.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+        let text = dir.join("login.txt");
+        std::fs::write(&text, b"no picture").unwrap();
+        let missing = dir.join("missing.png");
+        let note = |path: &Path| {
+            notes_but(
+                &["font-helper:", "image-helper:"],
+                &[&format!("--login-image={}", path.display())],
+            )
+        };
+        let density = check_config::MEASURED_DENSITY;
+        assert_eq!(note(&png), [density]);
+        assert_eq!(
+            note(&missing),
+            [
+                density.to_owned(),
+                format!(
+                    "login-image: vtium cannot show the login picture \"{}\", because the file does not exist. vtium would start the login prompt without it.",
+                    missing.display()
+                )
+            ]
+        );
+        assert_eq!(
+            note(&dir),
+            [
+                density.to_owned(),
+                format!(
+                    "login-image: vtium cannot show the login picture \"{}\", because the file is not a regular file. vtium would start the login prompt without it.",
+                    dir.display()
+                )
+            ]
+        );
+        let look = format!(
+            "version = 1\n[look big]\nlogin-image = {}\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n",
+            text.display()
+        );
+        let (_heads, file, trust) = heads_fixture("login-image", &look, 0o644);
+        let out = conf_file(&file, false, &trust, &machine(true), &caps(4));
+        assert_eq!(out.counted, [] as [String; 0]);
+        let said: Vec<&String> = out
+            .notes
+            .iter()
+            .filter(|n| n.contains("login picture"))
+            .collect();
+        assert_eq!(
+            said,
+            [&format!(
+                "{}:3: Look \"big\": vtium cannot show its login picture \"{}\", because the file is not a PNG or JPEG picture. vtium would start the login prompt without it.",
+                file.display(),
+                text.display()
+            )]
         );
     }
 

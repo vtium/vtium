@@ -970,7 +970,12 @@ mod tests {
         assert!(decode_hello(&packet).is_err());
     }
 
-    // ADR-1100 D17: the login picture's fitting travels with its request
+    // The login picture's fitting travels with its request, and a fit
+    // beside anything but one inline picture is refused.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   fits the picture it decodes.
     #[test]
     fn a_login_pictures_fitting_round_trips_and_an_unknown_fit_is_refused() {
         use crate::login::{Fit, Fitting, Form, Geometry, Position};
@@ -1013,14 +1018,57 @@ mod tests {
         // a fit beside a named file is refused
         let file = Request {
             medium: Medium::File(b"/a".to_vec()),
-            ..request
+            ..request.clone()
         };
         assert!(encode_request(8, &file).is_err());
+        // so is a fit beside a pixel description, a PNG's flag, zlib, an
+        // exact length or a discard: the helper fits only a decoded picture
+        let described = Request {
+            pixels: Some(Description {
+                layout: Layout::Rgba,
+                alpha: Alpha::Straight,
+                width: 1,
+                height: 1,
+                compressed: false,
+            }),
+            min: 4,
+            ..request.clone()
+        };
+        let png = Request {
+            png: true,
+            ..request.clone()
+        };
+        let inflated = Request {
+            inflate: true,
+            ..request.clone()
+        };
+        let exact = Request {
+            inflate: true,
+            exact: true,
+            ..request.clone()
+        };
+        let discard = Request {
+            discard: true,
+            ..request
+        };
+        for (what, r) in [
+            ("pixels", described),
+            ("png", png),
+            ("inflate", inflated),
+            ("exact", exact),
+            ("discard", discard),
+        ] {
+            assert!(encode_request(9, &r).is_err(), "{what}");
+        }
     }
 
-    // ADR-1100 D17: the position byte carries the nine anchors and unset,
-    // and a reserved byte carries the scale, so the request keeps its
-    // length; a scale of 0 or past 100, or a tenth anchor, is malformed
+    // The position byte carries the nine anchors and unset, and a
+    // reserved byte carries the scale, so the request keeps its length. A
+    // scale of 0 or past 100, or a tenth anchor, is malformed.
+    //
+    // References:
+    // - ADR-1100 D17, "The keys": the nine anchors and the scale from 1 to
+    //   100.
     #[test]
     fn each_anchor_and_scale_crosses_the_wire_and_a_bad_scale_is_refused() {
         use crate::login::{Fit, Fitting, Form, Geometry, Position};

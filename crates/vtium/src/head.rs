@@ -296,8 +296,11 @@ pub struct Head {
     /// What the image keys give the head's consoles (ADR-1100 D11).
     #[cfg(feature = "images")]
     pub(crate) image_settings: images::Settings,
-    /// The login picture the head's look or the top level names
-    /// (ADR-1100 D17).
+    /// The login picture the head's look or the top level names.
+    ///
+    /// References:
+    /// - ADR-1100 D17, "The keys": the picture's keys are look keys and
+    ///   top-level keys.
     #[cfg(feature = "images")]
     pub(crate) login_image: images::Login,
 }

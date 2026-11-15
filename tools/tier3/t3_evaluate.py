@@ -362,8 +362,11 @@ def header(case, script=None):
     return fields
 
 
-# The login picture's capture (ADR-1100 D17, t3_scenario's "login_shot"):
-# the login prompt as it first settles, with no script of its own.
+# The login picture's capture, t3_scenario's "login_shot": the login
+# prompt as it first settles, with no script of its own.
+#
+# References:
+# - ADR-1100 D17: the login picture this capture shows.
 LOGIN_SHOTS = {
     "login-image": (
         "The login prompt of images-login-640x480, whose vtium.conf names the "

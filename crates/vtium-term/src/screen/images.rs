@@ -163,7 +163,11 @@ mod with {
         }
 
         /// Stores an image in the buffer in use whose pixels another store
-        /// already holds, sharing them (ADR-1100 D17).
+        /// already holds, sharing them.
+        ///
+        /// References:
+        /// - ADR-1100 D17, "Its budget": the consoles of a head share one
+        ///   copy of the login picture's pixels.
         pub fn add_shared_image(
             &mut self,
             image: NewImage,

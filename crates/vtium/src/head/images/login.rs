@@ -33,7 +33,10 @@
 //!
 //! A file vtium cannot use starts the login prompt without the picture,
 //! and vtium logs one line that names the file and the reason, once each
-//! time it reads its configuration.
+//! time it reads its configuration. A failure holds only for the display
+//! size it happened at: when the display changes size, the head asks
+//! again, so a picture that timed out or had no room on a small display
+//! can still show on the next one.
 //!
 //! References:
 //! - ADR-1100 D17: the two forms, the anchors, the scale, the banner at
@@ -42,12 +45,12 @@
 //! - ADR-1101 D8: the reply timer the first login prompt waits for.
 
 use std::os::fd::OwnedFd;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::time::Instant;
 
 use vtium_image::decode::{Medium, Reply, Request};
-use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, SCALE_FULL, place};
+use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, SCALE_FULL, place, room};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::image_helper::Session;
 
@@ -68,16 +71,20 @@ enum State {
     /// Not asked for yet, or asked again after the display changed size.
     Idle,
     /// The request is out with the image helper, and fails unanswered at
-    /// `due`.
+    /// `due`. `answer` is what checks the helper's answer: the request
+    /// without the file's bytes, which the helper already holds, and
+    /// bounded by the screen, since the answer is the fitted picture.
     Asking {
-        request: Request,
+        answer: Request,
         due: Instant,
         geometry: Geometry,
     },
     /// Made for `geometry`.
     Ready { geometry: Geometry, made: Rc<Made> },
-    /// No picture: none is configured, or vtium cannot use the file and
-    /// has logged why.
+    /// vtium could not make the picture for `geometry`. It asks again once
+    /// the display has another size.
+    Failed { geometry: Geometry },
+    /// No picture is configured.
     Off,
 }
 
@@ -90,6 +97,8 @@ pub(crate) struct Login {
     state: State,
     host: Option<Box<dyn Helper>>,
     watch: Option<Watch>,
+    /// The log has said once why vtium cannot show the picture.
+    failure_logged: bool,
     /// The log has said once that a console's store could not hold the
     /// picture.
     no_room_logged: bool,
@@ -145,6 +154,7 @@ impl Login {
             state,
             host: None,
             watch: None,
+            failure_logged: false,
             no_room_logged: false,
             settled: None,
         }
@@ -178,7 +188,7 @@ impl Login {
     /// gives `geometry`, or `None` while it has no display: the request
     /// sent to a host `helpers` makes once, its reply read, or the request
     /// dropped once the timer has run out. A head asks again when its
-    /// display's geometry changed since the picture was made.
+    /// display's geometry changed since the picture was made or failed.
     pub(crate) fn turn(
         &mut self,
         geometry: Option<Geometry>,
@@ -206,18 +216,23 @@ impl Login {
         match &self.state {
             State::Off => {}
             State::Idle => wake = self.ask(geometry, now, helpers),
-            State::Ready { geometry: g, .. } if *g != geometry => {
+            State::Ready { geometry: g, .. } | State::Failed { geometry: g } if *g != geometry => {
                 wake = self.ask(geometry, now, helpers);
             }
-            State::Ready { .. } => {}
-            State::Asking { due, .. } => {
+            State::Ready { .. } | State::Failed { .. } => {}
+            State::Asking {
+                due,
+                geometry: asked,
+                ..
+            } => {
+                let (due, asked) = (*due, *asked);
                 if let Some(reply) = self.host.as_mut().and_then(|h| h.reply()) {
                     self.finish(reply);
-                } else if now >= *due {
+                } else if now >= due {
                     if let Some(host) = &mut self.host {
                         host.stop();
                     }
-                    self.fail("the image helper did not answer within 2 seconds");
+                    self.fail(asked, "the image helper did not answer within 2 seconds");
                 }
             }
         }
@@ -236,10 +251,18 @@ impl Login {
         now: Instant,
         helpers: Option<&Helpers>,
     ) -> Option<OwnedFd> {
+        let fitting = Fitting {
+            form: self.form,
+            geometry,
+        };
+        if self.path.is_some() && !room(&fitting) {
+            self.fail(geometry, "the screen has no room for the picture");
+            return None;
+        }
         let bytes = match self.path.as_deref().map(read) {
             Some(Ok(bytes)) => bytes,
             Some(Err(why)) => {
-                self.fail(&why);
+                self.fail(geometry, &why);
                 return None;
             }
             None => {
@@ -251,10 +274,10 @@ impl Login {
             self.host = helpers.map(|make| make());
         }
         let Some(host) = self.host.as_mut().filter(|h| h.available()) else {
-            self.fail("the image helper cannot start");
+            self.fail(geometry, "the image helper cannot start");
             return None;
         };
-        let request = Request {
+        let mut request = Request {
             medium: Medium::Direct(bytes),
             offset: 0,
             max: 0,
@@ -268,10 +291,7 @@ impl Login {
             pixels: None,
             largest: self.largest,
             largest_bytes: LOGIN_IMAGE_PIXELS_MAX,
-            fit: Some(Fitting {
-                form: self.form,
-                geometry,
-            }),
+            fit: Some(fitting),
         };
         // the request asks for the account that runs before login: no
         // session's program runs yet, and the pty would belong to root
@@ -279,10 +299,23 @@ impl Login {
             child: None,
             pty_owner: Ok(0),
         };
-        match host.send(&request, &session) {
+        let sent = host.send(&request, &session);
+        // The helper holds the bytes now, so the console lets its copy go
+        // rather than keep up to 64 MiB while the answer is out. The helper
+        // bounds the decoded picture by `max-graphic-size`, and its answer
+        // is the picture fitted to the screen, which may be larger than
+        // that bound, as a small picture covering a large display is. So
+        // the answer is checked against the grid's size instead, and
+        // `place` then checks it against the form.
+        request.medium = Medium::Direct(Vec::new());
+        request.largest = (
+            geometry.grid.0.saturating_mul(geometry.cell.0),
+            geometry.grid.1.saturating_mul(geometry.cell.1),
+        );
+        match sent {
             Err(reply) => {
                 self.state = State::Asking {
-                    request,
+                    answer: request,
                     due: now,
                     geometry,
                 };
@@ -292,7 +325,7 @@ impl Login {
             Ok(()) => {
                 let wake = host.wake();
                 self.state = State::Asking {
-                    request,
+                    answer: request,
                     due: now.checked_add(REPLY_TIMEOUT).unwrap_or(now),
                     geometry,
                 };
@@ -306,28 +339,34 @@ impl Login {
     fn finish(&mut self, reply: Reply) {
         self.watch = None;
         let State::Asking {
-            request, geometry, ..
+            answer, geometry, ..
         } = std::mem::replace(&mut self.state, State::Off)
         else {
             return;
         };
-        let payload = match reply.checked(&request) {
+        let payload = match reply.checked(&answer) {
             Reply::Ok(payload) => payload,
             Reply::Corrupt | Reply::TooShort => {
-                return self.fail("the file does not decode as a PNG or JPEG picture");
+                return self.fail(
+                    geometry,
+                    "the file does not decode as a PNG or JPEG picture",
+                );
             }
             Reply::TooLarge | Reply::OverBudget => {
-                return self.fail(&format!(
-                    "the picture is larger than {}x{} or than 256 MiB",
-                    self.largest.0, self.largest.1
-                ));
+                return self.fail(
+                    geometry,
+                    &format!(
+                        "the picture is larger than {}×{} pixels or 256 MiB",
+                        self.largest.0, self.largest.1
+                    ),
+                );
             }
             Reply::Unreadable | Reply::Failed => {
-                return self.fail("the image helper cannot decode it");
+                return self.fail(geometry, "the image helper cannot decode it");
             }
         };
         let Some(size) = payload.size() else {
-            return self.fail("the image helper sent no picture");
+            return self.fail(geometry, "the image helper sent no picture");
         };
         let fitting = Fitting {
             form: self.form,
@@ -336,13 +375,16 @@ impl Login {
         // the helper has fitted the picture already: a size it would not
         // make for this screen is refused before a pixel is read
         let Some(spot) = place(&fitting, size) else {
-            return self.fail("the image helper's picture does not fit the screen");
+            return self.fail(
+                geometry,
+                "the image helper's picture does not fit the screen",
+            );
         };
         let Some(made) = payload
             .copy_into(Vec::new())
             .and_then(|(pixels, opaque)| spot.made(size, pixels, opaque))
         else {
-            return self.fail("the image helper's picture cannot be read");
+            return self.fail(geometry, "the image helper's picture cannot be read");
         };
         self.state = State::Ready {
             geometry,
@@ -350,11 +392,15 @@ impl Login {
         };
     }
 
-    /// Logs why vtium cannot show the picture, once, and shows none.
-    fn fail(&mut self, why: &str) {
+    /// Shows no picture on a display of `geometry`, and logs why, once
+    /// each time vtium reads its configuration.
+    fn fail(&mut self, geometry: Geometry, why: &str) {
         self.watch = None;
-        self.state = State::Off;
-        let path = self.path.as_deref().unwrap_or(std::path::Path::new(""));
+        self.state = State::Failed { geometry };
+        if std::mem::replace(&mut self.failure_logged, true) {
+            return;
+        }
+        let path = self.path.as_deref().unwrap_or(Path::new(""));
         say(&format!(
             "Cannot show the login picture {}: {why}. vtium starts the login prompt without it.",
             path.display()
@@ -383,10 +429,7 @@ impl Login {
                 self.no_room_logged = true;
                 say(&format!(
                     "Cannot show the login picture {}: the console's image memory cannot hold it. vtium starts the login prompt without it.",
-                    self.path
-                        .as_deref()
-                        .unwrap_or(std::path::Path::new(""))
-                        .display()
+                    self.path.as_deref().unwrap_or(Path::new("")).display()
                 ));
             }
             return;
@@ -398,16 +441,53 @@ impl Login {
     }
 }
 
+/// The reason [`open`] gives for a file that the account vtium runs as may
+/// not read.
+pub(crate) const DENIED: &str = "vtium may not read the file";
+
+/// The file at `path`, opened read-only, or why not, in the words of the
+/// log line. The console opens it as root on its main loop, so it opens
+/// it without blocking and takes only a regular file. A FIFO, which would
+/// otherwise block the open until a writer appears, and a device, such as
+/// a symlink to `/dev/zero`, are refused at once. `O_NOCTTY` keeps a tty
+/// from becoming vtium's controlling terminal.
+fn open(path: &Path) -> Result<std::fs::File, String> {
+    use rustix::fs::{Mode, OFlags};
+    let flags = OFlags::RDONLY | OFlags::NOCTTY | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let file = rustix::fs::open(path, flags, Mode::empty())
+        .map(std::fs::File::from)
+        .map_err(|e| match std::io::Error::from(e).kind() {
+            std::io::ErrorKind::NotFound => "the file does not exist".to_owned(),
+            std::io::ErrorKind::PermissionDenied => DENIED.to_owned(),
+            _ => format!("vtium cannot open the file ({e})"),
+        })?;
+    let meta = file
+        .metadata()
+        .map_err(|e| format!("vtium cannot read the file ({e})"))?;
+    if !meta.is_file() {
+        return Err("the file is not a regular file".to_owned());
+    }
+    Ok(file)
+}
+
+/// Whether `bytes`, the start of a file, begin as a PNG or a JPEG file
+/// does; else why not, in the words of the log line.
+fn picture_file(bytes: &[u8]) -> Result<(), String> {
+    let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
+    let jpeg = bytes.starts_with(&[0xff, 0xd8, 0xff]);
+    if png || jpeg {
+        Ok(())
+    } else {
+        Err("the file is not a PNG or JPEG picture".to_owned())
+    }
+}
+
 /// The bytes of the file at `path`, read-only and at most
 /// [`LOGIN_IMAGE_FILE_MAX`], when it is a PNG or a JPEG file; else why
 /// not, in the words of the log line.
-fn read(path: &std::path::Path) -> Result<Vec<u8>, String> {
+fn read(path: &Path) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let file = std::fs::File::open(path).map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => "the file does not exist".to_owned(),
-        std::io::ErrorKind::PermissionDenied => "vtium may not read the file".to_owned(),
-        _ => format!("vtium cannot open the file ({e})"),
-    })?;
+    let file = open(path)?;
     let mut bytes = Vec::new();
     file.take(LOGIN_IMAGE_FILE_MAX.saturating_add(1))
         .read_to_end(&mut bytes)
@@ -415,12 +495,33 @@ fn read(path: &std::path::Path) -> Result<Vec<u8>, String> {
     if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > LOGIN_IMAGE_FILE_MAX {
         return Err("the file is larger than 64 MiB".to_owned());
     }
-    let png = bytes.starts_with(b"\x89PNG\r\n\x1a\n");
-    let jpeg = bytes.starts_with(&[0xff, 0xd8, 0xff]);
-    if !png && !jpeg {
-        return Err("the file is not a PNG or JPEG picture".to_owned());
-    }
+    picture_file(&bytes)?;
     Ok(bytes)
+}
+
+/// Why vtium could not use the login picture at `path`, in the words of
+/// the log line, or `None` when it could. `vtium check-config` asks this
+/// as the account it runs as. It looks at the file as [`read`] does, but
+/// reads only the file's size and its first bytes, so it does not decode
+/// the picture.
+pub(crate) fn unusable(path: &Path) -> Option<String> {
+    use std::io::Read;
+    let check = || {
+        let file = open(path)?;
+        let len = file
+            .metadata()
+            .map_err(|e| format!("vtium cannot read the file ({e})"))?
+            .len();
+        if len > LOGIN_IMAGE_FILE_MAX {
+            return Err("the file is larger than 64 MiB".to_owned());
+        }
+        let mut head = Vec::new();
+        file.take(8)
+            .read_to_end(&mut head)
+            .map_err(|e| format!("vtium cannot read the file ({e})"))?;
+        picture_file(&head)
+    };
+    check().err()
 }
 
 /// Writes a line of the login picture's log, at warning level. Under test
@@ -472,6 +573,11 @@ mod tests {
                     height,
                     data,
                 })) => {
+                    // the real helper refuses a decoded picture past
+                    // `max-graphic-size` before it fits it
+                    if *width > request.largest.0 || *height > request.largest.1 {
+                        return Err(Reply::TooLarge);
+                    }
                     let fitting = request.fit.expect("the login request asks for a fit");
                     let source = vtium_image::login::Source::Rgba(data);
                     let (w, h, px) = vtium_image::login::fit(&fitting, (*width, *height), source)
@@ -576,11 +682,14 @@ mod tests {
         );
     }
 
-    // ADR-1100 D17: `login-image-position` reads the nine anchors and is
-    // unset by default, and `login-image-scale` reads 1 to 100, 100 by
-    // default. A word that is not an anchor, or a scale outside its bounds
-    // or with a `%` sign, is reported, and vtium uses the default or the
-    // bound instead.
+    // `login-image-position` reads the nine anchors and is unset by
+    // default, and `login-image-scale` reads 1 to 100, 100 by default. A
+    // word that is not an anchor, or a scale outside its bounds or with a
+    // `%` sign, is reported, and vtium uses the default or the bound
+    // instead.
+    //
+    // References:
+    // - ADR-1100 D17, "The keys": the anchors, the scale and their defaults.
     #[test]
     fn the_anchor_and_the_scale_are_read_and_bad_values_reported() {
         let read = |conf: String| {
@@ -632,6 +741,7 @@ mod tests {
             state: State::Idle,
             host: None,
             watch: None,
+            failure_logged: false,
             no_room_logged: false,
             settled: None,
         }
@@ -681,9 +791,12 @@ mod tests {
         term.terminal.screen().images().placement_count()
     }
 
-    // ADR-1100 D17: a file vtium cannot use starts the login prompt
-    // without the picture, and vtium logs one line naming the file and
-    // the reason
+    // A file vtium cannot use starts the login prompt without the
+    // picture, and vtium logs one line naming the file and the reason.
+    //
+    // References:
+    // - ADR-1100 D17, "A file vtium cannot use": the log line and its
+    //   words.
     #[test]
     fn a_missing_a_foreign_and_a_corrupt_file_each_log_one_line_and_place_nothing() {
         let missing = std::env::temp_dir().join("vtium-login-no-such-file.png");
@@ -738,7 +851,10 @@ mod tests {
         assert!(said()[0].contains("the file is larger than 64 MiB"));
     }
 
-    // ADR-1101 D8: the first login prompt waits at most 2 seconds
+    // The first login prompt waits at most 2 seconds for the image helper.
+    //
+    // References:
+    // - ADR-1101 D8: the reply timer of 2 seconds.
     #[test]
     fn the_first_login_prompt_waits_for_the_helper_at_most_2_seconds() {
         let path = file("slow", PNG);
@@ -770,9 +886,13 @@ mod tests {
         assert_eq!(said().len(), 1);
     }
 
-    // ADR-1100 D17: an ordinary kitty placement with no id, at the lowest
-    // z, that no program can name, that ED 2 and a delete by z remove and
-    // that the other erases leave
+    // A background is an ordinary kitty placement with no id, at the
+    // lowest z, that no program can name. ED 2 and a delete by z remove
+    // it, and the other erases leave it.
+    //
+    // References:
+    // - ADR-1100 D17, "What both forms share": what removes the picture
+    //   and what programs cannot do.
     // covers: image.login
     #[test]
     fn a_background_is_a_placement_no_program_can_name() {
@@ -866,10 +986,14 @@ mod tests {
         assert_eq!(term.terminal.screen().cursor(), (0, 2), "column 0, row 2");
     }
 
-    // ADR-1100 D17, "A banner at the bottom": the banner's box takes the
-    // grid's last rows, the login prompt starts on the first row, two rows
-    // stay free above it, and text that reaches the banner prints over it
-    // until line feeds scroll it away, since vtium sets no scroll margins
+    // A banner at the bottom takes the grid's last rows, the login prompt
+    // starts on the first row, and two rows stay free above it. Text that
+    // reaches the banner prints over it until line feeds scroll it away,
+    // since vtium sets no scroll margins.
+    //
+    // References:
+    // - ADR-1100 D17, "A banner at the bottom": its rows, the prompt's row
+    //   and why vtium sets no margins.
     #[test]
     fn a_bottom_banner_starts_the_prompt_at_the_top_and_scrolls_away() {
         let path = file("bottom", PNG);
@@ -922,9 +1046,13 @@ mod tests {
     /// frees each image left with no placement, with no answer.
     const CLEAR_LINE: &[u8] = b"\x1b_Ga=d,d=Z,z=-2147483648,q=2\x1b\\";
 
-    // ADR-1100 D17, "Clearing the picture at login": a console holding the
-    // login picture takes the documented line's bytes, and its store then
-    // holds no placement and no image, and it answers nothing
+    // A console holding the login picture takes the documented line's
+    // bytes, and its store then holds no placement and no image, and it
+    // answers nothing.
+    //
+    // References:
+    // - ADR-1100 D17, "Clearing the picture at login": the line and what
+    //   it sends.
     // covers: image.login
     #[test]
     fn the_documented_clear_line_leaves_no_placement_and_no_image() {
@@ -992,9 +1120,13 @@ mod tests {
         Some(out.stdout)
     }
 
-    // ADR-1100 D17: each line `docs/configure.md` gives, run in its shell
-    // where that shell is installed, sends the bytes the console test
-    // feeds, inside a vtium session and nothing outside one
+    // Each line `docs/configure.md` gives, run in its shell where that
+    // shell is installed, sends the bytes the console test feeds inside a
+    // vtium session, and nothing outside one.
+    //
+    // References:
+    // - ADR-1100 D17, "Clearing the picture at login": the lines for bash,
+    //   zsh and fish, and why each tests `TERM_PROGRAM`.
     #[test]
     fn each_documented_clear_line_sends_the_bytes_in_its_shell() {
         let blocks = documented_lines();
@@ -1044,8 +1176,12 @@ mod tests {
         assert!(lines[0].contains("the console's image memory cannot hold it"));
     }
 
-    // ADR-1100 D17: the helper hands back only the fitted pixels, and the
-    // consoles of a head share one copy of them
+    // The image helper hands back only the fitted pixels, and the consoles
+    // of a head share one copy of them.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it" and "Its
+    //   budget": the fitted answer and the shared copy.
     #[test]
     fn a_4k_picture_comes_back_fitted_and_two_consoles_share_one_copy() {
         let path = file("4k", PNG);
@@ -1074,6 +1210,161 @@ mod tests {
             assert!(
                 pixels.same(&made.pixels),
                 "a console holds a copy of its own"
+            );
+        }
+    }
+
+    // `max-graphic-size` bounds the decoded picture, not the picture
+    // fitted to the screen: a picture of 40×40 under a bound of 64×64
+    // covers a screen of 80×48, and a picture of 100×100 is refused with
+    // the bound in the log line.
+    #[test]
+    fn max_graphic_size_bounds_the_decoded_picture_and_not_the_fitted_one() {
+        let path = file("bounded", PNG);
+        let (make, _) = helpers(Some(decoded(40, 40)));
+        let mut login = login(path.clone(), Fit::Cover);
+        login.largest = (64, 64);
+        said();
+        login.step(Some(SCREEN), now(), Some(&make));
+        let made = login.made().expect("the fitted picture is made");
+        assert_eq!((made.width, made.height), (80, 48));
+        assert_eq!(said(), [] as [String; 0]);
+        let (make, _) = helpers(Some(decoded(100, 100)));
+        let mut login = login_with(path.clone(), Fit::Cover, (64, 64));
+        login.step(Some(SCREEN), now(), Some(&make));
+        assert!(login.made().is_none());
+        assert_eq!(
+            said(),
+            [format!(
+                "Cannot show the login picture {}: the picture is larger than 64×64 pixels or 256 MiB. vtium starts the login prompt without it.",
+                path.display()
+            )]
+        );
+    }
+
+    fn login_with(path: PathBuf, fit: Fit, largest: (u32, u32)) -> Login {
+        Login {
+            largest,
+            ..login(path, fit)
+        }
+    }
+
+    // A banner on a grid of 2 rows has no room, since it leaves the login
+    // prompt 2 rows. vtium says so in the log, and asks the image helper
+    // nothing; on a taller display it asks and places the banner.
+    #[test]
+    fn a_banner_with_no_room_is_logged_as_such_and_asked_for_on_a_taller_display() {
+        let path = file("no-room", PNG);
+        let (make, sent) = helpers(Some(decoded(16, 16)));
+        let mut login = login(path.clone(), Fit::Banner);
+        let short = Geometry {
+            grid: (10, 2),
+            display: (80, 32),
+            ..SCREEN
+        };
+        said();
+        login.step(Some(short), now(), Some(&make));
+        assert!(!login.waits());
+        assert!(login.made().is_none());
+        assert!(sent.borrow().is_empty());
+        assert_eq!(
+            said(),
+            [format!(
+                "Cannot show the login picture {}: the screen has no room for the picture. vtium starts the login prompt without it.",
+                path.display()
+            )]
+        );
+        login.step(Some(short), now(), Some(&make));
+        assert!(
+            sent.borrow().is_empty(),
+            "the same screen is not asked again"
+        );
+        login.step(Some(SCREEN), now(), Some(&make));
+        assert_eq!(sent.borrow().len(), 1);
+        assert!(login.made().is_some());
+        assert_eq!(said(), [] as [String; 0]);
+    }
+
+    // A request that timed out holds for its display size only: once the
+    // display changes size, vtium asks again, and logs nothing more.
+    #[test]
+    fn a_timeout_is_asked_again_at_a_new_display_size() {
+        let path = file("timeout", PNG);
+        let (make, sent) = helpers(None);
+        let mut login = login(path, Fit::Cover);
+        let start = now();
+        said();
+        login.step(Some(SCREEN), start, Some(&make));
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        assert!(!login.waits());
+        assert_eq!(said().len(), 1);
+        login.step(Some(SCREEN), start + REPLY_TIMEOUT, Some(&make));
+        assert_eq!(sent.borrow().len(), 1, "the same screen is not asked again");
+        let wider = Geometry {
+            display: (160, 48),
+            grid: (20, 3),
+            ..SCREEN
+        };
+        login.step(Some(wider), start + REPLY_TIMEOUT, Some(&make));
+        assert_eq!(sent.borrow().len(), 2);
+        login.step(Some(wider), start + REPLY_TIMEOUT * 2, Some(&make));
+        assert_eq!(said(), [] as [String; 0], "the log line is said once");
+    }
+
+    // While the request is out, the console keeps none of the file's
+    // bytes: the image helper holds them.
+    #[test]
+    fn the_request_out_keeps_none_of_the_files_bytes() {
+        let path = file("bytes", PNG);
+        let (make, sent) = helpers(None);
+        let mut login = login(path, Fit::Cover);
+        login.step(Some(SCREEN), now(), Some(&make));
+        assert_eq!(sent.borrow()[0].medium, Medium::Direct(PNG.to_vec()));
+        assert!(matches!(
+            &login.state,
+            State::Asking { answer, .. } if answer.medium == Medium::Direct(Vec::new())
+        ));
+    }
+
+    // A FIFO, a directory and a device are refused at once with one log
+    // line, so a FIFO cannot block the console waiting for a writer.
+    #[test]
+    fn a_fifo_a_directory_and_a_device_are_refused_at_once() {
+        let dir = file("fifo", PNG)
+            .parent()
+            .expect("the scratch file's directory")
+            .to_path_buf();
+        let fifo = dir.join("login.fifo");
+        let _gone = std::fs::remove_file(&fifo);
+        rustix::fs::mknodat(
+            rustix::fs::CWD,
+            &fifo,
+            rustix::fs::FileType::Fifo,
+            rustix::fs::Mode::from_raw_mode(0o600),
+            0,
+        )
+        .expect("mkfifo");
+        let zero = dir.join("zero.png");
+        let _gone = std::fs::remove_file(&zero);
+        std::os::unix::fs::symlink("/dev/zero", &zero).expect("symlink");
+        for path in [fifo, dir, zero] {
+            // the open runs on a thread of its own, so a blocking open
+            // fails this test instead of hanging it
+            let (tx, rx) = std::sync::mpsc::channel();
+            let opened = path.clone();
+            std::thread::spawn(move || tx.send(read(&opened).err()));
+            let why = rx.recv_timeout(Duration::from_secs(5));
+            assert!(why.is_ok(), "{}: the open blocks", path.display());
+            let why = why.expect("the open answered");
+            assert_eq!(
+                why.as_deref(),
+                Some("the file is not a regular file"),
+                "{}",
+                path.display()
+            );
+            assert_eq!(
+                unusable(&path).as_deref(),
+                Some("the file is not a regular file")
             );
         }
     }

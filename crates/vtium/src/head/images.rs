@@ -129,7 +129,7 @@ pub use built::*;
 #[cfg(feature = "images")]
 mod login;
 #[cfg(feature = "images")]
-pub(crate) use login::Login;
+pub(crate) use login::{DENIED as LOGIN_IMAGE_DENIED, Login, unusable as login_image_unusable};
 
 /// Logs, in a build without image support, that it ignores the login
 /// picture `config` names: such a build carries no picture code, and

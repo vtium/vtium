@@ -3034,10 +3034,15 @@ mod tests {
         assert_eq!(MOUSE.what_line(), MOUSE.what);
     }
 
-    // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
-    // gives a look, its cell and the login picture's keys (ADR-1100 D17), a head takes `login`, every other key is
-    // the top level's alone, and a key the command line alone sets has no
-    // level. `cell` is the one key only a section sets.
+    // A look takes the font and display keys, its cell and the login
+    // picture's keys. A head takes `login`, every other key is the top
+    // level's alone, and a key the command line alone sets has no level.
+    // `cell` is the one key only a section sets.
+    //
+    // References:
+    // - ADR-1403 D5: the three levels of a key.
+    // - ADR-1200 D16: the font and display keys a look takes.
+    // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
