@@ -1,6 +1,8 @@
 # The terminal's language
 
-Programs send a terminal control sequences: short codes mixed into the text they print. vtium builds on [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html), the document known as ctlseqs.
+Programs control the screen by mixing short codes into the text they print: move the cursor, switch to bold, clear a line, show a picture. vtium follows the published specifications for those codes, so a program does on the console what its authors wrote it to do.
+
+The codes are control sequences, and vtium builds on [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html), the document known as ctlseqs.
 
 From DEC's VT terminals, vtium implements the editing features that the [VT510 manual](https://vt100.net/docs/vt510-rm/contents.html) describes. They include left and right margins, column insert and delete, rectangular area operations, and protected characters. Double-width and double-height lines are partly implemented, and [the double-size lines issue](https://github.com/vtium/vtium/issues/61) tracks the rest.
 

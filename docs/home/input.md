@@ -1,6 +1,8 @@
 # Keyboards and mice
 
-vtium reads keyboards and mice from the kernel's input devices. It uses the keyboard layout your system already sets for the console, and picks up a change to that layout. The rules in vtium.conf send each device to a head, and a rule can also make a keyboard roam, so that it types into whichever head is active.
+Your keyboard types with the layout your system already uses for the console, and programs get the mouse and the full keyboard. You don't set anything up for that.
+
+vtium reads keyboards and mice from the kernel's input devices (evdev) and turns keys into characters with libxkbcommon. It picks up a change to the console's layout. The rules in vtium.conf send each device to a head, and a rule can also make a keyboard roam, so that it types into whichever head is active.
 
 ## What programs get
 

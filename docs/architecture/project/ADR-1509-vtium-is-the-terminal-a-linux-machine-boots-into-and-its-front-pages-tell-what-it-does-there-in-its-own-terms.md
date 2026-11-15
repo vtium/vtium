@@ -46,7 +46,7 @@ amends:
 
 ## Summary
 
-- **Decided:** vtium's two front pages, the README on GitHub and the site's Home, open with one sentence: vtium is a terminal that runs on the Linux console, in place of the login prompt a Linux machine boots into. Each page then gives one plain section to each part of what vtium does there: text in any script, a terminal on each display, images, keyboards and mice, the control language and the rule vtium follows, and where vtium runs. Each ends with what vtium leaves to other tools and where to start. Every claim rests on a row that ADR-1000's tables mark supported, or on the code; a planned or partial row is called planned or partial and links its issue. The pages never define vtium by comparison with another terminal or console, and they name a protocol by its specification where a reader needs the name.
+- **Decided:** vtium's two front pages, the README on GitHub and the site's Home, open with one sentence: vtium is a terminal that runs on the Linux console, in place of the login prompt a Linux machine boots into. An introduction says what that gives the reader, where a full terminal helps, and that vtium is alpha software. A linked list then names one topic page for each part of what vtium does there: text in any script, a terminal on each display, images, keyboards and mice, the control language and the rules vtium follows, where vtium runs, security and the system, and what vtium leaves to other tools. Each front page ends with where to start. Every claim rests on a row that ADR-1000's tables mark supported, or on the code; a planned or partial row is called planned or partial and links its issue. The pages never define vtium by comparison with another terminal or console, and they name a protocol by its specification where a reader needs the name.
 - **Trades away:** the README grows back from the short page of ADR-1502 D2 to about one screen of sections. Because the two pages tell the same story, a change to one goes to the other in the same change. A reader who wants to know how vtium compares with other consoles reads Why vtium, which this record leaves as it is.
 - **One-way?** No. The pages are text that a later change can rewrite, and this record is the yardstick that change is checked against.
 - **Probes:** *Confident (the story):* you want the front pages to say what vtium gives the person who boots into it, part by part, and to name no other terminal or console in a claim. *Not confident (the device class):* vtium answers DA1 as a VT220 (62). Should it answer as a VT420 (64), the class whose editing set it implements, and add the attributes for selective erase (6) and rectangular editing (28)? The probe under Decision gives the case for and against.
@@ -62,7 +62,13 @@ ADR-1503 D2 decided that vtium's behaviour is defined by the specifications it c
 
 ### D1: one sentence says what vtium is
 
-Both pages open with the same sentence: vtium is a terminal that runs on the Linux console. The paragraph that follows says what that means from the reader's side: vtium takes the place of getty on a VT, so the console a machine boots into is a terminal with the features a program expects of one. It also says how vtium renders, through KMS/DRM on the CPU or the GPU, and that getty and the kernel's console take the VT back when vtium cannot start.
+Both pages open with the same sentence: vtium is a terminal that runs on the Linux console. Three short paragraphs follow it, above the screenshot:
+
+1. What that means from the reader's side: vtium takes the place of getty on a VT, so the console a machine boots into is a terminal with the features a program expects of one. The paragraph also says how vtium renders, through KMS/DRM on the CPU or the GPU.
+2. Why a reader wants that: where a full terminal helps at the machine's own screen, such as a server without a desktop, a kiosk, a small board, or the console before a desktop starts.
+3. The release status: vtium is alpha software, at the version the workspace's `Cargo.toml` names. A package takes every free VT when it is installed, so the paragraph points to the tutorial that tries vtium on one VT. It also says that, with the default setup under systemd, a getty takes the VT back when vtium fails.
+
+> Amended 2026-11-14, while the record is proposed: a cold read of the draft front pages led the maintainer to ask for a why paragraph, the release status, the Security and the system topic, and a language page that separates how vtium interprets a sequence from how it chooses what to support. D1, D4 and D8, and the Summary's Decided line, now describe the pages as built. Every other decision and every field is unchanged, and the earlier text is in git at 069d8d84.
 
 ### D2: the pages tell the story by what vtium does
 
@@ -78,14 +84,17 @@ A head is a terminal for one or more displays, with its own grid, font and conso
 
 The base of vtium's control language is xterm's control sequences (ctlseqs). The spec column of ADR-1000's tables names the specification each row follows, and most rows name ctlseqs. From the DEC terminals, vtium supports left and right margins, column insert and delete, rectangular area operations, character protection, the DEC character sets, 8-bit controls, DECSCL, DECRQM, DECRQSS and DA3. Double-width and double-height lines are partial. Among the newer protocols, it supports sixel, the kitty graphics protocol with its animation and Unicode placeholders, iTerm2's inline images, the kitty keyboard protocol, OSC 8 links, OSC 133 prompt marks, OSC 52 copy, synchronized output and in-band resize reports. The kitty text sizing protocol is planned.
 
-The pages state the rule vtium follows, as ADR-1000 and ADR-1503 decide it, in four parts:
+The pages state how vtium interprets a sequence, as ADR-1000 and ADR-1503 decide it, in three rules:
 
-1. Each capability follows the specification its row names.
-2. A capability joins the target set when xterm's control sequences and another terminal's published documentation both define it, when the maintainer names it, or when the console has a use for it that its row names (ADR-1000, "The rule for a new mode or feature").
-3. Where two specifications give one sequence different meanings, the row says which meaning vtium implements: OSC 21 follows the kitty color protocol, and `CSI s` is DECSLRM while mode 69 is set.
-4. Where a specification leaves a choice open, vtium's goldens decide, and the crate's README states the choice (ADR-1503 D2).
+1. Each sequence follows its defining specification, the one its row names.
+2. Where two specifications give one sequence different meanings, vtium's feature table records which meaning vtium uses. The pages give `CSI s` as the example: it sets the left and right margins (DECSLRM) while mode 69 is set. OSC 21, which follows the kitty color protocol, is another.
+3. Where a specification leaves a choice open, vtium's own tests settle it, and the choice is written down: vtium's goldens decide, and the crate's README states the choice (ADR-1503 D2).
 
-One rule comes before all four: vtium refuses any capability that lets a program's output read from or control the machine, whoever offers it (ADR-1000, the inversion). vtium builds every reply from its own state and never echoes bytes the program sent.
+Apart from those rules, the pages say how vtium chooses what to support: the capabilities that xterm's control sequences and other terminals' documentation both define, plus others chosen because they are useful on a console (ADR-1000, "The rule for a new mode or feature"). The pages name no person in that statement.
+
+> Amended 2026-11-14: see the note under D1.
+
+One rule comes before all three: vtium refuses any capability that lets a program's output read from or control the machine, whoever offers it (ADR-1000, the inversion). vtium builds every reply from its own state and never echoes bytes the program sent.
 
 ### D5: text
 
@@ -101,9 +110,11 @@ The pages say plainly what vtium does not do, with the reason where a reader wou
 
 ### D8: the shape of the two pages
 
-The README and the Home tell the same story, in the same sections and the same order: what vtium is, the screenshot, one section for each part of D3 to D6 with a link to the fuller page, what vtium leaves to other tools, and where to start. The two pages differ only where their settings differ. The README keeps the badges, the table of documentation, the sections on contributing and the license, and links pages under `docs/` by relative path. The Home keeps its doors into the site's four sections and its note that the site describes `main`. A change to the story goes to both pages in the same change. Each page says each fact once and links the fuller page.
+The README and the Home tell the same story in the same order: the introduction of D1, the screenshot, a linked list of topics, and where to start. The list names one topic page for each part of D3 to D7, each a page under the site's Home: Text in any script, A terminal on each display, Images, Keyboards and mice, The terminal's language, Where vtium runs, Security and the system, and What vtium leaves to other tools. Security and the system gathers what runs as root, the sandboxed font and image helpers, the reply rule of D4, and how vtium works with systemd and logind and without them (D3). Where to start gives the Arch install from the AUR and one table of tasks and pages, the same on both front pages. The two pages differ only where their settings differ. The README keeps the badges, of which only the AUR's packaging badge remains, the sections on contributing and the license, and links each topic page on the site. The Home keeps the vtium-config paragraph of D9 and its note that the site describes `main`. A change to the story goes to both pages in the same change. Each page says each fact once and links the fuller page.
 
-D8 amends ADR-1502 D2, which made the README short and gave the two pages one shared paragraph. The README stays the front door on GitHub and the Home the front door of the site, as ADR-1502 D2 decided. What changes is that both now carry the story, at about one screen of short sections.
+D8 amends ADR-1502 D2, which made the README short and gave the two pages one shared paragraph. The README stays the front door on GitHub and the Home the front door of the site, as ADR-1502 D2 decided. What changes is that both now carry the story: a short introduction and a list of topic pages.
+
+> Amended 2026-11-14: see the note under D1.
 
 ### D9: vtium-config, as it is today
 

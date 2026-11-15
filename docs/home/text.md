@@ -1,6 +1,8 @@
 # Text in any script
 
-vtium splits text into grapheme clusters (the characters as a reader sees them) and gives each cluster one or two character cells, so columns line up. Any script that Unicode encodes works, as long as one of your fonts can draw it. Chinese, Japanese, and Korean characters take two cells each, and vtium renders combining marks, emoji, and color emoji. A font helper shapes each cluster, which lets scripts such as Devanagari and Tamil join their syllables. vtium lays out right-to-left text, such as Arabic and Hebrew, by the Unicode bidirectional algorithm, and joins Arabic letters.
+Text in your language looks right on the console: accented letters, emoji, Chinese characters, Devanagari syllables, and Arabic written right to left, all in straight columns. Any script that Unicode encodes works, as long as one of your fonts can draw it.
+
+Underneath, vtium splits text into [extended grapheme clusters](https://www.unicode.org/reports/tr29/), the characters as a reader sees them, and gives each cluster one or two character cells. Chinese, Japanese, and Korean characters take two cells each, and vtium renders combining marks, emoji, and color emoji. A font helper shapes each cluster with HarfRust, which lets scripts such as Devanagari and Tamil join their syllables. vtium lays out right-to-left text, such as Arabic and Hebrew, by the [Unicode bidirectional algorithm](https://www.unicode.org/reports/tr9/), and joins Arabic letters.
 
 ## Fonts
 

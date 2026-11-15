@@ -1,6 +1,8 @@
 # Where vtium runs
 
-vtium runs on Linux, on x86_64, aarch64, and armv7 processors. It renders through KMS/DRM into memory buffers that the kernel's graphics driver displays. On a machine without DRM, it uses fbdev instead, the kernel's older framebuffer interface. Every build can render on the CPU, so a GPU is optional.
+vtium runs on Linux PCs and laptops and on small ARM boards. Every build can render on the CPU, so a GPU is optional, and a build with the GPU path uses one where it finds it.
+
+The processors are x86_64, aarch64, and armv7. vtium renders through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager) into dumb buffers, plain memory buffers that the kernel's graphics driver displays. On a machine without DRM, it uses fbdev instead, the kernel's older framebuffer interface.
 
 A build with the GPU path renders through OpenGL ES 3.0, using EGL and GBM from Mesa. The `vtium` and `vtium-git` packages turn the GPU path on, and a line `no-hwaccel` in vtium.conf turns it off. When the GPU setup fails for a head, vtium renders that head on the CPU. The GPU path draws the same pixels as the CPU path. vtium's pixel tests check this by rendering each test screen both ways on Mesa's software renderer, and they require identical results.
 
