@@ -532,6 +532,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	python3 -I -B tools/vendor/test_manifest.py
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
+	cargo test -q -p vtium-site
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
@@ -760,6 +761,37 @@ docs-serve: $(SITE_VENV)/installed ## Serve the documentation site at http://loc
 
 showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 	tools/tier3/showcase.sh
+
+# The crates' interfaces (ADR-1508 D1): rustdoc for each crate under crates/
+# that has a library, on the pinned toolchain, written to target/doc. The
+# flags turn every rustdoc warning into an error, a broken intra-doc link
+# included, so the build is the check of rustdoc's links, which the site's
+# strict build cannot see. make site-api copies the reference into the built
+# site under /api/, beside the pages Zensical builds from docs/api/, and make
+# site builds the whole site that way. The docs workflow runs make site-api
+# after its own strict build.
+API_DOC_DIR = $(or $(CARGO_TARGET_DIR),target)/doc
+API_PACKAGES = $(foreach c,$(patsubst crates/%/src/lib.rs,%,$(wildcard crates/*/src/lib.rs)),-p $(c))
+API_RUSTDOCFLAGS = -D warnings -D rustdoc::broken_intra_doc_links
+
+.PHONY: api site-api site release-notes
+api: ## Build the crates' interfaces with rustdoc into target/doc, failing on any rustdoc warning or broken intra-doc link
+	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
+
+site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
+	@test -f target/site/api/index.html || { echo "target/site/api has no index page: run make docs first" >&2; exit 1; }
+	cp -R $(API_DOC_DIR)/. target/site/api/
+
+site: docs ## Build the documentation site with the crates' interfaces under /api/
+	$(MAKE) site-api
+
+# A release's notes (ADR-1508 D3): docs/releases/VERSION.md is the one text,
+# and this writes the GitHub release's body from it, with each link to a page
+# of the site turned into the page's full address. The release's steps pass
+# the file to gh release create --notes-file.
+release-notes: ## Write the GitHub release body for VERSION=V from docs/releases/V.md to target/release-notes/V.md
+	@test -n "$(VERSION)" || { echo "name the release: make release-notes VERSION=0.1.0-alpha.9" >&2; exit 1; }
+	cargo run -q -p vtium-site --bin release-notes -- --out $(or $(CARGO_TARGET_DIR),target)/release-notes/$(VERSION).md $(VERSION)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in
