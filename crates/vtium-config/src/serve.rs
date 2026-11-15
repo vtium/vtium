@@ -981,6 +981,10 @@ pub struct Engine {
     strikes: Vec<Vec<Loaded>>,
     /// The frit's `cell=`, which sets its own cell where it states one.
     cell: Option<Cell>,
+    /// The spelling of the frit's text font, its first regular source,
+    /// when [`Engine::load`] left it out: then the built-in font takes its
+    /// place, and the frit has no own cell.
+    text_left_out: Option<String>,
     /// The frit's `render=` lines, by the line of the source each is for
     /// ([`Engine::draws_as_bitmap`]).
     render: Vec<(usize, Render)>,
@@ -1493,6 +1497,16 @@ impl Engine {
                 ));
             }
         }
+        let text_left_out = frit
+            .sources
+            .iter()
+            .find(|s| s.style == REGULAR)
+            .filter(|text| {
+                !sources
+                    .iter()
+                    .any(|(s, _): &(Source, _)| s.line == text.line)
+            })
+            .map(|text| text.spelling.clone());
         if sources.is_empty() {
             return Err(if why.is_empty() {
                 format!("{}: the frit names no source", file.display())
@@ -1530,6 +1544,7 @@ impl Engine {
             smaller,
             strikes,
             cell: frit.cell,
+            text_left_out,
             render: frit.render,
         })
     }
@@ -1594,20 +1609,34 @@ impl Engine {
     }
 
     /// The frit's own cell (ADR-1200 D17), which its first source sets and
-    /// later sources draw into. The first source is the first in the
-    /// frit's order that the helper can draw from: [`Engine::load`] leaves
-    /// out a source this machine does not have or cannot read, and a
-    /// source that has failed as it drew is left out for the engine's life,
-    /// as it is for glyphs, so the next one sets the cell. A bitmap first
+    /// later sources draw into. The first source is the frit's text font,
+    /// its first regular source. When [`Engine::load`] left the text font
+    /// out, because this machine does not have it or cannot read it, the
+    /// built-in font takes its place and the frit has no own cell, so the
+    /// console takes the cell of its configuration, as for a console with
+    /// no font named, and a later source, such as a layer's font, never
+    /// sets the cell. A text font that has failed as it drew is left out
+    /// for the engine's life, as it is for glyphs, and the next source
+    /// sets the cell. A bitmap first
     /// source gives its own cell, once every later bitmap source's cell
     /// fits in it, so each draws at a whole factor (the operator,
     /// 2026-10-28). An outline first source gives the cell `height` pixels
     /// high that the W rule gives it (the maintainer, 2026-11-01); the
     /// console names the height, and at a height of 0 there is none. An outline
     /// source whose W rule fails fails as a source that fails to draw does.
-    /// Else why the frit has none: a later bitmap source whose cell does not
-    /// fit, no height to draw an outline font at, or no source left.
+    /// Else why the frit has none: a missing text font, a later bitmap
+    /// source whose cell does not fit, no height to draw an outline font
+    /// at, or no source left.
+    ///
+    /// References:
+    /// - ADR-1204 D5: a missing text font leaves the cell to the
+    ///   configuration, and a layer's font never sets the cell.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
+        if let Some(text) = &self.text_left_out {
+            return Err(format!(
+                "the text font source={text} is missing, so the built-in font takes its place, and the cell comes from the configuration"
+            ));
+        }
         let mut why = Vec::new();
         let mut sources = self
             .sources
@@ -4695,6 +4724,40 @@ mod tests {
                 // 8x16 does not fit and fills nothing
                 (FRAME_OUTLINE_CELL, cell_bytes(6, 10)),
             ]
+        );
+    }
+
+    // ADR-1204 D5: when the set's text font, its first source, is missing
+    // or refused, the built-in font takes its place, and the frit gives no
+    // own cell, so the console takes the cell of its configuration. A later
+    // source, such as a layer's font, never sets the cell
+    #[test]
+    fn a_missing_text_font_leaves_the_cell_to_the_configuration() {
+        let (layered, dir) = outline_frit(
+            "own-missing-text",
+            "source=font:Nonesuch Mono\n",
+            &[Ok(super::ttf::test_mono())],
+        );
+        let broken = dir.join("broken.psf");
+        std::fs::write(&broken, b"not a font").unwrap();
+        let refused = frit(&format!(
+            "source=file:{}\nsource=builtin:unscii-8\n",
+            broken.display()
+        ));
+        let missing_bitmap = frit("source=kbd:nonesuch\nsource=builtin:unscii-8\n");
+        let frames: Vec<(u32, Vec<u8>)> =
+            run(&[query_at(layered, 16), query(refused), query(missing_bitmap)])
+                .into_iter()
+                .filter(|f| f.0 != FRAME_WARNING)
+                .collect();
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL, FRAME_NO_OWN_CELL]
+        );
+        let why = String::from_utf8_lossy(&frames[0].1);
+        assert!(
+            why.contains("the text font source=font:Nonesuch Mono is missing, so the built-in font takes its place"),
+            "{why}"
         );
     }
 
