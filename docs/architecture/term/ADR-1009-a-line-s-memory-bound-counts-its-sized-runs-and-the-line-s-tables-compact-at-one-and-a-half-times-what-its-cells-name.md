@@ -152,6 +152,14 @@ The table gives the median of 15 runs in a release build on x86-64, with the fas
 - Freeing memory takes 7% of `clusters`, from the temporary strings the print path builds for a cluster's text.
 - Damage marking takes 6% of `tui`. A redraw costs no extra drawing work in the terminal: vtium draws once at the end of each turn of reading the program's output, paced to the display's flips, never once per write. The glyph cache is the renderer's, and these benchmarks run no renderer, so they cannot count its misses.
 
+### D9: a line with no run pays no time for runs
+
+The maintainer refused to pay memory for runs on lines that hold none, and the same holds for time. The sized-run work makes `tui`, `scroll`, `clusters` and `cat` 10 to 15% slower, though none of them writes a run. Its print path is the only vtium-term change between integration and that work.
+
+- **What the measurement found.** Each print calls `skip_lower_rows`, which looks for a run under the cursor. Checking first whether the cursor's line holds any run took back 2 to 3% of the loss: `cat` went from 51.4 to 50.0 ms a MiB, and `tui` from 0.529 to 0.518 ms a frame. The profiles also show damage marking on `cat` rising from 0.5% to 6%, and the property lookup's share rising from 49% to 68%. That last rise fits a larger print function that the compiler lays out differently, but the measurement does not prove it. The rest of the loss is not yet pinned to one line of code.
+- **The rule.** Every run check on the print and edit paths first asks whether the line holds a run. That question is one test of the line's tables, an empty run table or no tables at all, before any work on the line's cells or runs. A line without runs marks no more damage than it did before the sized-run work.
+- **The test.** `make bench` gives `tui`, `scroll`, `clusters` and `cat` within their spread of the figures for integration in D8. A build that misses that bound fails the memory build card.
+
 ## Verification
 
 - vtium-term, `tests/memory.rs`: the worst screen row gains rows of one-column runs, each cell with its own style, its own link and a cluster, and reaches `Line::bytes_max` exactly at 170, 80 and 40 columns. The worst scrollback row gains a run in every cell. The tests pin the figures of D6 for both builds and both targets.
