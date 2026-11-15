@@ -4409,6 +4409,47 @@ class Guide(Case):
         self.assertRegex(log[-1], r"^=== ended at step 5, ")
         self.assertEqual(stat.S_IMODE(os.stat(self.s.dir).st_mode), 0o700)
 
+    def test_an_explore_step_asks_only_for_a_note_and_logs_explored(self):
+        # A step whose title starts with "Explore" has no right or wrong
+        # answer: guide.sh asks for a note alone and logs "explored", never
+        # yes, no or skip. A step after it still asks for a verdict.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Explore guide\n"
+                     "step: Explore the edge\ndo: try keys\nexpect: no right or wrong\n"
+                     "step: Explore again\ndo: try more\nexpect: no right or wrong\n"
+                     "step: Look\ndo: look\nexpect: it is there\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Step 1 of 3: Explore the edge")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"This step has no right or wrong answer.")
+        g.wait_for(b"Note (Enter for none): ")
+        # A y here is the note's text, not an answer.
+        g.send(b"y saw it\r")
+        g.wait_for(b"Step 2 of 3: Explore again")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Step 3 of 3: Look")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
+        # The verdict prompt shows once, for the last step only.
+        self.assertEqual(g.seen.count(b"[y]es [n]o [s]kip: "), 1)
+        log = read(os.path.join(self.s.dir, "vt-check.log")).splitlines()
+        self.assertEqual(log[1:7], ["-- step 1 of 3: Explore the edge", "  answer: explored  note: y saw it",
+                                    "-- step 2 of 3: Explore again", "  answer: explored",
+                                    "-- step 3 of 3: Look", "  answer: yes"])
+
     def test_a_run_step_runs_its_command_on_the_guides_terminal(self):
         guide = os.path.join(self.s.tmp, "t.guide")
         # The command ends when the test creates this file, after it has typed its keys.

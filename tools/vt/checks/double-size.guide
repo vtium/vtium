@@ -12,7 +12,7 @@
 # more, so it shows the terminal's raw VT510 behaviour. One step, whose
 # title starts with "Explore", shows raw behaviour that looks broken on its
 # own: one line of a tall pair edited alone. That step has no right or
-# wrong answer, quotes the manual, and asks the maintainer to press s.
+# wrong answer, quotes the manual, and asks only for a note.
 # Tier 1 checks the rule in the cases line-size-edit and line-size-irm-tall
 # in tools/conformance/vtium. The step after it is a check: it runs the pad
 # in pair mode, which edits both lines of a double-height pair, as a
@@ -36,8 +36,7 @@ intro: text to another row when you insert a letter. Text flows onto the next
 intro: row only when a program redraws the line itself, as zsh and vim do.
 intro: A step whose title starts with "Explore" has no right or wrong answer.
 intro: It shows the terminal working as DEC's manuals for the VT100 and the
-intro: VT510 describe. Press s when you are done with it, and add a note if
-intro: you like. A separate proof editor, which a later card builds, is to
+intro: VT510 describe, and it asks only for a note. A separate proof editor, which a later card builds, is to
 intro: show a VT510-capable editor that authors mixed character sizes,
 intro: placement and wrapping. The pad shows the step's text at the top of the screen, then
 intro: its keys, then the lines to type on. Ctrl-D ends the typing, and then
@@ -97,8 +96,8 @@ expect: There is no right or wrong here. The terminal changes each line of a
 expect: pair on its own, so the tall letters show split halves until both
 expect: lines match again. The terminal works as the VT100 User Guide
 expect: says: "the same character output must be sent to both lines to form
-expect: full double-height characters". Tier 1 checks this rule. Press s
-expect: when you are done. The next step sends each edit to both lines.
+expect: full double-height characters". Tier 1 checks this rule. Try it as
+expect: long as you like. The next step sends each edit to both lines.
 
 step: A program that edits both lines keeps tall letters whole
 run: python3 tools/vt/checks/typepad.py --pair pair

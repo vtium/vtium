@@ -510,8 +510,9 @@ class Screens(unittest.TestCase):
         # the right edge or one line of a tall pair edited alone, stays in
         # the guides as free exploration. Each such step's title starts
         # with "Explore", says there is no right or wrong, quotes the
-        # manual's sentence, says that tier 1 checks the rule and asks for
-        # s, because guide.sh asks every step for an answer. Every other step is a check
+        # manual's sentence, says that tier 1 checks the rule and invites
+        # the maintainer to try it. guide.sh asks such a step only for a
+        # note. Every other step is a check
         # with a "Wrong:" line, and the pair-mode steps are among them.
         for guide, count in ((GUIDE, 1), (INSERT_GUIDE, 2)):
             with self.subTest(guide=os.path.basename(guide)):
@@ -522,7 +523,8 @@ class Screens(unittest.TestCase):
                     if title.startswith("Explore"):
                         self.assertTrue(expect.startswith("There is no right or wrong here."), title)
                         self.assertRegex(expect, r'(VT510 manual|VT100 User Guide) says[^"]*: "[^"]+"', title)
-                        self.assertIn("Tier 1 checks this rule. Press s when you are done.", expect, title)
+                        self.assertIn("Tier 1 checks this rule. Try it as long as you like.", expect, title)
+                        self.assertNotIn("Press s", expect, title)
                         self.assertNotIn("Wrong:", expect, title)
                         self.assertNotIn("--pair", args, title)
                     else:

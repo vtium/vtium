@@ -25,7 +25,9 @@
 # A guide is lines of "key: text"; blank lines and lines starting with # are
 # skipped. "title:" once and "intro:" lines come first, then each step:
 # "step: TITLE", an optional "run: COMMAND" or "probe: MODE" (shell, or one of
-# probe.py --list), and "do:" and "expect:" lines, each shown as typed. A run:
+# probe.py --list), and "do:" and "expect:" lines, each shown as typed. A
+# step whose title starts with "Explore" has no right or wrong answer: it
+# asks only for a note, and logs "answer: explored". A run:
 # step shows its command, and runs it on this terminal once the operator
 # presses Enter, so the operator watches it rather than typing it. Each step
 # needs an expect: line, and a do: or run: line. A step with neither asks once
@@ -216,6 +218,16 @@ lines() {
 
 ask() {
 	local a n
+	# A step whose title starts with "Explore" is free exploration of how
+	# the terminal behaves: it has no right or wrong answer, so it asks for
+	# a note alone and logs "explored", never yes, no or skip.
+	if [[ $1 == Explore* ]]; then
+		printf '\nThis step has no right or wrong answer.\n'
+		printf 'Note (Enter for none): '
+		read -r n || n=
+		note "  answer: explored${n:+  note: $n}"
+		return
+	fi
 	while :; do
 		printf '\nLooked right? [y]es [n]o [s]kip: '
 		# Only a closed terminal fails here: read -n takes Ctrl-D as a key.
@@ -342,7 +354,7 @@ for ((s = 0; s < total; s++)); do
 	shell) shell || note "  shell exited with status $?" ;;
 	*) python3 "$probe" "${probes[s]}" || note "  probe exited with status $?" ;;
 	esac
-	ask
+	ask "${titles[s]}"
 done
 
 note "=== done $(date -Is)"
