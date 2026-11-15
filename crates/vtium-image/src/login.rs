@@ -19,7 +19,7 @@
 //! - ADR-1100 D17: the two forms, the fits, the banner's size, position
 //!   and limits, and the placement at the lowest z.
 
-use crate::image::{NewImage, Place};
+use crate::image::{NewImage, Pixels, Place};
 use crate::rules::Protocol;
 
 /// How the picture goes on the screen: one of four fits of a background
@@ -95,14 +95,23 @@ pub struct Geometry {
     pub grid: (u32, u32),
 }
 
-/// A picture ready to place: its pixels, which the store keeps, where the
-/// placement goes, and for a banner the row the login prompt starts on.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// What the image helper is asked to make of a decoded login picture: the
+/// form, and the screen it is made for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Fitting {
+    pub form: Form,
+    pub geometry: Geometry,
+}
+
+/// A picture ready to place: its pixels, which every console's store
+/// shares, where the placement goes, and for a banner the row the login
+/// prompt starts on.
+#[derive(Clone, Debug, PartialEq)]
 pub struct Made {
     pub width: u32,
     pub height: u32,
     /// Premultiplied ARGB, `width` × `height` of them.
-    pub pixels: Vec<u32>,
+    pub pixels: Pixels,
     pub opaque: bool,
     pub place: Place,
     /// The row, from 0, below a banner; `None` for a background.
@@ -110,14 +119,16 @@ pub struct Made {
 }
 
 impl Made {
-    /// The image the store takes: a kitty picture with no image id and no
-    /// image number, so no program can name it.
+    /// The image the store takes, with its pixels left out for
+    /// [`Store::add_shared_image`](crate::Store::add_shared_image) to share:
+    /// a kitty picture with no image id and no image number, so no program
+    /// can name it.
     pub fn image(&self) -> NewImage {
         NewImage {
             protocol: Protocol::KITTY,
             width: self.width,
             height: self.height,
-            pixels: self.pixels.clone(),
+            pixels: Vec::new(),
             opaque: Some(self.opaque),
             id: 0,
             number: 0,
@@ -139,23 +150,50 @@ impl Made {
 /// and below every picture a program sends.
 pub const Z: i32 = i32::MIN;
 
-/// The picture `source`, `size` pixels, made for `form` on `geometry`.
-/// `None` when the screen has no room for it: a grid of no cells, a cell
-/// of no pixels, or a banner on a grid of 2 rows or fewer.
+/// The picture `source`, `size` pixels, made for `form` on `geometry` and
+/// placed: [`fit`] and [`place`] together.
 pub fn make(form: &Form, geometry: &Geometry, size: (u32, u32), source: &[u32]) -> Option<Made> {
-    let (cw, ch) = geometry.cell;
-    let (cols, rows) = geometry.grid;
+    let fitting = Fitting {
+        form: *form,
+        geometry: *geometry,
+    };
+    let (width, height, pixels) = fit(&fitting, size, Source::Argb(source))?;
+    let (place, prompt_row) = place(&fitting, (width, height))?;
+    let opaque = pixels.iter().all(|p| p >> 24 == 0xff);
+    Some(Made {
+        width,
+        height,
+        pixels: Pixels::new(pixels),
+        opaque,
+        place,
+        prompt_row,
+    })
+}
+
+/// The pixels the screen shows of `source`, a decoded picture of `size`
+/// pixels, as `fitting` asks: its width, its height and its pixels. The
+/// image helper runs this, so it hands back only these pixels. `None`
+/// when the screen has no room for the picture: a grid of no cells, a
+/// cell of no pixels, or a banner on a grid of 2 rows or fewer.
+pub fn fit(
+    fitting: &Fitting,
+    size: (u32, u32),
+    source: Source<'_>,
+) -> Option<(u32, u32, Vec<u32>)> {
+    let (form, geometry) = (&fitting.form, &fitting.geometry);
+    let grid_px = grid_pixels(geometry)?;
     let (w, h) = size;
-    if cw == 0 || ch == 0 || cols == 0 || rows == 0 || w == 0 || h == 0 {
+    if w == 0 || h == 0 {
         return None;
     }
     let len = usize::try_from(u64::from(w).checked_mul(u64::from(h))?).ok()?;
     if source.len() != len {
         return None;
     }
-    let grid_px = (cols.checked_mul(cw)?, rows.checked_mul(ch)?);
     if form.fit == Fit::Banner {
-        return banner(form, geometry, size, source, grid_px);
+        let (tw, th) = banner_size(form, geometry, size, grid_px)?;
+        let pixels = resample(source, size, (tw, th), (0, 0), (tw, th))?;
+        return Some((tw, th, pixels));
     }
     let (dw, dh) = geometry.display;
     let display = (dw.max(grid_px.0), dh.max(grid_px.1));
@@ -167,36 +205,70 @@ pub fn make(form: &Form, geometry: &Geometry, size: (u32, u32), source: &[u32]) 
         centered(display.1, scaled.1).saturating_sub(centered(display.1, grid_px.1)),
     );
     let pixels = resample(source, size, scaled, offset, grid_px)?;
-    let opaque = pixels.iter().all(|p| p >> 24 == 0xff);
-    Some(Made {
-        width: grid_px.0,
-        height: grid_px.1,
-        pixels,
-        opaque,
-        place: Place {
+    Some((grid_px.0, grid_px.1, pixels))
+}
+
+/// Where a picture of `size` pixels, as [`fit`] made it for `fitting`,
+/// goes: its placement, and for a banner the row below it, where the login
+/// prompt starts. `None` for a size `fit` does not make.
+pub fn place(fitting: &Fitting, size: (u32, u32)) -> Option<(Place, Option<u32>)> {
+    let (form, geometry) = (&fitting.form, &fitting.geometry);
+    let grid_px = grid_pixels(geometry)?;
+    let (cw, ch) = geometry.cell;
+    let (cols, rows) = geometry.grid;
+    if form.fit != Fit::Banner {
+        let background = Place {
             cols,
             rows,
             z: Z,
             ..Place::default()
-        },
-        prompt_row: None,
-    })
+        };
+        return (size == grid_px).then_some((background, None));
+    }
+    let (w, h) = size;
+    let max_h = rows.checked_sub(2)?.checked_mul(ch)?;
+    if w == 0 || h == 0 || w > grid_px.0 || h > max_h {
+        return None;
+    }
+    let box_cols = w.div_ceil(cw);
+    let spare = cols.saturating_sub(box_cols);
+    let col = match form.position {
+        Position::Left => 0,
+        // an odd number of spare columns leaves the extra one on the right
+        Position::Center => spare / 2,
+        Position::Right => spare,
+    };
+    let banner = Place {
+        col,
+        z: Z,
+        ..Place::default()
+    };
+    Some((banner, Some(h.div_ceil(ch))))
 }
 
-/// The banner form: its own size or `form.rows` tall, scaled down to fit
-/// the grid's width and all but two of its rows, at the column its
-/// position gives.
-fn banner(
+/// The grid's size in pixels; `None` for a grid of no cells or a cell of
+/// no pixels.
+fn grid_pixels(geometry: &Geometry) -> Option<(u32, u32)> {
+    let (cw, ch) = geometry.cell;
+    let (cols, rows) = geometry.grid;
+    if cw == 0 || ch == 0 || cols == 0 || rows == 0 {
+        return None;
+    }
+    Some((cols.checked_mul(cw)?, rows.checked_mul(ch)?))
+}
+
+/// A banner's size in pixels: its own size or `form.rows` tall, scaled
+/// down, keeping its shape, to fit the grid's width and all but two of its
+/// rows.
+fn banner_size(
     form: &Form,
     geometry: &Geometry,
     (w, h): (u32, u32),
-    source: &[u32],
-    (max_w, grid_h): (u32, u32),
-) -> Option<Made> {
-    let (cw, ch) = geometry.cell;
-    let (cols, rows) = geometry.grid;
-    let max_h = rows.checked_sub(2)?.checked_mul(ch)?;
-    if max_h == 0 || grid_h == 0 {
+    (max_w, _): (u32, u32),
+) -> Option<(u32, u32)> {
+    let ch = geometry.cell.1;
+    let max_h = geometry.grid.1.checked_sub(2)?.checked_mul(ch)?;
+    if max_h == 0 {
         return None;
     }
     let (mut tw, mut th) = match form.rows {
@@ -218,29 +290,7 @@ fn banner(
             th = max_h;
         }
     }
-    let pixels = resample(source, (w, h), (tw, th), (0, 0), (tw, th))?;
-    let opaque = pixels.iter().all(|p| p >> 24 == 0xff);
-    let box_cols = tw.div_ceil(cw);
-    let box_rows = th.div_ceil(ch);
-    let spare = cols.saturating_sub(box_cols);
-    let col = match form.position {
-        Position::Left => 0,
-        // an odd number of spare columns leaves the extra one on the right
-        Position::Center => spare / 2,
-        Position::Right => spare,
-    };
-    Some(Made {
-        width: tw,
-        height: th,
-        pixels,
-        opaque,
-        place: Place {
-            col,
-            z: Z,
-            ..Place::default()
-        },
-        prompt_row: Some(box_rows),
-    })
+    Some((tw, th))
 }
 
 /// `a` × `b` ÷ `c`, rounded to the nearest whole number; 0 when `c` is 0,
@@ -359,6 +409,41 @@ impl Taps {
     }
 }
 
+/// A decoded picture's pixels, as the store keeps them or as the image
+/// helper decodes them.
+#[derive(Clone, Copy)]
+pub enum Source<'a> {
+    /// Premultiplied ARGB, one `u32` a pixel.
+    Argb(&'a [u32]),
+    /// Premultiplied R, G, B, A bytes, four a pixel: the helper's decoders'
+    /// output, read in place so the helper keeps no second copy.
+    Rgba(&'a [u8]),
+}
+
+impl Source<'_> {
+    fn len(self) -> usize {
+        match self {
+            Source::Argb(p) => p.len(),
+            Source::Rgba(b) => b.len().checked_div(4).unwrap_or(0),
+        }
+    }
+
+    /// Pixel `i` as premultiplied ARGB; 0 past the end.
+    fn get(self, i: usize) -> u32 {
+        match self {
+            Source::Argb(p) => p.get(i).copied().unwrap_or(0),
+            Source::Rgba(b) => i
+                .checked_mul(4)
+                .and_then(|at| b.get(at..at.checked_add(4)?))
+                .and_then(|px| <[u8; 4]>::try_from(px).ok())
+                .map_or(0, |px| {
+                    let [r, g, b, a] = px.map(u32::from);
+                    a << 24 | r << 16 | g << 8 | b
+                }),
+        }
+    }
+}
+
 /// A source row resampled across: each output pixel's four channels,
 /// A, R, G, B, each times [`ONE`].
 type Row = Vec<[u32; 4]>;
@@ -373,7 +458,7 @@ fn channels(p: u32) -> [u32; 4] {
 /// the scaled picture starts at 0. Pixels of the window outside the scaled
 /// picture are transparent. `None` when a size overflows.
 fn resample(
-    source: &[u32],
+    source: Source<'_>,
     (w, h): (u32, u32),
     scaled: (u32, u32),
     offset: (i64, i64),
@@ -399,8 +484,10 @@ fn resample(
         for (k, wy) in rows {
             if !kept.iter().any(|(r, _)| *r == k) {
                 let start = k.checked_mul(width)?;
-                let line = source.get(start..start.checked_add(width)?)?;
-                let row = across_row(line, &across, out_w);
+                if start.checked_add(width)? > source.len() {
+                    return None;
+                }
+                let row = across_row(source, start, &across, out_w);
                 kept.retain(|(r, _)| r.saturating_add(1) >= k);
                 kept.push((k, row));
             }
@@ -427,14 +514,15 @@ fn resample(
     Some(out)
 }
 
-/// One source row, `line`, resampled across through `across`.
-fn across_row(line: &[u32], across: &Taps, out_w: usize) -> Row {
+/// The source row that starts at pixel `start`, resampled across through
+/// `across`.
+fn across_row(source: Source<'_>, start: usize, across: &Taps, out_w: usize) -> Row {
     (0..out_w)
         .map(|i| {
             let mut px = [0u32; 4];
             if let Some(cols) = across.of(i) {
                 for (k, wx) in cols {
-                    let ch = channels(line.get(k).copied().unwrap_or(0));
+                    let ch = channels(source.get(start.saturating_add(k)));
                     for (c, v) in px.iter_mut().zip(ch) {
                         *c = c.saturating_add(wx.saturating_mul(v));
                     }
@@ -483,7 +571,7 @@ mod tests {
         let src = picture(80, 48);
         let made = make(&form(Fit::Cover), &SCREEN, (80, 48), &src).expect("made");
         assert_eq!((made.width, made.height), (80, 48));
-        assert_eq!(made.pixels, src);
+        assert_eq!(made.pixels.as_slice(), &src[..]);
         assert!(made.opaque);
         assert_eq!(
             (made.place.cols, made.place.rows, made.place.z),
@@ -506,7 +594,10 @@ mod tests {
         assert_eq!((made.width, made.height), (80, 48));
         for y in 0..48 {
             for x in 0..80 {
-                assert_eq!(made.pixels[y * 80 + x], src[(y + 1) * 84 + x + 2]);
+                assert_eq!(
+                    made.pixels.as_slice()[y * 80 + x],
+                    src[(y + 1) * 84 + x + 2]
+                );
             }
         }
     }
@@ -518,11 +609,11 @@ mod tests {
         let made = make(&form(Fit::Contain), &SCREEN, (16, 16), &src).expect("made");
         assert!(!made.opaque);
         // 48 tall, so 48 wide, centered: 16 transparent columns each side
-        assert_eq!(made.pixels[0], 0);
-        assert_eq!(made.pixels[15], 0);
-        assert_eq!(made.pixels[16], 0xffff_0000);
-        assert_eq!(made.pixels[63], 0xffff_0000);
-        assert_eq!(made.pixels[64], 0);
+        assert_eq!(made.pixels.as_slice()[0], 0);
+        assert_eq!(made.pixels.as_slice()[15], 0);
+        assert_eq!(made.pixels.as_slice()[16], 0xffff_0000);
+        assert_eq!(made.pixels.as_slice()[63], 0xffff_0000);
+        assert_eq!(made.pixels.as_slice()[64], 0);
         let made = make(&form(Fit::Cover), &SCREEN, (16, 16), &src).expect("made");
         assert!(made.opaque);
     }
@@ -534,7 +625,7 @@ mod tests {
         assert!(made.opaque);
         let made = make(&form(Fit::Natural), &SCREEN, (4, 4), &src).expect("made");
         // 4x4 centered on 80x48: columns 38 to 41, rows 22 to 25
-        let at = |x: usize, y: usize| made.pixels[y * 80 + x];
+        let at = |x: usize, y: usize| made.pixels.as_slice()[y * 80 + x];
         assert_eq!(at(37, 22), 0);
         assert_eq!(at(38, 22), 0xff00_ff00);
         assert_eq!(at(41, 25), 0xff00_ff00);
@@ -555,7 +646,7 @@ mod tests {
                 }
             })
             .collect();
-        let out = resample(&src, (4, 4), (2, 2), (0, 0), (2, 2)).expect("resampled");
+        let out = resample(Source::Argb(&src), (4, 4), (2, 2), (0, 0), (2, 2)).expect("resampled");
         // alpha (255 + 128) / 2 = 191.5, color 64
         assert_eq!(out, vec![0xc040_4040; 4]);
         for p in out {
@@ -573,7 +664,7 @@ mod tests {
         };
         let made = make(&form(Fit::Banner), &geo, (20, 20), &src).expect("made");
         assert_eq!((made.width, made.height), (20, 20));
-        assert_eq!(made.pixels, src);
+        assert_eq!(made.pixels.as_slice(), &src[..]);
         // 20 pixels of 16-pixel rows: 2 rows
         assert_eq!(made.prompt_row, Some(2));
         assert_eq!(
