@@ -20,15 +20,15 @@ That role is changing. Since Linux 6.10, the kernel has been able to display its
 
 vtium is one such console. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
 
-vtium is written in Rust and began as a port of `kmscon` and its library, `libtsm`, both written in C. See [Provenance](#provenance) for details.
+vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](#provenance) tells in full.
 
 ## What it does
 
 vtium renders directly to the display using one of two Linux interfaces. One is [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. The other is the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), which remains useful on some older or smaller machines.
 
-Because vtium handles rendering itself, it does not need a display server—the software that manages graphical output for a desktop such as GNOME or KDE. It can render entirely on the CPU, so a GPU is optional.
+vtium does its own rendering, so it works on a machine with no desktop installed. It can render entirely on the CPU, so a GPU is optional, and a build with the `gpu` feature can also render on the GPU.
 
-Programs running in vtium get many of the features available in desktop terminals:
+Programs running in vtium get these features:
 
 - 24-bit color and the 256-color palette; bold, faint, italic, and reversed text; and five underline styles.
 - Unicode support, including double-width Chinese, Japanese, and Korean text and color emoji, using bitmap or outline fonts.
@@ -47,20 +47,20 @@ The default build, called *minspec*, is intended for small machines. It renders 
 
 *The minspec build on a 320×240 display, using an 8×8 bitmap font.*
 
-[What vtium does](features.md) provides the full feature list, along with measured sizes and memory usage. [Why vtium](why-vtium.md#vtium-beside-the-alternatives) compares it with the kernel console, `kmscon`, fbterm, yaft, and fbpad, including features those alternatives offer that vtium does not.
+[What vtium does](features.md) provides the full feature list, along with measured sizes and memory usage. [Why vtium](why-vtium.md) explains why vtium suits the console of every kind of machine.
 
 ## Status
 
 See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it.
 
-- vtium runs as root, as getty does, so it can start the system’s login program. It currently opens the VT, graphics cards, and input devices directly. Support for obtaining those resources from a seat manager such as seatd or logind through libseat has been designed but is not yet complete.
+- vtium runs as root, as getty does, so it can start the system’s login program. By default, it opens the VT, graphics cards, and input devices directly. A build with the `libseat` feature can get them from a seat manager, seatd or logind, through libseat instead. See [Direct mode and seat mode](install.md#direct-mode-and-seat-mode) for details.
 - CPU rendering is the default. Builds with the `gpu` feature can use GPU rendering on heads where `hwaccel` is enabled.
 - vtium is tested with systemd and sysvinit. Other init systems have not been tested. See [systemd, logind and PID 1](systemd.md).
-- Ligatures, input methods, and configuration reloads without a restart are not yet implemented. See [Status](features.md#status) for the full list.
+- Programming ligatures, input methods, and configuration reloads without a restart are not built yet. See [Status](features.md#status) for the full list, with the issue that tracks each one.
 
 ## Requirements
 
-To run vtium, you need Linux with VTs enabled, a display supported through KMS/DRM or fbdev, and the `libxkbcommon` and `libudev` libraries. Builds with the `gpu` feature also require `libEGL` and `libgbm`, both provided by Mesa.
+To run vtium, you need Linux with VTs enabled, a display supported through KMS/DRM or fbdev, and the `libxkbcommon` and `libudev` libraries. Builds with the `gpu` feature also require `libEGL` and `libgbm`, both provided by Mesa. Builds with the `libseat` feature also require `libseat`, which seatd provides.
 
 To build vtium, you need Rust 1.88 or later, clang, and `tic` from ncurses. The first build downloads a Debian sysroot for linking, allowing the resulting binaries to run on distributions with glibc 2.36 or newer.
 
@@ -68,9 +68,10 @@ To build vtium, you need Rust 1.88 or later, clang, and `tic` from ncurses. The 
 
 [Try vtium on one VT](tutorial-try-vtium.md) walks you through running vtium on a spare VT and restoring it afterward, while your desktop keeps running.
 
-On Arch Linux, install the `vtium` package from the AUR. Installing the package does not start vtium automatically. To run it on VT 3 in place of getty, use:
+On Arch Linux, install the `vtium` package from the AUR. Installing the package gives vtium every free VT, from each VT's next start, and starts nothing. To give every VT back what it had before the install, and then give vtium VT 3 alone, use:
 
 ```sh
+# vtium console disable --all
 # vtium console enable --direct 3
 ```
 
