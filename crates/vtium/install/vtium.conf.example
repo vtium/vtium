@@ -947,18 +947,17 @@
 
 # -- Login picture -----------------------------------------------------------
 
-## login-image: A PNG or JPEG file shown each time a login prompt starts.
-#
-## login-image-fit: The login picture's fit: `contain`, `cover`, `stretch`,
-## `none` or `banner`.
-#
+## login-image: A PNG or JPEG picture shown at each login prompt.
+## login-image-fit: `contain`, `cover`, `stretch`, `none` or `banner`.
 ## login-image-rows: A banner's height in text rows.
-## login-image-position: Where a banner sits: `left`, `center` or `right`.
+## login-image-position: Where the picture sits: `top-left` to `bottom-right`.
+## login-image-scale: A background's size, in percent of its fit's size.
 
 #login-image=
 #login-image-fit=contain
 #login-image-rows=
-#login-image-position=left
+#login-image-position=
+#login-image-scale=100
 
 # == Running vtium ===========================================================
 #

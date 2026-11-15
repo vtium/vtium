@@ -2235,8 +2235,9 @@ pub const LOGIN_IMAGE: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     reader: "vtium",
-    what: "A PNG or JPEG file shown each time a login prompt starts.\n\n\
-           [docs] `login-image-fit` chooses whether it is a background beneath the text or a banner above the prompt. The picture is an ordinary picture on the screen: it scrolls away with the text, and a screen clear removes it. A program can cover or remove the picture, but it can never read it.\n\n\
+    what: "A PNG or JPEG picture shown at each login prompt.\n\n\
+           [docs] `login-image-fit` chooses whether it is a background beneath the text or a banner above or below the prompt. The picture is an ordinary picture on the screen: it scrolls away with the text, and a screen clear removes it. A program can cover or remove the picture, but it can never read it.\n\n\
+           [docs] To remove the picture each time you log in, add one line to your shell's startup file. See [Remove the login picture when you log in](configure.md#remove-the-login-picture-when-you-log-in).\n\n\
            [docs] vtium reads the file as root and decodes it in the image helper, as the account that runs before login. When vtium cannot read or decode the file, it logs one line and starts the login prompt without the picture. When unset, vtium shows no picture.\n\n\
            [docs] A head shows the picture of the look it names. A look that sets no picture takes the top level's. A build without image support accepts this key, logs one line, and shows no picture.",
     cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image`",
@@ -2250,9 +2251,9 @@ pub const LOGIN_IMAGE_FIT: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     reader: "vtium",
-    what: "The login picture's fit: `contain`, `cover`, `stretch`, `none` or `banner`.\n\n\
-           [docs] `contain`, the default, scales the background until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `cover` scales it until it covers the display, keeping its shape, and cuts off what passes the edges. `stretch` fills the display exactly. `none` shows the background at its own size, centered.\n\n\
-           [docs] `banner` shows the picture at the top of the screen, like a message of the day, and the login prompt starts on the row below it.\n\n\
+    what: "`contain`, `cover`, `stretch`, `none` or `banner`.\n\n\
+           [docs] `contain`, the default, scales the background until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `cover` scales it until it covers the display, keeping its shape, and cuts off what passes the edges. `stretch` fills the display exactly. `none` shows the background at its own size. `login-image-scale` can then shrink the background, and `login-image-position` places it.\n\n\
+           [docs] `banner` shows the picture like a message of the day. It sits at the top of the screen with the login prompt below it, or at the bottom with the prompt above it when `login-image-position` names the bottom.\n\n\
            [docs] A background shows through every character cell whose background is the default color. Text, colored cells and every picture a program sends cover it.",
     cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image-fit`",
 };
@@ -2271,26 +2272,56 @@ pub const LOGIN_IMAGE_ROWS: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium",
     what: "A banner's height in text rows.\n\n\
-           [docs] vtium scales the banner to that height, keeping its shape. When unset, the banner shows at its own size in pixels. A banner never takes the screen's last two rows, so the login prompt always has room. A background ignores this key.",
+           [docs] vtium scales the banner to that height, keeping its shape. When unset, the banner shows at its own size in pixels. A banner is never taller than the screen's rows less two, so the login prompt always has room. A background ignores this key.",
     cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
 };
 
 pub const LOGIN_IMAGE_POSITION: Key = Key {
     name: "login-image-position",
     short: None,
-    kind: Kind::Choice(&["left", "center", "right"]),
-    default: Default::Text("left"),
+    kind: Kind::Choice(&[
+        "top-left",
+        "top",
+        "top-right",
+        "left",
+        "center",
+        "right",
+        "bottom-left",
+        "bottom",
+        "bottom-right",
+    ]),
+    default: Default::Unset,
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     reader: "vtium",
-    what: "Where a banner sits: `left`, `center` or `right`.\n\n\
-           [docs] A centered banner with an odd number of spare columns leaves the extra column on its right. A background ignores this key.",
+    what: "Where the picture sits: `top-left` to `bottom-right`.\n\n\
+           [docs] vtium places a background against the edges of the text grid that the anchor names, and centers it along a side that the anchor leaves out. For example, `top` puts the picture against the top of the grid, centered across the screen. When unset, a background is centered.\n\n\
+           [docs] A banner sits at the top of the screen, or at the bottom under `bottom-left`, `bottom` or `bottom-right`. The anchor's column places it across the screen, and when unset the banner sits at the top left. A centered banner with an odd number of spare columns leaves the extra column on its right.\n\n\
+           [docs] vtium starts the login prompt on the first row above a banner at the bottom. Text that reaches the banner prints over it, and line feeds then scroll it away.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
+pub const LOGIN_IMAGE_SCALE: Key = Key {
+    name: "login-image-scale",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: 100,
+        unit: "%",
+        word: None,
+    },
+    default: Default::Number(100),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A background's size, in percent of its fit's size.\n\n\
+           [docs] The value is a whole number, written without a `%` sign. At 30, a contained picture fits inside 30% of the display's width and height. The default, 100, keeps the size the fit gives, so no value makes a picture larger. A banner ignores this key, since `login-image-rows` sizes a banner.",
     cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
 };
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 137] = [
+pub static KEYS: [Key; 138] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2428,6 +2459,7 @@ pub static KEYS: [Key; 137] = [
     LOGIN_IMAGE_FIT,
     LOGIN_IMAGE_ROWS,
     LOGIN_IMAGE_POSITION,
+    LOGIN_IMAGE_SCALE,
 ];
 
 /// A group of the example vtium.conf: a heading, then one description that
@@ -2761,6 +2793,7 @@ pub const SECTIONS: [Section; 11] = [
                     &LOGIN_IMAGE_FIT,
                     &LOGIN_IMAGE_ROWS,
                     &LOGIN_IMAGE_POSITION,
+                    &LOGIN_IMAGE_SCALE,
                 ],
             },
         ],
@@ -3024,6 +3057,7 @@ mod tests {
                 "login-image-fit",
                 "login-image-rows",
                 "login-image-position",
+                "login-image-scale",
             ]
         );
         assert_eq!(names(Level::Head), ["login"]);

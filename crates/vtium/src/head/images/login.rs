@@ -1,14 +1,18 @@
 //! The login picture: one picture vtium.conf names with `login-image`,
 //! placed each time a login prompt starts in one of the head's consoles,
-//! as a background beneath the text or as a banner above the prompt.
+//! as a background beneath the text or as a banner above or below the
+//! prompt.
 //!
 //! The console reads the file as root, read-only and at most
 //! [`LOGIN_IMAGE_FILE_MAX`] bytes, and hands its bytes to the image helper
 //! in a sealed memory file. The helper decodes them as the account that
 //! runs before login, so no picture decoder runs as root and no logged-in
 //! user's account decodes a file root's configuration named. The console
-//! then fits the decoded picture to the form the keys give, once, through
-//! vtium-image's [`make`], and keeps only the pixels the screen shows.
+//! asks the helper to fit the decoded picture to the form the keys give:
+//! the fit, the anchor, the scale and a banner's rows. The helper answers
+//! only the pixels the screen shows. The console works out from their size
+//! where they go, through vtium-image's [`place`], and sets them in the box
+//! of cells the placement covers.
 //!
 //! The head asks for the picture once its first display is set up, at
 //! that display's size, and its first login prompt waits until the helper
@@ -21,15 +25,20 @@
 //! starts: an ordinary kitty placement with no image id at the lowest z,
 //! in the console's store. From then on it scrolls with its lines, a
 //! screen clear or a kitty delete removes it, and no program can name it
-//! to read it back.
+//! to read it back. For a banner at the top, vtium moves the cursor to the
+//! row below it, and for a banner at the bottom, to the first row, so the
+//! login prompt starts above it. Text that reaches a banner at the bottom
+//! prints over it, and line feeds scroll it away: vtium sets no scroll
+//! margins, which belong to the session's programs.
 //!
 //! A file vtium cannot use starts the login prompt without the picture,
 //! and vtium logs one line that names the file and the reason, once each
 //! time it reads its configuration.
 //!
 //! References:
-//! - ADR-1100 D17: the two forms, when the picture is placed, who reads
-//!   and who decodes the file, its bounds, its budget and the log line.
+//! - ADR-1100 D17: the two forms, the anchors, the scale, the banner at
+//!   the bottom, when the picture is placed, who reads and who decodes the
+//!   file, its bounds, its budget and the log line.
 //! - ADR-1101 D8: the reply timer the first login prompt waits for.
 
 use std::os::fd::OwnedFd;
@@ -37,9 +46,8 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
-use vtium_image::Pixels;
 use vtium_image::decode::{Medium, Reply, Request};
-use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, place};
+use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, SCALE_FULL, place};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::image_helper::Session;
 
@@ -105,8 +113,11 @@ impl Login {
                 .and_then(|n| u32::try_from(n).ok()),
             position: config
                 .text(&keys::LOGIN_IMAGE_POSITION)
-                .and_then(Position::parse)
-                .unwrap_or(Position::Left),
+                .and_then(Position::parse),
+            scale: config
+                .number(&keys::LOGIN_IMAGE_SCALE)
+                .and_then(|n| u8::try_from(n).ok())
+                .map_or(SCALE_FULL, |n| n.clamp(1, SCALE_FULL)),
         };
         let state = if path.is_some() {
             State::Idle
@@ -310,22 +321,18 @@ impl Login {
         };
         // the helper has fitted the picture already: a size it would not
         // make for this screen is refused before a pixel is read
-        let Some((place, prompt_row)) = place(&fitting, size) else {
+        let Some(spot) = place(&fitting, size) else {
             return self.fail("the image helper's picture does not fit the screen");
         };
-        let Some((pixels, opaque)) = payload.copy_into(Vec::new()) else {
+        let Some(made) = payload
+            .copy_into(Vec::new())
+            .and_then(|(pixels, opaque)| spot.made(size, pixels, opaque))
+        else {
             return self.fail("the image helper's picture cannot be read");
         };
         self.state = State::Ready {
             geometry,
-            made: Rc::new(Made {
-                width: size.0,
-                height: size.1,
-                pixels: Pixels::new(pixels),
-                opaque,
-                place,
-                prompt_row,
-            }),
+            made: Rc::new(made),
         };
     }
 
@@ -341,9 +348,11 @@ impl Login {
     }
 
     /// Places the picture in `term`, whose console is about to start its
-    /// session's program, and for a banner moves the cursor to the first
-    /// column of the row below it. A console whose store takes no pictures,
-    /// with a budget of 0 or on a display that draws none, gets none.
+    /// session's program. For a banner it moves the cursor to the first
+    /// column of the row where the login prompt starts: the row below a
+    /// banner at the top, or the first row above a banner at the bottom. A
+    /// console whose store takes no pictures, with a budget of 0 or on a
+    /// display that draws none, gets none.
     pub(crate) fn place(&mut self, term: &mut Term, stores: bool) {
         let Some(made) = self.made().cloned() else {
             return;
@@ -532,13 +541,57 @@ mod tests {
         );
     }
 
+    // ADR-1100 D17: `login-image-position` reads the nine anchors and is
+    // unset by default, and `login-image-scale` reads 1 to 100, 100 by
+    // default. A word that is not an anchor, or a scale outside its bounds
+    // or with a `%` sign, is reported, and vtium uses the default or the
+    // bound instead.
+    #[test]
+    fn the_anchor_and_the_scale_are_read_and_bad_values_reported() {
+        let read = |conf: String| {
+            let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
+                Ok(Some(conf.as_bytes().to_vec()))
+            });
+            let form = Login::read(&loaded.config, (10_000, 10_000)).form;
+            let reports: Vec<String> = loaded
+                .reports
+                .iter()
+                .map(|r| r.problem.to_string())
+                .collect();
+            (form.position, form.scale, reports)
+        };
+        let (position, scale, reports) = read(String::new());
+        assert_eq!((position, scale, reports.len()), (None, 100, 0));
+        for anchor in Position::ALL {
+            let (position, _, reports) = read(format!("login-image-position={}\n", anchor.word()));
+            assert_eq!(position, Some(anchor));
+            assert!(reports.is_empty(), "{reports:?}");
+        }
+        for word in ["middle", "top-center", "30%"] {
+            let (position, _, reports) = read(format!("login-image-position={word}\n"));
+            assert_eq!(position, None, "{word}");
+            assert_eq!(reports.len(), 1, "{word}: {reports:?}");
+        }
+        for (value, used) in [("1", 1), ("100", 100), ("30", 30)] {
+            let (_, scale, reports) = read(format!("login-image-scale={value}\n"));
+            assert_eq!(scale, used);
+            assert!(reports.is_empty(), "{reports:?}");
+        }
+        for (value, used) in [("0", 1), ("101", 100), ("30%", 100)] {
+            let (_, scale, reports) = read(format!("login-image-scale={value}\n"));
+            assert_eq!(scale, used, "{value}");
+            assert_eq!(reports.len(), 1, "{value}: {reports:?}");
+        }
+    }
+
     fn login(path: PathBuf, fit: Fit) -> Login {
         Login {
             path: Some(path),
             form: Form {
                 fit,
                 rows: None,
-                position: Position::Left,
+                position: None,
+                scale: SCALE_FULL,
             },
             largest: (10_000, 10_000),
             state: State::Idle,
@@ -776,6 +829,165 @@ mod tests {
         // 20 pixels of 16-pixel rows take 2 rows: the prompt starts on the
         // third
         assert_eq!(term.terminal.screen().cursor(), (0, 2), "column 0, row 2");
+    }
+
+    // ADR-1100 D17, "A banner at the bottom": the banner's box takes the
+    // grid's last rows, the login prompt starts on the first row, two rows
+    // stay free above it, and text that reaches the banner prints over it
+    // until line feeds scroll it away, since vtium sets no scroll margins
+    #[test]
+    fn a_bottom_banner_starts_the_prompt_at_the_top_and_scrolls_away() {
+        let path = file("bottom", PNG);
+        // 40 pixels of 16-pixel rows want 3 rows; on 5 rows the banner may
+        // take 3, so it keeps its size and leaves rows 0 and 1 free
+        let (make, _) = helpers(Some(decoded(20, 40)));
+        let mut login = login(path, Fit::Banner);
+        login.form.position = Some(Position::BottomRight);
+        let tall = Geometry {
+            grid: (10, 5),
+            ..SCREEN
+        };
+        login.step(Some(tall), now(), Some(&make));
+        let mut term = console(1 << 20);
+        term.terminal.resize(10, 5);
+        // the session's program would start with the cursor anywhere
+        term.terminal.input(b"\x1b[4;5H");
+        login.place(&mut term, true);
+        let shown = term.terminal.screen().placements();
+        assert_eq!(shown.len(), 1);
+        // 20 pixels take 3 columns of 8, against the right margin
+        assert_eq!((shown[0].col, shown[0].row), (7, 2), "the last 3 rows");
+        assert_eq!(term.terminal.screen().cursor(), (0, 0), "column 0, row 0");
+        // no scroll margins: the region is the whole screen
+        term.terminal.input(b"login: pi\r\npassword\r\nwelcome\r\n");
+        assert_eq!(
+            term.terminal.screen().placements()[0].row,
+            2,
+            "text prints over it"
+        );
+        // the cursor is on row 3: the second line feed scrolls the screen
+        term.terminal.input(b"one\r\ntwo\r\n");
+        assert_eq!(
+            term.terminal.screen().placements()[0].row,
+            1,
+            "scrolled up 1"
+        );
+        // four more scroll its three rows off the top
+        term.terminal.input(b"three\r\nfour\r\nfive\r\nsix\r\n");
+        let shown = term.terminal.screen().placements();
+        assert!(
+            shown.iter().all(|p| p.row + 3 <= 0),
+            "scrolled away: {:?}",
+            shown.iter().map(|p| p.row).collect::<Vec<_>>()
+        );
+    }
+
+    /// The bytes of the documented line that clears the login picture: a
+    /// kitty delete of every placement at the login picture's z, which
+    /// frees each image left with no placement, with no answer.
+    const CLEAR_LINE: &[u8] = b"\x1b_Ga=d,d=Z,z=-2147483648,q=2\x1b\\";
+
+    // ADR-1100 D17, "Clearing the picture at login": a console holding the
+    // login picture takes the documented line's bytes, and its store then
+    // holds no placement and no image, and it answers nothing
+    // covers: image.login
+    #[test]
+    fn the_documented_clear_line_leaves_no_placement_and_no_image() {
+        let path = file("clear", PNG);
+        let (make, _) = helpers(Some(decoded(80, 48)));
+        let mut login = login(path, Fit::Cover);
+        login.step(Some(SCREEN), now(), Some(&make));
+        let mut term = console(1 << 20);
+        login.place(&mut term, true);
+        let images = |term: &Term| term.terminal.screen().images().image_count();
+        assert_eq!((placements(&term), images(&term)), (1, 1));
+        term.terminal.input(CLEAR_LINE);
+        assert_eq!((placements(&term), images(&term)), (0, 0));
+        assert!(term.terminal.take_replies().is_empty());
+    }
+
+    /// The code blocks of the section of `docs/configure.md` that gives the
+    /// clear line, each with its language.
+    fn documented_lines() -> Vec<(String, String)> {
+        let page = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/configure.md"
+        ))
+        .expect("docs/configure.md");
+        let section = page
+            .split("\n## ")
+            .find(|s| s.starts_with("Remove the login picture when you log in\n"))
+            .expect("the section on removing the login picture");
+        let mut blocks = Vec::new();
+        let mut open: Option<(String, String)> = None;
+        for line in section.lines() {
+            match (line.strip_prefix("```"), open.take()) {
+                (Some(lang), None) => open = Some((lang.to_owned(), String::new())),
+                (Some(_), Some(block)) => blocks.push(block),
+                (None, Some((lang, mut body))) => {
+                    body.push_str(line);
+                    open = Some((lang, body));
+                }
+                (None, None) => {}
+            }
+        }
+        blocks
+    }
+
+    /// What `shell` prints when it runs `line` as a login shell in a
+    /// session with `env`, reading no startup file of its own; `None` when
+    /// the shell is not installed.
+    fn run(shell: &str, line: &str, env: &[(&str, &str)]) -> Option<Vec<u8>> {
+        let flags: &[&str] = match shell {
+            "bash" => &["--norc", "--noprofile", "-c"],
+            "zsh" => &["-f", "-c"],
+            _ => &["--no-config", "--login", "-c"],
+        };
+        let out = std::process::Command::new(shell)
+            .args(flags)
+            .arg(line)
+            .env_clear()
+            .envs(env.iter().copied())
+            .output()
+            .ok()?;
+        assert!(
+            out.status.success() || out.stdout.is_empty(),
+            "{shell}: {line}"
+        );
+        Some(out.stdout)
+    }
+
+    // ADR-1100 D17: each line `docs/configure.md` gives, run in its shell
+    // where that shell is installed, sends the bytes the console test
+    // feeds, inside a vtium session and nothing outside one
+    #[test]
+    fn each_documented_clear_line_sends_the_bytes_in_its_shell() {
+        let blocks = documented_lines();
+        let langs: Vec<&str> = blocks.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(langs, ["sh", "fish", "sh"]);
+        let vtium = [("TERM_PROGRAM", "vtium"), ("TERM", "xterm-vtium")];
+        let elsewhere = [("TERM_PROGRAM", "other"), ("TERM", "xterm-256color")];
+        let mut ran = 0;
+        for (lang, line) in &blocks {
+            let shells: &[&str] = if lang == "fish" {
+                &["fish"]
+            } else {
+                &["bash", "zsh"]
+            };
+            for shell in shells {
+                let Some(sent) = run(shell, line, &vtium) else {
+                    continue;
+                };
+                assert_eq!(sent, CLEAR_LINE, "{shell}: {line}");
+                assert_eq!(
+                    run(shell, line, &elsewhere),
+                    Some(Vec::new()),
+                    "{shell}: {line}"
+                );
+                ran += 1;
+            }
+        }
+        assert!(ran > 0, "no shell ran a documented line");
     }
 
     #[test]

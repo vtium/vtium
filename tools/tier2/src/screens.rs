@@ -3275,6 +3275,86 @@ const BASE: &[Case] = &[
         display: Some(LOGIN_WIDE),
         ..outline("login-banner", LOGIN_BANNER_DESC, b"", 64, 12)
     }),
+    picture(Screen {
+        pictures: Some(login_contain_top_left),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-top-left",
+            LOGIN_CONTAIN_TOP_LEFT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-right",
+            LOGIN_CONTAIN_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_bottom),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-bottom",
+            LOGIN_CONTAIN_BOTTOM_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_cover_top),
+        ..outline("login-cover-top", LOGIN_COVER_TOP_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_none_bottom_left),
+        ..outline(
+            "login-none-bottom-left",
+            LOGIN_NONE_BOTTOM_LEFT_DESC,
+            b"login: ",
+            10,
+            3,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_scale_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-scale-bottom-right",
+            LOGIN_SCALE_BOTTOM_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_banner_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-banner-bottom-right",
+            LOGIN_BANNER_BOTTOM_RIGHT_DESC,
+            b"",
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_rotated_scale),
+        orientation: Orientation::Right,
+        ..outline(
+            "login-rotated-scale",
+            LOGIN_ROTATED_SCALE_DESC,
+            LOGIN_TEXT,
+            40,
+            8,
+        )
+    }),
 ];
 
 /// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a
@@ -3888,8 +3968,9 @@ fn login_base64(bytes: &[u8]) -> String {
 
 /// The picture `form` makes on a screen of `grid` cells of `f`'s cell and
 /// a display of `display`, placed as the console places it: a kitty
-/// transmission with no id at the lowest z that keeps the cursor, and for
-/// a banner a cursor move to the row below it.
+/// transmission with no id at the lowest z that keeps the cursor, at the
+/// top left of the placement's box, and for a banner a cursor move to the
+/// row where the login prompt starts.
 fn login_place(
     f: &mut Feed,
     form: vtium_term::images::login::Form,
@@ -3926,7 +4007,7 @@ fn login_place(
         .chunks(4096)
         .map(|c| std::str::from_utf8(c).unwrap_or(""))
         .collect();
-    let mut out = format!("\x1b[1;{}H", made.place.col + 1).into_bytes();
+    let mut out = format!("\x1b[{};{}H", made.place.row + 1, made.place.col + 1).into_bytes();
     for (i, chunk) in chunks.iter().enumerate() {
         let more = u8::from(i + 1 < chunks.len());
         let keys = if i == 0 {
@@ -3965,21 +4046,86 @@ fn login_rotated(f: &mut Feed) -> Result<(), String> {
 /// `login-banner`: a banner at its own size, centered, and the login
 /// prompt below it.
 fn login_banner(f: &mut Feed) -> Result<(), String> {
-    let form = vtium_term::images::login::Form {
-        position: vtium_term::images::login::Position::Center,
-        ..login_form(Fit::Banner)
-    };
+    let form = login_at(Fit::Banner, Position::Center, SCALE_FULL);
     login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
     f.bytes(LOGIN_TEXT)
 }
 
-use vtium_term::images::login::Fit;
+/// `login-contain-top-left`: `login-contain` at `top-left`.
+fn login_contain_top_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::TopLeft, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
 
+/// `login-contain-right`: `login-contain` at `right`.
+fn login_contain_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Right, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-contain-bottom`: `login-contain` at `bottom`.
+fn login_contain_bottom(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Bottom, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-cover-top`: `login-cover` at `top`.
+fn login_cover_top(f: &mut Feed) -> Result<(), String> {
+    login_place(
+        f,
+        login_at(Fit::Cover, Position::Top, SCALE_FULL),
+        (40, 8),
+        None,
+    )
+}
+
+/// `login-none-bottom-left`: the picture at its own size at `bottom-left`
+/// on a grid of 10×3 cells, smaller than the picture.
+fn login_none_bottom_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Natural, Position::BottomLeft, SCALE_FULL);
+    login_place(f, form, (10, 3), None)
+}
+
+/// `login-scale-bottom-right`: `login-contain` at 30% and `bottom-right`.
+fn login_scale_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 30);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-banner-bottom-right`: a banner at its own size at
+/// `bottom-right`, and the login prompt above it.
+fn login_banner_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Banner, Position::BottomRight, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
+    f.bytes(LOGIN_TEXT)
+}
+
+/// `login-rotated-scale`: `login-rotated` under contain at 50% and
+/// `bottom-right`.
+fn login_rotated_scale(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 50);
+    login_place(f, form, (40, 8), None)
+}
+
+use vtium_term::images::login::{Fit, Position, SCALE_FULL};
+
+/// The form of `fit` with no anchor and the scale at 100, as vtium.conf
+/// gives it when it names only the fit.
 fn login_form(fit: Fit) -> vtium_term::images::login::Form {
     vtium_term::images::login::Form {
         fit,
         rows: None,
-        position: vtium_term::images::login::Position::Left,
+        position: None,
+        scale: SCALE_FULL,
+    }
+}
+
+/// The form of `fit` at `position` and `scale`.
+fn login_at(fit: Fit, position: Position, scale: u8) -> vtium_term::images::login::Form {
+    vtium_term::images::login::Form {
+        position: Some(position),
+        scale,
+        ..login_form(fit)
     }
 }
 
@@ -4005,4 +4151,52 @@ const LOGIN_BANNER_DESC: &str = concat!(
     "A login picture as a banner at its own size, centered, above a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, and the 53 spare columns put 26 on its left and 27 on its right. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
     "Correct: the whole picture, drawn one to one, starting 26 columns from the left at the top of the screen, its frame on all four sides; the login prompt starts in the first column of the fifth row, below the banner, and its text covers no part of the picture."
+);
+
+const LOGIN_CONTAIN_TOP_LEFT_DESC: &str = concat!(
+    "login-contain with login-image-position=top-left: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's top and left edges (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture starts at the grid's first pixel column and first pixel row, its frame along the left edge and the top edge of the grid; its last 5 pixel rows, the bottom of its frame, are cut off; the default background shows to its right and in the strip outside the grid; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_RIGHT_DESC: &str = concat!(
+    "login-contain with login-image-position=right: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's right edge and centered down the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, its first 2 and last 3 pixel rows in the strips outside the grid; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_BOTTOM_DESC: &str = concat!(
+    "login-contain with login-image-position=bottom: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's bottom edge and centered across the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: across the screen the picture is placed as in login-contain, centered, with bands of the default background left and right; its last pixel row lies on the grid's last pixel row, so the bottom of its frame shows along the grid's bottom edge, and its first 5 pixel rows, the top of its frame, are cut off; the disc is round; the text draws over the picture and the bands alike."
+);
+
+const LOGIN_COVER_TOP_DESC: &str = concat!(
+    "login-cover with login-image-position=top: a login prompt over a login picture as a background under cover, on a grid of 40 by 8 cells of 9 by 16 pixels on a display of 360 by 128 pixels (ADR-1100 D17). Cover scales the picture to 360 by 240 pixels, and the anchor keeps its top. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture's full width fills the screen, its frame at the left and right edges and along the top edge; its bottom 112 pixel rows are cut off, so the frame does not show at the bottom, and the bottom edge cuts the disc just below its middle; the text draws over the picture, the blue cells and the reversed word cover it, and the picture shows through every other cell."
+);
+
+const LOGIN_NONE_BOTTOM_LEFT_DESC: &str = concat!(
+    "A login picture at its own size, login-image-fit=none, at login-image-position=bottom-left, on a grid of 10 by 3 cells of 9 by 16 pixels, 90 by 48 pixels, smaller than the picture (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture drawn one to one, its left edge on the grid's left edge and its bottom edge on the grid's bottom edge; its frame shows along the left and the bottom; its rightmost 6 pixel columns and its top 16 pixel rows are cut off, so the frame shows neither on the right nor at the top; the disc sits a little right of the middle and above it, nearly reaching the top; the word login draws over the picture."
+);
+
+const LOGIN_SCALE_BOTTOM_RIGHT_DESC: &str = concat!(
+    "login-contain at login-image-scale=30 and login-image-position=bottom-right: a login prompt over a login picture as a background, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, and 30% of that is 89 by 59 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, small, its frame on all four sides, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, in the bottom right corner of the screen; the default background everywhere else; the disc is round; the text, which ends near the top of the screen, does not reach the picture."
+);
+
+const LOGIN_BANNER_BOTTOM_RIGHT_DESC: &str = concat!(
+    "A login picture as a banner at its own size at login-image-position=bottom-right, below a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, in the last 4 rows and against the right margin, starting in the 54th column (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, drawn one to one, its frame on all four sides, at the top left of its box in the last 4 rows, so 3 pixel columns of the box's last cell column stay empty at the screen's right edge; the login prompt starts in the first column of the first row and its text ends above the banner."
+);
+
+const LOGIN_ROTATED_SCALE_DESC: &str = concat!(
+    "A login picture under contain at login-image-scale=50 and login-image-position=bottom-right, on a display turned a quarter clockwise, so the text reads from top to bottom: the picture is made for the screen as the text sees it, a grid of 40 by 8 cells of 9 by 16 pixels, 360 by 128 pixels (ADR-1100 D17). Contain scales the picture to 192 by 128 pixels, and 50% of that is 96 by 64 pixels, the picture's own size. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, its frame on all four sides, at the end of the grid's last row as the text reads, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, turned a quarter clockwise with the text; on the panel that is the bottom left corner; the default background everywhere else; the text draws over the picture where they meet."
 );

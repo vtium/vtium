@@ -13,3 +13,11 @@ pointer-file-ew-resize	the ew-resize shape from vtium's own pointers.svg, drawn 
 pointer-file-ns-resize	the ns-resize shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
 pointer-file-adwaita	Adwaita 51.0's default cursor at nominal size 24, drawn on 2026-11-15 through the font helper's Xcursor code (ADR-1309); not reviewed yet
 pointer-file-turned	the default shape from vtium's own pointers.svg on a display turned right, drawn on 2026-11-15 (ADR-1309); not reviewed yet
+login-contain-top-left	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-contain-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-contain-bottom	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-cover-top	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-none-bottom-left	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-scale-bottom-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-banner-bottom-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-rotated-scale	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed

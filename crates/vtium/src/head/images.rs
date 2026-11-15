@@ -134,7 +134,7 @@ pub(crate) use login::Login;
 /// Logs, in a build without image support, that it ignores the login
 /// picture `config` names: such a build carries no picture code, and
 /// still reads the keys, so one vtium.conf serves every build. It reads
-/// the picture's fit, rows and position as well and ignores them, as a
+/// the picture's fit, rows, position and scale as well and ignores them, as a
 /// build with images reads them for each head.
 ///
 /// References:
@@ -145,6 +145,7 @@ pub(crate) fn login_unsupported(config: &Config) {
         config.text(&keys::LOGIN_IMAGE_FIT),
         config.number(&keys::LOGIN_IMAGE_ROWS),
         config.text(&keys::LOGIN_IMAGE_POSITION),
+        config.number(&keys::LOGIN_IMAGE_SCALE),
     );
     if config.text(&keys::LOGIN_IMAGE).is_some() {
         log::warn!(
