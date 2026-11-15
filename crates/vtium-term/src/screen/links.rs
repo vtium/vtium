@@ -31,8 +31,12 @@ pub(super) struct Hover {
     /// The view row the overlay covers.
     pub(super) overlay: Option<usize>,
     /// The labels of link hints, each placed where its link first appears
-    /// in the view.
+    /// in the view, in the order they lie in the view: row by row from the
+    /// top, and in each row from left to right.
     pub(super) hints: Vec<LinkHint>,
+    /// The links that have a label, sorted, so that drawing a cell finds
+    /// out quickly whether its link has one.
+    pub(super) labelled: Vec<LinkId>,
     /// What vtium shows on the overlay row in place of a URI, such as the
     /// line that tells how to pick a link hint.
     note: Option<String>,
@@ -41,6 +45,20 @@ pub(super) struct Hover {
 /// The index of `link` in a list by `LinkId`.
 fn slot(link: LinkId) -> usize {
     usize::try_from(link.get()).unwrap_or(usize::MAX)
+}
+
+#[cfg(test)]
+std::thread_local! {
+    /// The entries that placing the labels of link hints has looked at on
+    /// this thread, which a test counts to check that the work grows with
+    /// the cells and the labels, not with their product.
+    static PROBES: core::cell::Cell<usize> = const { core::cell::Cell::new(0) };
+}
+
+/// Counts one entry looked at while placing labels, in a test build.
+fn probe() {
+    #[cfg(test)]
+    PROBES.with(|p| p.set(p.get().saturating_add(1)));
 }
 
 impl Screen {
@@ -151,6 +169,14 @@ impl Screen {
                 hint.link = link;
             }
         }
+        for link in &mut self.hover.labelled {
+            if let Some(renamed) = rename(*link) {
+                *link = renamed;
+            }
+        }
+        // the store keeps its entries in order, so the renamed ids stay
+        // sorted; sorting again costs little and keeps the lookup right
+        self.hover.labelled.sort_unstable();
     }
 
     /// Ends the open link, as RIS and a switch of screens do.
@@ -216,6 +242,9 @@ impl Screen {
     /// Finds the link under the pointer again, after the stream or the view
     /// changed what is there.
     pub(crate) fn refresh_hover(&mut self) {
+        // The labels are placed first, since where they lie decides the
+        // row of the hint line.
+        self.refresh_link_hints();
         let pointer = self.hover.pointer;
         let link = pointer.and_then(|(x, y)| self.link_at(x, y));
         let last = self.rows.saturating_sub(1);
@@ -237,7 +266,6 @@ impl Screen {
             }
             self.hover.overlay = overlay;
         }
-        self.refresh_link_hints();
     }
 
     /// Marks the view rows whose link tables hold `link`.
@@ -266,14 +294,26 @@ impl Screen {
             .or_else(|| self.hover.link.and_then(|l| self.link_uri(l)))
     }
 
-    /// The row vtium's note covers while one is set: the bottom row, or the
-    /// top row while the pointer is on the bottom one, as the URI's
-    /// overlay row is chosen.
+    /// The row vtium's note covers while one is set: the bottom row, or
+    /// the top row in two cases. While link hints are on, the note moves to
+    /// the top row only while a label lies on the bottom row, so that the
+    /// note never hides a label, and the pointer does not move it. While
+    /// they are off, the note moves to the top row while the pointer is on
+    /// the bottom row, as the URI's overlay row does.
+    ///
+    /// References:
+    /// - ADR-1002, section 7, "How labels are drawn": the hint line's row,
+    ///   as the maintainer decided on 2026-11-15.
+    /// - ADR-1002, section 4: the overlay row and the pointer.
     fn note_row(&self) -> Option<usize> {
         self.hover.note.as_ref()?;
         let last = self.rows.saturating_sub(1);
-        let on_last = self.hover.pointer.is_some_and(|(_, y)| y == last);
-        Some(if on_last && last > 0 { 0 } else { last })
+        let up = if self.hover.hints.is_empty() {
+            self.hover.pointer.is_some_and(|(_, y)| y == last)
+        } else {
+            self.hover.hints.iter().any(|h| h.at.1 == last)
+        };
+        Some(if up && last > 0 { 0 } else { last })
     }
 
     /// Shows `note` on the overlay row in place of a URI, or nothing of
@@ -310,18 +350,36 @@ impl Screen {
     /// Each distinct link of the view, with the cell where it first
     /// appears, a column and a row, in the order [`view_links`] gives.
     ///
+    /// Each cell's link is found as [`link_at`](Self::link_at) finds it,
+    /// with the line, its size and its drawing order looked up once per
+    /// row. A list by link slot records the links already found, so each
+    /// linked cell costs one lookup. Link hints place their labels again
+    /// after every input, so this runs often on a screen full of links.
+    ///
     /// [`view_links`]: Self::view_links
     fn first_cells(&self) -> Vec<(LinkId, (usize, usize))> {
+        let mut seen = vec![false; self.links.len()];
         let mut found: Vec<(LinkId, (usize, usize))> = Vec::new();
-        for (y, line) in self.view().iter().enumerate() {
+        for (y, line) in self.view().into_iter().enumerate() {
             // a row whose link table is empty holds no link
             if line.link_table().next().is_none() {
                 continue;
             }
+            let double = line.flags().size().is_double();
+            #[cfg(feature = "bidi")]
+            let order = self.row_order(y);
             for x in 0..self.cols {
-                if let Some(link) = self.link_at(x, y)
-                    && !found.iter().any(|(l, _)| *l == link)
+                let col = if double { x / 2 } else { x };
+                #[cfg(feature = "bidi")]
+                let col = order.as_ref().map_or(col, |r| r.logical_at(col));
+                let Some(link) = line.link(line.cell(col)) else {
+                    continue;
+                };
+                probe();
+                if let Some(seen) = seen.get_mut(slot(link))
+                    && !*seen
                 {
+                    *seen = true;
                     found.push((link, (x, y)));
                 }
             }
@@ -338,7 +396,6 @@ impl Screen {
     pub fn set_link_hints(&mut self, hints: Vec<(LinkId, String)>) {
         let old = core::mem::take(&mut self.hover.hints);
         for hint in &old {
-            self.mark_link_rows(Some(hint.link));
             self.damage
                 .mark_rows(hint.at.1..hint.at.1.saturating_add(1));
         }
@@ -351,10 +408,42 @@ impl Screen {
                 at: (0, 0),
             })
             .collect();
-        for link in self.hover.hints.iter().map(|h| h.link).collect::<Vec<_>>() {
-            self.mark_link_rows(Some(link));
+        let changed: Vec<LinkId> = old
+            .iter()
+            .chain(&self.hover.hints)
+            .map(|h| h.link)
+            .collect();
+        self.mark_rows_of_links(changed.into_iter());
+        // places the labels, and moves the hint line if a label now lies
+        // on its row or no longer does
+        self.refresh_hover();
+        if self.hover.hints.is_empty() {
+            self.hover.labelled.clear();
         }
-        self.place_link_hints();
+    }
+
+    /// Marks the view rows whose link tables hold any of `links`, in one
+    /// pass over the view, with a list by link slot to look each entry up.
+    fn mark_rows_of_links(&mut self, links: impl Iterator<Item = LinkId>) {
+        let mut wanted = vec![false; self.links.len()];
+        for link in links {
+            if let Some(w) = wanted.get_mut(slot(link)) {
+                *w = true;
+            }
+        }
+        let rows: Vec<usize> = self
+            .view()
+            .iter()
+            .enumerate()
+            .filter(|(_, line)| {
+                line.link_table()
+                    .any(|l| wanted.get(slot(l)).copied().unwrap_or(false))
+            })
+            .map(|(row, _)| row)
+            .collect();
+        for row in rows {
+            self.damage.mark_rows(row..row.saturating_add(1));
+        }
     }
 
     /// The labels of link hints, while they are on, each placed where its
@@ -387,32 +476,100 @@ impl Screen {
         }
     }
 
-    /// Places each label where its link first appears in the view, moved
-    /// left so that it ends at the row's last column at the latest, and
+    /// Places each label where its link first appears in the view, and
     /// drops the label of each link no longer in the view, which keeps no
-    /// label from then on. The rows a label leaves or arrives on are
-    /// marked.
+    /// label from then on. In each row, a label that would cover part of
+    /// the label before it shifts right to clear it, and labels that would
+    /// pass the row's end move left, as [`lay_out_row`] decides. The labels
+    /// are kept in the order they lie in the view, and the rows a label
+    /// leaves or arrives on are marked.
     fn place_link_hints(&mut self) {
         let first = self.first_cells();
+        let mut wanted = vec![None; self.links.len()];
+        for &(link, at) in &first {
+            if let Some(w) = wanted.get_mut(slot(link)) {
+                *w = Some(at);
+            }
+        }
         let cols = self.cols;
         let mut marks = Vec::new();
-        let hints = core::mem::take(&mut self.hover.hints);
-        let mut kept = Vec::with_capacity(hints.len());
-        for mut hint in hints {
-            let Some(&(_, (x, y))) = first.iter().find(|(l, _)| *l == hint.link) else {
-                marks.push(hint.at.1);
-                continue;
-            };
-            let at = (x.min(cols.saturating_sub(hint.label.len())), y);
-            if at != hint.at {
-                marks.extend([hint.at.1, at.1]);
-                hint.at = at;
+        let mut kept: Vec<(LinkHint, (usize, usize))> = Vec::new();
+        for hint in core::mem::take(&mut self.hover.hints) {
+            probe();
+            match wanted.get(slot(hint.link)).copied().flatten() {
+                Some(at) => kept.push((hint, at)),
+                None => marks.push(hint.at.1),
             }
-            kept.push(hint);
         }
-        self.hover.hints = kept;
+        // a stable sort, so labels whose links start in the same cell keep
+        // their order
+        kept.sort_by_key(|&(_, (x, y))| (y, x));
+        let mut row: Vec<(usize, usize)> = Vec::new();
+        for same_row in kept.chunk_by_mut(|a, b| a.1.1 == b.1.1) {
+            row.clear();
+            row.extend(same_row.iter().map(|(h, (x, _))| (*x, h.label.len())));
+            lay_out_row(cols, &mut row);
+            for ((hint, (_, y)), &(x, _)) in same_row.iter_mut().zip(&row) {
+                let at = (x, *y);
+                if at != hint.at {
+                    marks.extend([hint.at.1, *y]);
+                    hint.at = at;
+                }
+            }
+        }
+        self.hover.hints = kept.into_iter().map(|(hint, _)| hint).collect();
+        let mut labelled: Vec<LinkId> = self.hover.hints.iter().map(|h| h.link).collect();
+        labelled.sort_unstable();
+        labelled.dedup();
+        self.hover.labelled = labelled;
         for row in marks {
             self.damage.mark_rows(row..row.saturating_add(1));
+        }
+    }
+
+    /// The links that have a label, sorted.
+    pub(super) fn labelled_links(&self) -> &[LinkId] {
+        &self.hover.labelled
+    }
+}
+
+/// Lays out the labels of one row of `cols` columns, each a column and a
+/// length, in the order their links appear from left to right. Each column
+/// comes in as the cell where the label's link first appears and goes out
+/// as the label's place.
+///
+/// A label that would cover part of the label before it shifts right just
+/// far enough to clear it. When that pushes labels past the row's end, the
+/// last label ends at the row's last column, and each label before it
+/// moves left just far enough to clear the one after it. Every label then
+/// reads in full. Only when the row's labels together are longer than the
+/// row does that not fit. Then each label that would pass the row's end
+/// ends at its last column instead, so those labels lie over each other
+/// there, and the later one draws on top.
+///
+/// References:
+/// - ADR-1002, section 7, "How labels are drawn": labels that would
+///   overlap, and labels at the row's end, as the maintainer decided on
+///   2026-11-15.
+fn lay_out_row(cols: usize, labels: &mut [(usize, usize)]) {
+    let mut end = 0usize;
+    for (x, len) in labels.iter_mut() {
+        *x = (*x).max(end);
+        end = x.saturating_add(*len);
+    }
+    let total = labels
+        .iter()
+        .map(|&(_, len)| len)
+        .fold(0usize, usize::saturating_add);
+    if total <= cols {
+        let mut limit = cols;
+        for (x, len) in labels.iter_mut().rev() {
+            *x = (*x).min(limit.saturating_sub(*len));
+            limit = *x;
+        }
+    } else {
+        for (x, len) in labels.iter_mut() {
+            *x = (*x).min(cols.saturating_sub(*len));
         }
     }
 }
@@ -619,5 +776,171 @@ mod tests {
         t.screen_mut().set_overlay_note(None);
         assert_eq!(t.screen().frame(&palette, age).overlay(), None);
         assert_eq!(marked(&t, age, 3), [0]);
+    }
+
+    /// Labels every link in `s`'s view with `labels`, in order.
+    fn label_all(s: &mut Screen, labels: &[&str]) {
+        let hints = s
+            .view_links()
+            .into_iter()
+            .zip(labels)
+            .map(|(l, t)| (l, (*t).to_owned()))
+            .collect();
+        s.set_link_hints(hints);
+    }
+
+    // Every input places the labels again while link hints are on, so the
+    // placing looks each linked cell and each label up once: a screen
+    // where every cell is its own link costs its cells, not its cells
+    // times its links.
+    #[test]
+    fn placing_labels_looks_each_cell_and_label_up_once() {
+        let (cols, rows) = (40, 20);
+        let mut t = crate::Terminal::new(cols, rows, 0);
+        let mut bytes = String::new();
+        for y in 0..rows {
+            bytes.push_str(&format!("\x1b[{};1H", y + 1));
+            for x in 0..cols {
+                bytes.push_str(&linked(&format!("x:{x},{y}"), "a"));
+            }
+        }
+        t.input(bytes.as_bytes());
+        let links = t.screen().view_links();
+        assert_eq!(links.len(), cols * rows);
+        let labels: Vec<String> = (0..links.len()).map(|i| format!("{i:03}")).collect();
+        let hints = links.into_iter().zip(labels).collect();
+        t.screen_mut().set_link_hints(hints);
+        PROBES.with(|p| p.set(0));
+        t.input(b"\x1b[1;1H");
+        let probes = PROBES.with(core::cell::Cell::get);
+        assert!(
+            probes <= 2 * cols * rows,
+            "{probes} entries looked at for {} cells",
+            cols * rows
+        );
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: the
+    // hint line stays on the bottom row, and moves to the top row only
+    // while a label lies on the bottom row, so no label hides under it.
+    #[test]
+    fn the_hint_line_leaves_the_bottom_row_while_a_label_lies_there() {
+        let mut t = crate::Terminal::new(80, 4, 0);
+        t.input(
+            format!(
+                "{}\x1b[4;1H{}",
+                linked("x:top", "top"),
+                linked("x:bottom", "bottom")
+            )
+            .as_bytes(),
+        );
+        let palette = crate::Palette::default();
+        let row = |t: &crate::Terminal| {
+            t.screen()
+                .frame(&palette, crate::Age::NEVER)
+                .overlay()
+                .map(|o| o.row)
+        };
+        label_all(t.screen_mut(), &["a", "s"]);
+        t.screen_mut().set_overlay_note(Some("pick".to_owned()));
+        assert_eq!(
+            placed(t.screen()),
+            [("a", true, (0, 0)), ("s", true, (0, 3))]
+        );
+        assert_eq!(row(&t), Some(0), "a label lies on the bottom row");
+        let age = t.screen_mut().checkpoint();
+        // the bottom row's link scrolls up a row, so no label lies there
+        t.input(b"\r\n");
+        assert_eq!(
+            placed(t.screen()),
+            [("s", true, (0, 2))],
+            "the top row's link scrolled away"
+        );
+        assert_eq!(row(&t), Some(3), "back on the bottom row");
+        assert!(marked(&t, age, 4).contains(&0) && marked(&t, age, 4).contains(&3));
+        t.screen_mut().set_pointer(Some((5, 3)), false);
+        assert_eq!(row(&t), Some(3), "the pointer does not move the hint line");
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: a
+    // label that would cover part of the one before it shifts right just
+    // far enough to clear it, so both read in full.
+    #[test]
+    fn a_label_shifts_right_to_clear_the_label_before_it() {
+        let mut t = crate::Terminal::new(10, 1, 0);
+        t.input(
+            format!(
+                "{}{}{}",
+                linked("x:a", "a"),
+                linked("x:b", "b"),
+                linked("x:c", "cccc")
+            )
+            .as_bytes(),
+        );
+        label_all(t.screen_mut(), &["as", "sd", "df"]);
+        assert_eq!(
+            placed(t.screen()),
+            [
+                ("as", true, (0, 0)),
+                ("sd", true, (2, 0)),
+                ("df", true, (4, 0))
+            ]
+        );
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: where
+    // shifting right would run past the row's end, the last label ends at
+    // the row's last column and the labels before it move left to clear
+    // it, so every label still reads in full.
+    #[test]
+    fn labels_at_the_row_end_move_left_to_clear_each_other() {
+        let mut t = crate::Terminal::new(8, 1, 0);
+        t.input(
+            format!(
+                "abcde{}{}{}",
+                linked("x:a", "a"),
+                linked("x:b", "b"),
+                linked("x:c", "c")
+            )
+            .as_bytes(),
+        );
+        label_all(t.screen_mut(), &["as", "sd", "df"]);
+        assert_eq!(
+            placed(t.screen()),
+            [
+                ("as", true, (2, 0)),
+                ("sd", true, (4, 0)),
+                ("df", true, (6, 0))
+            ]
+        );
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: when a
+    // row's labels together are longer than the row, the labels that run
+    // past its end each end at its last column, so they lie over each
+    // other there, and the later one draws on top.
+    #[test]
+    fn labels_longer_than_their_row_pile_up_at_its_end() {
+        let mut t = crate::Terminal::new(5, 1, 0);
+        t.input(
+            format!(
+                "{}{}{}{}",
+                linked("x:a", "a"),
+                linked("x:b", "b"),
+                linked("x:c", "c"),
+                linked("x:d", "d")
+            )
+            .as_bytes(),
+        );
+        label_all(t.screen_mut(), &["as", "sd", "df", "fg"]);
+        assert_eq!(
+            placed(t.screen()),
+            [
+                ("as", true, (0, 0)),
+                ("sd", true, (2, 0)),
+                ("df", true, (3, 0)),
+                ("fg", true, (3, 0))
+            ]
+        );
     }
 }
