@@ -1,0 +1,90 @@
+# The proof editor, vim-vt510, on lines of every size. The editor holds
+# the text in memory and wraps each line itself, as zsh and vim do, so
+# text flows onto the next row when you insert and flows back when you
+# delete. The typing pad (typepad.py) of the insert and double-size guides
+# shows the opposite: what the terminal does on its own, where nothing
+# moves to another row. The editor's sample file has a section for each
+# step. Each step copies the sample to /tmp/vim-vt510.txt and opens the
+# copy, so a step starts from the sample and never changes the checkout.
+# make vt-check runs the guide from the checkout's top directory, so the
+# steps name the editor by that relative path.
+#
+#   make vt-check GUIDE=editor
+
+title: the proof editor, which wraps lines itself
+
+intro: Each step starts vim-vt510, a small editor, on a copy of its sample
+intro: file. The editor holds the text and wraps each line itself, as zsh and
+intro: vim do, and redraws the rows after each key. So text flows onto the
+intro: next row when you insert, and back when you delete. The typing pad of
+intro: the insert guide shows the terminal on its own, where nothing moves to
+intro: another row. The status line near the bottom, in reverse video, shows
+intro: the file, the mode, and the cursor's line and column. i starts
+intro: inserting, Esc stops, :q quits and :q! quits without saving. Steps
+intro: whose titles start with "Explore" have no right or wrong answer and
+intro: ask only for a note.
+
+step: Text flows onto the next row when you insert
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press Down five times, onto the line that starts "A long normal line".
+do: Press Right about twenty times, then i, and type a few words.
+expect: Each letter goes in at the cursor. The text after it moves right,
+expect: and *the letters at the end of each row move to the start of the next*
+expect: *row*. The status line and the bottom row stay where they are.
+expect: *Wrong:* a letter lost at the right edge, or text over the status line.
+
+step: Text flows back when you delete
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press Down five times, then i, and type a few words. Press Backspace
+do: until the words are gone. Then press Esc and x a few times.
+expect: The text moves back left after each key. The letters at the start of
+expect: each continuation row *move up to the end of the row above*, so the
+expect: rows stay full.
+expect: *Wrong:* a gap in a row, a doubled letter, or a row that stays short.
+
+step: A line made wide or tall wraps at half the width
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press Down five times. Type :wide and Enter, then :tall and Enter,
+do: then :normal and Enter.
+expect: After :wide, the line's letters are twice as wide. The line *wraps*
+expect: *in the middle of the screen* and takes twice as many rows. After
+expect: :tall, each of those rows is *a pair of rows* that shows the top and
+expect: bottom halves of the same letters. The lines below move down. After
+expect: :normal, the line is back as it was.
+expect: *Wrong:* a row of the line at another size, or a tall letter whose two
+expect: halves do not match.
+
+step: Typing past the edge of a tall line starts a second pair
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press Down nine times, onto "A tall line". Press a, then End, and type
+do: until the text passes the middle of the screen.
+expect: The letters past the middle *start a new tall pair below*, and every
+expect: tall letter is whole. The lines below move down to make room.
+expect: *Wrong:* a letter lost at the edge, or a row of normal size in the line.
+
+step: Wide characters move to the next row whole
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press PageDown, then Up or Down until the cursor is on the line that
+do: starts "Wide characters". Press i and type letters until a wide
+do: character reaches the end of a row.
+expect: A wide character that no longer fits at the end of a row *moves to*
+expect: *the start of the next row whole*, and leaves the last column empty.
+expect: *Wrong:* half of a wide character at the end of a row.
+
+step: Saving keeps each line's size
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Press Down five times and type :wide and Enter. Type :q and Enter.
+do: Then type :w and Enter, :e /tmp/vim-vt510.txt and Enter, and :q and
+do: Enter.
+expect: The first :q *refuses to quit*: the bottom row says the file has
+expect: unsaved changes. :w saves, and :e reads the file again. After :e,
+expect: *each line has the size it had*, the line you made wide too. The last
+expect: :q quits.
+expect: *Wrong:* a line at another size after :e, or a quit with unsaved
+expect: changes.
+
+step: Explore the editor
+run: cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt
+do: Edit as you like: mix sizes with :wide, :tall and :normal, split and
+do: join lines with Enter and Backspace, and open new lines with o.
+expect: There is no right or wrong here. Note anything that surprised you.

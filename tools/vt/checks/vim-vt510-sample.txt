@@ -1,0 +1,21 @@
+[wide] vim-vt510, a small editor
+This editor holds the text and wraps each line itself, the way zsh and vim do. The terminal never moves text to another row, so every row you see here comes from the editor.
+Keys: the arrows, Home and End move. PageUp and PageDown move a screen of text. i inserts before the cursor and a after it. o opens a line below. Esc ends inserting. x deletes a character and dd deletes a line.
+Commands: :w saves, :w FILE saves to FILE, :e FILE opens FILE, :q quits, :q! quits without saving, and :wq saves and quits. :wide, :tall and :normal set the size of the line the cursor is on.
+
+A long normal line. Put the cursor in the middle of this line and insert a few words. The text after the cursor moves right, and the letters at the end of each row move to the start of the next row. Delete the words again, and the text flows back up.
+
+[wide] A wide line wraps at half the screen's width. Insert a word here.
+
+[tall] A tall line
+
+[tall] A long tall line wraps onto a second pair of rows. Type past the edge.
+
+Mixed sizes, one after another:
+[wide] wide letters
+a normal line between them
+[tall] tall letters
+[wide] and wide again
+
+Wide characters take two columns each: 漢字かな交じり文 and 🙂🙃. The editor never splits one across a wrap. Insert letters before them and watch them move to the next row whole.
+[wide] On a wide line too: 日本語のテキスト、漢字とかなと🙂の行。
