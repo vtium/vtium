@@ -312,6 +312,12 @@ run() {
 	stty -echo
 	PATH=$here:$PATH GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
 		/bin/bash --noprofile --norc -c "$1" || status=$?
+	# A command that ends early, by Ctrl-C or a failure, may leave the mouse
+	# reports on or a pointer shape set, and the reports would turn a click at
+	# the step's question into bytes. Both go back to their defaults after
+	# every command, before the keys pressed meanwhile are dropped.
+	# shellcheck disable=SC1003 # the backslash ends the OSC's string terminator
+	printf '\033[?1006l\033[?1003l\033[?1002l\033[?1000l\033]22;\033\\'
 	while read -r -s -n 1 -t 0.05 _; do :; done
 	stty "$saved"
 	trap - INT QUIT

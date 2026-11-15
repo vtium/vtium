@@ -4340,8 +4340,11 @@ class GuideWait(unittest.TestCase):
 
     WAIT = os.path.join(VT, "checks", "guide-wait")
 
-    def start(self, *args):
-        g = Pty(["/bin/bash", self.WAIT, *args], {"PATH": os.environ["PATH"], "TERM": "linux"})
+    def start(self, *args, before="", then=""):
+        """guide-wait with ARGS, run by a shell that runs BEFORE first and
+        THEN after it, as a run: step's command does."""
+        argv = ["/bin/bash", "-c", f'{before}\n/bin/bash "$0" "$@"\n{then}', self.WAIT, *args]
+        g = Pty(argv, {"PATH": os.environ["PATH"], "TERM": "linux"})
         g.wait_for(b"\x1b[?1000h\x1b[?1006h")
         return g
 
@@ -4369,20 +4372,65 @@ class GuideWait(unittest.TestCase):
                 self.ended(g)
 
     def test_a_mouse_press_ends_the_wait_and_its_release_is_dropped(self):
+        # It waits for the release that follows the press, however late it
+        # comes, and reads it, so the release never reaches what reads the
+        # terminal next: here a read of one byte after it, which gets the z
+        # typed after the wait.
+        then = "IFS= read -r -s -n 1 x; printf '[%s]' \"$x\""
         for button in (b"0", b"1", b"2"):
             with self.subTest(button=button):
-                g = self.start("")
+                g = self.start("", then=then)
                 self.assertNotIn(b"Press a key", g.seen)
                 g.send(b"\x1b[<" + button + b";10;5M")
+                self.still_waiting(g)
                 g.send(b"\x1b[<" + button + b";10;5m")
-                self.ended(g)
+                g.wait_for(b"\x1b[?1006l\x1b[?1000l")
+                g.send(b"z")
+                g.wait_for(b"[z]")
+                self.assertEqual(g.finish(), 0)
 
     def test_a_wheel_turn_and_a_release_do_not_end_it(self):
         g = self.start("look")
         g.send(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<0;10;5m")
         self.still_waiting(g)
-        g.send(b"\x1b[<0;3;3M")
+        g.send(b"\x1b[<0;3;3M\x1b[<0;3;3m")
         self.ended(g)
+
+    def test_ctrl_c_and_ctrl_backslash_end_the_wait_and_turn_the_reports_off(self):
+        # Ctrl-C stops the step's command, so what the command runs after
+        # the wait does not run, and Ctrl-\ ends the wait alone, so it does.
+        # Either way the terminal's mouse reports go off and its modes come
+        # back.
+        then = "printf 'after %s\\n' $?; stty -a"
+        for key, status, after in ((b"\x03", -signal.SIGINT, False), (b"\x1c", 0, True)):
+            with self.subTest(key=key):
+                g = self.start(then=then)
+                g.send(key)
+                self.assertEqual(g.finish(timeout=10), status)
+                self.assertIn(b"\x1b[?1006l\x1b[?1000l", g.seen)
+                self.assertEqual(b"after 131\r\n" in g.seen, after)
+                self.assertNotIn(b"after 0", g.seen)
+                if after:
+                    self.assertRegex(g.seen, rb"[^-]icanon [^\r\n]*[^-]echo ")
+                    self.assertRegex(g.seen, rb"intr = \^C; quit = \^\\;")
+
+    def test_a_key_typed_before_it_starts_does_not_end_it(self):
+        # A run: step's command may run a while before guide-wait, and keys
+        # typed meanwhile wait in the terminal.
+        go = os.path.join(tempfile.mkdtemp(), "go")
+        try:
+            before = f"stty -echo; printf 'ready\\n'; while [ ! -e '{go}' ]; do sleep 0.02; done"
+            argv = ["/bin/bash", "-c", f'{before}\n/bin/bash "$0"', self.WAIT]
+            g = Pty(argv, {"PATH": os.environ["PATH"], "TERM": "linux"})
+            g.wait_for(b"ready")
+            g.send(b"x")
+            open(go, "w").close()
+            g.wait_for(b"\x1b[?1000h\x1b[?1006h")
+            self.still_waiting(g)
+            g.send(b"y")
+            self.ended(g)
+        finally:
+            shutil.rmtree(os.path.dirname(go))
 
     def test_with_keys_only_a_key_ends_it_and_the_mouse_reports_stay_off(self):
         g = Pty(["/bin/bash", self.WAIT, "--keys", "keys only"], {"PATH": os.environ["PATH"], "TERM": "linux"})
@@ -4390,10 +4438,6 @@ class GuideWait(unittest.TestCase):
         g.send(b"x")
         self.assertEqual(g.finish(), 0)
         self.assertNotIn(b"\x1b[?1000h", g.seen)
-
-    def test_a_guide_step_finds_it_on_its_path(self):
-        p = subprocess.run(["bash", "-c", "grep -q 'PATH=$here:$PATH' \"$1\"", "-", GUIDE_SH])
-        self.assertEqual(p.returncode, 0)
 
     def test_no_guide_holds_a_picture_with_a_fixed_sleep_at_the_end(self):
         # A run: command that ends in a sleep only keeps its picture on screen
@@ -4817,6 +4861,38 @@ class Guide(Case):
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
+
+    def test_a_run_step_waits_with_guide_wait_and_resets_the_mouse_after_its_command(self):
+        # A step's command finds guide-wait on its PATH. A command that ends
+        # with the mouse reports on, here one killed before it could turn
+        # them off, leaves them on no longer than the command runs.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Wait guide\n"
+                     "step: Held\nrun: guide-wait 'look now'\nexpect: a held picture\n"
+                     "step: Killed\nrun: printf '\\033[?1000h\\033[?1006h'; kill -KILL $$\nexpect: e\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"look now\x1b[?1000h\x1b[?1006h")
+        g.send(b"x")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"\x1b[?1000h\x1b[?1006h")
+        g.wait_for(b"\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b]22;\x1b\\")
+        g.wait_for(b"The command exited with status 137.")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"n")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
 
     def test_a_run_step_hands_its_command_the_steps_text(self):
         # A command that clears the screen, such as the typing pad, can show
