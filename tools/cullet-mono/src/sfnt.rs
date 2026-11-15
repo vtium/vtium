@@ -1,6 +1,6 @@
-//! Just enough of the OpenType file format to check a built face: the
-//! table directory, the `name` table's strings and the characters the
-//! `cmap` table maps.
+//! Just enough of the OpenType file format to check a built face and to
+//! write it again with tables replaced: the table directory, the `name`
+//! table's strings and the characters the `cmap` table maps.
 //!
 //! Every read is bounds-checked and returns an error instead of
 //! panicking, so a truncated or damaged file is reported, not crashed on.
@@ -9,7 +9,12 @@ use std::collections::BTreeSet;
 
 /// A font file's bytes and its table directory.
 pub struct Font<'a> {
+    version: u32,
+    /// Each table's tag and bytes, in the order the table directory lists
+    /// them.
     tables: Vec<([u8; 4], &'a [u8])>,
+    /// The tables' tags in the order their bytes lie in the file.
+    file_order: Vec<[u8; 4]>,
 }
 
 /// One record of the `name` table, decoded.
@@ -55,6 +60,7 @@ impl<'a> Font<'a> {
         }
         let count = usize::from(u16_at(bytes, 4)?);
         let mut tables = Vec::with_capacity(count);
+        let mut offsets = Vec::with_capacity(count);
         for i in 0..count {
             let record = 12usize.saturating_add(i.saturating_mul(16));
             let tag = slice(bytes, record, 4)?;
@@ -62,8 +68,30 @@ impl<'a> Font<'a> {
             let offset = usize_of(u32_at(bytes, record.saturating_add(8))?);
             let length = usize_of(u32_at(bytes, record.saturating_add(12))?);
             tables.push((tag, slice(bytes, offset, length)?));
+            offsets.push((offset, tag));
         }
-        Ok(Font { tables })
+        offsets.sort();
+        Ok(Font {
+            version,
+            tables,
+            file_order: offsets.into_iter().map(|(_, tag)| tag).collect(),
+        })
+    }
+
+    /// Writes the font again, with the tables that `replace` names holding
+    /// the given bytes in place of their own. Every other table keeps its
+    /// bytes, and the tables' data keeps its order in the file.
+    pub fn rewrite(&self, replace: &[([u8; 4], &[u8])]) -> Vec<u8> {
+        let tables: Vec<([u8; 4], &[u8])> = self
+            .file_order
+            .iter()
+            .filter_map(|tag| {
+                let own = self.table(tag)?;
+                let new = replace.iter().find(|(t, _)| t == tag).map(|(_, b)| *b);
+                Some((*tag, new.unwrap_or(own)))
+            })
+            .collect();
+        assemble(self.version, &tables)
     }
 
     /// The bytes of the table tagged `tag`.
@@ -143,6 +171,71 @@ impl<'a> Font<'a> {
     }
 }
 
+/// The checksum of a table: the sum of its bytes read as big-endian 32-bit
+/// numbers, with the last number padded with zeros.
+fn checksum(data: &[u8]) -> u32 {
+    let (words, rest) = data.as_chunks::<4>();
+    let mut last = [0u8; 4];
+    last[..rest.len()].copy_from_slice(rest);
+    words
+        .iter()
+        .chain(std::iter::once(&last))
+        .fold(0u32, |sum, w| sum.wrapping_add(u32::from_be_bytes(*w)))
+}
+
+/// Writes a font file from `tables`, whose data goes into the file in the
+/// order given, each table starting on a 4-byte boundary. The table
+/// directory lists the tables sorted by tag, as the OpenType specification
+/// requires, with each table's checksum. When there is a `head` table, its
+/// `checkSumAdjustment` is set so that the whole file sums to 0xB1B0AFBA.
+pub fn assemble(version: u32, tables: &[([u8; 4], &[u8])]) -> Vec<u8> {
+    let count = tables.len();
+    let count16 = u16::try_from(count).unwrap_or(u16::MAX);
+    let mut power = 1u16;
+    let mut selector = 0u16;
+    while power.saturating_mul(2) <= count16 {
+        power = power.saturating_mul(2);
+        selector = selector.saturating_add(1);
+    }
+    let search_range = power.saturating_mul(16);
+    let range_shift = count16.saturating_mul(16).saturating_sub(search_range);
+    let mut out = Vec::new();
+    out.extend(version.to_be_bytes());
+    for v in [count16, search_range, selector, range_shift] {
+        out.extend(v.to_be_bytes());
+    }
+    let directory = out.len();
+    out.resize(directory.saturating_add(count.saturating_mul(16)), 0);
+    let mut records = Vec::with_capacity(count);
+    let mut head_at = None;
+    for (tag, data) in tables {
+        let offset = out.len();
+        let mut data = data.to_vec();
+        if tag == b"head" && data.len() >= 12 {
+            data[8..12].fill(0);
+            head_at = Some(offset);
+        }
+        records.push((*tag, checksum(&data), offset, data.len()));
+        out.extend(&data);
+        out.resize(out.len().next_multiple_of(4), 0);
+    }
+    records.sort_by_key(|r| r.0);
+    for (i, (tag, sum, offset, len)) in records.into_iter().enumerate() {
+        let at = directory.saturating_add(i.saturating_mul(16));
+        let mut record = Vec::with_capacity(16);
+        record.extend(tag);
+        record.extend(sum.to_be_bytes());
+        record.extend(u32::try_from(offset).unwrap_or(u32::MAX).to_be_bytes());
+        record.extend(u32::try_from(len).unwrap_or(u32::MAX).to_be_bytes());
+        out[at..at.saturating_add(16)].copy_from_slice(&record);
+    }
+    if let Some(at) = head_at {
+        let adjustment = 0xB1B0_AFBAu32.wrapping_sub(checksum(&out));
+        out[at.saturating_add(8)..at.saturating_add(12)].copy_from_slice(&adjustment.to_be_bytes());
+    }
+    out
+}
+
 /// A format 4 subtable: segments of consecutive characters, each mapped by
 /// a delta or through the glyph index array.
 fn format4(sub: &[u8], chars: &mut BTreeSet<u32>) -> Result<(), String> {
@@ -214,29 +307,23 @@ pub mod tests {
     /// `cmap` table with one format 4 subtable (Windows, Unicode BMP) and
     /// one format 12 subtable (Windows, full Unicode) mapping `chars`.
     pub fn font(names: &[(u16, u16, &str)], chars: &[u32]) -> Vec<u8> {
-        let name = name_table(names);
-        let cmap = cmap_table(chars);
-        let mut out = Vec::new();
-        out.extend(0x0001_0000u32.to_be_bytes());
-        out.extend(2u16.to_be_bytes());
-        out.extend([0u8; 6]);
-        let first = 12 + 2 * 16;
-        let tables: [(&[u8; 4], &Vec<u8>); 2] = [(b"cmap", &cmap), (b"name", &name)];
-        let mut offset = first;
-        for (tag, data) in tables {
-            out.extend(tag);
-            out.extend(0u32.to_be_bytes());
-            out.extend(u32::try_from(offset).unwrap().to_be_bytes());
-            out.extend(u32::try_from(data.len()).unwrap().to_be_bytes());
-            offset += data.len();
-        }
-        for (_, data) in tables {
-            out.extend(data);
-        }
-        out
+        font_with(names, chars, &[])
     }
 
-    fn name_table(names: &[(u16, u16, &str)]) -> Vec<u8> {
+    /// The font that [`font`] writes, with the tables in `extra` added.
+    pub fn font_with(
+        names: &[(u16, u16, &str)],
+        chars: &[u32],
+        extra: &[([u8; 4], &[u8])],
+    ) -> Vec<u8> {
+        let name = name_table(names);
+        let cmap = cmap_table(chars);
+        let mut tables: Vec<([u8; 4], &[u8])> = vec![(*b"cmap", &cmap), (*b"name", &name)];
+        tables.extend_from_slice(extra);
+        assemble(0x0001_0000, &tables)
+    }
+
+    pub fn name_table(names: &[(u16, u16, &str)]) -> Vec<u8> {
         let mut strings = Vec::new();
         let mut records = Vec::new();
         for &(platform, id, text) in names {
@@ -365,6 +452,46 @@ pub mod tests {
         let mut all = BTreeSet::new();
         format12(&cmap[at(1)..], &mut all).unwrap();
         assert_eq!(all.into_iter().collect::<Vec<_>>(), [0x41, 0x42, 0xF0001]);
+    }
+
+    #[test]
+    fn a_written_font_follows_the_format() {
+        let head = [9u8; 54];
+        let tables: [([u8; 4], &[u8]); 5] = [
+            (*b"head", &head),
+            (*b"cmap", b"cmap data"),
+            (*b"BDF ", b"bdf"),
+            (*b"name", b"name data!"),
+            (*b"OS/2", b"os2"),
+        ];
+        let bytes = assemble(0x0001_0000, &tables);
+        assert_eq!(
+            checksum(&bytes),
+            0xB1B0_AFBA,
+            "the whole file sums to the magic number"
+        );
+        // five tables: searchRange 64, entrySelector 2, rangeShift 16
+        assert_eq!(bytes[4..12], [0, 5, 0, 64, 0, 2, 0, 16]);
+        let tags: Vec<&[u8]> = (0..5).map(|i| &bytes[12 + i * 16..16 + i * 16]).collect();
+        assert_eq!(tags, [b"BDF ", b"OS/2", b"cmap", b"head", b"name"]);
+        let font = Font::parse(&bytes).unwrap();
+        for (i, (tag, data)) in tables.iter().enumerate().skip(1) {
+            let at = 12 + 16 * tags.iter().position(|t| t == tag).unwrap();
+            assert_eq!(font.table(tag).unwrap(), *data);
+            assert_eq!(u32_at(&bytes, at + 4).unwrap(), checksum(data), "table {i}");
+            assert_eq!(u32_at(&bytes, at + 8).unwrap() % 4, 0);
+        }
+        assert_eq!(font.file_order, tables.map(|t| t.0));
+        assert_eq!(
+            font.rewrite(&[]),
+            bytes,
+            "a font written again unchanged keeps its bytes"
+        );
+        let renamed = font.rewrite(&[(*b"name", b"other names")]);
+        let again = Font::parse(&renamed).unwrap();
+        assert_eq!(again.table(b"name").unwrap(), b"other names");
+        assert_eq!(again.table(b"cmap").unwrap(), b"cmap data");
+        assert_eq!(checksum(&renamed), 0xB1B0_AFBA);
     }
 
     #[test]

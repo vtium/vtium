@@ -17,6 +17,7 @@ use std::process::ExitCode;
 
 mod build;
 mod check;
+mod finish;
 mod pins;
 mod recipe;
 mod sfnt;

@@ -36,7 +36,7 @@ pub fn face(face: &Face, bytes: &[u8], pin: &Pin) -> (Measure, Vec<String>) {
                 Err(why) => problems.push(format!("{file}: {why}")),
                 Ok(names) => problems.extend(name_problems(face, &names)),
             }
-            problems.extend(reserved_names_elsewhere(file, &font));
+            problems.extend(reserved_word_elsewhere(file, &font));
             match font.characters() {
                 Err(why) => problems.push(format!("{file}: {why}")),
                 Ok(chars) => {
@@ -72,22 +72,29 @@ pub fn face(face: &Face, bytes: &[u8], pin: &Pin) -> (Measure, Vec<String>) {
 }
 
 /// The face's names: the family is "Cullet Mono", the style and full name
-/// are the face's own, and no name but the copyright and license strings
-/// uses a Reserved Font Name.
+/// are the face's own, the copyright notice and the description credit
+/// Terminus, and no other name uses the reserved word.
 fn name_problems(face: &Face, names: &[crate::sfnt::Name]) -> Vec<String> {
     let file = face.output;
     let mut problems = Vec::new();
-    let mut families = 0;
+    for (id, what) in [
+        (0, "copyright notice"),
+        (1, "family name"),
+        (10, "description"),
+    ] {
+        if !names.iter().any(|n| n.name_id == id) {
+            problems.push(format!("{file} has no {what} (name {id})"));
+        }
+    }
     for name in names {
         let expected = match name.name_id {
+            0 => Some(recipe::COPYRIGHT),
             1 | 16 => Some(recipe::FAMILY),
             2 | 17 => Some(face.style),
             4 => Some(face.name),
+            10 => Some(recipe::DESCRIPTION),
             _ => None,
         };
-        if name.name_id == 1 {
-            families += 1;
-        }
         if let Some(expected) = expected
             && name.text != expected
         {
@@ -96,49 +103,52 @@ fn name_problems(face: &Face, names: &[crate::sfnt::Name]) -> Vec<String> {
                 name.name_id, name.platform, name.text
             ));
         }
-        if !recipe::NAME_IDS_THAT_MAY_MENTION.contains(&name.name_id) {
-            for reserved in recipe::RESERVED_NAMES {
-                if contains_ignoring_case(&name.text, reserved) {
-                    problems.push(format!(
-                        "{file}: name {} on platform {} is {:?}, which uses the Reserved Font Name {reserved:?}",
-                        name.name_id, name.platform, name.text
-                    ));
-                }
-            }
+        if !recipe::NAME_IDS_THAT_MAY_MENTION.contains(&name.name_id)
+            && name
+                .text
+                .to_lowercase()
+                .contains(&recipe::RESERVED_WORD.to_lowercase())
+        {
+            problems.push(format!(
+                "{file}: name {} on platform {} is {:?}, which uses the reserved name {:?}",
+                name.name_id,
+                name.platform,
+                name.text,
+                recipe::RESERVED_WORD
+            ));
         }
-    }
-    if families == 0 {
-        problems.push(format!("{file} has no family name"));
     }
     problems
 }
 
-/// The Reserved Font Names anywhere in the font outside the `name` table,
-/// as ASCII or as UTF-16BE: FontForge's `BDF ` table, for example, names
-/// the bitmap strikes' family.
-fn reserved_names_elsewhere(file: &str, font: &Font) -> Vec<String> {
+/// Each table outside the `name` table that holds the reserved word, in
+/// ASCII or in UTF-16BE, in any letter case. FontForge's `BDF ` table, for
+/// example, names the bitmap strikes' family, once as FAMILY_NAME and once
+/// in each strike's XLFD name.
+fn reserved_word_elsewhere(file: &str, font: &Font) -> Vec<String> {
+    let word = recipe::RESERVED_WORD.to_ascii_lowercase();
+    let word = word.as_bytes();
     let mut problems = Vec::new();
     for (tag, table) in font.tables_except(b"name") {
-        for reserved in recipe::RESERVED_NAMES {
-            let utf16: Vec<u8> = reserved.encode_utf16().flat_map(u16::to_be_bytes).collect();
-            let ascii = reserved.to_ascii_lowercase();
-            let found = table
-                .windows(ascii.len())
-                .any(|w| w.to_ascii_lowercase() == ascii.as_bytes())
-                || table.windows(utf16.len()).any(|w| w == utf16);
-            if found {
-                problems.push(format!(
-                    "{file}: the {} table uses the Reserved Font Name {reserved:?}",
-                    String::from_utf8_lossy(&tag).trim_end()
-                ));
-            }
+        let ascii = table
+            .windows(word.len())
+            .any(|w| w.to_ascii_lowercase() == word);
+        let utf16 = table.windows(word.len().saturating_mul(2)).any(|w| {
+            w.as_chunks::<2>()
+                .0
+                .iter()
+                .zip(word)
+                .all(|(&[high, low], &c)| high == 0 && low.to_ascii_lowercase() == c)
+        });
+        if ascii || utf16 {
+            problems.push(format!(
+                "{file}: the {} table uses the reserved name {:?}",
+                String::from_utf8_lossy(&tag).trim_end(),
+                recipe::RESERVED_WORD
+            ));
         }
     }
     problems
-}
-
-fn contains_ignoring_case(text: &str, needle: &str) -> bool {
-    text.to_lowercase().contains(&needle.to_lowercase())
 }
 
 /// `cullet-mono check DIR`: checks each face in `dir` against the recipe
@@ -176,20 +186,17 @@ pub fn dir(dir: &Path) -> Result<(), Vec<String>> {
 #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
-    use crate::sfnt::tests::font;
+    use crate::sfnt::tests::{font, font_with};
 
     const REGULAR: Face = recipe::FACES[0];
 
     fn names(family: &str) -> Vec<(u16, u16, &str)> {
         vec![
-            (
-                3,
-                0,
-                "Copyright (C) 2020 Dimitar Toshkov Zhekov; Terminus Font",
-            ),
+            (3, 0, recipe::COPYRIGHT),
             (3, 1, family),
             (3, 2, "Regular"),
             (3, 4, "Cullet Mono"),
+            (3, 10, recipe::DESCRIPTION),
             (1, 1, family),
         ]
     }
@@ -236,11 +243,100 @@ mod tests {
         let bytes = font(&names("Terminus (TTF)"), &chars(&[]));
         let p = problems(&bytes, &pin_for(&bytes));
         assert!(
-            p.iter()
-                .any(|p| p.contains("Reserved Font Name \"Terminus (TTF)\"")),
+            p.iter().any(|p| p.contains("name 1 on platform 3")
+                && p.contains("uses the reserved name \"Terminus\"")),
             "{p:?}"
         );
         assert!(p.iter().any(|p| p.contains("not \"Cullet Mono\"")), "{p:?}");
+    }
+
+    #[test]
+    fn the_bare_word_in_any_name_but_the_attribution_fails() {
+        // name 3 is the unique ID, 6 the PostScript name, 16 and 17 the
+        // typographic family and style, and 25 the variations prefix
+        for id in [1, 2, 3, 4, 6, 16, 17, 25] {
+            for (platform, word) in [(3, "Terminus"), (1, "terminus"), (3, "TERMINUS")] {
+                let mut n = names("Cullet Mono");
+                let text = format!("Cullet {word} Mono");
+                n.push((platform, id, &text));
+                let bytes = font(&n, &chars(&[]));
+                let p = problems(&bytes, &pin_for(&bytes));
+                assert!(
+                    p.iter()
+                        .any(|p| p.contains(&format!("name {id} on platform {platform}"))
+                            && p.contains("uses the reserved name")),
+                    "name {id}, {word}: {p:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_attribution_may_name_terminus() {
+        for id in [13, 14] {
+            let mut n = names("Cullet Mono");
+            n.push((3, id, "Terminus Font is licensed under the OFL"));
+            let bytes = font(&n, &chars(&[]));
+            assert_eq!(problems(&bytes, &pin_for(&bytes)), Vec::<String>::new());
+        }
+    }
+
+    #[test]
+    fn a_face_without_the_attribution_fails() {
+        let without: Vec<_> = names("Cullet Mono")
+            .into_iter()
+            .filter(|n| n.1 != 0 && n.1 != 10)
+            .collect();
+        let bytes = font(&without, &chars(&[]));
+        let p = problems(&bytes, &pin_for(&bytes));
+        assert_eq!(p.len(), 2, "{p:?}");
+        assert!(
+            p[0].contains("no copyright notice") && p[1].contains("no description"),
+            "{p:?}"
+        );
+        let mut other = names("Cullet Mono");
+        other[4].2 = "Cullet Mono";
+        let bytes = font(&other, &chars(&[]));
+        let p = problems(&bytes, &pin_for(&bytes));
+        assert_eq!(p.len(), 1, "{p:?}");
+        assert!(p[0].contains("name 10 on platform 3"), "{p:?}");
+    }
+
+    #[test]
+    fn the_bare_word_in_another_table_fails() {
+        let utf16: Vec<u8> = "TerMinus"
+            .encode_utf16()
+            .flat_map(u16::to_be_bytes)
+            .collect();
+        let cases: [(&[u8; 4], &[u8]); 4] = [
+            (b"BDF ", b"FAMILY_NAME\0Terminus\0"),
+            (
+                b"BDF ",
+                b"-xos4-TERMINUS-Medium-R-Normal--12-120-72-72-C-60-ISO10646-1\0",
+            ),
+            (b"PfEd", &utf16),
+            (b"post", b"\x08terminus"),
+        ];
+        for (tag, data) in cases {
+            let bytes = font_with(&names("Cullet Mono"), &chars(&[]), &[(*tag, data)]);
+            let p = problems(&bytes, &pin_for(&bytes));
+            let table = String::from_utf8_lossy(tag);
+            assert_eq!(
+                p,
+                [format!(
+                    "{}: the {} table uses the reserved name \"Terminus\"",
+                    REGULAR.output,
+                    table.trim_end()
+                )],
+                "{table}"
+            );
+        }
+        let clean = font_with(
+            &names("Cullet Mono"),
+            &chars(&[]),
+            &[(*b"BDF ", b"FAMILY_NAME\0Cullet Mono\0Terminess\0")],
+        );
+        assert_eq!(problems(&clean, &pin_for(&clean)), Vec::<String>::new());
     }
 
     #[test]

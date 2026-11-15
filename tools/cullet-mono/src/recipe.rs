@@ -100,15 +100,31 @@ pub const CHARACTERS: usize = 11_638;
 /// The Font Logos icons' code points, which no face may map.
 pub const FONT_LOGOS: std::ops::RangeInclusive<u32> = 0xF300..=0xF385;
 
-/// The Reserved Font Names of Terminus (TTF)'s license. A modified version
-/// may not use them as its name; the copyright and license strings may
-/// still mention them.
-pub const RESERVED_NAMES: [&str; 2] = ["Terminus Font", "Terminus (TTF)"];
+/// The word the checks treat as reserved. The maintainer reads the bare
+/// word "Terminus" as the reserved name wherever it names the font, as
+/// Nerd Fonts' patcher does when it renames the word to "Terminess". So no
+/// name of Cullet Mono, and no table but the attribution strings, may hold
+/// the word in any letter case.
+///
+/// References:
+/// - ADR-1204 D2, its note of 2026-11-15: the bare word is reserved as the
+///   font's name, and the attribution states the source.
+pub const RESERVED_WORD: &str = "Terminus";
 
-/// The `name` table's records that may mention a Reserved Font Name: the
-/// copyright notice (0), the license description (13) and the license URL
-/// (14).
-pub const NAME_IDS_THAT_MAY_MENTION: [u16; 3] = [0, 13, 14];
+/// The `name` table's records that state where Cullet Mono comes from, and
+/// so may name Terminus: the copyright notice (0), the description (10),
+/// the license description (13) and the license URL (14).
+pub const NAME_IDS_THAT_MAY_MENTION: [u16; 4] = [0, 10, 13, 14];
+
+/// The copyright notice, name ID 0, that both faces keep from Terminus
+/// (TTF): its copyright lines and its license, as the source faces carry
+/// them.
+pub const COPYRIGHT: &str = "Copyright (C) 2020 Dimitar Toshkov Zhekov; Copyright (C) 2023 Tilman Blumenbach; Licensed under the SIL Open Font License, Version 1.1";
+
+/// The description, name ID 10, that the build writes into both faces. It
+/// credits the fonts Cullet Mono is derived from, with their authors named
+/// as Terminus (TTF)'s COPYING file names them.
+pub const DESCRIPTION: &str = "Cullet Mono is derived from Terminus Font by Dimitar Toshkov Zhekov and Terminus (TTF) by Tilman Blumenbach, under the SIL Open Font License, Version 1.1. It adds icons from Nerd Fonts.";
 
 /// The license files in `notices/` that the build copies verbatim from a
 /// pinned archive, and where each comes from in it. The build checks each
@@ -189,7 +205,9 @@ mod tests {
                 "notices/{file} is missing"
             );
         }
-        for name in RESERVED_NAMES {
+        // the Reserved Font Names of Terminus (TTF)'s license, as its
+        // COPYING file states them
+        for name in ["Terminus Font", "Terminus (TTF)"] {
             assert!(NOTICES.contains(name), "NOTICES.txt does not name {name}");
         }
     }
