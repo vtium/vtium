@@ -35,6 +35,7 @@ mod modes;
 mod rect;
 mod reply;
 mod sgr;
+mod text_size;
 mod window;
 
 use vtium_parse::{Chunk, Consumer, InputMode, Intermediates, Params, Parser, StringEnd};
@@ -1192,6 +1193,8 @@ impl Consumer for State {
             self.screen.set_hyperlink(args);
         } else if let Some(args) = data.strip_prefix(b"133;") {
             self.screen.shell_mark(args);
+        } else if let Some(args) = data.strip_prefix(b"66;") {
+            self.text_size(args);
         } else if let Some(pt) = data.strip_prefix(b"50;") {
             self.osc_font(pt, end);
         } else if !self.osc_display(data) {

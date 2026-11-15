@@ -380,6 +380,20 @@ impl<'a> Frame<'a> {
         self.damage.row_changed(row, self.since)
     }
 
+    /// The share of each sized run that crosses `row`, ordered by column:
+    /// the block of cells that one OSC 66 sequence writes, with the row of
+    /// the run this line holds, the run's columns, its scale, its width,
+    /// its fraction and its alignment. Each cell of a run is marked
+    /// ([`crate::Cell::in_run`]), and the run's first cell on each row
+    /// holds its text.
+    ///
+    /// References:
+    /// - ADR-1308 D9: the renderer draws a run's text whole, at its scale,
+    ///   inside its block.
+    pub fn sized_runs(&self, row: usize) -> &'a [crate::line::SizedRun] {
+        self.line(row).map_or(&[], |l| l.runs())
+    }
+
     /// The cell drawn at `row`, column `col` from the left, resolved;
     /// `None` outside the frame. A row drawn in another order than it was
     /// written shows there the cell of another logical column

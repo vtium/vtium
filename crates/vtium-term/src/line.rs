@@ -240,13 +240,133 @@ fn first_char(glyph: Glyph<'_>) -> Option<char> {
     }
 }
 
+/// How one OSC 66 sequence sizes its text, with each of kitty's text
+/// sizing protocol's keys inside its range.
+///
+/// References:
+/// - ADR-1308 D2: the six keys vtium takes, their ranges and their
+///   defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextSize {
+    /// `s`, 1 to 7: the run is this many rows high, and this many times as
+    /// wide as its text's own cells.
+    pub scale: u8,
+    /// `w`, 0 to 7: the width in cells that the program gave the text, or
+    /// 0 when vtium measured the text itself.
+    pub width: u8,
+    /// `n`, 0 to 15: the numerator of the fraction the text draws at.
+    pub numerator: u8,
+    /// `d`, 0 to 15: the denominator of that fraction, 0 when the text
+    /// fills its block, and otherwise above the numerator.
+    pub denominator: u8,
+    /// `v`, 0 to 2: where text drawn at a fraction sits in its block, at
+    /// the top (0), the bottom (1) or the middle (2).
+    pub vertical: u8,
+    /// `h`, 0 to 2: where text drawn at a fraction sits in its block, at
+    /// the left (0), the right (1) or the middle (2).
+    pub horizontal: u8,
+}
+
+impl TextSize {
+    /// Each key at its default: text of the normal size.
+    pub const NORMAL: Self = Self {
+        scale: 1,
+        width: 0,
+        numerator: 0,
+        denominator: 0,
+        vertical: 0,
+        horizontal: 0,
+    };
+
+    /// Whether the program set the text's width with `w`, so that no
+    /// character that follows changes it.
+    pub const fn width_set(self) -> bool {
+        self.width != 0
+    }
+
+    /// Whether this size draws text just as printing it does: scale 1, no
+    /// width given and no fraction. OSC 66 then makes no run.
+    pub const fn is_normal(self) -> bool {
+        self.scale <= 1 && self.width == 0 && self.denominator == 0
+    }
+}
+
+/// One line's share of a sized run: the block of cells that one OSC 66
+/// sequence writes, which every edit treats as one unit. Each line that a
+/// row of the run lies on holds the row it holds, so no line refers to
+/// another one.
+///
+/// References:
+/// - ADR-1308 D3: the line's run table and what each entry holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SizedRun {
+    col: u16,
+    cols: u8,
+    row: u8,
+    size: TextSize,
+}
+
+impl SizedRun {
+    /// The share of a run that starts at column `col` and is `cols`
+    /// columns wide, for the run's row `row`, counted from 0 at its top.
+    pub(crate) fn new(col: usize, cols: usize, row: usize, size: TextSize) -> Self {
+        Self {
+            col: u16::try_from(col).unwrap_or(u16::MAX),
+            cols: u8::try_from(cols).unwrap_or(u8::MAX),
+            row: u8::try_from(row).unwrap_or(u8::MAX),
+            size,
+        }
+    }
+
+    /// The run's first column.
+    pub fn col(self) -> usize {
+        usize::from(self.col)
+    }
+
+    /// How many columns the run takes.
+    pub fn cols(self) -> usize {
+        usize::from(self.cols)
+    }
+
+    /// The columns the run takes on its line.
+    pub fn span(self) -> Range<usize> {
+        self.col()..self.col().saturating_add(self.cols())
+    }
+
+    /// Which row of the run this line holds, 0 for its top row.
+    pub fn row(self) -> usize {
+        usize::from(self.row)
+    }
+
+    /// How many rows the run takes: its scale.
+    pub fn rows(self) -> usize {
+        usize::from(self.size.scale.max(1))
+    }
+
+    /// The keys the run was written with.
+    pub fn size(self) -> TextSize {
+        self.size
+    }
+
+    /// The same share, moved to column `col`.
+    pub(crate) fn at(self, col: usize) -> Self {
+        Self {
+            col: u16::try_from(col).unwrap_or(u16::MAX),
+            ..self
+        }
+    }
+}
+
 /// A line's tables, allocated on its first styled, linked or clustered
-/// cell. Index `i` of a style or link names entry `i - 1`; index 0 is the
-/// default style or no link.
+/// cell, or its first sized run. Index `i` of a style or link names entry
+/// `i - 1`; index 0 is the default style or no link.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Tables {
     styles: Vec<Style>,
     links: Vec<LinkId>,
+    /// The share of each sized run that crosses the line, ordered by
+    /// column, the runs apart from each other.
+    runs: RunTable,
     /// Each cluster as a length byte and its codepoints in UTF-8.
     clusters: Vec<u8>,
     /// The bytes of `clusters` the line's cells name, placeholder clusters
@@ -256,9 +376,65 @@ struct Tables {
     placeholders: u32,
 }
 
+/// A line's run table, behind one pointer that stays empty while the line
+/// holds no run, so that a line's tables grow by one word for it.
+#[derive(Clone, Debug, Default, PartialEq)]
+#[allow(
+    clippy::box_collection,
+    reason = "one thin pointer keeps a line's tables a word larger, where a Vec takes three"
+)]
+struct RunTable(Option<Box<Vec<SizedRun>>>);
+
+impl RunTable {
+    fn as_slice(&self) -> &[SizedRun] {
+        self.0.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut SizedRun> {
+        self.0.iter_mut().flat_map(|v| v.iter_mut())
+    }
+
+    fn retain(&mut self, keep: impl FnMut(&SizedRun) -> bool) {
+        if let Some(runs) = self.0.as_mut() {
+            runs.retain(keep);
+            if runs.is_empty() {
+                self.0 = None;
+            }
+        }
+    }
+
+    /// Adds `run`, keeping the table ordered by column.
+    fn insert(&mut self, run: SizedRun) {
+        let runs = self.0.get_or_insert_default();
+        let at = runs.partition_point(|r| r.col() < run.col());
+        runs.insert(at, run);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        if let Some(runs) = self.0.as_mut() {
+            runs.shrink_to_fit();
+        }
+    }
+
+    /// The bytes the table holds on the heap, by capacity.
+    fn heap_bytes(&self) -> usize {
+        self.0.as_ref().map_or(0, |runs| {
+            size_of::<Vec<SizedRun>>()
+                .saturating_add(runs.capacity().saturating_mul(size_of::<SizedRun>()))
+        })
+    }
+}
+
 impl Tables {
     fn is_empty(&self) -> bool {
-        self.styles.is_empty() && self.links.is_empty() && self.clusters.is_empty()
+        self.styles.is_empty()
+            && self.links.is_empty()
+            && self.clusters.is_empty()
+            && self.runs.is_empty()
     }
 
     /// The cluster at byte `offset` of the arena.
@@ -331,9 +507,15 @@ fn placeholder_head(s: &str) -> &str {
 /// whatever the pen: the default style unless the program erased the
 /// line's end in a color (ADR-1003).
 ///
-/// A [`Width::Pad`] cell sits only in the last column of a wrapped line:
-/// an edit that ends the wrap, or moves the cell, makes it an empty narrow
-/// cell.
+/// [`Width::Pad`] cells sit only at the end of a wrapped line: one in the
+/// last column where a wide character moved to the next row, and up to a
+/// sized run's columns where a rewrap moved the run. An edit that ends the
+/// wrap, or moves such a cell, makes it an empty narrow cell.
+///
+/// A line's run table holds its share of each sized run that crosses it
+/// ([`runs`](Self::runs)). Every edit of the line keeps the table and the
+/// cells' run marks in step: an edit that would cut a run's cells on this
+/// line takes the run off the line, and a move of all of them moves it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     cells: Vec<Cell>,
@@ -444,17 +626,21 @@ impl Line {
     }
 
     /// Ends the line's wrap: its text no longer continues on the next
-    /// line. A pad in its last column becomes an empty narrow cell, and
-    /// it returns whether one did, a change a frame draws.
+    /// line. The pads that end it become empty narrow cells, and it
+    /// returns whether any did, a change a frame draws.
     pub fn unwrap(&mut self) -> bool {
         self.flags.remove(LineFlags::WRAPPED);
-        match self.cells.last_mut() {
-            Some(last) if last.width() == Width::Pad => {
-                *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
-                true
+        // A wide character leaves one pad, and a sized run that moved to
+        // the next row at a rewrap may leave several.
+        let mut changed = false;
+        for last in self.cells.iter_mut().rev() {
+            if last.width() != Width::Pad {
+                break;
             }
-            _ => false,
+            *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
+            changed = true;
         }
+        changed
     }
 
     /// Whether the line may hold a wide character; false only when it
@@ -545,7 +731,8 @@ impl Line {
         }
         for cell in &mut self.cells {
             if gone.contains(&usize::from(cell.link().0)) {
-                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0))
+                    .with_run(cell.in_run());
             }
         }
         self.compact();
@@ -560,7 +747,8 @@ impl Line {
             return false;
         }
         for cell in &mut self.cells {
-            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0))
+                .with_run(cell.in_run());
         }
         self.compact();
         self.shrink_tables();
@@ -580,6 +768,167 @@ impl Line {
         }
     }
 
+    /// The share of each sized run that crosses the line, ordered by
+    /// column. A line with no run has an empty table.
+    pub fn runs(&self) -> &[SizedRun] {
+        self.tables.as_ref().map_or(&[], |t| t.runs.as_slice())
+    }
+
+    /// The share of the sized run that holds column `col`, if a run does.
+    pub fn run_at(&self, col: usize) -> Option<SizedRun> {
+        if !self.cells.get(col).is_some_and(|c| c.in_run()) {
+            return None;
+        }
+        self.runs()
+            .iter()
+            .copied()
+            .find(|r| r.span().contains(&col))
+    }
+
+    /// Whether the line holds a row of a sized run taller than one row.
+    /// Such a line keeps its columns at a width change.
+    ///
+    /// References:
+    /// - ADR-1308 D6: a line that holds any row of a run taller than one
+    ///   row does not rewrap.
+    pub(crate) fn holds_tall_run(&self) -> bool {
+        self.runs().iter().any(|r| r.rows() > 1)
+    }
+
+    /// Writes the share `run` of a sized run: `glyph`, the run's text, in
+    /// its first cell, and its other cells empty, each in `style` and
+    /// `link` and marked as part of the run. A run already in those cells
+    /// goes from this line first. Returns false, changing nothing, when
+    /// the run does not fit inside the line.
+    pub(crate) fn put_run(
+        &mut self,
+        run: SizedRun,
+        glyph: Glyph<'_>,
+        style: &Style,
+        link: Option<LinkId>,
+    ) -> bool {
+        let span = run.span();
+        if run.cols() == 0 || span.end > self.cells.len() {
+            return false;
+        }
+        self.drop_runs(span.clone());
+        for col in span.clone() {
+            let g = if col == span.start {
+                glyph
+            } else {
+                Glyph::Empty
+            };
+            self.write(col, g, Width::Narrow, style, link);
+        }
+        self.mark_run(run);
+        true
+    }
+
+    /// Replaces the text of the share `run` of a sized run with `glyph`,
+    /// keeping the run: a codepoint that joins its text.
+    pub(crate) fn set_run_text(&mut self, run: SizedRun, glyph: Glyph<'_>) {
+        if !self.runs().contains(&run) {
+            return;
+        }
+        let cell = self.cell(run.col());
+        let (style, link) = (self.style(cell), self.link(cell));
+        self.drop_runs(run.span());
+        self.write(run.col(), glyph, Width::Narrow, &style, link);
+        self.mark_run(run);
+    }
+
+    /// Marks the cells of `run` as part of it and adds it to the run
+    /// table, for cells that already hold the run's text: a rewrap or a
+    /// scroll inside the margins moves a run's cells, then marks them.
+    pub(crate) fn mark_run(&mut self, run: SizedRun) {
+        let span = run.span();
+        if run.cols() == 0 || span.end > self.cells.len() {
+            return;
+        }
+        for cell in self.cells.get_mut(span).unwrap_or_default() {
+            *cell = cell.with_run(true);
+        }
+        self.wide = true;
+        self.tables.get_or_insert_default().runs.insert(run);
+    }
+
+    /// Takes every run that holds a column of `cols` off the line: its
+    /// cells keep their style and link, lose their text and their mark,
+    /// and become narrow cells. A run whose cells an edit would separate,
+    /// or partly overwrite, goes whole, as a wide character does. On this
+    /// line that is this row of the run. The screen takes the run's other
+    /// rows off their lines.
+    fn drop_runs(&mut self, cols: Range<usize>) {
+        self.drop_runs_where(|r| r.col() < cols.end && r.span().end > cols.start);
+    }
+
+    /// Takes each run that `gone` holds for off the line, as
+    /// [`drop_runs`](Self::drop_runs) does.
+    fn drop_runs_where(&mut self, gone: impl Fn(SizedRun) -> bool) {
+        let Some(t) = self.tables.as_mut() else {
+            return;
+        };
+        if !t.runs.as_slice().iter().any(|&r| gone(r)) {
+            return;
+        }
+        let mut dropped = Vec::new();
+        t.runs.retain(|&r| {
+            let keep = !gone(r);
+            if !keep {
+                dropped.push(r.span());
+            }
+            keep
+        });
+        for span in dropped {
+            for col in span {
+                let Some(&old) = self.cells.get(col) else {
+                    continue;
+                };
+                self.release(old);
+                if let Some(cell) = self.cells.get_mut(col) {
+                    *cell = Cell::new(Content::Empty, Width::Narrow, old.style(), old.link());
+                }
+            }
+        }
+    }
+
+    /// Moves the runs of `at..end` as `insert_cells` (`insert` true) or
+    /// `delete_cells` moves their cells by `n`. A run the move would cut,
+    /// one across `at`, across `end`, across the deleted cells, or pushed
+    /// partly past `end`, goes from the line first.
+    fn shift_runs(&mut self, at: usize, n: usize, end: usize, insert: bool) {
+        if self.runs().is_empty() {
+            return;
+        }
+        let cut = |r: SizedRun| {
+            let span = r.span();
+            if span.end <= at || span.start >= end {
+                return false;
+            }
+            if span.start < at || span.end > end {
+                return true;
+            }
+            if insert {
+                span.end.saturating_add(n) > end
+            } else {
+                span.start < at.saturating_add(n)
+            }
+        };
+        self.drop_runs_where(cut);
+        if let Some(t) = self.tables.as_mut() {
+            for run in t.runs.iter_mut() {
+                if run.col() >= at && run.col() < end {
+                    let col = if insert {
+                        run.col().saturating_add(n)
+                    } else {
+                        run.col().saturating_sub(n)
+                    };
+                    *run = run.at(col);
+                }
+            }
+        }
+    }
+
     /// Writes one cell. A cluster keeps its first [`CLUSTER_MAX`]
     /// codepoints, and fewer when the line's cluster budget is spent; a
     /// cluster left with one codepoint is stored as that codepoint.
@@ -595,6 +944,7 @@ impl Line {
         if col >= self.cells.len() {
             return false;
         }
+        self.drop_runs(col..col.saturating_add(1));
         // Compaction renumbers the cells, so the old cell is read after it.
         self.make_room();
         let old = self.cell(col);
@@ -624,6 +974,7 @@ impl Line {
         if cols.start >= end {
             return;
         }
+        self.drop_runs(cols.start..end);
         self.make_room();
         let style = self.intern_style(style);
         let blank = Cell::new(Content::Empty, Width::Narrow, style, LinkIndex(0));
@@ -648,6 +999,7 @@ impl Line {
         if n == 0 {
             return;
         }
+        self.shift_runs(at, n, end, true);
         self.make_room();
         let style = self.intern_style(style);
         let kept = end.saturating_sub(n);
@@ -669,6 +1021,7 @@ impl Line {
         if n == 0 {
             return;
         }
+        self.shift_runs(at, n, end, false);
         self.make_room();
         let style = self.intern_style(style);
         let from = at.saturating_add(n);
@@ -728,6 +1081,9 @@ impl Line {
     pub fn resize(&mut self, cols: usize) {
         let cols = cols.min(COLUMNS_MAX);
         let shrinking = cols < self.cells.len();
+        if shrinking {
+            self.drop_runs(cols..self.cells.len());
+        }
         let fill = self.fill_cell();
         self.cells
             .reserve_exact(cols.saturating_sub(self.cells.len()));
@@ -773,7 +1129,7 @@ impl Line {
             self.cells.truncate(text.max(keep));
             self.fill = fill.0;
         }
-        self.wide = self.cells.iter().any(|c| c.width() == Width::Wide);
+        self.wide = !self.runs().is_empty() || self.cells.iter().any(|c| c.width() == Width::Wide);
         self.cells.shrink_to_fit();
         self.compact();
         self.shrink_tables();
@@ -789,6 +1145,7 @@ impl Line {
                 && c.width() == Width::Narrow
                 && c.link() == LinkIndex(0)
                 && c.style() == style
+                && !c.in_run()
         };
         let Some(&last) = self.cells.last() else {
             return (0, StyleIndex(self.fill));
@@ -944,6 +1301,15 @@ impl Line {
             tail.push_from(self, cell, cell.width(), false, &mut map);
         }
         tail.set_fill_from(self, &mut map);
+        self.drop_runs_where(|r| r.col() < at && r.span().end > at);
+        for run in self.runs().to_vec() {
+            if run.col() >= at {
+                tail.mark_run(run.at(run.col().saturating_sub(at)));
+            }
+        }
+        if let Some(t) = self.tables.as_mut() {
+            t.runs.retain(|r| r.col() < at);
+        }
         tail.shrink();
         self.cells.truncate(at);
         self.flags.insert(LineFlags::WRAPPED);
@@ -969,6 +1335,7 @@ impl Line {
                 t.styles.capacity().saturating_mul(size_of::<Style>()),
                 t.links.capacity().saturating_mul(size_of::<LinkId>()),
                 t.clusters.capacity(),
+                t.runs.heap_bytes(),
             ]
             .into_iter()
             .fold(0, usize::saturating_add)
@@ -1021,6 +1388,7 @@ impl Line {
             t.styles.shrink_to_fit();
             t.links.shrink_to_fit();
             t.clusters.shrink_to_fit();
+            t.runs.shrink_to_fit();
         }
     }
 
@@ -1068,8 +1436,10 @@ impl Line {
                 }
                 other => other,
             };
-            *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link));
+            *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link))
+                .with_run(cell.in_run());
         }
+        new.runs = old.runs;
         let fill = remap(&mut styles, self.fill, &old.styles, &mut new.styles, limit);
         self.fill = fill;
         new.live = u32::try_from(budgeted_bytes(&new.clusters)).unwrap_or(u32::MAX);
@@ -1190,7 +1560,8 @@ impl Line {
                 };
                 content
             });
-            *cell = Cell::new(content, cell.width(), cell.style(), cell.link());
+            *cell =
+                Cell::new(content, cell.width(), cell.style(), cell.link()).with_run(cell.in_run());
         }
         kept.shrink_to_fit();
         t.live = u32::try_from(live).unwrap_or(u32::MAX);
@@ -1921,7 +2292,8 @@ mod tests {
         );
         assert_eq!(tables(&line).placeholders, 0);
         assert_eq!(tables(&line).live(), five.len() + 1);
-        assert_eq!(Line::bytes_max(170), 9_648);
+        // 9,648 bytes, and 8 more for the pointer to the line's run table.
+        assert_eq!(Line::bytes_max(170), 9_656);
     }
 
     // The arena's limit takes 17 bytes for each cell that names a
