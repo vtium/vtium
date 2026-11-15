@@ -1713,6 +1713,37 @@ fn display_buffers_takes_one_two_or_three() {
     assert_eq!(l.reports.len(), 1);
 }
 
+/// `font-ligatures` is off unless a source sets it `on`, and a look's
+/// value wins over the top level's in the configuration of a head that
+/// uses the look (ADR-1308 D8).
+#[test]
+#[expect(clippy::expect_used, reason = "a test's set-up fails loudly")]
+fn font_ligatures_is_off_unless_set_on_and_a_look_wins() {
+    assert!(!Config::default().font_ligatures());
+    assert!(main_file("font-ligatures=on\n").config.font_ligatures());
+    assert!(!main_file("font-ligatures=off\n").config.font_ligatures());
+    let text = "version = 1\nfont-ligatures=on\n[look plain]\nfont-ligatures = off\n\
+                [head a]\nlook = plain\n[head b]\n";
+    let rules = vtium_settings::sections(text.as_bytes())
+        .expect("a flow")
+        .parsed
+        .config;
+    let top = main_file(text).config;
+    let own = |head: &str| {
+        let h = rules.head(head).expect("the head");
+        let settings: Vec<vtium_settings::Setting> = rules
+            .settings(h)
+            .into_iter()
+            .map(|(_, s)| s.clone())
+            .collect();
+        let (config, reports) = top.for_head(Path::new("/etc/vtium/vtium.conf"), &settings);
+        assert_eq!(reports, []);
+        config
+    };
+    assert!(!own("a").font_ligatures(), "the look's off");
+    assert!(own("b").font_ligatures(), "the top level's on");
+}
+
 /// `font-hinting` takes `light` or `full` as written, any other value
 /// reported and ignored. Unset, the accessor gives none and the frit's
 /// `hinting=` decides, `light` where it says nothing (ADR-1200 D1).

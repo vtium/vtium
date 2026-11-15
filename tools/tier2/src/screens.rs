@@ -2836,6 +2836,12 @@ const BASE: &[Case] = &[
         ),
     },
     Case {
+        screen: ligatures("ligatures", LIGATURES_DESC, &LIGATURE_TAKES, true),
+    },
+    Case {
+        screen: ligatures("ligatures-off", LIGATURES_OFF_DESC, &AT_40, false),
+    },
+    Case {
         screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
     },
     Case {
@@ -2943,6 +2949,50 @@ const BASE: &[Case] = &[
         b"\x1b[2;5H\x1b[4 q\x1b[?25h",
         LINES_OUTLINE,
     ),
+    // the line size screens for the characters that are not plain text:
+    // color emoji, marks, Arabic, Indic syllables, the sprites vtium draws
+    // itself, and Powerline's symbols, each on a line of the normal size, a
+    // double-width line and a double-height pair
+    Case {
+        screen: outline("lines-emoji", LINES_EMOJI_DESC, LINES_EMOJI, 36, 4),
+    },
+    Case {
+        screen: outline("lines-marks", LINES_MARKS_DESC, LINES_MARKS, 30, 4),
+    },
+    Case {
+        screen: outline("lines-arabic", LINES_ARABIC_DESC, LINES_ARABIC, 24, 4),
+    },
+    Case {
+        screen: scripts("lines-indic", LINES_INDIC_DESC, LINES_INDIC, (28, 4)),
+    },
+    Case {
+        screen: outline("lines-graphics", LINES_GRAPHICS_DESC, LINES_GRAPHICS, 30, 5),
+    },
+    Case {
+        screen: Screen::new(
+            "lines-graphics-unifont",
+            LINES_GRAPHICS_DESC,
+            LINES_GRAPHICS,
+            30,
+            5,
+        ),
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::Ink {
+                takes: &AT_16_AND_32,
+                spacing: None,
+                fonts: InkFonts::Merged { extra: "" },
+            },
+            ..Screen::new(
+                "lines-powerline",
+                LINES_POWERLINE_DESC,
+                LINES_POWERLINE,
+                32,
+                4,
+            )
+        },
+    },
     Case {
         screen: merged("glyph-fit", GLYPH_FIT_DESC, GLYPH_FIT, None, ""),
     },
@@ -3047,6 +3097,57 @@ const fn scripts(
         ..Screen::new(name, desc, bytes, cols, rows)
     }
 }
+
+/// The ligatures screens' text: operators that Iosevka Term draws as its
+/// ligatures, runs it does not join, and an arrow in two colors, with the
+/// cursor hidden.
+const LIGATURES: &[u8] = concat!(
+    "\x1b[?25l",
+    "a -> b => c != d === e\r\n",
+    "f <= g >= h && i || j /* k */\r\n",
+    "apart: ,- >, \x1b[38;2;255;110;110m-\x1b[38;2;120;210;120m>\x1b[0m",
+)
+.as_bytes();
+
+/// The `ligatures` screen's two drawings, stacked: as written, and with
+/// the cursor shown on the `!` of `!=`.
+const LIGATURE_TAKES: [Take; 2] = [
+    Take::at(crate::fonts::SCRIPTS_HEIGHT),
+    Take {
+        tail: b"\x1b[?25h\x1b[1;13H",
+        ..Take::at(crate::fonts::SCRIPTS_HEIGHT)
+    },
+];
+
+/// A screen of the ligatures text, 30 by 3 cells, drawn in the scripts frit
+/// at 40 pixels in Iosevka Term's 16x40 cell once for each of `takes`, with
+/// `font-ligatures` set as `on` says and the cursor's blink in its shown
+/// phase.
+const fn ligatures(
+    name: &'static str,
+    desc: &'static str,
+    takes: &'static [Take],
+    on: bool,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes,
+            spacing: None,
+            fonts: InkFonts::Scripts,
+        },
+        ligatures: on,
+        phase: crate::draw::Phase {
+            cursor_on: true,
+            blink_hidden: false,
+            rapid_hidden: false,
+        },
+        ..Screen::new(name, desc, LIGATURES, 30, 3)
+    }
+}
+
+const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16x40 cell draws ->, =>, !=, <= and >= as its ligatures, each across the cells of its characters, so every character keeps its column, and it draws ===, &&, || and /* as their own characters, as the font designs them. The runs ,- and >, which the font does not join, draw each character alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
+
+const LIGATURES_OFF_DESC: &str = "The ligatures screen's text with font-ligatures off, vtium's default: Iosevka Term at 40 pixels draws every character on its own, so ->, !=, === and the other operators show as their separate characters (ADR-1308 D8).";
 
 /// The `scripts-indic` screen: the first sentence of the Universal
 /// Declaration of Human Rights in Hindi, then in Bengali, as the
@@ -3344,3 +3445,76 @@ const LINES_OUTLINE: FontKind = FontKind::Outline {
     color: true,
     spacing: None,
 };
+
+/// The `lines-emoji` screen: color emoji on each line size, a single
+/// emoji, a heart with U+FE0F and a thumb with a skin tone among them.
+const LINES_EMOJI: &[u8] = concat!(
+    "Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#6Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#3Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#4Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}",
+)
+.as_bytes();
+
+const LINES_EMOJI_DESC: &str = "Color emoji on lines of double size, 36 by 4 cells, in the outline test font set with Noto Color Emoji. Each line reads Emoji, then a grinning face, a fire, a red heart written as U+2764 with U+FE0F, and a thumbs up with a medium skin tone. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on the double-width line each emoji is twice as wide as on the normal line and as tall, drawn by the font helper at that size, so its edges stay smooth and show no square steps of doubled pixels. On the double-height pair each emoji is twice as wide and twice as tall, its upper half on the top line and its lower half on the bottom line, joining with no gap. The heart and the toned thumb draw as one emoji each, as on the normal line.";
+
+/// The `lines-marks` screen: letters with combining marks on each line
+/// size, one mark above, one below, and two stacked.
+const LINES_MARKS: &[u8] = concat!(
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#6e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#3e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#4e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}",
+)
+.as_bytes();
+
+const LINES_MARKS_DESC: &str = "Letters with combining marks on lines of double size, 30 by 4 cells, in the outline test font set: e with an acute accent, a with a diaeresis, o with a circumflex, q with a dot below, A with a ring, n with a tilde, and E with a dot below and a circumflex, each written as the letter and its marks. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: each letter and its marks are shaped as one character by the font helper at the line's size, so the marks sit on their letter as on the normal line, with smooth edges and no square steps of doubled pixels. On the double-width line each is twice as wide and as tall. On the double-height pair each is twice as wide and twice as tall, the marks above on the top line, the dots below on the bottom line.";
+
+/// The `lines-arabic` screen: Arabic words on each line size, with the
+/// lam-alef ligature and letters carrying vowel marks.
+const LINES_ARABIC: &[u8] = concat!(
+    "سلام مَرْحَبًا\r\n",
+    "\x1b#6سلام مَرْحَبًا\r\n",
+    "\x1b#3سلام مَرْحَبًا\r\n",
+    "\x1b#4سلام مَرْحَبًا",
+)
+.as_bytes();
+
+const LINES_ARABIC_DESC: &str = "Arabic on lines of double size, 24 by 4 cells, in the outline test font set with Noto Sans Arabic, in left-to-right paragraphs: the word salam, whose lam and alef draw as one ligature, and the word marhaban with its vowel marks, sukun and tanween written. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on every line the letters join into words as on the normal line, the lam-alef ligature spans its two letters' cells, and each mark sits on its letter. The font helper draws each joined form at the line's size, so the strokes stay smooth, twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
+
+/// The `lines-indic` screen: Hindi and Bengali words on each line size,
+/// with conjuncts, vowel signs and a reph.
+const LINES_INDIC: &[u8] = concat!(
+    "नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#6नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#3नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#4नमस्ते क्षत्रिय র্ক্ষ",
+)
+.as_bytes();
+
+const LINES_INDIC_DESC: &str = "Indic syllables on lines of double size, 28 by 4 cells, in the scripts font set at 40 pixels, Iosevka Term's 16x40 cell with Noto Sans Devanagari and Noto Sans Bengali behind it: the Hindi words namaste and kshatriya, then a Bengali syllable with a reph over a conjunct. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: each syllable joins as on the normal line, its conjuncts formed, its vowel signs before, above and after their consonants, and the reph above. The font helper shapes each syllable at the line's size, so the strokes stay smooth, twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, its upper half on the top line and its lower half on the bottom line.";
+
+/// The `lines-graphics` screens: DEC special graphics, box drawing and
+/// blocks, which vtium draws itself, on each line size.
+const LINES_GRAPHICS: &[u8] = concat!(
+    "\x1b(0lqwqk\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2554}\u{2550}\u{2557}\u{256d}\u{2500}\u{256e}\r\n",
+    "\x1b#6\x1b(0lqwqk\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593}\r\n",
+    "\x1b#6\x1b(0mqvqj\x1b(B \u{255a}\u{2550}\u{255d}\u{2570}\u{2500}\u{256f}\r\n",
+    "\x1b#3\x1b(0tqnqu\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2502}\u{2503}\r\n",
+    "\x1b#4\x1b(0tqnqu\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2502}\u{2503}",
+)
+.as_bytes();
+
+const LINES_GRAPHICS_DESC: &str = "The characters vtium draws itself on lines of double size, 30 by 5 cells: box corners and lines from the DEC special graphics set, chosen by ESC ( 0, then blocks and shades, then double and rounded box drawing. The first line has the normal size. The second and third are double-width lines whose box lines meet to close the top and the bottom of a box. The last two are a double-height pair with crossing lines, blocks, and a light and a heavy vertical line. Correct: vtium draws each character again in the doubled cell instead of doubling its pixels. On the double-width lines a light line is as thin as on the normal line, and the vertical lines of the two lines meet. On the double-height pair a light line is twice as thick, as for a cell twice as tall, and each vertical line runs through both lines with no gap. Every horizontal line joins the next cell's, and each block fills its doubled cell to the edges.";
+
+/// The `lines-powerline` screen: a prompt of Powerline separators on each
+/// line size, in the merged font set whose symbol font holds them.
+const LINES_POWERLINE: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\r\n",
+    "\x1b#6\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}\r\n",
+    "\x1b#3\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}\r\n",
+    "\x1b#4\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}",
+)
+.as_bytes();
+
+const LINES_POWERLINE_DESC: &str = "Powerline separators on lines of double size, 32 by 4 cells, in the merged font set, DejaVu Sans Mono with the symbol test font behind it for the Private Use Area, drawn at 16 and at 32 pixels and stacked. Each line is a prompt of two colored segments, vt and src, each closed by a solid separator, then a thin separator. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: the font helper fits each separator to its doubled cell, so on every line a separator runs from the cell's top to its bottom and its point meets the next segment's color with no gap. The separators are twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";

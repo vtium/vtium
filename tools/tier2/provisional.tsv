@@ -1,3 +1,12 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+lines-emoji	color emoji on double-size lines, drawn on 2026-11-14 from the color glyphs the font helper draws at the line's size: on a double-height pair in the doubled cell, and on a double-width line from the double-height glyph with each pair of rows averaged; not reviewed yet
+lines-marks	letters with combining marks on double-size lines, drawn on 2026-11-14 from the clusters the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
+lines-arabic	Arabic on double-size lines, drawn on 2026-11-14 from the joined forms and the lam-alef ligature the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
+lines-indic	Hindi and Bengali syllables on double-size lines in the scripts font set, drawn on 2026-11-14 from the syllables the font helper shapes at the line's size, made half as tall on a double-width line; not reviewed yet
+lines-graphics	DEC special graphics, box drawing and blocks on double-size lines, drawn on 2026-11-14 by vtium's sprites in the doubled cell, a light line as thin as a normal cell's on a double-width line and twice as thick on a double-height pair; not reviewed yet
+lines-graphics-unifont	DEC special graphics, box drawing and blocks on double-size lines in unifont, drawn on 2026-11-14 by vtium's sprites in the doubled cell, a light line as thin as a normal cell's on a double-width line and twice as thick on a double-height pair; not reviewed yet
+lines-powerline	Powerline separators on double-size lines in the merged font set, drawn on 2026-11-14 from the symbols the font helper fits to the doubled cell at 16 and 32 pixels; not reviewed yet
+ligatures	programming ligatures (ADR-1308 D8), drawn on 2026-11-14 in Iosevka Term at 40 pixels with font-ligatures on, as written and with the cursor on the ! of !=; not reviewed yet
+ligatures-off	the ligatures text with font-ligatures off, drawn on 2026-11-14 in Iosevka Term at 40 pixels; not reviewed yet

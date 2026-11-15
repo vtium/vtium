@@ -177,7 +177,7 @@ fn a_push_of_1_sends_the_keypad_as_keys_of_its_own() {
     assert_eq!(sym(&mut t, KP_END, none), "\x1b[57424u");
     assert_eq!(sym(&mut t, KP_ENTER, none), "\x1b[57414u");
     assert_eq!(sym(&mut t, KP_ENTER, Mods::NUM), "\x1b[57414;129u");
-    assert_eq!(sym(&mut t, KP_BEGIN, none), "\x1b[57427u");
+    assert_eq!(sym(&mut t, KP_BEGIN, none), "\x1b[E");
     assert_eq!(sym(&mut t, KP_1, Mods::CTRL), "\x1b[57400;5u");
     assert_eq!(sym(&mut t, KP_ADD, Mods::ALT), "\x1b[57413;3u");
     t.input(b"\x1b=");
@@ -1239,4 +1239,46 @@ fn flag_2_alone_gives_enter_tab_and_backspace_no_release() {
         three(&mut t, super_a),
         ["\x1b[97;9u", "\x1b[97;9:2u", "\x1b[97;9:3u"]
     );
+}
+
+// "Functional key definitions" gives KP_BEGIN as "1 E or 57427 ~". Under
+// flag 1 and under flag 8, the keypad's Begin is the table's first form:
+// `CSI E` alone, `CSI 1 ; modifiers E` with a modifier, and under flag 2
+// `CSI 1 ; modifiers : event E` for a repeat and a release, as Home is the
+// table's `1 H`. It is never `CSI 57427 u`.
+//
+// References:
+// - ADR-1005's amendment of 2026-11-14: the table's entry for the key wins
+//   over the disambiguate section's dedicated numbers.
+// covers: input.kitty-keyboard
+#[test]
+fn the_keypads_begin_is_csi_e_under_flags_1_and_8() {
+    let none = Mods::empty();
+    let key = |s: u32, m: Mods| Key::press(s, 0, m, None);
+    for push in [&b"\x1b[>1u"[..], b"\x1b[>8u", b"\x1b[>9u"] {
+        let mut t = term(80, 4, push);
+        let context = String::from_utf8_lossy(push).into_owned();
+        assert_eq!(sym(&mut t, KP_BEGIN, none), "\x1b[E", "{context}");
+        assert_eq!(sym(&mut t, KP_BEGIN, Mods::CTRL), "\x1b[1;5E", "{context}");
+        assert_eq!(sym(&mut t, KP_BEGIN, Mods::SHIFT), "\x1b[1;2E", "{context}");
+        assert_eq!(
+            sym(&mut t, KP_BEGIN, mods(&[Mods::CTRL, Mods::ALT])),
+            "\x1b[1;7E",
+            "{context}"
+        );
+    }
+    for push in [&b"\x1b[>3u"[..], b"\x1b[>10u"] {
+        let mut t = term(80, 4, push);
+        let context = String::from_utf8_lossy(push).into_owned();
+        assert_eq!(
+            three(&mut t, key(KP_BEGIN, Mods::CTRL)),
+            ["\x1b[1;5E", "\x1b[1;5:2E", "\x1b[1;5:3E"],
+            "{context}"
+        );
+        assert_eq!(
+            three(&mut t, key(KP_BEGIN, none)),
+            ["\x1b[E", "\x1b[1;1:2E", "\x1b[1;1:3E"],
+            "{context}"
+        );
+    }
 }

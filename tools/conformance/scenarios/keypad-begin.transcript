@@ -1,0 +1,26 @@
+> size 20 2
+> key KP_Begin
+< reply "\e[E"
+> key KP_Begin mods=shift
+< reply "\e[1;2E"
+> key KP_Begin mods=alt
+< reply "\e[1;3E"
+> key KP_Begin mods=ctrl
+< reply "\e[1;5E"
+> key KP_Begin mods=ctrl+shift
+< reply "\e[1;6E"
+> send "\e="
+> key KP_Begin
+< reply "\e[E"
+> key KP_Begin mods=ctrl
+< reply "\e[1;5E"
+> send "\e>\e[>4;2m"
+> key KP_Begin
+< reply "\e[E"
+> key KP_Begin mods=ctrl
+< reply "\e[1;5E"
+> send "\e[>4m\e[>2u"
+> key KP_Begin
+< reply "\e[E"
+> key KP_Begin mods=shift
+< reply "\e[1;2E"

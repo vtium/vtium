@@ -15,9 +15,17 @@
 //! only a directory. It refuses a negation (`!`), a character class (`[`) and
 //! an escape (`\`), so a pattern it cannot read fails the test instead of
 //! being read wrong.
+//!
+//! The crate also checks the two index pages ADR-1508 adds, with [`api`]
+//! for the crates' interfaces and [`release`] for the releases, and
+//! [`release::for_github`] writes a release's GitHub notes from its page,
+//! which the `release-notes` command runs.
 
 use std::collections::BTreeSet;
 use std::path::Path;
+
+pub mod api;
+pub mod release;
 
 /// One line of `exclude_docs` or `not_in_nav`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -113,6 +121,8 @@ pub struct Site {
     pub nav: Vec<String>,
     pub exclude_docs: Vec<Pattern>,
     pub not_in_nav: Vec<Pattern>,
+    /// The site's address, `site_url`, which ends in `/`.
+    pub site_url: Option<String>,
 }
 
 impl Site {
@@ -142,6 +152,13 @@ impl Site {
             nav,
             exclude_docs: multiline("exclude_docs")?,
             not_in_nav: multiline("not_in_nav")?,
+            site_url: match project.get("site_url") {
+                None => None,
+                Some(toml::Value::String(s)) if s.ends_with('/') => Some(s.clone()),
+                Some(_) => {
+                    return Err("zensical.toml's site_url is not an address that ends in /".into());
+                }
+            },
         })
     }
 }

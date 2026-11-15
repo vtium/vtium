@@ -61,4 +61,4 @@
 > key KP_Separator char=","
 < reply ","
 > key KP_Begin mods=ctrl
-< reply "\e[57427;5u"
+< reply "\e[1;5E"

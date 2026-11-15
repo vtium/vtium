@@ -120,8 +120,8 @@ pub struct Shown {
     pub variant: Variant,
     /// The double size the characters are shown at, on a line of double
     /// width or double height; `None` for the normal size. A double size
-    /// shows characters alone, in the normal script, since the helper
-    /// draws no cluster and no superscript or subscript at a double size.
+    /// shows characters and clusters in the normal script alone, since the
+    /// helper draws no superscript or subscript at a double size.
     pub doubled: Option<Doubled>,
     /// The cells the display's terminal gives a cluster with a spacing
     /// mark or a virama conjunct (ADR-1006 D8), which the helper places
@@ -142,12 +142,13 @@ pub struct Shown {
 /// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
 /// too, piece by piece, in the variant of its first cell
 /// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
-/// cells' colors, which only decide whether it draws joined. A variant
+/// cells' colors, which only decide whether it draws joined; with
+/// `ligatures`, each run of ASCII symbols too (ADR-1308 D8). A variant
 /// `all` lacks is added after the others.
 /// A build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
 #[cfg(feature = "bidi")]
-pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
     use vtium_render::syllable::Syllable;
     use vtium_term::Glyph;
@@ -155,17 +156,29 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     let mut drawn = Vec::new();
     read_doubled(frame, all);
     for row in 0..frame.rows() {
+        // a line of double size asks for what it draws at its size too
+        let doubled = frame.line(row).and_then(|l| doubled_of(l.flags().size()));
+        let sized = |all: &mut Vec<Shown>, variant: Variant| {
+            doubled
+                .filter(|_| variant.script == Script::Baseline)
+                .map(|d| shown_index(all, variant, Some(d)))
+        };
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell) {
+            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell, ligatures) {
+                let mut keys = Vec::new();
+                for index in 0..s.len() {
+                    let mut key = Vec::new();
+                    if s.key(index, &mut key).is_some() {
+                        keys.push(key);
+                    }
+                }
                 let i = shown_in(all, s.variant());
                 if let Some(shown) = all.get_mut(i) {
-                    for index in 0..s.len() {
-                        let mut key = Vec::new();
-                        if s.key(index, &mut key).is_some() {
-                            shown.clusters.push(key);
-                        }
-                    }
+                    shown.clusters.extend(keys.iter().cloned());
+                }
+                if let Some(shown) = sized(all, s.variant()).and_then(|i| all.get_mut(i)) {
+                    shown.clusters.extend(keys);
                 }
             }
             let i = shown_in(all, variant_of(cell.attrs));
@@ -192,12 +205,20 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
                 joined::pair_text(&cell, &lam, &mut pair);
                 texts.push(pair);
             }
-            for text in texts.into_iter().filter(|t| t.len() > 1) {
-                shown.chars.extend(presentation(&text));
+            let texts: Vec<Text> = texts.into_iter().filter(|t| t.len() > 1).collect();
+            for text in &texts {
+                shown.chars.extend(presentation(text));
                 shown
                     .chars
                     .extend(text.iter().filter(|&&c| c != joined::ZWJ));
-                shown.clusters.push(text);
+                shown.clusters.push(text.clone());
+            }
+            let variant = variant_of(cell.attrs);
+            if let Some(shown) = sized(all, variant).and_then(|i| all.get_mut(i)) {
+                for text in texts {
+                    shown.chars.extend(presentation(&text));
+                    shown.clusters.push(text);
+                }
             }
         }
     }
@@ -222,29 +243,38 @@ pub fn shown_index(all: &mut Vec<Shown>, variant: Variant, doubled: Option<Doubl
     }
 }
 
-/// Adds to `all` the characters each line of double size in `frame`
-/// shows, at that size and in each cell's variant, which the console asks
-/// the helper to render at that size (vtium/vtium#61). Only characters in
-/// the normal script go in, since the helper draws no cluster and no
+/// Adds to `all` the characters and the clusters each line of double size
+/// in `frame` shows, at that size and in each cell's variant, which the
+/// console asks the helper to render at that size (vtium/vtium#61): a
+/// cluster's characters and the cluster whole, as at the normal size, so
+/// an emoji sequence and a letter with its marks draw at that size too.
+/// Only cells in the normal script go in, since the helper draws no
 /// superscript or subscript at a double size. Every build reads them, so
 /// every build draws an outline font's lines of double size from glyphs
-/// rendered at that size.
+/// rendered at that size. A build with the bidi feature adds the joined
+/// forms and syllables those lines draw ([`read_shown`]).
 pub fn read_doubled(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+    use vtium_term::Glyph;
     for row in 0..frame.rows() {
         let Some(doubled) = frame.line(row).and_then(|l| doubled_of(l.flags().size())) else {
             continue;
         };
         for cell in frame.cells(row) {
-            let vtium_term::Glyph::Char(c) = cell.glyph else {
-                continue;
-            };
             let variant = variant_of(cell.attrs);
-            if variant.script != Script::Baseline {
+            if variant.script != Script::Baseline || cell.glyph == Glyph::Empty {
                 continue;
             }
             let i = shown_index(all, variant, Some(doubled));
-            if let Some(shown) = all.get_mut(i) {
-                shown.chars.push(c);
+            let Some(shown) = all.get_mut(i) else {
+                continue;
+            };
+            match cell.glyph {
+                Glyph::Char(c) => shown.chars.push(c),
+                Glyph::Cluster(text) => {
+                    shown.chars.extend(text.chars());
+                    shown.clusters.push(text.chars().collect());
+                }
+                Glyph::Empty => {}
             }
         }
     }
@@ -1283,17 +1313,17 @@ impl Generated {
         draw_text(face, text, variant, false)
     }
 
-    /// The glyph for `c` in `variant` drawn at the double size `doubled`
-    /// for the cell `at`, from a set the helper drew at that size; `None`
-    /// while the store holds none.
+    /// The glyph for `text`, a character or a cluster, in `variant` drawn
+    /// at the double size `doubled` for the cell `at`, from a set the
+    /// helper drew at that size; `None` while the store holds none.
     fn draw_doubled(
         &self,
         at: SpacedCell,
-        c: char,
+        text: &[char],
         (variant, doubled): (Variant, Doubled),
     ) -> Option<Glyph> {
-        let face = &self.entry_at((at, variant, Some(doubled)), &[c])?.face;
-        draw_text(face, &[c], variant, false)
+        let face = &self.entry_at((at, variant, Some(doubled)), text)?.face;
+        draw_text(face, text, variant, false)
     }
 }
 
@@ -1826,16 +1856,14 @@ impl Face for DeferredFace {
         lock(&self.generated).held(self.at(), variant, cluster)
     }
 
-    /// The helper's glyph for a character drawn at a double size, which
-    /// the helper renders from an outline font at that size. The store
-    /// holds no such glyph for a cluster, for a superscript or subscript,
-    /// or for a character a bitmap font or a color glyph draws, and the
-    /// renderer then doubles the pixels of the glyph at the normal size.
+    /// The helper's glyph for a character or a cluster drawn at a double
+    /// size, which the helper renders at that size: an outline glyph, a
+    /// color glyph, a shaped cluster, a joined letter or a syllable's
+    /// piece. The store holds no such glyph for a superscript or
+    /// subscript, or for a character a bitmap font draws, and the renderer
+    /// then doubles the pixels of the glyph at the normal size.
     fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
-        let &[c] = cluster else {
-            return None;
-        };
-        lock(&self.generated).draw_doubled(self.at(), c, (variant, doubled))
+        lock(&self.generated).draw_doubled(self.at(), cluster, (variant, doubled))
     }
 
     fn last_resort(&self, style: Style) -> Option<Glyph> {
@@ -4404,9 +4432,9 @@ mod tests {
     }
 
     // issue #61: a line of double width and a pair of double-height lines
-    // ask for their characters at their size, each in its variant, with
-    // both lines of the pair at one size; a line of the normal size, a
-    // superscript and a cluster ask for none at a double size
+    // ask for their characters and clusters at their size, each in its
+    // variant, with both lines of the pair at one size; a line of the
+    // normal size and a superscript ask for none at a double size
     #[test]
     fn a_line_of_double_size_asks_for_its_characters_at_that_size() {
         let mut t = vtium_term::Terminal::new(10, 4, 0);
@@ -4430,12 +4458,20 @@ mod tests {
         assert_eq!(at(bold, Doubled::Width), Some(vec!['c']));
         assert_eq!(
             at(Variant::default(), Doubled::Height),
-            Some(vec!['d', 'e', 'f'])
+            Some(vec!['d', 'e', 'f', 'e', '\u{301}'])
         );
+        let clusters = |doubled: Doubled| {
+            all.iter()
+                .filter(|s| s.doubled == Some(doubled))
+                .flat_map(|s| s.clusters.clone())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(clusters(Doubled::Height), [vec!['e', '\u{301}']]);
+        assert_eq!(clusters(Doubled::Width), Vec::<Text>::new());
         assert!(
             all.iter()
                 .filter(|s| s.doubled.is_some())
-                .all(|s| s.variant.script == Script::Baseline && s.clusters.is_empty()),
+                .all(|s| s.variant.script == Script::Baseline),
             "{all:?}"
         );
         assert!(
@@ -4487,6 +4523,66 @@ mod tests {
         );
     }
 
+    // issue #61: the face gives a cluster the helper drew at a double size,
+    // as it gives a character, from the set held at that size alone
+    // covers: text.line-size
+    #[test]
+    fn the_face_gives_a_cluster_drawn_at_a_double_size() {
+        let generated: Shared = Arc::default();
+        let tall = Doubled::Height.cell(CELL).unwrap();
+        let mut s = StrikeBuilder::new(PixelFormat::R8, tall, Style::default());
+        let g = s.glyph(
+            Width::Narrow,
+            vec![255; (tall.width * tall.height) as usize],
+        );
+        let key = ['A', '\u{301}'];
+        s.cluster(&key, g);
+        let set =
+            Arc::new(Set::from_bytes(SetBuilder::new("t").strike(s).write().unwrap()).unwrap());
+        let fresh = lock(&generated)
+            .fresh_doubled((AT, Variant::default(), Doubled::Height), set, &[], 10)
+            .unwrap();
+        lock(&generated).add(fresh);
+        let f = face(&generated);
+        let g = f
+            .doubled(&key, Variant::default(), Doubled::Height)
+            .unwrap();
+        assert_eq!((g.width(), g.height()), (tall.width, tall.height));
+        assert_eq!(f.doubled(&key, Variant::default(), Doubled::Width), None);
+        assert!(!lock(&generated).held(AT, Variant::default(), &key));
+    }
+
+    // issue #61, ADR-1203 D3: a syllable on a double-height pair is asked
+    // for piece by piece at the pair's size as well as at the normal size,
+    // since the line draws its pieces from the helper's glyphs at that size
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn a_syllable_on_a_line_of_double_size_is_asked_for_at_that_size() {
+        use vtium_font::syllable::Piece;
+        let mut t = vtium_term::Terminal::new(8, 2, 0);
+        t.input("\x1b#3ಕ್ರ\r\n\x1b#4ಕ್ರ".as_bytes());
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all, false);
+        settle(&mut all);
+        let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
+        let tall = all
+            .iter()
+            .find(|s| s.doubled == Some(Doubled::Height))
+            .unwrap();
+        let normal = all.iter().find(|s| s.doubled.is_none()).unwrap();
+        for start in [0, 1] {
+            let mut key = Vec::new();
+            Piece::new(start, 1, 2).unwrap().key(&text, &mut key);
+            assert!(tall.clusters.contains(&key), "{key:?} in {tall:?}");
+            assert!(normal.clusters.contains(&key), "{key:?} in {normal:?}");
+        }
+        assert!(
+            tall.clusters.contains(&text[..2].to_vec()),
+            "ka with its virama"
+        );
+    }
+
     // ADR-1203 D3: a row of Kannada asks the helper for each piece of the
     // syllable ka, virama, ra, in the variant of its first cell, beside
     // each cluster on its own; with the cursor on it, too, since the
@@ -4500,7 +4596,7 @@ mod tests {
             t.input(bytes.as_bytes());
             let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
             let mut all = vec![Shown::default()];
-            read_shown(&frame, &mut all);
+            read_shown(&frame, &mut all, false);
             settle(&mut all);
             let bold = all.iter().find(|s| s.variant.style.bold).unwrap();
             let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
@@ -4546,7 +4642,7 @@ mod tests {
             "one cluster"
         );
         let mut all = vec![Shown::default()];
-        read_shown(&frame, &mut all);
+        read_shown(&frame, &mut all, false);
         settle(&mut all);
         let asked: Vec<&Text> = all.iter().flat_map(|s| &s.clusters).collect();
         assert!(asked.contains(&&cluster.to_vec()), "{asked:?}");

@@ -867,6 +867,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vtium-clipboard"
+version = "0.1.0-alpha.8"
+dependencies = [
+ "rustix",
+ "vtium-term",
+]
+
+[[package]]
 name = "vtium-config"
 version = "0.1.0-alpha.8"
 dependencies = [

@@ -17,15 +17,20 @@
 //! and the cell shader draw a piece as they draw any narrow glyph. The CPU
 //! path and the GPU path draw the same pieces, so they draw the same bytes.
 //!
-//! Where the font's face holds the glyph rendered at double size
-//! ([`Face::doubled`]), each piece is cut from that glyph as it is. The
-//! font helper renders a glyph of an outline font that way, so its strokes
-//! stay sharp at the larger size. Otherwise each piece is cut from the
-//! glyph at the normal size with each of its pixels doubled, which is how
-//! the DEC terminals drew double-size text from their character ROM. That
-//! is the look of a bitmap font, of a color glyph, of a cluster, and of an
-//! outline glyph until the helper's double-size glyph arrives.
-//! [`piece_glyph`] is the one place that chooses between the two.
+//! A built-in sprite, such as a box drawing line, a block or a DEC special
+//! graphics character, is drawn again in the doubled cell
+//! ([`vtium_font::sprite::doubled`]). Its lines keep the weight the sprite
+//! rule gives that cell and still meet the cell's edges, so they join the
+//! sprite in the next cell. Where the font's face holds the glyph rendered
+//! at double size ([`Face::doubled`]), each piece is cut from that glyph as
+//! it is. The font helper renders an outline font's glyphs that way, color
+//! emoji and clusters among them, so their strokes stay sharp at the
+//! larger size. Otherwise each piece is cut from the glyph at the normal
+//! size with each of its pixels doubled, which is how the DEC terminals
+//! drew double-size text from their character ROM. That is the look of a
+//! bitmap font, and of any other glyph until the helper's double-size
+//! glyph arrives. [`piece_glyph`] is the one place that chooses among the
+//! three.
 //!
 //! References:
 //! - The maintainer's direction on the double-size lines work, 2026-11-14:
@@ -33,7 +38,7 @@
 //!   size through the font helper, and the VT100's dot stretching stays
 //!   out of the text renderer.
 
-use vtium_font::{Doubled, Face, Font, Glyph, Variant, Width};
+use vtium_font::{Doubled, Face, Font, Glyph, Script, Variant, Width, sprite};
 use vtium_term::LineSize;
 
 /// Which piece of a glyph or decoration a display cell draws: the glyph
@@ -235,10 +240,14 @@ fn cut_drawn(
 /// `text` in `variant`, `width` cells wide: its piece `piece`. Gives the
 /// piece and the scale of its pixels.
 ///
-/// Where `font`'s face holds the glyph rendered at the piece's double
+/// A character that `font` draws as a built-in sprite, such as a box
+/// drawing line or a block, is drawn again at the piece's double size
+/// ([`sprite::doubled`]), so its lines keep their weight and join the next
+/// cell. Where `font`'s face holds the glyph rendered at the piece's double
 /// size ([`Face::doubled`]), as the font helper renders an outline font's,
-/// the piece is cut from that glyph, at scale 1. Otherwise the piece is
-/// cut from `whole`, the glyph the font drew at the normal size, each of
+/// a color glyph's and a cluster's, the piece is cut from that glyph. In
+/// both cases the piece is at scale 1. Otherwise the piece is cut from
+/// `whole`, the glyph the font drew at the normal size, each of
 /// its pixels `scale` pixels square, with each pixel doubled. The cache
 /// keys the piece on its text, variant, width and piece, and forgets it
 /// when a glyph for its text arrives, so the piece is cut again from the
@@ -249,10 +258,14 @@ pub(crate) fn piece_glyph<F: Face>(
     (whole, scale): (&Glyph, u32),
     piece: Piece,
 ) -> Option<(Glyph, u32)> {
-    let drawn = piece
-        .doubled()
-        .and_then(|d| font.face().doubled(text, variant, d))
-        .and_then(|glyph| cut_drawn(&glyph, (font.cell(), width), piece));
+    let drawn = piece.doubled().and_then(|d| {
+        let sprite = (variant.script == Script::Baseline)
+            .then(|| sprite::doubled(font, text, (width, variant.style), d))
+            .flatten();
+        sprite
+            .or_else(|| font.face().doubled(text, variant, d))
+            .and_then(|glyph| cut_drawn(&glyph, (font.cell(), width), piece))
+    });
     match drawn {
         Some(glyph) => Some((glyph, 1)),
         None => Some((doubled(whole, piece)?, scale)),
@@ -354,6 +367,87 @@ mod tests {
             Piece::of(size, 0).sprite_set()
         );
         assert_eq!(Piece::of(LineSize::Single, 3), Piece::WHOLE);
+    }
+
+    /// Which rows and which columns of `glyph`, a mask, hold any ink.
+    fn inked(glyph: &Glyph) -> (Vec<u32>, Vec<u32>) {
+        let lit = |x: u32, y: u32| {
+            glyph
+                .pixel(x, y)
+                .is_some_and(|p| p.first().is_some_and(|&a| a != 0))
+        };
+        let rows = (0..glyph.height())
+            .filter(|&y| (0..glyph.width()).any(|x| lit(x, y)))
+            .collect();
+        let columns = (0..glyph.width())
+            .filter(|&x| (0..glyph.height()).any(|y| lit(x, y)))
+            .collect();
+        (rows, columns)
+    }
+
+    /// The piece `piece` of `c`'s glyph in unifont's 8x16 cell, which
+    /// draws box drawing as sprites, and its scale.
+    fn unifont_piece(c: char, piece: Piece) -> (Glyph, u32) {
+        let font = Font::new(vtium_font::Unifont::new(16));
+        let key = (&[c][..], Width::Narrow, Variant::default());
+        let whole = font.glyph(&[c], Width::Narrow, Default::default()).unwrap();
+        piece_glyph(&font, key, (&whole, 1), piece).unwrap()
+    }
+
+    // A box drawing line on a line of double width is drawn again in the
+    // doubled cell, 16 pixels wide, so its vertical line stays one pixel
+    // thick, at the doubled cell's middle, column 7 of the left piece. A
+    // piece of the line at the normal size with its pixels doubled would
+    // be two pixels thick. The line runs through every row, so it joins
+    // the line above and below.
+    // covers: text.line-size
+    #[test]
+    fn a_box_drawing_line_on_a_double_width_line_keeps_its_weight() {
+        let (left, scale) = unifont_piece('│', Piece::of(LineSize::DoubleWidth, 0));
+        let (right, _) = unifont_piece('│', Piece::of(LineSize::DoubleWidth, 1));
+        assert_eq!(scale, 1);
+        assert_eq!((left.width(), left.height()), (8, 16));
+        assert_eq!(inked(&left), ((0..16).collect(), vec![7]));
+        assert_eq!(inked(&right), (vec![], vec![]));
+    }
+
+    // A horizontal line on a double-height pair is drawn in the doubled
+    // cell, 16 by 32 pixels, with the light line that cell's height gives:
+    // two rows, 15 and 16, which fall on the last row of the top piece and
+    // the first row of the bottom piece. The line runs across every column
+    // of both pieces, so it joins the next cell's line.
+    // covers: text.line-size
+    #[test]
+    fn a_box_drawing_line_on_a_double_height_pair_takes_the_taller_cells_weight() {
+        for column in [0, 1] {
+            let (top, _) = unifont_piece('─', Piece::of(LineSize::DoubleHeightTop, column));
+            let (bottom, _) = unifont_piece('─', Piece::of(LineSize::DoubleHeightBottom, column));
+            assert_eq!(inked(&top), (vec![15], (0..8).collect()));
+            assert_eq!(inked(&bottom), (vec![0], (0..8).collect()));
+        }
+    }
+
+    // A full block fills both pieces of a double-width cell to their edges
+    #[test]
+    fn a_block_fills_each_piece_of_its_doubled_cell() {
+        for column in [0, 1] {
+            let (piece, _) = unifont_piece('█', Piece::of(LineSize::DoubleWidth, column));
+            assert_eq!(inked(&piece), ((0..16).collect(), (0..8).collect()));
+        }
+    }
+
+    // A letter is no sprite, so a bitmap font's letter still doubles its
+    // pixels at the scale of the glyph it is cut from
+    #[test]
+    fn a_letter_of_a_bitmap_font_still_doubles_its_pixels() {
+        let font = Font::new(vtium_font::Unifont::new(16));
+        let whole = font
+            .glyph(&['a'], Width::Narrow, Default::default())
+            .unwrap();
+        let key = (&['a'][..], Width::Narrow, Variant::default());
+        let piece = Piece::of(LineSize::DoubleWidth, 0);
+        let (glyph, _) = piece_glyph(&font, key, (&whole, 1), piece).unwrap();
+        assert_eq!(Some(glyph), doubled(&whole, piece));
     }
 
     // A piece's glyph is one narrow cell of the doubled glyph

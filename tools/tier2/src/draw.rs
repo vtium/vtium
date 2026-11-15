@@ -596,6 +596,10 @@ pub struct Screen {
     pub tail: &'static [u8],
     /// The blink phases every frame is drawn in.
     pub phase: Phase,
+    /// `font-ligatures` on: the console asks the helper for each run of
+    /// ASCII symbols, and the renderer draws the font's ligature across
+    /// its cells (ADR-1308 D8).
+    pub ligatures: bool,
 }
 
 impl Screen {
@@ -639,14 +643,16 @@ impl Screen {
                 blink_hidden: false,
                 rapid_hidden: false,
             },
+            ligatures: false,
         }
     }
 }
 
-/// The ways a screen is drawn, each of which must give the same bytes.
-fn configs(orientation: Orientation) -> [(&'static str, Config); 4] {
+/// The ways `screen` is drawn, each of which must give the same bytes.
+fn configs(screen: &Screen) -> [(&'static str, Config); 4] {
     let base = Config {
-        orientation,
+        orientation: screen.orientation,
+        ligatures: screen.ligatures,
         ..Config::default()
     };
     [
@@ -925,7 +931,8 @@ pub fn shown(screen: &Screen, cell: Cell) -> Result<Vec<Shown>, String> {
     let mut term = terminal(screen, made)?;
     let mut all = vec![Shown::default()];
     let read = |term: &Terminal, all: &mut Vec<Shown>| {
-        vtium::deferred::read_shown(&term.screen().frame(term.palette(), Age::NEVER), all);
+        let frame = term.screen().frame(term.palette(), Age::NEVER);
+        vtium::deferred::read_shown(&frame, all, screen.ligatures);
     };
     read(&term, &mut all);
     if let Some(next) = screen.next {
@@ -947,7 +954,7 @@ fn draw_with<F: Face>(
     painter: &mut impl Paint,
 ) -> Result<Image, String> {
     let mut first: Option<(&str, Image)> = None;
-    for (name, config) in configs(screen.orientation) {
+    for (name, config) in configs(screen) {
         let img = painter.paint(screen, &font, config)?;
         match &first {
             None => first = Some((name, img)),

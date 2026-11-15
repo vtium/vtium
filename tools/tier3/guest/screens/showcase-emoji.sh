@@ -1,4 +1,5 @@
 #!/bin/bash
+# category: scripts and emoji
 # vtium draws color emoji from Noto Color Emoji beside the text, two cells
 # wide, with the sequences that join several emoji into one picture: people
 # and families joined by zero-width joiners, flags, keycaps and skin tones.

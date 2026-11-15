@@ -193,6 +193,9 @@ pub struct Head {
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
+    /// What each console's running program was told about 24-bit color
+    /// when it started, which [`session::Colorterm`] keeps.
+    colorterm: session::Colorterm,
     pub(crate) attached: Attached,
     /// Every display of the head draws at once at the end of the turn.
     pub(crate) draw_now: bool,
@@ -237,6 +240,9 @@ pub struct Head {
     /// overrides the frit's `line-spacing=` (ADR-1302 D13); `None` when
     /// neither sets it.
     pub(crate) line_spacing: Option<u32>,
+    /// `font-ligatures`, vtium.conf's or the head's look's: whether a run
+    /// of ASCII symbols draws as the font's ligature (ADR-1308 D8).
+    ligatures: bool,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -499,6 +505,7 @@ impl Head {
             when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
             views: BTreeMap::new(),
+            colorterm: session::Colorterm::default(),
             attached: Attached::NotYet,
             draw_now: false,
             text_due: None,
@@ -515,6 +522,7 @@ impl Head {
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
+            ligatures: config.font_ligatures(),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -1133,6 +1141,7 @@ impl Head {
             pointer: config
                 .char(&keys::POINTER_CHAR)
                 .map_or(PointerShape::Arrow, PointerShape::Glyph),
+            ligatures: self.ligatures,
             ..RenderConfig::default()
         }
     }
@@ -1293,7 +1302,7 @@ impl Head {
             .screen()
             .frame(palette, Age::NEVER);
         let mut all = vec![Shown::default()];
-        crate::deferred::read_shown(&frame, &mut all);
+        crate::deferred::read_shown(&frame, &mut all, self.ligatures);
         crate::deferred::settle(&mut all);
         // the helper places the clusters in the cells this terminal gives
         // them (ADR-1006 D8)

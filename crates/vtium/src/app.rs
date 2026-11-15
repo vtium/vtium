@@ -134,6 +134,10 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(test)]
+mod colorterm;
+#[cfg(test)]
+mod cursor_blink;
 mod enter_switch;
 mod hand_over;
 mod held;
@@ -1061,7 +1065,20 @@ impl App {
             },
             console: self.heads.get(h).map(|head| (head.name(), id)),
             logind_seat: self.vt.logind_seat(),
+            truecolor: self.truecolor(h),
         }
+    }
+
+    /// Whether a program that starts now in head `h` is told
+    /// `COLORTERM=truecolor`, as [`Head::truecolor`] decides from the
+    /// head's displays. With no display set up, the head counts the depth
+    /// its `display-depth` names, or color at `auto`.
+    ///
+    /// References:
+    /// - ADR-1301 D10: the displays that count.
+    fn truecolor(&self, h: usize) -> bool {
+        let unlit = depth(&self.head_config(h), None);
+        self.heads.get(h).is_none_or(|head| head.truecolor(unlit))
     }
 
     /// Starts the session of head `h`'s console `id`, unless a crash loop
@@ -1087,6 +1104,7 @@ impl App {
             .and_then(|head| head.login.as_ref())
             .unwrap_or(&self.config);
         let spec = child::child(config, &self.place(h, id), self.inherited.clone());
+        let truecolor = spec.truecolor();
         let command = spec.command().ok_or("no command to run")?;
         let erase = if self.config.switch(&keys::BACKSPACE_DELETE) {
             Erase::Delete
@@ -1119,6 +1137,9 @@ impl App {
         if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
             console.pty_id = Some(pty_id);
             console.pty = Some(pty);
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            head.told_truecolor(id, truecolor);
         }
         Ok(())
     }
@@ -1578,6 +1599,9 @@ impl App {
             self.start_lit.insert(key.clone(), display.clone());
         }
         self.lit.insert(key.clone(), display);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.black_and_white_joins(&key, &name);
+        }
         self.focus_due = true;
         self.guard_due = true;
         // the line names the path that draws the display (ADR-1303 D10):
@@ -2073,7 +2097,8 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
-            if let Some(arms) = head.console.term.blink.activate() {
+            let cursor = crate::blink::cursor_period(&head.console.term.terminal);
+            if let Some(arms) = head.console.term.blink.activate(cursor) {
                 for (timer, arm) in arms {
                     match timer {
                         Timer::Text => head.text_due = Some(after(now, arm.first)),
@@ -3747,14 +3772,7 @@ impl App {
                 head.hide_pointer();
             }
         }
-        let rate = head
-            .console
-            .term
-            .terminal
-            .cursor_blink_ms()
-            .map_or(crate::blink::TEXT_PERIOD, |ms| {
-                Duration::from_millis(ms.into())
-            });
+        let rate = crate::blink::cursor_period(&head.console.term.terminal);
         if let Some(arm) = head.console.term.blink.key(rate) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
@@ -4496,9 +4514,16 @@ impl App {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
-            if let Some((due, every)) = head.cursor_due.filter(|&(d, _)| d <= now) {
-                head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
-                head.cursor_due = Some((after(due, every), every));
+            // A program that set another cursor blink interval with
+            // `CSI 16 ; n ]` gets it from the next phase, which starts now.
+            let every = crate::blink::cursor_period(&head.console.term.terminal);
+            if let Some((due, armed)) = head.cursor_due {
+                if armed != every {
+                    head.cursor_due = Some((after(now, every), every));
+                } else if due <= now {
+                    head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
+                    head.cursor_due = Some((after(due, every), every));
+                }
             }
             let term = &mut head.console.term;
             // SGR 6's timer runs while a shown cell carries it

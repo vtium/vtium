@@ -84,6 +84,9 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
     // the letter glyphs of each part of a joining cluster shaped on its
     // own, without U+200D, as a joining form is judged
     let mut alone: BTreeMap<Vec<u32>, Vec<u16>> = BTreeMap::new();
+    // each ASCII symbol of a ligature run shaped on its own, as the run is
+    // judged
+    let mut singles: BTreeMap<u32, Option<At>> = BTreeMap::new();
     let mut out: Vec<Shaped> = Vec::new();
     let mut keeps = |kind: Kind, key: &[u32], glyphs: &[At]| {
         !glyphs.is_empty()
@@ -110,6 +113,16 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
         let piece = vtium_font::syllable::piece_of(&ask.key);
         let text = piece.map_or(ask.key.as_slice(), |(text, _)| text);
         let mut shaped = shape(&shaper, text);
+        // a run of ASCII symbols that the font draws as each character's
+        // own glyph in its own place forms no ligature, so the helper
+        // leaves it out and the console draws its cells on their own
+        // (ADR-1308 D8)
+        if piece.is_some() && vtium_font::syllable::is_ligature_run(text) {
+            let mut single = |c: u32| *singles.entry(c).or_insert_with(|| own(&shaper, c));
+            if !ligates(&shaped.glyphs, text, &mut single) {
+                continue;
+            }
+        }
         shaped.key.clone_from(&ask.key);
         shaped.kind = ask.kind;
         // a character and U+FE0F, which a color font draws with the
@@ -284,6 +297,49 @@ fn joined(glyphs: &[At], key: &[u32], alone: &mut impl FnMut(&[u32]) -> Vec<u16>
     unjoined.sort_unstable();
     ids.sort_unstable();
     ids != unjoined
+}
+
+/// The glyph `c` shapes to on its own, its `x` holding its advance; `None`
+/// where it shapes to no glyph or to several.
+fn own(shaper: &harfrust::Shaper<'_>, c: u32) -> Option<At> {
+    let Shaped {
+        glyphs, advance, ..
+    } = shape(shaper, &[c]);
+    match glyphs.as_slice() {
+        &[a] => Some(At { x: advance, ..a }),
+        _ => None,
+    }
+}
+
+/// Whether the run of ASCII symbols `text`, shaped to `glyphs`, forms a
+/// ligature. It forms none when the font gives back each character's own
+/// glyph, one for each character in written order, each where it stands
+/// when the characters are shaped one by one and set side by side.
+/// `single` gives a character's glyph shaped on its own ([`own`]). A
+/// programming font that draws `->` as one arrow, or as an arrow's two
+/// halves in place of the hyphen and the greater-than sign, forms a
+/// ligature. A font with no ligatures gives back each character's own
+/// glyph.
+///
+/// References:
+/// - ADR-1308 D8: a run the font does not join draws its cells alone.
+fn ligates(glyphs: &[At], text: &[u32], single: &mut impl FnMut(u32) -> Option<At>) -> bool {
+    if glyphs.len() != text.len() {
+        return true;
+    }
+    let mut pen = 0i32;
+    for (i, (a, &c)) in glyphs.iter().zip(text).enumerate() {
+        let Some(own) = single(c) else {
+            return true;
+        };
+        let from = u32::try_from(i).unwrap_or(u32::MAX);
+        // `own.x` is the advance; a glyph shaped alone sits at its pen
+        if a.g != own.g || a.from != from || a.x != pen || a.y != own.y {
+            return true;
+        }
+        pen = pen.saturating_add(own.x);
+    }
+    false
 }
 
 /// Draws each shaped cluster at `cell`, adding its glyph to `glyphs`, one
@@ -1011,6 +1067,105 @@ mod tests {
                 .ink
                 .is_none()
         );
+    }
+
+    /// The subset of Iosevka Term in `tests/fixtures/`, which forms the
+    /// font's programming ligatures, at a 32-pixel cell, asked for each
+    /// piece of each of `runs`, one cell wide, as the console asks.
+    fn iosevka(runs: &[&str]) -> (crate::outline::Outline, Vec<Vec<Vec<u32>>>) {
+        let data = std::fs::read(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/IosevkaTerm-ligatures.ttf"),
+        )
+        .expect("the fixture");
+        let keys: Vec<Vec<Vec<u32>>> = runs
+            .iter()
+            .map(|run| {
+                let text: Vec<u32> = run.chars().map(u32::from).collect();
+                let total = u8::try_from(text.len()).expect("a short run");
+                (0..total)
+                    .map(|start| {
+                        let mut key = Vec::new();
+                        Piece::new(start, 1, total)
+                            .expect("a piece")
+                            .key(&text, &mut key);
+                        key
+                    })
+                    .collect()
+            })
+            .collect();
+        let clusters = keys
+            .iter()
+            .flatten()
+            .map(|key| Ask {
+                key: key.clone(),
+                kind: super::super::kind(key),
+            })
+            .collect();
+        let request = crate::outline::OutlineRequest {
+            double_width: false,
+            cluster_width: Default::default(),
+            fit: false,
+            synth: Default::default(),
+            script: Default::default(),
+            font: data.into(),
+            family: String::new(),
+            cells: vec![(0, 32)],
+            cover: Vec::new(),
+            clusters,
+            baselines: Vec::new(),
+            sizes: Vec::new(),
+            reaches: Vec::new(),
+            hinting: Hinting::Light,
+        };
+        (
+            crate::outline::rasterise(&request).expect("rasterised"),
+            keys,
+        )
+    }
+
+    // ADR-1308 D8: the helper shapes `->`, `!=` and `===` whole, with the
+    // font's default features, draws each across its cells and cuts it
+    // into a piece for each cell. Each piece is one cell's pixels, and the
+    // pieces differ from the characters' own glyphs, since Iosevka Term
+    // draws each of these as its ligature. A run the font does not join,
+    // `,-` and `>,`, is left out, so the console draws its cells alone
+    // covers: text.ligatures
+    #[test]
+    fn a_ligature_is_drawn_across_its_cells_and_cut() {
+        let (o, keys) = iosevka(&["->", "!=", "===", ",-", ">,"]);
+        let s = &o.strikes[0];
+        let glyph = |key: &[u32]| {
+            s.clusters
+                .iter()
+                .find(|(k, _)| k == key)
+                .and_then(|&(_, g)| s.glyphs.get(g as usize))
+        };
+        let own = |c: char| {
+            s.map
+                .iter()
+                .find(|&&(cp, _)| cp == u32::from(c))
+                .and_then(|&(_, g)| s.glyphs.get(g as usize))
+                .expect("the character's own glyph")
+        };
+        let cell = (s.width * s.height) as usize;
+        for (run, pieces) in ["->", "!=", "==="].iter().zip(&keys) {
+            let drawn: Vec<&Placed> = pieces
+                .iter()
+                .map(|k| glyph(k).expect("a piece of the ligature"))
+                .collect();
+            for (p, c) in drawn.iter().zip(run.chars()) {
+                assert!(!p.wide, "{run}: one cell");
+                assert_eq!(p.pixels.len(), cell, "{run}: one cell's pixels");
+                assert!(p.pixels.iter().any(|&v| v != 0), "{run}: inked");
+                assert_ne!(p.pixels, own(c).pixels, "{run}: {c:?} joined");
+            }
+        }
+        for pieces in &keys[3..] {
+            for k in pieces {
+                assert!(glyph(k).is_none(), "{k:x?}: no ligature");
+            }
+        }
     }
 
     /// Each glyph of lam, shadda and fatha (U+0644 U+0651 U+064E) in the

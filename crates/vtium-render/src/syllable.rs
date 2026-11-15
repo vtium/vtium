@@ -1,4 +1,5 @@
-//! The syllables a row draws joined across their clusters (ADR-1203).
+//! The syllables a row draws joined across their clusters (ADR-1203), and
+//! the programming ligatures it draws across their cells (ADR-1308 D8).
 //!
 //! Unicode's grapheme cluster rules cut many syllables into several
 //! clusters, as they cut every Kannada conjunct: ಕ್ರ is ಕ್ in one cell and ರ
@@ -10,6 +11,16 @@
 //! left to right. A run whose text holds more than
 //! [`SYLLABLE_SCALARS_MAX`] scalar values is no syllable, and its cells
 //! draw on their own.
+//!
+//! With ligatures on, `font-ligatures` in vtium.conf, a run of 2 to 14
+//! cells side by side that each hold one ASCII symbol is found the same
+//! way ([`vtium_font::syllable::is_ligature_symbol`]), so that `->` or
+//! `!=` draws as the font's ligature across its cells. Such a run is a
+//! drawing only: the terminal keeps each character in its own cell. The
+//! cells must be written left to right on a line of normal size, so no
+//! ligature draws backwards in right-to-left text or on a double-size
+//! line. The rest of this module treats a ligature run as a syllable, and
+//! the helper answers that a run the font does not join has no pieces.
 //!
 //! The console asks the glyph helper for each piece of a syllable: its
 //! whole text, followed by a mark that says where one cluster's cells lie
@@ -23,8 +34,10 @@
 //! renderer also draws the syllable split while its font lacks any piece.
 
 use vtium_font::Variant;
-use vtium_font::syllable::{Piece, SYLLABLE_SCALARS_MAX, joins, may_follow, may_link};
-use vtium_term::{CLUSTER_MAX, Frame, FrameCell, Glyph, Rgb, Width};
+use vtium_font::syllable::{
+    Piece, SYLLABLE_SCALARS_MAX, is_ligature_symbol, joins, may_follow, may_link,
+};
+use vtium_term::{CLUSTER_MAX, Frame, FrameCell, Glyph, LineSize, Rgb, Width};
 
 /// The most clusters a syllable holds: each holds one scalar value at
 /// least.
@@ -66,15 +79,25 @@ fn cells(fc: &FrameCell<'_>) -> u8 {
     if fc.width == Width::Wide { 2 } else { 1 }
 }
 
+/// Whether `fc` is one narrow cell holding one ASCII symbol, which a
+/// ligature may join (ADR-1308 D8).
+fn symbol(fc: &FrameCell<'_>) -> bool {
+    fc.width == Width::Narrow && matches!(fc.glyph, Glyph::Char(c) if is_ligature_symbol(c))
+}
+
 /// Whether `left`, the cell drawn at column `col`, and `right`, the cell
 /// drawn just after it, are clusters written one after the other, left to
-/// right, whose clusters join (ADR-1203 D1).
-fn linked(left: &FrameCell<'_>, right: &FrameCell<'_>) -> bool {
+/// right, whose clusters join (ADR-1203 D1), or, with `ligatures`, two
+/// ASCII symbols that a ligature may join (ADR-1308 D8).
+fn linked(left: &FrameCell<'_>, right: &FrameCell<'_>, ligatures: bool) -> bool {
     if right.width == Width::WideTail || left.rtl || right.rtl {
         return false;
     }
     if left.col.checked_add(usize::from(cells(left))) != Some(right.col) {
         return false;
+    }
+    if ligatures && symbol(left) && symbol(right) {
+        return true;
     }
     let Some(head) = chars(right.glyph).next() else {
         return false;
@@ -94,23 +117,28 @@ fn linked(left: &FrameCell<'_>, right: &FrameCell<'_>) -> bool {
 impl Syllable {
     /// The syllable the cell `fc`, drawn at `col` of `row`, belongs to,
     /// and its place among the syllable's clusters: the longest run of
-    /// cells on the row around it whose clusters join (ADR-1203 D1).
-    /// `None` when no neighbour joins it, when it is the second half of a
-    /// wide character, and when the run's text holds more than
-    /// [`SYLLABLE_SCALARS_MAX`] scalar values.
+    /// cells on the row around it whose clusters join (ADR-1203 D1), or,
+    /// with `ligatures` on a line of normal size, that are ASCII symbols
+    /// (ADR-1308 D8). `None` when no neighbour joins it, when it is the
+    /// second half of a wide character, and when the run's text holds
+    /// more than [`SYLLABLE_SCALARS_MAX`] scalar values.
     pub fn find(
         frame: &Frame<'_>,
         (col, row): (usize, usize),
         fc: &FrameCell<'_>,
+        ligatures: bool,
     ) -> Option<(Syllable, usize)> {
         if fc.width == Width::WideTail {
             return None;
         }
+        // cells of a double-size line never join into a ligature
+        let ligatures = ligatures && frame.size(row) == LineSize::Single;
         // a quick answer for most cells: one that neither ends with a
-        // linker nor starts with a letter that follows one joins nothing
+        // linker, nor starts with a letter that follows one, nor is a
+        // symbol a ligature may join, joins nothing
         let first = chars(fc.glyph).next()?;
         let last = chars(fc.glyph).last()?;
-        if !may_link(last) && !may_follow(first) {
+        if !may_link(last) && !may_follow(first) && !(ligatures && symbol(fc)) {
             return None;
         }
         let member = |col: usize, fc: &FrameCell<'_>| Member {
@@ -130,7 +158,7 @@ impl Syllable {
                 lead = left_col.checked_sub(1)?;
                 left = frame.cell(row, lead)?;
             }
-            if !linked(&left, &here) {
+            if !linked(&left, &here, ligatures) {
                 break;
             }
             scalars = scalars.saturating_add(chars(left.glyph).count());
@@ -148,7 +176,7 @@ impl Syllable {
             let Some(right) = frame.cell(row, next) else {
                 break;
             };
-            if !linked(&here, &right) {
+            if !linked(&here, &right, ligatures) {
                 break;
             }
             scalars = scalars.saturating_add(chars(right.glyph).count());
@@ -281,15 +309,22 @@ mod tests {
     }
 
     /// Each syllable of `text` on one row, as its cells' first columns,
-    /// read from every cell.
+    /// read from every cell, with ligatures off.
     fn syllables(text: &str) -> Vec<Vec<usize>> {
+        runs(text, false)
+    }
+
+    /// Each run of `text` on one row that draws joined, a syllable or,
+    /// with `ligatures`, a run of ASCII symbols, as its cells' first
+    /// columns, read from every cell.
+    fn runs(text: &str, ligatures: bool) -> Vec<Vec<usize>> {
         let l = line(text, 40);
         let damage = Damage::new(40, 1);
         let p = palette();
         let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
         let mut out: Vec<Vec<usize>> = Vec::new();
         for (col, fc) in frame.cells(0).enumerate() {
-            if let Some((s, i)) = Syllable::find(&frame, (col, 0), &fc) {
+            if let Some((s, i)) = Syllable::find(&frame, (col, 0), &fc, ligatures) {
                 let cols: Vec<usize> = s.members[..s.len].iter().map(|m| m.col).collect();
                 assert_eq!(cols[i], col, "the cell's own place");
                 if !out.contains(&cols) {
@@ -350,13 +385,13 @@ mod tests {
         let p = palette();
         let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
         let (ka, ra) = (frame.cell(0, 0).unwrap(), frame.cell(0, 1).unwrap());
-        assert!(linked(&ka, &ra), "left to right");
+        assert!(linked(&ka, &ra, false), "left to right");
         assert!(
-            !linked(&FrameCell { rtl: true, ..ka }, &ra),
+            !linked(&FrameCell { rtl: true, ..ka }, &ra, false),
             "ka right to left"
         );
         assert!(
-            !linked(&ka, &FrameCell { rtl: true, ..ra }),
+            !linked(&ka, &FrameCell { rtl: true, ..ra }, false),
             "ra right to left"
         );
     }
@@ -381,9 +416,9 @@ mod tests {
         );
         let ka = frame.cell(0, 2).unwrap();
         assert_eq!(ka.glyph, Glyph::Cluster("ಕ್"));
-        assert!(Syllable::find(&frame, (2, 0), &ka).is_none());
+        assert!(Syllable::find(&frame, (2, 0), &ka, false).is_none());
         let ra = frame.cell(1, 0).unwrap();
-        assert!(Syllable::find(&frame, (0, 1), &ra).is_none());
+        assert!(Syllable::find(&frame, (0, 1), &ra, false).is_none());
         // seven clusters of ka and virama, then ka: 15 scalar values; six,
         // then ka with its vowel sign aa: 14, which fit
         let long: String = "ಕ್".repeat(7) + "ಕ";
@@ -403,7 +438,7 @@ mod tests {
         let p = palette();
         let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
         let fc = frame.cell(0, 1).unwrap();
-        let (s, i) = Syllable::find(&frame, (1, 0), &fc).unwrap();
+        let (s, i) = Syllable::find(&frame, (1, 0), &fc, false).unwrap();
         assert_eq!(i, 1);
         let total = s.members[..s.len].iter().map(|m| m.cells).sum::<u8>();
         assert_eq!(s.piece(1), Piece::new(1, 1, total));
@@ -436,14 +471,17 @@ mod tests {
         let p = palette();
         let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
         let ka = frame.cell(0, 0).unwrap();
-        let (s, i) = Syllable::find(&frame, (0, 0), &ka).unwrap();
+        let (s, i) = Syllable::find(&frame, (0, 0), &ka, false).unwrap();
         assert_eq!((i, s.len()), (0, 2));
         assert_eq!(s.cols().collect::<Vec<_>>(), [0, 1, 2]);
         assert_eq!(s.piece(1), Piece::new(1, 2, 3));
         let ra = frame.cell(0, 1).unwrap();
-        assert_eq!(Syllable::find(&frame, (1, 0), &ra).map(|(_, i)| i), Some(1));
+        assert_eq!(
+            Syllable::find(&frame, (1, 0), &ra, false).map(|(_, i)| i),
+            Some(1)
+        );
         let tail = frame.cell(0, 2).unwrap();
-        assert!(Syllable::find(&frame, (2, 0), &tail).is_none());
+        assert!(Syllable::find(&frame, (2, 0), &tail, false).is_none());
         // the cursor on the second half splits it too
         assert!(!s.joined(0, Some((2, 0)), |_| false));
     }
@@ -458,7 +496,7 @@ mod tests {
         let read = |l: &Line| {
             let frame = Frame::new(vec![l], &damage, &p, Age::NEVER, Cursor::default(), false);
             let fc = frame.cell(0, 0).unwrap();
-            Syllable::find(&frame, (0, 0), &fc).unwrap().0
+            Syllable::find(&frame, (0, 0), &fc, false).unwrap().0
         };
         let s = read(&l);
         assert!(s.joined(0, None, |_| false));
@@ -483,5 +521,68 @@ mod tests {
         assert!(!read(&l).joined(0, None, |_| false), "red ra");
         restyle(&mut l, Style::DEFAULT);
         assert!(read(&l).joined(0, None, |_| false), "as written");
+    }
+
+    // ADR-1308 D8: with ligatures on, each run of 2 to 14 ASCII symbols
+    // side by side draws joined, and its piece keys name its text; letters,
+    // digits and spaces join nothing, a run of 15 draws each cell alone,
+    // and a syllable still joins. With ligatures off, no run of symbols is
+    // found
+    // covers: text.ligatures
+    #[test]
+    fn with_ligatures_on_a_run_of_ascii_symbols_draws_joined() {
+        let code = "a -> b != c; <!-- www 0x";
+        assert_eq!(
+            runs(code, true),
+            [vec![2, 3], vec![7, 8], vec![13, 14, 15, 16]]
+        );
+        assert_eq!(runs(code, false), Vec::<Vec<usize>>::new());
+        assert_eq!(runs(&"=".repeat(14), true), [(0..14).collect::<Vec<_>>()]);
+        assert_eq!(runs(&"=".repeat(15), true), Vec::<Vec<usize>>::new());
+        assert_eq!(runs("- > ! =", true), Vec::<Vec<usize>>::new());
+        assert_eq!(runs("ಕ್ರ ->", true), [vec![0, 1], vec![3, 4]]);
+        let l = line("->", 4);
+        let damage = Damage::new(4, 1);
+        let p = palette();
+        let frame = Frame::new(vec![&l], &damage, &p, Age::NEVER, Cursor::default(), false);
+        let fc = frame.cell(0, 1).unwrap();
+        let (s, i) = Syllable::find(&frame, (1, 0), &fc, true).unwrap();
+        assert_eq!((i, s.text()), (1, ['-', '>'].as_slice()));
+        let mut key = Vec::new();
+        assert_eq!(s.key(1, &mut key), Piece::new(1, 1, 2));
+        assert_eq!(key[..2], ['-', '>']);
+    }
+
+    // ADR-1308 D8: a run of symbols on a double-size line, or written
+    // right to left, never joins, and one whose characters differ in color
+    // draws apart, as a syllable does
+    #[test]
+    fn a_ligature_never_joins_on_a_double_size_line_or_backwards() {
+        let mut t = vtium_term::Terminal::new(10, 2, 0);
+        let _ = t.input(b"\x1b#6->\r\n\x1b[38;2;200;0;0m-\x1b[38;2;0;200;0m>");
+        let (wide, plain) = (t.screen().line(0).unwrap(), t.screen().line(1).unwrap());
+        let damage = Damage::new(10, 2);
+        let p = palette();
+        let frame = Frame::new(
+            vec![wide, plain],
+            &damage,
+            &p,
+            Age::NEVER,
+            Cursor::default(),
+            false,
+        );
+        let arrow = frame.cell(0, 0).unwrap();
+        assert!(
+            Syllable::find(&frame, (0, 0), &arrow, true).is_none(),
+            "double width"
+        );
+        let (dash, gt) = (frame.cell(1, 0).unwrap(), frame.cell(1, 1).unwrap());
+        assert!(linked(&dash, &gt, true));
+        assert!(
+            !linked(&FrameCell { rtl: true, ..dash }, &gt, true),
+            "right to left"
+        );
+        let (s, _) = Syllable::find(&frame, (0, 1), &dash, true).unwrap();
+        assert!(!s.joined(1, None, |_| false), "two colors");
     }
 }

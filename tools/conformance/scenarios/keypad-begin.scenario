@@ -1,0 +1,22 @@
+# The keypad's 5 key with NumLock off is Begin. Begin sends CSI E in the
+# numeric and the application keypad mode alike. With a modifier it carries
+# xterm's modifier parameter as the cursor keys do, CSI 1 ; m E.
+# modifyOtherKeys leaves Begin alone, since Begin makes no character. The
+# kitty keyboard protocol's flag 2 keeps the press in its legacy form.
+# spec: ctlseqs, PC-Style Function Keys: the keypad table's row "5 (Begin) | 5 | CSI E", and the modifier parameter of the cursor keys; kitty's keyboard-protocol, Functional key definitions: KP_BEGIN "1 E or 57427 ~"
+# covers: input.legacy
+size 20 2
+key KP_Begin
+key KP_Begin mods=shift
+key KP_Begin mods=alt
+key KP_Begin mods=ctrl
+key KP_Begin mods=ctrl+shift
+send "\e="
+key KP_Begin
+key KP_Begin mods=ctrl
+send "\e>\e[>4;2m"
+key KP_Begin
+key KP_Begin mods=ctrl
+send "\e[>4m\e[>2u"
+key KP_Begin
+key KP_Begin mods=shift

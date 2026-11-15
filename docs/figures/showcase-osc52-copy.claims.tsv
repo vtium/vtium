@@ -1,0 +1,12 @@
+# Claims of showcase-osc52-copy.svg on the showcase's page input and pointer.
+element	file	symbol
+1: OSC 52 with c sets the selection	crates/vtium-term/src/terminal/clipboard.rs	State::set_clipboard
+1: the text arrives in base64	crates/vtium-term/src/terminal/clipboard.rs	decode
+2: vtium takes the text from the terminal	crates/vtium-term/src/terminal.rs	Terminal::take_clipboard_write
+2: vtium holds the text as its selection, for a paste	crates/vtium/src/app.rs	App::session_turn
+2: no-clipboard-write drops it	crates/vtium-settings/src/keys.rs	key clipboard-write
+3: Shift+Insert pastes	crates/vtium/src/grab.rs	Action::Paste
+3: the middle button pastes	crates/vtium/src/head.rs	Head::pointer_event
+3: the paste reaches the console's program	crates/vtium/src/head.rs	Head::paste
+test: OSC 52 sets the selection	crates/vtium-term/tests/clipboard.rs	osc_52_sets_the_selection
+4: test: a request to read the selection gets no reply	crates/vtium-term/tests/clipboard.rs	osc_52_query_gets_no_reply

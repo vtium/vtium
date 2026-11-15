@@ -120,7 +120,7 @@ vtium is now off the machine. A few things from this tutorial stay, and you can 
 ## What next
 
 - [Choose a font](fonts.md) sets the font that vtium renders in. `vtium config tui` lets you try each font on the live console before you keep one.
-- [Install vtium and give it VTs](install.md) covers giving vtium every VT, upgrading, and moving to vtium from another terminal on a DRM/KMS VT.
+- [Install vtium and give it VTs](install.md) covers giving vtium every VT, upgrading, and moving to vtium from another terminal on a KMS/DRM VT.
 - [What vtium does](features.md) lists what vtium renders. [Concepts](concepts/index.md) explains how its pieces fit together.
 
 ## Without a package

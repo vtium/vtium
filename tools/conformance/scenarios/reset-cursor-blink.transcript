@@ -1,0 +1,38 @@
+> size 10 2
+> needs cursor-blink
+> cmd cursor-blink
+< test cursor-blink default
+> send "\e[16;250]"
+> cmd cursor-blink
+< test cursor-blink ms=250
+> send "\e[16;50]"
+> cmd cursor-blink
+< test cursor-blink ms=50
+> send "\e[16;65535]"
+> cmd cursor-blink
+< test cursor-blink ms=65535
+> send "\e[16;65536]"
+> cmd cursor-blink
+< test cursor-blink default
+> send "\e[16;300]\e[16;49]"
+> cmd cursor-blink
+< test cursor-blink default
+> send "\e[16;300]\e[16;0]"
+> cmd cursor-blink
+< test cursor-blink default
+> send "\e[16;300]\e[16]"
+> cmd cursor-blink
+< test cursor-blink default
+> send "\e[16;300]\e[!p"
+> cmd cursor-blink
+< test cursor-blink ms=300
+> send "\ec"
+> cmd cursor-blink
+< test cursor-blink default
+> send "ok"
+> dump screen
+size 10x2
+cursor 2,0
+flags AUTO_WRAP
+row 0 |ok|
+row 1 ||

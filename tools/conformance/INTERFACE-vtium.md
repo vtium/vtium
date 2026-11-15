@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.12 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.13 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -526,6 +526,40 @@ row 0 |Big|
 row 1 |Big|
 ```
 
+## The cursor's blink interval
+
+A program sets how long each phase of the cursor's blink lasts with the Linux console's `CSI 16 ; n ]` (`ctl.linux-blink-interval` in ADR-1000). The terminal keeps an n from 50 to 65535 milliseconds, as the Linux console does. Any other n, or no n, returns the interval to the default, the host's own interval, and so does RIS. The sequence writes no reply and changes nothing on the screen, so the `cursor-blink` command prints what the terminal holds.
+
+| Command | Keys | Feature | What it does |
+|---|---|---|---|
+| `cursor-blink` | none | `cursor-blink` | Prints `test cursor-blink ms=N` for the interval N a program set, or `test cursor-blink default` when the interval is the host's own. |
+
+| Feature | What declaring it means |
+|---|---|
+| `cursor-blink` | `cursor-blink`. |
+
+A worked example. The program sets 250 ms, then an n below the range, which returns the interval to the default.
+
+```example cursor-blink
+size 8 1
+needs cursor-blink
+cmd cursor-blink
+send "\e[16;250]"
+cmd cursor-blink
+send "\e[16;49]"
+cmd cursor-blink
+```
+
+```output cursor-blink
+test cursor-blink default
+test cursor-blink ms=250
+test cursor-blink default
+size 8x1
+cursor 0,0
+flags AUTO_WRAP
+row 0 ||
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
@@ -535,7 +569,7 @@ The worked examples, here and in 1.0, read each `send` string with the string sy
 The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. It also adds the `frame-cursor` line's `span=` and `rows=` keys. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.12
+interface 1.13
 view display
 feature clipboard
 feature attrs-renditions
@@ -554,6 +588,7 @@ feature window-ops
 feature display-ops
 feature cluster-width
 feature cursor-extent
+feature cursor-blink
 command clipboard clipboard
 command select selection
 command copy selection
@@ -570,6 +605,7 @@ command grid-request window-ops
 command display-ops display-ops
 command display-request display-ops
 command cluster-width cluster-width
+command cursor-blink cursor-blink
 ```
 
 ```grammar
@@ -598,6 +634,7 @@ line test * test state colors fg={RGB} bg={RGB} cursor=(?:{RGB}|default)
 line test * test font-request (?:none|[A-Za-z0-9_+-][A-Za-z0-9._+-]{0,63})
 line test * test grid-request (?:none|(?:[1-9][0-9]*|keep|display) (?:[1-9][0-9]*|keep|display))
 line test * test display-request (?:none|background|foreground)
+line test * test cursor-blink (?:default|ms=[1-9][0-9]{1,4})
 define HEAD (?: size)(?: cursor)(?: flags)(?: reply| host:)*(?: bell)?
 define IMAGES (?: placement)*(?: image(?: anim)*)*
 define SCREEN {HEAD}(?: row(?: attr)*)+{IMAGES}

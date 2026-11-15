@@ -28,6 +28,7 @@ nav = [
       { "Security and the system" = "home/security-and-system.md" },
       { "What vtium leaves to other tools" = "home/leaves-to-other-tools.md" },
       { "Showcase" = "showcase/README.md" },
+      { "Releases" = "releases/index.md" },
   ] },
   { "Tutorials" = [
       { "Try vtium on one VT" = "tutorial-try-vtium.md" },
@@ -79,6 +80,7 @@ nav = [
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
       { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
+      { "The crates' interfaces" = "api/index.md" },
   ] },
 ]
 
@@ -99,12 +101,18 @@ exclude_docs = """
 # vt-review.md describe, the specimen profiles, which specimens/README.md
 # links, and the tutorial Your first frit, which joins the menu once it is
 # written.
+# The pages under api/ and releases/, other than their index pages, are
+# reached from those index pages.
 not_in_nav = """
 /tutorial-first-frit.md
 /architecture/*/ADR-*.md
 /acceptance/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
+/showcase/*.md
+/api/getting-started.md
+/api/conventions.md
+/releases/*.md
 """
 
 [project.theme]

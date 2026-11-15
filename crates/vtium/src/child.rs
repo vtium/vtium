@@ -5,7 +5,9 @@
 //! `/bin/login` with it off. With `reset-env` on the environment starts
 //! empty, and off it starts as vtium's own. Over it vtium sets `TERM`,
 //! `TERM_PROGRAM=vtium` and `TERM_PROGRAM_VERSION`, vtium's version, which
-//! name the terminal whatever `TERM` names, `COLORTERM=truecolor`,
+//! name the terminal whatever `TERM` names, `COLORTERM=truecolor` when
+//! 24-bit color can show on the session's displays, and removes any
+//! `COLORTERM` it inherited when it cannot (see [`Place::truecolor`]),
 //! `XDG_SEAT` and `XDG_VTNR` when it knows them, except on a seat that
 //! libseat's logind backend opened,
 //! `TERM_SESSION_TYPE`: `kms` on a DRM display, or `fb` on fbdev, and
@@ -54,6 +56,17 @@ pub struct Place<'a> {
     /// The seat came through libseat's logind backend: the session gets no
     /// seat, and none of vtium's own session's variables.
     pub logind_seat: bool,
+    /// Whether 24-bit color can show on every display the session's
+    /// program counts as it starts. Then vtium sets `COLORTERM=truecolor`,
+    /// which tells the program it may send 24-bit color. When one of those
+    /// displays is black and white, vtium leaves `COLORTERM` out of the
+    /// environment, and removes a value the environment inherited, so the
+    /// program never hears of more color than the displays can show.
+    /// [`crate::head::Head::truecolor`] decides it.
+    ///
+    /// References:
+    /// - ADR-1301 D10: which displays count, and the inherited value.
+    pub truecolor: bool,
 }
 
 /// Whether `name` is a variable of vtium's own logind session, which a
@@ -86,11 +99,16 @@ pub fn child(
             .filter(|(k, _)| !(place.logind_seat && of_vtiums_session(k)))
             .collect()
     };
+    if !place.truecolor {
+        env.remove(OsStr::new("COLORTERM"));
+    }
     let mut set = |k: &str, v: &str| env.insert(k.into(), v.into());
     set("TERM", config.text(&TERM).unwrap_or_default());
     set("TERM_PROGRAM", "vtium");
     set("TERM_PROGRAM_VERSION", env!("CARGO_PKG_VERSION"));
-    set("COLORTERM", "truecolor");
+    if place.truecolor {
+        set("COLORTERM", "truecolor");
+    }
     if !place.logind_seat {
         if let Some(seat) = place.seat {
             set("XDG_SEAT", seat);
@@ -129,6 +147,14 @@ pub fn child(
 }
 
 impl Child {
+    /// Whether the environment tells the program `COLORTERM=truecolor`.
+    pub fn truecolor(&self) -> bool {
+        self.env
+            .get(OsStr::new("COLORTERM"))
+            .map(OsString::as_os_str)
+            == Some(OsStr::new("truecolor"))
+    }
+
     /// The command for [`vtium_platform::Pty::spawn`]; `None` with no
     /// word to run.
     pub fn command(&self) -> Option<Command> {
@@ -172,6 +198,7 @@ mod tests {
         display: Display::Kms,
         console: None,
         logind_seat: false,
+        truecolor: true,
     };
 
     fn vtiums_own() -> Vec<(OsString, OsString)> {
@@ -236,6 +263,7 @@ mod tests {
             display: Display::Fbdev,
             console: None,
             logind_seat: false,
+            truecolor: true,
         };
         let c = child(&config(&[]), &place, vtiums_own());
         assert_eq!(
@@ -399,6 +427,65 @@ mod tests {
                 "XDG_VTNR"
             ]
         );
+    }
+
+    /// vtium's own environment, started from a terminal that set
+    /// `COLORTERM` for its own programs.
+    fn vtiums_own_with_colorterm(value: &str) -> Vec<(OsString, OsString)> {
+        let mut env = vtiums_own();
+        env.extend(os(&[("COLORTERM", value)]));
+        env
+    }
+
+    /// The session's `COLORTERM`, `None` when the environment has none.
+    fn colorterm(c: &Child) -> Option<&OsStr> {
+        c.env.get(OsStr::new("COLORTERM")).map(OsString::as_os_str)
+    }
+
+    // A session that 24-bit color can show on is told `truecolor`, over
+    // whatever value vtium inherited, with the environment reset or kept.
+    //
+    // References:
+    // - ADR-1301 D10: the rule, and the inherited value.
+    #[test]
+    fn a_session_that_color_can_show_on_is_told_truecolor() {
+        for args in [&[][..], &["--no-reset-env"][..]] {
+            for inherited in [vtiums_own(), vtiums_own_with_colorterm("24bit")] {
+                let c = child(&config(args), &TTY2, inherited);
+                assert_eq!(colorterm(&c), Some(OsStr::new("truecolor")), "{args:?}");
+                assert!(c.truecolor(), "{args:?}");
+            }
+        }
+    }
+
+    // A session on a head with a black-and-white display has no
+    // `COLORTERM`. With `reset-env` off, vtium removes the value it
+    // inherited, so the program is never told of 24-bit color.
+    //
+    // References:
+    // - ADR-1301 D10: the rule, and the inherited value.
+    #[test]
+    fn a_session_on_a_black_and_white_display_has_no_colorterm() {
+        let place = Place {
+            truecolor: false,
+            ..TTY2
+        };
+        for args in [&[][..], &["--no-reset-env"][..]] {
+            for inherited in [vtiums_own(), vtiums_own_with_colorterm("truecolor")] {
+                let c = child(&config(args), &place, inherited);
+                assert_eq!(colorterm(&c), None, "{args:?}");
+                assert!(!c.truecolor(), "{args:?}");
+                // the rest of what vtium sets stays
+                assert_eq!(c.env.get(OsStr::new("TERM_PROGRAM")), Some(&"vtium".into()));
+            }
+        }
+        // a `login` word that names the variable reads it as empty
+        let c = child(
+            &config(&["--login", "--", "/bin/sh", "$COLORTERM"]),
+            &place,
+            vtiums_own_with_colorterm("truecolor"),
+        );
+        assert_eq!(c.argv, argv(&["/bin/sh", ""]));
     }
 
     #[test]

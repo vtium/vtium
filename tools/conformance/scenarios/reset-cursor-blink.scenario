@@ -1,0 +1,31 @@
+# The Linux console's cursor blink interval, CSI 16 ; n ]: the terminal
+# keeps an n from 50 to 65535 milliseconds. Any other n, n = 0 among them,
+# or no n, returns the interval to the default, the host's own. RIS returns
+# it to the default too, as the Linux console's reset does. DECSTR keeps
+# it, since the Linux console has no DECSTR. The sequence writes no reply
+# and leaves the screen alone.
+# spec: console_codes(4), "ESC [ 16 ; n ]  Set the cursor blink interval in milliseconds"; the Linux kernel's drivers/tty/vt/vt.c, where the page is silent: n from 50 to USHRT_MAX, else DEFAULT_CURSOR_BLINK_MS, and reset_terminal restores the default
+# covers: ctl.linux-blink-interval
+size 10 2
+needs cursor-blink
+cmd cursor-blink
+send "\e[16;250]"
+cmd cursor-blink
+send "\e[16;50]"
+cmd cursor-blink
+send "\e[16;65535]"
+cmd cursor-blink
+send "\e[16;65536]"
+cmd cursor-blink
+send "\e[16;300]\e[16;49]"
+cmd cursor-blink
+send "\e[16;300]\e[16;0]"
+cmd cursor-blink
+send "\e[16;300]\e[16]"
+cmd cursor-blink
+send "\e[16;300]\e[!p"
+cmd cursor-blink
+send "\ec"
+cmd cursor-blink
+send "ok"
+dump screen
