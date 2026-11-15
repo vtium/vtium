@@ -843,7 +843,8 @@ api: ## Build the crates' interfaces with rustdoc into target/doc, failing on an
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
-	@test -f target/site/api/index.html || { echo "target/site/api has no index page: run make docs first" >&2; exit 1; }
+	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
+	mkdir -p target/site/api
 	cp -R $(API_DOC_DIR)/. target/site/api/
 
 site: docs ## Build the documentation site with the crates' interfaces under /api/
