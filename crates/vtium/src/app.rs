@@ -2166,6 +2166,8 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
+            // The cursor's first phase lasts the interval its program set,
+            // so a phase longer than 500 ms is not cut short.
             let cursor = crate::blink::cursor_period(&head.console.term.terminal);
             if let Some(arms) = head.console.term.blink.activate(cursor) {
                 for (timer, arm) in arms {

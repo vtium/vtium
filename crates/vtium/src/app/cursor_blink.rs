@@ -80,27 +80,35 @@ fn the_cursor_blinks_at_the_interval_a_program_set_without_a_key() {
 }
 
 // A console shown again keeps the interval its program set: the cursor
-// timer is armed at 250 ms from the turn the VT comes back, with no key.
+// timer is armed at that interval from the turn the VT comes back, with no
+// key. The first phase lasts the whole interval, whether it is shorter or
+// longer than the `blink` key's 500 ms.
 // covers: ctl.linux-blink-interval
 #[test]
 fn the_cursor_takes_the_interval_again_when_the_vt_comes_back() {
-    let t = Instant::now();
-    let ms = |n: u64| t + Duration::from_millis(n);
-    let (_lp, mut app) = seat_at(&[], t);
-    output(&mut app, b"\x1b[16;250]", ms(100));
-    // the VT goes, and the display reports itself asleep
-    app.vt.leave().unwrap();
-    app.turn(ms(150));
-    let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
-    let still = still.as_any().downcast_mut::<Still>().unwrap();
-    still.events.push(Event::Asleep);
-    app.turn(ms(150));
-    assert!(!app.awake, "the VT is let go");
-    assert_eq!(cursor(&app), None, "no blink while away");
-    app.vt.activate().unwrap();
-    app.turn(ms(1000));
-    assert!(app.awake);
-    assert_eq!(cursor(&app), Some((ms(1250), Duration::from_millis(250))));
+    for every in [250, 1000] {
+        let t = Instant::now();
+        let ms = |n: u64| t + Duration::from_millis(n);
+        let (_lp, mut app) = seat_at(&[], t);
+        output(&mut app, format!("\x1b[16;{every}]").as_bytes(), ms(100));
+        // the VT goes, and the display reports itself asleep
+        app.vt.leave().unwrap();
+        app.turn(ms(150));
+        let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+        let still = still.as_any().downcast_mut::<Still>().unwrap();
+        still.events.push(Event::Asleep);
+        app.turn(ms(150));
+        assert!(!app.awake, "the VT is let go");
+        assert_eq!(cursor(&app), None, "no blink while away");
+        app.vt.activate().unwrap();
+        app.turn(ms(2000));
+        assert!(app.awake);
+        assert_eq!(
+            cursor(&app),
+            Some((ms(2000 + every), Duration::from_millis(every))),
+            "{every} ms"
+        );
+    }
 }
 
 // With `blink` off the cursor does not blink, whatever a program sets.
