@@ -6997,6 +6997,24 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(sorted(os.path.relpath(p, out)
                                 for p in t3_showcase.compose(run, report, out)[0]), sorted(pages))
 
+    def test_the_pages_keep_to_the_prose_limits(self):
+        # The pages compose writes are pages people read, so their captions
+        # and text keep to the limits docs/scripts/prose checks: no
+        # sentence over 30 words and no page averaging over 20. The check
+        # runs on the pages composed from a stand-in run, so a caption is
+        # checked in the scene script where it is written, whether or not
+        # the committed pages are current.
+        run, report = self.run_dir()
+        out = os.path.join(self.dir.name, "out")
+        t3_showcase.compose(run, report, out)
+        pages = sorted(os.path.join(out, f) for f in os.listdir(out) if f.endswith(".md"))
+        self.assertIn(os.path.join(out, "README.md"), pages)
+        check = subprocess.run([sys.executable, "-I", "-B",
+                                os.path.join(t3_common.ROOT, "docs", "scripts", "prose"),
+                                "--check"] + pages, capture_output=True, text=True, timeout=60)
+        self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+        self.assertIn("prose: %d pages read: 0 sentences over" % len(pages), check.stdout)
+
     def test_compose_refuses_a_run_that_did_not_capture(self):
         run, report = self.run_dir({"showcase-emoji": "fail"})
         with self.assertRaisesRegex(RuntimeError, "showcase-emoji is fail"):

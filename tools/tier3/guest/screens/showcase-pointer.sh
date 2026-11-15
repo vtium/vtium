@@ -2,12 +2,12 @@
 # category: input and pointer
 # hero: yes
 # A program changes the mouse pointer's shape with OSC 22, and vtium draws
-# the shape itself: here a program shows a list of links and sets the
+# the shape itself. Here a program shows a list of links and sets the
 # pointer to the hand that marks something to click. vtium has a picture of
-# its own for each of ten shapes: the arrow, an I-beam over text, the hand,
-# a crosshair, an hourglass, the arrow with a small hourglass, a circle with
-# a slash, four arrows for a move, and double arrows for resizing sideways
-# and up and down.
+# its own for each of ten shapes. They are the arrow, an I-beam over text,
+# the hand, a crosshair, an hourglass, and the arrow with a small hourglass.
+# The others are a circle with a slash, four arrows for a move, and double
+# arrows for resizing sideways and up and down.
 # alt: A console screen in a smooth monospaced font: a heading, a list of
 # alt: four underlined web addresses, and a line that names the ten pointer
 # alt: shapes vtium draws. The mouse pointer, a white hand with a raised
