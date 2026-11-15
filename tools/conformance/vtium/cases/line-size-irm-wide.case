@@ -6,7 +6,7 @@
 # pending wrap, and the next one starts the next row, where it is
 # inserted too.
 # spec: the VT100 User Guide, DECDWL: "The use of double-width characters reduces the number of characters per line by half"; the VT510 manual, IRM: "If IRM mode is set, then new characters move characters in page memory to the right. Characters moved past the page's right border are lost"; DCH: "The terminal adds blank spaces with no visual character attributes at the right margin"; DECAWM: "If the DECAWM function is set, then graphic characters received when the cursor is at the right border of the page appear at the beginning of the next line"
-# covers: ANSI-4
+# covers: ANSI-4, text.line-size
 size 10 3
 send "\e[2;1H12345\e[1;1H\e#6abcde\e[1;3H\e[4hXY"
 dump

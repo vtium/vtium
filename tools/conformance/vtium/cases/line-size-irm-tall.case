@@ -3,7 +3,7 @@
 # column, column 5 of 10. The other line of the pair keeps its text, so
 # the two halves of the doubled characters no longer match.
 # spec: the VT100 User Guide, DECDHL: "The use of double-width characters reduces the number of characters per line by half"; the VT510 manual, IRM: "If IRM mode is set, then new characters move characters in page memory to the right. Characters moved past the page's right border are lost"
-# covers: ANSI-4
+# covers: ANSI-4, text.line-size
 size 10 3
 send "\e#3abcde\r\n\e#4abcde\e[1;2H\e[4hX"
 dump
