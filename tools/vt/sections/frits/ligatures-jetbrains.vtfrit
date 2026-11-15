@@ -1,0 +1,16 @@
+# ligatures-jetbrains: the font set of the ligatures page
+# (tools/vt/sections/53-ligatures.sh). JetBrains Mono draws the text, and
+# its programming ligatures, such as -> and !=, draw across their cells
+# while the review's vtium.conf turns font-ligatures on. The built-in
+# unifont draws anything JetBrains Mono lacks. The file is from Arch
+# Linux's ttf-jetbrains-mono package.
+#
+# Licence: the SIL Open Font License 1.1.
+#
+# checks: operators drawn as the font's ligatures; each cell its own character
+
+name=ligatures-jetbrains
+license=OFL-1.1
+
+source=outline:/usr/share/fonts/TTF/JetBrainsMono-Regular.ttf
+source=builtin:unifont
