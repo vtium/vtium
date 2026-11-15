@@ -2237,6 +2237,36 @@ mod tests {
         }
     }
 
+    // The request carries a 1-bit request as hinting byte 2, the fifth byte
+    // from its end, and reads it back as full hinting then 1-bit; byte 2
+    // planted in a fully hinted request reads as that too.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: render=bitmap's full hinting and
+    //   1-bit coverage, which the helper asks the parser for.
+    #[test]
+    fn hinting_byte_2_reads_back_as_full_hinting_then_one_bit() {
+        use super::OutlineRequest;
+        use crate::frit::Hinting;
+        let bitmap = OutlineRequest {
+            font: vec![0u8; 4].into(),
+            cells: vec![(8, 16)],
+            hinting: Hinting::Bitmap,
+            ..OutlineRequest::default()
+        };
+        let bytes = bitmap.encode();
+        assert_eq!(bytes[bytes.len() - 5], 2);
+        assert_eq!(OutlineRequest::decode(&bytes), Ok(bitmap.clone()));
+        let mut full = OutlineRequest {
+            hinting: Hinting::Full,
+            ..bitmap.clone()
+        }
+        .encode();
+        let n = full.len();
+        full[n - 5] = 2;
+        assert_eq!(OutlineRequest::decode(&full), Ok(bitmap));
+    }
+
     // the maintainer, 2026-11-04: synthetic bold grows by a whole pixel at
     // least, half on each side, and by FreeType's 24th of the size above
     // that
