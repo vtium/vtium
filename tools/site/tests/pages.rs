@@ -37,14 +37,19 @@ fn every_release_page_has_a_row_and_the_rows_run_newest_first() {
 }
 
 /// A small releases folder of its own, with a page the index leaves out,
-/// a row with no page, and two rows out of order, so the check is seen to
-/// catch each.
+/// a row with no page, a row listed twice, and two rows out of order, so
+/// the check is seen to catch each.
 #[test]
-fn a_page_left_out_a_row_with_no_page_and_rows_out_of_order_are_faults() {
+fn a_page_left_out_a_row_with_no_page_a_row_listed_twice_and_rows_out_of_order_are_faults() {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("site-releases");
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
-    for page in ["0.1.0-alpha.9.md", "0.1.0-alpha.10.md", "0.1.0-alpha.2.md"] {
+    for page in [
+        "0.1.0-alpha.9.md",
+        "0.1.0-alpha.10.md",
+        "0.1.0-alpha.2.md",
+        "0.1.0-alpha.1.md",
+    ] {
         std::fs::write(dir.join(page), "# A release\n").unwrap();
     }
     std::fs::write(
@@ -52,14 +57,17 @@ fn a_page_left_out_a_row_with_no_page_and_rows_out_of_order_are_faults() {
         "| Release | Date |\n|---|---|\n\
          | [0.1.0-alpha.9](0.1.0-alpha.9.md) | 2026-11-20 |\n\
          | [0.1.0-alpha.10](0.1.0-alpha.10.md) | 2026-11-21 |\n\
-         | [0.1.0-alpha.3](0.1.0-alpha.3.md) | 2026-11-04 |\n",
+         | [0.1.0-alpha.3](0.1.0-alpha.3.md) | 2026-11-04 |\n\
+         | [0.1.0-alpha.2](0.1.0-alpha.2.md) | 2026-11-03 |\n\
+         | [0.1.0-alpha.2](0.1.0-alpha.2.md) | 2026-11-03 |\n",
     )
     .unwrap();
     assert_eq!(
         release_index_faults(&dir).unwrap(),
         [
-            "docs/releases/0.1.0-alpha.2.md has no row in docs/releases/index.md",
+            "docs/releases/0.1.0-alpha.1.md has no row in docs/releases/index.md",
             "docs/releases/index.md has a row for 0.1.0-alpha.3, which has no page",
+            "docs/releases/index.md lists 0.1.0-alpha.2 twice",
             "docs/releases/index.md lists 0.1.0-alpha.9 before 0.1.0-alpha.10, but the newest release comes first",
         ]
     );
