@@ -419,7 +419,7 @@ class Screens(unittest.TestCase):
         out, floor, _, state_at = typepad.draw("tall", 80, 24, 6)
         # Five rows of keys on 80 columns, and a blank row.
         self.assertEqual(floor, 7)
-        self.assertTrue(out.startswith(b"\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
+        self.assertTrue(out.startswith(b"\x1b[4l\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
         self.assertIn(b"\x1b[4;1H        F3 to F6 change the size of the whole line the cursor is on", out)
         self.assertTrue(out.endswith(b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H"))
         # Without --insert the key list does not say whether insert mode is on.
@@ -464,12 +464,46 @@ class Screens(unittest.TestCase):
                                     "The rest of this step is in g.guide.", ""])
 
     def test_every_row_fits_the_screens_width(self):
-        step = ("Step 1 of 1: " + "t" * 100, "a " * 80, "b " * 80 + "\nWrong: " + "c" * 200, "g.guide")
+        step = ("Step 1 of 1: " + "t" * 100, "a " * 80 + "*a " * 20 + "a* " * 20,
+                "b " * 80 + "\n*Wrong:* " + "*" + "c" * 200 + "*", "g.guide")
         for cols in (80, 60, 41, 20, 12, 5):
             for pair in (False, True):
                 with self.subTest(cols=cols, pair=pair):
                     for row in typepad.layout(cols, 60, [], step, pair):
-                        self.assertLessEqual(len(row), cols, row)
+                        self.assertLessEqual(len(typepad.shown(row)), cols, row)
+                        self.assertNotIn("*", row)
+
+    def test_a_span_between_asterisks_is_bold(self):
+        # A guide marks the words to look at as *these*. The pad draws them
+        # with SGR 1 and SGR 22 and draws no asterisk.
+        step = ("Step 1 of 1: T", "Press *F2* twice.\n", "The *letters move* right.\n*Wrong:* none.\n", "g.guide")
+        text = typepad.layout(80, 25, [], step)
+        self.assertEqual(text[:4], [
+            "Step 1 of 1: T",
+            "Do:     Press \x1b[1mF2\x1b[22m twice.",
+            "Expect: The \x1b[1mletters move\x1b[22m right.",
+            "        \x1b[1mWrong:\x1b[22m none.",
+        ])
+        out = typepad.draw("wide", 80, 25, None, step)[0]
+        self.assertIn(b"\x1b[3;1HExpect: The \x1b[1mletters move\x1b[22m right.\x1b[4;1H", out)
+        self.assertNotIn(b"*", out)
+
+    def test_asterisks_take_no_column_when_the_pad_wraps(self):
+        # On 20 columns a do: row holds 12 characters after its label.
+        # "abcdef ghijk" is 12 characters shown, and its asterisks are not
+        # shown, so the span stays on one row.
+        text = typepad.labelled("Do", ["*abcdef* ghijk"], 20)
+        self.assertEqual(text, ["Do:     \x1b[1mabcdef\x1b[22m ghijk"])
+        self.assertEqual(typepad.wrap("*abcdef* ghijkl", 12), ["*abcdef*", "ghijkl"])
+        # A word wider than a row is cut by the characters shown.
+        self.assertEqual(typepad.wrap("*" + "c" * 14 + "*", 12), ["*" + "c" * 12, "cc*"])
+
+    def test_a_span_that_wraps_is_bold_on_each_of_its_rows(self):
+        # Each row turns bold off at its end, so the rows after a span, and
+        # the key list below the step, are never bold.
+        rows = typepad.labelled("Expect", ["one *two three four* five"], 24)
+        self.assertEqual(rows, ["Expect: one \x1b[1mtwo three\x1b[22m",
+                                "        \x1b[1mfour\x1b[22m five"])
 
     def test_every_step_of_the_guides_fits_80_by_25(self):
         for guide, count in ((GUIDE, 14), (INSERT_GUIDE, 7)):
@@ -484,6 +518,11 @@ class Screens(unittest.TestCase):
                     text = typepad.layout(80, 25, lines, step, "--pair" in args, "--insert" in args)
                     self.assertFalse(any(r.startswith("The rest of this step") for r in text), text)
                     self.assertEqual(text[0], heading)
+                    # Each row fits 80 columns as shown, and shows no
+                    # asterisk: each one in the guide marks a bold span.
+                    for row in text:
+                        self.assertLessEqual(len(typepad.shown(row)), 80, row)
+                        self.assertNotIn("*", row)
                     # The lines, a row for typing past them and the
                     # question's row fit below the text.
                     self.assertLessEqual(len(text) + len(lines) + 2, 25)
@@ -530,10 +569,24 @@ class Screens(unittest.TestCase):
                     else:
                         self.assertIn("Wrong:", expect, title)
 
-    def test_every_step_of_the_insert_guide_runs_the_pad_with_insert(self):
-        for heading, _, _, args in guide_steps(INSERT_GUIDE):
+    def test_the_pad_starts_with_insert_mode_off(self):
+        # The pad turns the terminal's insert mode off before it draws, with
+        # or without --insert, so typing never pushes letters right unless
+        # F2 turned insert mode on in this run.
+        for insert in (False, True):
+            with self.subTest(insert=insert):
+                self.assertTrue(typepad.draw("insert", 80, 25, None, insert=insert)[0].startswith(b"\x1b[4l\x1b[H"))
+
+    def test_only_the_insert_guides_steps_that_press_f2_run_the_pad_with_insert(self):
+        # The maintainer pressed F2 in the last step, which checks the wrap
+        # with insert mode off, and saw letters pushed off the right edge.
+        # A step that does not ask for F2 runs the pad without --insert, so
+        # F2 does nothing there and the key list does not offer it.
+        steps = guide_steps(INSERT_GUIDE)
+        self.assertEqual([("--insert" in args) for _, _, _, args in steps], [True] * 6 + [False])
+        for heading, do, expect, args in steps:
             with self.subTest(step=heading):
-                self.assertIn("--insert", args)
+                self.assertEqual("--insert" in args, "Press F2" in do.replace("\n", " "), do)
 
     def test_the_step_comes_from_guide_shs_environment(self):
         self.assertIsNone(typepad.step_text({}))

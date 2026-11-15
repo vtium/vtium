@@ -141,6 +141,8 @@ A guide is a file `tools/vt/checks/NAME.guide`, made of lines of `key: text`. Bl
 | `probe:` | the step's mode. It is either `shell`, an interactive shell with the prompt `vtium-check$ `, or a mode of `checks/probe.py` (`probe.py --list`). A `probe.py` mode sets a terminal mode, and prints each sequence the terminal sends with its time. A step has a `run:` or a `probe:`, not both. A step with neither asks once Enter is pressed. |
 | `do:`, `expect:` | a line shown as typed, under `Do:` or `Expect:`. Each step needs an `expect:` line, and a `do:` or `run:` line. |
 
+In `intro:`, `do:` and `expect:` lines, text between two asterisks, `*like this*`, is shown bold. `guide.sh` and the typing pad draw it with SGR 1 and SGR 22, and show no asterisk. A guide makes bold the one or two things that a step asks the operator to look at, and the word Wrong:. A bold span opens and closes on one line, and starts and ends with a character that is not a space. Those lines hold no other asterisk, and `title:` and `step:` lines hold none. `guide.sh --check` refuses a guide that breaks these rules. The typing pad wraps the step's text by the characters it shows, so the asterisks take no column.
+
 A step that judges a picture runs the command that draws it, so the picture is on screen while the operator answers. One step judges each picture. `do:` holds what only the operator can do: switch VTs, keep still, look. A step keeps the `shell` probe when typing the command is what the step checks.
 
 In a guide's text, `{vt}` stands for the run's VT and `{desktop}` for the desktop's VT. `guide.sh --check FILE` checks a guide without a terminal, and lists its steps. These are the guides:

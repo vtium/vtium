@@ -4195,7 +4195,16 @@ class Guide(Case):
                           (ok + "probe: shell\nprobe: focus\n", "one probe per step"),
                           (ok + "intro: late\n", "intro lines go before the first step"),
                           (ok + "color: red\n", "unknown key 'color'"),
-                          (ok + "not a key line\n", "not a 'key: text' line")):
+                          (ok + "not a key line\n", "not a 'key: text' line"),
+                          # A bold span opens and closes on one line, with
+                          # no space just inside its asterisks.
+                          (ok.replace("do: d", "do: an *open span"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("expect: e", "expect: *a* *b"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("do: d", "do: a * spaced*"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("do: d", "do: an empty ** span"), "each asterisk opens or closes a bold span"),
+                          ("intro: one *two\n" + ok, "each asterisk opens or closes a bold span"),
+                          (ok.replace("step: S", "step: *S*"), "a step: line has no asterisk"),
+                          (ok.replace("title: T", "title: *T*"), "a title: line has no asterisk")):
             with self.subTest(why=why):
                 p = self.check(text)
                 self.refused(p, why)
@@ -4217,6 +4226,31 @@ class Guide(Case):
         p = self.check("title: T\ncleanup: rm -f x\n" + ok[9:])
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout, "T: 1 steps\n   1  (no probe)   S\n  cleanup when the checks end: rm -f x\n")
+
+    def test_a_span_between_asterisks_is_shown_bold(self):
+        # The intro and a step's do: and expect: lines show *a span* with
+        # SGR 1 and SGR 22 in place of its asterisks. The command under
+        # Run: is shown as it is typed, asterisks and all.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Bold guide\nintro: Look at *the letters*.\n"
+                     "step: One\nrun: echo 'a*b*c'\ndo: Press *F2* and *Insert*.\n"
+                     "expect: The *letter* moves.\nexpect: *Wrong:* a gap.\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        self.assertIn(b"Look at \x1b[1mthe letters\x1b[22m.", g.seen)
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it")
+        self.assertIn(b"Run:    echo 'a*b*c'\r\n", g.seen)
+        self.assertIn(b"Do:     Press \x1b[1mF2\x1b[22m and \x1b[1mInsert\x1b[22m.\r\n", g.seen)
+        self.assertIn(b"Expect: The \x1b[1mletter\x1b[22m moves.\r\n        \x1b[1mWrong:\x1b[22m a gap.\r\n",
+                      g.seen)
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        # The log holds the step's title, which has no asterisk, and none of
+        # its text.
+        log = read(os.path.join(self.s.dir, "vt-check.log"))
+        self.assertIn("-- step 1 of 1: One", log)
+        self.assertNotIn("\x1b[1m", log)
 
     def test_the_cleanup_runs_however_the_checks_end(self):
         # A guide that changes the machine for some steps puts it back in its
