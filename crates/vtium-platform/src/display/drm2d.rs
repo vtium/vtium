@@ -155,7 +155,7 @@ enum Scan {
 }
 
 /// A DRM card's displays, drawn into the buffers `S` makes, dumb buffers
-/// by default. Outside the crate the card is a [`Card`]; the tests stand
+/// by default. Outside the crate the card is a [`Card`](crate::display::Card); the tests stand
 /// one in.
 #[expect(private_bounds, reason = "the card is a Card outside the crate")]
 pub struct Drm2d<K: Kms, S: Source<K> = Dumbs> {
@@ -494,7 +494,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     }
 
     /// The levels of the display, 2 for a 1-bit panel and 4 or 16 for a
-    /// gray one, which the card's driver says ([`super::depth`]); `None`
+    /// gray one, which the card's driver says (`depth`); `None`
     /// for a color display.
     pub fn levels(&self, id: DisplayId) -> Option<u8> {
         self.levels.filter(|_| self.output(id).is_some())
@@ -996,7 +996,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
         Ok(())
     }
 
-    /// Takes the cursor plane's image away ([`drop_cursor`]).
+    /// Takes the cursor plane's image away (`drop_cursor`).
     pub fn destroy_cursor(&mut self, id: DisplayId) {
         if let Some(o) = self.outputs.iter_mut().find(|o| o.id == id) {
             drop_cursor(&self.card, o);
@@ -1042,7 +1042,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// again every [`crate::WAKE_RETRY_MS`], at most
     /// [`crate::WAKE_RETRIES`] times, and then every
     /// [`crate::WAKE_RETRY_SLOW_MS`] while the VT is shown
-    /// ([`Self::retry_slowly`]).
+    /// (`retry_slowly`).
     pub fn wake_up(&mut self) -> io::Result<()> {
         if self.gone {
             return Err(Errno::NODEV.into());

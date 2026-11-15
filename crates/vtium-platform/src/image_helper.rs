@@ -14,7 +14,7 @@
 //! fires first, the binary calls [`ImageHost::stop`], which kills the
 //! helper and counts no crash.
 //!
-//! - **Whose account.** [`identity`] finds the session's user again
+//! - **Whose account.** `identity` finds the session's user again
 //!   before each request, and a running helper whose account differs is
 //!   stopped.
 //! - **The start.** [`Program`] is the program, opened once and checked;

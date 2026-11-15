@@ -72,7 +72,7 @@ impl KernelVt<Tty> {
     /// signal that comes in between waits in the signalfd. The tty is watched:
     /// input on it takes the VT again ([`VtEvent::Retaken`]) and a hangup is
     /// reported. So is tty0's `active`, the VT the kernel shows
-    /// ([`KernelVt::shown_changed`]); without it, vtium runs on with a warning.
+    /// (`KernelVt::shown_changed`); without it, vtium runs on with a warning.
     pub fn new<D, A>(lp: &mut Loop<D>, tty: Tty, num: u16, access: A) -> io::Result<KernelVt<Tty>>
     where
         D: 'static,
