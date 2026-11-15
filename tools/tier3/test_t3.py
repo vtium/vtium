@@ -5971,7 +5971,8 @@ class ShowcaseTest(unittest.TestCase):
                "showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
                "showcase-fonts-jetbrains", "showcase-glyph-fit", "showcase-ligatures",
                "showcase-syllables", "showcase-emoji", "showcase-scripts",
-               "showcase-text", "showcase-color", "showcase-boxes", "showcase-pictures"]
+               "showcase-text", "showcase-color", "showcase-boxes", "showcase-pictures",
+               "showcase-pointer"]
     # Each scene's category and whether it is the category's hero, as
     # ADR-1502 D6 and its hero rule place them.
     PLACES = {"showcase-shell.sh": ("front page", False),
@@ -5985,7 +5986,8 @@ class ShowcaseTest(unittest.TestCase):
               "showcase-text.sh": ("styles and modes", True),
               "showcase-color.sh": ("color", True),
               "showcase-boxes.sh": ("lines and blocks", True),
-              "showcase-pictures.sh": ("pictures", True)}
+              "showcase-pictures.sh": ("pictures", True),
+              "showcase-pointer.sh": ("input and pointer", True)}
     FIGURES = {"showcase-osc52-copy.svg": "input and pointer",
                "showcase-rtl-paragraphs.svg": "scripts and emoji",
                "showcase-synchronized-output.svg": "styles and modes"}
@@ -6053,7 +6055,7 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual([s.image for s in found],
                          ["hero.png", "double-size.png", "fonts.png", "glyph-fit.png",
                           "ligatures.png", "syllables.png", "emoji.png", "scripts.png", "text.png", "color.png",
-                          "boxes.png", "pictures.png"])
+                          "boxes.png", "pictures.png", "pointer.png"])
         self.assertEqual(t3_showcase.header_faults(), [])
         for scene in found:
             with self.subTest(scene.script):
@@ -6782,8 +6784,9 @@ class ShowcaseTest(unittest.TestCase):
         for script in ("showcase-double-size.sh", "showcase-syllables.sh", "showcase-text.sh"):
             self.assertIn(shows(script), page)
         self.assertNotIn(shows("showcase-glyph-fit.sh"), page)
-        self.assertIn("## Input and pointer\n\n" + figure("showcase-osc52-copy.svg") +
+        self.assertIn("## Input and pointer\n\n" + shows("showcase-pointer.sh") +
                       "\n[Every screen of input and pointer](input-and-pointer.md)\n", page)
+        self.assertNotIn(figure("showcase-osc52-copy.svg"), page)
         self.assertIn("[Every screen of text and fonts](text-and-fonts.md)", page)
         small = read("small-machines.md")
         self.assertLess(small.index("(small/small-console.png)"), small.index("(small/sgr.png)"))
@@ -6798,8 +6801,9 @@ class ShowcaseTest(unittest.TestCase):
         self.assertLess(scripts.index(shows("showcase-scripts.sh")),
                         scripts.index("## How it behaves\n\n" +
                                       figure("showcase-rtl-paragraphs.svg")))
-        self.assertIn("## How it behaves\n\n" + figure("showcase-osc52-copy.svg"),
-                      read("input-and-pointer.md"))
+        pointer = read("input-and-pointer.md")
+        self.assertLess(pointer.index(shows("showcase-pointer.sh")),
+                        pointer.index("## How it behaves\n\n" + figure("showcase-osc52-copy.svg")))
         self.assertFalse(os.path.exists(os.path.join(out, "displays-and-vts.md")))
         self.assertIn("at commit `abc1234`", page)
         self.assertIn("starts in a cell of 16x40 pixels, and the shell scene, the hero, switches "
