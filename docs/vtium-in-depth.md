@@ -66,7 +66,7 @@ To build vtium, you need Rust 1.88 or later, clang, and `tic` from ncurses. The 
 
 [Try vtium on one VT](tutorial-try-vtium.md) walks you through running vtium on a spare VT and restoring it afterward, while your desktop keeps running.
 
-On Arch Linux, install the `vtium` package from the AUR. Installing the package gives vtium every free VT, from each VT's next start, and starts nothing. To give every VT back what it had before the install, and then give vtium VT 3 alone, use:
+On Arch Linux, install the `vtium` package from the AUR. Installing the package gives vtium every free VT from each VT's next start, VT 1 included on a machine with no display manager, and starts nothing. [What the install does to your VTs](install.md#what-the-install-does-to-your-vts) explains which VTs it takes. To give every VT back what it had before the install, and then give vtium VT 3 alone, use:
 
 ```sh
 # vtium console disable --all

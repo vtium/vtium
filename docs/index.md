@@ -6,7 +6,7 @@ vtium runs on a Linux virtual terminal (VT), one of the text screens you reach w
 
 That helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. Editors, file managers and tmux get the color, mouse and image support they expect there.
 
-This is alpha software, at version 0.1.0-alpha.8. Installing the package turns every free VT over to vtium at that VT's next start. To try one VT only, follow [Try vtium on one VT](tutorial-try-vtium.md) instead.
+This is alpha software, at version 0.1.0-alpha.8. Installing the package gives vtium every free VT from that VT's next start. On a machine with no display manager, that includes VT 1, the screen where the boot messages appear. To try one VT only, follow [Try vtium on one VT](tutorial-try-vtium.md) instead.
 
 ![A shell session on a Linux console in a smooth monospaced font: a colored prompt, a directory listing, a git log with a branch graph, a row of six images with their file names, greetings in several languages and scripts with emoji, and a line of underline and text styles.](showcase/hero.png)
 
