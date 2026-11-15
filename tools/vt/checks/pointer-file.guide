@@ -1,0 +1,100 @@
+# The pointer's pictures from a pointer file (ADR-1309): the ten shapes a
+# program sets with OSC 22, drawn first with vtium's own pictures, then from
+# vtium's own pointer file, then from Adwaita's cursor theme, and last with
+# a pointer-theme line that names a path where nothing is.
+#
+# vtium reads its pointer file once, when it starts, so each configuration
+# needs a run of its own, and each run walks only its own steps. The
+# steering session starts the four runs one after another, each with its
+# own vtium.conf beside this guide:
+#
+#   make vt-check GUIDE=pointer-file GUIDE_STEPS='1 2'
+#   make vt-check GUIDE=pointer-file GUIDE_STEPS='3 4' CONF=tools/vt/checks/pointer-file-svg.conf
+#   make vt-check GUIDE=pointer-file GUIDE_STEPS='5 6' CONF=tools/vt/checks/pointer-file-adwaita.conf
+#   make vt-check GUIDE=pointer-file GUIDE_STEPS='7' CONF=tools/vt/checks/pointer-file-missing.conf
+#
+# The second run reads /usr/share/vtium/pointers.svg, the copy a package
+# installs, because vtium reads a pointer file only when root owns it and
+# every folder above it. On a machine without the package, install the
+# checkout's copy before that run, and remove it afterwards so that a
+# package can install it later:
+#
+#   sudo install -Dm644 -o root -g root crates/vtium/install/pointers.svg /usr/share/vtium/pointers.svg
+#   sudo rm -r /usr/share/vtium
+#
+# The third run reads the cursors that the adwaita-cursors package installs
+# in /usr/share/icons/Adwaita.
+#
+# Each run's first step prints the pointer lines of the vtium.conf the run
+# copied into /run/vtium-vt/config and the pointer file lines of vtium's
+# log, the newest log in /tmp/vtium-vt. Each walk of the shapes puts a + on
+# the screen for the shape's point to aim at.
+
+title: the pointer's pictures from a pointer file
+
+intro: vtium reads its pointer file when it starts, so this guide runs four
+intro: times, each with its own vtium.conf, and each run shows only its own
+intro: steps. Steps 1 and 2 use vtium's own pictures, steps 3 and 4 vtium's
+intro: pointer file, steps 5 and 6 Adwaita's cursor theme, and step 7 a path
+intro: where nothing is.
+
+step: This run has no pointer file
+run: clear; echo "pointer lines in vtium.conf:"; grep '^pointer' /run/vtium-vt/config/vtium.conf || echo "  none"; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait
+expect: *none* under both headings: vtium.conf sets no pointer file, so
+expect: vtium draws the pointer with its own pictures.
+
+step: Each shape, with vtium's own pictures
+run: for s in default text pointer crosshair wait progress not-allowed move ew-resize ns-resize; do clear; printf '\033]22;%s\033\\' "$s"; printf '\033[7m%*s\033[0m\n' "$(tput cols)" ""; printf '\nThe pointer shows the shape: %s\n\n          +\n\n' "$s"; guide-wait --keys "Aim the shape's point at the +, double-click, then press a key for the next shape."; done; printf '\033]22;\033\\'; clear
+do: for each shape, move the pointer over the black screen and the white
+do: bar, then put the shape's point on the + and double-click. The point is
+do: the tip of an arrow or of the hand's finger, and the centre of the other
+do: shapes. Then press a key for the next shape.
+expect: ten shapes in turn, each named on the screen: the arrow, an
+expect: *I-beam*, a *hand* with a raised finger, a thin cross, an
+expect: *hourglass*, the arrow with a small hourglass, a circle with a
+expect: *slash*, four arrows, a double arrow *left and right* and a double
+expect: arrow *up and down*. Each is white with a dark outline. After each
+expect: double-click, *the + shows selected*.
+
+step: This run reads vtium's own pointer file
+run: clear; echo "pointer lines in vtium.conf:"; grep '^pointer' /run/vtium-vt/config/vtium.conf || echo "  none"; echo "the installed file against the checkout's:"; cmp /usr/share/vtium/pointers.svg "${GUIDE_FILE%/tools/vt/checks/*}/crates/vtium/install/pointers.svg" && echo "  the same"; ls -l /usr/share/vtium/pointers.svg; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait
+expect: *pointer-theme=/usr/share/vtium/pointers.svg*, then *the same*
+expect: and a file owned by root, then *none* under the last heading: vtium
+expect: read the file, and the font helper drew each of its ten shapes.
+
+step: Each shape, from vtium's pointer file
+run: for s in default text pointer crosshair wait progress not-allowed move ew-resize ns-resize; do clear; printf '\033]22;%s\033\\' "$s"; printf '\033[7m%*s\033[0m\n' "$(tput cols)" ""; printf '\nThe pointer shows the shape: %s\n\n          +\n\n' "$s"; guide-wait --keys "Aim the shape's point at the +, double-click, then press a key for the next shape."; done; printf '\033]22;\033\\'; clear
+do: for each shape, move the pointer over the black screen and the white
+do: bar, then put the shape's point on the + and double-click. Then press a
+do: key for the next shape.
+expect: the same ten shapes as in step 2, *alike* to the eye: white with a
+expect: dark outline, the outline at most a pixel thinner in places. After
+expect: each double-click, *the + shows selected*.
+
+step: This run reads Adwaita's cursor theme
+run: clear; echo "pointer lines in vtium.conf:"; grep '^pointer' /run/vtium-vt/config/vtium.conf || echo "  none"; ls -ld /usr/share/icons/Adwaita/cursors; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait
+expect: *pointer-theme=/usr/share/icons/Adwaita*, then the cursors folder,
+expect: owned by root, then *none* under the last heading: vtium read the
+expect: theme's file for each of the ten shapes.
+
+step: Each shape, from Adwaita
+run: for s in default text pointer crosshair wait progress not-allowed move ew-resize ns-resize; do clear; printf '\033]22;%s\033\\' "$s"; printf '\033[7m%*s\033[0m\n' "$(tput cols)" ""; printf '\nThe pointer shows the shape: %s\n\n          +\n\n' "$s"; guide-wait --keys "Aim the shape's point at the +, double-click, then press a key for the next shape."; done; printf '\033]22;\033\\'; clear
+do: for each shape, move the pointer over the black screen and the white
+do: bar, then put the shape's point on the + and double-click. Then press a
+do: key for the next shape.
+expect: *Adwaita's pictures*, as the desktop shows them: a black arrow with
+expect: a white outline and a soft shadow, an I-beam, a hand, a cross, a
+expect: busy circle, the arrow with a busy circle, a circle with a slash,
+expect: four arrows, and the two double arrows. The busy circles
+expect: *stand still*, since vtium shows the first frame of an animated
+expect: cursor. Each picture keeps its own colors. After each double-click,
+expect: *the + shows selected*.
+
+step: A pointer file that does not exist
+run: clear; printf '\033]22;default\033\\'; echo "pointer lines in vtium.conf:"; grep '^pointer' /run/vtium-vt/config/vtium.conf || echo "  none"; echo "pointer file lines in vtium's log:"; grep -i 'pointer file\|cannot draw the' "$(ls -t /tmp/vtium-vt/vt-*.log | head -n 1)" || echo "  none"; guide-wait --keys "Move the pointer over the screen, then press a key."
+do: move the pointer over the screen, then press a key.
+expect: *pointer-theme=/usr/share/vtium/no-such-pointers.svg*, then one log
+expect: line that says the pointer file /usr/share/vtium/no-such-pointers.svg
+expect: is *neither an SVG file nor a folder* that holds a cursors folder, so
+expect: vtium draws its own pointer pictures. The pointer is *the white arrow*
+expect: of vtium's own pictures.
