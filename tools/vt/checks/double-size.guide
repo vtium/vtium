@@ -8,11 +8,16 @@
 # the line's size, and erasing a whole line returns it to single size. The
 # cursor is drawn at the size of the character it stands on.
 #
+# The guide asks only what the maintainer's eyes can judge. One line of a
+# tall pair edited alone looks broken, and tier 1 checks that rule in the
+# cases line-size-edit and line-size-irm-tall in tools/conformance/vtium.
+# One short step shows it once and says so. The step after it runs the pad
+# in pair mode, which edits both lines of a double-height pair, as a
+# program written for the VT510 does.
+#
 # Each step runs the typing pad, tools/vt/checks/typepad.py, which shows
 # the step's text at the top of the screen, draws the step's lines below
-# it, and echoes the keys as the sequences a line editor sends. One step
-# runs the pad in pair mode, which edits both lines of a double-height
-# pair, as a program written for the VT510 does. A shell's line editor
+# it, and echoes the keys as the sequences a line editor sends. A shell's line editor
 # counts the screen's full width on every line, so it cannot show these
 # rules; typepad.py says why cat cannot either. make vt-check runs the
 # guide from the checkout's top directory, so the steps name the pad by
@@ -22,6 +27,9 @@
 
 title: typing and editing on lines of double size
 
+intro: A terminal never moves text to another row when you insert a
+intro: letter. Shells and editors such as zsh and vim redraw the line
+intro: themselves, and that redraw is what makes text flow onto the next row.
 intro: Each step starts the typing pad. The pad shows the step's text at the
 intro: top of the screen, then its keys, then the lines to type on. Ctrl-D
 intro: ends the typing, and then the step asks its question. A wide line has
@@ -65,26 +73,22 @@ step: Insert and Delete on a wide line
 run: python3 tools/vt/checks/typepad.py edit
 do: The cursor starts on the k of the wide line. Press Insert three times,
 do: then Delete five times.
-expect: Each Insert opens a blank at the cursor and pushes the letters after
-expect: it one place right. The letter at the right edge drops off. Each
-expect: Delete pulls the letters one place left, and a blank comes in at the
-expect: right edge. In a shell such as zsh, inserted text spills onto the
-expect: next line because zsh redraws the line itself, but the terminal
-expect: never moves text to another line.
-expect: Wrong: letters that wrap onto the next line, or a letter that drops
-expect: off in the middle of the screen.
+expect: Each Insert opens a blank at the cursor and pushes the wide letters
+expect: after it one place right, up to the right edge of the screen. Each
+expect: Delete pulls the wide letters one place left. The letters stay wide
+expect: and whole.
+expect: Wrong: a letter that drops off in the middle of the screen, or a
+expect: narrow letter.
 
-step: Insert on a tall pair changes one line at a time
+step: The terminal edits each line of a tall pair on its own
 run: python3 tools/vt/checks/typepad.py edit
 do: Press Down twice, onto the top line of the tall letters, and press
-do: Insert twice. Then press Down once, onto the bottom line, and press
-do: Insert twice.
-expect: After the first two presses, only the top halves of the letters after
-expect: the cursor move, so the tall letters there look broken. After the
-expect: last two presses, the bottom halves catch up and the letters are
-expect: whole again. The terminal changes each line of a pair on its own.
-expect: Wrong: both halves moving at the first press, or broken letters at
-expect: the end.
+do: Insert once.
+expect: Only the top halves of the letters after the cursor move. That is
+expect: the terminal working as the VT100 User Guide says: "the same
+expect: character output must be sent to both lines to form full
+expect: double-height characters". Tier 1 checks that rule, so answer yes
+expect: once you have seen it. The next step sends each edit to both lines.
 
 step: A program that edits both lines keeps tall letters whole
 run: python3 tools/vt/checks/typepad.py --pair pair
@@ -176,9 +180,6 @@ do: letters. Press Home, to go to the start of that line. Press Ctrl-L and
 do: type a few letters. Then press Down once and type a few more.
 expect: Ctrl-L erases both lines of the tall pair, and they become lines of
 expect: normal size. The letters on both lines are normal size. The wide
-expect: line at the top keeps its letters and its size. Ctrl-L erases only
-expect: from the cursor down. So from the lower line, or without Home, the
-expect: tall letters above or left of the cursor stay as top halves, which
-expect: is right there too.
-expect: Wrong: after Ctrl-L at the start of the upper line, half of a tall
-expect: letter left on the screen, or new letters drawn tall.
+expect: line at the top keeps its letters and its size.
+expect: Wrong: half of a tall letter left on the screen, or new letters drawn
+expect: tall.

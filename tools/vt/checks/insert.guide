@@ -4,79 +4,62 @@
 # edge one place right, and the character pushed past the edge is lost.
 # Nothing moves to the next row. On a line of double size the right edge is
 # the line's last column, half the screen's width in columns, since each
-# character there takes two columns. On a double-height pair, each line
-# moves on its own, unless the program sends each character to both lines.
+# character there takes two columns.
+#
+# The guide asks only what the maintainer's eyes can judge. The rules that
+# look broken on their own, a letter lost at the right edge and one line of
+# a tall pair edited alone, are tier 1's to check: the cases edit-irm-wrap,
+# line-size-irm-wide and line-size-irm-tall in tools/conformance/vtium.
+# The first step shows the right edge once and says so. The tall pair is
+# edited in pair mode, which sends each letter to both lines of the pair,
+# as a program written for the VT510 does.
 #
 # Each step runs the typing pad, tools/vt/checks/typepad.py, with --insert,
 # so F2 turns insert mode on and off and the key list shows whether insert
 # mode is on. The insert screen holds a line of normal size, a wide line,
 # an empty line and a tall pair, all but the empty line full of letters.
-# One step runs the pad in pair mode, which sends each letter to both lines
-# of the tall pair. make vt-check runs the guide from the checkout's top
-# directory, so the steps name the pad by that relative path.
+# make vt-check runs the guide from the checkout's top directory, so the
+# steps name the pad by that relative path.
 #
 #   make vt-check GUIDE=insert
 
 title: the terminal's insert mode on lines of every size
 
+intro: A terminal never moves text to another row when you insert a
+intro: letter. Shells and editors such as zsh and vim redraw the line
+intro: themselves, and that redraw is what makes text flow onto the next row.
 intro: Each step starts the typing pad. The pad shows the step's text at the
 intro: top of the screen, then its keys, then the lines to type on. F2 turns
-intro: the terminal's insert mode on and off, and the key list says whether it
-intro: is on. Ctrl-D ends the typing, and then the step asks its question.
-intro: In insert mode, each letter you type pushes the letters after the
-intro: cursor one place right, up to the right edge. The letter pushed past
-intro: the right edge is lost. The terminal never moves text to another row.
-intro: A shell such as zsh draws its command line itself. When you insert a
-intro: letter there, zsh writes the rest of the line again, so the text
-intro: spills onto the next row. That is zsh's doing, not the terminal's. A
-intro: wide line has letters twice as wide as normal, so its right edge
-intro: holds half as many letters. A tall pair is two lines that show the
-intro: top and bottom halves of the same letters.
+intro: the terminal's insert mode on and off, and the key list says whether
+intro: insert mode is on. Ctrl-D ends the typing, and then the step asks its
+intro: question. A wide line has letters twice as wide as normal. A tall pair
+intro: is two lines that show the top and bottom halves of the same letters.
 
 step: Insert mode pushes letters right on a normal line
 run: python3 tools/vt/checks/typepad.py --insert insert
-do: The cursor starts on the k of the first line. Press Left twice. Press
-do: F2, so that the key list says "Insert mode: on". Type a few letters.
-expect: Each letter goes in at the cursor and pushes the letters after it
-expect: one place right. Each time, the letter at the right edge is lost.
-expect: The wide line below stays as it was.
-expect: Wrong: letters that replace the letters under the cursor, or letters
-expect: pushed onto the next line.
-
-step: A letter typed at the right edge
-run: python3 tools/vt/checks/typepad.py --insert insert
-do: Press F2, then End. Type one letter, then one more.
-expect: The first letter takes the right edge, and the letter that stood
-expect: there is lost. The second letter goes in at the start of the wide
-expect: line below and pushes the wide letters right. No letter of the first
-expect: line moves down.
-expect: Wrong: the second letter on the first line, or the first line's
-expect: letters on the wide line.
+do: The cursor starts on the k of the first line. Press F2, so that the key
+do: list says "Insert mode: on". Type a few letters.
+expect: Each letter goes in at the cursor and pushes the letters after it one
+expect: place right. The letter at the right edge disappears each time. That
+expect: is the terminal working as the VT510 manual says for insert mode:
+expect: "Characters moved past the page's right border are lost". Tier 1
+expect: checks that rule, so answer yes once you have seen it.
+expect: Wrong: letters that replace the letters under the cursor.
 
 step: Insert mode on a wide line
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: Press Down, onto the wide line. Press F2 and type a few letters.
-expect: The new letters are wide. Each one pushes the wide letters after
-expect: the cursor one place right. Each time, the wide letter at the right
-expect: edge of the screen is lost.
-expect: Wrong: a letter lost in the middle of the screen, or letters pushed
-expect: onto the next line.
-
-step: Insert mode on one line of a tall pair
-run: python3 tools/vt/checks/typepad.py --insert insert
-do: Press Down three times, onto the upper line of the tall letters. Press
-do: F2 and type a few letters.
-expect: Only the top halves of the letters after the cursor move, so the
-expect: tall letters there look broken. The new letters show only their top
-expect: halves. The terminal changes only the line the cursor is on.
-expect: Wrong: both halves moving.
+expect: The new letters are wide and whole. The wide letters after the
+expect: cursor move one place right, and stay wide and whole.
+expect: Wrong: a narrow letter, half of a letter, or a letter lost in the
+expect: middle of the screen.
 
 step: Pair mode keeps tall letters whole in insert mode
 run: python3 tools/vt/checks/typepad.py --pair --insert insert
-do: Press Down three times, onto the upper line of the tall letters. Press
-do: F2 and type a few letters.
-expect: The pad sends each letter to both lines. The tall letters after the
-expect: cursor move right whole, and the new letters are whole too.
+do: Press Down three times, onto the upper tall line. Press F2 and type a
+do: few letters. Then press Backspace, Insert and Delete twice each.
+expect: The pad sends each edit to both lines of the pair. After each key,
+expect: every tall letter is whole, the new letters too.
 expect: Wrong: a tall letter whose two halves do not match.
 
 step: With insert mode off, letters replace
@@ -86,3 +69,13 @@ do: Type a few letters.
 expect: Each letter replaces the letter under the cursor. The letters after
 expect: the cursor stay where they are.
 expect: Wrong: letters pushed right.
+
+step: Typing on a wide line wraps at the right edge
+run: python3 tools/vt/checks/typepad.py --insert insert
+do: Leave insert mode off. Press Down, onto the wide line, then End. Type
+do: three letters.
+expect: The first letter replaces the wide letter at the right edge of the
+expect: screen. The next two letters start the empty line below, at normal
+expect: size.
+expect: Wrong: a letter past the right edge, or a letter that wraps in the
+expect: middle of the screen.
