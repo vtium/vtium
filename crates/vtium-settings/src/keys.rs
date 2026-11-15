@@ -1543,6 +1543,19 @@ pub const FONT_LINE_SPACING: Key = Key {
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
 
+pub const FONT_LIGATURES: Key = Key {
+    name: "font-ligatures",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("off"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium-render",
+    what: "Draw a programming font's ligatures, such as `->`, `!=` and `===`, across the character cells of their characters.\n\n\
+           Only runs of 2 to 14 ASCII symbols on one row join. Each character keeps its own cell, so the cursor, selection and copying still reach every character. A ligature draws as its separate characters while the cursor stands on it. Bitmap fonts and the built-in fonts draw no ligatures.",
+    cite: "[the programming ligatures issue](https://github.com/vtium/vtium/issues/23)",
+};
+
 pub const CELL: Key = Key {
     name: "cell",
     short: None,
@@ -2170,7 +2183,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 129] = [
+pub static KEYS: [Key; 130] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2275,6 +2288,7 @@ pub static KEYS: [Key; 129] = [
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
+    FONT_LIGATURES,
     CELL,
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
@@ -2338,6 +2352,10 @@ pub const SECTIONS: [Section; 11] = [
             Group {
                 title: "Font size and spacing",
                 keys: &[&FONT_SIZE, &CELL, &FONT_HINTING, &FONT_LINE_SPACING],
+            },
+            Group {
+                title: "Ligatures",
+                keys: &[&FONT_LIGATURES],
             },
             Group {
                 title: "Box drawing and block characters",
@@ -2860,6 +2878,7 @@ mod tests {
                 "font-size",
                 "font-hinting",
                 "font-line-spacing",
+                "font-ligatures",
                 "cell",
                 "display-depth",
                 "display-dpi",
