@@ -2168,9 +2168,70 @@ pub const KITTY_GRAPHICS: Key = Key {
     cite: "[the kitty graphics issue](https://github.com/vtium/vtium/issues/49)",
 };
 
+pub const LOGIN_IMAGE: Key = Key {
+    name: "login-image",
+    short: None,
+    kind: Kind::Path,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A PNG or JPEG file shown each time a login prompt starts.\n\n\
+           [docs] `login-image-fit` chooses whether it is a background beneath the text or a banner above the prompt. The picture is an ordinary picture on the screen: it scrolls away with the text, and a screen clear removes it. A program can cover or remove the picture, but it can never read it.\n\n\
+           [docs] vtium reads the file as root and decodes it in the image helper, as the account that runs before login. When vtium cannot read or decode the file, it logs one line and starts the login prompt without the picture. When unset, vtium shows no picture.\n\n\
+           [docs] A head shows the picture of the look it names. A look that sets no picture takes the top level's. A build without image support accepts this key, logs one line, and shows no picture.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image`",
+};
+
+pub const LOGIN_IMAGE_FIT: Key = Key {
+    name: "login-image-fit",
+    short: None,
+    kind: Kind::Choice(&["cover", "contain", "stretch", "none", "banner"]),
+    default: Default::Text("cover"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "How the login picture fits: `cover`, `contain`, `stretch`, `none` or `banner`.\n\n\
+           [docs] `cover` scales the background until it covers the display, keeping its shape, and cuts off what passes the edges. `contain` scales it until it fits inside the display, and the default background shows in the bands left over. `stretch` fills the display exactly. `none` shows the background at its own size, centered.\n\n\
+           [docs] `banner` shows the picture at the top of the screen, like a message of the day, and the login prompt starts on the row below it.\n\n\
+           [docs] A background shows through every character cell whose background is the default color. Text, colored cells and every picture a program sends cover it.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image-fit`",
+};
+
+pub const LOGIN_IMAGE_ROWS: Key = Key {
+    name: "login-image-rows",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: 1000,
+        unit: "rows",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A banner's height in text rows.\n\n\
+           [docs] vtium scales the banner to that height, keeping its shape. When unset, the banner shows at its own size in pixels. A banner never takes the screen's last two rows, so the login prompt always has room. A background ignores this key.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
+pub const LOGIN_IMAGE_POSITION: Key = Key {
+    name: "login-image-position",
+    short: None,
+    kind: Kind::Choice(&["left", "center", "right"]),
+    default: Default::Text("left"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "Where a banner sits: `left`, `center` or `right`.\n\n\
+           [docs] A centered banner with an odd number of spare columns leaves the extra column on its right. A background ignores this key.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 129] = [
+pub static KEYS: [Key; 133] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2300,6 +2361,10 @@ pub static KEYS: [Key; 129] = [
     NUM_COLOR_REGISTERS,
     PRIVATE_COLOR_REGISTERS,
     IMAGE_HELPER,
+    LOGIN_IMAGE,
+    LOGIN_IMAGE_FIT,
+    LOGIN_IMAGE_ROWS,
+    LOGIN_IMAGE_POSITION,
 ];
 
 /// A group of the example vtium.conf: a heading, then one description that
@@ -2614,6 +2679,15 @@ pub const SECTIONS: [Section; 11] = [
                 title: "Image helper",
                 keys: &[&IMAGE_HELPER],
             },
+            Group {
+                title: "Login picture",
+                keys: &[
+                    &LOGIN_IMAGE,
+                    &LOGIN_IMAGE_FIT,
+                    &LOGIN_IMAGE_ROWS,
+                    &LOGIN_IMAGE_POSITION,
+                ],
+            },
         ],
     },
     Section {
@@ -2846,7 +2920,7 @@ mod tests {
     }
 
     // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
-    // gives a look and its cell, a head takes `login`, every other key is
+    // gives a look, its cell and the login picture's keys (ADR-1100 D17), a head takes `login`, every other key is
     // the top level's alone, and a key the command line alone sets has no
     // level. `cell` is the one key only a section sets.
     #[test]
@@ -2863,6 +2937,10 @@ mod tests {
                 "cell",
                 "display-depth",
                 "display-dpi",
+                "login-image",
+                "login-image-fit",
+                "login-image-rows",
+                "login-image-position",
             ]
         );
         assert_eq!(names(Level::Head), ["login"]);
