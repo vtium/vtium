@@ -1,3 +1,5 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+ligatures	programming ligatures (ADR-1308 D8), drawn on 2026-11-14 in Iosevka Term at 40 pixels with font-ligatures on, as written and with the cursor on the ! of !=; not reviewed yet
+ligatures-off	the ligatures text with font-ligatures off, drawn on 2026-11-14 in Iosevka Term at 40 pixels; not reviewed yet
