@@ -126,6 +126,10 @@ considered:
   - operator: aaronsb
     said: "Add the four arrows [U+2190 to U+2193 join the built-in font's list]"
     via: the steering session, 2026-11-15, the question tool, after the built-in font card found notices naming chord keys with arrows
+  - operator: aaronsb
+    said: "The bare word \"Terminus\" counts as the reserved font name wherever it appears in the faces, the BDF table included. The faces still state where Cullet Mono comes from: the copyright string and a description credit Terminus, because the OFL reserves the name only as the font's name and expects the original to be credited."
+    via: the steering session, 2026-11-15, relaying the maintainer's decision on the review of the Cullet Mono build, in the brief of its fix round
+    paraphrase: true
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -220,6 +224,8 @@ The switch rests on a 1:1 drawing of both forms at each strike height, through v
 **An 8-pixel cell.** Terminus has no strike under 12 pixels. A cell 8 pixels high, which ADR-1200 D17's small-display rule picks on a 320×240 panel, draws the built-in font's 8×8 strike, cut from Unscii-8, whose shapes follow the IBM PC's code page 437 font. That holds with `terminus` named too, because the set falls through to the built-in font. A Terminus 6×12 cell would give a 320×240 panel 53 columns of 20 rows, against 40 columns of 30 rows at 8×8, and the notices are written for 40 columns. So vtium keeps the 8×8 cell there, and `terminus` draws its 12-pixel strike only where the cell is 12 pixels high.
 
 **vtium's own outline Terminus.** Nerd Fonts' Terminess holds the Font Logos icons, so vtium builds its own patched font. The build takes Terminus (TTF) 4.49.3 by Tilman Blumenbach, `TerminusTTF-4.49.3.ttf` and `TerminusTTF-Bold-4.49.3.ttf`, from its release archive (SHA-256 0ead921d98d99a4590ffe6cd66dc037fc0a2ceea1c735d866ba73fe058257577). Their license is the OFL-1.1, with the Reserved Font Names "Terminus Font" and "Terminus (TTF)". The build runs Nerd Fonts' patcher, under MIT, at a pinned release, with every icon set apart from Font Logos. It names the result "Cullet Mono", the maintainer's choice, after cullet, the broken glass that a glassmaker melts again with new glass. That name uses neither reserved name, and it leaves "Terminess" to Nerd Fonts. The build is reproducible from pinned sources, each with its SHA-256, and the notices list each icon set's license. Built on 2026-11-14 with Nerd Fonts' patcher 3.4.0, `--mono` and every icon-set option but `--fontlogos`, Cullet Mono Regular is 2,617,476 bytes and Bold 2,618,316 bytes. Each maps 11,638 characters, none of them in U+F300 to U+F385. Drawn through vtium's font helper at 18 and 24 pixels, Cullet Mono matches Nerd Fonts' Terminess pixel for pixel, so the switch measured on Terminess holds for it.
+
+(Amended 2026-11-15: the maintainer reads the bare word "Terminus" as the reserved name wherever it names the font, the names of the bitmap strikes in FontForge's `BDF ` table included, so no name of Cullet Mono holds it. The license reserves the word only as the font's name, so the copyright notice and the description of each face still state that Cullet Mono is derived from Terminus Font and Terminus (TTF).)
 
 **The full package,** the build with images, the GPU path and bidi that the AUR `vtium` package builds, makes `terminus` complete:
 

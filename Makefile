@@ -754,13 +754,22 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
 # Cullet Mono, vtium's outline Terminus with Nerd Fonts' icons, built from
-# the sources that tools/cullet-mono/pins.tsv pins (ADR-1204 D2). Not a gate:
-# it needs FontForge, Python and, once, the network, which fetches the
-# sources into $XDG_CACHE_HOME/vtium/cullet-mono. The build fails unless
-# each face has the SHA-256 that pins.tsv pins.
-.PHONY: cullet-mono
+# the sources that tools/cullet-mono/pins.tsv pins. Not a gate: it needs
+# FontForge, Python and, once, the network, which fetches the sources into
+# $XDG_CACHE_HOME/vtium/cullet-mono. The build fails unless each face has
+# the SHA-256 that pins.tsv pins. cullet-mono-check checks the faces that
+# cullet-mono built, without building them again.
+#
+# References:
+# - ADR-1204 D2: the sources, the name and the icon sets.
+CULLET_MONO := cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool --
+CULLET_MONO_OUT := $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+.PHONY: cullet-mono cullet-mono-check
 cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)
-	cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool -- build --out $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+	$(CULLET_MONO) build --out $(CULLET_MONO_OUT)
+
+cullet-mono-check: ## Check the Cullet Mono faces in target/cullet-mono against pins.tsv, without building them again
+	$(CULLET_MONO) check $(CULLET_MONO_OUT)
 
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own

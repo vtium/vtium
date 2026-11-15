@@ -15,7 +15,7 @@ Copyright (c) 2011-2023 Tilman Blumenbach, with Reserved Font Name "Terminus (TT
 
 License: OFL-1.1, in terminus-ttf-COPYING.txt, a verbatim copy of the release's COPYING file.
 
-The OFL forbids a Modified Version to use a Reserved Font Name, so the patched font is named Cullet Mono. It uses neither "Terminus Font" nor "Terminus (TTF)" as its name, and it stays under the OFL-1.1.
+The OFL forbids a Modified Version to use a Reserved Font Name, so the patched font is named Cullet Mono. It uses neither "Terminus Font" nor "Terminus (TTF)" as its name, and it stays under the OFL-1.1. vtium treats the bare word "Terminus" as reserved too, so no name of Cullet Mono holds it, not even the names of its bitmap strikes. Each face's copyright notice and description still credit Terminus Font and Terminus (TTF) as its source.
 
 
 Nerd Fonts font patcher 3.4.0
