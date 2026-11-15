@@ -949,14 +949,14 @@
 
 ## login-image: A PNG or JPEG file shown each time a login prompt starts.
 #
-## login-image-fit: How the login picture fits: `cover`, `contain`, `stretch`,
+## login-image-fit: The login picture's fit: `contain`, `cover`, `stretch`,
 ## `none` or `banner`.
 #
 ## login-image-rows: A banner's height in text rows.
 ## login-image-position: Where a banner sits: `left`, `center` or `right`.
 
 #login-image=
-#login-image-fit=cover
+#login-image-fit=contain
 #login-image-rows=
 #login-image-position=left
 

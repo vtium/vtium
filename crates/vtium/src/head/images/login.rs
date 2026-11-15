@@ -99,7 +99,7 @@ impl Login {
             fit: config
                 .text(&keys::LOGIN_IMAGE_FIT)
                 .and_then(Fit::parse)
-                .unwrap_or(Fit::Cover),
+                .unwrap_or(Fit::Contain),
             rows: config
                 .number(&keys::LOGIN_IMAGE_ROWS)
                 .and_then(|n| u32::try_from(n).ok()),
@@ -514,6 +514,23 @@ mod tests {
     }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really a png";
+
+    // A vtium.conf that names a picture and no fit fits it inside the
+    // display, keeping its shape, with bands of the default background.
+    #[test]
+    fn a_picture_with_no_fit_named_is_contained() {
+        let read = |conf: &'static str| {
+            let loaded = crate::config::load(&[], &mut |_: &std::path::Path| {
+                Ok(Some(conf.as_bytes().to_vec()))
+            });
+            Login::read(&loaded.config, (10_000, 10_000)).form.fit
+        };
+        assert_eq!(read("login-image=/etc/vtium/login.png\n"), Fit::Contain);
+        assert_eq!(
+            read("login-image=/etc/vtium/login.png\nlogin-image-fit=cover\n"),
+            Fit::Cover
+        );
+    }
 
     fn login(path: PathBuf, fit: Fit) -> Login {
         Login {
