@@ -3117,6 +3117,17 @@ impl Engine {
                             != Some(i),
                         double_width: doubled == Some(Doubled::Width),
                     };
+                    // A source drawn 1-bit still sends its glyphs in the
+                    // 8-bit strike, at a byte a pixel, and not in the 1-bit
+                    // strike, which would hold them in an eighth of the
+                    // memory. The console takes every glyph of a 1-bit
+                    // strike for a bitmap font's glyph: it makes the
+                    // glyph's superscripts and subscripts from smaller
+                    // multiples of the strike, and adds any style the
+                    // strike lacks by widening and shearing pixels. The
+                    // helper draws this source's script sizes and styles
+                    // from the outline itself, so the console would draw
+                    // them differently from the 8-bit strike.
                     let request = self.rendered(request, i);
                     let request = match doubled {
                         None => request,
