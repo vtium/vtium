@@ -66,13 +66,3 @@ kitty-upload-sixel-between	derived from upload-rules.md (ADR-1100 D16/D14), seal
 kitty-upload-stray	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-capital-t-cursor	derived from upload-rules.md (ADR-1100 D16/D14), sealed before vtium ran; not reviewed yet
 kitty-upload-cut-chunk	derived from the maintainer's answer of 2026-11-13 (ADR-1100 D16, "What ends an upload early"), sealed before vtium ran; not reviewed yet
-osc66-scale	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-width	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-fraction	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-margin	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-overwrite	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-erase	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-edit	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-bottom	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-line-size	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
-osc66-reflow	written by hand from kitty's text sizing protocol and ADR-1308 before vtium ran; not reviewed yet
