@@ -20,6 +20,7 @@
 //!
 //! References:
 //! - ADR-1309 D7: the second test, each symbol against the compiled-in picture at every height from 8 to 64.
+//! - ADR-1309 D7, the note of 2026-11-15: the tolerance the maintainer accepted, the height exact, the width, the hotspot and the fill within one pixel with two stray fill pixels at a sharp tip, the outline within two pixels, and the pictures that differ more listed in the test.
 #![expect(
     clippy::unwrap_used,
     clippy::panic,
