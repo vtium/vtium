@@ -283,6 +283,11 @@ for f in /proc/$PPID/fd/*; do
 	case $(readlink "$f") in "$VTIUM_VT_STANDINS"/tty[0-9]*) h=held ;; esac
 done
 echo "$h" >"${BIN_HOLD:-/dev/null}"
+# Whether a holder's socket was there when it started: "there" or "gone" in
+# $BIN_HOLDER_SEEN.
+if [ -n "${BIN_HOLDER_SEEN:-}" ]; then
+	if [ -S "$BIN_HOLDER_SOCK" ]; then echo there; else echo gone; fi >"$BIN_HOLDER_SEEN"
+fi
 printf '%s\\n' "$@" >"$BIN_ARGS"
 # The stage is gone when the run ends; a test that wants to read it names a directory for a copy.
 [ -z "${BIN_STAGE_COPY:-}" ] || cp -r "$VTIUM_VT_STANDINS/run-vtium-vt/." "$BIN_STAGE_COPY"
@@ -297,6 +302,16 @@ wait)
 linger)
 	sleep infinity &
 	exit 0 ;;
+holder)
+	# vtium as root with no systemd store: it starts its holder, which keeps
+	# vtium's output open as the holder of a vtium built before the holder
+	# got /dev/null did, and leads a session of its own, then waits for
+	# SIGTERM.
+	python3 -I "$VTIUM_VT_STANDINS/holder.py" "$BIN_HOLDER_SOCK" "$BIN_HOLDER_PID" &
+	while [ ! -s "$BIN_HOLDER_PID" ]; do sleep 0.05; done
+	trap 'echo TERM >>"$BIN_SIGNALS"; exit 0' TERM
+	: >"${BIN_READY:-/dev/null}"
+	while :; do sleep 0.05; done ;;
 session)
 	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 	shift
@@ -311,6 +326,24 @@ session)
 	done
 	exec "${argv[@]}" <"$BIN_STDIN" ;;
 esac
+"""
+
+
+# A stand-in for vtium hold: it listens on the socket its first argument
+# names, as its standard input, leads a session of its own, writes its PID
+# into the file its second argument names, and runs until it is killed.
+HOLDER = """import os, socket, sys, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+s.bind(sys.argv[1])
+s.listen()
+os.dup2(s.fileno(), 0)
+s.close()
+os.setsid()
+with open(sys.argv[2] + ".new", "w") as f:
+    f.write(str(os.getpid()))
+os.rename(sys.argv[2] + ".new", sys.argv[2])
+while True:
+    time.sleep(3600)
 """
 
 
@@ -400,6 +433,11 @@ class Stage:
                            ("readelf", READELF),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
+        write(os.path.join(self.standins, "holder.py"), HOLDER, 0o644)
+        # The VT's run directory, where vtium's holder listens.
+        self.holder_sock = os.path.join(self.standins, "run-vtium", "tty5", "hold")
+        os.makedirs(os.path.dirname(self.holder_sock))
+        self.holder_pid = os.path.join(tmp, "holder-pid")
         write(os.path.join(self.standins, "active"), "tty7\n", 0o644)
         self.home = os.path.join(tmp, "home")
         os.mkdir(self.home)
@@ -456,6 +494,8 @@ class Stage:
             BIN_READY=self.bin_ready,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
             HOLDS=self.holds,
+            BIN_HOLDER_SOCK=self.holder_sock,
+            BIN_HOLDER_PID=self.holder_pid,
             BIN_HOLD=self.bin_hold,
             ACTIVE_UNITS="kmsconvt@tty8.service",
             REAL_SYSTEMCTL=REAL_SYSTEMCTL or "/nonexistent/systemctl",
@@ -513,6 +553,13 @@ class Case(unittest.TestCase):
         # A vtium left running by a failed restore is stopped here, so it
         # outlives no test.
         pid = read(os.path.join(self.s.tmp, "bin-pid")).strip()
+        if pid:
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        # So is a stand-in holder a failed run left behind.
+        pid = read(self.s.holder_pid).strip()
         if pid:
             try:
                 os.kill(int(pid), signal.SIGKILL)
@@ -1711,6 +1758,53 @@ class VtSh(Case):
         self.assertIn("vt: interrupted", err)
         self.assertIn("vtium log: ", out)
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def holder_alive(self):
+        pid = int(read(self.s.holder_pid))
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                return f.read().split(") ")[1][0] != "Z"
+        except FileNotFoundError:
+            return False
+
+    def test_the_run_ends_the_holder_its_vtium_started(self):
+        # vtium hands its sessions to its holder as it exits, and the holder
+        # outlives it. The run ends the holder before it restarts the units,
+        # so no session of the run lives on, and a holder that holds vtium's
+        # output open no longer keeps the run waiting on its log (#419).
+        proc = subprocess.Popen(["bash", VT_SH], env=self.s.env(VTIUM_VT_BIN=self.s.bin, BIN_MODE="holder",
+                                                                ACTIVE_UNITS="kmsconvt@tty5.service"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
+                                start_new_session=True)
+        self.wait_ready()
+        self.assertTrue(self.holder_alive())
+        os.killpg(proc.pid, signal.SIGINT)
+        out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 130, out + err)
+        pid = read(self.s.holder_pid).strip()
+        self.assertIn(f"run-vt: ending vtium hold (PID {pid}), which keeps sessions of vtium on VT 5; they hang up",
+                      out)
+        self.assertFalse(self.holder_alive())
+        self.assertFalse(os.path.exists(self.s.holder_sock))
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def test_a_holder_an_earlier_run_left_is_ended_before_vtium_starts(self):
+        # Its sessions would otherwise become the new vtium's consoles. The
+        # stand-in holder is started in the background and left, so that it
+        # is nobody's child here, as a holder whose vtium has gone is not.
+        subprocess.run(["bash", "-c", 'python3 -I "$0" "$1" "$2" </dev/null >/dev/null 2>&1 &',
+                        os.path.join(self.s.standins, "holder.py"), self.s.holder_sock, self.s.holder_pid],
+                       check=True, timeout=WAIT_BOUND)
+        end = time.monotonic() + WAIT_BOUND
+        while not read(self.s.holder_pid) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(self.holder_alive())
+        seen = os.path.join(self.s.tmp, "holder-seen")
+        p = self.vt_sh(ACTIVE_UNITS="kmsconvt@tty5.service", BIN_HOLDER_SEEN=seen)
+        self.assertEqual(read(seen), "gone\n", p.stdout + p.stderr)
+        pid = read(self.s.holder_pid).strip()
+        self.assertIn(f"run-vt: ending vtium hold (PID {pid})", p.stdout)
+        self.assertFalse(self.holder_alive())
 
     def test_a_home_directory_with_a_space_keeps_the_acceptance_passes(self):
         # With no ACCEPT_DIR and no XDG_STATE_HOME, vt.sh keeps the passes under $HOME/.local/state.

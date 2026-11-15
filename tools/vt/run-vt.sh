@@ -171,6 +171,7 @@ if [ -n "$standins" ]; then
 	run_user=$standins/run-user
 	dri=$standins/debugfs-dri
 	stage=$standins/run-vtium-vt
+	hold_sock=$standins/run-vtium/tty$vt/hold
 	system_frits=$standins/vtium-fonts
 	system_terminfo=$standins/terminfo
 	# The tests run without root, so the staged files stay theirs.
@@ -189,6 +190,7 @@ else
 	run_user=/run/user
 	dri=/sys/kernel/debug/dri
 	stage=/run/vtium-vt
+	hold_sock=/run/vtium/tty$vt/hold
 	system_frits=/etc/vtium/fonts
 	system_terminfo=/usr/share/terminfo
 	own=(-o root -g root)
@@ -634,6 +636,47 @@ running() {
 watching() {
 	[ -n "$watcher" ] && jobs -rp | grep -x -- "$watcher" >/dev/null
 }
+# Ends the holder on this VT, if one runs, and removes its socket. Under this
+# script vtium runs as root, and sudo gives it no systemd file-descriptor
+# store, so vtium starts its holder, `vtium hold`. The holder keeps a copy of
+# every session's pty after vtium exits, so that the next vtium on the VT can
+# take the sessions back. A review run keeps nothing past its end. A holder
+# left behind would keep the run's login or shell running on a pty that
+# nothing shows, and the next run's vtium would show that session in place of
+# its own. Ending the holder hangs up the sessions it keeps. The holder is
+# the process whose standard input is the socket listening at $hold_sock,
+# which /proc/net/unix and each process's descriptor 0 name. A holder that
+# SIGTERM has not ended after 5 s gets SIGKILL. A dry run shows the kill and
+# runs nothing.
+end_holder() {
+	local inodes pids=() p pid
+	[ -S "$hold_sock" ] || return 0
+	# Each line of /proc/net/unix is seven fields, the seventh the socket's
+	# inode, and then the path the socket is bound to.
+	inodes=$(awk -v path="$hold_sock" 'NR > 1 { p = $0; sub(/^ *([^ ]+ +){7}/, "", p); if (p == path) print "socket:[" $7 "]" }' /proc/net/unix)
+	if [ -n "$inodes" ]; then
+		for p in /proc/[0-9]*; do
+			if grep -qxF -- "$(readlink "$p/fd/0" 2>/dev/null)" <<<"$inodes"; then
+				pids+=("${p#/proc/}")
+			fi
+		done
+	fi
+	local ending=ending
+	[ -z "$dry" ] || ending="would end"
+	for pid in "${pids[@]}"; do
+		echo "run-vt: $ending vtium hold (PID $pid), which keeps sessions of vtium on VT $vt; they hang up"
+		act kill -TERM "$pid" || true
+	done
+	[ -z "$dry" ] || return 0
+	for pid in "${pids[@]}"; do
+		for _ in $(seq 50); do
+			kill -0 "$pid" 2>/dev/null || continue 2
+			sleep 0.1
+		done
+		kill -KILL "$pid" 2>/dev/null || true
+	done
+	rm -f -- "$hold_sock"
+}
 # shellcheck disable=SC2317,SC2329 # invoked by the EXIT trap
 # A second signal, or a closed terminal or pipe, must not cut it short before
 # the units are started again, so it ignores them while it runs, and no failed
@@ -656,10 +699,12 @@ restore() {
 		fi
 		wait "$child" 2>/dev/null || true
 	fi
+	end_holder
 	# Under --debug, vtium's last lines reach the log before the state at the
-	# end is copied, and the console unit starts after it. Something vtium
-	# started may still hold its output open: after 5 s watch_log is stopped,
-	# so no root process outlives the run and the output closes.
+	# end is copied, and the console unit starts after it. Something else
+	# vtium started may still hold its output open, such as a program a
+	# session left running in the background: after 5 s watch_log is
+	# stopped, so the run's log closes and the run goes on to restore the VT.
 	if [ -n "$watcher" ]; then
 		exec 8>&-
 		for _ in $(seq 50); do
@@ -862,6 +907,9 @@ if [ -n "$debug" ]; then
 	rm -rf -- "$fifo_dir"
 	fifo_dir=
 fi
+# A holder an earlier run left on this VT, one that ended before it could end
+# its holder, would hand its sessions to this run's vtium.
+end_holder
 # A signal in the moment between starting vtium and setting child finds child
 # still empty, so restore() starts the units again without stopping vtium. The
 # window is a few microseconds and is left open.

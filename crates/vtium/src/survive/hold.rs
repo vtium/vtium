@@ -300,13 +300,25 @@ pub fn start(dir: &Path, exe: &Path) -> io::Result<(Client, Vec<(String, OwnedFd
     rustix::fs::chmod(&path, rustix::fs::Mode::from_raw_mode(0o600))?;
     listen(&listener, 4)?;
     vtium_platform::cloexec_above_stdio()?;
+    spawn(exe, listener)?;
+    let client = Client::connect(&path)?;
+    Ok((client, Vec::new()))
+}
+
+/// Starts the holder: `exe hold`, with the socket `listener` as its
+/// standard input. The holder gets `/dev/null` for its standard output and
+/// its standard error, and nothing of vtium's. vtium's own output may be a
+/// pipe that someone reads until it closes, such as the log of a review
+/// run, and the holder can outlive vtium by hours, so a holder that kept
+/// that pipe open would keep its reader waiting as long. The holder's own
+/// log lines are lost, and vtium logs a holder that stops answering.
+pub(super) fn spawn(exe: &Path, listener: OwnedFd) -> io::Result<std::process::Child> {
     Command::new(exe)
         .arg("hold")
         .stdin(Stdio::from(listener))
         .stdout(Stdio::null())
-        .spawn()?;
-    let client = Client::connect(&path)?;
-    Ok((client, Vec::new()))
+        .stderr(Stdio::null())
+        .spawn()
 }
 
 /// `vtium hold`, which vtium runs to start the holder: serves the socket

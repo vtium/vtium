@@ -464,6 +464,41 @@ fn the_holder_keeps_masters_from_one_vtium_for_the_next() {
     assert!(holder.join().unwrap().is_ok(), "the holder exits empty");
 }
 
+// The holder gets /dev/null for its standard output and standard error,
+// never vtium's. A review run reads vtium's output from a pipe until the
+// pipe closes, and a holder that kept that pipe open kept the run waiting
+// after vtium had ended. The stand-in holder writes where its two outputs
+// lead and exits.
+#[test]
+fn the_holder_holds_none_of_vtiums_output() {
+    use std::os::unix::fs::PermissionsExt;
+    let dir = Scratch::new("survive-hold-output");
+    let seen = dir.join("seen");
+    let exe = dir.join("holder");
+    std::fs::write(
+        &exe,
+        format!(
+            "#!/bin/sh\nreadlink /proc/$$/fd/1 /proc/$$/fd/2 >'{}'\n",
+            seen.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&exe, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let listener = socket_with(
+        AddressFamily::UNIX,
+        SocketType::SEQPACKET,
+        SocketFlags::CLOEXEC,
+        None,
+    )
+    .unwrap();
+    let status = hold::spawn(&exe, listener).unwrap().wait().unwrap();
+    assert!(status.success());
+    assert_eq!(
+        std::fs::read_to_string(&seen).unwrap(),
+        "/dev/null\n/dev/null\n"
+    );
+}
+
 // A keeper that fails, here a store whose socket is gone, is given up
 // after one failure: the ledger holds nothing and tells it nothing more.
 #[test]
