@@ -1615,7 +1615,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily double-size editor insert pointer restart script start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1904,7 +1904,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily double-size editor insert pointer restart script start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -3549,7 +3549,9 @@ class Package(Case):
         "etc/vtium/fonts/minspec-16.vtfrit",
         "etc/vtium/fonts/minspec-8.vtfrit",
         "etc/vtium/vtium.conf.example",
+        "usr/bin/vticlip",
         "usr/bin/vtium",
+        "usr/bin/vtium-clipboard",
         "usr/bin/vtium-config",
         "usr/lib/systemd/system/vtium@.service",
         "usr/lib/systemd/system/vtium-getty@.service",
@@ -3595,10 +3597,11 @@ class Package(Case):
 
     def built(self, helper, image=None):
         """The stand-in builds in INSTALL_TARGET_DIR: a console that starts
-        its glyph helper at helper, and the helper; with image, a console
+        its glyph helper at helper, the helper, and vtium-clipboard; with image, a console
         that also starts its image helper there, and the image helper."""
         files = [("minspec/vtium", f"#!/bin/sh\n# starts {helper}\n" + (f"# and {image}\n" if image else "")),
-                 ("release/vtium-config", "#!/bin/sh\n# the helper\n")]
+                 ("release/vtium-config", "#!/bin/sh\n# the helper\n"),
+                 ("release/vtium-clipboard", "#!/bin/sh\n# the clipboard tool\n")]
         if image:
             files.append(("release/vtium-image", "#!/bin/sh\n# the image helper\n"))
         for path, text in files:
@@ -3650,7 +3653,7 @@ class Package(Case):
         self.assertEqual(builds, [
             f"VTIUM_FONT_HELPER=/usr/bin/vtium-config VTIUM_IMAGE=unset rustc --profile minspec -p vtium --bin vtium "
             f"--target-dir {self.build} -- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config --target-dir {self.build}"])
+            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --release -p vtium-config -p vtium-clipboard --target-dir {self.build}"])
 
     def test_install_passes_the_prefix_and_the_package_builds_flags_through(self):
         self.built("/opt/vt/bin/vtium-config", "/opt/vt/bin/vtium-image")
@@ -3672,7 +3675,7 @@ class Package(Case):
             f"VTIUM_FONT_HELPER=/opt/vt/bin/vtium-config VTIUM_IMAGE=/opt/vt/bin/vtium-image rustc --frozen "
             f"--profile minspec -p vtium --bin vtium --target-dir {self.build} --features images "
             "-- -C link-arg=-Wl,-z,pack-relative-relocs",
-            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-config -p vtium-image-helper "
+            f"VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset build --frozen --release -p vtium-config -p vtium-clipboard -p vtium-image-helper "
             f"--target-dir {self.build}"])
 
     def test_install_finds_images_in_features_separated_by_commas(self):
@@ -3771,7 +3774,7 @@ class Package(Case):
             f"--target-dir {self.build} --features images logind gpu "
             "-- -C link-arg=-Wl,-z,pack-relative-relocs",
             "VTIUM_FONT_HELPER=unset VTIUM_IMAGE=unset VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=3 build --release "
-            f"-p vtium-config -p vtium-image-helper --target-dir {self.build}"])
+            f"-p vtium-config -p vtium-clipboard -p vtium-image-helper --target-dir {self.build}"])
 
     def test_a_minspec_install_stages_the_frits_it_names_and_no_gallery(self):
         # ADR-1500 D8: a minspec package ships the two minspec frits alone.
