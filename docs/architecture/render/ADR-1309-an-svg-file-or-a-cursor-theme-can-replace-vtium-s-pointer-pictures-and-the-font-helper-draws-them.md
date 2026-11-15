@@ -41,6 +41,9 @@ considered:
   - operator: aaronsb
     said: "One key for both [the note:] it feels like adding a theme is ambiguous. (sort of like how fonts you just...name them and they show up?) I'd rather be able to point to a a specific pointer theme file too. or am I missing something?"
     via: the steering session, 2026-11-15, the question tool; the steering session answered that a desktop theme is a folder of files and a path removes the ambiguity
+  - operator: aaronsb
+    said: "I guess I feel like just naming a theme with no specific path is unsafe because you don't know exactly how that is selectiing it"
+    via: the steering session, 2026-11-15
 status: proposed
 date: 2026-11-15
 deciders:
@@ -64,7 +67,7 @@ related:
 - **Trades away:** The helper grows by about 0.9 MB with resvg. resvg's rasterizer, tiny-skia, is under the BSD-3-Clause license, which deny.toml does not allow yet. A cursor theme's busy cursors stand still, and its pictures keep their own colors. vtium ignores a theme's `Inherits=` line, so a person names the folder that holds the cursors.
 - **One-way?** No. The key is off by default, and nothing on disk changes. The key's name and the SVG file's layout become costly to change once a release ships them, since people write files to that layout.
 - **Probes:** *Not confident (animation):* vtium shows only the first frame of a cursor theme's busy cursor, so Adwaita's spinning wait cursor stands still. Is a still frame what you want? *Not confident (`pointer-char` and a theme together):* when both are set, the character draws the default pointer and the file draws the other nine shapes. Should the file win instead? *Not confident (BSD licenses):* resvg draws through tiny-skia, under BSD-3-Clause, and needs arrayref, under BSD-2-Clause. vtium's license list allows neither. Shall vtium allow both, and ship tiny-skia's notice? *Not confident (hotspot):* an SVG shape marks its hotspot as `data-hotspot="x y"` in its viewBox's units, and a shape without one is skipped. Is that the form you want? *Confident (no scaling of a cursor theme):* vtium picks the nearest size a theme ships and never resamples it.
-- **Inversion:** The choice sat between a console that reads pointer files itself and a console that reads none. The maintainer chose to have the sandboxed helper draw them, as it draws glyphs, so the console only ever takes pixels it can check. A path removes the guesswork of a name search: the person points at the file they mean.
+- **Inversion:** The choice sat between a console that reads pointer files itself and a console that reads none. The maintainer chose to have the sandboxed helper draw them, as it draws glyphs, so the console only ever takes pixels it can check. A path replaces a name search, which the maintainer found unsafe because no one can see which file it selects.
 
 ## Context
 
@@ -72,7 +75,7 @@ vtium draws its own pointer. `crates/vtium-render/src/arrow.rs` draws each shape
 
 People who use a desktop have chosen a cursor theme, and they want the console's pointer to match. A cursor theme is a folder, such as `/usr/share/icons/Adwaita`, whose `cursors/` folder holds one Xcursor file for each cursor name. Each file holds the picture at several nominal sizes, each with its own hotspot, and a busy cursor holds several frames of each size. Others want to draw their own pointers, or adjust vtium's, in an SVG editor.
 
-The maintainer first chose a cursor theme named by its name, over a PNG file for each shape. A PNG file needs the image helper, which the minspec builds lack, and asks for ten paths and ten hotspots. The maintainer then asked for three more things. vtium's own vector pointers should be offered as an SVG file. The pictures should be drawn in a sandboxed helper, as glyphs are, and reach the console as a bitmap. And one key should take a path, because a theme's name is ambiguous where a path is not.
+The maintainer first chose a cursor theme named by its name, over a PNG file for each shape. A PNG file needs the image helper, which the minspec builds lack, and asks for ten paths and ten hotspots. The maintainer then asked for three more things. vtium's own vector pointers should be offered as an SVG file. The pictures should be drawn in a sandboxed helper, as glyphs are, and reach the console as a bitmap. And one key should take a path, because a theme's name gives no way to know which file vtium selects, which the maintainer called unsafe.
 
 vtium already has such a helper. The font helper, `vtium-config serve`, runs as an unprivileged account under a sandbox: no new privileges, memory and CPU limits, no children, a landlock domain and seccomp filters. It draws glyphs and answers in frames that the console checks before it trusts any of them. Every build starts it, the minspec builds included: `make install-tree` installs `vtium-config` beside the minspec console, and `make install-build` fails unless the console names the helper's path.
 
@@ -89,7 +92,7 @@ Two keys join the key table's "Mouse pointer" group, both at vtium.conf's top le
 | `pointer-theme` | an absolute path | unset | The SVG file or the cursor theme's folder whose pictures the pointer takes. Unset, vtium draws its own pictures. |
 | `pointer-size` | 8 to 64 pixels | unset | For a cursor theme, the nominal size of its pictures. Unset, vtium picks the size nearest the character cell's height (D6). An SVG file ignores it. |
 
-- **A path, never a name.** vtium searches no icon folder and reads no `index.theme`. The person names the file or the folder they mean, so no other file can take its place. A relative path is refused, as every path key of vtium's is.
+- **A path, never a name.** vtium searches no icon folder and reads no `index.theme`. The maintainer's reason: "I guess I feel like just naming a theme with no specific path is unsafe because you don't know exactly how that is selectiing it". The person names the file or the folder they mean, so no other file can take its place. A relative path is refused, as every path key of vtium's is.
 - **`pointer-size` names a nominal size,** the number a desktop's cursor size setting uses, so a person can copy it from there. It stops at 64 because vtium never shows a picture larger than 64 pixels a side.
 - **An SVG file draws a cell tall,** so `pointer-size` does not apply to it. A vector picture can be drawn at exactly the size the cell needs.
 - **`pointer-char` keeps the default shape.** When both keys are set, the character draws the default shape, and the file draws the other nine. `pointer-char` names one shape and the file names all ten, so the narrower key wins where they overlap. When the font cannot draw the character, the default shape takes the file's picture, then vtium's arrow.
@@ -257,7 +260,7 @@ The card runs at V1 (ADR-1505): its new tests and screens, each seen failing fir
 ## Alternatives Considered
 
 - **A PNG file for each shape.** Not taken: the maintainer declined it. It needs the image helper, which the minspec builds lack, and a person writes ten paths and ten hotspots.
-- **Name a theme and search the icon folders for it,** following its `Inherits=` line. Not taken: the maintainer found a name ambiguous, "sort of like how fonts you just...name them and they show up". A path names one file.
+- **Name a theme and search the icon folders for it,** following its `Inherits=` line. Not taken. The maintainer's reason: "I guess I feel like just naming a theme with no specific path is unsafe because you don't know exactly how that is selectiing it". A path names one file.
 - **Parse the cursor files in the console,** as the record first decided. Not taken: the maintainer asked for the pictures to be drawn in a sandboxed helper and supplied as a bitmap. A parser in the console runs with the console's privileges on a file a person supplies.
 - **A small SVG reader of vtium's own,** taking only paths and fills. Not taken: the maintainer asked for SVG files from any editor, and editors write gradients, transforms, `<use>` and CSS. A partial reader would draw those files wrong, and quietly.
 - **Scale a cursor theme's nearest size to the cell.** Not taken: resampling blurs its one-pixel outlines and moves its hotspot.
