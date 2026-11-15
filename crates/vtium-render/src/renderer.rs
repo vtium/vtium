@@ -1134,6 +1134,12 @@ impl<F: Face> Renderer<F> {
         self.arrow = self.upright_arrow.clone().turned(self.config.orientation);
     }
 
+    /// The shape the pointer's image shows: the default shape until
+    /// [`Renderer::set_pointer_shape`] names another.
+    pub fn pointer_shape(&self) -> vtium_term::PointerShape {
+        self.shape
+    }
+
     /// Where on the display the arrow's hotspot goes for the pointer's tip
     /// at `x`, `y` in the grid's pixels: the grid's pixel kept inside the
     /// grid, turned and placed as the last frame placed the grid. `None`

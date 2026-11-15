@@ -28,13 +28,19 @@
 //! A failed renderer set keeps the renderer the display had, and with it
 //! the arrow on its plane: an arrow made from the failed set would have no
 //! font to size it by, and the pointer would show nowhere.
+//!
+//! A program can ask for another shape with OSC 22, such as a hand over a
+//! link or an I-beam over text. Before each draw, [`Pointer::follow`] hands
+//! the shape the terminal names to the display's renderer. When the shape
+//! changed, the renderer draws the new shape's picture, and the next draw
+//! offers that picture to the cursor plane, as it does after a zoom.
 
 use std::io;
 
+use vtium_font::Face;
 use vtium_platform::display::DisplayId;
-use vtium_render::Arrow;
-#[cfg(doc)]
-use vtium_render::Renderer;
+use vtium_render::{Arrow, Renderer};
+use vtium_term::PointerShape;
 
 /// A display's cursor plane, as the pointer drives it.
 pub trait Plane {
@@ -98,6 +104,24 @@ impl Pointer {
     /// The renderer changed: its arrow goes to the plane at the next draw.
     pub fn reset(&mut self) {
         self.route = Route::Unset;
+    }
+
+    /// Before a draw: shows `shape`, the shape the terminal on the display
+    /// names, with `renderer`, and keeps `arrow`, the copy of the
+    /// renderer's image that the cursor plane takes, the same. A new shape
+    /// goes to the plane at this draw, through [`Pointer::reset`].
+    pub fn follow<F: Face>(
+        &mut self,
+        renderer: &mut Renderer<F>,
+        arrow: &mut Arrow,
+        shape: PointerShape,
+    ) {
+        if renderer.pointer_shape() == shape {
+            return;
+        }
+        renderer.set_pointer_shape(shape);
+        arrow.clone_from(renderer.arrow());
+        self.reset();
     }
 
     /// Before a draw: puts the renderer's `arrow` on the plane if it
@@ -591,6 +615,47 @@ mod tests {
                     "display DP-8 shows it on its cursor plane".to_owned()
                 ),
             ]
+        );
+    }
+
+    // A program's OSC 22 shape: the renderer draws the shape's picture,
+    // the copy the plane takes follows it, and the next draw offers the new
+    // picture to the plane. The same shape again changes nothing.
+    // covers: window.pointer-shape
+    #[test]
+    fn a_new_shape_goes_to_the_renderer_and_the_plane() {
+        let mut r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        let mut arrow = r.arrow().clone();
+        p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
+        assert_eq!(plane.arrow, Some(Arrow::new(16, Orientation::Normal)));
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        let hand = Arrow::shape(PointerShape::Pointer, 16, Orientation::Normal);
+        assert_eq!((r.pointer_shape(), &arrow), (PointerShape::Pointer, &hand));
+        assert_eq!(p.route(), Route::Unset);
+        assert_eq!(p.before_draw(&mut plane, ID, &arrow, Some((5, 6))), None);
+        assert_eq!((plane.arrow.as_ref(), plane.set_ups), (Some(&hand), 2));
+        p.follow(&mut r, &mut arrow, PointerShape::Pointer);
+        assert_eq!(p.route(), Route::Hardware);
+        p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
+        assert_eq!(plane.set_ups, 2);
+        // back to the default shape, the arrow
+        p.follow(&mut r, &mut arrow, PointerShape::Default);
+        assert_eq!(arrow, Arrow::new(16, Orientation::Normal));
+        assert_eq!(p.route(), Route::Unset);
+    }
+
+    // The renderer turned with the display draws the shape turned too, and
+    // the plane takes it turned.
+    // covers: window.pointer-shape
+    #[test]
+    fn a_new_shape_on_a_turned_display_is_turned() {
+        let mut r = renderer(Orientation::Right);
+        let (mut p, mut arrow) = (Pointer::default(), r.arrow().clone());
+        p.follow(&mut r, &mut arrow, PointerShape::Text);
+        assert_eq!(
+            arrow,
+            Arrow::shape(PointerShape::Text, 16, Orientation::Right)
         );
     }
 
