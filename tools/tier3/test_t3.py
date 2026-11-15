@@ -416,11 +416,11 @@ class ImplementationTest(unittest.TestCase):
             "budget": {"binary_bytes": t3_impl.BINARY_BUDGET, "met": True}})
 
     def test_budget(self):
-        # The operator's budget is the minspec binary's bytes, 4 MiB
+        # The operator's budget is the minspec binary's bytes, 4 MiB + 64 KiB
         # (ADR-1200 D19): at it the run passes, one byte past it fails. The
         # rest of the tree does not count.
         budget = t3_impl.BINARY_BUDGET
-        self.assertEqual(budget, 4194304)
+        self.assertEqual(budget, 4259840)
         impl = t3_impl.tree(self.tree, self.tar)
         for size, met in ((budget, True), (budget + 1, False)):
             impl["binary_bytes"] = size

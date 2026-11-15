@@ -26,7 +26,7 @@ vtium has heads. A head is a terminal for one or more displays. vtium places eac
 
 - **Fonts are read by a separate, locked-down program.** vtium's main process never opens a font file. A helper program reads the fonts in a sandbox and never runs as root. vtium only checks and draws the glyphs that the helper sends.
 - **It is built so that a program's output cannot crash it.** A panic is how a Rust program stops on an unexpected state. In the parts of vtium that read a program's output, the compiler refuses any operation that could panic on that output, such as an unchecked index or an unwrap. Only the part that talks to the kernel may use Rust's `unsafe`. [Architecture](architecture.md) lists the check behind each rule.
-- **It is measured on a small machine.** Its tests run vtium in a virtual machine with one CPU and 512 MB, and record vtium's peak memory there. The tests fail if vtium's binary grows past 4 MiB. They also draw on a 320×240 display.
+- **It is measured on a small machine.** Its tests run vtium in a virtual machine with one CPU and 512 MB, and record vtium's peak memory there. The tests fail if vtium's binary grows past 4 MiB and 64 KiB. They also draw on a 320×240 display.
 - **It is tested without systemd.** vtium runs from systemd's units. It also runs from sysvinit's inittab, from a script, or by hand. Its tests boot it under systemd, and on Debian 13 with sysvinit.
 
 [How vtium is judged](concepts/how-vtium-is-judged.md) describes how vtium is tested.
