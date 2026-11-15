@@ -16,7 +16,9 @@
 title: the login picture at the login prompt
 
 step: The picture behind the login prompt
-do: look at the whole screen before you press anything.
+do: this guide expects the configuration of VT {vt} to name a picture with
+do: login-image= and login-image-fit=cover. Look at the whole screen before
+do: you press anything.
 expect: the picture *fills the screen* behind the text, keeping its shape,
 expect: with no band at any edge but a strip *less than one character*
 expect: wide at the right or the bottom. Every line of text reads cleanly
