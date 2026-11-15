@@ -4552,9 +4552,12 @@ mod tests {
         assert!(!lock(&generated).held(AT, Variant::default(), &key));
     }
 
-    // issue #61, ADR-1203 D3: a syllable on a double-height pair is asked
-    // for piece by piece at the pair's size as well as at the normal size,
-    // since the line draws its pieces from the helper's glyphs at that size
+    // issue #61: a syllable on a double-height pair is asked for piece by
+    // piece at the pair's size as well as at the normal size, since the
+    // line draws its pieces from the helper's glyphs at that size
+    //
+    // References:
+    // - ADR-1203 D3: a syllable is asked for piece by piece.
     #[cfg(feature = "bidi")]
     #[test]
     fn a_syllable_on_a_line_of_double_size_is_asked_for_at_that_size() {
@@ -4581,6 +4584,43 @@ mod tests {
             tall.clusters.contains(&text[..2].to_vec()),
             "ka with its virama"
         );
+    }
+
+    // issue #61: an Arabic word on a line of double width and on a
+    // double-height pair asks for its joined letters and its lam-alef
+    // ligature at the line's size, since the line draws them from the
+    // helper's glyphs at that size. In salam (seen, lam, alef, meem) seen
+    // joins the letter after it, lam joins both sides, alef joins only the
+    // letter before it, as a right-joining letter does, and lam with alef
+    // makes the ligature, with lam joining seen. Meem stands alone, so it
+    // is asked for as a character, not a key
+    //
+    // References:
+    // - ADR-1004 D6: the keys of joined letters and of the lam-alef
+    //   ligature.
+    #[cfg(feature = "bidi")]
+    #[test]
+    fn joined_letters_on_a_line_of_double_size_are_asked_for_at_that_size() {
+        const ZWJ: char = '\u{200d}';
+        let (seen, lam, alef) = ('\u{633}', '\u{644}', '\u{627}');
+        let mut t = vtium_term::Terminal::new(10, 3, 0);
+        t.input("\x1b#6سلام\r\n\x1b#3سلام\r\n\x1b#4سلام".as_bytes());
+        let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
+        let mut all = vec![Shown::default()];
+        read_shown(&frame, &mut all, false);
+        settle(&mut all);
+        let keys = [
+            vec![seen, ZWJ],
+            vec![ZWJ, lam, ZWJ],
+            vec![ZWJ, alef],
+            vec![ZWJ, lam, alef],
+        ];
+        for doubled in [Doubled::Width, Doubled::Height] {
+            let shown = all.iter().find(|s| s.doubled == Some(doubled)).unwrap();
+            for key in &keys {
+                assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
+            }
+        }
     }
 
     // ADR-1203 D3: a row of Kannada asks the helper for each piece of the
