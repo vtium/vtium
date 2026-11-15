@@ -19,8 +19,12 @@ title: copy text to the console's clipboard with vticlip
 intro: vticlip copy reads text from a file or from a pipe and copies it to
 intro: the console's clipboard. Shift+Insert and the middle mouse button
 intro: paste it. Each step runs the commands for you, then shows the
-intro: program's exit status: 0 means vtium took the copy, and any other
-intro: number means it did not.
+intro: program's exit status. 0 means the copy was sent and the terminal
+intro: answered as vtium. 1 means nothing was copied, 2 means the command
+intro: line was wrong, and 3 means the copy was sent but the terminal did not
+intro: answer as vtium. vticlip cannot see whether vtium kept the text: with
+intro: clipboard-write off in vtium.conf, vtium ignores the copy, and the
+intro: program still exits 0.
 
 step: Build vticlip
 run: cargo build -q --release -p vtium-clipboard && mkdir -p /tmp/vtium-vt/bin && ln -sfn "$(pwd)/${CARGO_TARGET_DIR:-target}/release/vtium-clipboard" /tmp/vtium-vt/bin/vticlip && /tmp/vtium-vt/bin/vticlip --version; guide-wait
