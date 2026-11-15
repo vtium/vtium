@@ -286,6 +286,23 @@ pub struct Inspected {
 /// controlling one, as the console opens vtium.conf, and at most
 /// [`FILE_MAX`] bytes and one are read.
 pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected> {
+    let Some((bytes, trusted)) = read_up_to(path, trust, FILE_MAX)? else {
+        return Ok(None);
+    };
+    Ok(Some(Inspected {
+        text: text(&bytes).map(str::to_owned),
+        bytes,
+        trusted,
+    }))
+}
+
+/// The bytes read from a file and the ownership check's verdict on it.
+type Taken = (Vec<u8>, Result<(), Untrusted>);
+
+/// Walks to the file at `path`, opens it as [`inspect`] does, and reads at
+/// most `limit` bytes and one, with the ownership check's verdict beside
+/// them: `None` when the file does not exist.
+fn read_up_to(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Taken>, Rejected> {
     let Some(found) = walk(path, trust)? else {
         return Ok(None);
     };
@@ -295,17 +312,33 @@ pub fn inspect(path: &Path, trust: &Trust) -> Result<Option<Inspected>, Rejected
         .check(path, meta.uid(), meta.mode(), false)
         .and(found.folders);
     let mut bytes = Vec::new();
-    let limit = u64::try_from(FILE_MAX)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
+    let limit = u64::try_from(limit).unwrap_or(u64::MAX).saturating_add(1);
     file.take(limit)
         .read_to_end(&mut bytes)
         .map_err(|e| unreadable(&e))?;
-    Ok(Some(Inspected {
-        text: text(&bytes).map(str::to_owned),
-        bytes,
-        trusted,
-    }))
+    Ok(Some((bytes, trusted)))
+}
+
+/// Reads the bytes of the file at `path` under the same checks as
+/// vtium.conf, with a size limit that the caller chooses. The console
+/// reads a pointer file this way, whose limit is far larger than
+/// vtium.conf's [`FILE_MAX`]. The walk follows symlinks and checks every
+/// folder it crosses, the file must pass the ownership check, and a file
+/// longer than `limit` bytes is refused with [`Problem::TooLarge`] after
+/// at most `limit` bytes and one are read. `None` when the file does not
+/// exist. The bytes are not checked as text.
+///
+/// References:
+/// - ADR-1309 D5: the console reads each pointer file under the ownership check that a font set and vtium.conf pass, with a size limit of its own.
+pub fn read_limited(path: &Path, trust: &Trust, limit: usize) -> Result<Option<Vec<u8>>, Rejected> {
+    let Some((bytes, trusted)) = read_up_to(path, trust, limit)? else {
+        return Ok(None);
+    };
+    trusted.map_err(|why| Rejected::one(None, Problem::Untrusted(why)))?;
+    if bytes.len() > limit {
+        return Err(Rejected::one(None, Problem::TooLarge));
+    }
+    Ok(Some(bytes))
 }
 
 /// Reads the head file at `path` as the start does: `None` when it does
@@ -364,6 +397,48 @@ pub fn text(bytes: &[u8]) -> Result<&str, Rejected> {
 mod tests {
     use super::*;
     use crate::scratch::Scratch;
+
+    // The checked read with the caller's limit: a file of exactly the
+    // limit reads whole, one byte more is refused as too large, a file
+    // its group can write is refused before its size counts, and a
+    // missing file is no error.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn read_limited_takes_the_callers_limit_and_the_ownership_check() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("settings-limited");
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let uid = std::os::unix::fs::MetadataExt::uid(&std::fs::metadata(&dir).unwrap());
+        let trust = Trust::owner(uid).below(&dir);
+        let limit = FILE_MAX + 10;
+        let (at, past, open) = (dir.join("at"), dir.join("past"), dir.join("open"));
+        std::fs::write(&at, vec![0u8; limit]).unwrap();
+        std::fs::write(&past, vec![0u8; limit + 1]).unwrap();
+        std::fs::write(&open, b"x").unwrap();
+        for f in [&at, &past] {
+            std::fs::set_permissions(f, std::fs::Permissions::from_mode(0o644)).unwrap();
+        }
+        std::fs::set_permissions(&open, std::fs::Permissions::from_mode(0o664)).unwrap();
+        assert_eq!(
+            read_limited(&at, &trust, limit).unwrap().map(|b| b.len()),
+            Some(limit)
+        );
+        let problem = |r: Result<Option<Vec<u8>>, Rejected>| {
+            r.unwrap_err().errors.first().map(|e| e.problem.clone())
+        };
+        assert_eq!(
+            problem(read_limited(&past, &trust, limit)),
+            Some(Problem::TooLarge)
+        );
+        assert!(matches!(
+            problem(read_limited(&open, &trust, limit)),
+            Some(Problem::Untrusted(Untrusted::Writable { .. }))
+        ));
+        assert_eq!(
+            read_limited(&dir.join("none"), &trust, limit).unwrap(),
+            None
+        );
+    }
 
     // A link or a folder swapped between the walk and the read cannot
     // lead the read elsewhere: the read opens the file in the folder the
