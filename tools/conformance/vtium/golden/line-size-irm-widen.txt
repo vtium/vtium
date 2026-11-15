@@ -1,0 +1,14 @@
+checkpoint 24
+size 10x3
+cursor 3,0
+flags INSERT_MODE|AUTO_WRAP
+row 0 |a❤️bc|
+row 1 ||
+row 2 ||
+checkpoint 27
+size 10x3
+cursor 3,0
+flags INSERT_MODE|AUTO_WRAP
+row 0 |a❤️bc|
+row 1 ||
+row 2 ||

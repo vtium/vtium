@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests the typing pad of the guided checks, tools/vt/checks/typepad.py:
 what it sends for each key, how Backspace asks the terminal where the
-cursor is, the edits of pair mode, the screens it draws with the step's
-text above them, and a whole run on a pseudo-terminal.
+cursor is, the edits of pair mode, insert mode and its key, the screens it
+draws with the step's text above them, and a whole run on a
+pseudo-terminal.
 
     python3 -I tools/vt/tests/test_typepad.py [-v] [TestCase.test_name ...]
 """
@@ -28,6 +29,7 @@ WAIT_BOUND = 60
 ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 TYPEPAD = os.path.join(ROOT, "tools", "vt", "checks", "typepad.py")
 GUIDE = os.path.join(ROOT, "tools", "vt", "checks", "double-size.guide")
+INSERT_GUIDE = os.path.join(ROOT, "tools", "vt", "checks", "insert.guide")
 
 spec = importlib.util.spec_from_file_location("typepad", TYPEPAD)
 typepad = importlib.util.module_from_spec(spec)
@@ -43,11 +45,11 @@ class Fake:
     as a terminal's answer arrives in a later read. When answers runs out,
     the question waits for the test to answer it with answer()."""
 
-    def __init__(self, answers=(), floor=7, partner=None):
+    def __init__(self, answers=(), floor=7, partner=None, state_at=None, irm=False):
         self.answers = list(answers)
         self.due = []
         self.out = []
-        self.pad = typepad.Pad(self.write, floor, partner)
+        self.pad = typepad.Pad(self.write, floor, partner, state_at, irm)
 
     def write(self, data):
         self.out.append(data)
@@ -279,15 +281,90 @@ class Pair(unittest.TestCase):
         self.assertEqual(typepad.pairs(typepad.screen("pair", 80)[0], 12), {12: 13, 13: 12})
         self.assertEqual(typepad.pairs(typepad.screen("wide", 80)[0], 7), {})
         # Pair mode's key list takes two rows more than the plain one.
-        self.assertEqual(typepad.draw("pair", 80, 24, None, pair=True)[1:], (9, {9: 10, 10: 9}))
-        self.assertEqual(typepad.draw("pair", 80, 24, None)[1:], (7, {}))
+        self.assertEqual(typepad.draw("pair", 80, 24, None, pair=True)[1:], (9, {9: 10, 10: 9}, None))
+        self.assertEqual(typepad.draw("pair", 80, 24, None)[1:], (7, {}, None))
 
 
-def guide_steps():
-    """The steps of double-size.guide, as guide.sh reads them and hands
-    them to the pad: (heading, do, expect, the pad's arguments)."""
+# The key list's insert mode word, at row 6, column 22, as the pad draws it
+# on 80 columns with --insert and no step.
+STATE = (6, 22)
+INSERT_ON_WORD = b"\x1b7\x1b[6;22Hon \x1b8\x1b[4h"
+INSERT_OFF_WORD = b"\x1b[4l\x1b7\x1b[6;22Hoff\x1b8"
+
+
+class Insert(unittest.TestCase):
+    """--insert: F2 turns the terminal's insert mode on and off, and the
+    key list says which."""
+
+    def test_f2_turns_insert_mode_on_and_off_and_writes_the_state(self):
+        # F2 sends SS3 Q, or CSI 12 ~ from a VT220-style keyboard.
+        for f2 in (b"\x1bOQ", b"\x1b[12~"):
+            with self.subTest(key=f2):
+                f = Fake(state_at=STATE, irm=True)
+                self.assertEqual(f.feed(f2).sent(), INSERT_ON_WORD)
+                self.assertTrue(f.pad.insert)
+                self.assertEqual(f.feed(f2).sent(), INSERT_ON_WORD + INSERT_OFF_WORD)
+                self.assertFalse(f.pad.insert)
+
+    def test_the_word_goes_in_while_insert_mode_is_off(self):
+        # The word comes before CSI 4 h and after CSI 4 l, so it replaces
+        # the old word instead of pushing the key list right.
+        self.assertLess(INSERT_ON_WORD.index(b"on "), INSERT_ON_WORD.index(b"\x1b[4h"))
+        self.assertGreater(INSERT_OFF_WORD.index(b"off"), INSERT_OFF_WORD.index(b"\x1b[4l"))
+
+    def test_without_the_word_f2_still_turns_insert_mode_on_and_off(self):
+        f = Fake(irm=True)
+        self.assertEqual(f.feed(b"\x1bOQ", b"\x1bOQ").sent(), b"\x1b[4h\x1b[4l")
+
+    def test_without_insert_f2_does_nothing(self):
+        f = Fake(state_at=STATE)
+        self.assertEqual(f.feed(b"\x1bOQ", b"\x1b[12~").sent(), b"")
+        self.assertFalse(f.pad.insert)
+
+    def test_f2_keeps_the_pads_note_of_a_pending_wrap(self):
+        # A character that left a wrap pending, then F2: DECRC brings the
+        # pending wrap back, so Backspace still erases in the last column.
+        f = Fake([(9, 80), (9, 80), (9, 80)], state_at=STATE, irm=True).feed(b"z", b"\x1bOQ", b"\x7f")
+        self.assertEqual(f.sent(), CPR + b"z" + CPR + INSERT_ON_WORD + CPR + b"\x1b[D\x1b[C\x1b[X")
+
+    def test_in_pair_mode_a_letter_in_insert_mode_goes_to_both_lines(self):
+        f = Fake([(9, 5), (9, 6)], partner=PAIR, state_at=STATE, irm=True).feed(b"\x1bOQ", b"T")
+        self.assertEqual(f.sent(), INSERT_ON_WORD + CPR + cup(10, 5) + b"T" + cup(9, 5) + b"T" + CPR)
+        f = Fake([(10, 7), (10, 8)], partner=PAIR, irm=True).feed(b"\x1bOQ", b"T")
+        self.assertEqual(f.sent(), b"\x1b[4h" + CPR + cup(9, 7) + b"T" + cup(10, 7) + b"T" + CPR)
+
+    def test_the_key_list_says_insert_mode_is_off_where_the_word_goes(self):
+        text = typepad.layout(80, 24, [], None, insert=True)
+        self.assertEqual(text[5], "        Insert mode: off. F2 turns insert mode on and off.")
+        self.assertEqual(typepad.state_position(text), STATE)
+        row, col = STATE
+        self.assertEqual(text[row - 1][col - 1:col + 2], "off")
+        out, floor, _, state_at = typepad.draw("insert", 80, 24, None, insert=True)
+        self.assertEqual((floor, state_at), (8, STATE))
+        self.assertIn(b"\x1b[6;1H        Insert mode: off.", out)
+        # In pair mode the word comes after pair mode's two rows.
+        self.assertEqual(typepad.draw("insert", 80, 24, None, pair=True, insert=True)[3], (8, 22))
+        # A screen too narrow to keep "Insert mode: off" on one row has no
+        # word for F2 to write.
+        self.assertIsNone(typepad.state_position(typepad.layout(12, 60, [], None, insert=True)))
+
+    def test_the_insert_screen_holds_every_size_of_line(self):
+        lines, cursor = typepad.screen("insert", 80)
+        self.assertEqual([size for size, _ in lines], ["single", "wide", "single", "top", "bottom"])
+        self.assertEqual([len(text) for _, text in lines], [80, 40, 0, 40, 40])
+        self.assertEqual(cursor, (1, 11))
+        self.assertEqual(lines[0][1][10], "k")
+        self.assertEqual(typepad.pairs(lines, 8), {11: 12, 12: 11})
+
+
+def guide_steps(guide=GUIDE):
+    """The steps of a guide that runs the pad, double-size.guide unless
+    another is named, as guide.sh reads them and hands them to the pad:
+    (heading, do, expect, the pad's arguments)."""
     steps = []
-    for line in open(GUIDE, encoding="utf-8"):
+    with open(guide, encoding="utf-8") as f:
+        lines = f.read().splitlines()
+    for line in lines:
         m = re.match(r"^([a-z]+):\s?(.*)$", line.rstrip("\n"))
         if not m:
             continue
@@ -333,18 +410,21 @@ class Screens(unittest.TestCase):
                         self.assertLessEqual(len(text), cols if size == "single" else cols // 2)
 
     def test_the_drawing_starts_below_the_key_list(self):
-        out, floor, _ = typepad.draw("tall", 80, 24, 6)
+        out, floor, _, state_at = typepad.draw("tall", 80, 24, 6)
         # Five rows of keys on 80 columns, and a blank row.
         self.assertEqual(floor, 7)
         self.assertTrue(out.startswith(b"\x1b[H\x1b[2J\x1b[6 q\x1b[1;1HKeys:   Ctrl-D ends the typing."))
         self.assertIn(b"\x1b[4;1H        F3 to F6 change the size of the whole line the cursor is on", out)
         self.assertTrue(out.endswith(b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H"))
+        # Without --insert the key list does not say whether insert mode is on.
+        self.assertIsNone(state_at)
+        self.assertNotIn(b"Insert mode:", out)
         # On 40 columns the key list takes twelve rows.
         self.assertEqual(typepad.draw("tall", 40, 24, None)[1], 14)
 
     def test_the_steps_text_comes_first_with_the_key_list_below(self):
         step = ("Step 2 of 9: Two", "Press the\nkey.\n", "One thing\nhappens.\nWrong: another.\n", "g.guide")
-        out, floor, _ = typepad.draw("wide", 80, 25, None, step)
+        out, floor, _, _ = typepad.draw("wide", 80, 25, None, step)
         self.assertEqual(typepad.layout(80, 25, typepad.screen("wide", 80)[0], step)[:5], [
             "Step 2 of 9: Two",
             "Do:     Press the key.",
@@ -385,20 +465,27 @@ class Screens(unittest.TestCase):
                     for row in typepad.layout(cols, 60, [], step, pair):
                         self.assertLessEqual(len(row), cols, row)
 
-    def test_every_step_of_the_guide_fits_80_by_25(self):
-        steps = guide_steps()
-        self.assertEqual(len(steps), 14)
-        for heading, do, expect, args in steps:
+    def test_every_step_of_the_guides_fits_80_by_25(self):
+        for guide, count in ((GUIDE, 14), (INSERT_GUIDE, 6)):
+            steps = guide_steps(guide)
+            self.assertEqual(len(steps), count, guide)
+            for heading, do, expect, args in steps:
+                with self.subTest(guide=os.path.basename(guide), step=heading):
+                    name = [a for a in args if not a.startswith("--")]
+                    self.assertEqual(len(name), 1, args)
+                    lines, _ = typepad.screen(name[0], 80)
+                    step = (heading, do, expect, guide)
+                    text = typepad.layout(80, 25, lines, step, "--pair" in args, "--insert" in args)
+                    self.assertFalse(any(r.startswith("The rest of this step") for r in text), text)
+                    self.assertEqual(text[0], heading)
+                    # The lines, a row for typing past them and the
+                    # question's row fit below the text.
+                    self.assertLessEqual(len(text) + len(lines) + 2, 25)
+
+    def test_every_step_of_the_insert_guide_runs_the_pad_with_insert(self):
+        for heading, _, _, args in guide_steps(INSERT_GUIDE):
             with self.subTest(step=heading):
-                name = [a for a in args if not a.startswith("--")]
-                self.assertEqual(len(name), 1, args)
-                lines, _ = typepad.screen(name[0], 80)
-                text = typepad.layout(80, 25, lines, (heading, do, expect, GUIDE), "--pair" in args)
-                self.assertFalse(any(r.startswith("The rest of this step") for r in text), text)
-                self.assertEqual(text[0], heading)
-                # The lines, a row for typing past them and the question's
-                # row fit below the text.
-                self.assertLessEqual(len(text) + len(lines) + 2, 25)
+                self.assertIn("--insert", args)
 
     def test_the_step_comes_from_guide_shs_environment(self):
         self.assertIsNone(typepad.step_text({}))
@@ -407,8 +494,9 @@ class Screens(unittest.TestCase):
         self.assertEqual(typepad.step_text(env), ("Step 1 of 2: T", "d\n", "e\n", "x.guide"))
 
     def test_the_end_puts_the_cursor_on_a_clean_single_line_at_the_bottom(self):
-        self.assertEqual(typepad.finish(24, None), b"\x1b[24;1H\x1b#5\x1b[2K")
-        self.assertEqual(typepad.finish(24, 6), b"\x1b[24;1H\x1b#5\x1b[2K\x1b[0 q")
+        # Insert mode goes off first, whether or not F2 turned it on.
+        self.assertEqual(typepad.finish(24, None), b"\x1b[4l\x1b[24;1H\x1b#5\x1b[2K")
+        self.assertEqual(typepad.finish(24, 6), b"\x1b[4l\x1b[24;1H\x1b#5\x1b[2K\x1b[0 q")
 
 
 class Run(unittest.TestCase):
@@ -495,6 +583,18 @@ class Run(unittest.TestCase):
         self.read_until(fd, b"\x1b[24;1H\x1b#5\x1b[2K")
         self.assertEqual(self.wait(pid), 0)
 
+    def test_a_run_with_insert_turns_insert_mode_on_and_off_at_the_end(self):
+        pid, fd = self.start("--insert", "insert")
+        # The pad has drawn its screen once the cursor goes to the k of
+        # the first line.
+        out = self.read_until(fd, b"\x1b[12;1H\x1b#4abcdefghijklmnopqrstuvwxyz0123456789ABCD\x1b[8;11H")
+        self.assertIn(b"\x1b[6;1H        Insert mode: off. F2 turns insert mode on and off.", out)
+        os.write(fd, b"\x1bOQ")
+        self.read_until(fd, b"\x1b7\x1b[6;22Hon \x1b8\x1b[4h")
+        os.write(fd, b"\x04")
+        self.read_until(fd, b"\x1b[4l\x1b[24;1H\x1b#5\x1b[2K")
+        self.assertEqual(self.wait(pid), 0)
+
     def test_a_hangup_ends_the_pad_with_the_terminal_put_back(self):
         pid, fd = self.start("tall")
         self.read_until(fd, b"\x1b[7;1H\x1b#3\x1b[8;1H\x1b#4\x1b[7;1H")
@@ -504,10 +604,10 @@ class Run(unittest.TestCase):
         self.assertTrue(termios.tcgetattr(fd)[3] & termios.ECHO)
 
     def test_a_wrong_call_is_refused(self):
-        for args, why in ((["nonesuch"], "the screen 'nonesuch' is not one of wide, tall, edit, pair or mixed"),
+        for args, why in ((["nonesuch"], "the screen 'nonesuch' is not one of wide, tall, edit, pair, mixed or insert"),
                           (["--cursor=7", "wide"], "--cursor takes a DECSCUSR style from 0 to 6"),
                           (["--cursor=bar", "wide"], "--cursor takes a DECSCUSR style from 0 to 6"),
-                          ([], "typepad.py [--cursor=N] [--pair] SCREEN")):
+                          ([], "typepad.py [--cursor=N] [--pair] [--insert] SCREEN")):
             with self.subTest(args=args):
                 pid, fd = self.start(*args)
                 self.read_until(fd, why.encode())

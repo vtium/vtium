@@ -4,7 +4,7 @@ double and single size, then echoes the keys typed on it as the escape
 sequences a line editor sends, so the terminal's own rules for each line
 decide where the text and the cursor go. Ctrl-D (or Ctrl-C) ends it.
 
-  typepad.py [--cursor=N] [--pair] SCREEN
+  typepad.py [--cursor=N] [--pair] [--insert] SCREEN
 
 SCREEN is one of:
   wide    two empty double-width lines
@@ -13,11 +13,16 @@ SCREEN is one of:
   pair    a double-height pair full of letters
   mixed   a full single-width ruler, a double-width line, a double-height
           pair and a single-width line
+  insert  a single-width line, a double-width line, an empty single-width
+          line and a double-height pair, all but the empty line full of
+          letters
 --cursor=N sets the cursor's style with DECSCUSR N (1 blinking block, 4
 steady underline, 6 steady bar, for example) while the pad runs, and puts
 back the configured style (DECSCUSR 0) when the pad ends.
 --pair makes the pad edit both lines of each double-height pair it drew,
 as a program written for the VT510 does (below).
+--insert makes F2 turn the terminal's insert mode on and off, and adds a
+line to the key list that says whether insert mode is on (below).
 
 What each key sends:
   a printable character   itself
@@ -32,12 +37,24 @@ What each key sends:
   Ctrl-K and Ctrl-L       EL 0 and ED 0, to the end of the line or screen
   F3, F4, F5 and F6       ESC # 3, ESC # 4, ESC # 5 and ESC # 6, which set
                           the size of the whole line the cursor is on
+  F2, with --insert       CSI 4 h or CSI 4 l, which turn the terminal's
+                          insert mode (IRM) on or off, by turns
   Backspace               BS and ECH, which erase the character left of
                           the cursor. At the first column of a line the
                           pad moves up a line and to that line's last
                           column (CUU, CUF 999) and erases there, as a line
                           editor does when it goes back across a wrap.
 Any other key does nothing.
+
+In insert mode each character typed pushes the characters from the cursor
+to the line's last column one place right, and the character pushed past
+that column is lost. With --insert, the key list shows whether insert mode
+is on. When F2 turns insert mode on or off, the pad writes "on" or "off"
+there: it saves the cursor (DECSC, ESC 7), writes the word, and restores
+the cursor (DECRC, ESC 8), which also brings back a pending wrap. The pad
+writes the word while insert mode is off, so the word replaces the old one
+instead of pushing the key list right. The pad turns insert mode off when
+it ends, with or without --insert.
 
 The screen's top shows the step that guide.sh runs the pad for: its
 heading, its do: lines and its expect: lines, which guide.sh hands a run:
@@ -53,7 +70,8 @@ The VT510 edits each line of a double-height pair on its own: Insert on the
 top line moves only the top halves of the letters. A program that shows tall
 text therefore makes each edit twice, once on each line. With --pair the pad
 does that for typing, Backspace, Insert, Delete and Ctrl-K on a line of a
-pair it drew. It asks where the cursor is, makes the edit on the pair's
+pair it drew. A character typed in insert mode is inserted on both lines,
+so the tall letters after it move whole. It asks where the cursor is, makes the edit on the pair's
 other line at the same column (CUP there, the edit, CUP back), and then
 makes the edit on the cursor's own line. The cursor ends where the plain
 edit leaves it. Ctrl-L erases both lines from the cursor's column: EL 0 on
@@ -104,6 +122,11 @@ KEYS = (
     "F3 to F6 change the size of the whole line the cursor is on, letters already typed included: "
     "F3 tall top, F4 tall bottom, F5 normal, F6 wide.",
 )
+INSERT_KEYS = ("Insert mode: off. F2 turns insert mode on and off.",)
+# The words of the key list that say whether insert mode is on, and the
+# word for each state, padded to one width so that each replaces the other.
+INSERT_STATE = "Insert mode: "
+INSERT_WORD = {False: b"off", True: b"on "}
 PAIR_KEYS = (
     "Pair mode: on a tall line, the pad sends typing, Backspace, Insert, Delete, Ctrl-K and "
     "Ctrl-L to both lines of the pair.",
@@ -124,6 +147,14 @@ INSERT = CSI + b"@"
 DELETE = CSI + b"P"
 ERASE_LINE = CSI + b"K"
 ERASE_BELOW = CSI + b"J"
+# IRM, the terminal's insert mode, set and reset.
+INSERT_ON = CSI + b"4h"
+INSERT_OFF = CSI + b"4l"
+# F2 sends SS3 Q, or CSI 12 ~ on a terminal that sends the VT220's keys.
+F2_SS3 = b"Q"
+F2_TILDE = b"12"
+SAVE_CURSOR = ESC + b"7"
+RESTORE_CURSOR = ESC + b"8"
 # The keys that send CSI number ~.
 TILDE = {
     b"1": b"\r", b"7": b"\r", b"4": END, b"8": END,
@@ -158,6 +189,9 @@ def screen(name, cols):
         return [("wide", letters), ("single", ""), ("top", letters), ("bottom", letters)], (1, min(11, half))
     if name == "pair":
         return [("top", letters), ("bottom", letters)], (1, min(11, half))
+    if name == "insert":
+        full = (LETTERS * (cols // len(LETTERS) + 1))[:cols]
+        return [("single", full), ("wide", letters), ("single", ""), ("top", letters), ("bottom", letters)], (1, min(11, cols))
     if name == "mixed":
         ruler = ("1234567890" * (cols // 10 + 1))[:cols]
         return [
@@ -212,7 +246,7 @@ def labelled(label, paras, cols):
     return rows
 
 
-def layout(cols, rows, lines, step=None, pair=False):
+def layout(cols, rows, lines, step=None, pair=False, insert=False):
     """The rows of text above a screen's lines, from the top of the
     screen: the step's heading, its do: and expect: lines and the key list,
     with a blank row after the step and after the key list. step is
@@ -222,7 +256,7 @@ def layout(cols, rows, lines, step=None, pair=False):
     free for guide.sh's question. When the step's text does not fit, the
     do: lines come first, and the last row that fits says where the rest
     is."""
-    keys = labelled("Keys", KEYS + (PAIR_KEYS if pair else ()), cols) + [""]
+    keys = labelled("Keys", KEYS + (PAIR_KEYS if pair else ()) + (INSERT_KEYS if insert else ()), cols) + [""]
     if not step:
         return keys
     heading, do, expect, where = step
@@ -310,12 +344,19 @@ class Pad:
     """What the pad sends for the keys it reads. write is called with each
     piece of output. floor is the first row the pad drew, which Backspace
     never moves above. partner maps each row of a double-height pair to the
-    pair's other row, in pair mode, and is empty otherwise."""
+    pair's other row, in pair mode, and is empty otherwise. state_at is
+    the row and column, from 1, of the key list's word that says whether
+    insert mode is on, or None when the key list does not show the word.
+    irm makes F2 turn insert mode on and off; without it F2 does nothing."""
 
-    def __init__(self, write, floor, partner=None):
+    def __init__(self, write, floor, partner=None, state_at=None, irm=False):
         self.write = write
         self.floor = floor
         self.partner = partner or {}
+        self.state_at = state_at
+        self.irm = irm
+        # Whether the pad has turned the terminal's insert mode on.
+        self.insert = False
         self.parser = Parser()
         # What to do with each answer to CSI 6 n still to come, in order,
         # and the keys read since the first of them was asked, which wait.
@@ -384,6 +425,10 @@ class Pad:
                 self.edit(CONTROLS[b])
         elif kind == "csi":
             params, final = event[1], event[2]
+            if final == b"~" and params == F2_TILDE:
+                if self.irm:
+                    self.toggle_insert()
+                return
             if final == b"~":
                 out = TILDE.get(params)
             elif params == b"":
@@ -393,9 +438,26 @@ class Pad:
             if out:
                 self.edit(out)
         elif kind == "ss3":
+            if event[1] == F2_SS3:
+                if self.irm:
+                    self.toggle_insert()
+                return
             out = MOVES.get(event[1]) or SS3_KEYS.get(event[1])
             if out:
                 self.send(out)
+
+    def toggle_insert(self):
+        """F2: turns the terminal's insert mode on when it is off, and off
+        when it is on, and writes the new state into the key list. The word
+        goes in while insert mode is off: before CSI 4 h, and after CSI 4 l.
+        DECSC and DECRC put the cursor back where it stood, a pending wrap
+        included, so the pad's own note of a pending wrap still holds."""
+        self.insert = not self.insert
+        word = b""
+        if self.state_at:
+            row, col = self.state_at
+            word = SAVE_CURSOR + CSI + b"%d;%dH" % (row, col) + INSERT_WORD[self.insert] + RESTORE_CURSOR
+        self.write(word + INSERT_ON if self.insert else INSERT_OFF + word)
 
     def edit(self, out):
         """Sends a key's sequence. In pair mode, Insert, Delete, Ctrl-K and
@@ -480,12 +542,24 @@ class Pad:
             self.send(CSI + b"A" + END + CSI + b"X")
 
 
-def draw(name, cols, rows, cursor_style, step=None, pair=False):
+def state_position(text):
+    """The row and column, from 1, of the word after INSERT_STATE in the
+    rows of text above the screen's lines, or None when no row holds
+    INSERT_STATE and its word, as on a screen too narrow for them."""
+    for i, line in enumerate(text):
+        at = line.find(INSERT_STATE + INSERT_WORD[False].decode())
+        if at >= 0:
+            return i + 1, at + len(INSERT_STATE) + 1
+    return None
+
+
+def draw(name, cols, rows, cursor_style, step=None, pair=False, insert=False):
     """The bytes that clear the screen, set the cursor's style, write the
     step's text and the key list and draw the screen, the first row of the
-    screen's lines, and the screen's double-height pairs (in pair mode)."""
+    screen's lines, the screen's double-height pairs (in pair mode), and
+    where the key list says whether insert mode is on (state_position)."""
     lines, (row, col) = screen(name, cols)
-    text = layout(cols, rows, lines, step, pair)
+    text = layout(cols, rows, lines, step, pair, insert)
     floor = len(text) + 1
     out = CSI + b"H" + CSI + b"2J"
     if cursor_style is not None:
@@ -498,7 +572,7 @@ def draw(name, cols, rows, cursor_style, step=None, pair=False):
     for i, (size, chars) in enumerate(lines):
         out += CSI + b"%d;1H" % (floor + i) + SIZE[size] + chars.encode()
     out += CSI + b"%d;%dH" % (floor + row - 1, col)
-    return out, floor, pairs(lines, floor) if pair else {}
+    return out, floor, pairs(lines, floor) if pair else {}, state_position(text)
 
 
 def step_text(env):
@@ -513,10 +587,12 @@ def step_text(env):
 
 
 def finish(rows, cursor_style):
-    """The bytes that leave the screen as the pad drew it and put the
-    cursor on a clean line of single size at the bottom, for guide.sh's
-    question, with the configured cursor style back."""
-    out = CSI + b"%d;1H" % rows + ESC + b"#5" + CSI + b"2K"
+    """The bytes that turn insert mode off, leave the screen as the pad
+    drew it and put the cursor on a clean line of single size at the
+    bottom, for guide.sh's question, with the configured cursor style back.
+    Insert mode goes off whether or not F2 turned it on, so that a pad that
+    ended in the middle of a key leaves it off too."""
+    out = INSERT_OFF + CSI + b"%d;1H" % rows + ESC + b"#5" + CSI + b"2K"
     if cursor_style is not None:
         out += CSI + b"0 q"
     return out
@@ -530,10 +606,13 @@ def usage():
 def main(argv):
     cursor_style = None
     pair = False
+    insert = False
     args = []
     for a in argv:
         if a == "--pair":
             pair = True
+        elif a == "--insert":
+            insert = True
         elif a.startswith("--cursor="):
             value = a.split("=", 1)[1]
             if not value.isdigit() or int(value) > 6:
@@ -550,9 +629,9 @@ def main(argv):
         return 2
     cols, rows = os.get_terminal_size(fd)
     try:
-        out, floor, partner = draw(args[0], cols, rows, cursor_style, step_text(os.environ), pair)
+        out, floor, partner, state_at = draw(args[0], cols, rows, cursor_style, step_text(os.environ), pair, insert)
     except ValueError:
-        print("typepad: the screen '%s' is not one of wide, tall, edit, pair or mixed" % args[0], file=sys.stderr)
+        print("typepad: the screen '%s' is not one of wide, tall, edit, pair, mixed or insert" % args[0], file=sys.stderr)
         return 2
 
     def write(data):
@@ -569,7 +648,7 @@ def main(argv):
     tty.setraw(fd)
     try:
         write(out)
-        pad = Pad(write, floor, partner)
+        pad = Pad(write, floor, partner, state_at, insert)
         while True:
             data = os.read(fd, 1024)
             # An empty read is the terminal gone: nothing more will come.

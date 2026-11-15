@@ -1,0 +1,14 @@
+checkpoint 27
+size 6x3
+cursor 6,0
+flags INSERT_MODE|AUTO_WRAP
+row 0 |abcdeX|
+row 1 |ghij|
+row 2 ||
+checkpoint 28
+size 6x3
+cursor 1,1
+flags INSERT_MODE|AUTO_WRAP
+row 0 |abcdeX|
+row 1 |Yghij|
+row 2 ||
