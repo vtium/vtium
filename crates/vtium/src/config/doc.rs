@@ -475,8 +475,9 @@ pub(super) const EXAMPLE_MAX: usize = 49_152;
 /// for further key bindings and kitty keyboard settings (five keys at 400
 /// bytes). The estimate is 4 KiB with a margin of about half a key.
 /// `cluster-width` (ADR-1006) used half a KiB of that room, which leaves
-/// 3.5 KiB.
-const EXAMPLE_ROOM: usize = 3_584;
+/// 3.5 KiB. `font-ligatures` (ADR-1308) used 274 bytes more, which leaves
+/// 3,310 bytes.
+const EXAMPLE_ROOM: usize = 3_310;
 
 #[cfg(test)]
 #[expect(
