@@ -1,0 +1,9 @@
+> size 10 2
+> send "\e]22;pointer\e\\\e]22;?__current__\e\\"
+< reply "\e]22;pointer\e\\"
+> send "\e]22;=text\e\\\e]22;?__current__\e\\"
+< reply "\e]22;text\e\\"
+> send "\e]22;=zoom-in,crosshair\e\\\e]22;?__current__\e\\"
+< reply "\e]22;crosshair\e\\"
+> send "\e]22;\e\\\e]22;?__current__\e\\"
+< reply "\e]22;default\e\\"

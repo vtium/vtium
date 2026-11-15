@@ -1,0 +1,13 @@
+> size 10 2
+> send "\e]22;>text,pointer\e\\\e]22;?__current__\e\\"
+< reply "\e]22;pointer\e\\"
+> send "\e[?1049h\e]22;?__current__\e\\"
+< reply "\e]22;0\e\\"
+> send "\e]22;>wait\e\\\e]22;?__current__\e\\"
+< reply "\e]22;wait\e\\"
+> send "\e[?1049l\e]22;?__current__\e\\"
+< reply "\e]22;pointer\e\\"
+> send "\ec\e]22;?__current__\e\\"
+< reply "\e]22;0\e\\"
+> send "\e[?1049h\e]22;?__current__\e\\"
+< reply "\e]22;0\e\\"
