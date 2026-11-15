@@ -1,5 +1,5 @@
 //! The flow of a draft with the devices present placed on it (ADR-1403
-//! D7, D8): [`build`] makes the Flow view's model, [`tui::flow::Flow`],
+//! D7, D8): [`build`] makes the Flow view's model, [`Flow`],
 //! from a draft's text and the devices [`present`] reads, and [`text`]
 //! and [`json`] print it for `vtium config flow`.
 //!

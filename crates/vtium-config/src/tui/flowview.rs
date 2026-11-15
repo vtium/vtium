@@ -42,7 +42,7 @@ pub fn natural(title: &str, detail: &str) -> usize {
 }
 
 /// Lays boxes `widths` wide out like words, from column `left` up to the
-/// column `right`, which no box reaches: each box whole on a line, [`GAP`]
+/// column `right`, which no box reaches: each box whole on a line, `GAP`
 /// columns apart, and a box that does not fit on a line starting the next
 /// one. A box wider than a line takes the line. Where no line holds more
 /// than two boxes and the boxes take more than one line, the terminal is

@@ -1216,7 +1216,7 @@ fn rules_plan(flow: &Flow, doc: &Doc) -> Vec<(Line, bool)> {
 /// configuration `doc`: the rules `doc` no longer says go, the heads no
 /// path has go, each path's head is added or has its look set, the looks
 /// the heads leave and no head uses go, and each new rule is added where
-/// [`rules_plan`] puts it. A draft that already
+/// `rules_plan` puts it. A draft that already
 /// says all this is left as it is.
 pub fn plan(flow: &Flow, doc: &Doc) -> Vec<Change> {
     let mut out = Vec::new();

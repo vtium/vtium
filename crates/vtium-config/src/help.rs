@@ -1,6 +1,6 @@
 //! The help text: the usage `--help` prints, and the help `--help TOPIC`
 //! prints for one command. Each command's text is written once, in
-//! [`TOPICS`], and both read it.
+//! `TOPICS`, and both read it.
 
 use crate::banner;
 

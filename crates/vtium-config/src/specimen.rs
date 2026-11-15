@@ -795,7 +795,7 @@ pub struct Shot {
 /// The size of the picture of `shot`, as the detailed specimen is sized:
 /// whole character cells of the screen's content, from its top left, as
 /// many columns and rows as the shot's `max` holds and at most
-/// [`PICTURE_MAX`] (see [`whole_cells`]). Each glyph keeps its own pixel
+/// [`PICTURE_MAX`] (see `whole_cells`). Each glyph keeps its own pixel
 /// size, so a bigger cell gives a bigger picture.
 pub fn shown(shot: &Shot) -> Result<(u32, u32), String> {
     let (cell, (dw, dh)) = (shot.cell, shot.display);

@@ -121,8 +121,9 @@ const LICENSE_MAX: usize = 1024;
 const MAP_MAX: usize = 0x11_0000;
 /// The most glyphs a strike holds: a font's glyph ids are 16 bits.
 const GLYPHS_MAX: usize = 65536;
-/// The most clusters one request asks for: every cluster
-/// [`crate::shaping::asks`] lists is under half of it.
+/// The most clusters one request asks for. The console asks for at most
+/// 4096 clusters at a time (`CLUSTERS_WAITING_MAX` in the vtium crate), so
+/// its requests stay well under this bound.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUTA\0";

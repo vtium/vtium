@@ -2572,7 +2572,7 @@ impl Engine {
     }
 
     /// The regular glyphs at `cell` for `want`, sorted codepoints, as
-    /// [`Engine::glyphs`] draws them.
+    /// `Engine::glyphs` draws them.
     pub fn draw(&self, cell: Cell, want: &[u32]) -> Result<Option<Vec<u8>>, String> {
         let mut made = BTreeMap::new();
         self.glyphs(
@@ -2586,7 +2586,7 @@ impl Engine {
     }
 
     /// The regular glyphs at `cell` for `clusters`, sorted, as
-    /// [`Engine::glyphs`] draws them.
+    /// `Engine::glyphs` draws them.
     pub fn draw_clusters(
         &self,
         cell: Cell,
@@ -2605,7 +2605,7 @@ impl Engine {
 
     /// The glyphs of `style` at `at`, a cell and the rows its line spacing
     /// adds (a plain cell adds none), for `want`, sorted codepoints, and
-    /// `clusters`, sorted, as [`Engine::glyphs`] draws them, with the parts
+    /// `clusters`, sorted, as `Engine::glyphs` draws them, with the parts
     /// of clusters where `parts` says, as an [`ASK_PARTS`] gets them.
     pub fn draw_style(
         &self,

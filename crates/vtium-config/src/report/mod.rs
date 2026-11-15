@@ -2,11 +2,11 @@
 //! into one plain-text document and changes nothing on the machine.
 //!
 //! The document has eight parts, each under a plain heading, and
-//! [`parts`] gathers each one, with [`binary`] for the vtium binaries,
-//! [`units`] for the vtium units and their logs, and [`edid`] for the
-//! monitors. [`read`] is the only way the report reaches the machine: it
+//! `parts` gathers each one, with `binary` for the vtium binaries,
+//! `units` for the vtium units and their logs, and `edid` for the
+//! monitors. `read` is the only way the report reaches the machine: it
 //! reads files under a root and runs the programs the report names, so a
-//! test points the root at a stand-in tree. [`scrub`] replaces the
+//! test points the root at a stand-in tree. `scrub` replaces the
 //! hostname and the monitors' serials in what was gathered. Run as root,
 //! the report writes no file: `--save` is refused, and the user's own
 //! shell saves what it prints.
@@ -86,7 +86,7 @@ const PARTS: [(&str, Gather); 7] = [
 ];
 
 /// The report on `m`: a title, the part that says what the report holds,
-/// then each part [`PARTS`] gathers, with the hostname and the monitors'
+/// then each part `PARTS` gathers, with the hostname and the monitors'
 /// serials replaced in what was gathered.
 pub fn report(m: &Machine) -> String {
     let secrets = scrub::Secrets::of(m);

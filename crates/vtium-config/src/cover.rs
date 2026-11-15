@@ -4,7 +4,7 @@
 //! (`tools/cover-tables`); do not edit. Each file's URL, version and
 //! SHA-256 are in `tools/cover-tables/provenance.tsv`.
 
-/// `gb2312`: 7445 codepoints in 3630 ranges, from https://web.archive.org/web/20040618175143id_/http://www.unicode.org:80/Public/MAPPINGS/OBSOLETE/EASTASIA/GB/GB2312.TXT.
+/// `gb2312`: 7445 codepoints in 3630 ranges, from <https://web.archive.org/web/20040618175143id_/http://www.unicode.org:80/Public/MAPPINGS/OBSOLETE/EASTASIA/GB/GB2312.TXT>.
 #[rustfmt::skip]
 pub const GB2312: &[(u32, u32)] = &[
     (0x000a4, 0x000a4), (0x000a7, 0x000a8), (0x000b0, 0x000b1), (0x000d7, 0x000d7),
@@ -917,7 +917,7 @@ pub const GB2312: &[(u32, u32)] = &[
     (0x0ffe3, 0x0ffe3), (0x0ffe5, 0x0ffe5),
 ];
 
-/// `gbk`: 21920 codepoints in 140 ranges, from https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP936.TXT.
+/// `gbk`: 21920 codepoints in 140 ranges, from <https://www.unicode.org/Public/MAPPINGS/VENDORS/MICSFT/WINDOWS/CP936.TXT>.
 #[rustfmt::skip]
 pub const GBK: &[(u32, u32)] = &[
     (0x00000, 0x0007f), (0x000a4, 0x000a4), (0x000a7, 0x000a8), (0x000b0, 0x000b1),
@@ -957,7 +957,7 @@ pub const GBK: &[(u32, u32)] = &[
     (0x0fe59, 0x0fe66), (0x0fe68, 0x0fe6b), (0x0ff01, 0x0ff5e), (0x0ffe0, 0x0ffe5),
 ];
 
-/// `big5`: 13704 codepoints in 3820 ranges, from https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/OTHER/BIG5.TXT.
+/// `big5`: 13704 codepoints in 3820 ranges, from <https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/OTHER/BIG5.TXT>.
 #[rustfmt::skip]
 pub const BIG5: &[(u32, u32)] = &[
     (0x000a2, 0x000a3), (0x000a5, 0x000a5), (0x000a7, 0x000a7), (0x000b0, 0x000b1),
@@ -1917,7 +1917,7 @@ pub const BIG5: &[(u32, u32)] = &[
     (0x0ff3f, 0x0ff3f), (0x0ff41, 0x0ff5d), (0x0ff64, 0x0ff64), (0x0fffd, 0x0fffd),
 ];
 
-/// `jis-x-0208`: 6879 codepoints in 4124 ranges, from https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT.
+/// `jis-x-0208`: 6879 codepoints in 4124 ranges, from <https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/JIS/JIS0208.TXT>.
 #[rustfmt::skip]
 pub const JIS_X_0208: &[(u32, u32)] = &[
     (0x0005c, 0x0005c), (0x000a2, 0x000a3), (0x000a7, 0x000a8), (0x000ac, 0x000ac),
@@ -2953,7 +2953,7 @@ pub const JIS_X_0208: &[(u32, u32)] = &[
     (0x0ff0e, 0x0ff3b), (0x0ff3d, 0x0ff5d), (0x0ffe3, 0x0ffe3), (0x0ffe5, 0x0ffe5),
 ];
 
-/// `ks-x-1001`: 8224 codepoints in 4998 ranges, from https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT.
+/// `ks-x-1001`: 8224 codepoints in 4998 ranges, from <https://www.unicode.org/Public/MAPPINGS/OBSOLETE/EASTASIA/KSC/KSX1001.TXT>.
 #[rustfmt::skip]
 pub const KS_X_1001: &[(u32, u32)] = &[
     (0x000a1, 0x000a1), (0x000a4, 0x000a4), (0x000a7, 0x000a8), (0x000aa, 0x000aa),

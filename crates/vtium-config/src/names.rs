@@ -4,7 +4,7 @@
 //! table directory and its `name` table are read, each with a bound, and
 //! read-fonts, the table reader under swash, parses the table. The search
 //! among installed fonts and the rasteriser's choice of a face both decide
-//! with [`faces`] and [`matches`], so a face the search finds is a face the
+//! with [`faces`] and [`matches`](fn@matches), so a face the search finds is a face the
 //! rasteriser takes. The fuzz target `names` feeds [`faces`] any bytes
 //! (`fuzz/README.md`).
 

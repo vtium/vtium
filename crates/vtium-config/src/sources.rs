@@ -461,7 +461,7 @@ fn find_outline_family_capped(
 
 /// The family of an installed outline font under `dirs` that covers the
 /// most of `letters`, which the font set leaves to the squeeze (ADR-1401
-/// D7): a face's first family name that prints as itself ([`printable`]),
+/// D7): a face's first family name that prints as itself (`printable`),
 /// among its Regular faces first; a face with no such name is left out. A face
 /// covers a letter its character map gives a glyph for. The search opens
 /// at most [`FAMILY_FILES_MAX`] files, in the order of
