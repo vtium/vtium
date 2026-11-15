@@ -138,3 +138,108 @@ fn a_shape_draws_its_own_picture_under_pointer_char() {
     assert_eq!(r.pointer_at(tip), Some((16, 0)));
     assert_ne!(r.arrow(), &Arrow::new(16, Orientation::Normal));
 }
+
+/// The GPU path on the stand-in GL, which records each texture's pixels.
+#[cfg(feature = "gpu")]
+mod gpu {
+    use super::*;
+    use vtium_render::gpu::{Call, Config as GpuConfig, Gl, Pipeline, Size, StandIn};
+
+    /// The arrow program's inputs, which find its draw among the frame's.
+    const ARROW_INPUTS: [&str; 4] = ["target_size", "arrow", "under", "under_at"];
+
+    /// The size and pixels of the texture the last frame's arrow draw read.
+    fn arrow_texture(gl: &StandIn) -> (Size, Vec<u8>) {
+        let i = gl
+            .calls()
+            .iter()
+            .filter(|c| matches!(c, Call::Draw { .. }))
+            .position(|c| matches!(c, Call::Draw { inputs, .. } if inputs == &ARROW_INPUTS))
+            .expect("the frame draws the pointer");
+        let name = gl.seen()[i]
+            .textures
+            .iter()
+            .find(|(input, _)| *input == "arrow")
+            .map(|(_, name)| *name)
+            .expect("the arrow's texture");
+        let (_, size, bytes) = gl.texture_pixels(name).expect("its pixels");
+        (size, bytes.to_vec())
+    }
+
+    /// Draws `s` with the pointer at `tip` in `shape` through a renderer
+    /// that starts with that shape, and gives its arrow texture.
+    fn fresh(s: &Screen, shape: Shape, tip: (u32, u32)) -> (Size, Vec<u8>) {
+        let mut gl = StandIn::with_limits(StandIn::LIMITS);
+        let size = Size::new(48, 32);
+        let mut pipeline = Pipeline::new(&mut gl, size, GpuConfig::default()).unwrap();
+        let buffer = gl.import_buffer(&size).unwrap();
+        let mut r = Renderer::new(unifont(), 48, 32, Config::default());
+        r.set_pointer_shape(shape);
+        gl.clear_calls();
+        let st = state(s, Some(tip));
+        r.draw_gpu(
+            &mut gl,
+            &mut pipeline,
+            &s.frame(Age::NEVER),
+            &buffer,
+            0,
+            &st,
+            &[],
+        )
+        .unwrap();
+        arrow_texture(&gl)
+    }
+
+    // The GPU path draws the pointer from the shape's picture: after a
+    // change of shape, the next frame's arrow draw reads a texture of the
+    // new picture, the one a renderer that started with that shape draws.
+    // covers: window.pointer-shape
+    #[test]
+    fn the_gpu_path_draws_the_new_shape() {
+        let mut s = screen();
+        let tip = (21, 14);
+        let mut gl = StandIn::with_limits(StandIn::LIMITS);
+        let size = Size::new(48, 32);
+        let mut pipeline = Pipeline::new(&mut gl, size, GpuConfig::default()).unwrap();
+        let buffer = gl.import_buffer(&size).unwrap();
+        let mut r = Renderer::new(unifont(), 48, 32, Config::default());
+        let st = state(&s, Some(tip));
+        r.draw_gpu(
+            &mut gl,
+            &mut pipeline,
+            &s.frame(Age::NEVER),
+            &buffer,
+            0,
+            &st,
+            &[],
+        )
+        .unwrap();
+        let arrow = arrow_texture(&gl);
+        assert_eq!(arrow, fresh(&s, Shape::Default, tip));
+        let since = s.damage.checkpoint();
+        for shape in [Shape::Crosshair, Shape::Pointer] {
+            r.set_pointer_shape(shape);
+            gl.clear_calls();
+            r.draw_gpu(
+                &mut gl,
+                &mut pipeline,
+                &s.frame(since),
+                &buffer,
+                1,
+                &st,
+                &[],
+            )
+            .unwrap();
+            let image = Arrow::upright_shape(shape, 16);
+            let got = arrow_texture(&gl);
+            assert_eq!(
+                got.0,
+                Size::new(image.width(), image.height()),
+                "{}",
+                shape.name()
+            );
+            assert_ne!(got, arrow, "{}", shape.name());
+            assert_eq!(got, fresh(&s, shape, tip), "{}", shape.name());
+        }
+    }
+}
