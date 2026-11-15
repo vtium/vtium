@@ -8,7 +8,7 @@ Any interface may change in any release. vtium has not yet decided which interfa
 
 ## Bounded memory and bounded input
 
-Every resource a program's output can grow has a bound. Each crate defines its bounds once, in `src/bounds.rs`, and its README has a table of them. The table says what happens to input past each bound. For example, vtium-parse keeps at most `OSC_MAX` bytes of an OSC string, and vtium-term drops a string that was cut at that bound.
+Every resource a program's output can grow has a bound. Eight crates define their bounds once, in `src/bounds.rs`: vtium-parse, vtium-term, vtium-image, vtium-image-helper, vtium-render, vtium-font, vtium-platform and vtium-settings. Each of their READMEs has a table of the bounds, which says what happens to input past each bound. For example, vtium-parse keeps at most `OSC_MAX` bytes of an OSC string, and vtium-term drops a string that was cut at that bound.
 
 A host can therefore feed a crate any amount of output from a program. The crate's memory stays inside its bounds, and the state past a bound is the one the bound's row describes.
 

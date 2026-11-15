@@ -24,8 +24,6 @@ Each of those six depends on a terminfo package. A build from the release tag de
 
 Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
 
-Out of the box, the `vtium` package builds every feature listed below and renders through the GPU path. A head whose GPU set-up fails renders on the CPU. vtium draws text in its built-in fonts until you install the fonts its frits name, and the install gives vtium every free VT. The paragraphs below give the details.
-
 A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are five features:
 
 - The `images` feature renders sixel and kitty graphics images.
@@ -42,7 +40,7 @@ v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a l
 
 `vtium` and `vtium-git` depend on `libglvnd` and `mesa`. These two packages hold the two libraries that the GPU path loads, `libEGL.so.1` and `libgbm.so.1`. They also depend on `seatd`, which holds `libseat.so`, the library that seat mode links. Installing `seatd` enables no seatd daemon.
 
-No package ships a font. vtium renders text in its two built-in fonts, unifont and unscii-8, until a frit names fonts that the machine has. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
+No package ships a font, and no package sets `font-name`. vtium renders text in the font that vconsole.conf names, or in its two built-in fonts, unifont and unscii-8, until `font-name` names a frit whose fonts the machine has. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
 
 makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
@@ -63,6 +61,7 @@ The packages install these files:
 | `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs. It keeps your changes in a draft, and installs the draft as `/etc/vtium/vtium.conf`. `vtium config tui` opens its full-screen view, where you can also try each font on the live console. `vtium config use-frit` switches the font. See [Configure vtium](configure.md) for details. The same program is also the font helper, which renders a font's glyphs for vtium. |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
+| `/usr/bin/vtium-clipboard` and `/usr/bin/vticlip` | the clipboard tool. `vtium-clipboard copy` copies text from a file or a pipe to vtium's clipboard through OSC 52, and `vticlip` is a short name for it. |
 | `/usr/bin/vtium-image` | the image helper, in a build with `images`. It reads an image that a program names by its file. |
 | `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a build with `images` |
 | `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
@@ -74,7 +73,7 @@ The packages install these files:
 | `/usr/share/licenses/<package>/COPYING` | vtium's authors, and the notices for the third-party code and data that vtium builds in. Every package carries it except `vtium-fonts`, which carries only its own `LICENSE`. |
 | `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to: the SIL Open Font License of the Unifont font, and the license of X.Org's color names. Each of the six packages that hold vtium carries them. |
 
-The commands in these guides belong to two of those programs, `vtium` and `vtium-config`. `vtium-config` is vtium's setup tool, and `vtium config` runs it with the words that follow, so `vtium config tui` and `vtium-config tui` both open its full-screen view. `vtium-config serve` is the font helper, which vtium starts by itself, so you never run it. `vtium console` gives VTs to vtium and takes them back. `vtium check-config` checks a vtium.conf before you install it. `vtium config status` is planned, and [the vtium-config issue](https://github.com/vtium/vtium/issues/367) tracks it.
+The commands in these guides belong to two of those programs, `vtium` and `vtium-config`. `vtium-config` is vtium's setup tool, and `vtium config` runs it with the words that follow, so `vtium config tui` and `vtium-config tui` both open its full-screen view. `vtium-config serve` is the font helper, which vtium starts by itself, so you never run it. `vtium console` gives VTs to vtium and takes them back. `vtium check-config` checks a vtium.conf before you install it.
 
 When you first install one of those packages, it gives vtium every free VT. It starts nothing. [What the install does to your VTs](#what-the-install-does-to-your-vts) explains what that means.
 
@@ -138,7 +137,7 @@ With both `libseat` and `logind` in `FEATURES`, `make install` also stages a sec
 
 ## What the install does to your VTs
 
-When you first install a console package, its install script runs `vtium console enable --direct --all`. That command gives vtium every free VT. A free VT is one that no display manager, greeter, graphical session or `kmscon` holds. The script starts nothing, so each VT changes at its next start:
+When you first install one of the six packages that hold vtium, its install script runs `vtium console enable --direct --all`. That command gives vtium every free VT. A free VT is one that no display manager, greeter, graphical session or `kmscon` holds. The script starts nothing, so each VT changes at its next start:
 
 - On a machine with no display manager, vtium runs on VT 1 from the next boot, in place of its getty. VT 1 is where the kernel shows the boot messages. So vtium takes over the screen where the boot appeared.
 - On a machine with a display manager, VT 1 stays the display manager's. vtium takes only the other free VTs.

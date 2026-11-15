@@ -23,4 +23,4 @@ Each crate's reference is generated from its doc comments by [rustdoc](https://d
 | [vtium-clipboard](https://vtium.github.io/vtium/api/vtium_clipboard/) | The program `vtium-clipboard`, also installed as `vticlip`, which copies text from a script or a pipe to the console's clipboard through OSC 52. | `sequence`, `answers`, `run`, `Exit` |
 | [vtium](https://vtium.github.io/vtium/api/vtium/) | The console program's logic: its configuration and command line, heads and consoles, the session's command and environment, and the on-screen display. | the modules `app`, `head` and `console` |
 
-The tools crates under `tools/` are vtium's own test harnesses, so the site does not publish their interfaces. The source of every crate is in [the crates folder on GitHub](https://github.com/vtium/vtium/tree/main/crates), with a README for each crate that tabulates its bounds.
+The tools crates under `tools/` are vtium's own test harnesses, so the site does not publish their interfaces. The source of every crate is in [the crates folder on GitHub](https://github.com/vtium/vtium/tree/main/crates), with a README for each crate.
