@@ -10,3 +10,14 @@ lines-graphics-unifont	DEC special graphics, box drawing and blocks on double-si
 lines-powerline	Powerline separators on double-size lines in the merged font set, drawn on 2026-11-14 from the symbols the font helper fits to the doubled cell at 16 and 32 pixels; not reviewed yet
 ligatures	programming ligatures (ADR-1308 D8), drawn on 2026-11-14 in Iosevka Term at 40 pixels with font-ligatures on, as written and with the cursor on the ! of !=; not reviewed yet
 ligatures-off	the ligatures text with font-ligatures off, drawn on 2026-11-14 in Iosevka Term at 40 pixels; not reviewed yet
+pointer-default	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-text	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-pointer	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-crosshair	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-wait	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-progress	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-not-allowed	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-move	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ew-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ns-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-change	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet

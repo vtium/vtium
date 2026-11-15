@@ -158,6 +158,9 @@ struct Shown {
     /// screen without any cell's damage. OSC 12's color is the palette's,
     /// and a palette change marks every cell.
     cursor: ((usize, usize), bool, CursorStyle),
+    /// The pointer's shape, OSC 22's. A new shape draws the pointer again
+    /// and marks no cell, as a cursor change does.
+    pointer: vtium_term::PointerShape,
 }
 
 impl Shown {
@@ -165,6 +168,7 @@ impl Shown {
         Shown {
             since: terminal.screen_mut().checkpoint(),
             cursor: Shown::cursor(terminal),
+            pointer: terminal.pointer_shape(),
         }
     }
 
@@ -177,10 +181,12 @@ impl Shown {
         )
     }
 
-    /// Whether `terminal`'s screen changed since: a cell or the cursor.
+    /// Whether `terminal`'s screen changed since: a cell, the cursor or
+    /// the pointer's shape.
     fn changed(&self, terminal: &Terminal) -> bool {
         let damage = terminal.screen().damage();
         self.cursor != Shown::cursor(terminal)
+            || self.pointer != terminal.pointer_shape()
             || (0..damage.rows()).any(|row| damage.row_changed(row, self.since))
     }
 }
@@ -1150,6 +1156,11 @@ impl View {
             return Prepared::Nothing;
         }
         let tip = state.pointer;
+        if let Some(drawing) = self.drawing.as_mut() {
+            let shape = term.terminal.pointer_shape();
+            self.pointer
+                .follow(&mut drawing.renderer, &mut self.arrow, shape);
+        }
         let state = DrawState {
             pointer: self.pointer.before_draw(video, self.id, &self.arrow, tip),
             ..*state
@@ -3708,6 +3719,32 @@ mod tests {
         assert_eq!(term.terminal.screen().images().image_count(), 1, "stored");
         assert_eq!(video.composed, 1, "no frame for the transmission");
         assert_eq!(counted(&mut view), (1, 0));
+    }
+
+    // OSC 22 changes the pointer's shape and no cell: the screen changed,
+    // and the next draw hands the shape's picture to the cursor plane. A
+    // set of the shape it already has changes nothing.
+    // covers: window.pointer-shape
+    #[test]
+    fn a_pointer_shape_changes_the_screen_and_goes_to_the_plane() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        let arrow = view.arrow().clone();
+        term.changed = false;
+        term.parse(b"\x1b]22;pointer\x1b\\", &mut |_| {});
+        assert!(term.changed, "a new shape changes the screen");
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_ne!(view.arrow(), &arrow);
+        assert_eq!(video.arrow.as_ref(), Some(view.arrow()));
+        term.changed = false;
+        term.parse(b"\x1b]22;=hand2\x1b\\", &mut |_| {});
+        assert!(!term.changed, "the same shape again changes nothing");
+        term.parse(b"\x1b]22;\x1b\\", &mut |_| {});
+        assert!(term.changed, "the default shape again");
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(view.arrow(), &arrow);
+        assert_eq!(video.arrow.as_ref(), Some(&arrow));
     }
 
     // What output changes of a frame beyond its cells is the cursor: its

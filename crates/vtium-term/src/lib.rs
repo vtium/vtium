@@ -109,7 +109,8 @@ pub use termcap::{Termcap, TermcapError};
 pub use terminal::TextDirection;
 pub use terminal::{
     BlankRequest, BlankTimeout, CursorStyle, DisplayRequest, Extent, GridRequest, Key, KeyEvent,
-    Mods, MouseButton, MouseEvent, MouseTracking, Terminal, VersionError,
+    Mods, MouseButton, MouseEvent, MouseTracking, POINTER_QUERY_NAMES_MAX, POINTER_STACK_MAX,
+    PointerShape, Terminal, VersionError,
 };
 #[cfg(feature = "images")]
 pub use terminal::{ImageNote, ImageString};

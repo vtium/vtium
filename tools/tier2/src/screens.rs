@@ -1546,6 +1546,58 @@ const BIDI_SELECTION_DESC: &str = "A selection across a row that mixes direction
 
 const BIDI_UNIFONT_DESC: &str = "Arabic in the built-in font, GNU Unifont, as the console draws it for a display with no font set, 20 by 3 cells at 16 pixels: marhaban bil-alam, a colon and 123; as-salamu alaykum; and lam with alef alone, after beh, and in brackets. Unifont is a bitmap font, which the glyph helper does not shape, so each joined letter draws the glyph Unifont has for the Arabic presentation form of its joined form (ADR-1004 D6). Correct: the words read right to left, each letter in its initial, medial or final form, so each word is joined. Lam with alef draws Unifont's lam-alef ligature, isolated or final, which Unifont draws one cell wide, centred across the ligature's two cells. The brackets round the last lam-alef are mirrored, since they stand in right-to-left text.";
 
+/// The pointer's tip on its screens: the corner where the sixth and
+/// seventh columns meet the first and second rows.
+const POINTER_TIP: (u32, u32) = (48, 16);
+
+/// A screen of 12 by 3 cells in unifont that sets the pointer's shape to
+/// `$shape` with OSC 22, then writes a dark row, a light row in reverse
+/// video and a dark row, and draws the pointer at [`POINTER_TIP`], as a
+/// display without a cursor plane draws it.
+macro_rules! pointer_shape {
+    ($name:literal, $desc:expr, $shape:literal) => {
+        Case {
+            screen: Screen {
+                arrow: Some(POINTER_TIP),
+                ..Screen::new(
+                    $name,
+                    $desc,
+                    concat!(
+                        "\x1b]22;",
+                        $shape,
+                        "\x1b\\abcdefghijkl\r\n\x1b[7mABCDEFGHIJKL\x1b[m\r\n012345678901"
+                    )
+                    .as_bytes(),
+                    12,
+                    3,
+                )
+            },
+        }
+    };
+}
+
+const POINTER_DEFAULT_DESC: &str = "The default shape, OSC 22 default, on a screen of 12 by 3 cells at 8×16 pixels: abcdefghijkl, ABCDEFGHIJKL in reverse video on a light background, and 012345678901. Correct: the arrow, 11×16 pixels, white with a black outline, pointing up and left with its tip at pixel 48,16, over the light second row.";
+
+const POINTER_TEXT_DESC: &str = "The text shape, OSC 22 text. See pointer-default for the screen. Correct: an I-beam 7×16 pixels, a white stem one pixel wide with a bar five pixels wide and two tall across each end, outlined in black, its centre on pixel 48,16, so its top half lies over the dark first row and its bottom half over the light second row.";
+
+const POINTER_HAND_DESC: &str = "The pointer shape, OSC 22 pointer, the hand over a link. See pointer-default for the screen. Correct: a white hand 13×16 pixels with a black outline, its index finger raised with its tip at pixel 48,16, the palm and the three folded fingers below and to the right, and the thumb at the left, over the light row.";
+
+const POINTER_CROSSHAIR_DESC: &str = "The crosshair shape, OSC 22 crosshair. See pointer-default for the screen. Correct: a white cross 16×16 pixels, each arm one pixel wide inside a black outline, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_WAIT_DESC: &str = "The wait shape, OSC 22 wait, an hourglass. See pointer-default for the screen. Correct: a white hourglass 12×16 pixels with a black outline and a bar across its top and its bottom, its waist on pixel 48,16, its top half over the dark first row and its bottom half over the light second row.";
+
+const POINTER_PROGRESS_DESC: &str = "The progress shape, OSC 22 progress. See pointer-default for the screen. Correct: the arrow with a small white hourglass at its lower right, 16×16 pixels together, outlined in black, the arrow's tip at pixel 48,16, over the light second row.";
+
+const POINTER_NOT_ALLOWED_DESC: &str = "The not-allowed shape, OSC 22 not-allowed. See pointer-default for the screen. Correct: a white ring 16×16 pixels with a black outline and a white slash from its upper left to its lower right, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_MOVE_DESC: &str = "The move shape, OSC 22 move. See pointer-default for the screen. Correct: a white cross of four arrows 16×16 pixels, each arrowhead pointing outwards, outlined in black, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_EW_DESC: &str = "The ew-resize shape, OSC 22 ew-resize. See pointer-default for the screen. Correct: a white double arrow pointing left and right, 16 pixels wide and 8 tall, outlined in black, its centre on pixel 48,16, across the boundary of the first two rows.";
+
+const POINTER_NS_DESC: &str = "The ns-resize shape, OSC 22 ns-resize. See pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row.";
+
+const POINTER_CHANGE_DESC: &str = "A change of shape between frames: the program sets wait, two frames are drawn, then it sets pointer and two more frames are drawn into the same two buffers. See pointer-default for the screen. Correct: the same picture as pointer-pointer, the hand with its tip at pixel 48,16, with no part of the hourglass left. Tier 2 also checks that both buffers and a fresh draw end equal.";
+
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
 pub const CASES: &[Case] =
@@ -1768,6 +1820,26 @@ const BASE: &[Case] = &[
                 40,
                 7,
             )
+        },
+    },
+    pointer_shape!("pointer-default", POINTER_DEFAULT_DESC, "default"),
+    pointer_shape!("pointer-text", POINTER_TEXT_DESC, "text"),
+    pointer_shape!("pointer-pointer", POINTER_HAND_DESC, "pointer"),
+    pointer_shape!("pointer-crosshair", POINTER_CROSSHAIR_DESC, "crosshair"),
+    pointer_shape!("pointer-wait", POINTER_WAIT_DESC, "wait"),
+    pointer_shape!("pointer-progress", POINTER_PROGRESS_DESC, "progress"),
+    pointer_shape!(
+        "pointer-not-allowed",
+        POINTER_NOT_ALLOWED_DESC,
+        "not-allowed"
+    ),
+    pointer_shape!("pointer-move", POINTER_MOVE_DESC, "move"),
+    pointer_shape!("pointer-ew-resize", POINTER_EW_DESC, "ew-resize"),
+    pointer_shape!("pointer-ns-resize", POINTER_NS_DESC, "ns-resize"),
+    Case {
+        screen: Screen {
+            next: Some(b"\x1b]22;pointer\x1b\\"),
+            ..pointer_shape!("pointer-change", POINTER_CHANGE_DESC, "wait").screen
         },
     },
     Case {

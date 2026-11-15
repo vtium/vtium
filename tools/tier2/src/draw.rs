@@ -576,6 +576,10 @@ pub struct Screen {
     /// Ctrl held with the pointer: the hovered link's address shows on
     /// the overlay row (ADR-1002, "Drawing").
     pub ctrl: bool,
+    /// The pointer's tip in the grid's pixels, where the renderer draws
+    /// the pointer in the shape the terminal names, OSC 22's, as a display
+    /// without a cursor plane draws it. `None` draws no pointer.
+    pub arrow: Option<(u32, u32)>,
     /// The pictures, fed with the terminal's sixel and kitty handlers on
     /// (`crate::pictures`): before the first frame, after the bytes, and,
     /// for a screen with a second part, before each later frame too, the
@@ -633,6 +637,7 @@ impl Screen {
             alone: None,
             pointer: None,
             ctrl: false,
+            arrow: None,
             pictures: None,
             made_cell: None,
             selection: None,
@@ -1001,14 +1006,20 @@ impl Display {
     }
 
     /// Draws the terminal's frame into the back buffer and swaps when the
-    /// frame drew anything, as a display does.
+    /// frame drew anything, as a display does. The pointer, when `arrow`
+    /// places it, takes the shape the terminal names, as the console
+    /// hands it to the renderer before each draw.
     fn frame<F: Face>(
         &mut self,
         r: &mut Renderer<F>,
-        (term, phase): (&mut Terminal, Phase),
+        (term, phase, arrow): (&mut Terminal, Phase, Option<(u32, u32)>),
         since: &mut Age,
     ) {
-        let state = phase.state(term.palette().bg());
+        r.set_pointer_shape(term.pointer_shape());
+        let state = DrawState {
+            pointer: arrow,
+            ..phase.state(term.palette().bg())
+        };
         let age = self.age();
         let drew = {
             let frame = term.screen().frame(term.palette(), *since);
@@ -1208,22 +1219,22 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
-    display.frame(&mut r, (&mut term, screen.phase), &mut since);
+    display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         feed(&mut term, next)?;
         later(screen, &mut term, 2, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         later(screen, &mut term, 3, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
         }
         let mut fresh = Display::new(w, h);
         let mut r2 = Renderer::new(make_font(), w, h, config);
         let mut never = Age::NEVER;
-        fresh.frame(&mut r2, (&mut term, screen.phase), &mut never);
+        fresh.frame(&mut r2, (&mut term, screen.phase, screen.arrow), &mut never);
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }

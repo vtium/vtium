@@ -501,6 +501,9 @@ struct Pointer {
     cells: (usize, usize, usize, usize),
     /// It reaches past the grid into the border.
     outside: bool,
+    /// The shape its image shows, so that a new shape in the same place
+    /// draws the cells again.
+    shape: vtium_term::PointerShape,
 }
 
 /// What a frame draws, decided before anything is drawn.
@@ -655,6 +658,9 @@ pub struct Renderer<F> {
     arrow: Arrow,
     /// The pointer's image upright, which the GPU path draws.
     upright_arrow: Arrow,
+    /// The shape a program asked the pointer to take with OSC 22, which
+    /// the pointer's image shows ([`Renderer::set_pointer_shape`]).
+    shape: vtium_term::PointerShape,
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
@@ -694,11 +700,21 @@ pub struct Renderer<F> {
     gpu: gpu::State,
 }
 
-/// The pointer's image for cells `cell_height` tall, upright: the arrow,
-/// or the glyph `config.pointer` names. The arrow stands in for a character
-/// the font lacks, which would draw as a fallback (the missing box, U+FFFD
-/// or `?`), and for a blank one, whose glyph covers no pixel.
-fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> Arrow {
+/// The pointer's image for cells `cell_height` tall, upright. A shape a
+/// program asked for with OSC 22 draws as its own picture. The default
+/// shape draws as the arrow, or as the glyph `config.pointer` names. The
+/// arrow stands in for a character the font lacks, which would draw as a
+/// fallback (the missing box, U+FFFD or `?`), and for a blank one, whose
+/// glyph covers no pixel.
+fn pointer_image<F: Face>(
+    font: &Font<F>,
+    cell_height: u32,
+    config: Config,
+    shape: vtium_term::PointerShape,
+) -> Arrow {
+    if shape != vtium_term::PointerShape::Default {
+        return Arrow::upright_shape(shape, cell_height);
+    }
     match config.pointer {
         PointerShape::Glyph(c) if font.has_glyph(c) => {
             font.glyph(&[c], FontWidth::Narrow, Style::default())
@@ -875,7 +891,8 @@ impl<F: Face> Renderer<F> {
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
         let lines = line_sets(&font);
-        let upright_arrow = pointer_image(&font, ch, config);
+        let shape = vtium_term::PointerShape::Default;
+        let upright_arrow = pointer_image(&font, ch, config, shape);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
         let gpu = gpu::State::new(
@@ -916,6 +933,7 @@ impl<F: Face> Renderer<F> {
             doubled: Vec::new(),
             arrow,
             upright_arrow,
+            shape,
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
@@ -1108,6 +1126,26 @@ impl<F: Face> Renderer<F> {
     /// GPU path draws into the upright frame (ADR-1303 D3).
     pub fn upright_arrow(&self) -> &Arrow {
         &self.upright_arrow
+    }
+
+    /// Shows `shape`, which a program asked for with OSC 22, as the
+    /// pointer's image from the next frame on. That frame draws again the
+    /// cells the old image covered and the cells the new one covers,
+    /// because the pointer's placement names its shape.
+    pub fn set_pointer_shape(&mut self, shape: vtium_term::PointerShape) {
+        if shape == self.shape {
+            return;
+        }
+        self.shape = shape;
+        let ch = u32::try_from(self.layout.ch).unwrap_or(0);
+        self.upright_arrow = pointer_image(&self.font, ch, self.config, shape);
+        self.arrow = self.upright_arrow.clone().turned(self.config.orientation);
+    }
+
+    /// The shape the pointer's image shows: the default shape until
+    /// [`Renderer::set_pointer_shape`] names another.
+    pub fn pointer_shape(&self) -> vtium_term::PointerShape {
+        self.shape
     }
 
     /// Where on the display the arrow's hotspot goes for the pointer's tip
@@ -2421,10 +2459,14 @@ impl<F: Face> Renderer<F> {
             int(y).min(last(g.rows, l.ch)),
         );
         let corner = |p: i64, side: i64| p.saturating_sub(p.checked_rem(side).unwrap_or(0));
-        Some(match self.config.pointer {
-            PointerShape::Arrow => (px, py),
-            PointerShape::Glyph(_) => (corner(px, l.cw), corner(py, l.ch)),
-        })
+        let glyph = matches!(self.config.pointer, PointerShape::Glyph(_));
+        Some(
+            if glyph && self.shape == vtium_term::PointerShape::Default {
+                (corner(px, l.cw), corner(py, l.ch))
+            } else {
+                (px, py)
+            },
+        )
     }
 
     /// Where the arrow draws for the pointer's tip at `x`, `y` in the
@@ -2465,7 +2507,12 @@ impl<F: Face> Renderer<F> {
             past(b.bottom(), l.ch, g.rows),
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
-        Some(Pointer { at, cells, outside })
+        Some(Pointer {
+            at,
+            cells,
+            outside,
+            shape: self.shape,
+        })
     }
 
     /// The cells `area` touches changed on this frame, and the border

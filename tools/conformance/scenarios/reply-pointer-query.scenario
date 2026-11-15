@@ -1,0 +1,16 @@
+# OSC 22 with ? answers each name in turn, separated by commas: 1 for a
+# shape vtium supports and 0 for one it does not. __default__ and
+# __grabbed__ answer the shape vtium shows by default and while a program
+# tracks the mouse, which is the default shape in both cases.
+# spec: kitty's pointer-shapes specification: the query, its example ?pointer,crosshair,no-such-name,wait answered 1,1,0,1, __default__ and __grabbed__; ADR-1000 window.pointer-shape
+# covers: window.pointer-shape
+size 10 2
+send "\e]22;?pointer,crosshair,no-such-name,wait\e\\"
+check
+reply "\e]22;1,1,0,1\e\\"
+send "\e]22;?__default__,__grabbed__\e\\"
+check
+reply "\e]22;default,default\e\\"
+send "\e]22;?text,grab,not-allowed,zoom-out,progress\e\\"
+check
+reply "\e]22;1,0,1,0,1\e\\"

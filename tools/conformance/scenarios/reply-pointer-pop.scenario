@@ -1,0 +1,18 @@
+# OSC 22 with < pops the top entry and ignores the names after it. A pop
+# of an empty stack does nothing, and __current__ answers 0 for an empty
+# stack. A set changes the shape on top.
+# spec: kitty's pointer-shapes specification: pop, and the __current__ query's 0 for an empty stack; ADR-1000 window.pointer-shape
+# covers: window.pointer-shape
+size 10 2
+send "\e]22;<\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;0\e\\"
+send "\e]22;>move,ns-resize\e\\\e]22;=ew-resize\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;ew-resize\e\\"
+send "\e]22;<wait\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;move\e\\"
+send "\e]22;<\e\\\e]22;<\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;0\e\\"
