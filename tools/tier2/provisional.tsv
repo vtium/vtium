@@ -30,3 +30,15 @@ login-cover	new with the login picture (ADR-1100 D17), drawn by vtium and not ye
 login-contain	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
 login-rotated	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
 login-banner	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+pointer-file-default	the default shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-text	the text shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-pointer	the pointer shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-crosshair	the crosshair shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-wait	the wait shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-progress	the progress shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-not-allowed	the not-allowed shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-move	the move shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-ew-resize	the ew-resize shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-ns-resize	the ns-resize shape from vtium's own pointers.svg, drawn on 2026-11-15 through the font helper's SVG code (ADR-1309); not reviewed yet
+pointer-file-adwaita	Adwaita 51.0's default cursor at nominal size 24, drawn on 2026-11-15 through the font helper's Xcursor code (ADR-1309); not reviewed yet
+pointer-file-turned	the default shape from vtium's own pointers.svg on a display turned right, drawn on 2026-11-15 (ADR-1309); not reviewed yet

@@ -26,6 +26,18 @@ The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a p
 | `pointer-ew-resize.ppm` | The same screen with a double arrow pointing left and right, 16 pixels wide and 8 tall, its centre on pixel 48,16. Provisional |
 | `pointer-ns-resize.ppm` | The same screen with a double arrow pointing up and down, 9 pixels wide and 16 tall, its centre on pixel 48,16. Provisional |
 | `pointer-change.ppm` | The pointer-pointer picture, drawn after the wait shape was shown for two frames: nothing of the hourglass is left. Provisional |
+| `pointer-file-default.ppm` | The pointer-default screen with the default shape from vtium's own `pointers.svg`, drawn through the font helper's SVG code: the arrow, 11×16 pixels, its tip at pixel 48,16, within a pixel of the compiled-in arrow at each edge. Provisional |
+| `pointer-file-text.ppm` | The same with the file's I-beam, 8×16 pixels, its centre on pixel 48,16. Provisional |
+| `pointer-file-pointer.ppm` | The same with the file's hand, 12×16 pixels, its fingertip at pixel 48,16. Provisional |
+| `pointer-file-crosshair.ppm` | The same with the file's cross, 16×16 pixels, its centre on pixel 48,16, pixel for pixel the compiled-in cross. Provisional |
+| `pointer-file-wait.ppm` | The same with the file's hourglass, 12×16 pixels, its waist on pixel 48,16. Provisional |
+| `pointer-file-progress.ppm` | The same with the file's arrow and small hourglass, 16×16 pixels, the arrow's tip at pixel 48,16. Provisional |
+| `pointer-file-not-allowed.ppm` | The same with the file's ring and slash, 16×16 pixels, its centre on pixel 48,16. Provisional |
+| `pointer-file-move.ppm` | The same with the file's cross of four arrows, 16×16 pixels, its centre on pixel 48,16. Provisional |
+| `pointer-file-ew-resize.ppm` | The same with the file's double arrow pointing left and right, 16 pixels wide and 8 tall, its centre on pixel 48,16. Provisional |
+| `pointer-file-ns-resize.ppm` | The same with the file's double arrow pointing up and down, 9 pixels wide and 16 tall, its centre on pixel 48,16. Provisional |
+| `pointer-file-adwaita.ppm` | The pointer-default screen with Adwaita 51.0's default cursor at nominal size 24, read through the font helper's Xcursor code from the file tier 2 fetches by its pinned URL and SHA-256: a black arrow with a white outline and a soft grey shadow, 24×24 pixels, its hotspot on pixel 48,16. Provisional |
+| `pointer-file-turned.ppm` | pointer-file-default on a display turned right, 48×96 pixels: the text reads top to bottom, and the arrow turns with it, its tip on pixel 31,48. Provisional |
 | `ascii-unifont.ppm` | 384x160: the pangram in both cases, digits and punctuation, runs of `i`, `l`, `W` and `m`, and a line of code, each glyph in its own 8x16 cell. |
 | `bold-unifont.ppm` | 384x160: `bold` beside `regular`, a bold pangram over two lines, and bold red, green and blue words; bold glyphs widened by a pixel. |
 | `palette-unifont.ppm` | 384x160: the 16 background colors as two-cell blocks, `AB` in each of the 16 foreground colors, a 19-step ramp through the 256-color palette, and a 9-step red-to-green gradient. |
