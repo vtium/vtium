@@ -5969,7 +5969,7 @@ class ShowcaseTest(unittest.TestCase):
     VARIANT = "showcase-1920x1080"
     SCREENS = ["showcase-shell", "showcase-double-size",
                "showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
-               "showcase-fonts-jetbrains", "showcase-glyph-fit",
+               "showcase-fonts-jetbrains", "showcase-glyph-fit", "showcase-ligatures",
                "showcase-syllables", "showcase-emoji", "showcase-scripts",
                "showcase-text", "showcase-color", "showcase-boxes", "showcase-pictures"]
     # Each scene's category and whether it is the category's hero, as
@@ -5978,6 +5978,7 @@ class ShowcaseTest(unittest.TestCase):
               "showcase-double-size.sh": ("text and fonts", True),
               "showcase-fonts.inc": ("text and fonts", False),
               "showcase-glyph-fit.sh": ("text and fonts", False),
+              "showcase-ligatures.sh": ("text and fonts", False),
               "showcase-syllables.sh": ("scripts and emoji", True),
               "showcase-emoji.sh": ("scripts and emoji", False),
               "showcase-scripts.sh": ("scripts and emoji", False),
@@ -6051,7 +6052,7 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual((found[0].script, found[0].image), ("showcase-shell.sh", "hero.png"))
         self.assertEqual([s.image for s in found],
                          ["hero.png", "double-size.png", "fonts.png", "glyph-fit.png",
-                          "syllables.png", "emoji.png", "scripts.png", "text.png", "color.png",
+                          "ligatures.png", "syllables.png", "emoji.png", "scripts.png", "text.png", "color.png",
                           "boxes.png", "pictures.png"])
         self.assertEqual(t3_showcase.header_faults(), [])
         for scene in found:
