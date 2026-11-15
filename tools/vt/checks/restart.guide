@@ -36,13 +36,13 @@ cleanup: d=/run/systemd/system/vtium-dev@tty{vt}.service.d; [ -e "$d/restart-gui
 step: VT {vt} is a spare VT, and this terminal is on the desktop
 run: echo "inside vtium: ${VTIUM_CONSOLE:+yes}${VTIUM_CONSOLE:-no}"; echo "on screen: $(cat /sys/class/tty/tty0/active)"; echo "logins on tty{vt}: $(loginctl list-sessions --no-legend | grep -cw 'tty{vt}')"; systemctl --version | head -n 1
 expect: "inside vtium: no", "on screen: tty{desktop}", "logins on tty{vt}:
-expect: 0", and systemd 254 or later. If any of these differs, answer n,
+expect: 0", and systemd 254 or later. *If any of these differs, answer n*,
 expect: then press q at the next step to end the checks.
 
 step: make vt-install puts vtium on VT {vt}
 run: make vt-install VT={vt} && systemctl show -p ExecStart -p Restart -p OnFailure -p ActiveState vtium-dev@tty{vt}.service && echo "autovt@tty{vt} is $(systemctl show -p Id --value autovt@tty{vt}.service)"
 do: then press Ctrl-Alt-F{vt}, look, and come back with Ctrl-Alt-F{desktop}.
-expect: "vtium-dev runs on VT {vt}", then ExecStart running /usr/local/bin/vtium-dev
+expect: *"vtium-dev runs on VT {vt}"*, then ExecStart running /usr/local/bin/vtium-dev
 expect: with --vt=tty{vt}, Restart=on-failure, OnFailure=vtium-dev-getty@tty{vt}
 expect: .service and ActiveState=active, and "autovt@tty{vt} is vtium-dev@tty{vt}
 expect: .service": logind's autovt@ on this VT is vtium, never the C
@@ -52,15 +52,15 @@ expect: Restart=no means the shipped unit has no Restart= line yet: answer n.
 step: One kill under the open policy hands VT {vt} to a getty
 run: sudo systemctl kill --kill-whom=main --signal=SIGKILL vtium-dev@tty{vt}.service; sleep 3; systemctl show -p Id -p ActiveState vtium-dev@tty{vt}.service getty@tty{vt}.service
 do: then press Ctrl-Alt-F{vt}, look, and come back with Ctrl-Alt-F{desktop}.
-expect: vtium-dev@tty{vt} inactive or failed, and getty@tty{vt} active. With
+expect: vtium-dev@tty{vt} inactive or failed, and *getty@tty{vt} active*. With
 expect: no vtium.conf that states `policy = closed` the policy is open, so
 expect: the getty fallback starts at the first failure and stops vtium,
 expect: which systemd had started again.
-expect: VT {vt} shows the kernel console's login prompt, not vtium.
+expect: VT {vt} shows *the kernel console's login prompt*, not vtium.
 
 step: vtium takes VT {vt} back
 run: sudo systemctl start vtium-dev@tty{vt}.service && sleep 1 && systemctl show -p Id -p ActiveState vtium-dev@tty{vt}.service getty@tty{vt}.service
-expect: vtium-dev@tty{vt} active, and getty@tty{vt} inactive again.
+expect: *vtium-dev@tty{vt} active*, and getty@tty{vt} inactive again.
 
 step: vtium reads a closed policy
 run: /usr/local/bin/vtium-dev check-config tools/vt/checks/restart-closed.conf && sudo install -d -m 0755 -o root -g root /run/vtium-restart-guide /run/systemd/system/vtium-dev@tty{vt}.service.d && sudo install -m 0644 -o root -g root tools/vt/checks/restart-closed.conf /run/vtium-restart-guide/vtium.conf && sudo install -m 0644 -o root -g root tools/vt/checks/restart-closed.service.conf /run/systemd/system/vtium-dev@tty{vt}.service.d/restart-guide.conf && sudo systemctl daemon-reload && sudo systemctl restart vtium-dev@tty{vt}.service && sleep 1 && systemctl show -p DropInPaths -p ExecStart vtium-dev@tty{vt}.service && ls -l /run/vtium/tty{vt}.closed
@@ -69,7 +69,7 @@ do: vtium-dev@tty{vt} on its own configuration.
 expect: check-config finds the file valid; DropInPaths names
 expect: /run/systemd/system/vtium-dev@tty{vt}.service.d/restart-guide.conf and
 expect: ExecStart ends with --configdir /run/vtium-restart-guide; and
-expect: /run/vtium/tty{vt}.closed is listed: vtium read policy = closed and
+expect: */run/vtium/tty{vt}.closed is listed*: vtium read policy = closed and
 expect: wrote the marker that keeps the getty away. The head is not
 expect: isolated, so the keyboards still type on VT {vt} and
 expect: Ctrl-Alt-F{desktop} still switches back.
@@ -77,20 +77,20 @@ expect: Ctrl-Alt-F{desktop} still switches back.
 step: One kill under the closed policy brings vtium back
 run: sudo systemctl kill --kill-whom=main --signal=SIGKILL vtium-dev@tty{vt}.service; sleep 3; systemctl show -p Id -p ActiveState -p SubState vtium-dev@tty{vt}.service getty@tty{vt}.service
 do: then press Ctrl-Alt-F{vt}, look, and come back with Ctrl-Alt-F{desktop}.
-expect: vtium-dev@tty{vt} active and running, and getty@tty{vt} inactive:
+expect: *vtium-dev@tty{vt} active and running*, and getty@tty{vt} inactive:
 expect: systemd started vtium again after 100 ms, and the marker kept the
 expect: getty away. VT {vt} shows vtium's login prompt, started afresh.
 
 step: Past the start limit, VT {vt} is left with no login
 run: for i in 1 2 3 4 5 6 7 8; do sudo systemctl kill --kill-whom=main --signal=SIGKILL vtium-dev@tty{vt}.service 2>/dev/null; sleep 0.5; done; sleep 2; systemctl show -p Id -p ActiveState -p Result vtium-dev@tty{vt}.service getty@tty{vt}.service; ls -l /run/vtium/tty{vt}.closed
 do: stay on the desktop: nothing runs on VT {vt} now.
-expect: vtium-dev@tty{vt} failed with Result=start-limit-hit, since systemd
+expect: vtium-dev@tty{vt} failed with *Result=start-limit-hit*, since systemd
 expect: allows 5 starts in 10 seconds and refused the next one;
 expect: getty@tty{vt} inactive; and the marker still listed.
 
 step: Recovery after the start limit
 run: d=/run/systemd/system/vtium-dev@tty{vt}.service.d; sudo rm -f "$d/restart-guide.conf"; sudo rmdir "$d" 2>/dev/null; sudo rm -rf /run/vtium-restart-guide; sudo systemctl daemon-reload; sudo systemctl reset-failed vtium-dev@tty{vt}.service; sudo systemctl start vtium-dev@tty{vt}.service; sleep 1; systemctl show -p Id -p ActiveState -p DropInPaths vtium-dev@tty{vt}.service; test -e /run/vtium/tty{vt}.closed && echo "the marker is still there" || echo "no marker"
-expect: vtium-dev@tty{vt} active again, DropInPaths empty, and "no marker":
+expect: *vtium-dev@tty{vt} active again*, DropInPaths empty, and "no marker":
 expect: with the drop-in gone vtium reads /etc/vtium/vtium.conf again, runs
 expect: the open policy unless that file states a closed one, and removes
 expect: the marker.
@@ -99,6 +99,6 @@ step: make vt-uninstall gives VT {vt} its getty back
 run: make vt-uninstall VT={vt} && systemctl show -p Id -p ActiveState vtium-dev@tty{vt}.service getty@tty{vt}.service; ls /usr/local/bin/vtium-dev /etc/systemd/system/vtium-dev@.service 2>&1
 do: skip this step (s, then Enter) to keep vtium on VT {vt}: it stays
 do: there across reboots until you run make vt-uninstall VT={vt}.
-expect: "VT {vt} is back as it was before make vt-install",
+expect: *"VT {vt} is back as it was before make vt-install"*,
 expect: vtium-dev@tty{vt} inactive, getty@tty{vt} active, and "No such file or
 expect: directory" for both files, which install wrote and uninstall removed.

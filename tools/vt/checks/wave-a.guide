@@ -12,33 +12,33 @@ run: printf '\033[5mblink\033[0m \033[5;4mblink-under\033[0m \033[5;9;31mblink-r
 do: watch the line for a few seconds, closely, at your normal viewing
 do: distance.
 expect: blink, blink-under and blink-red pulse between full and about half
-expect: brightness, never vanishing; the underline and the strike pulse
+expect: brightness, *never vanishing*; the underline and the strike pulse
 expect: with their text; steady never changes; the cursor blinks as before.
-expect: The dimmed phase is an even, readable half-tone with no flicker,
+expect: The dimmed phase is an *even, readable half-tone* with no flicker,
 expect: banding or ghosting of the glyph edges.
 
 step: X11 color names set the colors
 run: printf '\033]11;dark slate gray\a\033]10;Gold\a\033]4;1;Light Sea Green\a\033[31mindex one\033[0m\n'
-expect: the background turns dark slate gray and the default text gold,
+expect: the background turns *dark slate gray* and the default text *gold*,
 expect: at once; "index one" is drawn light sea green.
 
 step: The colors return
 run: printf '\033]104\a\033]110\a\033]111\a'
 expect: the background, the default text and color 1 return to their
-expect: configured colors, with nothing left of the previous step.
+expect: configured colors, with *nothing left of the previous step*.
 
 step: A program wakes the blank
 run: printf '\033[9;1]'; sleep 75; printf '\033[13]'
 do: after Enter, touch no key or the pointer until the question below the
 do: command comes back.
-expect: the screen goes dark about a minute after Enter, and lights again
-expect: about 15 seconds later with no key pressed, this screen drawn
+expect: the screen *goes dark* about a minute after Enter, and lights again
+expect: *about 15 seconds later* with no key pressed, this screen drawn
 expect: whole, then the question.
 
 step: Colored underlines in every style, and the strike
 run: printf '\033[4:1;58:2::255:0:0msingle\033[0m \033[4:2;58:2::0:200:0mdouble\033[0m \033[4:3;58:2::0:128:255mcurly\033[0m \033[4:4;58:5:208mdotted\033[0m \033[4:5;58:5:201mdashed\033[0m \033[9mstrike\033[0m \033[9;4:3;58:5:226mboth\033[0m\n'
 expect: single in red, double in green, curly in blue, dotted in orange
-expect: and dashed in magenta, each in its own style under white text;
+expect: and dashed in magenta, *each in its own style* under white text;
 expect: strike struck through in the text's color; both carries a yellow
 expect: curly underline and a strike, each telling apart from the other.
 

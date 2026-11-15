@@ -46,28 +46,32 @@ intro: is two lines that show the top and bottom halves of the same letters.
 step: Insert mode pushes letters right on a normal line
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: The cursor starts on the k of the first line. Press F2, so that the key
-do: list says "Insert mode: on". Type a few letters.
-expect: Each letter goes in at the cursor and pushes the letters after it one
-expect: place right. The letter at the right edge disappears each time.
-expect: Wrong: letters that replace the letters under the cursor.
+do: list says "Insert mode: on". Type a few letters, then press Delete as
+do: often.
+expect: Each letter goes in at the cursor and *pushes the letters after it*
+expect: one place right. The letter at the right edge is lost. Each Delete
+expect: pulls the letters one place left and brings *a blank* in at the
+expect: right edge. This is expected: as on the VT510, the lost letters never
+expect: come back.
+expect: *Wrong:* typing that replaces letters, or lost letters that come back.
 
 step: Explore a letter typed at the right edge in insert mode
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: Press F2, then End. Type one letter, then one more. Try more keys if
 do: you like.
 expect: There is no right or wrong here. The first letter takes the right
-expect: edge, and the letter that stood there is lost. The next letter starts
-expect: the wide line below. The terminal works as the VT510 manual says of
-expect: insert mode: "Characters moved past the page's right border are
-expect: lost". Tier 1 checks this rule. Try it as long as you like.
+expect: edge, and *the letter that stood there is lost*. The next letter
+expect: *starts the wide line below*. The terminal works as the VT510 manual
+expect: says of insert mode: "Characters moved past the page's right border
+expect: are lost". Tier 1 checks this rule. Try it as long as you like.
 
 step: Insert mode on a wide line
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: Press Down, onto the wide line. Press F2 and type a few letters.
-expect: The new letters are wide and whole. The wide letters after the
+expect: The new letters are *wide and whole*. The wide letters after the
 expect: cursor move one place right, and stay wide and whole. The wide letter
-expect: at the right edge of the screen disappears each time.
-expect: Wrong: a narrow letter, half of a letter, or a letter lost in the
+expect: *at the right edge of the screen* disappears each time.
+expect: *Wrong:* a narrow letter, half of a letter, or a letter lost in the
 expect: middle of the screen.
 
 step: Explore insert mode on one line of a tall pair
@@ -75,7 +79,7 @@ run: python3 tools/vt/checks/typepad.py --insert insert
 do: Press Down three times, onto the upper tall line. Press F2 and type a
 do: few letters. Try the lower line too if you like.
 expect: There is no right or wrong here. Only the line the cursor is on
-expect: changes, so the tall letters after the cursor show split halves. The
+expect: changes, so the tall letters after the cursor *show split halves*. The
 expect: terminal works as the VT100 User Guide says: "the same character
 expect: output must be sent to both lines to form full double-height
 expect: characters". Tier 1 checks this rule. Try it as long as you like.
@@ -85,24 +89,24 @@ run: python3 tools/vt/checks/typepad.py --pair --insert insert
 do: Press Down three times, onto the upper tall line. Press F2 and type a
 do: few letters. Then press Backspace, Insert and Delete twice each.
 expect: The pad sends each edit to both lines of the pair, as a program
-expect: written for the VT510 does. After each key, every tall letter is
-expect: whole, the new letters too.
-expect: Wrong: a tall letter whose two halves do not match.
+expect: written for the VT510 does. After each key,
+expect: *every tall letter is whole*, the new letters too.
+expect: *Wrong:* a tall letter whose two halves do not match.
 
 step: With insert mode off, letters replace
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: Press F2, then F2 again, so that the key list says "Insert mode: off".
 do: Type a few letters.
-expect: Each letter replaces the letter under the cursor. The letters after
-expect: the cursor stay where they are.
-expect: Wrong: letters pushed right.
+expect: Each letter *replaces the letter under the cursor*. The letters
+expect: after the cursor *stay where they are*.
+expect: *Wrong:* letters pushed right.
 
 step: Typing on a wide line wraps at the right edge
 run: python3 tools/vt/checks/typepad.py --insert insert
 do: Leave insert mode off. Press Down, onto the wide line, then End. Type
 do: three letters.
 expect: The first letter replaces the wide letter at the right edge of the
-expect: screen. The next two letters start the empty line below, at normal
-expect: size.
-expect: Wrong: a letter past the right edge, or a letter that wraps in the
+expect: screen. The next two letters *start the empty line below*, at
+expect: *normal size*.
+expect: *Wrong:* a letter past the right edge, or a letter that wraps in the
 expect: middle of the screen.
