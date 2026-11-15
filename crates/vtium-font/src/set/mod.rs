@@ -13,6 +13,8 @@
 //! - [`builtin`] gives the built-in sets, `unifont` and `unscii-8`, and
 //!   [`builtin_name`] the one ADR-1200 D7 draws for a cell height and
 //!   locale.
+//! - [`layer`] reads the layers a font set (a frit) adds by name, and puts
+//!   their sources in place of the set's `layer=` lines.
 //!
 //! The format is in `format.rs`, the bounds in `src/bounds.rs`, and the
 //! crate's README describes both.
@@ -21,6 +23,7 @@ mod builder;
 mod builtin;
 mod face;
 pub(crate) mod format;
+pub mod layer;
 #[cfg(feature = "deflate")]
 mod pack;
 mod read;

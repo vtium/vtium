@@ -518,8 +518,24 @@ pub struct FritText {
 impl FritText {
     /// The frit at `path`, named for its file less `.vtfrit`, read once
     /// the ownership check `trust` makes passes
-    /// ([`crate::font::frit_text`]).
+    /// ([`crate::font::frit_text`]), with its layers in place
+    /// ([`crate::font::with_layers`]). Each sentence about a `layer=` line
+    /// that adds nothing is logged once a boot.
     pub fn read(path: &Path, trust: &vtium_settings::Trust) -> Result<FritText, String> {
+        let (frit, notes) = FritText::read_noting(path, trust)?;
+        for note in &notes {
+            crate::font::log_layer_note(note);
+        }
+        Ok(frit)
+    }
+
+    /// The frit at `path`, as [`FritText::read`] reads it, and the
+    /// sentences about its `layer=` lines that add nothing, which the
+    /// caller reports.
+    pub fn read_noting(
+        path: &Path,
+        trust: &vtium_settings::Trust,
+    ) -> Result<(FritText, Vec<String>), String> {
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -528,10 +544,14 @@ impl FritText {
             .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
         let text = crate::font::frit_text(path, trust)
             .map_err(|why| crate::font::refusal(name, path, &why))?;
-        Ok(FritText {
-            name: name.to_owned(),
-            text,
-        })
+        let (text, notes) = crate::font::with_layers(name, path, &text, trust);
+        Ok((
+            FritText {
+                name: name.to_owned(),
+                text,
+            },
+            notes,
+        ))
     }
 }
 

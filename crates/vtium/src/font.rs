@@ -28,7 +28,7 @@
 
 use std::path::{Path, PathBuf};
 
-use vtium_font::set::{SetFace, builtin, builtin_name};
+use vtium_font::set::{SetFace, builtin, builtin_name, layer};
 use vtium_font::spacing::{Band, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{CELL_SIDE_MAX, Cell, Face, Missing, Source, SpritePolicy, Unifont};
@@ -204,9 +204,17 @@ pub fn trust() -> Trust {
 /// mends it, in the words vtium.conf's refusal uses
 /// ([`vtium_settings::Untrusted::reason`]).
 pub fn frit_text(path: &Path, trust: &Trust) -> Result<String, String> {
+    trusted_text(path, trust)?.ok_or_else(|| "the file is missing.".to_owned())
+}
+
+/// The text of the file at `path`, read as [`frit_text`] reads a frit,
+/// under the same ownership check; `None` when there is no such file. A
+/// layer is read this way, so that a layer passes the check its frit
+/// passes.
+fn trusted_text(path: &Path, trust: &Trust) -> Result<Option<String>, String> {
     let inspected = match vtium_settings::inspect(path, trust) {
         Ok(Some(inspected)) => inspected,
-        Ok(None) => return Err("the file is missing.".to_owned()),
+        Ok(None) => return Ok(None),
         Err(rejected) => return Err(unread(&rejected)),
     };
     inspected.trusted.map_err(|why| why.reason().to_string())?;
@@ -217,7 +225,91 @@ pub fn frit_text(path: &Path, trust: &Trust) -> Result<String, String> {
             crate::config::FILE_MAX
         ));
     }
-    String::from_utf8(bytes).map_err(|_| "the file is not UTF-8 text.".to_owned())
+    String::from_utf8(bytes)
+        .map(Some)
+        .map_err(|_| "the file is not UTF-8 text.".to_owned())
+}
+
+/// The folder that holds the layers of the frit at `frit`: `layers/` in
+/// the frit's own directory.
+pub fn layers_dir(frit: &Path) -> PathBuf {
+    frit.parent().unwrap_or(Path::new("/")).join(layer::DIR)
+}
+
+/// The file of the layer `name` in the layers' folder `dir`.
+fn layer_file(dir: &Path, name: &str) -> PathBuf {
+    dir.join(format!("{name}{}", layer::SUFFIX))
+}
+
+/// The frit `name`'s `text`, read from `path`, with the sources of each
+/// layer it names in place of the layer's `layer=` line, and a sentence
+/// for each `layer=` line that adds nothing. vtium reads each layer from
+/// the layers' folder beside the frit, under the ownership check `trust`
+/// that the frit passed, and draws the set without a layer that is
+/// missing, that the check refuses or whose structure is wrong. The glyph
+/// helper then reads one list of sources, as it reads a frit with no
+/// layers, and it checks the layers' values as it checks the frit's own.
+///
+/// References:
+/// - ADR-1204 D5: the splice in place, and the ownership check a layer
+///   passes.
+pub fn with_layers(name: &str, path: &Path, text: &str, trust: &Trust) -> (String, Vec<String>) {
+    let dir = layers_dir(path);
+    let mut read = |layer: &str| trusted_text(&layer_file(&dir, layer), trust);
+    let expanded = layer::expand(text, &mut read);
+    let notes = expanded
+        .notes
+        .iter()
+        .map(|note| layer_note(name, &dir, note))
+        .collect();
+    (expanded.text, notes)
+}
+
+/// The sentence that says why the `layer=` line `note` names, in the frit
+/// `name` whose layers are in `dir`, adds nothing to the set. The start
+/// and OSC 50 log it once a boot, and `vtium check-config` prints it.
+pub fn layer_note(name: &str, dir: &Path, note: &layer::Note) -> String {
+    let (n, layer) = (note.line, &note.layer);
+    let file = || quoted(&layer_file(dir, layer));
+    match &note.problem {
+        layer::Problem::BadName => format!(
+            "font set {name}: line {n}: layer={layer} does not name a layer. A layer's name is 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with a dot. vtium draws the font set without it."
+        ),
+        layer::Problem::Missing => format!(
+            "font set {name}: line {n}: the layer {layer} is missing, because there is no file {}. vtium draws the font set without that layer.",
+            file()
+        ),
+        layer::Problem::Unread(why) => format!(
+            "font set {name}: line {n}: vtium does not read the layer {layer} from {}, because {why} vtium draws the font set without that layer.",
+            file()
+        ),
+        layer::Problem::Invalid(e) => format!(
+            "font set {name}: line {n}: the layer {layer} in {} has an error: {e}. vtium draws the font set without that layer.",
+            file()
+        ),
+        layer::Problem::Twice(first) => format!(
+            "font set {name}: line {n}: the layer {layer} is already on line {first}, so vtium leaves this line out."
+        ),
+        layer::Problem::RoleTaken { role, by, at } => format!(
+            "font set {name}: line {n}: the layer {layer} is a second {role} layer, after {by} on line {at}. A font set holds one {role} layer, so vtium draws the font set without {layer}."
+        ),
+    }
+}
+
+/// The most sentences about layers that vtium logs in a boot.
+const LAYER_NOTES_MAX: usize = 64;
+
+/// Logs `note`, a sentence about a layer, once a boot: the start and each
+/// OSC 50 switch to a frit read it again, and the log says it once.
+pub fn log_layer_note(note: &str) {
+    static LOGGED: std::sync::Mutex<std::collections::BTreeSet<String>> =
+        std::sync::Mutex::new(std::collections::BTreeSet::new());
+    let mut logged = LOGGED
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if logged.len() < LAYER_NOTES_MAX && logged.insert(note.to_owned()) {
+        log::warn!("{note}");
+    }
 }
 
 /// Why a frit that cannot be opened is not read, worded as [`frit_text`]
@@ -2232,6 +2324,82 @@ mod tests {
                 read,
                 writable,
                 in_open
+            ]
+        );
+    }
+
+    // ADR-1204 D5: the console puts each layer's sources in place of the
+    // set's layer= line, reads each layer under the ownership check the
+    // frit passes, and draws the set without a layer it does not read,
+    // with one sentence for each
+    #[test]
+    fn a_frits_layers_go_in_place_under_the_frits_ownership_check() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("font-layers");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let mode = |path: &Path, mode: u32| {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))
+                .expect("the mode");
+        };
+        let write = |path: &Path, text: &str| {
+            std::fs::write(path, text).expect("the file");
+            mode(path, 0o644);
+        };
+        write(
+            &dir.join("set.vtfrit"),
+            "cell=8x16\nsource=kbd:text\nlayer=symbols\nlayer=theirs\nlayer=gone\nlayer=emoji\nline-spacing=10\n",
+        );
+        write(
+            &layers.join("symbols.vtlayer"),
+            "role=symbols\nsource=font:Symbols\ncover=U+E000-U+F8FF\n",
+        );
+        write(
+            &layers.join("emoji.vtlayer"),
+            "role=emoji\nsource=font:Emoji\n",
+        );
+        write(
+            &layers.join("theirs.vtlayer"),
+            "role=script\nsource=font:Theirs\n",
+        );
+        mode(&layers.join("theirs.vtlayer"), 0o664);
+        mode(&dir, 0o755);
+        mode(&layers, 0o755);
+        let sources = Sources {
+            frits: dir.to_path_buf(),
+            trust: trust().below(&dir),
+            ..Sources::default()
+        };
+        let wanted = Wanted {
+            name: "set".into(),
+            came: Came::Config,
+        };
+        let frit = frit_named(&sources, &wanted).expect("the frit");
+        assert_eq!(
+            frit.text,
+            "cell=8x16\nsource=kbd:text\nsource=font:Symbols\ncover=U+E000-U+F8FF\nsource=font:Emoji\nline-spacing=10\n"
+        );
+        let by_osc_50 = match by_name(&sources, "set", false, None, None).expect("the frit") {
+            Chosen::Frit { frit, .. } => frit.text,
+            Chosen::Builtin { .. } => String::new(),
+        };
+        assert_eq!(by_osc_50, frit.text);
+        let (_, notes) =
+            FritText::read_noting(&dir.join("set.vtfrit"), &sources.trust).expect("the frit");
+        let theirs = layers.join("theirs.vtlayer");
+        assert_eq!(
+            notes,
+            [
+                format!(
+                    "font set set: line 4: vtium does not read the layer theirs from {}, because other users can change {} (mode 664). Run `chmod go-w {}` so that only its owner can change it. vtium draws the font set without that layer.",
+                    quoted(&theirs),
+                    quoted(&theirs),
+                    theirs.display()
+                ),
+                format!(
+                    "font set set: line 5: the layer gone is missing, because there is no file {}. vtium draws the font set without that layer.",
+                    quoted(&layers.join("gone.vtlayer"))
+                ),
             ]
         );
     }
