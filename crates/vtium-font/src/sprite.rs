@@ -68,8 +68,10 @@ pub(crate) mod spans;
 use core::fmt;
 
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::Decorations;
+use crate::face::{Decorations, Doubled, Face, Font, Style, Width};
 use crate::glyph::Glyph;
+use crate::policy::Source;
+use crate::spacing::Fit;
 
 /// A range of characters vtium draws as sprites, each of which a font may
 /// draw instead (vtium/vtium#85).
@@ -240,6 +242,65 @@ pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
         Range::BoxDrawing => box_drawing(&mut buf, cp, t),
     }
     Some(buf)
+}
+
+/// The sprite that a line of double size draws for `cluster`, `width`
+/// cells wide in `style`, at the double size `size`, or `None` when
+/// `font` draws the cluster from its face. vtium draws the sprite at the
+/// size of the doubled cell, which [`Doubled::cell`] gives for the face's
+/// cell, instead of doubling the pixels of the sprite at the normal size.
+/// A light line keeps the weight that [`light_line`] gives the doubled
+/// cell's height, so on a line of double width a vertical line stays as
+/// thin as on a line of the normal size, and on a line of double height
+/// both kinds of line follow the taller cell. Each edge of the sprite
+/// still meets the edge of the cell, so a line joins the sprite in the
+/// next cell, as at the normal size.
+///
+/// The choice of sprite or face follows [`Font::drawn`]: a single
+/// character draws as a sprite where the font's policy says so, and a
+/// cluster does where the policy draws its first character as a sprite and
+/// the face lacks that character. A sprite that keeps to the text band
+/// where line spacing makes the cell taller keeps to the doubled band.
+///
+/// References:
+/// - ADR-1302 D13: which sprites fill the rows that line spacing adds.
+pub fn doubled<F: Face>(
+    font: &Font<F>,
+    cluster: &[char],
+    (width, style): (Width, Style),
+    size: Doubled,
+) -> Option<Glyph> {
+    let face = font.face();
+    let draws = |c: char| {
+        Range::of(c).is_some_and(|range| match font.policy().source(range) {
+            Source::Sprites => true,
+            Source::Font => false,
+            Source::Auto => !face.has_glyph(c),
+        })
+    };
+    let c = match *cluster {
+        [c] => draws(c).then_some(c),
+        [c, ..] => (draws(c) && !face.has_glyph(c)).then_some(c),
+        [] => None,
+    }?;
+    let cell = size.cell(face.cell())?;
+    let band = size.band(face.band());
+    let fit = face.fit(c, style);
+    let height = match fit {
+        Fit::Fill => cell.height,
+        Fit::Natural | Fit::Room => cell.height.saturating_sub(band.added()),
+    };
+    let sprite = draw(
+        c,
+        cell.width.checked_mul(width.cells())?,
+        height,
+        light_line(cell.height),
+    )?;
+    let sprite = match height == cell.height {
+        true => sprite,
+        false => crate::spacing::place(&sprite, band, fit, true)?,
+    };
+    Some(sprite.with_cells(width))
 }
 
 // Line styles, two bits per edge.
