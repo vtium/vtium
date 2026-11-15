@@ -1157,8 +1157,9 @@ mod tests {
             .get_piece(f, (text, Width::Narrow, Variant::default()), piece)
             .unwrap();
         assert!(!g.is_rgba(), "the piece is a color glyph");
-        let mut out = vec![0u8; cell.width as usize * cell.height as usize];
-        for (y, row) in out.chunks_mut(cell.width as usize).enumerate() {
+        let (w, h) = (cell.width as usize, cell.height as usize);
+        let mut out = vec![0u8; w.checked_mul(h).unwrap()];
+        for (y, row) in out.chunks_mut(w).enumerate() {
             g.mask_line(0, i64::try_from(y).unwrap(), row);
         }
         out
