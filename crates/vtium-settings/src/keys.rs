@@ -1551,8 +1551,8 @@ pub const FONT_LIGATURES: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     reader: "vtium-render",
-    what: "Draw a programming font's ligatures, such as `->`, `!=` and `===`, across the character cells of their characters.\n\n\
-           Only runs of 2 to 14 ASCII symbols on one row join. Each character keeps its own cell, so the cursor, selection and copying still reach every character. A ligature draws as its separate characters while the cursor stands on it. Bitmap fonts and the built-in fonts draw no ligatures.",
+    what: "Draw a programming font's ligatures, such as `->` and `!=`, across the character cells of their characters.\n\n\
+           Each character keeps its own cell. A ligature draws apart while the cursor stands on it. Bitmap fonts draw none.",
     cite: "[the programming ligatures issue](https://github.com/vtium/vtium/issues/23)",
 };
 
@@ -2347,15 +2347,17 @@ pub const SECTIONS: [Section; 11] = [
         groups: &[
             Group {
                 title: "Font",
-                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_PATHS, &FONT_ENGINE],
+                keys: &[
+                    &FONT_NAME,
+                    &FONT_FRITS,
+                    &FONT_PATHS,
+                    &FONT_ENGINE,
+                    &FONT_LIGATURES,
+                ],
             },
             Group {
                 title: "Font size and spacing",
                 keys: &[&FONT_SIZE, &CELL, &FONT_HINTING, &FONT_LINE_SPACING],
-            },
-            Group {
-                title: "Ligatures",
-                keys: &[&FONT_LIGATURES],
             },
             Group {
                 title: "Box drawing and block characters",

@@ -44,11 +44,18 @@
 #
 ## font-engine: Which kind of font to use. When unset, vtium tries each kind
 ## the build supports, in the order listed.
+#
+## font-ligatures: Draw a programming font's ligatures, such as `->` and `!=`,
+## across the character cells of their characters.
+##
+## Each character keeps its own cell. A ligature draws apart while the cursor
+## stands on it. Bitmap fonts draw none.
 
 #font-name=
 #font-frits=/etc/vtium/fonts
 #font-paths=
 #font-engine=
+#font-ligatures=off
 
 # -- Font size and spacing ---------------------------------------------------
 
