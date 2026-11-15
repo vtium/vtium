@@ -717,6 +717,15 @@ specimens-fonts: ## Fetch the outline profiles' pinned fonts into the cache, che
 	cargo build --release -p vtium-specimens --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/specimens fetch-fonts
 
+# Cullet Mono, vtium's outline Terminus with Nerd Fonts' icons, built from
+# the sources that tools/cullet-mono/pins.tsv pins (ADR-1204 D2). Not a gate:
+# it needs FontForge, Python and, once, the network, which fetches the
+# sources into $XDG_CACHE_HOME/vtium/cullet-mono. The build fails unless
+# each face has the SHA-256 that pins.tsv pins.
+.PHONY: cullet-mono
+cullet-mono: ## Build Cullet Mono from its pinned sources into target/cullet-mono, and check each face against its pinned SHA-256 (needs FontForge, Python and the network once)
+	cargo run --release --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool -- build --out $(or $(CARGO_TARGET_DIR),target)/cullet-mono
+
 # What the maintainer reviews tier 1's goldens on (ADR-1505, V3); not a
 # gate. tier1-shots replays every case of the corpus and of vtium's own
 # cases, and every behaviour scenario, through vtium-replay's code, checks
