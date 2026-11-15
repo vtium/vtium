@@ -29,7 +29,7 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
-status: proposed
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb
@@ -40,6 +40,10 @@ related:
   - ADR-1503
 amends:
   - "ADR-1502#D2: the README and the home page"
+considered:
+  - operator: aaronsb
+    said: "I think it's a good improvement. it states what is true now. … let's merge it"
+    via: the steering session's chat on 2026-11-14, after reading preview v6 of the README, Home and its topic pages
 ---
 
 # ADR-1509: vtium is the terminal a Linux machine boots into, and its front pages tell what it does there in its own terms
