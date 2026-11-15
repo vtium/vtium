@@ -195,6 +195,8 @@ The Decisions section publishes every decision record, reached through `docs/arc
 
 ### D2: the README and the home page
 
+(Amended 2026-11-14: ADR-1509 D1 and D8 replace the shape this decision gives the README and the home page. The maintainer approved the new front pages on 2026-11-14. The rest of this record stands.)
+
 The README stays the front door on GitHub, and becomes short: the name; one sentence saying what vtium is; one paragraph saying why it exists; the showcase's hero image (D6) with its caption; the release and a one-line status with a link to `features.md`; a "Try it" line that links the tutorial; a "Documentation" list that links the site and each of its sections; one sentence on how vtium is judged; and the provenance and licence, shortened. It links pages under `docs/` by relative path, so it reads the same in any clone, and links the site once, at the top.
 
 The site has its own home page, `docs/index.md`: the same sentence and paragraph, the hero image, four short doors into the four modes with one line each on who each is for, and links to the GitHub repository and its releases. The one-paragraph pitch is the one passage the README and the home page both hold, since each is the first page of its own place.

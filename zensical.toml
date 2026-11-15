@@ -17,7 +17,18 @@ site_dir = "target/site"
 # The menu sorts the pages by what the reader is doing (ADR-1502 D1). A page
 # keeps its path whatever section it sits in.
 nav = [
-  { "Home" = ["index.md", { "Showcase" = "showcase/README.md" }] },
+  { "Home" = [
+      "index.md",
+      { "Text in any script" = "home/text.md" },
+      { "A terminal on each display" = "home/displays.md" },
+      { "Images" = "home/images.md" },
+      { "Keyboards and mice" = "home/input.md" },
+      { "The terminal's language" = "home/language.md" },
+      { "Where vtium runs" = "home/where-it-runs.md" },
+      { "Security and the system" = "home/security-and-system.md" },
+      { "What vtium leaves to other tools" = "home/leaves-to-other-tools.md" },
+      { "Showcase" = "showcase/README.md" },
+  ] },
   { "Tutorials" = [
       { "Try vtium on one VT" = "tutorial-try-vtium.md" },
   ] },
