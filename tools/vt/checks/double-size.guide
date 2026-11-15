@@ -8,12 +8,15 @@
 # the line's size, and erasing a whole line returns it to single size. The
 # cursor is drawn at the size of the character it stands on.
 #
-# The guide asks only what the maintainer's eyes can judge. One line of a
-# tall pair edited alone looks broken, and tier 1 checks that rule in the
-# cases line-size-edit and line-size-irm-tall in tools/conformance/vtium.
-# One short step shows it once and says so. The step after it runs the pad
+# The typing pad echoes each key as a line editor's sequence and nothing
+# more, so it shows the terminal's raw VT510 behaviour. One step, whose
+# title starts with "Explore", shows raw behaviour that looks broken on its
+# own: one line of a tall pair edited alone. That step has no right or
+# wrong answer, quotes the manual, and asks the maintainer to press s.
+# Tier 1 checks the rule in the cases line-size-edit and line-size-irm-tall
+# in tools/conformance/vtium. The step after it is a check: it runs the pad
 # in pair mode, which edits both lines of a double-height pair, as a
-# program written for the VT510 does.
+# program written for the VT510 does, so the tall letters stay whole.
 #
 # Each step runs the typing pad, tools/vt/checks/typepad.py, which shows
 # the step's text at the top of the screen, draws the step's lines below
@@ -27,15 +30,18 @@
 
 title: typing and editing on lines of double size
 
-intro: A terminal never moves text to another row when you insert a
-intro: letter. Shells and editors such as zsh and vim redraw the line
-intro: themselves, and that redraw is what makes text flow onto the next row.
-intro: Each step starts the typing pad. The pad shows the step's text at the
-intro: top of the screen, then its keys, then the lines to type on. Ctrl-D
-intro: ends the typing, and then the step asks its question. A wide line has
-intro: letters twice as wide as normal. A tall pair is two lines that show
-intro: the top and bottom halves of the same letters. "The right edge" is the
-intro: right edge of the screen.
+intro: Each step starts the typing pad. The pad shows what the terminal does
+intro: when a program only echoes the keys you type. The terminal never moves
+intro: text to another row when you insert a letter. Text flows onto the next
+intro: row only when a program redraws the line itself, as zsh and vim do.
+intro: A step whose title starts with "Explore" has no right or wrong answer.
+intro: It shows the terminal working as DEC's manuals for the VT100 and the
+intro: VT510 describe. Press s when you are done with it, and add a note if
+intro: you like. The pad shows the step's text at the top of the screen, then
+intro: its keys, then the lines to type on. Ctrl-D ends the typing, and then
+intro: the step asks its question. A wide line has letters twice as wide as
+intro: normal. A tall pair is two lines that show the top and bottom halves
+intro: of the same letters. "The right edge" is the right edge of the screen.
 
 step: Typing on a wide line wraps at the right edge
 run: python3 tools/vt/checks/typepad.py wide
@@ -74,21 +80,22 @@ run: python3 tools/vt/checks/typepad.py edit
 do: The cursor starts on the k of the wide line. Press Insert three times,
 do: then Delete five times.
 expect: Each Insert opens a blank at the cursor and pushes the wide letters
-expect: after it one place right, up to the right edge of the screen. Each
-expect: Delete pulls the wide letters one place left. The letters stay wide
-expect: and whole.
+expect: after it one place right. The wide letter at the right edge of the
+expect: screen drops off. Each Delete pulls the wide letters one place left.
+expect: The letters stay wide and whole.
 expect: Wrong: a letter that drops off in the middle of the screen, or a
 expect: narrow letter.
 
-step: The terminal edits each line of a tall pair on its own
+step: Explore editing one line of a tall pair
 run: python3 tools/vt/checks/typepad.py edit
 do: Press Down twice, onto the top line of the tall letters, and press
-do: Insert once.
-expect: Only the top halves of the letters after the cursor move. That is
-expect: the terminal working as the VT100 User Guide says: "the same
-expect: character output must be sent to both lines to form full
-expect: double-height characters". Tier 1 checks that rule, so answer yes
-expect: once you have seen it. The next step sends each edit to both lines.
+do: Insert twice. Then press Down once, onto the bottom line, and press
+do: Insert twice. Try other keys on either line if you like.
+expect: There is no right or wrong here. The terminal changes each line of a
+expect: pair on its own, so the tall letters show split halves until both
+expect: lines match again. The VT100 User Guide says: "the same character
+expect: output must be sent to both lines to form full double-height
+expect: characters". Press s. The next step sends each edit to both lines.
 
 step: A program that edits both lines keeps tall letters whole
 run: python3 tools/vt/checks/typepad.py --pair pair
