@@ -1,11 +1,3 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
-login-contain-top-left	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-contain-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-contain-bottom	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-cover-top	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-none-bottom-left	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-scale-bottom-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-banner-bottom-right	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
-login-rotated-scale	new with the login picture's anchors, scale and bottom banner (ADR-1100 D17), drawn by vtium and not yet reviewed
