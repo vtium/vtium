@@ -19,8 +19,8 @@
 //!          reach count u32 (0, or the cell count), each reach above and
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
-//!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
+//!          0), hinting u8 (0 light, 1 full, 2 full and then 1-bit),
+//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
 //!          cluster width u8 (0 double, 1 single: the console's
 //!          `cluster-width`, ADR-1006 D8), double width u8 (1 for a line
 //!          of double width, whose glyphs are drawn twice as wide, else 0)
@@ -58,7 +58,10 @@
 //! the size that fits them, centred across them and kept inside the
 //! cell's height. Outlines are hinted as the request says ([`Hinting`],
 //! ADR-1200 D1): lightly by default, which moves a glyph's rows only, as
-//! FreeType's light hinting does, or fully. Color glyphs are not hinted,
+//! FreeType's light hinting does, or fully. A request may also ask for
+//! a source's glyphs as a bitmap font draws them ([`Hinting::Bitmap`]):
+//! hinted fully and then 1-bit, each pixel the glyph covers at least half
+//! of fully on and every other pixel off. Color glyphs are not hinted,
 //! and a COLR glyph's layers are laid over each other here, premultiplied
 //! with the renderer's rounding.
 //!
@@ -161,8 +164,9 @@ pub struct OutlineRequest {
     /// the added rows and then a row of the whole cell (ADR-1306 D8);
     /// empty, [`REACH_ROWS`] rows of each cell each way (ADR-1306 D1).
     pub reaches: Vec<(u32, u32)>,
-    /// How the outline glyphs are fitted to the pixel grid, the frit's
-    /// `hinting=` (ADR-1200 D1).
+    /// How the outline glyphs are fitted to the pixel grid: the frit's
+    /// `hinting=`, or [`Hinting::Bitmap`] for a source whose glyphs draw
+    /// 1-bit, as a bitmap font's glyphs draw (ADR-1200 D1).
     pub hinting: Hinting,
     /// Whether a glyph whose ink would pass its cells is drawn smaller
     /// until it fits, as a fallback source's glyph is (ADR-1200 D17): set
@@ -386,6 +390,7 @@ impl OutlineRequest {
         out.push(match self.hinting {
             Hinting::Light => 0,
             Hinting::Full => 1,
+            Hinting::Bitmap => 2,
         });
         out.push(u8::from(self.synth.bold) | u8::from(self.synth.italic) << 1);
         out.push(match self.script {
@@ -481,6 +486,7 @@ impl OutlineRequest {
         let hinting = match r.u8()? {
             0 => Hinting::Light,
             1 => Hinting::Full,
+            2 => Hinting::Bitmap,
             _ => return Err("an unknown hinting"),
         };
         let synth = match r.u8()? {
@@ -1234,7 +1240,7 @@ pub(crate) mod raster {
                     engine: Engine::Interpreter,
                     target: SmoothMode::Light.into(),
                 },
-                Hinting::Full => HintingOptions {
+                Hinting::Full | Hinting::Bitmap => HintingOptions {
                     engine: Engine::AutoFallback,
                     target: SmoothMode::Normal.into(),
                 },
@@ -1286,7 +1292,10 @@ pub(crate) mod raster {
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
-            let (data, placement) = mask.render();
+            let (mut data, placement) = mask.render();
+            if self.hinting == Hinting::Bitmap {
+                one_bit(&mut data);
+            }
             Some(Image {
                 source: Source::Outline,
                 content: Content::Mask,
@@ -1389,6 +1398,34 @@ pub(crate) mod raster {
                 },
                 data,
             }
+        }
+    }
+
+    /// Turns a glyph's coverage into 1-bit coverage, as a bitmap font's
+    /// glyph is drawn. Each pixel the glyph covers at least half of, a
+    /// coverage of 128 or more out of 255, is fully on, and every other
+    /// pixel is off. A glyph that would then have no pixel on at all, such
+    /// as a small dot between two pixels, keeps the one pixel it covers
+    /// most, the first in row order where several tie, so that no glyph
+    /// vanishes. A glyph with no coverage at all, such as a space, stays
+    /// blank.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: the half-coverage threshold and
+    ///   the pixel kept so that no glyph vanishes.
+    pub(crate) fn one_bit(coverage: &mut [u8]) {
+        let most = coverage
+            .iter()
+            .enumerate()
+            .rev()
+            .max_by_key(|&(_, &c)| c)
+            .filter(|&(_, &c)| c > 0 && c < 128)
+            .map(|(i, _)| i);
+        for c in coverage.iter_mut() {
+            *c = if *c >= 128 { 255 } else { 0 };
+        }
+        if let Some(p) = most.and_then(|i| coverage.get_mut(i)) {
+            *p = 255;
         }
     }
 
@@ -2083,7 +2120,7 @@ pub(crate) mod raster {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::raster::{Cell, embolden_per_side, place_drawn, synthesise};
+    use super::raster::{Cell, embolden_per_side, one_bit, place_drawn, synthesise};
     use swash::zeno::{Command, Point};
 
     /// The points of `path` that close each of its segments.
@@ -2120,6 +2157,83 @@ mod tests {
         let want = [(-1.0, 0.0), (1.0, 10.0), (13.0, 10.0), (11.0, 0.0)];
         for ((x, y), (wx, wy)) in ends(&square).into_iter().zip(want) {
             assert!((x - wx).abs() < 1e-4 && (y - wy).abs() < 1e-4, "{x},{y}");
+        }
+    }
+
+    // A glyph drawn as a bitmap lights each pixel it covers at least half
+    // of, 128 of 255 and up, and darkens the rest. A glyph that would then
+    // light nothing keeps its most covered pixel, the first of a tie, and a
+    // glyph that covers nothing stays blank.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the threshold and the kept pixel.
+    #[test]
+    fn one_bit_lights_each_pixel_covered_at_least_half() {
+        let mut edges = [0, 1, 126, 127, 128, 129, 200, 255];
+        one_bit(&mut edges);
+        assert_eq!(edges, [0, 0, 0, 0, 255, 255, 255, 255]);
+        let mut dot = [0, 40, 90, 60, 0, 90];
+        one_bit(&mut dot);
+        assert_eq!(dot, [0, 0, 255, 0, 0, 0], "the first most covered pixel");
+        let mut faint = [0, 1, 0];
+        one_bit(&mut faint);
+        assert_eq!(faint, [0, 255, 0]);
+        let mut blank = [0; 4];
+        one_bit(&mut blank);
+        assert_eq!(blank, [0; 4]);
+        let mut empty: [u8; 0] = [];
+        one_bit(&mut empty);
+    }
+
+    // An outline source drawn as a bitmap is hinted as hinting=full hints
+    // it and then drawn 1-bit: in DejaVu Sans Mono at 16 pixels, each pixel
+    // of each glyph, and of the ink past its cell, is fully on exactly
+    // where full hinting covers it at least half, and fully off elsewhere.
+    // Full hinting alone leaves partly covered pixels, so the request is
+    // what makes the difference.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: full hinting whatever hinting= says,
+    //   then each pixel covered at least half lit.
+    #[test]
+    fn a_bitmap_request_draws_its_glyphs_hinted_fully_at_one_bit() {
+        use super::{OutlineRequest, rasterise};
+        use crate::frit::Hinting;
+        let font: &[u8] = include_bytes!("../tests/fixtures/DejaVuSansMono-ascii.ttf");
+        let draw = |hinting| {
+            rasterise(&OutlineRequest {
+                font: font.into(),
+                cells: vec![(9, 16)],
+                cover: vec![(0x21, 0x7e)],
+                hinting,
+                ..OutlineRequest::default()
+            })
+            .expect("drawn")
+        };
+        let (full, bitmap) = (draw(Hinting::Full), draw(Hinting::Bitmap));
+        let (full, bitmap) = (&full.strikes[0], &bitmap.strikes[0]);
+        assert_eq!(full.map, bitmap.map);
+        assert_eq!(full.baseline, bitmap.baseline);
+        let pixels = |p: &super::Placed| {
+            let ink = p.ink.as_ref().map(|i| i.pixels.clone()).unwrap_or_default();
+            [p.pixels.clone(), ink].concat()
+        };
+        let partial = |v: &[u8]| v.iter().any(|&c| c != 0 && c != 255);
+        assert!(full.glyphs.iter().any(|g| partial(&pixels(g))));
+        for (&(c, at), (f, b)) in full.map.iter().zip(full.glyphs.iter().zip(&bitmap.glyphs)) {
+            let c = char::from_u32(c).unwrap_or_default();
+            let (f, b) = (pixels(f), pixels(b));
+            assert_eq!(f.len(), b.len(), "{c:?} at {at}");
+            assert!(!partial(&b), "{c:?}: {b:?}");
+            assert!(b.contains(&255), "{c:?} keeps its ink");
+            let lit: Vec<bool> = f.iter().map(|&p| p >= 128).collect();
+            if lit.contains(&true) {
+                assert_eq!(
+                    b.iter().map(|&p| p == 255).collect::<Vec<_>>(),
+                    lit,
+                    "{c:?}"
+                );
+            }
         }
     }
 
