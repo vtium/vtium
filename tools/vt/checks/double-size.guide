@@ -68,7 +68,9 @@ do: then Delete five times.
 expect: Each Insert opens a blank at the cursor and pushes the letters after
 expect: it one place right. The letter at the right edge drops off. Each
 expect: Delete pulls the letters one place left, and a blank comes in at the
-expect: right edge.
+expect: right edge. In a shell such as zsh, inserted text spills onto the
+expect: next line because zsh redraws the line itself, but the terminal
+expect: never moves text to another line.
 expect: Wrong: letters that wrap onto the next line, or a letter that drops
 expect: off in the middle of the screen.
 
