@@ -428,19 +428,19 @@ vendor-archive-check: vendor-archive ## Pack the vendor archive, then build the 
 # an ARM machine uses its own toolchain.
 ARM_TARGETS      ?= aarch64-unknown-linux-gnu armv7-unknown-linux-gnueabihf
 ARM_TEST_TARGETS ?= aarch64-unknown-linux-gnu
-arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
-arm arm-test: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
-arm arm-test: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
-arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
-arm arm-test: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
-arm arm-test: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
+arm arm-test arm-memory: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-cc
+arm arm-test arm-memory: export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_RUNNER = $(ARM_WRAP)/aarch64-unknown-linux-gnu-run
+arm arm-test arm-memory: export PKG_CONFIG_aarch64_unknown_linux_gnu = $(ARM_WRAP)/aarch64-unknown-linux-gnu-pkg-config
+arm arm-test arm-memory: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_LINKER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-cc
+arm arm-test arm-memory: export CARGO_TARGET_ARMV7_UNKNOWN_LINUX_GNUEABIHF_RUNNER = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-run
+arm arm-test arm-memory: export PKG_CONFIG_armv7_unknown_linux_gnueabihf = $(ARM_WRAP)/armv7-unknown-linux-gnueabihf-pkg-config
 # Each target's sysroot directory, which moves when its pins change. The
 # pkg-config crate reruns a build script when this changes, so libudev-sys
 # never keeps a search path into a sysroot the pins have left. It is
 # expanded once, when make reads the line: a recursively expanded variable
 # re-expands inside its own $(shell) and overflows make's stack.
-arm arm-test: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
-arm arm-test: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
+arm arm-test arm-memory: export PKG_CONFIG_SYSROOT_DIR_aarch64_unknown_linux_gnu := $(shell tools/arm/sysroot dir arm64)
+arm arm-test arm-memory: export PKG_CONFIG_SYSROOT_DIR_armv7_unknown_linux_gnueabihf := $(shell tools/arm/sysroot dir armhf)
 
 .PHONY: arm-sysroot
 arm-sysroot: ## Fetch and verify the Debian sysroots the ARM targets link against (VTIUM_ARM_SYSROOTS=DIR)
@@ -498,6 +498,20 @@ arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE
 .PHONY: arm-test
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
+
+# vtium-term's memory bounds on a 32-bit target, a gate: tests/memory.rs pins
+# the 32-bit figures beside the 64-bit ones, so a change that moves either
+# fails on its own target. aarch64 runs the whole suite natively in CI's
+# arm-native job. Only the library's tests and tests/memory.rs run, in a
+# release build, because vtium-term's whole debug suite under qemu-user takes
+# more than ten minutes. They run once without images and once with every
+# feature, and the second run goes ahead when the first fails.
+.PHONY: arm-memory
+arm-memory: arm-sysroot ## Run vtium-term's library tests and tests/memory.rs for armv7 under qemu-user, in a release build, without images and with every feature (needs clang, qemu-user)
+	@status=0; for features in '' --all-features; do \
+		echo "arm-memory: vtium-term $${features:-without images}"; \
+		cargo test --release -p vtium-term --target armv7-unknown-linux-gnueabihf $$features --no-fail-fast --lib --test memory || status=1; \
+	done; exit $$status
 
 # vtium-term's standing write benchmarks (crates/vtium-term/examples/
 # write_bench.rs): the CPU time the terminal takes to interpret a full-screen
@@ -942,6 +956,7 @@ make conformance-probes
 make conformance-issues
 make tier2
 make arm
+make arm-memory
 endef
 export GATE_LINE
 
