@@ -393,6 +393,17 @@ pub const TEMPLATE: &str = "\
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
+# A layer: the sources of /etc/vtium/fonts/layers/NAME.vtlayer, put in place
+# of this line. A layer brings a script, symbols, emoji or the fallback, and
+# a font set holds one symbols, one emoji and one fallback layer at most.
+#layer=noto-emoji
+#
+# A bitmap file of the same design as the outline font on the source= line
+# above it. A cell up to the tallest such file's height draws the tallest
+# one that fits it, and the outline draws larger cells. Write it as kbd:NAME,
+# file:PATH or bdf:PATH, and repeat the line for each file.
+#strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+#
 # A smaller size of the bitmap font on the source= line above it, which
 # draws that font's superscripts and subscripts. Its characters must be
 # from half to three quarters as high as the font's own. Write it as kbd:NAME,
