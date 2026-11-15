@@ -2539,6 +2539,42 @@ mod tests {
         assert_eq!(line.glyph(line.cell(0)), Glyph::Cluster(&cluster));
     }
 
+    // The line's cells bound what its run table allocates: a run in each of
+    // 170 cells leaves the table's capacity at 170, where a vector's own
+    // doubling would reach 256, and a line cut to 40 cells gives the room
+    // back.
+    //
+    // References:
+    // - ADR-1009 D1: the cell count bounds the run table's allocation.
+    #[test]
+    fn the_run_table_allocates_no_more_than_the_cells() {
+        let mut line = Line::new(LineId::new(1), 170);
+        let size = TextSize {
+            width: 1,
+            ..TextSize::NORMAL
+        };
+        let mut most = 0;
+        for col in 0..170 {
+            let run = SizedRun::new(col, 1, 0, size);
+            assert!(line.put_run(run, Glyph::Char('x'), &rgb(1), None));
+            most = most.max(tables(&line).runs.0.as_ref().map_or(0, |r| r.capacity()));
+        }
+        let runs = tables(&line)
+            .runs
+            .0
+            .as_ref()
+            .map(|r| (r.len(), r.capacity()));
+        assert_eq!(runs, Some((170, 170)));
+        assert!(most <= 170, "the run table allocated {most} entries");
+        line.resize(40);
+        let runs = tables(&line)
+            .runs
+            .0
+            .as_ref()
+            .map(|r| (r.len(), r.capacity()));
+        assert_eq!(runs, Some((40, 40)));
+    }
+
     // A run's entry keeps every key at the most each one takes, in 6 bytes.
     #[test]
     fn a_sized_run_keeps_its_keys_in_six_bytes() {
