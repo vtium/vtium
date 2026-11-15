@@ -23,6 +23,17 @@ use crate::line::LinkId;
 /// the entries, its place in the order, and its allocation.
 pub(crate) const ENTRY_OVERHEAD: usize = 64;
 
+// The store charges each link at least `ENTRY_OVERHEAD` and adds none past
+// `LINKS_BYTES_MAX`, so it holds at most 4,096 links. A link's `LinkId` is
+// its index in the store, renumbered densely at each sweep, so it stays
+// below that count, and a line's link table keeps it in 16 bits. A bound
+// that let the store hold 65,536 links or more fails to compile here.
+//
+// References:
+// - ADR-1009 D5: the line's link table keeps 16-bit numbers, and this
+//   check ties them to the store's bound.
+const _: () = assert!(LINKS_BYTES_MAX / ENTRY_OVERHEAD < 1 << 16);
+
 /// A URI's longest, VTE's and iTerm2's limit.
 const URI_MAX: usize = 2083;
 
