@@ -15,6 +15,7 @@ vtium keeps the keys in the table below for itself. Two words in the table need 
 | Ctrl+Shift+Delete | resets the console on screen, as the `reset` command does | `key-reset` |
 | Shift+Insert, the middle button | pastes the selection | `key-paste` for the key |
 | Ctrl+click on a link | copies the link's address into the selection. vtium does not open the link. | none |
+| Ctrl+Shift+O | labels each link on the screen with letters. Typing a label copies that link's address into the selection. vtium does not open the link. | `key-link-hints` |
 | Ctrl+Super+Right, Ctrl+Super+Left | shows the head's next or previous console | `key-console-next`, `key-console-previous` |
 | Ctrl+Super+Return | opens a new console in the head | `key-console-open` |
 | Ctrl+Super+Backspace | closes the console on screen, unless it is the head's last | `key-console-close` |
