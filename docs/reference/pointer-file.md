@@ -32,7 +32,7 @@ A program can ask for a pointer shape with OSC 22. vtium knows ten shapes, and a
 
 vtium installs its own pictures as `/usr/share/vtium/pointers.svg`. The easiest start is to copy that file, change its symbols in an SVG editor, and point `pointer-theme` at your copy.
 
-Each shape is a `<symbol>` element anywhere in the file. A symbol has three attributes:
+Each shape is a `<symbol>` element anywhere in the file. A symbol has three attributes, and no other element in the file may have the same `id`:
 
 - `id` is the shape's name from the table above.
 - `viewBox` sets the symbol's coordinates and its proportions.
@@ -48,11 +48,11 @@ Each shape is a `<symbol>` element anywhere in the file. A symbol has three attr
 
 A symbol can use anything else the file defines, such as a gradient in its `<defs>` or a style sheet. Nothing outside the symbols is drawn.
 
-vtium draws each picture one character cell tall, but at least 8 pixels and at most 64. The width follows the viewBox's proportions. A picture that would be wider than 64 pixels is drawn 64 pixels wide, and shorter. The hotspot lands on the pixel under its point. When you zoom, vtium draws the pictures again at the new cell height.
+vtium draws each picture one character cell tall, but at least 8 pixels and at most 64. The width follows the viewBox's proportions. A picture that would be wider than 64 pixels is drawn 64 pixels wide, and shorter. The hotspot lands on the pixel under its point. When you zoom, vtium draws the pictures again at the new cell height. It keeps the pictures of the 16 cell heights used most recently.
 
 Shapes draw with smooth edges unless the file asks for crisp ones. Put `shape-rendering="crispEdges"` on the `<svg>` element, as vtium's own file does, to fill each pixel whose centre lies inside a shape.
 
-The file may be at most 1 MiB. Text, fonts and embedded images in the file do not draw.
+The file may be at most 1 MiB. Text, fonts and embedded images in the file do not draw, so a symbol that holds only those draws nothing, and vtium draws its own picture for that shape.
 
 ## A cursor theme
 
@@ -94,6 +94,8 @@ vtium logs one line for each problem and then draws its own picture for the shap
 - A path that is neither an SVG file nor a folder with a `cursors` folder: "The pointer file /usr/share/icons/default is neither an SVG file nor a folder that holds a cursors folder, so vtium draws its own pointer pictures."
 - A file vtium does not read, because it is too long or others can change it. The line names the file, and for an ownership problem the command that fixes it.
 - A picture the font helper cannot draw: "The font helper cannot draw the wait shape from /home/kim/pointers.svg, because its symbol has no data-hotspot. vtium draws its own picture for that shape."
+- A picture that fails vtium's checks: "vtium does not use the wait picture from /home/kim/pointers.svg, because the font helper sent a picture in which no pixel shows. It draws its own picture for that shape."
+- A font helper that fails or stops answering while it draws the file. vtium keeps the pictures it has, asks for no more, and logs the reason in the line.
 - Shapes the file lacks, at info level: "The pointer file /usr/share/icons/Oxygen_White has no picture for the ew-resize and ns-resize shapes, so vtium draws its own pictures for them."
 
 `vtium check-config` checks that `pointer-theme` is an absolute path. It does not open the file, because the console reads the file where it runs.
