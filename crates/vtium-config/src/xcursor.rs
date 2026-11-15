@@ -15,7 +15,9 @@
 //! with its colors premultiplied by its alpha.
 //!
 //! The reader keeps the first image of each nominal size, in the table's
-//! order, so a busy cursor stands still on its first frame. It drops a size
+//! order, so a busy cursor stands still on its first frame. It skips an
+//! image of nominal size 0, which names no size, so the file's other sizes
+//! still serve. It drops a size
 //! whose picture is wider or taller than [`POINTER_SIDE_MAX`], since no
 //! cursor plane takes it, and keeps the other sizes from the smallest up
 //! while the pixels kept stay within [`POINTER_THEME_PIXELS_MAX`]. With a
@@ -122,7 +124,7 @@ pub fn read(bytes: &[u8], size: Option<u32>) -> Result<Vec<PointerPicture>, Stri
         let (Some(kind), Some(subtype), Some(position)) = (field(0), field(1), field(2)) else {
             return Err("its table of contents runs past the end of the file".to_owned());
         };
-        if kind != IMAGE_TYPE || seen.contains(&subtype) {
+        if kind != IMAGE_TYPE || subtype == 0 || seen.contains(&subtype) {
             continue;
         }
         seen.push(subtype);
@@ -369,6 +371,15 @@ mod tests {
         let read = read(&file(&[img(24, 24), wide.clone(), img(64, 64)]), None).unwrap();
         assert_eq!(sizes(&read), [24, 64]);
         assert!(super::read(&file(&[wide]), None).is_err());
+    }
+
+    // An image of nominal size 0 is skipped and the other sizes serve; a
+    // file of size 0 alone has no picture.
+    #[test]
+    fn an_image_of_size_0_is_skipped() {
+        let read = read(&file(&[img(0, 16), img(24, 24)]), None).unwrap();
+        assert_eq!(sizes(&read), [24]);
+        assert!(super::read(&file(&[img(0, 16)]), None).is_err());
     }
 
     // Two images of one size keep the first, a busy cursor's first frame.

@@ -76,9 +76,22 @@ impl PointerPictures {
     /// one the table held at that size.
     pub fn insert(&mut self, shape: PointerShape, size: u32, arrow: Arrow) {
         if let Some(pictures) = self.shapes.get_mut(place(shape)) {
+            match pictures.binary_search_by_key(&size, |(s, _)| *s) {
+                Ok(i) => {
+                    if let Some(held) = pictures.get_mut(i) {
+                        held.1 = arrow;
+                    }
+                }
+                Err(i) => pictures.insert(i, (size, arrow)),
+            }
+        }
+    }
+
+    /// Drops every shape's picture at `size`, as an SVG file's table does
+    /// for a cell height no display has drawn at for a while.
+    pub fn forget(&mut self, size: u32) {
+        for pictures in &mut self.shapes {
             pictures.retain(|(s, _)| *s != size);
-            pictures.push((size, arrow));
-            pictures.sort_by_key(|(s, _)| *s);
         }
     }
 
@@ -115,18 +128,6 @@ impl PointerPictures {
                     .map(|(_, a)| a)
             }
         }
-    }
-
-    /// Whether a renderer at cells `cell_height` tall needs the font helper
-    /// to draw again: an SVG file's table that has some shape, but not at
-    /// this height. A cursor theme's table never does, since a zoom picks
-    /// again from the sizes kept.
-    pub fn lacks(&self, cell_height: u32) -> bool {
-        self.sizes == PictureSizes::Svg
-            && self
-                .shapes
-                .iter()
-                .any(|p| !p.is_empty() && !p.iter().any(|(s, _)| *s == cell_height))
     }
 }
 
@@ -263,7 +264,6 @@ mod tests {
         assert_eq!(picked(&t, 41), Some(48));
         assert_eq!(picked(&t, 200), Some(48));
         assert_eq!(t.pick(PointerShape::Text, 16), None);
-        assert!(!t.lacks(17));
         let sized = PointerPictures {
             sizes: PictureSizes::Theme { size: Some(46) },
             ..t
@@ -272,18 +272,23 @@ mod tests {
     }
 
     // An SVG file's table gives a picture only at the height it was drawn
-    // for, and says when a renderer's height needs a new drawing.
+    // for. The table keeps each shape's sizes in order whatever order they
+    // come in, and a second picture at a size replaces the first.
     #[test]
     fn an_svg_table_serves_only_the_height_drawn() {
         let mut t = PointerPictures::new(PictureSizes::Svg);
         t.insert(PointerShape::Text, 16, arrow(16));
         assert_eq!(t.pick(PointerShape::Text, 16).map(Arrow::width), Some(16));
         assert_eq!(t.pick(PointerShape::Text, 20), None);
-        assert!(!t.lacks(16));
-        assert!(t.lacks(20));
         t.insert(PointerShape::Text, 20, arrow(20));
-        assert!(!t.lacks(20));
-        assert_eq!(t.sizes_of(PointerShape::Text), [16, 20]);
+        t.insert(PointerShape::Text, 12, arrow(12));
+        t.insert(PointerShape::Text, 16, arrow(8));
+        assert_eq!(t.sizes_of(PointerShape::Text), [12, 16, 20]);
+        assert_eq!(t.pick(PointerShape::Text, 16).map(Arrow::width), Some(8));
+        t.insert(PointerShape::Wait, 16, arrow(16));
+        t.forget(16);
+        assert_eq!(t.sizes_of(PointerShape::Text), [12, 20]);
+        assert!(!t.has(PointerShape::Wait));
     }
 
     // The console refuses each picture the helper may send wrong: a side
