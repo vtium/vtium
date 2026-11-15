@@ -232,8 +232,8 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::Render;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
@@ -1335,7 +1335,16 @@ pub struct Engine {
     locale: String,
     /// The frit's `render=` lines, by the line of the source each is for
     /// ([`Engine::draws_as_bitmap`]).
-    render: Vec<(usize, Render)>,
+    render: Vec<RenderLine>,
+    /// Whether the frit's first source is a bitmap font, which decides how
+    /// the outline sources with no `render=` line draw. The engine decides
+    /// it once, when [`Engine::own_cell`] picks the source that sets the
+    /// cell or at the first draw before that, and keeps it for its life.
+    /// A first source that fails later in the session hands the cell's
+    /// glyphs to the next source, but the outline sources keep drawing as
+    /// they began, so that one font's glyphs never mix 1-bit and
+    /// antialiased ones, and each baseline measured for them stays right.
+    first_is_bitmap: std::cell::Cell<Option<bool>>,
 }
 
 /// Why a frit has no text font to draw from ([`Engine::own_cell`]).
@@ -1877,16 +1886,17 @@ impl Engine {
                 }
             }
         }
-        // a font: source that turns out to be a console font draws 1-bit
-        // whatever its render= line says, so the line does nothing
+        // a font: source that turns out to be a console font draws its
+        // pixels fully on or off whatever its render= line says, so the
+        // line does nothing, and the warning names the render= line
         for (source, _) in sources
             .iter()
             .filter(|(_, l)| matches!(l, Loaded::Bitmap(_)))
         {
-            if frit.render_for(source.line).is_some() {
+            if let Some(render) = frit.render_for(source.line) {
                 warnings.push(format!(
-                    "{}: source={}: render= is ignored, because this font is a bitmap font, which always draws 1-bit",
-                    frit.at(source.line),
+                    "{}: render= is ignored, because {} is a bitmap font, whose characters always have sharp edges",
+                    frit.at(render.line),
                     source.spelling
                 ));
             }
@@ -1948,6 +1958,7 @@ impl Engine {
             text_left_out,
             locale: paths.locale.clone(),
             render: frit.render,
+            first_is_bitmap: std::cell::Cell::new(None),
         })
     }
 
@@ -1956,11 +1967,7 @@ impl Engine {
     /// ways. The source's `render=` line decides where it has one. A source
     /// with none draws as a bitmap when the frit's first source is a bitmap
     /// font, so that the outline glyphs that fill its gaps look like the
-    /// rest of it. The first source is the frit's own first regular source
-    /// that the engine can still draw from, the one that sets the frit's
-    /// cell ([`Engine::own_cell`]), and never a layer's. Where the built-in
-    /// font draws the text in place of a missing text font, the first
-    /// source is the built-in font, a bitmap font.
+    /// rest of it ([`Engine::first_is_bitmap`]).
     ///
     /// References:
     /// - ADR-1200 D1, the `render=` row: the values and the default.
@@ -1968,20 +1975,38 @@ impl Engine {
         let Some((source, _)) = self.sources.get(i) else {
             return false;
         };
-        if let Some(&(_, render)) = self.render.iter().find(|&&(at, _)| at == source.line) {
-            return render == Render::Bitmap;
+        if let Some(render) = self.render.iter().find(|r| r.source == source.line) {
+            return render.value == Render::Bitmap;
+        }
+        self.first_is_bitmap()
+    }
+
+    /// Whether the frit's first source is a bitmap font. The first source
+    /// is the frit's own first regular source that the engine can still
+    /// draw from, the one that sets the frit's cell ([`Engine::own_cell`]),
+    /// and never a layer's. Where the built-in font draws the text in place
+    /// of a missing text font, the first source is the built-in font, a
+    /// bitmap font. Otherwise the answer is decided at the first call,
+    /// unless [`Engine::own_cell`] decided it before, and stays the same for
+    /// the engine's life.
+    fn first_is_bitmap(&self) -> bool {
+        if let Some(known) = self.first_is_bitmap.get() {
+            return known;
         }
         if self.text_left_out.is_some() {
             return true;
         }
         let failed = self.failed.borrow();
-        self.sources
+        let known = self
+            .sources
             .iter()
             .enumerate()
             .filter(|(at, (s, _))| own_regular(s) && !failed.contains_key(at))
             .map(|(_, (_, loaded))| loaded)
             .next()
-            .is_some_and(|loaded| matches!(loaded, Loaded::Bitmap(_)))
+            .is_some_and(|loaded| matches!(loaded, Loaded::Bitmap(_)));
+        self.first_is_bitmap.set(Some(known));
+        known
     }
 
     /// The text font's place in `sources`: the frit's own first regular
@@ -2009,17 +2034,34 @@ impl Engine {
         vtium_font::set::SetFace::new(vtium_font::set::builtin(name)?, cell.height)
     }
 
-    /// `request`, for the outline source at `i` in `sources`, asking for
-    /// that source's glyphs 1-bit where they draw as a bitmap
-    /// ([`Engine::draws_as_bitmap`]). Such a request carries
-    /// [`Hinting::Bitmap`] in place of the frit's `hinting=`.
-    fn rendered(&self, request: OutlineRequest, i: usize) -> OutlineRequest {
+    /// Records that the frit's first source is a bitmap font, or is not,
+    /// once [`Engine::own_cell`] has picked the source that sets the cell,
+    /// unless a draw before it already decided ([`Engine::first_is_bitmap`]).
+    fn decide_first(&self, bitmap: bool) {
+        if self.first_is_bitmap.get().is_none() {
+            self.first_is_bitmap.set(Some(bitmap));
+        }
+    }
+
+    /// How the glyphs of the outline source at `i` in `sources` are hinted:
+    /// [`Hinting::Bitmap`] where they draw as a bitmap
+    /// ([`Engine::draws_as_bitmap`]), else the frit's `hinting=`. Each
+    /// request for the source's glyphs carries it, and the source's
+    /// baseline and lines are measured with it, so that they fit the
+    /// glyphs as they are drawn.
+    fn hinting_for(&self, i: usize) -> Hinting {
         match self.draws_as_bitmap(i) {
-            true => OutlineRequest {
-                hinting: Hinting::Bitmap,
-                ..request
-            },
-            false => request,
+            true => Hinting::Bitmap,
+            false => self.hinting,
+        }
+    }
+
+    /// `request`, for the outline source at `i` in `sources`, hinted as
+    /// that source's glyphs are drawn ([`Engine::hinting_for`]).
+    fn rendered(&self, request: OutlineRequest, i: usize) -> OutlineRequest {
+        OutlineRequest {
+            hinting: self.hinting_for(i),
+            ..request
         }
     }
 
@@ -2094,7 +2136,10 @@ impl Engine {
                 continue;
             }
             match loaded {
-                Loaded::Bitmap(font) => break (source, font.cell),
+                Loaded::Bitmap(font) => {
+                    self.decide_first(true);
+                    break (source, font.cell);
+                }
                 Loaded::Outline { .. } if height == 0 => {
                     return Err(format!(
                         "source={} is an outline font, whose cell needs the height it is drawn at",
@@ -2106,7 +2151,10 @@ impl Engine {
                     let mut faces: Vec<(&[u8], &str)> = vec![(font, family)];
                     faces.extend(self.bold_face());
                     match crate::outline::cell_width(&faces, height) {
-                        Ok(width) => return Ok(OwnCell::Outline(Cell { width, height })),
+                        Ok(width) => {
+                            self.decide_first(false);
+                            return Ok(OwnCell::Outline(Cell { width, height }));
+                        }
                         Err(e) => {
                             why.push(format!("source={}: {e}", source.spelling));
                             self.failed.borrow_mut().insert(i, e);
@@ -2198,7 +2246,7 @@ impl Engine {
             let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
             return self.baseline(first, height);
         }
-        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        let b = crate::outline::baseline(font, family, height, None, self.hinting_for(i)).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
         Some(b)
     }
@@ -2221,7 +2269,7 @@ impl Engine {
         let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
             return None;
         };
-        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        let b = crate::outline::baseline(font, family, height, None, self.hinting_for(i)).ok()?;
         self.baselines.borrow_mut().insert(key, b);
         Some(b)
     }
@@ -2366,12 +2414,20 @@ impl Engine {
         let Loaded::Outline { font, family, .. } = first.loaded() else {
             return plain;
         };
-        let Some(base) = first.at().and_then(|i| self.baseline(i, cell.height)) else {
+        let Some(at) = first.at() else {
             return plain;
         };
-        let lines =
-            crate::outline::decorations(font, family, (cell.height, base), None, self.hinting)
-                .unwrap_or(plain.1);
+        let Some(base) = self.baseline(at, cell.height) else {
+            return plain;
+        };
+        let lines = crate::outline::decorations(
+            font,
+            family,
+            (cell.height, base),
+            None,
+            self.hinting_for(at),
+        )
+        .unwrap_or(plain.1);
         (base, lines)
     }
 
@@ -2429,6 +2485,9 @@ impl Engine {
                 lines::placed(at, script, size, (cell.width, cell.height), Band::NONE)
             }
             Loaded::Outline { font, family, .. } => {
+                let Some(at) = first.at() else {
+                    return mapped;
+                };
                 let Ok(size) = crate::outline::size(font, family, cell.height) else {
                     return mapped;
                 };
@@ -2440,7 +2499,7 @@ impl Engine {
                     family,
                     (cell.height, baseline),
                     Some(small),
-                    self.hinting,
+                    self.hinting_for(at),
                 );
                 let Ok(measured) = measured else {
                     return mapped;
@@ -3238,6 +3297,17 @@ impl Engine {
                             != Some(i),
                         double_width: doubled == Some(Doubled::Width),
                     };
+                    // A source drawn 1-bit still sends its glyphs in the
+                    // 8-bit strike, at a byte a pixel, and not in the 1-bit
+                    // strike, which would hold them in an eighth of the
+                    // memory. The console takes every glyph of a 1-bit
+                    // strike for a bitmap font's glyph: it makes the
+                    // glyph's superscripts and subscripts from smaller
+                    // multiples of the strike, and adds any style the
+                    // strike lacks by widening and shearing pixels. The
+                    // helper draws this source's script sizes and styles
+                    // from the outline itself, so the console would draw
+                    // them differently from the 8-bit strike.
                     let request = self.rendered(request, i);
                     let request = match doubled {
                         None => request,
@@ -5820,9 +5890,131 @@ mod tests {
         assert_eq!(
             engine.warnings(),
             [
-                "t:1: source=font:x: render= is ignored, because this font is a bitmap font, which always draws 1-bit"
+                "t:2: render= is ignored, because font:x is a bitmap font, whose characters always have sharp edges"
             ]
         );
+    }
+
+    // An outline source that draws 1-bit is hinted fully, whatever the
+    // frit's hinting= says, so its baseline and lines are measured with full
+    // hinting too. DejaVu Sans Mono's lowest ASCII ink lies on a different
+    // row under light and under full hinting at 16 and 57 pixels, so a
+    // baseline measured with light hinting would set the 1-bit glyphs a row
+    // too high, and at 57 pixels the underscore's ink would pass the cell's
+    // bottom. This holds for a source behind a bitmap first source, for a
+    // first source with render=bitmap and its lines, and for a later source
+    // with render=bitmap that draws on its own baseline.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: full hinting for a source that draws
+    //   1-bit.
+    // - ADR-1302 D3: the baseline from the lowest ASCII ink, hinted as it
+    //   is drawn.
+    #[test]
+    fn a_source_that_draws_one_bit_is_measured_as_it_draws() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let font = std::fs::read(dejavu).unwrap();
+        let measured = |h, hinting| crate::outline::baseline(&font, "", h, None, hinting).unwrap();
+        for h in [16, 57] {
+            assert_ne!(measured(h, Hinting::Light), measured(h, Hinting::Bitmap));
+        }
+        let load = |text: &str| Engine::load(&frit(text), &Paths::default(), None).unwrap();
+        let (psf, _dir) = psf_frit("measured-psf", &[Ok((8, 16))]);
+        let outline = format!("source=outline:{dejavu}\n");
+        let behind = load(&format!("{}{outline}", psf.text));
+        for h in [16, 57] {
+            assert_eq!(behind.baseline(1, h), Some(measured(h, Hinting::Bitmap)));
+        }
+        let smooth = load(&format!("{}{outline}render=smooth\n", psf.text));
+        assert_eq!(smooth.baseline(1, 16), Some(measured(16, Hinting::Light)));
+        let first = load(&format!("{outline}render=bitmap\n"));
+        let base = measured(16, Hinting::Bitmap);
+        let lines =
+            crate::outline::decorations(&font, "", (16, base), None, Hinting::Bitmap).unwrap();
+        assert_eq!(first.metrics_at(CELL), (base, lines));
+        let later = load(&format!("{outline}{outline}cover=ascii\nrender=bitmap\n"));
+        assert_eq!(later.baseline(1, 16), Some(measured(16, Hinting::Light)));
+        assert_eq!(
+            later.own_baseline(1, 16),
+            Some(measured(16, Hinting::Bitmap))
+        );
+    }
+
+    // The frit's first source, whose kind decides how the outline sources
+    // with no render= line draw, is its first regular source the engine can
+    // still draw from. A bold bitmap font in front of a regular outline
+    // font does not make the outline font draw 1-bit. An outline first
+    // source that the W rule refuses hands the cell to the bitmap font
+    // behind it, and the outline font after that draws 1-bit.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the default follows the first source.
+    // - ADR-1200 D17: the first regular source sets the cell.
+    #[test]
+    fn the_first_source_is_the_first_regular_one_left() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let (psf, _dir) = psf_frit("first-bold", &[Ok((8, 16))]);
+        let bold = format!("{}style=bold\nsource=outline:{dejavu}\n", psf.text);
+        let engine = Engine::load(&frit(&bold), &Paths::default(), None).unwrap();
+        assert!(!engine.draws_as_bitmap(1), "{bold}");
+        let flat = super::ttf::Font {
+            ascent: 0,
+            descent: 0,
+            ..super::ttf::test_mono()
+        };
+        let (refused, _flat) = outline_frit("first-refused", "", &[Ok(flat)]);
+        let text = format!("{}{}source=outline:{dejavu}\n", refused.text, psf.text);
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(matches!(engine.own_cell(16), Ok(OwnCell::Bitmap(_))));
+        assert!(engine.draws_as_bitmap(2), "{text}");
+        // an outline first source that failed before anything was decided
+        let outline = format!("source=outline:{dejavu}\n");
+        let failed = format!("{outline}{}{outline}", psf.text);
+        let engine = Engine::load(&frit(&failed), &Paths::default(), None).unwrap();
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(engine.draws_as_bitmap(2), "{failed}");
+    }
+
+    // The engine decides once whether its outline sources draw 1-bit by
+    // default. When the frit's outline first source fails as it draws
+    // later in the session, the bitmap font behind it becomes the first
+    // source, but the outline font after both keeps drawing antialiased and
+    // keeps its baseline, so its glyphs never mix the two kinds.
+    #[test]
+    fn a_failing_first_source_does_not_change_how_the_others_draw() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let (psf, _dir) = psf_frit("first-fails", &[Ok((8, 16))]);
+        let outline = format!("source=outline:{dejavu}\n");
+        let text = format!("{outline}{}{outline}", psf.text);
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(!engine.draws_as_bitmap(2));
+        let base = engine.baseline(2, 16);
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(!engine.draws_as_bitmap(2), "{text}");
+        assert_eq!(engine.baseline(2, 16), base);
+        // decided by own_cell before any draw, as the console asks for it
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert!(matches!(engine.own_cell(16), Ok(OwnCell::Outline(_))));
+        engine
+            .failed
+            .borrow_mut()
+            .insert(0, "failed as it drew".to_owned());
+        assert!(!engine.draws_as_bitmap(2), "{text}");
     }
 
     // one helper keeps a source's baseline for each height apart (review
