@@ -248,10 +248,15 @@ impl Screen {
         let pointer = self.hover.pointer;
         let link = pointer.and_then(|(x, y)| self.link_at(x, y));
         let last = self.rows.saturating_sub(1);
-        let overlay = pointer
-            .filter(|_| self.hover.show_uri && link.is_some())
-            .map(|(_, y)| if y == last && last > 0 { 0 } else { last })
-            .or_else(|| self.note_row());
+        // vtium's note, while one is set, shows in place of a URI, so its
+        // own rule picks the row
+        let overlay = if self.hover.note.is_some() {
+            self.note_row()
+        } else {
+            pointer
+                .filter(|_| self.hover.show_uri && link.is_some())
+                .map(|(_, y)| if y == last && last > 0 { 0 } else { last })
+        };
         let changed = link != self.hover.link;
         if changed {
             self.mark_link_rows(self.hover.link);
@@ -860,6 +865,21 @@ mod tests {
         assert!(marked(&t, age, 4).contains(&0) && marked(&t, age, 4).contains(&3));
         t.screen_mut().set_pointer(Some((5, 3)), false);
         assert_eq!(row(&t), Some(3), "the pointer does not move the hint line");
+        // a link that arrives after hints start gets no label, and Ctrl
+        // over it on the bottom row leaves the hint line there too
+        t.input(format!("\x1b[4;1H{}", linked("x:new", "new")).as_bytes());
+        t.screen_mut().set_pointer(Some((1, 3)), true);
+        assert_eq!(
+            t.screen()
+                .hovered_link()
+                .and_then(|l| t.screen().link_uri(l)),
+            Some("x:new")
+        );
+        assert_eq!(
+            row(&t),
+            Some(3),
+            "Ctrl over a link does not move the hint line"
+        );
     }
 
     // ADR-1002, section 7, as the maintainer decided on 2026-11-15: a
