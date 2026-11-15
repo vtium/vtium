@@ -1350,8 +1350,9 @@ pub struct Engine {
 /// Why a frit has no text font to draw from ([`Engine::own_cell`]).
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum TextOut {
-    /// The text font, by its spelling, is missing or cannot be read.
-    LeftOut(String),
+    /// The text font, by its spelling and the frit's line that names it,
+    /// is missing or cannot be read.
+    LeftOut(String, usize),
     /// The frit has no source of its own, only layers' sources.
     NoneOwn,
 }
@@ -1921,7 +1922,7 @@ impl Engine {
                     .iter()
                     .any(|(s, _): &(Source, _)| s.line == text.line) =>
             {
-                Some(TextOut::LeftOut(text.spelling.clone()))
+                Some(TextOut::LeftOut(text.spelling.clone(), text.line))
             }
             Some(_) => None,
         };
@@ -2114,7 +2115,7 @@ impl Engine {
     ///   configuration, and a layer's font never sets the cell.
     pub fn own_cell(&self, height: u32) -> Result<OwnCell, String> {
         match &self.text_left_out {
-            Some(TextOut::LeftOut(text)) => {
+            Some(TextOut::LeftOut(text, _)) => {
                 return Err(format!(
                     "the text font source={text} is missing or cannot be read, so the built-in font draws the text in its place, and the cell comes from the configuration"
                 ));
@@ -3038,16 +3039,25 @@ impl Engine {
         // where the built-in font draws the text in place of a missing text
         // font, it takes the text font's place in the order: after the
         // pass for color glyphs and after the sources of a bold or italic
-        // face, the first regular source's turn leaves each character the
-        // built-in font holds, and each cluster led by one, to the console,
-        // which draws them from the built-in font
+        // face, the turn of the first regular source after the text font's
+        // line leaves each character the built-in font holds, and each
+        // cluster led by one, to the console, which draws them from the
+        // built-in font. A layer spliced in before that line draws first.
         let built_in = self.built_in_at(cell);
+        let text_line = match &self.text_left_out {
+            Some(TextOut::LeftOut(_, line)) => *line,
+            Some(TextOut::NoneOwn) | None => 0,
+        };
         let mut standing: Option<BTreeSet<u32>> = None;
         for ((color_only, (i, (source, loaded), synth)), fitted) in passes {
             if self.failed.borrow().contains_key(&i) {
                 continue;
             }
-            if !color_only && source.style == REGULAR && standing.is_none() {
+            if !color_only
+                && source.style == REGULAR
+                && source.line > text_line
+                && standing.is_none()
+            {
                 use vtium_font::Face;
                 standing = Some(match &built_in {
                     Some(face) => want
@@ -5679,6 +5689,32 @@ mod tests {
             ),
         );
         assert_eq!(own_cell(&text), alone);
+    }
+
+    // The built-in font takes the missing text font's place in the set's
+    // order, so a layer placed before the text font's line draws first:
+    // Test Mono, the layer's font, draws A, W and U+4E00, and the built-in
+    // font draws none of them. A layer after the text font's line draws
+    // only what the built-in font lacks.
+    //
+    // References:
+    // - ADR-1204 D5: the layers are spliced in place, and the built-in font
+    //   draws the text in the missing text font's place.
+    #[test]
+    fn a_layer_before_a_missing_text_font_draws_before_the_built_in_font() {
+        let dir = scratch("built-in-after-layer");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let symbols = format!("role=symbols\nsource=outline:{}\n", ttf.display());
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', 'W', '\u{4e00}'];
+        let before = layered("layer=sym\nsource=font:Nonesuch Mono\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&before, cell, &chars), chars);
+        let after = layered("source=font:Nonesuch Mono\nlayer=sym\n", "sym", &symbols);
+        assert_eq!(drawn_chars(&after, cell, &chars), ['\u{4e00}']);
     }
 
     // In a zh, ja or ko locale the console draws Unifont as its built-in
