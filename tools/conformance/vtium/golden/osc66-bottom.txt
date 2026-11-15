@@ -1,0 +1,14 @@
+checkpoint 22
+size 6x3
+cursor 2,1
+flags AUTO_WRAP
+row 0 |mid|
+row 1 |A|
+row 2 |A|
+checkpoint 40
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+row 0 |mid|
+row 1 |A|
+row 2 |A|

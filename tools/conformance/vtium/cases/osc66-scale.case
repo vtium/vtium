@@ -1,0 +1,15 @@
+# OSC 66's scale key: s=2 writes A in a block 2 columns wide and 2 rows
+# high, and s=3 writes B in a block 3 by 3 after it. The cursor moves s × w
+# columns right on the block's top row. A block taller than the screen is
+# discarded. Printed text that lands on a block's lower row moves past the
+# block's cells on that row first, here past A and then past B.
+# spec: kitty's text sizing protocol: "The text will be rendered in a block of s * w by s cells."; "the cursor moves s * w cells to the right, in the same row it was in."; "If the multicell block (s * w by s cells) is larger than the screen size in either dimension," "the terminal must discard the character."; "If the text will overwrite cells from a row after the first row," "then cursor should be moved past the cells of the multicell character on that row"
+# covers: text.kitty-sizing
+size 10 4
+send "\e]66;s=2;A\e\\"
+send "\e]66;s=3;B\e\\"
+send "\e]66;s=5;C\e\\"
+send "z"
+dump
+send "\e[2;1Hq"
+dump

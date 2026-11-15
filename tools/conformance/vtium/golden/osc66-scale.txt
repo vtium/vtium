@@ -1,0 +1,16 @@
+checkpoint 37
+size 10x4
+cursor 6,0
+flags AUTO_WRAP
+row 0 |A B  z|
+row 1 |A B|
+row 2 |  B|
+row 3 ||
+checkpoint 44
+size 10x4
+cursor 6,1
+flags AUTO_WRAP
+row 0 |A B  z|
+row 1 |A B  q|
+row 2 |  B|
+row 3 ||

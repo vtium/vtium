@@ -1,0 +1,13 @@
+# The protocol's four overwriting rules against blocks of s=2. A combining
+# acute accent joins A's text. x written on B's top-left cell erases the
+# whole of B, and y written on C's top row, right of its first cell, erases
+# the whole of C. z written on A's lower row moves past A's cells there
+# first.
+# spec: kitty's text sizing protocol, in decreasing order of precedence: "If the text is a combining character it is added to the existing multicell character"; "If the text will overwrite the top-left cell of the multicell character, the entire multicell character must be erased"; "If the text will overwrite any cell in the topmost row of the multicell character," "the entire multicell character must be replaced by spaces"; "If the text will overwrite cells from a row after the first row," "then cursor should be moved past the cells of the multicell character on that row"; ADR-1308 D4, rule 3: vtium clears the run to the blank style
+# covers: text.kitty-sizing
+size 10 3
+send "\e]66;s=2;A\e\\\u{301}"
+send "\e]66;s=2;B\e\\\e]66;s=2;C\e\\"
+dump
+send "\e[1;3Hx\e[1;6Hy\e[2;1Hz"
+dump

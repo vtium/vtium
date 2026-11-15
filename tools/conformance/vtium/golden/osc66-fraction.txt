@@ -1,0 +1,5 @@
+size 12x2
+cursor 5,0
+flags AUTO_WRAP
+row 0 |F GHI|
+row 1 |F|

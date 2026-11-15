@@ -92,8 +92,8 @@ impl Screen {
         let tables = lines
             .chain(self.scrollback.all_rows())
             .map(Line::link_table);
-        let hinted = self.hover.hints.iter().map(|h| &h.link);
-        for &link in tables.flatten().chain(&self.hover.link).chain(hinted) {
+        let hinted = self.hover.hints.iter().map(|h| h.link);
+        for link in tables.flatten().chain(self.hover.link).chain(hinted) {
             if let Some(r) = refs.get_mut(slot(link)) {
                 *r = r.saturating_add(1);
             }
@@ -117,7 +117,7 @@ impl Screen {
             if free(live) >= LINKS_BYTES_MAX / 4 {
                 return false;
             }
-            for &link in line.link_table() {
+            for link in line.link_table() {
                 if let Some(r) = refs.get_mut(slot(link)) {
                     *r = r.saturating_sub(1);
                     if *r == 0 {
@@ -249,7 +249,7 @@ impl Screen {
             .view()
             .iter()
             .enumerate()
-            .filter(|(_, line)| line.link_table().contains(&link))
+            .filter(|(_, line)| line.link_table().any(|l| l == link))
             .map(|(row, _)| row)
             .collect();
         for row in rows {
@@ -315,7 +315,7 @@ impl Screen {
         let mut found: Vec<(LinkId, (usize, usize))> = Vec::new();
         for (y, line) in self.view().iter().enumerate() {
             // a row whose link table is empty holds no link
-            if line.link_table().is_empty() {
+            if line.link_table().next().is_none() {
                 continue;
             }
             for x in 0..self.cols {

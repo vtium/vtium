@@ -1,0 +1,20 @@
+checkpoint 22
+size 6x3
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 18
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |mid|
+row 1 |A|
+row 2 |A|
+checkpoint 40
+size 6x3
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 0,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |mid|
+row 1 |A|
+row 2 |A|

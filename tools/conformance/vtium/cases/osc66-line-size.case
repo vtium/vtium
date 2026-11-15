@@ -1,0 +1,11 @@
+# OSC 66 on a double-width line takes only its width: s=2 alone sizes
+# nothing there, so A prints as it is on one row, and s=3 with w=2 writes BC
+# as a block of 2 of the line's columns, one row high. Making the line single
+# width again erases the block and keeps the text printed after it.
+# spec: ADR-1308 D7: "OSC 66 on a double-size line takes only its width"; "ESC # 3, # 4, # 5 and # 6 erase every run that crosses the line whose size changes, on all its rows, before the line takes its new size"
+# covers: text.kitty-sizing
+size 10 3
+send "\e#6\e]66;s=2;A\e\\\e]66;s=3:w=2;BC\e\\d"
+dump
+send "\e#5"
+dump

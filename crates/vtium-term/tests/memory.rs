@@ -101,31 +101,52 @@ fn art() -> Line {
     line_of(distinct, |_| "\u{2580}".into(), COLS)
 }
 
-/// The worst a program can make a line cost: every cell its own style and
-/// its own link, and a cluster of `CLUSTER_MAX` codepoints written into
-/// every cell, which fill the line's cluster budget.
+/// The worst a program can make a line cost: every cell a sized run of
+/// its own, one column wide, with its own style and its own link, and a
+/// cluster of 5 bytes as the run's text, which fills the line's cluster
+/// budget. The line is printed through OSC 66, as a program writes it,
+/// and taken from the scrollback, trimmed as the scrollback keeps it.
+///
+/// References:
+/// - ADR-1009 D1: the worst scrollback row gains a run in every cell.
 fn worst() -> Line {
     worst_at(COLS)
 }
 
 /// [`worst`] at `cols` columns.
 fn worst_at(cols: usize) -> Line {
-    let cluster: String = std::iter::once('e')
-        .chain(std::iter::repeat_n('\u{301}', CLUSTER_MAX - 1))
-        .collect();
-    let mut line = Line::new(LineId::new(0), cols);
-    for (col, n) in (0..cols).zip(0u32..) {
-        let glyph = Glyph::Cluster(&cluster);
-        line.write(
-            col,
-            glyph,
-            Width::Narrow,
-            &distinct(col),
-            Some(LinkId::new(n)),
-        );
-    }
-    line.trim();
+    let mut t = Terminal::new(cols, 2, 10);
+    t.screen_mut().set_scrollback_max(10);
+    let mut n = 0;
+    let row = (0..cols).map(|_| run_cell(&mut n, 5)).collect::<String>();
+    t.input(format!("{row}\x1b]8;;\x1b\\\x1b[m\r\n\n").as_bytes());
+    let line = t
+        .screen()
+        .scrollback()
+        .last()
+        .expect("the row scrolled off")
+        .clone();
+    assert_eq!(line.runs().len(), cols);
     line
+}
+
+/// One cell of OSC 66 text: a sized run one column wide, numbered `n`
+/// on from where it stands, with a truecolor style and an OSC 8 link of its
+/// own and a cluster of `bytes` UTF-8 bytes, 1 to 5, as its text.
+fn run_cell(n: &mut u32, bytes: usize) -> String {
+    let text = if bytes == 1 {
+        "x".into()
+    } else {
+        cluster_of(bytes)
+    };
+    run_of(n, &text)
+}
+
+/// [`run_cell`] with `text` as the run's text.
+fn run_of(n: &mut u32, text: &str) -> String {
+    *n += 1;
+    let [a, b, c, d] = n.to_le_bytes();
+    format!("\x1b[38;2;{a};{b};{c};48;2;{d};2;0m\x1b]8;;http://r/{n}\x1b\\\x1b]66;w=1;{text}\x1b\\")
 }
 
 /// vtium's main and alternate screens, 48 blank lines each, and the one
@@ -195,16 +216,16 @@ fn the_minspec_grid_and_scrollback() {
             [
                 1_392_000,
                 13_920_000, // plain
-                1_460_000,
-                14_600_000, // shell, full width
-                580_000,
-                5_800_000, // shell, 60 cells
-                3_812_000,
-                38_120_000, // art
-                5_512_000,
-                55_120_000,
-                165_360_000,
-                551_200_000, // worst
+                1_464_000,
+                14_640_000, // shell, full width
+                584_000,
+                5_840_000, // shell, 60 cells
+                3_816_000,
+                38_160_000, // art
+                6_208_000,
+                62_080_000,
+                186_240_000,
+                620_800_000, // worst
                 41_760_000,
                 139_200_000, // plain, the larger caps
             ]
@@ -226,10 +247,10 @@ const FIGURES_64: [usize; 14] = [
     6_360_000, // shell, 60 cells
     3_868_000,
     38_680_000, // art
-    5_568_000,
-    55_680_000,
-    167_040_000,
-    556_800_000, // worst
+    6_272_000,
+    62_720_000,
+    188_160_000,
+    627_200_000, // worst
     42_240_000,
     140_800_000, // plain, the larger caps
 ];
@@ -352,6 +373,7 @@ fn worst_screen_row(cols: usize) -> usize {
             }
         }
     }
+    most = most.max(worst_run_row(cols));
     let mut rng = common::Rng(0x213);
     for _ in 0..20 {
         let mut line = Line::new(LineId::new(0), cols);
@@ -362,6 +384,69 @@ fn worst_screen_row(cols: usize) -> usize {
                 _ => 2 + rng.below(8),
             };
             most = most.max(write(&mut line, col, bytes, next()));
+        }
+    }
+    most
+}
+
+/// The most a screen row of `cols` cells costs with a sized run in its
+/// cells, measured: rows printed through OSC 66, one-column runs each with
+/// a style, a link and a cluster no other write takes, swept across the
+/// row until every table has compacted several times. In half the rows the
+/// first cell holds plain text, a cluster of every size in turn, which sets
+/// where the arena starts after each compaction, as in
+/// [`worst_screen_row`]; in the others every cell holds a run.
+///
+/// References:
+/// - ADR-1009 D1: the bound counts the run table, one entry for each cell.
+fn worst_run_row(cols: usize) -> usize {
+    let mut most = 0;
+    let mut n = 0u32;
+    let firsts = std::iter::once(None).chain((2..=128).step_by(7).chain([126, 127, 128]).map(Some));
+    for first in firsts {
+        for small in [2, 5] {
+            let mut t = Terminal::new(cols, 2, 10);
+            for sweep in 0..6 {
+                t.input(b"\r");
+                let from = match first {
+                    Some(bytes) => {
+                        n += 1;
+                        let [a, b, c, d] = n.to_le_bytes();
+                        let glyph = cluster_of(bytes);
+                        let cell = format!(
+                            "\x1b[38;2;{a};{b};{c};48;2;{d};3;0m\x1b]8;;http://p/{n}\x1b\\{glyph}"
+                        );
+                        t.input(cell.as_bytes());
+                        most = most.max(line_bytes_as_is(&t.screen().lines()[0]));
+                        1
+                    }
+                    None => 0,
+                };
+                for col in from..cols {
+                    let bytes = if sweep % 3 == 2 && col % 17 == 0 {
+                        5
+                    } else {
+                        small
+                    };
+                    t.input(run_cell(&mut n, bytes).as_bytes());
+                    most = most.max(line_bytes_as_is(&t.screen().lines()[0]));
+                }
+            }
+        }
+    }
+    // In a build with images, a run whose text is a placeholder cluster
+    // names it outside the budget, as a placeholder cell does: rows of
+    // such runs, the first cell's marks swept.
+    #[cfg(feature = "images")]
+    for first in 0..=3 {
+        let mut t = Terminal::new(cols, 2, 10);
+        for _ in 0..6 {
+            t.input(b"\r");
+            for col in 0..cols {
+                let text = placeholder(if col == 0 { first } else { 3 });
+                t.input(run_of(&mut n, &text).as_bytes());
+                most = most.max(line_bytes_as_is(&t.screen().lines()[0]));
+            }
         }
     }
     most
@@ -391,17 +476,77 @@ fn a_screen_row_costs_at_most_its_bound() {
     #[cfg(target_pointer_width = "64")]
     {
         #[cfg(feature = "images")]
-        let want = [15_428, 7_328, 3_728];
+        let want = [12_477, 5_952, 3_052];
         #[cfg(not(feature = "images"))]
-        let want = [9_648, 4_608, 2_368];
+        let want = [8_142, 3_912, 2_032];
+        assert_eq!(GRIDS.map(|(cols, _)| Line::bytes_max(cols)), want);
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        #[cfg(feature = "images")]
+        let want = [12_413, 5_888, 2_988];
+        #[cfg(not(feature = "images"))]
+        let want = [8_078, 3_848, 1_968];
         assert_eq!(GRIDS.map(|(cols, _)| Line::bytes_max(cols)), want);
     }
 }
 
+// The bound holds at every width from 1 to 48 columns, where a line's
+// style and link tables compact at two more than their cells and a short
+// row's arena has the least room past its budget.
+//
+// References:
+// - ADR-1009 D3: the floor of two more than the cells.
+// - ADR-1009 D4: the arena compacts on the bytes a write adds.
+#[test]
+fn a_screen_row_of_every_narrow_width_costs_at_most_its_bound() {
+    for cols in 1..=48 {
+        let row = worst_screen_row(cols);
+        assert!(
+            row <= Line::bytes_max(cols),
+            "at {cols} columns: {row} bytes, bound {}",
+            Line::bytes_max(cols)
+        );
+    }
+}
+
+// A program may give every cell of a line a sized run of its own, as
+// kitty's text sizing protocol shows a program sending one w=1 sequence a
+// character. The line's run table then holds one run for each cell, and
+// the line stays within its bound.
+//
+// References:
+// - ADR-1009 D1: no cap below the cells, and the cells as the sanity cap.
+#[test]
+fn a_line_with_a_sized_run_in_every_cell_holds_to_its_bound() {
+    let mut t = Terminal::new(COLS, ROWS, 1000);
+    let mut n = 0;
+    let row: String = (0..COLS).map(|_| run_cell(&mut n, 5)).collect();
+    t.input(row.as_bytes());
+    let line = &t.screen().lines()[0];
+    assert_eq!(line.runs().len(), COLS);
+    assert!(
+        line.runs()
+            .iter()
+            .enumerate()
+            .all(|(col, r)| r.col() == col && r.cols() == 1)
+    );
+    let bytes = line_bytes_as_is(line);
+    println!(
+        "a line with a run in every cell: {bytes} bytes, bound {}",
+        Line::bytes_max(COLS)
+    );
+    assert!(
+        bytes <= Line::bytes_max(COLS),
+        "{bytes} bytes, bound {}",
+        Line::bytes_max(COLS)
+    );
+}
+
 // A rewrap moves clusters with their cells, so a row it builds may name
 // more than its own cells' budget. A row that lands on the screen keeps at
-// most twice that budget, the arena's whole limit; here every row reaches
-// it. Written to again, such a row compacts and costs no more than a row
+// most one and a half times that budget, the arena's whole limit; here
+// every row reaches it. Written to again, such a row compacts and costs no more than a row
 // `write` fills.
 #[test]
 fn a_rewrapped_screen_row_costs_at_most_its_bound() {
@@ -418,8 +563,9 @@ fn a_rewrapped_screen_row_costs_at_most_its_bound() {
     t.screen_mut().set_scrollback_max(1000);
     t.input(line.repeat(4).as_bytes());
     t.screen_mut().resize(cols, rows);
+    // The arena's limit is one and a half times the row's budget.
     let most = t.screen().lines().iter().map(Line::cluster_bytes).max();
-    assert_eq!(most, Some(2 * CLUSTER_BYTES_PER_CELL * cols));
+    assert_eq!(most, Some(3 * CLUSTER_BYTES_PER_CELL * cols / 2));
     for line in t.screen().lines() {
         assert!(line_bytes_as_is(line) <= Line::bytes_max(cols));
     }
@@ -534,6 +680,37 @@ fn a_screen_narrowed_from_a_wide_grid_holds_its_rows_to_their_bound() {
         assert!(
             shown(t.screen()) == shown(narrow.screen()),
             "alternate, from {wide}"
+        );
+    }
+}
+
+// Rows of sized runs written at 170 columns and cut to 40 hold to the
+// bound of 40 columns: on the main screen, where one-row runs rewrap with
+// their text, and on the alternate screen, which cuts its rows. Each row
+// gives back the room its run table held past its new cells.
+//
+// References:
+// - ADR-1009 D1: a line cut to fewer cells gives back the run table's room.
+#[test]
+fn rows_of_sized_runs_narrowed_to_forty_columns_hold_to_their_bound() {
+    let (cols, rows) = MINSPEC_GRID;
+    for alternate in [false, true] {
+        let mut t = Terminal::new(cols, rows, 1000);
+        if alternate {
+            t.input(b"\x1b[?1049h");
+        }
+        let mut n = 0;
+        for row in 1..=rows {
+            let runs: String = (0..cols).map(|_| run_cell(&mut n, 5)).collect();
+            t.input(format!("\x1b[{row};1H{runs}\x1b]8;;\x1b\\\x1b[m").as_bytes());
+        }
+        assert!(t.screen().lines().iter().all(|l| l.runs().len() == cols));
+        t.screen_mut().resize(40, rows);
+        let what = if alternate { "alternate" } else { "main" };
+        check_rows(t.screen(), 40, &format!("{what}, runs from {cols}"));
+        assert!(
+            t.screen().lines().iter().any(|l| !l.runs().is_empty()),
+            "{what}"
         );
     }
 }
@@ -790,26 +967,58 @@ fn the_worst_default_scrollback_fits_the_minspec_peak() {
         }
     }
     assert_eq!(figures[0].1, SB_MEMORY_DEFAULT);
+    // The worst scrollback row, then each grid's screens at their worst,
+    // `sb-memory`'s default and the worst peak. With images, a screen row
+    // may hold placeholder clusters outside its budget, so its figures are
+    // higher. A 32-bit target's rows are smaller, and its default budget is
+    // the same.
+    //
+    // References:
+    // - ADR-1001, "Placeholder cells": the clusters outside the budget.
+    // - ADR-1009 D6: the figures at 170 by 48 on both targets.
     #[cfg(target_pointer_width = "64")]
     {
-        // with images, a screen row may hold placeholder clusters outside
-        // its budget (ADR-1001, "Placeholder cells")
         #[cfg(feature = "images")]
         let want = (
-            10_450,
+            11_154,
             [
-                (1_547_136, 4_653_056, 16_741_248),
-                (459_360, 5_767_168, 15_984_416),
-                (233_760, 5_963_776, 13_330_816),
+                (1_263_840, 4_915_200, 16_720_096),
+                (376_800, 5_832_704, 16_245_856),
+                (193_200, 6_029_312, 13_474_256),
             ],
         );
         #[cfg(not(feature = "images"))]
         let want = (
-            7_560,
+            8_264,
             [
-                (992_256, 5_242_880, 16_776_192),
-                (296_160, 5_898_240, 14_461_216),
-                (152_160, 6_029_312, 12_569_216),
+                (847_680, 5_373_952, 16_762_688),
+                (254_400, 5_963_776, 14_763_456),
+                (132_000, 6_094_848, 12_733_056),
+            ],
+        );
+        assert_eq!(
+            (worst_row(), figures.as_slice()),
+            (want.0, want.1.as_slice())
+        );
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        #[cfg(feature = "images")]
+        let want = (
+            11_090,
+            [
+                (1_257_696, 4_915_200, 16_713_952),
+                (372_960, 5_832_704, 16_178_016),
+                (189_360, 6_029_312, 13_406_416),
+            ],
+        );
+        #[cfg(not(feature = "images"))]
+        let want = (
+            8_200,
+            [
+                (841_536, 5_373_952, 16_756_544),
+                (250_560, 5_963_776, 14_695_616),
+                (128_160, 6_094_848, 12_665_216),
             ],
         );
         assert_eq!(

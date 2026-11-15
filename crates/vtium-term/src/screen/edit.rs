@@ -8,6 +8,24 @@
 //!
 //! A wide character an edit cuts goes whole, on either side of the cut.
 //!
+//! A sized run, the block of cells that one OSC 66 sequence writes, is one
+//! unit for every edit. An edit that would move, clear or overwrite some of
+//! its cells and not the others erases the whole run first, on every row
+//! the screen holds, to the blank style. An edit that moves all of its
+//! cells together keeps it. ECH, EL and ED erase each run the erased cells
+//! touch, and a selective erase spares a run whose style is protected.
+//! ICH, DCH, DECIC and DECDC keep a run only when every row of it moves
+//! the same way, inside the cells that move. IL, DL and every scroll keep
+//! a run only when all of its rows move together and stay inside the
+//! region. Rows of a run that scrolled into the scrollback stay there as
+//! they are. A line's size change erases the runs on it.
+//!
+//! References:
+//! - ADR-1308 D4, "Erasing a run": the run is cleared on every row the
+//!   screen holds, and the scrollback keeps its rows.
+//! - ADR-1308 D5: the rule above and how each edit applies it.
+//! - ADR-1308 D7: a line's size change erases the runs on it.
+//!
 //! An edit that clears a row's last column ends the row's wrap: its text no
 //! longer continues on the next row. EL 0, EL 2, ECH and DCH end the
 //! cursor's row's, as does ED on the cursor's row from the cursor; ED and
@@ -58,11 +76,11 @@
 //! [`Line::delete_cells`]: crate::Line::delete_cells
 
 use core::mem;
-use core::ops::Range;
+use core::ops::{Range, RangeInclusive};
 
 use super::Screen;
 use crate::cell::Width;
-use crate::line::{Line, LineFlags, LineSize};
+use crate::line::{Line, LineFlags, LineSize, SizedRun};
 use crate::style::{Attrs, Style};
 
 /// Which cells of a region an erase clears.
@@ -80,7 +98,19 @@ impl Screen {
     /// before cell `x` of row `y` goes whole: an edit on one side would
     /// leave half a character. At the margin there is nothing past the
     /// boundary, since no line keeps a cell past it (ADR-1003).
+    /// A sized run that lies on both sides of the boundary goes whole too,
+    /// on every row of it.
     pub(super) fn split_wide(&mut self, y: usize, x: usize) {
+        if self.row_has_runs(y) {
+            self.erase_run_across(y, x);
+        }
+        self.split_wide_char(y, x);
+    }
+
+    /// The wide character part of [`split_wide`](Self::split_wide): a
+    /// wide character across the boundary before cell `x` of row `y` goes
+    /// whole, and a sized run there stays.
+    pub(super) fn split_wide_char(&mut self, y: usize, x: usize) {
         let Some(line) = self.line(y) else {
             return;
         };
@@ -94,6 +124,229 @@ impl Screen {
             return;
         }
         self.erase_cells(y, lead..x.saturating_add(1));
+    }
+
+    /// Whether row `y` holds a share of any sized run. Each run check of
+    /// the print and edit paths asks this first and keeps its work on the
+    /// runs in a function of its own, which the compiler leaves out of
+    /// line. The paths that print and edit plain text then stay as small
+    /// as they are without runs. A screen that OSC 66 never wrote to
+    /// answers without reading the row.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    #[inline]
+    pub(super) fn row_has_runs(&self, y: usize) -> bool {
+        self.sized_runs && self.line(y).is_some_and(Line::has_runs)
+    }
+
+    /// Whether any row of `top..=bottom` holds a share of a sized run.
+    #[inline]
+    fn rows_have_runs(&self, top: usize, bottom: usize) -> bool {
+        self.sized_runs && (top..=bottom).any(|y| self.row_has_runs(y))
+    }
+
+    /// Erases the sized run that lies on both sides of the boundary before
+    /// cell `x` of row `y`, if one does, on every row of it.
+    #[cold]
+    #[inline(never)]
+    fn erase_run_across(&mut self, y: usize, x: usize) {
+        if let Some(run) = self.line(y).and_then(|l| l.run_at(x))
+            && run.col() < x
+        {
+            self.erase_run(y, run);
+        }
+    }
+
+    /// The rows of the screen that the sized run whose share on row `y` is
+    /// `run` lies on. Rows of it that scrolled into the scrollback, above
+    /// the screen's first row, are not among them.
+    fn run_rows(&self, y: usize, run: SizedRun) -> Range<usize> {
+        let below = run.rows().saturating_sub(run.row());
+        y.saturating_sub(run.row())..y.saturating_add(below).min(self.rows)
+    }
+
+    /// Erases the whole sized run whose share on row `y` is `run`: every
+    /// one of its cells, on every row of it the screen holds, becomes an
+    /// empty cell of the blank style.
+    pub(super) fn erase_run(&mut self, y: usize, run: SizedRun) {
+        for row in self.run_rows(y, run) {
+            // The share on `row` belongs to the same run when it is the row
+            // of the run that lies that far below or above row `y`.
+            let same = self
+                .line(row)
+                .and_then(|l| l.run_at(run.col()))
+                .filter(|r| {
+                    r.span() == run.span()
+                        && r.size() == run.size()
+                        && r.row().saturating_add(y) == run.row().saturating_add(row)
+                });
+            if same.is_some() {
+                self.erase_cells(row, run.span());
+            }
+        }
+    }
+
+    /// Erases each sized run with a cell in `cols` of row `y`, whole.
+    #[inline]
+    pub(super) fn erase_runs_in(&mut self, y: usize, cols: Range<usize>) {
+        if self.row_has_runs(y) {
+            self.erase_runs_in_row(y, cols);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_in_row(&mut self, y: usize, cols: Range<usize>) {
+        let runs: Vec<SizedRun> = self.line(y).map_or_else(Vec::new, |l| {
+            l.runs()
+                .iter()
+                .copied()
+                .filter(|r| r.col() < cols.end && r.span().end > cols.start)
+                .collect()
+        });
+        for run in runs {
+            self.erase_run(y, run);
+        }
+    }
+
+    /// Before the cells of `x..end` of each row of `rows` move by `n`,
+    /// right for an insertion (`insert` true) or left for a deletion,
+    /// erases each sized run the move would cut: one across `x` or `end`,
+    /// one the deleted cells touch, one pushed partly past `end`, and one
+    /// among the moving cells that has a row outside `rows`, since only
+    /// some of its rows would move.
+    #[inline]
+    pub(super) fn erase_runs_shifted(
+        &mut self,
+        rows: RangeInclusive<usize>,
+        x: usize,
+        n: usize,
+        end: usize,
+        insert: bool,
+    ) {
+        if self.rows_have_runs(*rows.start(), *rows.end()) {
+            self.erase_runs_shifted_rows(rows, x, n, end, insert);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_shifted_rows(
+        &mut self,
+        rows: RangeInclusive<usize>,
+        x: usize,
+        n: usize,
+        end: usize,
+        insert: bool,
+    ) {
+        let mut cut = Vec::new();
+        for y in rows.clone() {
+            let Some(line) = self.line(y) else {
+                continue;
+            };
+            for &run in line.runs() {
+                let span = run.span();
+                if span.end <= x || span.start >= end {
+                    continue;
+                }
+                let broken = span.start < x
+                    || span.end > end
+                    || if insert {
+                        span.end.saturating_add(n) > end
+                    } else {
+                        span.start < x.saturating_add(n)
+                    };
+                let r = self.run_rows(y, run);
+                let first = y.checked_sub(run.row());
+                let whole = first.is_some_and(|f| rows.contains(&f))
+                    && r.end.checked_sub(1).is_some_and(|l| rows.contains(&l))
+                    && r.len() == run.rows();
+                if broken || !whole {
+                    cut.push((y, run));
+                }
+            }
+        }
+        for (y, run) in cut {
+            self.erase_run(y, run);
+        }
+    }
+
+    /// Before the rows `top..=bottom` move `n` rows up or down, erases
+    /// each sized run the move would cut: one with a row outside the
+    /// region, one of whose rows only some leave the region, and, with
+    /// `cols` the columns that move between the left and right margins,
+    /// one that a margin cuts. With `into_scrollback`, the rows that leave
+    /// the region's top go into the scrollback, so a run that leaves the
+    /// first row in part stays whole there and on the screen.
+    #[inline]
+    fn erase_runs_moved(
+        &mut self,
+        (top, bottom): (usize, usize),
+        n: usize,
+        up: bool,
+        into_scrollback: bool,
+        cols: Option<Range<usize>>,
+    ) {
+        if self.rows_have_runs(top, bottom) {
+            self.erase_runs_moved_rows((top, bottom), n, up, into_scrollback, cols);
+        }
+    }
+
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_moved_rows(
+        &mut self,
+        (top, bottom): (usize, usize),
+        n: usize,
+        up: bool,
+        into_scrollback: bool,
+        cols: Option<Range<usize>>,
+    ) {
+        let kept_above = up && into_scrollback && top == 0;
+        let leaves = |r: usize| {
+            if up {
+                r < top.saturating_add(n)
+            } else {
+                r.saturating_add(n) > bottom
+            }
+        };
+        let mut cut = Vec::new();
+        for y in top..=bottom.min(self.rows.saturating_sub(1)) {
+            let Some(line) = self.line(y) else {
+                continue;
+            };
+            for &run in line.runs() {
+                if let Some(c) = &cols {
+                    if run.span().end <= c.start || run.col() >= c.end {
+                        continue;
+                    }
+                    if run.col() < c.start || run.span().end > c.end {
+                        cut.push((y, run));
+                        continue;
+                    }
+                }
+                let first = y.checked_sub(run.row());
+                let last = y.saturating_add(run.rows().saturating_sub(1).saturating_sub(run.row()));
+                let above = match first {
+                    Some(f) => f < top,
+                    None => !kept_above,
+                };
+                if above || last > bottom {
+                    cut.push((y, run));
+                    continue;
+                }
+                let lo = first.unwrap_or(0).max(top);
+                let some = (lo..=last).any(leaves);
+                let all = (lo..=last).all(leaves);
+                if some && !all && !(up && into_scrollback) {
+                    cut.push((y, run));
+                }
+            }
+        }
+        for (y, run) in cut {
+            self.erase_run(y, run);
+        }
     }
 
     /// Clears the cells of `cols` in row `y` to the blank style.
@@ -134,8 +387,11 @@ impl Screen {
             return;
         }
         let (cols, y) = (self.cols, self.cursor_y);
-        if self.line(y).is_none() {
+        let Some(line) = self.line(y) else {
             return;
+        };
+        if line.flags().size() != size {
+            self.erase_runs_in(y, 0..cols);
         }
         let kept = size.columns(cols);
         if kept < cols {
@@ -165,6 +421,11 @@ impl Screen {
         for (screen, lines) in [(false, &mut self.main), (true, &mut self.alt)] {
             for (y, line) in lines.iter_mut().enumerate() {
                 if line.flags().size().is_double() {
+                    // A run on a double-size line is one row high, so
+                    // erasing this line's share erases it whole.
+                    for run in line.runs().to_vec() {
+                        line.erase(run.span(), &Style::DEFAULT);
+                    }
                     line.flags_mut().set_size(LineSize::Single);
                     if screen == self.flags.alternate && y < rows {
                         changed.push(y);
@@ -203,11 +464,13 @@ impl Screen {
         let y_to = to.1.min(self.rows.saturating_sub(1));
         let mut whole = Vec::new();
         for y in first_row..=y_to {
+            let end = if y == y_to { x_to } else { last_col };
+            self.erase_touched_runs(y, x..end.saturating_add(1), which);
             let Some(line) = self.line(y) else {
                 x = 0;
                 continue;
             };
-            let mut end = if y == y_to { x_to } else { last_col };
+            let mut end = end;
             // A wide character cut by the region goes whole.
             if x > 0
                 && line.cell(x).width() == Width::WideTail
@@ -248,6 +511,26 @@ impl Screen {
             self.unwrap_scrollback();
         }
         whole
+    }
+
+    /// Erases each sized run with a cell in `cols` of row `y`, whole; a
+    /// selective erase (`which` [`Erase::Unprotected`]) spares a run whose
+    /// style DECSCA protected.
+    fn erase_touched_runs(&mut self, y: usize, cols: Range<usize>, which: Erase) {
+        if !self.row_has_runs(y) {
+            return;
+        }
+        let runs: Vec<SizedRun> = self.line(y).map_or_else(Vec::new, |l| {
+            l.runs()
+                .iter()
+                .copied()
+                .filter(|r| r.col() < cols.end && r.span().end > cols.start)
+                .filter(|r| which == Erase::All || !protected(l.style(l.cell(r.col()))))
+                .collect()
+        });
+        for run in runs {
+            self.erase_run(y, run);
+        }
     }
 
     /// Ends the wrap of each row from `y` to the bottom margin, which an
@@ -393,7 +676,9 @@ impl Screen {
         self.segment = None;
         self.margin_wrap = false;
         self.cursor_x = x;
-        self.insert_cells_at(self.cursor_y, x, n);
+        let y = self.cursor_y;
+        self.erase_runs_shifted(y..=y, x, n, self.edit_end(y), true);
+        self.insert_cells_at(y, x, n);
     }
 
     /// Inserts `n` blank cells at column `x` of row `y`, inside the left
@@ -429,7 +714,9 @@ impl Screen {
         self.segment = None;
         self.margin_wrap = false;
         self.cursor_x = x;
-        self.delete_cells_at(self.cursor_y, x, n);
+        let y = self.cursor_y;
+        self.erase_runs_shifted(y..=y, x, n, self.edit_end(y), false);
+        self.delete_cells_at(y, x, n);
     }
 
     /// Deletes `n` cells at column `x` of row `y`, inside the left and
@@ -464,6 +751,13 @@ impl Screen {
             return;
         }
         self.segment = None;
+        self.erase_runs_shifted(
+            self.top..=self.bottom,
+            x,
+            n,
+            self.right.saturating_add(1),
+            true,
+        );
         for y in self.top..=self.bottom {
             self.insert_cells_at(y, x, n);
         }
@@ -480,6 +774,13 @@ impl Screen {
             return;
         }
         self.segment = None;
+        self.erase_runs_shifted(
+            self.top..=self.bottom,
+            x,
+            n,
+            self.right.saturating_add(1),
+            false,
+        );
         for y in self.top..=self.bottom {
             self.delete_cells_at(y, x, n);
         }
@@ -509,6 +810,8 @@ impl Screen {
         if x == self.right && self.in_lr_margins(x) {
             if self.in_region(x, self.cursor_y) {
                 self.segment = None;
+                let end = self.right.saturating_add(1);
+                self.erase_runs_shifted(self.top..=self.bottom, self.left, 1, end, false);
                 for y in self.top..=self.bottom {
                     self.delete_cells_at(y, self.left, 1);
                 }
@@ -542,6 +845,7 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
+        self.erase_runs_moved((y, self.bottom), n, false, false, None);
         let took = self.images_scroll((y, self.bottom), n, false, false);
         let gone = self.replace_lines(rows.end.saturating_sub(n)..rows.end);
         self.discard_lines(gone);
@@ -573,6 +877,7 @@ impl Screen {
         self.segment = None;
         let rows = y..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
+        self.erase_runs_moved((y, self.bottom), n, true, false, None);
         let took = self.images_scroll((y, self.bottom), n, true, false);
         let gone = self.replace_lines(y..y.saturating_add(n));
         self.discard_lines(gone);
@@ -603,6 +908,7 @@ impl Screen {
         let rows = self.top..self.bottom.saturating_add(1);
         let n = n.min(rows.len());
         let into = !self.flags.alternate && self.scrollback.keeps_lines();
+        self.erase_runs_moved((self.top, self.bottom), n, true, into, None);
         let took = self.images_scroll((self.top, self.bottom), n, true, into);
         let gone = self.replace_lines(rows.start..rows.start.saturating_add(n));
         let gone = if self.flags.alternate {
@@ -640,6 +946,8 @@ impl Screen {
         if !self.full_width() {
             return self.scroll_in_margins(self.top, n, false);
         }
+        let rows = self.bottom.saturating_add(1).saturating_sub(self.top);
+        self.erase_runs_moved((self.top, self.bottom), n.min(rows), false, false, None);
         let took = self.images_scroll((self.top, self.bottom), n, false, false);
         self.rotate_down(n);
         self.images_scrolled(took);
@@ -677,6 +985,7 @@ impl Screen {
             return;
         }
         let cols = left..right.saturating_add(1);
+        self.erase_runs_moved((top, bottom), n, up, false, Some(cols.clone()));
         for y in top..=bottom {
             self.split_wide(y, left);
             self.split_wide(y, cols.end);
@@ -754,6 +1063,13 @@ impl Screen {
                 w => (src.glyph(cell), w),
             };
             dst.write(x, glyph, width, &src.style(cell), src.link(cell));
+        }
+        // A sized run inside the columns moves with its cells; one that a
+        // margin would cut was erased before the move.
+        for &run in src.runs() {
+            if run.col() >= cols.start && run.span().end <= cols.end {
+                dst.mark_run(run);
+            }
         }
         self.mark_cells(to, cols);
     }

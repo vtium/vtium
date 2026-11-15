@@ -44,10 +44,35 @@
 //! line of double size does not rewrap (`reflow.rs`). A cursor that a
 //! scroll left past the last column of a double-size line prints from
 //! that column.
+//!
+//! OSC 66, kitty's text sizing protocol, writes a sized run: text drawn at
+//! a scale across a block of cells, s × w columns wide and s rows high,
+//! which every edit treats as one unit. The run's first cell on each row
+//! holds its text, and the line's run table holds its place and its size
+//! (`Line::runs`). A run too large for the screen is discarded. One that
+//! does not fit before the right margin goes to the next line with
+//! autowrap, and without autowrap moves left until it fits. One whose last
+//! row would lie below the bottom margin scrolls the region up first, and
+//! one taller than the region is discarded. The cursor moves past the run
+//! on the run's top row. Printed text that lands on a run follows the
+//! protocol's overwriting rules: a combining character joins the run's
+//! text, text over the run's top row erases the whole run, and text over a
+//! lower row moves past the run's cells on that row first. On a line of
+//! double size a run takes only its width, one row high.
+//!
+//! References:
+//! - ADR-1308 D2: the keys, and text that sizes nothing printing as it is.
+//! - ADR-1308 D3: the run's text, kept to whole grapheme clusters within
+//!   the row's cluster budget and one cluster's codepoints.
+//! - ADR-1308 D4: writing a run, its cursor and the overwriting rules.
+//! - ADR-1308 D7: a run on a double-size line takes only its width.
+
+use core::ops::Range;
 
 use super::{Screen, Segment, WidthMethod};
+use crate::bounds::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX};
 use crate::cell::Width;
-use crate::line::{Glyph, LinkId};
+use crate::line::{Glyph, LinkId, SizedRun, TextSize};
 use crate::style::Style;
 use crate::unicode::{self, Segmenter};
 
@@ -65,7 +90,16 @@ impl Screen {
                 WidthMethod::Wcwidth => width == 0,
             };
             if joins {
-                self.append_to_cluster(segment.x, segment.y, c, segment.state);
+                if self.row_has_runs(segment.y)
+                    && self
+                        .line(segment.y)
+                        .and_then(|l| l.run_at(segment.x))
+                        .is_some()
+                {
+                    self.append_to_run(segment.x, segment.y, c, segment.state);
+                } else {
+                    self.append_to_cluster(segment.x, segment.y, c, segment.state);
+                }
                 return;
             }
         }
@@ -90,6 +124,10 @@ impl Screen {
             } else {
                 self.move_cursor(edge, self.cursor_y);
             }
+        }
+
+        if !self.skip_lower_rows(last) {
+            return;
         }
 
         if len == 2 && self.cursor_x == self.print_edge(self.cursor_x, self.cursor_y) {
@@ -393,6 +431,10 @@ impl Screen {
         {
             x = x.saturating_sub(1);
         }
+        let run = self.line(y).and_then(|l| l.run_at(x));
+        if let Some(run) = run {
+            x = run.col();
+        }
         let Some((text, ..)) = self.cell_text(x, y) else {
             return;
         };
@@ -404,8 +446,264 @@ impl Screen {
         for rest in chars {
             state.continues(rest);
         }
+        // A run's text holds several clusters, and the codepoint joins the
+        // last of them.
+        if run.is_some()
+            && let Some(last) = last_cluster_state(&text)
+        {
+            state = last;
+        }
         state.continues(c);
-        self.append_to_cluster(x, y, c, state);
+        if run.is_some() {
+            self.append_to_run(x, y, c, state);
+        } else {
+            self.append_to_cluster(x, y, c, state);
+        }
+    }
+
+    /// Before printed text is written at the cursor, moves the cursor past
+    /// the cells of each sized run whose lower row it stands on, as the
+    /// protocol's fourth overwriting rule asks. A run whose cells reach
+    /// the right margin sends the text where text written past the margin
+    /// goes: to the next line with autowrap, and nowhere without it.
+    /// Returns false when the text goes nowhere.
+    ///
+    /// References:
+    /// - ADR-1308 D4, "Overwriting", rule 4, and vtium's reading where the
+    ///   run reaches the margin.
+    #[inline]
+    fn skip_lower_rows(&mut self, last: usize) -> bool {
+        !self.row_has_runs(self.cursor_y) || self.step_past_lower_rows(last)
+    }
+
+    /// The work of [`skip_lower_rows`](Self::skip_lower_rows) on a row that
+    /// holds runs.
+    #[cold]
+    #[inline(never)]
+    fn step_past_lower_rows(&mut self, last: usize) -> bool {
+        // Each pass moves the cursor right or down, so the screen's cells
+        // bound the passes.
+        for _ in 0..self.cols.saturating_mul(self.rows).saturating_add(1) {
+            let (x, y) = (self.cursor_x, self.cursor_y);
+            let Some(run) = self.line(y).and_then(|l| l.run_at(x)) else {
+                return true;
+            };
+            if run.row() == 0 {
+                return true;
+            }
+            let edge = self.print_edge(x, y);
+            if run.span().end <= edge {
+                self.move_cursor(run.span().end, y);
+            } else if self.flags.auto_wrap {
+                self.wrap_line(edge, last);
+            } else {
+                return false;
+            }
+        }
+        false
+    }
+
+    /// OSC 66: writes `text` at the cursor at the size `size` gives, as
+    /// kitty's text sizing protocol defines it. With the width key set,
+    /// the whole text is one run s × w columns wide. Without it, each
+    /// grapheme cluster of the text, cut as printed text is cut, is a run
+    /// of its own, s times the cluster's width. A size that sizes nothing
+    /// prints the text as it is. On a line of double size only the width
+    /// counts. After a run, REP repeats nothing.
+    pub(crate) fn print_sized(&mut self, text: &str, size: TextSize) {
+        let size = if self.line_cols(self.cursor_y) < self.cols {
+            TextSize {
+                width: size.width,
+                ..TextSize::NORMAL
+            }
+        } else {
+            size
+        };
+        if size.is_normal() {
+            for c in text.chars() {
+                self.print(c);
+            }
+            return;
+        }
+        let scale = usize::from(size.scale.max(1));
+        if size.width_set() {
+            self.write_run(text, scale.saturating_mul(usize::from(size.width)), size);
+        } else {
+            for cluster in self.clusters(text) {
+                let width = usize::from(self.text_width(&cluster));
+                if width > 0 {
+                    self.write_run(&cluster, scale.saturating_mul(width), size);
+                }
+            }
+        }
+        self.last_printed = None;
+    }
+
+    /// `text` cut into grapheme clusters as printing cuts it: by UAX #29,
+    /// or under mode 2027 reset by codepoint width.
+    fn clusters(&self, text: &str) -> Vec<ClusterText> {
+        let mut out: Vec<ClusterText> = Vec::new();
+        let mut state: Option<Segmenter> = None;
+        for c in text.chars() {
+            let joins = match (&mut state, out.last()) {
+                (Some(state), Some(_)) => match self.width_method {
+                    WidthMethod::Unicode => state.continues(c),
+                    WidthMethod::Wcwidth => unicode::char_width(c) == 0,
+                },
+                _ => false,
+            };
+            match out.last_mut() {
+                Some(cluster) if joins => cluster.push(c),
+                _ => {
+                    out.push(c.into());
+                    state = Some(Segmenter::start(c));
+                }
+            }
+        }
+        out
+    }
+
+    /// The cells the grapheme cluster `text` takes when printed.
+    fn text_width(&self, text: &str) -> u8 {
+        if self.width_method == WidthMethod::Unicode {
+            return unicode::width_of(text.chars(), self.cluster_width);
+        }
+        text.chars().next().map_or(0, unicode::char_width)
+    }
+
+    /// Writes one sized run of `text`, `cols` columns wide and the scale's
+    /// rows high, at the cursor, and moves the cursor past it.
+    fn write_run(&mut self, text: &str, cols: usize, size: TextSize) {
+        let rows = usize::from(size.scale.max(1));
+        if cols == 0 || cols > self.line_cols(self.cursor_y) || rows > self.rows {
+            return;
+        }
+        self.sized_runs = true;
+        self.segment = None;
+        let last = self.last_print_row(self.cursor_y);
+        // A pending wrap goes first, as it does before printed text.
+        if self.cursor_x >= self.cols || self.margin_wrap {
+            let edge = self.cursor_x.min(self.cols.saturating_sub(1));
+            if self.flags.auto_wrap {
+                self.mark_wrapped(self.cursor_y, edge, last);
+                self.wrap_line(edge, last);
+            } else {
+                self.move_cursor(edge, self.cursor_y);
+            }
+        }
+        if !self.skip_lower_rows(last) {
+            return;
+        }
+        let (x, y) = (self.cursor_x, self.cursor_y);
+        let edge = self.print_edge(x, y);
+        let room = edge.saturating_add(1);
+        if x.saturating_add(cols) > room {
+            let fits_after_wrap = cols <= room.saturating_sub(self.left);
+            if self.flags.auto_wrap && x > self.left && fits_after_wrap {
+                self.wrap_line(edge, last);
+                if !self.skip_lower_rows(last) {
+                    return;
+                }
+            } else {
+                self.move_cursor(room.saturating_sub(cols), y);
+            }
+        }
+        let (x, mut y) = (self.cursor_x, self.cursor_y);
+        if x.saturating_add(cols) > self.line_cols(y) {
+            return;
+        }
+        // The run's last row lies on or above the bottom margin: the region
+        // scrolls up first, and the cursor moves up with the text. Below
+        // the region the run must fit above the screen's last row.
+        let bottom_row = y.saturating_add(rows).saturating_sub(1);
+        if y >= self.top && y <= self.bottom {
+            if rows > self.bottom.saturating_add(1).saturating_sub(self.top) {
+                return;
+            }
+            if bottom_row > self.bottom {
+                let n = bottom_row.saturating_sub(self.bottom);
+                self.scroll_up(n);
+                y = y.saturating_sub(n);
+                self.move_cursor(x, y);
+            }
+        } else if bottom_row >= self.rows {
+            return;
+        }
+        #[cfg(feature = "bidi")]
+        if x == 0 {
+            self.carry_paragraph(y);
+        }
+        let kept = run_text(text, cols);
+        let glyph = glyph_of(kept);
+        let (pen, link) = (self.pen, self.link);
+        let end = x.saturating_add(cols);
+        for r in 0..rows {
+            let row = y.saturating_add(r);
+            self.erase_runs_in(row, x..end);
+            self.split_wide(row, x);
+            self.split_wide(row, end);
+            self.images_cut(row, x, end.saturating_sub(1));
+            if let Some(line) = self.line_mut(row) {
+                line.put_run(SizedRun::new(x, cols, r, size), glyph, &pen, link);
+            }
+            self.mark_cells(row, x..end);
+            self.mark_reflow(row);
+        }
+        self.advance(x, end, y);
+        if let Some(state) = last_cluster_state(kept) {
+            self.set_segment(x, y, state);
+        }
+    }
+
+    /// Adds `c`, a codepoint that joins the text before it, to the text of
+    /// the sized run whose cell `x`, `y` is, on every row of the run, when
+    /// the text keeps within its bound. The run keeps its cells: no
+    /// codepoint changes a run's width.
+    ///
+    /// References:
+    /// - ADR-1308 D2: a cell whose width w set keeps it, whatever VS15,
+    ///   VS16 or a spacing mark says.
+    /// - ADR-1308 D4, "Overwriting", rule 1: a combining character joins
+    ///   the run's text, within D3's bound.
+    fn append_to_run(&mut self, x: usize, y: usize, c: char, state: Segmenter) {
+        let Some(run) = self.line(y).and_then(|l| l.run_at(x)) else {
+            return;
+        };
+        let Some((mut text, ..)) = self.cell_text(run.col(), y) else {
+            return;
+        };
+        text.push(c);
+        if run_text(&text, run.cols()).len() < text.len() {
+            return;
+        }
+        let top = y.saturating_sub(run.row());
+        for r in 0..run.rows() {
+            let row = top.saturating_add(r);
+            let same = self
+                .line(row)
+                .and_then(|l| l.run_at(run.col()))
+                .filter(|s| s.span() == run.span() && s.row() == r);
+            if let (Some(share), Some(line)) = (same, self.line_mut(row)) {
+                line.set_run_text(share, glyph_of(&text));
+                self.mark_cells(row, run.span());
+            }
+        }
+        self.set_segment(run.col(), y, state);
+    }
+
+    /// Erases each sized run on row `y` that a write of the cells `cols`
+    /// cuts or covers, whole: with `insert` the margin where insert mode
+    /// moves the row's cells up to, each run the move would cut as well.
+    /// The erase also takes each run across the boundaries the write
+    /// splits wide characters at, so the write splits only characters.
+    #[cold]
+    #[inline(never)]
+    fn erase_runs_written_over(&mut self, y: usize, cols: Range<usize>, insert: Option<usize>) {
+        if let Some(margin) = insert {
+            let n = cols.len();
+            self.erase_runs_shifted(y..=y, cols.start, n, margin, true);
+        }
+        self.erase_runs_in(y, cols);
     }
 
     /// Writes `glyph`, `len` cells wide, at `x`, `y` in `style`, its tail
@@ -440,12 +738,15 @@ impl Screen {
             end.saturating_sub(1)
         };
         self.images_cut(y, x, last);
-        self.split_wide(y, x);
+        if self.row_has_runs(y) {
+            self.erase_runs_written_over(y, x..end, insert.then_some(margin));
+        }
+        self.split_wide_char(y, x);
         if insert {
             if len < margin {
-                self.split_wide(y, margin.saturating_sub(len));
+                self.split_wide_char(y, margin.saturating_sub(len));
             }
-            self.split_wide(y, margin);
+            self.split_wide_char(y, margin);
             if len < margin && x < margin.saturating_sub(len) {
                 let blank = self.blank_style();
                 if let Some(line) = self.line_mut(y) {
@@ -454,7 +755,7 @@ impl Screen {
                 self.mark_cells(y, x..margin);
             }
         } else {
-            self.split_wide(y, end);
+            self.split_wide_char(y, end);
         }
         let width = if len == 2 { Width::Wide } else { Width::Narrow };
         if let Some(line) = self.line_mut(y) {
@@ -466,6 +767,51 @@ impl Screen {
         self.mark_cells(y, x..end);
         self.mark_reflow(y);
     }
+}
+
+/// What a sized run `cols` columns wide keeps of `text`: as many whole
+/// grapheme clusters, from the first, as keep within the row's cluster
+/// budget and one cluster's codepoints, and at least the first cluster.
+///
+/// References:
+/// - ADR-1308 D3, "The text's bound".
+fn run_text(text: &str, cols: usize) -> &str {
+    let budget = cols.saturating_mul(CLUSTER_BYTES_PER_CELL);
+    // A line stores a cluster as a length byte and its bytes.
+    let fits = |bytes: usize, codepoints: usize| {
+        bytes.saturating_add(1) <= budget && codepoints <= CLUSTER_MAX
+    };
+    let mut state: Option<Segmenter> = None;
+    let (mut kept, mut codepoints) = (0usize, 0usize);
+    for (i, c) in text.char_indices() {
+        if !state.as_mut().is_some_and(|s| s.continues(c)) {
+            // A cluster ends at `i`: the first one stays whatever its size.
+            if i > 0 {
+                if kept > 0 && !fits(i, codepoints) {
+                    return text.get(..kept).unwrap_or(text);
+                }
+                kept = i;
+            }
+            state = Some(Segmenter::start(c));
+        }
+        codepoints = codepoints.saturating_add(1);
+    }
+    if kept > 0 && !fits(text.len(), codepoints) {
+        return text.get(..kept).unwrap_or(text);
+    }
+    text
+}
+
+/// The segmentation state after the last grapheme cluster of `text`, for
+/// a codepoint printed after it to join, or `None` for empty text.
+fn last_cluster_state(text: &str) -> Option<Segmenter> {
+    let mut state: Option<Segmenter> = None;
+    for c in text.chars() {
+        if !state.as_mut().is_some_and(|s| s.continues(c)) {
+            state = Some(Segmenter::start(c));
+        }
+    }
+    state
 }
 
 /// The glyph of a cell's text: one codepoint, or a cluster.

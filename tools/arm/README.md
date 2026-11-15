@@ -9,7 +9,10 @@ make arm-sysroot   # fetch and verify the Debian sysroots, once per set of pins
 make arm           # the minspec profile for both targets, in target/TRIPLE/minspec/
 make arm-test      # the workspace's tests for aarch64 under qemu-user
 make arm-test ARM_TEST_TARGETS=armv7-unknown-linux-gnueabihf
+make arm-memory    # vtium-term's memory tests for armv7 under qemu-user, a gate
 ```
+
+`make arm-memory` runs vtium-term's library tests and `tests/memory.rs` for armv7 in a release build, once without images and once with every feature. `tests/memory.rs` pins the 32-bit figures beside the 64-bit ones, so a change that moves a 32-bit figure fails here. It takes under a minute, where vtium-term's whole debug suite under qemu-user takes more than ten.
 
 `ARM_TARGETS` names the targets `make arm` builds, `ARM_TEST_TARGETS` those `make arm-test` runs, and `VTIUM_ARM_SYSROOTS=DIR` the sysroot cache (default `$XDG_CACHE_HOME/vtium/arm`), which every vtium checkout shares.
 
@@ -24,7 +27,7 @@ Host needs: the targets' standard libraries (`rustup target add aarch64-unknown-
 | `TRIPLE-pkg-config` | pkg-config reading the sysroot's `.pc` files, so `libudev-sys` finds the target's libudev. |
 | `TRIPLE-run` | The test runner: the binary under `qemu-aarch64` or `qemu-arm`, its libraries from the sysroot. |
 
-The three `TRIPLE-*` names are links to `wrap`, which reads its own name. The Makefile names them for these targets alone, in `arm` and `arm-test`, so a native build on an ARM machine uses that machine's toolchain.
+The three `TRIPLE-*` names are links to `wrap`, which reads its own name. The Makefile names them for these targets alone, in `arm`, `arm-test` and `arm-memory`, so a native build on an ARM machine uses that machine's toolchain.
 
 A fetch whose sysroot is already extracted, or whose packages are all in `debs` and match their pins, makes no network request. `test_sysroot.py`, which `make test-tools` runs, checks this against a stand-in curl that records every request and stands in for both archives. It also checks that a cached package or a download whose SHA-256 differs from its pin is fetched again or refused, and never extracted, and that the snapshot serves a package the main archive no longer has or cannot serve. The VT tools' tests in `tools/vt/tests/` give their builds a home directory of their own, so they name the caller's sysroot cache to those builds with `VTIUM_ARM_SYSROOTS`, and their sysroot fetch finds the packages already cached.
 

@@ -7,9 +7,10 @@
 //! shared between lines, so none needs a reference count or a hash.
 //!
 //! A table holds only what was written to the line. Once the style or link
-//! table reaches [`TABLE_GROWTH`] times the line's cells, or the cluster
-//! arena that many times the line's cluster budget, the line compacts: it
-//! keeps the entries a cell still names and renumbers them. A compaction,
+//! table reaches one and a half times the line's cells, or the cluster
+//! arena one and a half times the line's cluster budget, the line compacts:
+//! it keeps the entries a cell still names and renumbers them
+//! ([`compaction_limit`]). A compaction,
 //! like looking a style or link up in its table, costs time linear in the
 //! line's width, so a write is linear in the line's width at worst.
 //!
@@ -26,8 +27,12 @@
 //! codepoints after it, at most [`PLACEHOLDER_BYTES_MAX`] bytes, whatever
 //! the other clusters take, since those marks carry its picture's row, its
 //! column and the top byte of its image id. A line counts the cells that
-//! name a placeholder cluster, and its arena compacts at twice its budget
-//! and [`PLACEHOLDER_BYTES_MAX`] for each of them.
+//! name a placeholder cluster, and its arena compacts at one and a half
+//! times its budget and [`PLACEHOLDER_BYTES_MAX`] for each of them.
+//!
+//! References:
+//! - ADR-1009 D3: the tables compact at one and a half times what the
+//!   line's cells can name.
 
 use core::mem;
 use core::ops::Range;
@@ -35,7 +40,7 @@ use std::collections::BTreeMap;
 
 use crate::bounds::{
     CLUSTER_BYTES_MAX, CLUSTER_BYTES_PER_CELL, CLUSTER_MAX, COLUMNS_MAX, PLACEHOLDER_BYTES_MAX,
-    PLACEHOLDER_MARKS, TABLE_GROWTH,
+    PLACEHOLDER_MARKS, compaction_limit, table_limit,
 };
 use crate::cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 use crate::style::Style;
@@ -240,30 +245,510 @@ fn first_char(glyph: Glyph<'_>) -> Option<char> {
     }
 }
 
+/// How one OSC 66 sequence sizes its text, with each of kitty's text
+/// sizing protocol's keys inside its range.
+///
+/// References:
+/// - ADR-1308 D2: the six keys vtium takes, their ranges and their
+///   defaults.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextSize {
+    /// `s`, 1 to 7: the run is this many rows high, and this many times as
+    /// wide as its text's own cells.
+    pub scale: u8,
+    /// `w`, 0 to 7: the width in cells that the program gave the text, or
+    /// 0 when vtium measured the text itself.
+    pub width: u8,
+    /// `n`, 0 to 15: the numerator of the fraction the text draws at.
+    pub numerator: u8,
+    /// `d`, 0 to 15: the denominator of that fraction, 0 when the text
+    /// fills its block, and otherwise above the numerator.
+    pub denominator: u8,
+    /// `v`, 0 to 2: where text drawn at a fraction sits in its block, at
+    /// the top (0), the bottom (1) or the middle (2).
+    pub vertical: u8,
+    /// `h`, 0 to 2: where text drawn at a fraction sits in its block, at
+    /// the left (0), the right (1) or the middle (2).
+    pub horizontal: u8,
+}
+
+impl TextSize {
+    /// Each key at its default: text of the normal size.
+    pub const NORMAL: Self = Self {
+        scale: 1,
+        width: 0,
+        numerator: 0,
+        denominator: 0,
+        vertical: 0,
+        horizontal: 0,
+    };
+
+    /// Whether the program set the text's width with `w`, so that no
+    /// character that follows changes it.
+    pub const fn width_set(self) -> bool {
+        self.width != 0
+    }
+
+    /// Whether this size draws text just as printing it does: scale 1, no
+    /// width given and no fraction. OSC 66 then makes no run.
+    pub const fn is_normal(self) -> bool {
+        self.scale <= 1 && self.width == 0 && self.denominator == 0
+    }
+}
+
+/// One line's share of a sized run: the block of cells that one OSC 66
+/// sequence writes, which every edit treats as one unit. Each line that a
+/// row of the run lies on holds the row it holds, so no line refers to
+/// another one.
+///
+/// References:
+/// - ADR-1308 D3: the line's run table and what each entry holds.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SizedRun {
+    col: u16,
+    /// The rest of the entry in 27 of 32 bits, kept as two 16-bit halves
+    /// so the entry aligns to 2 bytes and takes 6: the run's width in
+    /// columns, 1 to 49 in 6 bits, which row of the run the line holds, 0
+    /// to 6 in 3 bits, then the keys s, w, n, d, v and h in 3, 3, 4, 4, 2
+    /// and 2 bits ([`SizedRun::FIELDS`]).
+    packed: [u16; 2],
+}
+
+// A run's entry takes 6 bytes in its line's run table, on every target.
+const _: () = assert!(size_of::<SizedRun>() == 6 && align_of::<SizedRun>() == 2);
+
+impl SizedRun {
+    /// The bit each field of the packed entry starts at, and its width in
+    /// bits, in the order of [`SizedRun::fields`].
+    const FIELDS: [(u32, u32); 8] = [
+        (0, 6),
+        (6, 3),
+        (9, 3),
+        (12, 3),
+        (15, 4),
+        (19, 4),
+        (23, 2),
+        (25, 2),
+    ];
+
+    /// The share of a run that starts at column `col` and is `cols`
+    /// columns wide, for the run's row `row`, counted from 0 at its top.
+    /// Each value keeps the bits its field has: OSC 66's keys and the run
+    /// sizes they make fit them.
+    ///
+    /// References:
+    /// - ADR-1009 D2: the 6-byte entry and the width of each field.
+    pub(crate) fn new(col: usize, cols: usize, row: usize, size: TextSize) -> Self {
+        let values = [
+            u32::try_from(cols).unwrap_or(u32::MAX),
+            u32::try_from(row).unwrap_or(u32::MAX),
+            u32::from(size.scale),
+            u32::from(size.width),
+            u32::from(size.numerator),
+            u32::from(size.denominator),
+            u32::from(size.vertical),
+            u32::from(size.horizontal),
+        ];
+        let mut bits = 0u32;
+        for ((shift, width), value) in Self::FIELDS.into_iter().zip(values) {
+            let max = (1u32 << width).saturating_sub(1);
+            bits |= value.min(max) << shift;
+        }
+        let [a, b, c, d] = bits.to_le_bytes();
+        Self {
+            col: u16::try_from(col).unwrap_or(u16::MAX),
+            packed: [u16::from_le_bytes([a, b]), u16::from_le_bytes([c, d])],
+        }
+    }
+
+    /// The packed fields' values, in the order [`SizedRun::FIELDS`] lists
+    /// them.
+    fn fields(self) -> [u8; 8] {
+        let [a, b] = self.packed[0].to_le_bytes();
+        let [c, d] = self.packed[1].to_le_bytes();
+        let bits = u32::from_le_bytes([a, b, c, d]);
+        Self::FIELDS.map(|(shift, width)| {
+            let max = (1u32 << width).saturating_sub(1);
+            u8::try_from((bits >> shift) & max).unwrap_or(u8::MAX)
+        })
+    }
+
+    /// The run's first column.
+    pub fn col(self) -> usize {
+        usize::from(self.col)
+    }
+
+    /// How many columns the run takes.
+    pub fn cols(self) -> usize {
+        usize::from(self.fields()[0])
+    }
+
+    /// The columns the run takes on its line.
+    pub fn span(self) -> Range<usize> {
+        self.col()..self.col().saturating_add(self.cols())
+    }
+
+    /// Which row of the run this line holds, 0 for its top row.
+    pub fn row(self) -> usize {
+        usize::from(self.fields()[1])
+    }
+
+    /// How many rows the run takes: its scale.
+    pub fn rows(self) -> usize {
+        usize::from(self.fields()[2].max(1))
+    }
+
+    /// The keys the run was written with.
+    pub fn size(self) -> TextSize {
+        let [
+            _,
+            _,
+            scale,
+            width,
+            numerator,
+            denominator,
+            vertical,
+            horizontal,
+        ] = self.fields();
+        TextSize {
+            scale,
+            width,
+            numerator,
+            denominator,
+            vertical,
+            horizontal,
+        }
+    }
+
+    /// The same share, moved to column `col`.
+    pub(crate) fn at(self, col: usize) -> Self {
+        Self {
+            col: u16::try_from(col).unwrap_or(u16::MAX),
+            ..self
+        }
+    }
+}
+
+impl core::fmt::Debug for SizedRun {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("SizedRun")
+            .field("col", &self.col())
+            .field("cols", &self.cols())
+            .field("row", &self.row())
+            .field("size", &self.size())
+            .finish()
+    }
+}
+
 /// A line's tables, allocated on its first styled, linked or clustered
-/// cell. Index `i` of a style or link names entry `i - 1`; index 0 is the
-/// default style or no link.
+/// cell, or its first sized run. Index `i` of a style or link names entry
+/// `i - 1`; index 0 is the default style or no link.
 #[derive(Clone, Debug, Default, PartialEq)]
 struct Tables {
     styles: Vec<Style>,
-    links: Vec<LinkId>,
-    /// Each cluster as a length byte and its codepoints in UTF-8.
-    clusters: Vec<u8>,
-    /// The bytes of `clusters` the line's cells name, placeholder clusters
-    /// left out: what the line's cluster budget counts.
-    live: u32,
-    /// The cells that name a placeholder cluster.
-    placeholders: u32,
+    /// Each link's number in the link store, in 16 bits: the store holds
+    /// fewer than 65,536 links ([`crate::links`]).
+    ///
+    /// References:
+    /// - ADR-1009 D5: the line's link table keeps 16-bit numbers.
+    links: Vec<u16>,
+    /// The share of each sized run that crosses the line, ordered by
+    /// column, the runs apart from each other.
+    runs: RunTable,
+    /// Each cluster as a length byte and its codepoints in UTF-8, with the
+    /// counts of what the line's cells name.
+    clusters: ClusterArena,
+}
+
+// A line's tables are as large with the run table as they were without
+// it: 80 bytes on a 64-bit target and 44 on a 32-bit one. The cluster
+// arena and its counts take one pointer's width less than a vector and two
+// 32-bit counts did, which pays for the run table's pointer.
+// `Line::bytes_max` counts this size, so the memory budget's figures hold
+// only while it stays here.
+#[cfg(target_pointer_width = "64")]
+const _: () = assert!(size_of::<Tables>() == 80 && size_of::<ClusterArena>() == 24);
+#[cfg(target_pointer_width = "32")]
+const _: () = assert!(size_of::<Tables>() == 44 && size_of::<ClusterArena>() == 16);
+
+/// How many offsets a cell can name: a cell holds its cluster's offset in
+/// 21 bits, so the arena refuses a cluster that would start at this offset
+/// or past it.
+const ARENA_OFFSETS: usize = 1 << 21;
+
+// The arena of the widest row a rewrap can build, every cell naming a
+// cluster of the most bytes, stays inside the offsets a cell can name. A
+// row that `write` fills compacts well before that, as `bounds.rs` checks.
+// The arena's length and its count of named bytes are kept in 24 bits,
+// which hold the most the arena takes: its last offset and one cluster of
+// up to 256 bytes with its length byte.
+const _: () = assert!(COLUMNS_MAX * CLUSTER_BYTES_MAX <= ARENA_OFFSETS);
+const _: () = assert!(ARENA_OFFSETS + 256 <= U24::MAX);
+// A line has at most `COLUMNS_MAX` cells, so its count of the cells that
+// name a placeholder cluster fits in 16 bits.
+const _: () = assert!(COLUMNS_MAX <= u16::MAX as usize);
+
+/// A count kept in three bytes, from 0 to 2^24 - 1. A larger value is
+/// stored as the largest.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct U24([u8; 3]);
+
+impl U24 {
+    const MAX: usize = (1 << 24) - 1;
+
+    fn get(self) -> usize {
+        let [a, b, c] = self.0;
+        usize::from(a) | (usize::from(b) << 8) | (usize::from(c) << 16)
+    }
+
+    /// `n`, or the largest count when `n` is larger.
+    fn saturating(n: usize) -> Self {
+        let n = u32::try_from(n.min(Self::MAX)).unwrap_or(u32::MAX);
+        let [a, b, c, _] = n.to_le_bytes();
+        Self([a, b, c])
+    }
+}
+
+/// A line's cluster arena: each cluster as a length byte and its
+/// codepoints in UTF-8, one after another, with the counts the line's
+/// cluster budget reads.
+///
+/// The arena keeps its bytes in a boxed slice whose length is the arena's
+/// capacity, and its own length in 24 bits, so it takes two pointers' width
+/// and 8 bytes, one pointer's width less than a vector and two 32-bit
+/// counts. It grows and
+/// shrinks as a vector would, to the same capacities: `reserve_exact`,
+/// `shrink_to_fit` and a clone each leave the capacity a vector leaves.
+/// The bytes past its length are zero and never read.
+#[derive(Default)]
+struct ClusterArena {
+    bytes: Box<[u8]>,
+    len: U24,
+    /// The bytes of the clusters the line's cells name, length bytes
+    /// included and placeholder clusters left out: what the line's
+    /// cluster budget counts. It is at most the arena's length, since no
+    /// two cells name one cluster, so it never reaches the largest count.
+    live: U24,
+    /// The cells that name a placeholder cluster, at most the line's
+    /// `COLUMNS_MAX` cells, so it never reaches `u16::MAX`.
+    placeholders: u16,
+}
+
+impl ClusterArena {
+    /// An empty arena with room for `cap` bytes.
+    fn with_capacity(cap: usize) -> Self {
+        Self {
+            bytes: vec![0; cap].into_boxed_slice(),
+            ..Self::default()
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.len.get()
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    fn capacity(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// The bytes the arena holds.
+    fn as_slice(&self) -> &[u8] {
+        self.bytes.get(..self.len()).unwrap_or_default()
+    }
+
+    /// Makes room for `more` bytes past the arena's length, to exactly
+    /// that capacity when it grows, as `Vec::reserve_exact` does.
+    fn reserve_exact(&mut self, more: usize) {
+        if self.capacity().saturating_sub(self.len()) >= more {
+            return;
+        }
+        self.regrow(self.len().saturating_add(more));
+    }
+
+    /// Gives back the room past the arena's length, as
+    /// `Vec::shrink_to_fit` does.
+    fn shrink_to_fit(&mut self) {
+        if self.capacity() > self.len() {
+            self.bytes = Box::from(self.as_slice());
+        }
+    }
+
+    /// Makes room for `more` bytes as a line's other tables grow
+    /// ([`reserve_within`]).
+    fn reserve_within(&mut self, more: usize, limit: usize) {
+        if let Some(target) = grown_within(self.len(), self.capacity(), more, limit) {
+            self.reserve_exact(target.saturating_sub(self.len()));
+        }
+    }
+
+    /// Moves the arena's bytes to a buffer of `cap` bytes, `cap` at least
+    /// its length.
+    fn regrow(&mut self, cap: usize) {
+        let mut bytes = vec![0; cap.max(self.len())].into_boxed_slice();
+        if let Some(to) = bytes.get_mut(..self.len()) {
+            to.copy_from_slice(self.as_slice());
+        }
+        self.bytes = bytes;
+    }
+
+    /// Appends the cluster `s` as its length byte and its bytes, and
+    /// returns the offset it starts at. It refuses a cluster longer than
+    /// a length byte can say, and one that would start at an offset no
+    /// cell can name. A line reserves the room first; an arena without
+    /// room grows as a vector's `push` and `extend_from_slice` would.
+    fn append(&mut self, s: &str) -> Option<u32> {
+        let len = u8::try_from(s.len()).ok()?;
+        let at = self.len();
+        if at >= ARENA_OFFSETS {
+            return None;
+        }
+        let offset = u32::try_from(at).ok()?;
+        self.push(&[len]);
+        self.push(s.as_bytes());
+        Some(offset)
+    }
+
+    /// Appends `bytes`, first doubling the capacity, to at least 8 bytes
+    /// and at least what they need, when they do not fit: a vector's
+    /// growth.
+    fn push(&mut self, bytes: &[u8]) {
+        let at = self.len();
+        let end = at.saturating_add(bytes.len());
+        if end > self.capacity() {
+            self.regrow(self.capacity().saturating_mul(2).max(end).max(8));
+        }
+        if let Some(to) = self.bytes.get_mut(at..end) {
+            to.copy_from_slice(bytes);
+            self.len = U24::saturating(end);
+        }
+    }
+
+    fn live(&self) -> usize {
+        self.live.get()
+    }
+
+    fn set_live(&mut self, live: usize) {
+        self.live = U24::saturating(live);
+    }
+
+    fn placeholders(&self) -> usize {
+        usize::from(self.placeholders)
+    }
+}
+
+impl Clone for ClusterArena {
+    /// A copy whose capacity is its length, as a vector's clone has.
+    fn clone(&self) -> Self {
+        Self {
+            bytes: Box::from(self.as_slice()),
+            ..*self
+        }
+    }
+}
+
+impl PartialEq for ClusterArena {
+    /// Arenas are equal when they hold the same bytes and counts, whatever
+    /// their capacity, as vectors are.
+    fn eq(&self, other: &Self) -> bool {
+        self.as_slice() == other.as_slice()
+            && self.live == other.live
+            && self.placeholders == other.placeholders
+    }
+}
+
+impl core::fmt::Debug for ClusterArena {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ClusterArena")
+            .field("bytes", &self.as_slice())
+            .field("live", &self.live())
+            .field("placeholders", &self.placeholders)
+            .finish()
+    }
+}
+
+/// A line's run table, behind one pointer that stays empty while the line
+/// holds no run, so that it takes one word of a line's tables.
+#[derive(Clone, Debug, Default, PartialEq)]
+#[allow(
+    clippy::box_collection,
+    reason = "one thin pointer takes a word of a line's tables, where a Vec takes three"
+)]
+struct RunTable(Option<Box<Vec<SizedRun>>>);
+
+impl RunTable {
+    fn as_slice(&self) -> &[SizedRun] {
+        self.0.as_deref().map_or(&[], Vec::as_slice)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    fn iter_mut(&mut self) -> impl Iterator<Item = &mut SizedRun> {
+        self.0.iter_mut().flat_map(|v| v.iter_mut())
+    }
+
+    fn retain(&mut self, keep: impl FnMut(&SizedRun) -> bool) {
+        if let Some(runs) = self.0.as_mut() {
+            runs.retain(keep);
+            if runs.is_empty() {
+                self.0 = None;
+            }
+        }
+    }
+
+    /// Adds `run`, keeping the table ordered by column, on a line of
+    /// `cells` cells. The runs on a line never overlap and each takes at
+    /// least one column, so the table holds at most one run for each cell.
+    /// Its capacity grows by doubling, as the line's other tables do, and
+    /// stops at the cells. A table that already holds a run for each cell
+    /// means an edit let runs overlap: a debug build stops there, and the
+    /// memory tests find the line past its bound.
+    ///
+    /// References:
+    /// - ADR-1009 D1: the line's cells are the sanity cap on its runs.
+    fn insert(&mut self, run: SizedRun, cells: usize) {
+        let runs = self.0.get_or_insert_default();
+        debug_assert!(
+            runs.len() < cells,
+            "a line of {cells} cells holds {} sized runs and gains one more",
+            runs.len()
+        );
+        reserve_within(runs, 1, cells);
+        let at = runs.partition_point(|r| r.col() < run.col());
+        runs.insert(at, run);
+    }
+
+    fn shrink_to_fit(&mut self) {
+        if let Some(runs) = self.0.as_mut() {
+            runs.shrink_to_fit();
+        }
+    }
+
+    /// The bytes the table holds on the heap, by capacity.
+    fn heap_bytes(&self) -> usize {
+        self.0.as_ref().map_or(0, |runs| {
+            size_of::<Vec<SizedRun>>()
+                .saturating_add(runs.capacity().saturating_mul(size_of::<SizedRun>()))
+        })
+    }
 }
 
 impl Tables {
     fn is_empty(&self) -> bool {
-        self.styles.is_empty() && self.links.is_empty() && self.clusters.is_empty()
+        self.styles.is_empty()
+            && self.links.is_empty()
+            && self.clusters.is_empty()
+            && self.runs.is_empty()
     }
 
     /// The cluster at byte `offset` of the arena.
     fn cluster(&self, offset: u32) -> Option<&str> {
-        cluster_at(&self.clusters, offset)
+        cluster_at(self.clusters.as_slice(), offset)
     }
 
     /// The arena bytes the cluster at `offset` takes, its length byte
@@ -271,32 +756,39 @@ impl Tables {
     fn cluster_size(&self, offset: u32) -> usize {
         usize::try_from(offset)
             .ok()
-            .and_then(|at| self.clusters.get(at))
+            .and_then(|at| self.clusters.as_slice().get(at))
             .map_or(0, |&len| usize::from(len).saturating_add(1))
     }
 
     /// The bytes of the line's clusters its budget counts.
     fn live(&self) -> usize {
-        usize::try_from(self.live).unwrap_or(usize::MAX)
+        self.clusters.live()
+    }
+
+    /// The cells that name a placeholder cluster.
+    fn placeholders(&self) -> usize {
+        self.clusters.placeholders()
     }
 
     /// Counts the cluster `s`, just stored, as a cell now names it.
     fn count(&mut self, s: &str) {
+        let arena = &mut self.clusters;
         if is_placeholder(s) {
-            self.placeholders = self.placeholders.saturating_add(1);
+            arena.placeholders = arena.placeholders.saturating_add(1);
         } else {
-            let size = u32::try_from(s.len().saturating_add(1)).unwrap_or(u32::MAX);
-            self.live = self.live.saturating_add(size);
+            arena.set_live(arena.live().saturating_add(s.len()).saturating_add(1));
         }
     }
 
     /// Gives back the cluster at `offset`, as the cell that named it goes.
     fn forget(&mut self, offset: u32) {
         if self.cluster(offset).is_some_and(is_placeholder) {
-            self.placeholders = self.placeholders.saturating_sub(1);
+            let arena = &mut self.clusters;
+            arena.placeholders = arena.placeholders.saturating_sub(1);
         } else {
-            let size = u32::try_from(self.cluster_size(offset)).unwrap_or(u32::MAX);
-            self.live = self.live.saturating_sub(size);
+            let size = self.cluster_size(offset);
+            let arena = &mut self.clusters;
+            arena.set_live(arena.live().saturating_sub(size));
         }
     }
 }
@@ -331,9 +823,15 @@ fn placeholder_head(s: &str) -> &str {
 /// whatever the pen: the default style unless the program erased the
 /// line's end in a color (ADR-1003).
 ///
-/// A [`Width::Pad`] cell sits only in the last column of a wrapped line:
-/// an edit that ends the wrap, or moves the cell, makes it an empty narrow
-/// cell.
+/// [`Width::Pad`] cells sit only at the end of a wrapped line: one in the
+/// last column where a wide character moved to the next row, and up to a
+/// sized run's columns where a rewrap moved the run. An edit that ends the
+/// wrap, or moves such a cell, makes it an empty narrow cell.
+///
+/// A line's run table holds its share of each sized run that crosses it
+/// ([`runs`](Self::runs)). Every edit of the line keeps the table and the
+/// cells' run marks in step: an edit that would cut a run's cells on this
+/// line takes the run off the line, and a move of all of them moves it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Line {
     cells: Vec<Cell>,
@@ -390,9 +888,16 @@ impl Line {
 
     /// [`bytes_max`](Self::bytes_max) in a build with images (`images`
     /// true) or without: with images, every cell may name a placeholder
-    /// cluster, which raises the arena's limit by 17 bytes a cell
-    /// (ADR-1001, "Placeholder cells"), so a row holds 128 + 90
-    /// bytes a cell at most where it holds 128 + 56 without.
+    /// cluster, which raises what the arena compacts at by 17 bytes a
+    /// cell before the one and a half times. The bound counts the run
+    /// table at its most, one entry for each cell, since the runs on a
+    /// line never overlap.
+    ///
+    /// References:
+    /// - ADR-1001, "Placeholder cells": the 17 bytes a placeholder cell
+    ///   adds outside the budget.
+    /// - ADR-1009 D1: the bound counts the run table.
+    /// - ADR-1009 D6: the figures this gives.
     pub const fn bytes_max_in(cols: usize, images: bool) -> usize {
         let cols = if cols == 0 {
             1
@@ -401,16 +906,20 @@ impl Line {
         } else {
             cols
         };
-        let tables = cols.saturating_mul(TABLE_GROWTH);
         let placeholder = if images { PLACEHOLDER_BYTES_MAX } else { 0 };
-        let entry = size_of::<Style>()
-            .saturating_add(size_of::<LinkId>())
-            .saturating_add(CLUSTER_BYTES_PER_CELL)
-            .saturating_add(placeholder);
+        let entries =
+            table_limit(cols).saturating_mul(size_of::<Style>().saturating_add(size_of::<u16>()));
+        let arena = compaction_limit(
+            cols.saturating_mul(CLUSTER_BYTES_PER_CELL.saturating_add(placeholder)),
+        );
+        let runs =
+            size_of::<Vec<SizedRun>>().saturating_add(cols.saturating_mul(size_of::<SizedRun>()));
         size_of::<Self>()
             .saturating_add(cols.saturating_mul(size_of::<Cell>()))
             .saturating_add(size_of::<Tables>())
-            .saturating_add(tables.saturating_mul(entry))
+            .saturating_add(entries)
+            .saturating_add(arena)
+            .saturating_add(runs)
     }
 
     /// An empty line with room for `cols` cells, for a rewrap to fill.
@@ -444,17 +953,21 @@ impl Line {
     }
 
     /// Ends the line's wrap: its text no longer continues on the next
-    /// line. A pad in its last column becomes an empty narrow cell, and
-    /// it returns whether one did, a change a frame draws.
+    /// line. The pads that end it become empty narrow cells, and it
+    /// returns whether any did, a change a frame draws.
     pub fn unwrap(&mut self) -> bool {
         self.flags.remove(LineFlags::WRAPPED);
-        match self.cells.last_mut() {
-            Some(last) if last.width() == Width::Pad => {
-                *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
-                true
+        // A wide character leaves one pad, and a sized run that moved to
+        // the next row at a rewrap may leave several.
+        let mut changed = false;
+        for last in self.cells.iter_mut().rev() {
+            if last.width() != Width::Pad {
+                break;
             }
-            _ => false,
+            *last = Cell::new(Content::Empty, Width::Narrow, last.style(), last.link());
+            changed = true;
         }
+        changed
     }
 
     /// Whether the line may hold a wide character; false only when it
@@ -515,13 +1028,15 @@ impl Line {
         self.tables
             .as_ref()
             .and_then(|t| t.links.get(i.checked_sub(1)?))
-            .copied()
+            .map(|&n| LinkId::new(u32::from(n)))
     }
 
     /// The links this line's link table holds, each once: those its cells
     /// name, and those overwritten since it last compacted.
-    pub(crate) fn link_table(&self) -> &[LinkId] {
-        self.tables.as_ref().map_or(&[], |t| &t.links)
+    pub(crate) fn link_table(&self) -> impl Iterator<Item = LinkId> + '_ {
+        self.tables
+            .iter()
+            .flat_map(|t| t.links.iter().map(|&n| LinkId::new(u32::from(n))))
     }
 
     /// Renames each link of the table to `rename` of it, as a sweep of the
@@ -535,7 +1050,9 @@ impl Line {
         // and unallocated, on a line that loses none.
         let mut gone = Vec::new();
         for (i, link) in t.links.iter_mut().enumerate() {
-            match rename(*link) {
+            match rename(LinkId::new(u32::from(*link)))
+                .and_then(|new| u16::try_from(new.get()).ok())
+            {
                 Some(new) => *link = new,
                 None => gone.push(i.saturating_add(1)),
             }
@@ -545,7 +1062,8 @@ impl Line {
         }
         for cell in &mut self.cells {
             if gone.contains(&usize::from(cell.link().0)) {
-                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+                *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0))
+                    .with_run(cell.in_run());
             }
         }
         self.compact();
@@ -556,11 +1074,12 @@ impl Line {
     /// strips the scrollback's oldest lines. Returns whether the table held
     /// any link.
     pub(crate) fn strip_links(&mut self) -> bool {
-        if self.link_table().is_empty() {
+        if self.link_table().next().is_none() {
             return false;
         }
         for cell in &mut self.cells {
-            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0));
+            *cell = Cell::new(cell.content(), cell.width(), cell.style(), LinkIndex(0))
+                .with_run(cell.in_run());
         }
         self.compact();
         self.shrink_tables();
@@ -580,6 +1099,186 @@ impl Line {
         }
     }
 
+    /// The share of each sized run that crosses the line, ordered by
+    /// column. A line with no run has an empty table.
+    pub fn runs(&self) -> &[SizedRun] {
+        self.tables.as_ref().map_or(&[], |t| t.runs.as_slice())
+    }
+
+    /// Whether the line holds a share of any sized run. Every run check on
+    /// the print and edit paths asks this first, so a line without runs
+    /// pays one test of its tables for them and nothing more.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    #[inline]
+    pub(crate) fn has_runs(&self) -> bool {
+        // A run marks the line wide, so a line that is not wide answers
+        // from the line itself, without reading its tables.
+        self.wide && self.tables.as_ref().is_some_and(|t| !t.runs.is_empty())
+    }
+
+    /// The share of the sized run that holds column `col`, if a run does.
+    pub fn run_at(&self, col: usize) -> Option<SizedRun> {
+        if !self.has_runs() || !self.cells.get(col).is_some_and(|c| c.in_run()) {
+            return None;
+        }
+        self.runs()
+            .iter()
+            .copied()
+            .find(|r| r.span().contains(&col))
+    }
+
+    /// Whether the line holds a row of a sized run taller than one row.
+    /// Such a line keeps its columns at a width change.
+    ///
+    /// References:
+    /// - ADR-1308 D6: a line that holds any row of a run taller than one
+    ///   row does not rewrap.
+    pub(crate) fn holds_tall_run(&self) -> bool {
+        self.runs().iter().any(|r| r.rows() > 1)
+    }
+
+    /// Writes the share `run` of a sized run: `glyph`, the run's text, in
+    /// its first cell, and its other cells empty, each in `style` and
+    /// `link` and marked as part of the run. A run already in those cells
+    /// goes from this line first. Returns false, changing nothing, when
+    /// the run does not fit inside the line.
+    pub(crate) fn put_run(
+        &mut self,
+        run: SizedRun,
+        glyph: Glyph<'_>,
+        style: &Style,
+        link: Option<LinkId>,
+    ) -> bool {
+        let span = run.span();
+        if run.cols() == 0 || span.end > self.cells.len() {
+            return false;
+        }
+        self.drop_runs(span.clone());
+        for col in span.clone() {
+            let g = if col == span.start {
+                glyph
+            } else {
+                Glyph::Empty
+            };
+            self.write(col, g, Width::Narrow, style, link);
+        }
+        self.mark_run(run);
+        true
+    }
+
+    /// Replaces the text of the share `run` of a sized run with `glyph`,
+    /// keeping the run: a codepoint that joins its text.
+    pub(crate) fn set_run_text(&mut self, run: SizedRun, glyph: Glyph<'_>) {
+        if !self.runs().contains(&run) {
+            return;
+        }
+        let cell = self.cell(run.col());
+        let (style, link) = (self.style(cell), self.link(cell));
+        self.drop_runs(run.span());
+        self.write(run.col(), glyph, Width::Narrow, &style, link);
+        self.mark_run(run);
+    }
+
+    /// Marks the cells of `run` as part of it and adds it to the run
+    /// table, for cells that already hold the run's text: a rewrap or a
+    /// scroll inside the margins moves a run's cells, then marks them.
+    pub(crate) fn mark_run(&mut self, run: SizedRun) {
+        let span = run.span();
+        if run.cols() == 0 || span.end > self.cells.len() {
+            return;
+        }
+        for cell in self.cells.get_mut(span).unwrap_or_default() {
+            *cell = cell.with_run(true);
+        }
+        self.wide = true;
+        let cells = self.cells.len();
+        self.tables.get_or_insert_default().runs.insert(run, cells);
+    }
+
+    /// Takes every run that holds a column of `cols` off the line: its
+    /// cells keep their style and link, lose their text and their mark,
+    /// and become narrow cells. A run whose cells an edit would separate,
+    /// or partly overwrite, goes whole, as a wide character does. On this
+    /// line that is this row of the run. The screen takes the run's other
+    /// rows off their lines.
+    #[inline]
+    fn drop_runs(&mut self, cols: Range<usize>) {
+        if self.has_runs() {
+            self.drop_runs_where(|r| r.col() < cols.end && r.span().end > cols.start);
+        }
+    }
+
+    /// Takes each run that `gone` holds for off the line, as
+    /// [`drop_runs`](Self::drop_runs) does.
+    #[cold]
+    #[inline(never)]
+    fn drop_runs_where(&mut self, gone: impl Fn(SizedRun) -> bool) {
+        let Some(t) = self.tables.as_mut() else {
+            return;
+        };
+        if !t.runs.as_slice().iter().any(|&r| gone(r)) {
+            return;
+        }
+        let mut dropped = Vec::new();
+        t.runs.retain(|&r| {
+            let keep = !gone(r);
+            if !keep {
+                dropped.push(r.span());
+            }
+            keep
+        });
+        for span in dropped {
+            for col in span {
+                let Some(&old) = self.cells.get(col) else {
+                    continue;
+                };
+                self.release(old);
+                if let Some(cell) = self.cells.get_mut(col) {
+                    *cell = Cell::new(Content::Empty, Width::Narrow, old.style(), old.link());
+                }
+            }
+        }
+    }
+
+    /// Moves the runs of `at..end` as `insert_cells` (`insert` true) or
+    /// `delete_cells` moves their cells by `n`. A run the move would cut,
+    /// one across `at`, across `end`, across the deleted cells, or pushed
+    /// partly past `end`, goes from the line first.
+    fn shift_runs(&mut self, at: usize, n: usize, end: usize, insert: bool) {
+        if !self.has_runs() {
+            return;
+        }
+        let cut = |r: SizedRun| {
+            let span = r.span();
+            if span.end <= at || span.start >= end {
+                return false;
+            }
+            if span.start < at || span.end > end {
+                return true;
+            }
+            if insert {
+                span.end.saturating_add(n) > end
+            } else {
+                span.start < at.saturating_add(n)
+            }
+        };
+        self.drop_runs_where(cut);
+        if let Some(t) = self.tables.as_mut() {
+            for run in t.runs.iter_mut() {
+                if run.col() >= at && run.col() < end {
+                    let col = if insert {
+                        run.col().saturating_add(n)
+                    } else {
+                        run.col().saturating_sub(n)
+                    };
+                    *run = run.at(col);
+                }
+            }
+        }
+    }
+
     /// Writes one cell. A cluster keeps its first [`CLUSTER_MAX`]
     /// codepoints, and fewer when the line's cluster budget is spent; a
     /// cluster left with one codepoint is stored as that codepoint.
@@ -595,16 +1294,30 @@ impl Line {
         if col >= self.cells.len() {
             return false;
         }
-        // Compaction renumbers the cells, so the old cell is read after it.
-        self.make_room();
+        self.drop_runs(col..col.saturating_add(1));
+        // The overwritten cell gives back its cluster first, so that a
+        // compaction keeps only the clusters other cells name.
         let old = self.cell(col);
+        self.release(old);
+        if let (Content::Cluster(_), Some(cell)) = (old.content(), self.cells.get_mut(col)) {
+            *cell = Cell::new(Content::Empty, old.width(), old.style(), old.link());
+        }
+        let kept = match glyph {
+            Glyph::Cluster(s) => self.kept_cluster(s),
+            _ => None,
+        };
+        // Compaction renumbers the cells, so the style and the link are
+        // interned after it.
+        self.make_room(kept);
         let style = self.intern_style(style);
         let link = self.intern_link(link);
-        self.release(old);
         let content = match glyph {
             Glyph::Empty => Content::Empty,
             Glyph::Char(c) => Content::Char(c),
-            Glyph::Cluster(s) => self.push_cluster(s),
+            Glyph::Cluster(s) => kept
+                .and_then(|k| self.store_cluster(k))
+                .or_else(|| s.chars().next().map(Content::Char))
+                .unwrap_or(Content::Empty),
         };
         if let Some(cell) = self.cells.get_mut(col) {
             *cell = Cell::new(content, width, style, link);
@@ -624,7 +1337,8 @@ impl Line {
         if cols.start >= end {
             return;
         }
-        self.make_room();
+        self.drop_runs(cols.start..end);
+        self.make_room(None);
         let style = self.intern_style(style);
         let blank = Cell::new(Content::Empty, Width::Narrow, style, LinkIndex(0));
         for col in cols.start..end {
@@ -648,7 +1362,8 @@ impl Line {
         if n == 0 {
             return;
         }
-        self.make_room();
+        self.shift_runs(at, n, end, true);
+        self.make_room(None);
         let style = self.intern_style(style);
         let kept = end.saturating_sub(n);
         self.release_range(kept..end);
@@ -669,7 +1384,8 @@ impl Line {
         if n == 0 {
             return;
         }
-        self.make_room();
+        self.shift_runs(at, n, end, false);
+        self.make_room(None);
         let style = self.intern_style(style);
         let from = at.saturating_add(n);
         self.release_range(at..from);
@@ -713,9 +1429,7 @@ impl Line {
 
     /// The cells that name a placeholder cluster.
     fn placeholders(&self) -> usize {
-        self.tables
-            .as_ref()
-            .map_or(0, |t| usize::try_from(t.placeholders).unwrap_or(usize::MAX))
+        self.tables.as_ref().map_or(0, |t| t.placeholders())
     }
 
     /// Makes the line `cols` cells long, at most [`COLUMNS_MAX`]: cells
@@ -728,6 +1442,9 @@ impl Line {
     pub fn resize(&mut self, cols: usize) {
         let cols = cols.min(COLUMNS_MAX);
         let shrinking = cols < self.cells.len();
+        if shrinking {
+            self.drop_runs(cols..self.cells.len());
+        }
         let fill = self.fill_cell();
         self.cells
             .reserve_exact(cols.saturating_sub(self.cells.len()));
@@ -773,7 +1490,7 @@ impl Line {
             self.cells.truncate(text.max(keep));
             self.fill = fill.0;
         }
-        self.wide = self.cells.iter().any(|c| c.width() == Width::Wide);
+        self.wide = !self.runs().is_empty() || self.cells.iter().any(|c| c.width() == Width::Wide);
         self.cells.shrink_to_fit();
         self.compact();
         self.shrink_tables();
@@ -789,6 +1506,7 @@ impl Line {
                 && c.width() == Width::Narrow
                 && c.link() == LinkIndex(0)
                 && c.style() == style
+                && !c.in_run()
         };
         let Some(&last) = self.cells.last() else {
             return (0, StyleIndex(self.fill));
@@ -813,7 +1531,7 @@ impl Line {
     /// more than its budget, since a widening by a factor that is not a
     /// whole number can gather onto one row the end of one source row, the
     /// whole of the next and the start of the one after; it is held to its
-    /// arena's limit, twice its budget, with the same cut
+    /// arena's limit, one and a half times its budget, with the same cut
     /// ([`hold_to`](Self::hold_to)). So no screen row holds more than
     /// [`bytes_max`](Self::bytes_max).
     pub(crate) fn paint(&mut self, cols: usize) {
@@ -821,7 +1539,7 @@ impl Line {
         if usize::from(self.written_at) > self.cells.len() {
             self.hold_to_budget();
         } else {
-            self.hold_to(self.cluster_budget().saturating_mul(TABLE_GROWTH));
+            self.hold_to(compaction_limit(self.cluster_budget()));
         }
     }
 
@@ -914,7 +1632,7 @@ impl Line {
     fn copy_cluster(&mut self, s: &str) -> Option<Content> {
         let arena = self.arena_with(s);
         let t = self.tables.get_or_insert_default();
-        reserve_within(&mut t.clusters, s.len().saturating_add(1), arena);
+        t.clusters.reserve_within(s.len().saturating_add(1), arena);
         let content = append_cluster(&mut t.clusters, s)?;
         t.count(s);
         Some(content)
@@ -923,12 +1641,24 @@ impl Line {
     /// The arena's limit once the cluster `s` is stored: a placeholder
     /// cluster raises it by what the cell that names it adds.
     fn arena_with(&self, s: &str) -> usize {
-        let (_, arena) = self.limits();
-        if is_placeholder(s) {
-            arena.saturating_add(TABLE_GROWTH.saturating_mul(PLACEHOLDER_BYTES_MAX))
-        } else {
-            arena
-        }
+        self.arena_limit(
+            self.placeholders()
+                .saturating_add(usize::from(is_placeholder(s))),
+        )
+    }
+
+    /// The most bytes the cluster arena holds before the line compacts it,
+    /// while `placeholders` of its cells name a placeholder cluster: one
+    /// and a half times the line's budget and [`PLACEHOLDER_BYTES_MAX`]
+    /// for each of them.
+    fn arena_limit(&self, placeholders: usize) -> usize {
+        let held = placeholders.saturating_mul(PLACEHOLDER_BYTES_MAX);
+        let budget = self
+            .cells
+            .len()
+            .max(1)
+            .saturating_mul(CLUSTER_BYTES_PER_CELL);
+        compaction_limit(budget.saturating_add(held))
     }
 
     /// Splits the line after its first `at` cells, for a rewrap that takes
@@ -944,6 +1674,15 @@ impl Line {
             tail.push_from(self, cell, cell.width(), false, &mut map);
         }
         tail.set_fill_from(self, &mut map);
+        self.drop_runs_where(|r| r.col() < at && r.span().end > at);
+        for run in self.runs().to_vec() {
+            if run.col() >= at {
+                tail.mark_run(run.at(run.col().saturating_sub(at)));
+            }
+        }
+        if let Some(t) = self.tables.as_mut() {
+            t.runs.retain(|r| r.col() < at);
+        }
         tail.shrink();
         self.cells.truncate(at);
         self.flags.insert(LineFlags::WRAPPED);
@@ -967,8 +1706,9 @@ impl Line {
             [
                 size_of::<Tables>(),
                 t.styles.capacity().saturating_mul(size_of::<Style>()),
-                t.links.capacity().saturating_mul(size_of::<LinkId>()),
+                t.links.capacity().saturating_mul(size_of::<u16>()),
                 t.clusters.capacity(),
+                t.runs.heap_bytes(),
             ]
             .into_iter()
             .fold(0, usize::saturating_add)
@@ -983,33 +1723,39 @@ impl Line {
 
     /// The most entries the style and the link table each hold, and the
     /// most bytes the cluster arena holds, before the line compacts them:
-    /// [`TABLE_GROWTH`] times what the line's cells can name, which for
-    /// the arena is its budget and [`PLACEHOLDER_BYTES_MAX`] for each cell
-    /// that names a placeholder cluster. A table's capacity grows by
-    /// doubling, as a vector's does, but stops at its limit
-    /// ([`reserve_within`]), so a line's tables never hold room past what
-    /// they compact at.
+    /// one and a half times what the line's cells can name, which for the
+    /// arena is its budget and [`PLACEHOLDER_BYTES_MAX`] for each cell that
+    /// names a placeholder cluster ([`table_limit`], [`compaction_limit`]).
+    /// A table's capacity grows by doubling, as a vector's does, but stops
+    /// at its limit ([`reserve_within`]), so a line's tables never hold
+    /// room past what they compact at.
+    ///
+    /// References:
+    /// - ADR-1009 D3: one and a half times, and the floor of the style and
+    ///   link tables.
     fn limits(&self) -> (usize, usize) {
-        let cells = self.cells.len().max(1);
-        let held = self.placeholders().saturating_mul(PLACEHOLDER_BYTES_MAX);
-        let named = cells
-            .saturating_mul(CLUSTER_BYTES_PER_CELL)
-            .saturating_add(held);
         (
-            cells.saturating_mul(TABLE_GROWTH),
-            named.saturating_mul(TABLE_GROWTH),
+            table_limit(self.cells.len().max(1)),
+            self.arena_limit(self.placeholders()),
         )
     }
 
-    /// Compacts the tables when one more entry in any of them could pass
-    /// its limit, so the indices `write` and `erase` intern stay valid.
-    fn make_room(&mut self) {
-        let (limit, arena) = self.limits();
+    /// Compacts the tables when a style or a link table is full, or when
+    /// the cluster `adds`, which a write is about to store, would take the
+    /// arena past its limit. So the indices `write` and `erase` intern
+    /// stay valid, and a write compacts the arena only when its own
+    /// cluster does not fit.
+    ///
+    /// References:
+    /// - ADR-1009 D4: the arena compacts on the bytes a write adds.
+    fn make_room(&mut self, adds: Option<&str>) {
+        let (limit, _) = self.limits();
+        let arena = adds.map_or(0, |s| self.arena_with(s));
+        let bytes = adds.map_or(0, |s| s.len().saturating_add(1));
         let full = self.tables.as_ref().is_some_and(|t| {
             t.styles.len() >= limit
                 || t.links.len() >= limit
-                || (!t.clusters.is_empty()
-                    && t.clusters.len().saturating_add(CLUSTER_BYTES_MAX) > arena)
+                || (bytes > 0 && t.clusters.len().saturating_add(bytes) > arena)
         });
         if full {
             self.compact();
@@ -1021,6 +1767,7 @@ impl Line {
             t.styles.shrink_to_fit();
             t.links.shrink_to_fit();
             t.clusters.shrink_to_fit();
+            t.runs.shrink_to_fit();
         }
     }
 
@@ -1035,8 +1782,8 @@ impl Line {
         // A row a rewrap built may name more than its arena's limit; its
         // arena is sized once, to what its cells name, so that compacting
         // it never doubles past what it holds.
-        let named = usize::try_from(old.placeholders)
-            .unwrap_or(usize::MAX)
+        let named = old
+            .placeholders()
             .saturating_mul(PLACEHOLDER_BYTES_MAX)
             .saturating_add(old.live());
         if named > arena {
@@ -1059,7 +1806,8 @@ impl Line {
                     match remap_cluster(&mut clusters, o, &old, &mut new, arena) {
                         Some(n) => {
                             if new.cluster(n).is_some_and(is_placeholder) {
-                                new.placeholders = new.placeholders.saturating_add(1);
+                                let arena = &mut new.clusters;
+                                arena.placeholders = arena.placeholders.saturating_add(1);
                             }
                             Content::Cluster(ClusterOffset(n))
                         }
@@ -1068,11 +1816,14 @@ impl Line {
                 }
                 other => other,
             };
-            *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link));
+            *cell = Cell::new(content, cell.width(), StyleIndex(style), LinkIndex(link))
+                .with_run(cell.in_run());
         }
+        new.runs = old.runs;
         let fill = remap(&mut styles, self.fill, &old.styles, &mut new.styles, limit);
         self.fill = fill;
-        new.live = u32::try_from(budgeted_bytes(&new.clusters)).unwrap_or(u32::MAX);
+        let live = budgeted_bytes(new.clusters.as_slice());
+        new.clusters.set_live(live);
         if !new.is_empty() {
             self.tables = Some(Box::new(new));
         }
@@ -1108,7 +1859,9 @@ impl Line {
     }
 
     fn intern_link(&mut self, link: Option<LinkId>) -> LinkIndex {
-        let Some(link) = link else {
+        // A link's number fits 16 bits, since the store holds fewer links
+        // than that (`links.rs` checks it when it compiles).
+        let Some(link) = link.and_then(|l| u16::try_from(l.get()).ok()) else {
             return LinkIndex(0);
         };
         let (limit, _) = self.limits();
@@ -1116,29 +1869,31 @@ impl Line {
         LinkIndex(intern(links, &link, limit))
     }
 
-    /// Stores the cluster `s`, as much of it as the budget allows; a
-    /// placeholder cluster keeps its head whatever the budget.
-    fn push_cluster(&mut self, s: &str) -> Content {
-        let Some(first) = s.chars().next() else {
-            return Content::Empty;
-        };
-        let kept = if is_placeholder(s) {
+    /// What the line keeps of the cluster `s` when a cell names it: as much
+    /// of it as the budget allows, or `None` when that is its first
+    /// codepoint alone. A placeholder cluster keeps its head whatever the
+    /// budget.
+    fn kept_cluster<'s>(&self, s: &'s str) -> Option<&'s str> {
+        let first = s.chars().next()?;
+        if is_placeholder(s) {
             Some(placeholder_head(s)).filter(|k| k.len() > first.len_utf8())
         } else {
             let live = self.tables.as_ref().map_or(0, |t| t.live());
             fit(s, self.cluster_budget().saturating_sub(live))
-        };
-        let Some(kept) = kept else {
-            return Content::Char(first);
-        };
+        }
+    }
+
+    /// Stores `kept`, what the line keeps of a cluster
+    /// ([`kept_cluster`](Self::kept_cluster)), and returns the content that
+    /// names it, or `None` when the arena refuses it.
+    fn store_cluster(&mut self, kept: &str) -> Option<Content> {
         let arena = self.arena_with(kept);
         let t = self.tables.get_or_insert_default();
-        reserve_within(&mut t.clusters, kept.len().saturating_add(1), arena);
-        let Some(content) = append_cluster(&mut t.clusters, kept) else {
-            return Content::Char(first);
-        };
+        t.clusters
+            .reserve_within(kept.len().saturating_add(1), arena);
+        let content = append_cluster(&mut t.clusters, kept)?;
         t.count(kept);
-        content
+        Some(content)
     }
 
     /// Holds the clusters the line's cells name to the budget of its
@@ -1165,21 +1920,19 @@ impl Line {
             return;
         };
         let old = mem::take(&mut t.clusters);
-        let held = usize::try_from(t.placeholders)
-            .unwrap_or(usize::MAX)
-            .saturating_mul(PLACEHOLDER_BYTES_MAX);
-        let mut kept = Vec::with_capacity(budget.saturating_add(held));
-        let (mut live, mut placeholders) = (0usize, 0u32);
+        let held = old.placeholders().saturating_mul(PLACEHOLDER_BYTES_MAX);
+        let mut kept = ClusterArena::with_capacity(budget.saturating_add(held));
+        let (mut live, mut placeholders) = (0usize, 0u16);
         for cell in &mut self.cells {
             let Content::Cluster(ClusterOffset(o)) = cell.content() else {
                 continue;
             };
             let room = budget.saturating_sub(live);
-            let content = cluster_at(&old, o).map_or(Content::Empty, |s| {
+            let content = cluster_at(old.as_slice(), o).map_or(Content::Empty, |s| {
                 let first = s.chars().next().map_or(Content::Empty, Content::Char);
                 if is_placeholder(s) {
                     let content = append_cluster(&mut kept, s);
-                    placeholders = placeholders.saturating_add(u32::from(content.is_some()));
+                    placeholders = placeholders.saturating_add(u16::from(content.is_some()));
                     return content.unwrap_or(first);
                 }
                 let Some(content) = fit(s, room).and_then(|s| {
@@ -1190,11 +1943,12 @@ impl Line {
                 };
                 content
             });
-            *cell = Cell::new(content, cell.width(), cell.style(), cell.link());
+            *cell =
+                Cell::new(content, cell.width(), cell.style(), cell.link()).with_run(cell.in_run());
         }
         kept.shrink_to_fit();
-        t.live = u32::try_from(live).unwrap_or(u32::MAX);
-        t.placeholders = placeholders;
+        kept.set_live(live);
+        kept.placeholders = placeholders;
         t.clusters = kept;
         if !t.is_empty() {
             self.tables = Some(t);
@@ -1255,13 +2009,12 @@ fn fit(s: &str, room: usize) -> Option<&str> {
 }
 
 /// Appends the cluster `s` to `arena` as its length byte and its bytes,
-/// and returns the content that names it.
-fn append_cluster(arena: &mut Vec<u8>, s: &str) -> Option<Content> {
-    let len = u8::try_from(s.len()).ok()?;
-    let offset = u32::try_from(arena.len()).ok()?;
-    arena.push(len);
-    arena.extend_from_slice(s.as_bytes());
-    Some(Content::Cluster(ClusterOffset(offset)))
+/// and returns the content that names it, or `None` when the arena
+/// refuses it ([`ClusterArena::append`]).
+fn append_cluster(arena: &mut ClusterArena, s: &str) -> Option<Content> {
+    arena
+        .append(s)
+        .map(|offset| Content::Cluster(ClusterOffset(offset)))
 }
 
 /// The indices a rewrap has copied from one source line's tables into the
@@ -1291,7 +2044,7 @@ impl IndexMap {
 }
 
 /// The 1-based index of `value` in `table`, appended if absent. The table
-/// holds at most [`TABLE_GROWTH`] times the line's cells (`make_room`), and
+/// holds at most [`table_limit`] of the line's cells (`make_room`), and
 /// the newest entry is the likeliest match, so the search runs from the
 /// end; it is linear in the line's width at worst. The bounds' compile-time
 /// check keeps every index inside 16 bits.
@@ -1312,17 +2065,25 @@ fn intern<T: PartialEq + Copy>(table: &mut Vec<T>, value: &T, limit: usize) -> u
 /// a table that compacts at `limit` never holds room past it. A table
 /// that passes its limit, as a row a rewrap builds may, doubles past it.
 fn reserve_within<T>(table: &mut Vec<T>, more: usize, limit: usize) {
-    let need = table.len().saturating_add(more);
-    if need <= table.capacity() {
-        return;
+    if let Some(target) = grown_within(table.len(), table.capacity(), more, limit) {
+        table.reserve_exact(target.saturating_sub(table.len()));
     }
-    let doubled = table.capacity().saturating_mul(2).max(4);
-    let target = if need <= limit {
+}
+
+/// The capacity [`reserve_within`] grows a table of `len` entries and
+/// `capacity` room to, for `more` entries within `limit`, or `None` when
+/// the room is there.
+fn grown_within(len: usize, capacity: usize, more: usize, limit: usize) -> Option<usize> {
+    let need = len.saturating_add(more);
+    if need <= capacity {
+        return None;
+    }
+    let doubled = capacity.saturating_mul(2).max(4);
+    Some(if need <= limit {
         doubled.min(limit).max(need)
     } else {
         doubled.max(need)
-    };
-    table.reserve_exact(target.saturating_sub(table.len()));
+    })
 }
 
 /// The new 1-based index of old index `i`, copying its entry into `new`
@@ -1358,11 +2119,10 @@ fn remap_cluster(
         return Some(n);
     }
     let s = old.cluster(o)?;
-    let len = u8::try_from(s.len()).ok()?;
-    let n = u32::try_from(new.clusters.len()).ok()?;
-    reserve_within(&mut new.clusters, s.len().saturating_add(1), arena);
-    new.clusters.push(len);
-    new.clusters.extend_from_slice(s.as_bytes());
+    u8::try_from(s.len()).ok()?;
+    new.clusters
+        .reserve_within(s.len().saturating_add(1), arena);
+    let n = new.clusters.append(s)?;
     map.insert(o, n);
     Some(n)
 }
@@ -1536,7 +2296,7 @@ mod tests {
                 assert_eq!(line.tables.as_ref().map_or(0, |t| t.live()), named);
                 assert!(
                     line.tables.as_ref().map_or(0, |t| t.clusters.len())
-                        <= cols * CLUSTER_BYTES_PER_CELL * TABLE_GROWTH + CLUSTER_BYTES_MAX
+                        <= compaction_limit(cols * CLUSTER_BYTES_PER_CELL)
                 );
                 match line.glyph(line.cell(col)) {
                     Glyph::Char('e') => {}
@@ -1684,7 +2444,7 @@ mod tests {
         for n in 0..10_000 {
             line.write(0, Glyph::Char('a'), Width::Narrow, &rgb(n), None);
             let t = tables(&line).styles.len();
-            assert!(t <= 4 * TABLE_GROWTH, "the style table grew to {t}");
+            assert!(t <= table_limit(4), "the style table grew to {t}");
             assert_eq!(line.style(line.cell(0)), rgb(n));
         }
     }
@@ -1715,7 +2475,7 @@ mod tests {
                 assert_eq!(line.link(cell), Some(LinkId::new(n)));
                 assert_eq!(line.glyph(cell), Glyph::Cluster(&cluster));
             }
-            assert!(tables(&line).styles.len() <= TABLE_GROWTH * cols);
+            assert!(tables(&line).styles.len() <= table_limit(cols));
         }
     }
 
@@ -1750,10 +2510,122 @@ mod tests {
     // takes; sweeps of plain text and of small clusters, with each size of
     // cluster in the first cell, bring each table to its limit and no
     // further. `tests/memory.rs` drives rows to the whole bound.
+    // The arena compacts only when the cluster a write adds would take it
+    // past its limit: on a row of 10 cells, whose arena holds 90 bytes,
+    // 30 overwrites of a 2-byte cluster fill it with dead clusters, and
+    // the 31st compacts it.
+    #[test]
+    fn the_arena_compacts_on_the_bytes_a_write_adds() {
+        let mut line = Line::new(LineId::new(1), 10);
+        let cluster = sized(2);
+        for _ in 0..30 {
+            line.write(
+                0,
+                Glyph::Cluster(&cluster),
+                Width::Narrow,
+                &Style::DEFAULT,
+                None,
+            );
+        }
+        assert_eq!(tables(&line).clusters.len(), 90);
+        line.write(
+            0,
+            Glyph::Cluster(&cluster),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        assert_eq!(tables(&line).clusters.len(), 3);
+        assert_eq!(line.glyph(line.cell(0)), Glyph::Cluster(&cluster));
+    }
+
+    // The line's cells bound what its run table allocates: a run in each of
+    // 170 cells leaves the table's capacity at 170, where a vector's own
+    // doubling would reach 256, and a line cut to 40 cells gives the room
+    // back.
+    //
+    // References:
+    // - ADR-1009 D1: the cell count bounds the run table's allocation.
+    #[test]
+    fn the_run_table_allocates_no_more_than_the_cells() {
+        let mut line = Line::new(LineId::new(1), 170);
+        let size = TextSize {
+            width: 1,
+            ..TextSize::NORMAL
+        };
+        let mut most = 0;
+        for col in 0..170 {
+            let run = SizedRun::new(col, 1, 0, size);
+            assert!(line.put_run(run, Glyph::Char('x'), &rgb(1), None));
+            most = most.max(tables(&line).runs.0.as_ref().map_or(0, |r| r.capacity()));
+        }
+        let runs = tables(&line)
+            .runs
+            .0
+            .as_ref()
+            .map(|r| (r.len(), r.capacity()));
+        assert_eq!(runs, Some((170, 170)));
+        assert!(most <= 170, "the run table allocated {most} entries");
+        line.resize(40);
+        let runs = tables(&line)
+            .runs
+            .0
+            .as_ref()
+            .map(|r| (r.len(), r.capacity()));
+        assert_eq!(runs, Some((40, 40)));
+    }
+
+    // A run's entry keeps every key at the most each one takes, in 6 bytes.
+    #[test]
+    fn a_sized_run_keeps_its_keys_in_six_bytes() {
+        let size = TextSize {
+            scale: 7,
+            width: 7,
+            numerator: 15,
+            denominator: 15,
+            vertical: 2,
+            horizontal: 2,
+        };
+        let run = SizedRun::new(8191, 49, 6, size);
+        assert_eq!(size_of::<SizedRun>(), 6);
+        assert_eq!(
+            (run.col(), run.cols(), run.row(), run.rows()),
+            (8191, 49, 6, 7)
+        );
+        assert_eq!(run.size(), size);
+        let small = SizedRun::new(
+            0,
+            1,
+            0,
+            TextSize {
+                width: 1,
+                ..TextSize::NORMAL
+            },
+        );
+        assert_eq!(
+            (
+                small.cols(),
+                small.row(),
+                small.size().width,
+                small.size().scale
+            ),
+            (1, 0, 1, 1)
+        );
+        assert_eq!(small.at(3).span(), 3..4);
+    }
+
+    /// [`Line::bytes_max`] less the run table at its most, for rows that
+    /// hold no sized run.
+    fn bytes_max_without_runs(cols: usize) -> usize {
+        Line::bytes_max(cols)
+            .saturating_sub(size_of::<Vec<SizedRun>>())
+            .saturating_sub(cols.saturating_mul(size_of::<SizedRun>()))
+    }
+
     #[test]
     fn the_tables_grow_no_further_than_they_compact_at() {
         let cols = 17;
-        let limit = cols * TABLE_GROWTH;
+        let limit = table_limit(cols);
         let (mut most, mut styles, mut links, mut arena) = (0, 0, 0, 0);
         let mut n = 0u32;
         for first in 2..=128 {
@@ -1777,8 +2649,8 @@ mod tests {
         }
         assert_eq!(styles, limit);
         assert_eq!(links, limit);
-        assert_eq!(arena, limit * CLUSTER_BYTES_PER_CELL);
-        assert!(most <= Line::bytes_max(cols), "{most}");
+        assert_eq!(arena, compaction_limit(cols * CLUSTER_BYTES_PER_CELL));
+        assert!(most <= bytes_max_without_runs(cols), "{most}");
     }
 
     /// A kitty placeholder, U+10EEEE, and `marks` 4-byte marks.
@@ -1841,9 +2713,9 @@ mod tests {
         assert_eq!(line.glyph(line.cell(3)), Glyph::Cluster(&one));
         assert_eq!(line.cluster_bytes(), 24 + 17 + 9);
         assert_eq!(tables(&line).live(), 24);
-        assert_eq!(tables(&line).placeholders, 2);
+        assert_eq!(tables(&line).placeholders(), 2);
         line.erase(1..2, &Style::DEFAULT);
-        assert_eq!(tables(&line).placeholders, 1);
+        assert_eq!(tables(&line).placeholders(), 1);
         assert_eq!(line.cluster_bytes(), 24 + 9);
     }
 
@@ -1866,11 +2738,11 @@ mod tests {
                 None,
             );
         }
-        assert_eq!(tables(&line).placeholders, 4);
+        assert_eq!(tables(&line).placeholders(), 4);
         line.cells.truncate(3);
         line.hold_to_budget();
         assert_eq!(
-            tables(&line).placeholders,
+            tables(&line).placeholders(),
             1,
             "one placeholder cell is left"
         );
@@ -1919,9 +2791,11 @@ mod tests {
             Glyph::Cluster(&five),
             "all five marks fit"
         );
-        assert_eq!(tables(&line).placeholders, 0);
+        assert_eq!(tables(&line).placeholders(), 0);
         assert_eq!(tables(&line).live(), five.len() + 1);
-        assert_eq!(Line::bytes_max(170), 9_648);
+        // ADR-1009 D6's figure on a 64-bit target.
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(Line::bytes_max(170), 8_142);
     }
 
     // The arena's limit takes 17 bytes for each cell that names a
@@ -1931,7 +2805,6 @@ mod tests {
     #[test]
     fn a_row_of_placeholders_holds_to_its_raised_limit() {
         let cols = 17;
-        let limit = cols * TABLE_GROWTH;
         let (mut arena, mut most, mut n) = (0, 0, 0u32);
         for first in 1..=3 {
             let mut line = Line::new(LineId::new(1), cols);
@@ -1947,18 +2820,21 @@ mod tests {
                 );
                 let t = tables(&line);
                 assert!(
-                    t.clusters.len() <= limit * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX)
+                    t.clusters.len()
+                        <= compaction_limit(
+                            cols * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX)
+                        )
                 );
                 arena = arena.max(t.clusters.capacity());
                 most = most.max(size_of::<Line>() + line.heap_bytes());
             }
-            assert_eq!(tables(&line).placeholders, 17);
+            assert_eq!(tables(&line).placeholders(), 17);
         }
         assert_eq!(
             arena,
-            limit * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX)
+            compaction_limit(cols * (CLUSTER_BYTES_PER_CELL + PLACEHOLDER_BYTES_MAX))
         );
-        assert_eq!(most, Line::bytes_max(cols));
+        assert_eq!(most, bytes_max_without_runs(cols));
     }
 
     // A row a rewrap built names past its arena's limit. Compacting it
@@ -1982,12 +2858,187 @@ mod tests {
         }
         row.shrink();
         let named = row.cluster_bytes();
-        assert!(named > cols * TABLE_GROWTH * CLUSTER_BYTES_PER_CELL);
-        row.write(0, Glyph::Char('x'), Width::Narrow, &rgb(1), None);
+        assert!(named > compaction_limit(cols * CLUSTER_BYTES_PER_CELL));
+        // A write compacts such a row once its style or link table fills.
+        row.compact();
         let t = tables(&row);
-        // The write compacts before it overwrites the first cell.
         assert_eq!(t.clusters.len(), named);
         assert_eq!(t.clusters.capacity(), named);
+    }
+
+    /// A cluster of the most bytes a line keeps: 32 codepoints of four
+    /// bytes each, 129 bytes with its length byte.
+    fn heaviest() -> String {
+        std::iter::repeat_n('\u{E0100}', CLUSTER_MAX).collect()
+    }
+
+    // The widest row a rewrap can build has every cell name a cluster of
+    // the most bytes, as a rewrap copies each cluster whole. Its arena and
+    // its count of named bytes pass 16 bits by far, and the last cluster
+    // still starts at an offset a cell can name. Held to its screen's
+    // limit, twice its budget, the row still counts more than 16 bits.
+    #[test]
+    fn a_row_full_of_the_largest_clusters_at_the_widest_width_counts_them_all() {
+        let heavy = heaviest();
+        assert_eq!(heavy.len() + 1, CLUSTER_BYTES_MAX);
+        let mut src = Line::new(LineId::new(1), COLUMNS_MAX);
+        src.write(
+            0,
+            Glyph::Cluster(&heavy),
+            Width::Narrow,
+            &Style::DEFAULT,
+            None,
+        );
+        let mut row = Line::with_capacity(LineId::new(2), LineFlags::empty(), COLUMNS_MAX);
+        let mut map = IndexMap::default();
+        for _ in 0..COLUMNS_MAX {
+            row.push_from(&src, src.cell(0), Width::Narrow, false, &mut map);
+        }
+        let named = COLUMNS_MAX * CLUSTER_BYTES_MAX;
+        assert_eq!(named, 1_056_768);
+        assert_eq!(row.len(), COLUMNS_MAX);
+        assert_eq!(tables(&row).live(), named);
+        assert_eq!(tables(&row).clusters.len(), named);
+        assert_eq!(row.cluster_bytes(), named);
+        assert!(
+            row.cells()
+                .iter()
+                .all(|&c| row.glyph(c) == Glyph::Cluster(&heavy))
+        );
+        let last = row.cell(COLUMNS_MAX - 1).content();
+        assert_eq!(
+            last,
+            Content::Cluster(ClusterOffset(
+                u32::try_from(named - CLUSTER_BYTES_MAX).unwrap()
+            ))
+        );
+
+        row.paint(COLUMNS_MAX);
+        // One and a half times the budget holds 571 whole clusters, and the
+        // 69 bytes left keep the first 17 codepoints of the next.
+        let limit = compaction_limit(COLUMNS_MAX * CLUSTER_BYTES_PER_CELL);
+        let kept = limit / CLUSTER_BYTES_MAX;
+        assert_eq!((limit, kept), (73_728, 571));
+        assert_eq!(tables(&row).live(), limit);
+        assert!(tables(&row).live() > usize::from(u16::MAX));
+        assert_eq!(row.glyph(row.cell(kept - 1)), Glyph::Cluster(&heavy));
+        let part: String = std::iter::repeat_n('\u{E0100}', 17).collect();
+        assert_eq!(row.glyph(row.cell(kept)), Glyph::Cluster(&part));
+        assert_eq!(row.glyph(row.cell(kept + 1)), Glyph::Char('\u{E0100}'));
+    }
+
+    // In a build with images, every cell of the widest line may name a
+    // placeholder cluster, and the line counts each of them.
+    #[cfg(feature = "images")]
+    #[test]
+    fn a_row_of_placeholders_at_the_widest_width_counts_every_cell() {
+        let mut line = Line::new(LineId::new(1), COLUMNS_MAX);
+        let p = placeholder(PLACEHOLDER_MARKS);
+        for col in 0..COLUMNS_MAX {
+            assert!(line.write(
+                col,
+                Glyph::Cluster(&p),
+                Width::Narrow,
+                &Style::DEFAULT,
+                None
+            ));
+        }
+        assert_eq!(tables(&line).placeholders(), COLUMNS_MAX);
+        assert_eq!(tables(&line).live(), 0);
+        assert_eq!(line.cluster_bytes(), COLUMNS_MAX * PLACEHOLDER_BYTES_MAX);
+        assert!(
+            line.cells()
+                .iter()
+                .all(|&c| line.glyph(c) == Glyph::Cluster(&p))
+        );
+    }
+
+    // A cell names its cluster by a 21-bit offset. The arena takes
+    // clusters up to the last offset a cell can name, and refuses the
+    // next one, leaving itself as it was.
+    #[test]
+    fn the_arena_refuses_a_cluster_past_the_offsets_a_cell_names() {
+        let s = "a".repeat(255);
+        let mut arena = ClusterArena::default();
+        let mut last = None;
+        while let Some(offset) = arena.append(&s) {
+            last = Some(offset);
+        }
+        let last = usize::try_from(last.unwrap()).unwrap();
+        assert_eq!(last, ARENA_OFFSETS - 256);
+        assert_eq!(arena.len(), ARENA_OFFSETS);
+        assert_eq!(arena.append("ab"), None);
+        assert_eq!(arena.len(), ARENA_OFFSETS);
+        let offset = u32::try_from(last).unwrap();
+        assert_eq!(cluster_at(arena.as_slice(), offset), Some(s.as_str()));
+        // A cluster longer than its length byte can say is refused too.
+        assert_eq!(ClusterArena::default().append(&"a".repeat(256)), None);
+    }
+
+    // The arena's length and its count of named bytes are kept in 24 bits.
+    // The most the arena reaches fits; a larger count is stored as the
+    // largest, and the count of placeholder cells stops at the largest
+    // 16-bit value, as neither may wrap to a small number.
+    #[test]
+    fn the_arena_counts_hold_their_largest_values() {
+        for n in [0, 1, 0xFFFF, 0x1_0000, ARENA_OFFSETS + 255, U24::MAX] {
+            assert_eq!(U24::saturating(n).get(), n);
+        }
+        assert_eq!(U24::saturating(U24::MAX + 1).get(), U24::MAX);
+        assert_eq!(U24::saturating(usize::MAX).get(), U24::MAX);
+
+        let mut t = Tables::default();
+        t.clusters.set_live(U24::MAX);
+        t.count("ab");
+        assert_eq!(t.live(), U24::MAX);
+        if cfg!(feature = "images") {
+            t.clusters.placeholders = u16::MAX;
+            t.count(&placeholder(PLACEHOLDER_MARKS));
+            assert_eq!(t.placeholders(), usize::from(u16::MAX));
+        }
+    }
+
+    // The arena reaches the capacities a vector of bytes reaches through
+    // the same calls: exact reserves, appends that grow by doubling,
+    // shrinking, and clones.
+    #[test]
+    fn the_arena_grows_and_shrinks_as_a_vector_of_bytes() {
+        let mut arena = ClusterArena::default();
+        let mut vec: Vec<u8> = Vec::new();
+        let check = |arena: &ClusterArena, vec: &Vec<u8>| {
+            assert_eq!(arena.as_slice(), vec.as_slice());
+            assert_eq!(arena.capacity(), vec.capacity());
+            let copy = arena.clone();
+            assert_eq!(copy.capacity(), vec.clone().capacity());
+            assert_eq!(&copy, arena);
+        };
+        for (i, n) in [1usize, 2, 7, 30, 3, 129, 0, 5, 60, 255, 2, 40]
+            .into_iter()
+            .enumerate()
+        {
+            let s = "x".repeat(n);
+            match i % 4 {
+                0 => {
+                    arena.reserve_exact(n);
+                    vec.reserve_exact(n);
+                }
+                1 => {
+                    arena.reserve_within(n.saturating_add(1), 64);
+                    reserve_within(&mut vec, n.saturating_add(1), 64);
+                }
+                2 => {
+                    arena.shrink_to_fit();
+                    vec.shrink_to_fit();
+                }
+                _ => {}
+            }
+            check(&arena, &vec);
+            let offset = arena.append(&s).unwrap();
+            assert_eq!(usize::try_from(offset).unwrap(), vec.len());
+            vec.push(u8::try_from(n).unwrap());
+            vec.extend_from_slice(s.as_bytes());
+            check(&arena, &vec);
+        }
     }
 
     // A style index that passed 16 bits would collapse to another entry or
@@ -2055,7 +3106,7 @@ mod tests {
         line.resize(1);
         let t = tables(&line);
         assert_eq!((t.styles.len(), t.links.len(), t.clusters.len()), (1, 1, 6));
-        assert_eq!(line.heap_bytes(), 8 + size_of::<Tables>() + 14 + 4 + 6);
+        assert_eq!(line.heap_bytes(), 8 + size_of::<Tables>() + 14 + 2 + 6);
         assert_eq!(line.style(line.cell(0)), rgb(0));
         assert_eq!(line.glyph(line.cell(0)), Glyph::Cluster(&accented(2)));
     }

@@ -1,0 +1,11 @@
+# A block at the right margin: W fits before the margin, and V does not, so
+# with autowrap V goes to the start of the next line. Without autowrap the
+# block abc moves left until it fits before the margin.
+# spec: kitty's text sizing protocol: "if wrapping is enabled (DECAWM is set) and the character’s width (s * w) does not fit on the current line," "the cursor is moved to the start of the next line and the character is drawn there."; otherwise "the cursor is moved back as far as needed to fit s * w cells and then the character is drawn,"
+# covers: text.kitty-sizing
+size 10 4
+send "\e[1;8H\e]66;s=2;W\e\\"
+send "\e]66;s=2;V\e\\"
+dump
+send "\e[?7l\e[4;9H\e]66;w=3;abc\e\\\r"
+dump
