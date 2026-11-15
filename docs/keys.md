@@ -25,6 +25,8 @@ Full-screen programs, such as editors, use a second screen called the alternate 
 
 Sometimes a program ends and leaves the keyboard sending escape codes, so that even Enter stops working. Ctrl+Shift+Delete is the way out. It clears the console's screen and scrollback, and turns off every mode that a program set. It resets only the console on screen.
 
+Ctrl+Shift+O lets you copy a link without the mouse. vtium puts a short label of letters on each link on the screen, and no two labels overlap. A help line at the bottom of the screen tells you to type a label, or press Escape to stop. When a label sits on the bottom row, the help line moves to the top row. When labels sit on both rows, the help line goes away, so it never hides a label. Type a label, and vtium copies that link's address into the selection. See [the keyboard link mode issue](https://github.com/vtium/vtium/issues/106).
+
 When you select text with the pointer, vtium copies it into its selection. The console has no system clipboard. Instead, vtium holds one selection. A program can set the selection with OSC 52, but no program can read it back.
 
 When the active head moves, each head shows a filled or a hollow dot at its top right, so you can see where your typing goes. See [The on-screen display and notices](concepts/osd-and-notices.md) for details.

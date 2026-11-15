@@ -103,7 +103,7 @@ The renderer blends the pointer over each run of pixels written beneath it, cell
 
 A frame that changes nothing writes nothing and returns no damage, whether or not the pointer shows. The owner does not swap such a frame, and it does not count as a frame. A change of grid size or of the default background changes every cell and the border.
 
-A link (OSC 8) draws nothing of its own until the pointer is over it (ADR-1002, "Drawing"). The frame marks each cell of the link under the pointer `hovered`. Such a cell draws a dashed underline in place of its own underline style. The dashes take the color that the cell's own underline would take: SGR 58's color where set, otherwise the configured underline color or the foreground. When the hover moves, the frame marks the cells of the old and the new link changed. So the dashes come and go with the cells' own redraws. Tests: `tests/hover.rs`; tier 2's `link-hover-unifont` and `link-hover-unifont-1bit`. The overlay row that shows the link's address while Ctrl is held is not drawn yet. ADR-1002 leaves open what the rest of that row shows.
+A link (OSC 8) draws nothing of its own until the pointer is over it (ADR-1002, "Drawing"). The frame marks each cell of the link under the pointer `hovered`. Such a cell draws a dashed underline in place of its own underline style. The dashes take the color that the cell's own underline would take: SGR 58's color where set, otherwise the configured underline color or the foreground. When the hover moves, the frame marks the cells of the old and the new link changed. So the dashes come and go with the cells' own redraws. Tests: `tests/hover.rs`; tier 2's `link-hover-unifont` and `link-hover-unifont-1bit`. While Ctrl is held, the overlay row shows the link's address over the first cells of a row, and the rest of the row shows what the program drew. `src/link_row.rs` draws that row.
 
 A concealed cell (SGR 8) draws its background alone. It draws no glyph, no underline, no strike and no overline, and its ink reaches no other cell. The cursor and the selection draw over it as over a blank cell. So a block cursor on a concealed password shows the cursor and no letter. ECMA-48 and ctlseqs say only that the text is hidden. vtium hides the text's lines too, since a line under a hidden word would show the word's length. Test: `tests/renditions.rs`.
 
@@ -127,6 +127,19 @@ The console draws two things of its own over a display's frame, outside the term
 The console draws both in its built-in font, "vtium built-in", in the terminal's cell. A character the font lacks draws as a hollow box as wide as its cells, which `sprite::hollow_box` draws from the cell's size alone (ADR-1204 D1). A `NoticeReport` may carry a `Drawing`, which the notice shows to the left of its text or above it. The notice shows the drawing only where the text still shows every line that it shows without the drawing. A build with images draws a `Sprite` in the drawing's place. The sprite is RGB samples matched to a six-entry palette, at a whole-number scale (ADR-1401 D7). The drawing carries one sprite for the full drawing's place and one for the small drawing's place. The panic screen's small one is its sprite cropped to the monitor with `Sprite::crop`, as its small text is cropped from the full text. The notice and the mark both turn with the display, and both take the 1-bit mapping and stand-ins that a cell takes. Neither touches the renderer's record of the cells.
 
 When what the console drew over a frame changes, the owner gives the areas it covered to `Renderer::redraw_area`. `Renderer::redraw_area` marks the cells and the border under those areas changed on the next frame. So each buffer that the display lends draws them again, whatever the buffer's age (ADR-1401 D2). Tests: `src/notice.rs`, and `an_area_drawn_over_is_redrawn_in_every_buffer` in `tests/damage.rs`.
+
+### Link hints
+
+Link hints put a short label of letters on each link, and the hint line, a help line on the overlay row, tells how to pick one. vtium-term decides where each label and the hint line go, and its README lists those rules. vtium-render draws what the frame places, in `src/link_row.rs`, on the CPU path and the GPU path alike.
+
+- **A label's letters.** Each letter takes one character cell, from the label's place, in the default colors inverted. The text cursor and the selection are not drawn under it. Function: `LinkRow::cell`. Test: `a_label_draws_over_its_link_and_the_link_underlines`.
+- **A hidden label.** A label that the letters typed no longer begin draws nothing, and its link keeps the dashed underline. Function: `LinkRow::label_at`. Test: `a_hidden_label_draws_nothing_and_its_link_still_underlines`.
+- **Labels that lie over each other.** vtium-term places labels apart unless a row is too short for them. Where labels do lie over each other, the later one draws on top, and a hidden one lets the one under it show. Function: `LinkRow::label_at`. Test: `a_later_label_draws_over_an_earlier_one_until_it_hides`.
+- **The overlay row above a label.** Where the overlay row and a label share a cell, the overlay row draws. Test: `the_overlay_row_draws_above_a_label`.
+- **The cost of a cell.** The frame lists the labels in the order they lie in the view, and the labelled links sorted. `LinkRow::label_at` and `LinkRow::labelled` look a cell up in those lists by binary search. Test: `a_cell_looks_up_few_labels_on_a_screen_full_of_them`.
+
+References:
+- ADR-1002, section 7 ("Keyboard link hints"): how labels draw, and the rules the maintainer decided on 2026-11-15.
 
 ### Glyph ink past its cells
 

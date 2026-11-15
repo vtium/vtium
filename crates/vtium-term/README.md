@@ -37,6 +37,7 @@ These parts are in place:
 | `src/screen/edit.rs` | Erasing (ED, EL, ECH, and their selective forms), inserting and deleting characters and lines, scrolling. |
 | `src/screen/selection.rs` | The selection, held by line identity, its copy and its cells in the frame. |
 | `src/screen/links.rs` | OSC 8 on the screen: the open link, the link store's sweep and strip, the hovered link and the overlay showing its URI. |
+| `src/screen/hints.rs` | Link hints: where each label and the hint line go, one function for each rule. |
 | `src/screen/marks.rs` | OSC 133: the marks each sequence sets on the cursor's line, the fresh line, and the prompt jumps. |
 | `src/screen/paragraph.rs` | With the `bidi` feature: the current paragraph properties, and where they reach rows: the cursor's paragraph at its first position, a paragraph a line feed enters, the rows ED clears, new rows, and the row a wrap starts (ADR-1004 D2). |
 | `src/screen/images.rs` | With the `images` feature: the image store's hooks on every screen event, each with the lines of the screen it acts on, the cells marked under each box the store reports changed, the frame's placements with the lines below the view, and the runs of placeholder cells read for a frame, for a store decision and for damage; without it, empty functions the compiler removes. |
@@ -545,6 +546,20 @@ The kitty keyboard protocol lets a program ask the terminal to send every key in
   - **What the default holds.** At the minspec grid, the default holds about 693 of the worst rows, or 445 with images. 1,000 full-width shell lines take about 29% of it, or 33% with images. At 80×30 and smaller, the default holds 1,000 of the worst rows.
   - **A set budget.** `sb-memory` sets a fixed budget. The budget is fenced from `SB_MEMORY_MIN` to the lesser of `SB_MEMORY_MAX` and a quarter of the machine's memory (`sb_memory`). `sb-size` can only lower what the budget allows.
   - Tests: `the_scrollback_drops_its_oldest_lines_past_its_byte_budget`, `the_byte_budget_drops_hostile_lines_and_keeps_a_thousand_plain_ones` (`tests/flood.rs`), `the_byte_budget_holds_through_resizes_and_its_count_is_exact` (`tests/reflow.rs`) and `the_worst_default_scrollback_fits_the_minspec_peak` and `the_scrollback_budget_follows_the_grid` (`tests/memory.rs`).
+
+### Link hints
+
+Link hints put a short label of letters on each link in the view, and typing a label copies that link's address. The `vtium` crate starts and ends hints, chooses the letters and reads the keys. vtium-term decides where each label and the hint line go, and vtium-render draws them. The hint line is the help line on the overlay row that tells how to pick a label. Four rules decide the places, and each rule is one function in `src/screen/hints.rs`. To change a rule, change its function and the tests named here.
+
+1. **Where a label goes.** A label starts on the first cell where its link appears in the view, reading the rows from the top and each row from left to right. Function: `Screen::first_cells`. Test: `labels_sit_where_their_links_first_appear`.
+2. **Labels never overlap.** A label that would cover part of the label before it on the row shifts right just far enough to clear it. Function: `clear_the_label_before`. Test: `a_label_shifts_right_to_clear_the_label_before_it`.
+3. **The row's end.** The last label on a row ends at the row's last column at the latest. Each label before it moves left just far enough to clear the one after it. A row can be too short for its labels. There, each label that would pass the end ends at the last column, and a later label draws over an earlier one. Function: `fit_the_row_end`. Tests: `labels_at_the_row_end_move_left_to_clear_each_other` and `labels_longer_than_their_row_pile_up_at_its_end`.
+4. **Where the hint line goes.** The hint line sits on the bottom row. It moves to the top row while a label lies on the bottom row. It does not show while labels lie on both the top and the bottom rows, and a screen of one row counts as both. The pointer does not move it. Function: `hint_line_row`. Tests: `the_hint_line_leaves_the_bottom_row_while_a_label_lies_there` and `no_hint_line_shows_while_labels_lie_on_the_top_and_bottom_rows`.
+
+`Screen::place_link_hints` applies rules 1 to 3 after every input, so each label follows its link. It looks each linked cell up once, so a screen full of links stays cheap. Test: `placing_labels_looks_each_cell_and_label_up_once`.
+
+References:
+- ADR-1002, section 7 ("Keyboard link hints"): the four rules, as the maintainer decided them on 2026-11-15, and how hints start, end and copy a link.
 
 ## Notes for the next issues
 
