@@ -1,6 +1,8 @@
 //! OSC 8's links on the screen (ADR-1002, sections 1 to 4 and 7): the open
 //! link printed cells take, the link store's sweep and strip, the hovered
-//! link and the overlay a frame carries, and the labels of link hints.
+//! link, and the overlay row a frame carries. Where the labels of link
+//! hints and the hint line go is decided in `hints.rs`, which lists its
+//! rules.
 //!
 //! A sweep runs only when an open would pass [`LINKS_BYTES_MAX`], so the
 //! store follows the bytes (docs/architecture.md, "Determinism"), and at
@@ -31,15 +33,19 @@ pub(super) struct Hover {
     /// The view row the overlay covers.
     pub(super) overlay: Option<usize>,
     /// The labels of link hints, each placed where its link first appears
-    /// in the view.
+    /// in the view, in the order they lie in the view: row by row from the
+    /// top, and in each row from left to right.
     pub(super) hints: Vec<LinkHint>,
+    /// The links that have a label, sorted, so that drawing a cell finds
+    /// out quickly whether its link has one.
+    pub(super) labelled: Vec<LinkId>,
     /// What vtium shows on the overlay row in place of a URI, such as the
     /// line that tells how to pick a link hint.
     note: Option<String>,
 }
 
 /// The index of `link` in a list by `LinkId`.
-fn slot(link: LinkId) -> usize {
+pub(super) fn slot(link: LinkId) -> usize {
     usize::try_from(link.get()).unwrap_or(usize::MAX)
 }
 
@@ -151,6 +157,14 @@ impl Screen {
                 hint.link = link;
             }
         }
+        for link in &mut self.hover.labelled {
+            if let Some(renamed) = rename(*link) {
+                *link = renamed;
+            }
+        }
+        // the store keeps its entries in order, so the renamed ids stay
+        // sorted; sorting again costs little and keeps the lookup right
+        self.hover.labelled.sort_unstable();
     }
 
     /// Ends the open link, as RIS and a switch of screens do.
@@ -216,13 +230,21 @@ impl Screen {
     /// Finds the link under the pointer again, after the stream or the view
     /// changed what is there.
     pub(crate) fn refresh_hover(&mut self) {
+        // The labels are placed first, since where they lie decides the
+        // row of the hint line.
+        self.refresh_link_hints();
         let pointer = self.hover.pointer;
         let link = pointer.and_then(|(x, y)| self.link_at(x, y));
         let last = self.rows.saturating_sub(1);
-        let overlay = pointer
-            .filter(|_| self.hover.show_uri && link.is_some())
-            .map(|(_, y)| if y == last && last > 0 { 0 } else { last })
-            .or_else(|| self.note_row());
+        // vtium's note, while one is set, shows in place of a URI, so its
+        // own rule picks the row
+        let overlay = if self.hover.note.is_some() {
+            self.note_row()
+        } else {
+            pointer
+                .filter(|_| self.hover.show_uri && link.is_some())
+                .map(|(_, y)| if y == last && last > 0 { 0 } else { last })
+        };
         let changed = link != self.hover.link;
         if changed {
             self.mark_link_rows(self.hover.link);
@@ -237,7 +259,6 @@ impl Screen {
             }
             self.hover.overlay = overlay;
         }
-        self.refresh_link_hints();
     }
 
     /// Marks the view rows whose link tables hold `link`.
@@ -266,14 +287,25 @@ impl Screen {
             .or_else(|| self.hover.link.and_then(|l| self.link_uri(l)))
     }
 
-    /// The row vtium's note covers while one is set: the bottom row, or the
-    /// top row while the pointer is on the bottom one, as the URI's
-    /// overlay row is chosen.
+    /// The row vtium's note covers while one is set. While link hints are
+    /// on, the note is the hint line, and [`hint_line_row`] picks its row,
+    /// or none. While they are off, the note shows on the bottom row, or on
+    /// the top row while the pointer is on the bottom row, as the URI's
+    /// overlay row does.
+    ///
+    /// [`hint_line_row`]: super::hints::hint_line_row
+    ///
+    /// References:
+    /// - ADR-1002, section 4: the overlay row and the pointer.
     fn note_row(&self) -> Option<usize> {
         self.hover.note.as_ref()?;
         let last = self.rows.saturating_sub(1);
-        let on_last = self.hover.pointer.is_some_and(|(_, y)| y == last);
-        Some(if on_last && last > 0 { 0 } else { last })
+        if self.hover.hints.is_empty() {
+            let on_last = self.hover.pointer.is_some_and(|(_, y)| y == last);
+            return Some(if on_last && last > 0 { 0 } else { last });
+        }
+        let hints = &self.hover.hints;
+        super::hints::hint_line_row(self.rows, |row| hints.iter().any(|h| h.at.1 == row))
     }
 
     /// Shows `note` on the overlay row in place of a URI, or nothing of
@@ -293,125 +325,6 @@ impl Screen {
         self.hover.overlay = None;
         self.refresh_hover();
         if let Some(row) = self.hover.overlay {
-            self.damage.mark_rows(row..row.saturating_add(1));
-        }
-    }
-
-    /// The distinct links of the view, in the order each first appears:
-    /// row by row from the top, and in each row from left to right as the
-    /// row is drawn. Link hints label them in this order.
-    pub fn view_links(&self) -> Vec<LinkId> {
-        self.first_cells()
-            .into_iter()
-            .map(|(link, _)| link)
-            .collect()
-    }
-
-    /// Each distinct link of the view, with the cell where it first
-    /// appears, a column and a row, in the order [`view_links`] gives.
-    ///
-    /// [`view_links`]: Self::view_links
-    fn first_cells(&self) -> Vec<(LinkId, (usize, usize))> {
-        let mut found: Vec<(LinkId, (usize, usize))> = Vec::new();
-        for (y, line) in self.view().iter().enumerate() {
-            // a row whose link table is empty holds no link
-            if line.link_table().next().is_none() {
-                continue;
-            }
-            for x in 0..self.cols {
-                if let Some(link) = self.link_at(x, y)
-                    && !found.iter().any(|(l, _)| *l == link)
-                {
-                    found.push((link, (x, y)));
-                }
-            }
-        }
-        found
-    }
-
-    /// Labels `hints`, each a link and its label's letters, every label
-    /// shown, in place of the labels the screen held; an empty list ends
-    /// link hints. Each label is placed where its link first appears in
-    /// the view, and a link not in the view gets none. The rows of every
-    /// link that gains or loses a label are marked, since each cell of a
-    /// labelled link takes the hover's dashed underline.
-    pub fn set_link_hints(&mut self, hints: Vec<(LinkId, String)>) {
-        let old = core::mem::take(&mut self.hover.hints);
-        for hint in &old {
-            self.mark_link_rows(Some(hint.link));
-            self.damage
-                .mark_rows(hint.at.1..hint.at.1.saturating_add(1));
-        }
-        self.hover.hints = hints
-            .into_iter()
-            .map(|(link, label)| LinkHint {
-                link,
-                label,
-                shown: true,
-                at: (0, 0),
-            })
-            .collect();
-        for link in self.hover.hints.iter().map(|h| h.link).collect::<Vec<_>>() {
-            self.mark_link_rows(Some(link));
-        }
-        self.place_link_hints();
-    }
-
-    /// The labels of link hints, while they are on, each placed where its
-    /// link now first appears in the view.
-    pub fn link_hints(&self) -> &[LinkHint] {
-        &self.hover.hints
-    }
-
-    /// Shows the labels whose letters `shown` accepts and hides the rest,
-    /// marking the row of each label that appears or goes.
-    pub fn show_link_hints(&mut self, shown: impl Fn(&str) -> bool) {
-        for i in 0..self.hover.hints.len() {
-            let Some(hint) = self.hover.hints.get_mut(i) else {
-                continue;
-            };
-            let now = shown(&hint.label);
-            if now != hint.shown {
-                hint.shown = now;
-                let row = hint.at.1;
-                self.damage.mark_rows(row..row.saturating_add(1));
-            }
-        }
-    }
-
-    /// Places each label of link hints again, after the stream or the view
-    /// changed what is there.
-    fn refresh_link_hints(&mut self) {
-        if !self.hover.hints.is_empty() {
-            self.place_link_hints();
-        }
-    }
-
-    /// Places each label where its link first appears in the view, moved
-    /// left so that it ends at the row's last column at the latest, and
-    /// drops the label of each link no longer in the view, which keeps no
-    /// label from then on. The rows a label leaves or arrives on are
-    /// marked.
-    fn place_link_hints(&mut self) {
-        let first = self.first_cells();
-        let cols = self.cols;
-        let mut marks = Vec::new();
-        let hints = core::mem::take(&mut self.hover.hints);
-        let mut kept = Vec::with_capacity(hints.len());
-        for mut hint in hints {
-            let Some(&(_, (x, y))) = first.iter().find(|(l, _)| *l == hint.link) else {
-                marks.push(hint.at.1);
-                continue;
-            };
-            let at = (x.min(cols.saturating_sub(hint.label.len())), y);
-            if at != hint.at {
-                marks.extend([hint.at.1, at.1]);
-                hint.at = at;
-            }
-            kept.push(hint);
-        }
-        self.hover.hints = kept;
-        for row in marks {
             self.damage.mark_rows(row..row.saturating_add(1));
         }
     }
@@ -457,105 +370,6 @@ mod tests {
         let palette = crate::Palette::default();
         let frame = t.screen().frame(&palette, age);
         (0..rows).filter(|&r| frame.row_changed(r)).collect()
-    }
-
-    /// The labels' letters, shown flags and places.
-    fn placed(s: &Screen) -> Vec<(&str, bool, (usize, usize))> {
-        s.link_hints()
-            .iter()
-            .map(|h| (h.label.as_str(), h.shown, h.at))
-            .collect()
-    }
-
-    // ADR-1002, section 7: the view's links in the order each first
-    // appears, and each label where its link first appears, moved left to
-    // end at the row's last column.
-    #[test]
-    fn labels_sit_where_their_links_first_appear() {
-        let mut t = crate::Terminal::new(8, 4, 0);
-        let bytes = format!(
-            "ab{}\r\n{}{}\r\n{}",
-            linked("x:one", "1"),
-            linked("x:two", "2"),
-            linked("x:one", "1"),
-            linked("x:end", "\x1b[8Gz"),
-        );
-        t.input(bytes.as_bytes());
-        let s = t.screen_mut();
-        let links = s.view_links();
-        let uris: Vec<_> = links.iter().filter_map(|&l| s.link_uri(l)).collect();
-        assert_eq!(uris, ["x:one", "x:two", "x:end"]);
-        let hints = links
-            .iter()
-            .zip(["a", "s", "dd"])
-            .map(|(&l, t)| (l, t.to_owned()))
-            .collect();
-        s.set_link_hints(hints);
-        assert_eq!(
-            placed(s),
-            [
-                ("a", true, (2, 0)),
-                ("s", true, (0, 1)),
-                ("dd", true, (6, 2))
-            ]
-        );
-        let palette = crate::Palette::default();
-        assert_eq!(
-            s.frame(&palette, crate::Age::NEVER).link_hints(),
-            s.link_hints()
-        );
-    }
-
-    // ADR-1002, section 7: every cell of a labelled link takes the dashed
-    // underline, so the rows of each link that gains or loses a label are
-    // marked, and the row of a label that shows or hides.
-    #[test]
-    fn the_rows_of_links_that_gain_or_lose_a_label_are_marked() {
-        let mut t = crate::Terminal::new(8, 5, 0);
-        let bytes = format!(
-            "{}\r\nplain\r\n{}\r\nplain\r\n{}",
-            linked("x:a", "a"),
-            linked("x:b", "b"),
-            linked("x:a", "a"),
-        );
-        t.input(bytes.as_bytes());
-        let age = t.screen_mut().checkpoint();
-        let links = t.screen().view_links();
-        assert_eq!(links.len(), 2);
-        let Some(&a) = links.first() else { return };
-        t.screen_mut().set_link_hints(vec![(a, "a".to_owned())]);
-        assert_eq!(marked(&t, age, 5), [0, 4], "the link's rows, on gain");
-        let age = t.screen_mut().checkpoint();
-        t.screen_mut().show_link_hints(|l| l.starts_with('s'));
-        assert_eq!(marked(&t, age, 5), [0], "the label's row, as it hides");
-        assert_eq!(placed(t.screen()), [("a", false, (0, 0))]);
-        let age = t.screen_mut().checkpoint();
-        t.screen_mut().set_link_hints(Vec::new());
-        assert_eq!(marked(&t, age, 5), [0, 4], "the link's rows, on loss");
-        assert!(t.screen().link_hints().is_empty());
-    }
-
-    // ADR-1002, section 7: a label follows its link to where the link now
-    // first appears, marking both rows, and a link that leaves the view
-    // loses its label.
-    #[test]
-    fn a_label_follows_its_link_and_goes_when_the_link_leaves() {
-        let mut t = crate::Terminal::new(8, 4, 0);
-        let bytes = format!("{}\r\n\r\n  {}", linked("x:a", "a"), linked("x:a", "a"));
-        t.input(bytes.as_bytes());
-        let links = t.screen().view_links();
-        assert_eq!(links.len(), 1);
-        let Some(&a) = links.first() else { return };
-        t.screen_mut().set_link_hints(vec![(a, "a".to_owned())]);
-        let age = t.screen_mut().checkpoint();
-        // erase the first row, where the label sat
-        t.input(b"\x1b[H\x1b[2K");
-        assert_eq!(placed(t.screen()), [("a", true, (2, 2))]);
-        assert!(marked(&t, age, 4).contains(&2), "the row it moved to");
-        t.input(b"\x1b[3;1H\x1b[2K");
-        assert!(t.screen().link_hints().is_empty());
-        t.input(linked("x:a", "a").as_bytes());
-        assert!(t.screen().link_hints().is_empty(), "lost for good");
     }
 
     // ADR-1002, section 7: a sweep counts each labelled link as named, as

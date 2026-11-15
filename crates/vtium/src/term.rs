@@ -229,6 +229,8 @@ pub struct Snapshot {
     overlay: Option<(usize, String)>,
     /// The labels of link hints, while they are on.
     link_hints: Vec<vtium_term::LinkHint>,
+    /// The links that have a label, sorted.
+    labelled: Vec<LinkId>,
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
     /// The order each row is drawn in, which the frame the snapshot
@@ -254,6 +256,7 @@ impl Snapshot {
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
         let link_hints = frame.link_hints().to_vec();
+        let labelled = frame.labelled_links().to_vec();
         #[cfg(feature = "images")]
         let placements = frame.placements().to_vec();
         Snapshot {
@@ -265,6 +268,7 @@ impl Snapshot {
             hovered,
             overlay,
             link_hints,
+            labelled,
             palette,
             #[cfg(feature = "images")]
             placements,
@@ -288,7 +292,7 @@ impl Snapshot {
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
         )
-        .with_link_hints(&self.link_hints);
+        .with_link_hints(&self.link_hints, &self.labelled);
         #[cfg(feature = "images")]
         let frame = frame.with_placements(self.placements.clone());
         // the cursor came from the screen's frame already drawn where its

@@ -30,6 +30,7 @@
 //! margin.
 
 mod edit;
+mod hints;
 mod images;
 mod links;
 mod marks;
@@ -636,7 +637,7 @@ impl Screen {
         )
         .with_selection(selected)
         .with_hover(self.hover.link, self.hover.overlay.zip(self.overlay_text()))
-        .with_link_hints(&self.hover.hints);
+        .with_link_hints(&self.hover.hints, self.labelled_links());
         #[cfg(feature = "images")]
         let frame = frame.with_placements(placements);
         #[cfg(feature = "bidi")]
