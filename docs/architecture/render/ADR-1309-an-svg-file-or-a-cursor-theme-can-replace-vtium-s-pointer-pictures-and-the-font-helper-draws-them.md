@@ -44,6 +44,14 @@ considered:
   - operator: aaronsb
     said: "I guess I feel like just naming a theme with no specific path is unsafe because you don't know exactly how that is selectiing it"
     via: the steering session, 2026-11-15
+  - operator: aaronsb
+    said: "Allow both BSDs [deny.toml allows BSD-2-Clause and BSD-3-Clause, and the package ships tiny-skia's notice]"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [BSD licenses]
+  - operator: aaronsb
+    said: "data-hotspot, required"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [hotspot]
 status: proposed
 date: 2026-11-15
 deciders:
