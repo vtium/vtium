@@ -125,6 +125,9 @@ pub struct Config {
     /// The display's depth: at [`Depth::One`] it is drawn in black and
     /// white (`src/mono.rs`).
     pub depth: Depth,
+    /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
+    /// ligature across its cells ([`crate::syllable`]).
+    pub ligatures: bool,
 }
 
 impl Default for Config {
@@ -139,6 +142,7 @@ impl Default for Config {
             blink: TextBlink::default(),
             pointer: PointerShape::default(),
             depth: Depth::default(),
+            ligatures: false,
         }
     }
 }
@@ -387,6 +391,8 @@ struct Pass<'p, 'f> {
     /// The overlay row showing the hovered link's address (ADR-1002,
     /// "Drawing"), whose cells take the place of the screen's.
     link_row: Option<LinkRow<'f>>,
+    /// [`Config::ligatures`].
+    ligatures: bool,
 }
 
 impl<'f> Pass<'_, 'f> {
@@ -774,7 +780,7 @@ fn joined_syllable<F: Face>(
     fc: &FrameCell<'_>,
     out: &mut Vec<char>,
 ) -> Option<(Syllable, Piece)> {
-    let (s, index) = Syllable::find(p.frame, (col, row), fc)?;
+    let (s, index) = Syllable::find(p.frame, (col, row), fc, p.ligatures)?;
     let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
     if !s.joined(row, p.held, covered) {
         return None;
@@ -1393,6 +1399,7 @@ impl<F: Face> Renderer<F> {
             held,
             plain: core::cell::OnceCell::new(),
             link_row,
+            ligatures: self.config.ligatures,
         };
         pass.at_pair = pass.pair_cells(at);
         // the rows that draw the cursor, or drew it last frame, as the
