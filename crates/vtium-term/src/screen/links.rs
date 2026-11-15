@@ -299,26 +299,33 @@ impl Screen {
             .or_else(|| self.hover.link.and_then(|l| self.link_uri(l)))
     }
 
-    /// The row vtium's note covers while one is set: the bottom row, or
-    /// the top row in two cases. While link hints are on, the note moves to
-    /// the top row only while a label lies on the bottom row, so that the
-    /// note never hides a label, and the pointer does not move it. While
-    /// they are off, the note moves to the top row while the pointer is on
-    /// the bottom row, as the URI's overlay row does.
+    /// The row vtium's note covers while one is set. While link hints are
+    /// on, the note is the hint line: it stays on the bottom row, and moves
+    /// to the top row only while a label lies on the bottom row, so that
+    /// it never hides a label. While labels lie on both the top and the
+    /// bottom rows, the hint line does not show at all. A screen of one
+    /// row has a label on both. The pointer does not move the hint line.
+    /// While hints are off, the note shows on the bottom row, or on the top
+    /// row while the pointer is on the bottom row, as the URI's overlay row
+    /// does.
     ///
     /// References:
-    /// - ADR-1002, section 7, "How labels are drawn": the hint line's row,
-    ///   as the maintainer decided on 2026-11-15.
+    /// - ADR-1002, section 7, "Where the hint line goes": the hint line's
+    ///   row, as the maintainer decided on 2026-11-15.
     /// - ADR-1002, section 4: the overlay row and the pointer.
     fn note_row(&self) -> Option<usize> {
         self.hover.note.as_ref()?;
         let last = self.rows.saturating_sub(1);
-        let up = if self.hover.hints.is_empty() {
-            self.hover.pointer.is_some_and(|(_, y)| y == last)
-        } else {
-            self.hover.hints.iter().any(|h| h.at.1 == last)
-        };
-        Some(if up && last > 0 { 0 } else { last })
+        if self.hover.hints.is_empty() {
+            let on_last = self.hover.pointer.is_some_and(|(_, y)| y == last);
+            return Some(if on_last && last > 0 { 0 } else { last });
+        }
+        let on = |row: usize| self.hover.hints.iter().any(|h| h.at.1 == row);
+        match (on(0), on(last)) {
+            (true, true) => None,
+            (false, true) => Some(0),
+            _ => Some(last),
+        }
     }
 
     /// Shows `note` on the overlay row in place of a URI, or nothing of
@@ -833,7 +840,7 @@ mod tests {
         let mut t = crate::Terminal::new(80, 4, 0);
         t.input(
             format!(
-                "{}\x1b[4;1H{}",
+                "\x1b[2;1H{}\x1b[4;1H{}",
                 linked("x:top", "top"),
                 linked("x:bottom", "bottom")
             )
@@ -850,7 +857,7 @@ mod tests {
         t.screen_mut().set_overlay_note(Some("pick".to_owned()));
         assert_eq!(
             placed(t.screen()),
-            [("a", true, (0, 0)), ("s", true, (0, 3))]
+            [("a", true, (0, 1)), ("s", true, (0, 3))]
         );
         assert_eq!(row(&t), Some(0), "a label lies on the bottom row");
         let age = t.screen_mut().checkpoint();
@@ -858,8 +865,7 @@ mod tests {
         t.input(b"\r\n");
         assert_eq!(
             placed(t.screen()),
-            [("s", true, (0, 2))],
-            "the top row's link scrolled away"
+            [("a", true, (0, 0)), ("s", true, (0, 2))]
         );
         assert_eq!(row(&t), Some(3), "back on the bottom row");
         assert!(marked(&t, age, 4).contains(&0) && marked(&t, age, 4).contains(&3));
@@ -880,6 +886,46 @@ mod tests {
             Some(3),
             "Ctrl over a link does not move the hint line"
         );
+    }
+
+    // ADR-1002, section 7, as the maintainer decided on 2026-11-15: while
+    // labels lie on both the top and the bottom rows, vtium shows no hint
+    // line, so it hides no label. A screen of one row is both.
+    #[test]
+    fn no_hint_line_shows_while_labels_lie_on_the_top_and_bottom_rows() {
+        let mut t = crate::Terminal::new(80, 4, 0);
+        let bytes = format!(
+            "{}\x1b[4;1H{}",
+            linked("x:top", "top"),
+            linked("x:bottom", "bottom")
+        );
+        t.input(bytes.as_bytes());
+        let palette = crate::Palette::default();
+        let row = |t: &crate::Terminal| {
+            t.screen()
+                .frame(&palette, crate::Age::NEVER)
+                .overlay()
+                .map(|o| o.row)
+        };
+        label_all(t.screen_mut(), &["a", "s"]);
+        t.screen_mut().set_overlay_note(Some("pick".to_owned()));
+        assert_eq!(
+            placed(t.screen()),
+            [("a", true, (0, 0)), ("s", true, (0, 3))]
+        );
+        assert_eq!(row(&t), None, "labels on both rows");
+        let age = t.screen_mut().checkpoint();
+        // the top row's link scrolls away, so the bottom row is free
+        t.input(b"\r\n");
+        assert_eq!(placed(t.screen()), [("s", true, (0, 2))]);
+        assert_eq!(row(&t), Some(3), "the hint line returns to the bottom row");
+        assert!(marked(&t, age, 4).contains(&3));
+
+        let mut t = crate::Terminal::new(8, 1, 0);
+        t.input(linked("x:a", "abc").as_bytes());
+        label_all(t.screen_mut(), &["a"]);
+        t.screen_mut().set_overlay_note(Some("pick".to_owned()));
+        assert_eq!(row(&t), None, "one row with a label");
     }
 
     // ADR-1002, section 7, as the maintainer decided on 2026-11-15: a

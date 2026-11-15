@@ -292,16 +292,20 @@ mod tests {
         assert!(!row.covers(2, 0));
     }
 
-    // ADR-1002, section 7: vtium's note on the overlay row draws from the
-    // row's first column, above any label on that row.
+    // ADR-1002, section 7: an overlay row draws from the row's first
+    // column, above any label on that row. The screen never puts its note
+    // over a label, so the frame here is given the overlay directly, to
+    // check what the renderer draws if a frame holds both.
     #[test]
-    fn the_note_draws_on_the_overlay_row_above_a_label() {
+    fn the_overlay_row_draws_above_a_label() {
         let mut t = Terminal::new(8, 1, 0);
         t.input(b"\x1b]8;;x:a\x1b\\abc\x1b]8;;\x1b\\");
         label(&mut t, "s");
-        t.screen_mut().set_overlay_note(Some("Copied".to_owned()));
         let palette = Palette::default();
-        let frame = t.screen().frame(&palette, Age::NEVER);
+        let frame = t
+            .screen()
+            .frame(&palette, Age::NEVER)
+            .with_hover(None, Some((0, "Copied")));
         let row = LinkRow::new(&frame, 8, 1);
         assert!(row.is_some(), "no link row");
         let Some(row) = row else { return };
