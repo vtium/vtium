@@ -1,6 +1,6 @@
 # vtium's tier 3 goldens
 
-Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. The maintainer has reviewed every golden here. The last ones reviewed, on 2026-11-13, are the four panic goldens that the maintainer's drawing of Tux moved or added, and the `img-delete` golden that kitty 0.50.0's replies moved. Tier 3 began with goldens copied from an earlier harness that judged another console (`../README.md`, The copies), and ADR-1503 D1 made them vtium's. Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
+Every golden here is vtium's own: a capture of vtium that the maintainer has reviewed, or one listed in `../provisional.tsv`, which judges nothing until the maintainer reviews it. The maintainer has reviewed every golden here but those that `../provisional.tsv` lists. The last ones reviewed, on 2026-11-13, are the four panic goldens that the maintainer's drawing of Tux moved or added, and the `img-delete` golden that kitty 0.50.0's replies moved. Tier 3 began with goldens copied from an earlier harness that judged another console (`../README.md`, The copies), and ADR-1503 D1 made them vtium's. Each copied golden that vtium did not draw pixel for pixel has been replaced by vtium's capture in a commit of its own, and the copied goldens that vtium draws pixel for pixel stay as vtium's goldens. The sections below say what each group of goldens shows and where it came from.
 
 ## The small displays
 
@@ -144,3 +144,12 @@ The screens print `vtium tier 3` and no longer name another program: `boxdraw`'s
 | Golden | What it shows |
 |---|---|
 | `kmsg-notice/kernel-message.png` | 1366x768, the minimal configuration, once the kernel logged `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err while vtium showed its login prompt on tty2. The notice box spans the top of the boot display and holds that message, then the line `Press Esc to dismiss this message (15)`, the count at its first value, in black on pale red with a red border. It covers the row of the `tier3 login:` prompt, and the rest of the screen is black. The maintainer reviewed and accepted it on 2026-11-11, so it judges. |
+
+## The built-in font
+
+The goldens of `builtin-font` (`../README.md`, The built-in font) are vtium's captures from `make tier3-minimal VARIANTS=builtin-font`, with the console built at bd05cf40. Both are provisional (`../provisional.tsv`) until the maintainer reviews them.
+
+| Golden | What it shows |
+|---|---|
+| `builtin-font/builtin-login.png` | 1366×768, after the agent stopped vtium, removed `/etc/vtium`, the font files tier 3 installs for vtium and the font helper, and started vtium again. `tier3 login:` in the top row, in white on black in the compiled-in GNU Unifont's 8×16 glyphs, 3 pixels in from the left edge, and the block cursor after it; the rest of the screen is black. Its sidecar `builtin-login.tol` masks the cursor's cell, which blinks with no vtium.conf. |
+| `builtin-font/builtin-notice.png` | The same screen once the kernel logged `tmpfs: Unknown parameter 'vtium_tier3_warning'` at level err. The notice box spans the top of the display and holds that message, then the line `Press Esc to dismiss this message (15)`, the count at its first value, in black on pale red with a red border. The box's text is vtium built-in's 8×16 strike, cut from Terminus, where `kmsg-notice/kernel-message.png` shows the same box in Unifont. The box covers the login prompt's row, and the rest of the screen is black. |

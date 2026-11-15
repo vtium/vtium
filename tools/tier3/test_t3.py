@@ -1166,9 +1166,12 @@ class VtiumGoldenTest(unittest.TestCase):
         # the maintainer's drawing of Tux (ADR-1401 D7) and the img-delete
         # golden of kitty 0.50.0's replies (ADR-1100 D15) on 2026-11-13. The
         # list in the tree names the login picture's capture (ADR-1100 D17)
-        # alone; a golden it names must be one a case draws.
+        # and the built-in font's two captures (ADR-1204 D1); a golden it
+        # names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), ["images-login-640x480/login-image"])
+        self.assertEqual(sorted(prov), ["builtin-font/builtin-login",
+                                        "builtin-font/builtin-notice",
+                                        "images-login-640x480/login-image"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:

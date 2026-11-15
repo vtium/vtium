@@ -1,0 +1,4 @@
+# With no vtium.conf the cursor blinks every 500 ms, so a capture may show
+# it on or off. The mask is the cursor's cell after "tier3 login: ", column
+# 13 of row 0: an 8x16 cell, 3 pixels in from the left edge at 1366x768.
+mask=107,0,115,16
