@@ -216,16 +216,16 @@ fn the_minspec_grid_and_scrollback() {
             [
                 1_392_000,
                 13_920_000, // plain
-                1_460_000,
-                14_600_000, // shell, full width
-                580_000,
-                5_800_000, // shell, 60 cells
-                3_812_000,
-                38_120_000, // art
-                5_512_000,
-                55_120_000,
-                165_360_000,
-                551_200_000, // worst
+                1_464_000,
+                14_640_000, // shell, full width
+                584_000,
+                5_840_000, // shell, 60 cells
+                3_816_000,
+                38_160_000, // art
+                6_208_000,
+                62_080_000,
+                186_240_000,
+                620_800_000, // worst
                 41_760_000,
                 139_200_000, // plain, the larger caps
             ]
@@ -479,6 +479,14 @@ fn a_screen_row_costs_at_most_its_bound() {
         let want = [12_477, 5_952, 3_052];
         #[cfg(not(feature = "images"))]
         let want = [8_142, 3_912, 2_032];
+        assert_eq!(GRIDS.map(|(cols, _)| Line::bytes_max(cols)), want);
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        #[cfg(feature = "images")]
+        let want = [12_413, 5_888, 2_988];
+        #[cfg(not(feature = "images"))]
+        let want = [8_078, 3_848, 1_968];
         assert_eq!(GRIDS.map(|(cols, _)| Line::bytes_max(cols)), want);
     }
 }
@@ -959,11 +967,17 @@ fn the_worst_default_scrollback_fits_the_minspec_peak() {
         }
     }
     assert_eq!(figures[0].1, SB_MEMORY_DEFAULT);
+    // The worst scrollback row, then each grid's screens at their worst,
+    // `sb-memory`'s default and the worst peak. With images, a screen row
+    // may hold placeholder clusters outside its budget, so its figures are
+    // higher. A 32-bit target's rows are smaller, and its default budget is
+    // the same.
+    //
+    // References:
+    // - ADR-1001, "Placeholder cells": the clusters outside the budget.
+    // - ADR-1009 D6: the figures at 170 by 48 on both targets.
     #[cfg(target_pointer_width = "64")]
     {
-        // with images, a screen row may hold placeholder clusters outside
-        // its budget (ADR-1001, "Placeholder cells"); ADR-1009 D6 gives
-        // the figures
         #[cfg(feature = "images")]
         let want = (
             11_154,
@@ -980,6 +994,31 @@ fn the_worst_default_scrollback_fits_the_minspec_peak() {
                 (847_680, 5_373_952, 16_762_688),
                 (254_400, 5_963_776, 14_763_456),
                 (132_000, 6_094_848, 12_733_056),
+            ],
+        );
+        assert_eq!(
+            (worst_row(), figures.as_slice()),
+            (want.0, want.1.as_slice())
+        );
+    }
+    #[cfg(target_pointer_width = "32")]
+    {
+        #[cfg(feature = "images")]
+        let want = (
+            11_090,
+            [
+                (1_257_696, 4_915_200, 16_713_952),
+                (372_960, 5_832_704, 16_178_016),
+                (189_360, 6_029_312, 13_406_416),
+            ],
+        );
+        #[cfg(not(feature = "images"))]
+        let want = (
+            8_200,
+            [
+                (841_536, 5_373_952, 16_756_544),
+                (250_560, 5_963_776, 14_695_616),
+                (128_160, 6_094_848, 12_665_216),
             ],
         );
         assert_eq!(
