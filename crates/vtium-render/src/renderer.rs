@@ -1022,7 +1022,7 @@ impl<F: Face> Renderer<F> {
     ///
     /// When the font's underline and strike-through lines changed too, as
     /// an outline font's do once the glyph helper has measured them, the
-    /// renderer takes the new lines ([`Renderer::lines_changed`]).
+    /// renderer takes the new lines (`Renderer::lines_changed`).
     pub fn glyphs_changed(&mut self, chars: &[char]) {
         self.lines_changed();
         let arrived = sorted(chars);

@@ -63,7 +63,7 @@ impl Surface {
         self.map(r, Surface::place)
     }
 
-    /// The view's area the display area `r` draws: [`Surface::area`]
+    /// The view's area the display area `r` draws: `Surface::area`
     /// undone.
     pub fn view_area(&self, r: Rect) -> Rect {
         self.map(r, Surface::unplace)

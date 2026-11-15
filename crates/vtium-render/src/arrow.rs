@@ -423,7 +423,7 @@ impl Arrow {
     /// as the GPU path draws it into the upright frame. The default shape
     /// is the arrow, and every other shape is its own picture, drawn the
     /// same height as the arrow and outlined the same way, but never less
-    /// than [`SPRITE_HEIGHT_MIN`] pixels tall.
+    /// than `SPRITE_HEIGHT_MIN` pixels tall.
     pub fn upright_shape(shape: PointerShape, cell_height: u32) -> Arrow {
         let Some(sprite) = sprite(shape) else {
             return Arrow::upright(cell_height);
