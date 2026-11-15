@@ -1,0 +1,29 @@
+[package]
+name = "vtium-clipboard"
+description = "vtium-clipboard, also installed as vticlip, which copies text from a script or a pipe to the console's clipboard"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "vtium-clipboard"
+path = "src/main.rs"
+
+[dependencies]
+# CLIPBOARD_MAX, the most bytes vtium's clipboard holds, so the program
+# refuses text larger than vtium keeps from the one place that sets it.
+vtium-term.workspace = true
+# tcgetattr and tcsetattr for the terminal's mode while the program reads
+# the replies; the version vtium-platform already builds.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "termios"] }
+
+[dev-dependencies]
+# A pty for the exit status tests; vtium-platform already builds this
+# version with these features.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "pty", "termios"] }
