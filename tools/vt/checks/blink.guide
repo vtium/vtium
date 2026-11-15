@@ -10,26 +10,27 @@
 title: slow blink, rapid blink and the cursor's pace
 
 step: Slow and rapid blink side by side
-run: clear; printf '\033[5mslow\033[0m  \033[6mrapid\033[0m  \033[5;6mboth\033[0m  steady\n'; sleep 15
+run: clear; printf '\033[5mslow\033[0m  \033[6mrapid\033[0m  \033[5;6mboth\033[0m  steady\n'; guide-wait
 expect: "slow" blinks at vtium's usual pace. "rapid" blinks *clearly faster*,
 expect: about two and a half times a second. "both" blinks at the rapid
 expect: pace, with "rapid". "steady" *never blinks*.
 
 step: Rapid blink with colors and other attributes
-run: clear; printf '\033[6;31;4mred underlined\033[0m \033[6;7mreversed\033[0m \033[6;1mbold\033[0m \033[6m中文\033[0m\n'; sleep 15
+run: clear; printf '\033[6;31;4mred underlined\033[0m \033[6;7mreversed\033[0m \033[6;1mbold\033[0m \033[6m中文\033[0m\n'; guide-wait
 expect: each of the four words blinks at the rapid pace. The red word keeps
 expect: *its underline* while its letters are hidden, and "reversed" keeps its
 expect: light background. Both wide characters *blink together*.
 
 step: Rapid blink stops with the text
-run: clear; printf '\033[6mrapid for five seconds\033[0m\n'; sleep 5; clear; echo "the rapid text is gone"; sleep 5
-expect: the line blinks rapidly for five seconds, then *the screen clears* and
+run: clear; printf '\033[6mrapid until you press a key\033[0m\n'; guide-wait "Press a key or click to clear the screen."; clear; echo "the rapid text is gone"; guide-wait
+expect: the line blinks rapidly until you press a key, then *the screen clears* and
 expect: shows "the rapid text is gone", which *never blinks*.
 
 step: The cursor blinks at the pace a program sets
-run: clear; printf '\033[16;250]\033[5mslow\033[0m  fast cursor: '; sleep 10; printf '\033[16]\n\033[5mslow\033[0m  usual cursor: '; sleep 10; echo
-expect: for ten seconds the cursor after "fast cursor:" blinks
-expect: *twice as fast* as "slow", without a key pressed. Then the cursor
+run: clear; printf '\033[16;250]\033[5mslow\033[0m  fast cursor: '; guide-wait ''; printf '\033[16]\n\033[5mslow\033[0m  usual cursor: '; guide-wait ''; echo
+do: watch the cursor, then press a key or click; watch it again, and press a key or click to end.
+expect: the cursor after "fast cursor:" blinks
+expect: *twice as fast* as "slow". Press a key or click, and the cursor
 expect: moves to the second line, after "usual cursor:", and blinks
 expect: *at the same pace* as "slow". Both words "slow" keep the same pace
 expect: throughout.
