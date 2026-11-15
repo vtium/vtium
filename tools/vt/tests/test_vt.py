@@ -1083,15 +1083,16 @@ class RunVt(Case):
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
         self.assertFalse(os.path.exists(stage))
 
-    def test_a_login_or_shell_run_reads_the_config_it_is_given(self):
+    def test_a_login_shell_or_guide_run_reads_the_config_it_is_given(self):
         # --config names a vtium.conf, such as config/login-picture.conf, in
-        # place of the review's for a login or a shell run, copied as the
-        # review's is. A run without it keeps the review's.
+        # place of the review's for a login, a shell or a guide run, copied
+        # as the review's is. A run without it keeps the review's.
         review = os.path.join(VT, "config", "vtium.conf")
         stage = os.path.join(self.s.standins, "run-vtium-vt")
         conf = os.path.join(self.s.tmp, "t.conf")
         write(conf, "login-image=/usr/share/pixmaps/t.png\n", 0o644)
-        for session in ("--login", "--shell"):
+        guide = os.path.join(VT, "checks", "start.guide")
+        for session in ("--login", "--shell", f"--guide={guide}"):
             with self.subTest(session=session):
                 p = self.run_vt(session, f"--config={conf}", "--dry-run", "8")
                 self.assertEqual(p.returncode, 0, p.stderr)
@@ -1113,11 +1114,8 @@ class RunVt(Case):
         copy = os.path.join(seen, "config", "vtium.conf")
         self.assertEqual(read(copy), read(conf))
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
-        # The acceptance pass and a guide keep the review's file.
-        guide = os.path.join(VT, "checks", "start.guide")
-        for opts in ([], [f"--guide={guide}"]):
-            with self.subTest(opts=opts):
-                self.refused(self.run_vt(*opts, f"--config={conf}", "--dry-run", "8"), "--config goes with --login or --shell")
+        # The acceptance pass keeps the review's file.
+        self.refused(self.run_vt(f"--config={conf}", "--dry-run", "8"), "--config goes with --login, --shell or --guide")
         # The given file is held to the review file's rules, a symlink
         # included.
         os.chmod(conf, 0o664)
@@ -1658,7 +1656,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer-file pointer restart script start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1666,13 +1664,14 @@ class VtSh(Case):
     def test_a_guide_is_make_vt_checks(self):
         self.refused(self.vt_sh(VTIUM_VT_GUIDE="start"), "go with make vt-check")
 
-    def test_conf_goes_with_a_login_or_a_shell_and_must_exist(self):
+    def test_conf_goes_with_a_login_a_shell_or_a_guide_and_must_exist(self):
         conf = os.path.join(self.s.tmp, "t.conf")
         write(conf, "login-image=/usr/share/pixmaps/t.png\n", 0o644)
-        for session in ("accept", "guide"):
-            with self.subTest(session=session):
-                self.refused(self.vt_sh(VTIUM_VT_SESSION=session, VTIUM_VT_GUIDE="start" if session == "guide" else "",
-                                        VTIUM_VT_CONF=conf), "CONF goes with make vt-login and make vt-shell")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="accept", VTIUM_VT_CONF=conf),
+                     "CONF goes with make vt-login, make vt-shell and make vt-check")
+        p = self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_CONF=conf, VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f" --config={conf} ", p.stdout)
         self.refused(self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF=conf + "-missing"), "CONF=" + conf + "-missing: no file")
         p = self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="t.conf", VTIUM_VT_DRY_RUN="1")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
@@ -1959,7 +1958,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer-file pointer restart script start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -1974,20 +1973,21 @@ class Make(Case):
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertNotIn("--debug", p.stdout)
 
-    def test_conf_reaches_only_vt_login_and_vt_shell(self):
-        # CONF names the run's vtium.conf; CONF or VTIUM_VT_CONF exported in
-        # the shell does not reach the other targets.
+    def test_conf_reaches_only_vt_login_vt_shell_and_vt_check(self):
+        # CONF names the run's vtium.conf, such as the confs beside
+        # pointer-file.guide; CONF or VTIUM_VT_CONF exported in the shell
+        # does not reach make vt-accept, whose pages expect the review's
+        # file.
         conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
-        for target in ("vt-login", "vt-shell"):
+        for target, extra in (("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
             with self.subTest(target=target):
-                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "CONF=tools/vt/config/login-picture.conf")
+                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", *extra,
+                              "CONF=tools/vt/config/login-picture.conf")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 self.assertIn(f" --config={conf} ", p.stdout)
-        for target, extra in (("vt-accept", ()), ("vt-check", ("GUIDE=start",))):
-            with self.subTest(target=target):
-                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", *extra, CONF=conf, VTIUM_VT_CONF=conf)
-                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-                self.assertNotIn(" --config=", p.stdout)
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", CONF=conf, VTIUM_VT_CONF=conf)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn(" --config=", p.stdout)
 
     def test_a_guide_reaches_only_vt_check(self):
         # One exported in the shell does not turn vt-accept into a guided run.
@@ -3633,6 +3633,8 @@ class Package(Case):
         "usr/share/licenses/vtium/LICENSE",
         "usr/share/licenses/vtium/OFL-1.1.txt",
         "usr/share/licenses/vtium/rgb-license.txt",
+        "usr/share/licenses/vtium/tiny-skia-LICENSE",
+        "usr/share/vtium/pointers.svg",
     ])
 
     # What the ordinary-machine build, FEATURES='images logind gpu', stages
@@ -3650,6 +3652,8 @@ class Package(Case):
         "usr/share/licenses/vtium/LICENSE": "LICENSE",
         "usr/share/licenses/vtium/OFL-1.1.txt": "crates/vtium-font/data/OFL-1.1.txt",
         "usr/share/licenses/vtium/rgb-license.txt": "crates/vtium-term/gen-color-names/src/rgb-license.txt",
+        "usr/share/licenses/vtium/tiny-skia-LICENSE": "crates/vtium-config/licenses/tiny-skia-LICENSE",
+        "usr/share/vtium/pointers.svg": "crates/vtium/install/pointers.svg",
     }
 
     # A stand-in cargo that records the helper paths each build bakes in,
@@ -3925,7 +3929,8 @@ class Package(Case):
         self.assertEqual([f for f in self.staged() if f.startswith("usr/share/licenses/")],
                          ["usr/share/licenses/vtium-git/COPYING", "usr/share/licenses/vtium-git/LICENSE",
                           "usr/share/licenses/vtium-git/OFL-1.1.txt",
-                          "usr/share/licenses/vtium-git/rgb-license.txt"])
+                          "usr/share/licenses/vtium-git/rgb-license.txt",
+                          "usr/share/licenses/vtium-git/tiny-skia-LICENSE"])
         self.assertFalse([f for f in self.staged() if f.startswith("usr/share/licenses/vtium/")], self.staged())
 
     def test_enabling_the_packaged_template_with_no_vt_links_nothing(self):
