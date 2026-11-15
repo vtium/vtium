@@ -391,7 +391,9 @@ struct Pass<'p, 'f> {
     /// The overlay row showing the hovered link's address (ADR-1002,
     /// "Drawing"), whose cells take the place of the screen's.
     link_row: Option<LinkRow<'f>>,
-    /// [`Config::ligatures`].
+    /// [`Config::ligatures`]. Only a build with the bidi feature joins
+    /// cells into syllables and ligatures, so only that build reads it.
+    #[cfg(feature = "bidi")]
     ligatures: bool,
 }
 
@@ -1399,6 +1401,7 @@ impl<F: Face> Renderer<F> {
             held,
             plain: core::cell::OnceCell::new(),
             link_row,
+            #[cfg(feature = "bidi")]
             ligatures: self.config.ligatures,
         };
         pass.at_pair = pass.pair_cells(at);
