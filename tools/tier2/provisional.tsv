@@ -1,3 +1,14 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+pointer-default	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-text	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-pointer	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-crosshair	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-wait	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-progress	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-not-allowed	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-move	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ew-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ns-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-change	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet

@@ -15,6 +15,17 @@ The goldens of tier 2's screens. Each judges vtium. Most were first drawn by a p
 | `vs16-wcwidth.ppm` | The same by wcwidth: every heart one cell, the VS16 ones included. |
 | `wide-deco-unifont.ppm` | 384x160: `日本語` underlined, `漢字` curly, `カタカナ` dotted in red; `한글` double, `中文` dashed, `日本語` struck; `a日b本c` underlined; and `語` underlined and struck at the start of row 6, wrapped from the last column of row 5. |
 | `redraw-unifont.ppm` | 384x160: `unchanged line`, `line 2 CHANGED curly` with `curly` under a curly line, `line three stays`, and `new struck` struck through. |
+| `pointer-default.ppm` | 96×48, drawn by vtium: abcdefghijkl on black, ABCDEFGHIJKL black on a light background, and 012345678901 on black, with the arrow, 11×16 pixels, white with a black outline, its tip at pixel 48,16 over the light row. Provisional until the maintainer reviews it |
+| `pointer-text.ppm` | The same screen with the I-beam, 7×16 pixels, a stem one pixel wide with a bar five pixels wide across each end, its centre on pixel 48,16, half over the dark first row and half over the light second row. Provisional |
+| `pointer-pointer.ppm` | The same screen with the hand, 13×16 pixels, its index finger raised with its tip at pixel 48,16, over the light row. Provisional |
+| `pointer-crosshair.ppm` | The same screen with a cross 16×16 pixels, its arms one pixel wide, its centre on pixel 48,16. Provisional |
+| `pointer-wait.ppm` | The same screen with an hourglass 12×16 pixels, its waist on pixel 48,16. Provisional |
+| `pointer-progress.ppm` | The same screen with the arrow and a small hourglass at its lower right, 16×16 pixels, the arrow's tip at pixel 48,16. Provisional |
+| `pointer-not-allowed.ppm` | The same screen with a ring and a slash from its upper left to its lower right, 16×16 pixels, its centre on pixel 48,16. Provisional |
+| `pointer-move.ppm` | The same screen with a cross of four arrows, 16×16 pixels, its centre on pixel 48,16. Provisional |
+| `pointer-ew-resize.ppm` | The same screen with a double arrow pointing left and right, 16 pixels wide and 8 tall, its centre on pixel 48,16. Provisional |
+| `pointer-ns-resize.ppm` | The same screen with a double arrow pointing up and down, 9 pixels wide and 16 tall, its centre on pixel 48,16. Provisional |
+| `pointer-change.ppm` | The pointer-pointer picture, drawn after the wait shape was shown for two frames: nothing of the hourglass is left. Provisional |
 | `ascii-unifont.ppm` | 384x160: the pangram in both cases, digits and punctuation, runs of `i`, `l`, `W` and `m`, and a line of code, each glyph in its own 8x16 cell. |
 | `bold-unifont.ppm` | 384x160: `bold` beside `regular`, a bold pangram over two lines, and bold red, green and blue words; bold glyphs widened by a pixel. |
 | `palette-unifont.ppm` | 384x160: the 16 background colors as two-cell blocks, `AB` in each of the 16 foreground colors, a 19-step ramp through the 256-color palette, and a 9-step red-to-green gradient. |
