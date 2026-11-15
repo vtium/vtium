@@ -72,8 +72,9 @@ impl Face for Shades {
 /// [`Shades`], whose glyphs the face also holds rendered at each double
 /// size, as the font helper renders an outline font's: a pattern of its
 /// own over the doubled cell, which no doubling of the normal glyph's
-/// pixels gives. As the console's face does, it holds none for a cluster
-/// or for a superscript or subscript.
+/// pixels gives. It holds none for a cluster, which the CPU path's test
+/// of double-size pieces covers, or for a superscript or subscript, which
+/// the console's face holds none for either.
 struct Rendered;
 
 impl Face for Rendered {

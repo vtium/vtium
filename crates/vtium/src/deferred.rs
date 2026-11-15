@@ -4552,9 +4552,12 @@ mod tests {
         assert!(!lock(&generated).held(AT, Variant::default(), &key));
     }
 
-    // issue #61, ADR-1203 D3: a syllable on a double-height pair is asked
-    // for piece by piece at the pair's size as well as at the normal size,
-    // since the line draws its pieces from the helper's glyphs at that size
+    // issue #61: a syllable on a double-height pair is asked for piece by
+    // piece at the pair's size as well as at the normal size, since the
+    // line draws its pieces from the helper's glyphs at that size
+    //
+    // References:
+    // - ADR-1203 D3: a syllable is asked for piece by piece.
     #[cfg(feature = "bidi")]
     #[test]
     fn a_syllable_on_a_line_of_double_size_is_asked_for_at_that_size() {
@@ -4583,14 +4586,18 @@ mod tests {
         );
     }
 
-    // issue #61, ADR-1004 D6: an Arabic word on a line of double width and
-    // on a double-height pair asks for its joined letters and its lam-alef
+    // issue #61: an Arabic word on a line of double width and on a
+    // double-height pair asks for its joined letters and its lam-alef
     // ligature at the line's size, since the line draws them from the
     // helper's glyphs at that size. In salam (seen, lam, alef, meem) seen
     // joins the letter after it, lam joins both sides, alef joins only the
     // letter before it, as a right-joining letter does, and lam with alef
     // makes the ligature, with lam joining seen. Meem stands alone, so it
     // is asked for as a character, not a key
+    //
+    // References:
+    // - ADR-1004 D6: the keys of joined letters and of the lam-alef
+    //   ligature.
     #[cfg(feature = "bidi")]
     #[test]
     fn joined_letters_on_a_line_of_double_size_are_asked_for_at_that_size() {
