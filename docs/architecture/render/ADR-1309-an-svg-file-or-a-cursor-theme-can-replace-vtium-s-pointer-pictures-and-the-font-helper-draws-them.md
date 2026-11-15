@@ -55,6 +55,9 @@ considered:
   - operator: aaronsb
     said: "accept"
     via: the steering session, 2026-11-15, after the steering session proposed a reference page for the pointer file's format, a comment at the top of pointers.svg, and a test of the shipped file against the page
+  - operator: aaronsb
+    said: "Accept within a pixel [the shipped pointers.svg matches the compiled-in pictures within a pixel, with the known exceptions listed in the test]"
+    via: the steering session, 2026-11-15, the question tool, after the build card found D7's pixel-for-pixel match unreachable
 status: accepted
 date: 2026-11-15
 deciders:
@@ -200,6 +203,8 @@ The Xcursor parser lives in the helper, in `crates/vtium-config/src/xcursor.rs`,
 - **Two tests keep the file and the compiled-in shapes the same.** A test in vtium-render generates the file and fails when it differs from the committed copy, as the README's table of bounds does. `VTIUM_RENDER_BLESS=1` rewrites it. A test in tools/tier2 draws each symbol through the helper's code at every height from 8 to 64 and compares it with the compiled-in picture.
 - **A third test holds the shipped file to the page's rules.** Each of the ten shapes is a symbol once, with its `data-hotspot` inside its viewBox. The file stays within its size limit.
 - **What the second test allows.** The white fill and the hotspot must match pixel for pixel. The outline may differ by one pixel at an edge: the compiled-in outline grows by one pixel for each 32 of height, while the file's stroke scales smoothly. Each outline pixel the helper draws lies within one pixel of the compiled-in outline, and the reverse.
+
+> Edited 2026-11-15: an SVG stroke scales smoothly, while the compiled-in outline grows in whole-pixel steps, so no static file draws pixel for pixel like the compiled-in pictures at every height. The maintainer accepted a tolerance: the height matches, and the width, the hotspot and the fill match within one pixel, with two stray fill pixels at a sharp tip. The outline matches within two pixels. Eight pictures that differ more are listed in the test, which fails when one of them stops differing: the arrow at 8 to 12 pixels, text at 62, pointer at 15 and crosshair at 15.
 
 ### D8: turning, colors and the GPU path
 
