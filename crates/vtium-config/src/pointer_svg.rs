@@ -16,7 +16,10 @@
 //! draws by itself, and one `<use>` of the symbol at the picture's size
 //! follows. resvg draws that document into premultiplied RGBA. usvg loads
 //! no image a file names, so a file cannot make the helper read another
-//! file.
+//! file. The helper refuses a shape whose id another element also holds,
+//! since the `<use>` could then draw that element, and a picture in which
+//! no pixel shows, such as a symbol that holds only text, which this build
+//! does not draw.
 //!
 //! The picture is a cell tall, kept between 8 pixels and
 //! [`POINTER_SIDE_MAX`], and as wide as the viewBox's proportions make it,
@@ -68,7 +71,9 @@ fn numbers(text: &str) -> Option<Vec<f64>> {
         .collect()
 }
 
-/// The symbol `id` of the document `doc`: its viewBox and hotspot checked.
+/// The symbol `id` of the document `doc`: its viewBox and hotspot checked,
+/// and its id held by no other element, since the `<use>` that draws it
+/// names the id and could otherwise draw that other element.
 fn symbol(doc: &roxmltree::Document<'_>, id: &str) -> Result<Symbol, NoPicture> {
     let node = doc
         .descendants()
@@ -80,6 +85,16 @@ fn symbol(doc: &roxmltree::Document<'_>, id: &str) -> Result<Symbol, NoPicture> 
         })
         .ok_or(NoPicture::Missing)?;
     let refused = |why: &str| NoPicture::Refused(why.to_owned());
+    if doc
+        .descendants()
+        .filter(|n| n.attribute("id") == Some(id))
+        .nth(1)
+        .is_some()
+    {
+        return Err(NoPicture::Refused(format!(
+            "more than one element has the id {id}"
+        )));
+    }
     let view = match node.attribute("viewBox").and_then(numbers).as_deref() {
         Some(&[x, y, w, h]) if w > 0.0 && h > 0.0 => (x, y, w, h),
         Some(_) => {
@@ -245,7 +260,7 @@ pub fn draw(bytes: &[u8], id: &str, cell_height: u32) -> Result<PointerPicture, 
         uh = vh * scale,
     );
     let tree = usvg::Tree::from_str(&document, &options())
-        .map_err(|e| refused(format!("resvg cannot draw it ({e})")))?;
+        .map_err(|e| refused(format!("drawing it failed: {e}")))?;
     let mut pixmap = tiny_skia::Pixmap::new(w, h)
         .ok_or_else(|| refused("its picture has no pixels".to_owned()))?;
     resvg::render(
@@ -265,12 +280,16 @@ pub fn draw(bytes: &[u8], id: &str, cell_height: u32) -> Result<PointerPicture, 
         let p = p as u32;
         p
     };
+    let rgba = pixmap.take();
+    if rgba.iter().skip(3).step_by(4).all(|&a| a == 0) {
+        return Err(refused("its symbol draws nothing".to_owned()));
+    }
     Ok(PointerPicture {
         size: cell_height,
         width: w,
         height: h,
         hot: (at(sym.hot.0, vx, w), at(sym.hot.1, vy, h)),
-        rgba: pixmap.take(),
+        rgba,
     })
 }
 
@@ -398,14 +417,68 @@ mod tests {
         );
     }
 
-    // A file that names an image draws without it: usvg loads nothing.
+    // An image the file names draws nothing, whether a data URL holds it
+    // or a path names an SVG file that usvg could read: usvg loads
+    // neither, so the symbol shows no pixel and the helper refuses it.
     #[test]
     fn an_image_the_file_names_is_never_loaded() {
-        let f = file(
-            "<symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><image href=\"/etc/passwd\" width=\"8\" height=\"16\"/></symbol>",
+        let filled = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"16\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></svg>";
+        let dir = std::env::temp_dir().join(format!("vtium-pointer-svg-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let named = dir.join("filled.svg");
+        std::fs::write(&named, filled).unwrap();
+        let data = format!(
+            "data:image/svg+xml;utf8,{}",
+            filled
+                .replace('<', "%3C")
+                .replace('>', "%3E")
+                .replace('"', "'")
+                .replace('#', "%23")
         );
-        let p = draw(&f, "default", 16).unwrap();
-        assert!(p.rgba.iter().all(|&b| b == 0));
+        for href in [data, named.display().to_string()] {
+            let f = file(&format!(
+                "<symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><image href=\"{href}\" width=\"8\" height=\"16\"/></symbol>"
+            ));
+            assert_eq!(
+                draw(&f, "default", 16),
+                Err(NoPicture::Refused("its symbol draws nothing".to_owned())),
+                "{href}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // A symbol in which no pixel shows is refused, so vtium draws its own
+    // picture rather than an invisible pointer: an empty symbol, and one
+    // that holds only text, which this build does not draw.
+    #[test]
+    fn a_symbol_that_draws_nothing_is_refused() {
+        for inner in ["", "<text y=\"12\" fill=\"#fff\">A</text>"] {
+            let f = file(&format!(
+                "<symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\">{inner}</symbol>"
+            ));
+            assert_eq!(
+                draw(&f, "default", 16),
+                Err(NoPicture::Refused("its symbol draws nothing".to_owned())),
+                "{inner}"
+            );
+        }
+    }
+
+    // A shape whose id another element holds too is refused, since the
+    // <use> could draw that element in place of the symbol: here a red
+    // rectangle in the defs before the symbol.
+    #[test]
+    fn a_shape_whose_id_two_elements_hold_is_refused() {
+        let f = file(
+            "<defs><rect id=\"default\" width=\"4\" height=\"4\" fill=\"red\"/></defs><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol>",
+        );
+        assert_eq!(
+            draw(&f, "default", 16),
+            Err(NoPicture::Refused(
+                "more than one element has the id default".to_owned()
+            ))
+        );
     }
 
     // Text that is not an SVG file, and an svg element in no namespace.
