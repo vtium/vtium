@@ -1,0 +1,10 @@
+# Claims of showcase-synchronized-output.svg on the showcase's page styles and modes.
+element	file	symbol
+1: CSI ? 2026 h sets mode 2026	crates/vtium-term/src/terminal.rs	Terminal::synchronized
+1, 2: while the mode is set, the displays keep the last whole frame and a draw is owed	crates/vtium/src/sync.rs	Hold
+2, 3: when the console draws the screen	crates/vtium/src/term.rs	View::draws
+3: CSI ? 2026 l ends the frame, and vtium draws it at once	crates/vtium-term/src/terminal.rs	Terminal::sync_frames
+after sync-timeout vtium ends the hold and shows the screen as it is	crates/vtium-term/src/terminal.rs	Terminal::end_sync
+sync-timeout, 200 ms by default	crates/vtium-settings/src/keys.rs	key sync-timeout
+test: mode 2026 holds frames while the host offers it	crates/vtium-term/tests/modes.rs	mode_2026_holds_frames_while_the_host_offers_it
+test: an update that waits is never drawn in part	crates/vtium/src/term.rs	a_synchronized_update_that_waits_is_never_drawn_in_part
