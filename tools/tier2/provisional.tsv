@@ -1,3 +1,7 @@
 # vtium's goldens the operator has not reviewed: NAME and why. A
 # provisional case is drawn and compared, and a difference is noted but
 # does not fail the run; the row goes when the operator accepts the golden.
+login-cover	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-contain	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-rotated	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-banner	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
