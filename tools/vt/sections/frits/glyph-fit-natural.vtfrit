@@ -1,0 +1,23 @@
+# glyph-fit-natural: the glyph-fit-default font set with fit=natural for
+# the whole merged source: its symbols, and box drawing, U+2500 to U+257F,
+# which its cover= lines also name. Under natural a glyph
+# keeps the text band's height, with the added rows blank above and below
+# it. The files are from Arch Linux's ttf-dejavu and ttf-monoid-nerd
+# packages.
+#
+# Licences: Bitstream Vera for DejaVu Sans Mono; MIT for Monoid and the
+# Nerd Fonts patcher, each icon set under its own.
+#
+# checks: separators and box lines the text's height, with gaps between rows; blocks the whole cell high
+
+name=glyph-fit-natural
+license=Bitstream-Vera AND MIT
+
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf
+source=outline:/usr/share/fonts/TTF/MonoidNerdFontMono-Regular.ttf
+fit=natural
+cover=U+E000-U+F8FF
+cover=U+F0001-U+F1AF0
+cover=U+2500-U+257F
+source=builtin:unifont
+line-spacing=30

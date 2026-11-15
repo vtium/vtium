@@ -9,7 +9,7 @@
 //! which the parent checks field by field before it trusts any:
 //!
 //! ```text
-//! request  magic "VTVOUT9\0", font length u32, the font, family length u32,
+//! request  magic "VTVOUTA\0", font length u32, the font, family length u32,
 //!          the family, cell count u32, each cell's width u32 (0: the font
 //!          sets it) and height u32, range count u32, each range's first
 //!          and last codepoint u32, cluster count u32, each cluster's kind
@@ -22,7 +22,8 @@
 //!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
 //!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
 //!          cluster width u8 (0 double, 1 single: the console's
-//!          `cluster-width`, ADR-1006 D8)
+//!          `cluster-width`, ADR-1006 D8), double width u8 (1 for a line
+//!          of double width, whose glyphs are drawn twice as wide, else 0)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -118,7 +119,7 @@ const GLYPHS_MAX: usize = 65536;
 /// [`crate::shaping::asks`] lists is under half of it.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
-pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUT9\0";
+pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUTA\0";
 const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
 
 const GLYPH_WIDE: u8 = 1;
@@ -181,6 +182,13 @@ pub struct OutlineRequest {
     /// mark or a virama conjunct (ADR-1006 D8): a cluster is placed in the
     /// cells [`vtium_term::cluster_width_with`] counts by it.
     pub cluster_width: vtium_term::ClusterWidth,
+    /// Whether each glyph is drawn twice as wide as the font draws it, for
+    /// a line of double width (DECDWL). Each outline is drawn at the size
+    /// the request names, hinted and styled as at that size, and then
+    /// stretched sideways to twice its width before it is rasterised, so
+    /// its edges stay sharp. Each advance counts twice, so a glyph sits in
+    /// a cell twice as wide as it would. A color glyph is drawn as it is.
+    pub double_width: bool,
 }
 
 /// One glyph placed in its cells: R8 coverage or premultiplied RGBA, row
@@ -389,6 +397,7 @@ impl OutlineRequest {
             vtium_term::ClusterWidth::Double => 0,
             vtium_term::ClusterWidth::Single => 1,
         });
+        out.push(u8::from(self.double_width));
         [head.into(), Arc::clone(&self.font), out.into()]
     }
 
@@ -492,6 +501,11 @@ impl OutlineRequest {
             1 => vtium_term::ClusterWidth::Single,
             _ => return Err("an unknown cluster width"),
         };
+        let double_width = match r.u8()? {
+            0 => false,
+            1 => true,
+            _ => return Err("an unknown double width"),
+        };
         if !r.0.is_empty() {
             return Err("bytes after the request");
         }
@@ -509,6 +523,7 @@ impl OutlineRequest {
             fit,
             script,
             cluster_width,
+            double_width,
         })
     }
 
@@ -886,6 +901,10 @@ pub(crate) mod raster {
         styles: Option<GlyphStyles>,
         /// The style drawn over each outline ([`OutlineRequest::synth`]).
         synth: Style,
+        /// How many times wider than the font draws it each outline is
+        /// drawn: 1, or 2 on a line of double width
+        /// ([`OutlineRequest::double_width`]).
+        widen: f32,
     }
 
     /// An outline as skrifa draws it, as the path zeno fills: its points
@@ -970,7 +989,18 @@ pub(crate) mod raster {
 
     /// Every point of `path` slanted for synthetic italic ([`SLANT`]).
     fn slant(path: &mut [Command]) {
-        let t = |p: &mut Point| *p = SLANT.transform_point(*p);
+        transform(path, SLANT);
+    }
+
+    /// Every point of `path` moved `by` times as far from the pen sideways,
+    /// as a line of double width stretches a glyph ([`Drawer::widening`]).
+    fn widen(path: &mut [Command], by: f32) {
+        transform(path, Transform::scale(by, 1.0));
+    }
+
+    /// Every point of `path` moved through `with`.
+    fn transform(path: &mut [Command], with: Transform) {
+        let t = |p: &mut Point| *p = with.transform_point(*p);
         for command in path {
             match command {
                 Command::MoveTo(p) | Command::LineTo(p) => t(p),
@@ -1094,7 +1124,19 @@ pub(crate) mod raster {
                 hinter: None,
                 styles: None,
                 synth: Style::default(),
+                widen: 1.0,
             }
+        }
+
+        /// This drawer, stretching each outline sideways by `by` about the
+        /// pen once it is hinted and styled, as a line of double width
+        /// draws it with `by` at 2 ([`OutlineRequest::double_width`]). A
+        /// transform the caller gives moves the outline before the stretch,
+        /// so a squeeze keeps its ratio and a move is made in the
+        /// stretched glyph's pixels. Color glyphs are drawn as they are.
+        pub(crate) fn widening(mut self, by: f32) -> Self {
+            self.widen = by;
+            self
         }
 
         /// This drawer, drawing `synth` over each outline: bold emboldened
@@ -1162,6 +1204,8 @@ pub(crate) mod raster {
             fit: (u32, u32),
             dx: f32,
         ) -> Option<Image> {
+            // the move is made before the widening, which stretches it too
+            let dx = dx / self.widen;
             let moved = (dx != 0.0).then(|| Transform::translation(dx, 0.0));
             self.draw_transformed(g, ppem, fit, moved)
         }
@@ -1236,6 +1280,9 @@ pub(crate) mod raster {
             }
             pen.end_contour();
             synthesise(&mut pen.path, self.synth, ppem);
+            if self.widen != 1.0 {
+                widen(&mut pen.path, self.widen);
+            }
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
@@ -1616,6 +1663,11 @@ pub(crate) mod raster {
     }
 
     pub fn rasterise(request: &OutlineRequest) -> Result<Outline, String> {
+        // a cluster's glyphs stand where the shaper puts them, which a
+        // line of double width would have to move as well
+        if request.double_width && !request.clusters.is_empty() {
+            return Err("clusters on a line of double width".to_owned());
+        }
         let (font, family, index) = face(&request.font, &request.family)?;
         let metrics = metrics(font)?;
         let charmap = font.charmap();
@@ -1630,7 +1682,10 @@ pub(crate) mod raster {
         wanted.dedup_by_key(|&mut (c, _)| c);
         let shaped =
             crate::shaping::shape::shape_all(&request.font, index, font, &request.clusters);
-        let mut drawer = Drawer::new(font, index, request.hinting).synthesising(request.synth);
+        let widen = if request.double_width { 2.0 } else { 1.0 };
+        let mut drawer = Drawer::new(font, index, request.hinting)
+            .synthesising(request.synth)
+            .widening(widen);
         // the baseline and the W rule measure the font as it draws itself,
         // whatever style is drawn over it, so every style shares them
         let mut plain = Drawer::new(font, index, request.hinting);
@@ -1666,7 +1721,7 @@ pub(crate) mod raster {
                 let at = match index.iter().find(|(id, _)| *id == g) {
                     Some(&(_, i)) => i,
                     None => {
-                        let advance = advances.advance_width(g);
+                        let advance = advances.advance_width(g) * widen;
                         // a glyph larger than a set's chunk goes in a chunk of
                         // its own (ADR-1302 D6), so none is left out for its size
                         let wide = crate::shaping::wide(&[c]);

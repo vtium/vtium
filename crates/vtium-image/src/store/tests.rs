@@ -268,18 +268,29 @@ fn a_later_picture_goes_on_top_whatever_its_protocol() {
     assert_eq!(images, [chart, kit]);
 }
 
+// The kitty specification gives a picture sent without an id the id 0, "an
+// image that does not have an id (i.e. has id=0)", and draws the lower id
+// below at the same z. So a picture with no id slides beneath every kitty
+// picture with an id, whichever arrived first, and two pictures with no id
+// keep their order of arrival. A sixel that arrived before it stays above.
 #[test]
-fn a_kitty_picture_with_no_id_stacks_like_a_sixel() {
+fn a_kitty_picture_with_no_id_stacks_as_id_0() {
     let f = Fake::new(4);
     let mut s = store(1 << 30);
     let five = add(&mut s, &f, Protocol::KITTY, 8, 16, 5);
     let unnamed = add(&mut s, &f, Protocol::KITTY, 8, 16, 0);
     let three = add(&mut s, &f, Protocol::KITTY, 8, 16, 3);
+    let later = add(&mut s, &f, Protocol::KITTY, 8, 16, 0);
+    let chart = add(&mut s, &f, Protocol::SIXEL, 8, 16, 0);
     put(&mut s, &f, five, 0, 0);
     put(&mut s, &f, unnamed, 0, 0);
     put(&mut s, &f, three, 0, 0);
     let images: Vec<ImageKey> = shown(&s, &f).iter().map(|p| p.4).collect();
-    assert_eq!(images, [three, five, unnamed]);
+    assert_eq!(images, [unnamed, three, five]);
+    put(&mut s, &f, chart, 0, 0);
+    put(&mut s, &f, later, 0, 0);
+    let images: Vec<ImageKey> = shown(&s, &f).iter().map(|p| p.4).collect();
+    assert_eq!(images, [unnamed, later, three, five, chart]);
 }
 
 #[test]
@@ -1922,4 +1933,36 @@ fn frames_reserved_ahead_of_their_image_free_other_animations_and_split_or_go_ba
     let ahead = s.frames_ahead(500).unwrap();
     assert!(s.split_frames(ahead, key, 300, 2).is_none());
     assert_eq!(s.frame_bytes(), 0);
+}
+
+// A palette-index picture's kept indices must hold one group for each
+// pixel; any other count is refused, as pixels of the wrong count are, and
+// nothing is charged.
+//
+// References:
+// - ADR-1100 D15: the indices the store keeps.
+#[test]
+fn indices_of_the_wrong_count_are_refused() {
+    use crate::store::kitty::Indices;
+    let f = Fake::new(4);
+    let mut s = store(1 << 30);
+    for (len, alpha) in [(3usize, false), (5, false), (7, true), (9, true)] {
+        let image = NewImage {
+            protocol: Protocol::KITTY,
+            width: 2,
+            height: 2,
+            pixels: vec![0xff00_0000; 4],
+            id: 1,
+            number: 0,
+            transient: false,
+            opaque: Some(true),
+        };
+        let indices = Indices::new(vec![0; len], alpha);
+        assert_eq!(
+            s.add_image_kept(image, Some(indices), None, f.screens()),
+            Err(Refusal::Invalid),
+            "{len} bytes, alpha {alpha}"
+        );
+    }
+    assert_eq!((s.image_count(), s.bytes()), (0, 0));
 }

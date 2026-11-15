@@ -8,7 +8,8 @@
 //! that a screen drawn with line spacing keeps its text as it is drawn
 //! without it. [`fonts`] fetches the outline fonts the outline screens
 //! draw with, [`inkfont`] builds the ink test font the ink screens draw
-//! with, [`colorset`] builds
+//! with, [`fitfont`] builds the short symbol font the glyph-fit screens
+//! merge behind DejaVu Sans Mono, [`colorset`] builds
 //! the vitrified set the color glyph screen draws with, [`notices`] the
 //! words of the screens of vtium's notices and on-screen display, and
 //! [`pictures`] the sixel and kitty strings of the picture screens.
@@ -19,6 +20,7 @@ pub mod bands;
 pub mod colorset;
 pub mod compare;
 pub mod draw;
+pub mod fitfont;
 pub mod fonts;
 #[cfg(feature = "gpu")]
 pub mod gpu;

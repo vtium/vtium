@@ -1,0 +1,16 @@
+checkpoint 84
+size 10x4
+cursor 2,3
+flags AUTO_WRAP
+row 0 |abcde|
+row 1 |hijkl|
+row 2 |opqrstuvwx|
+row 3 |yz|
+checkpoint 111
+size 10x4
+cursor 1,1
+flags AUTO_WRAP
+row 0 |abcdefghij|
+row 1 |k|
+row 2 |opqrstuvwx|
+row 3 |yz|

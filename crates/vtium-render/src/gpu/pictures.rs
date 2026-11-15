@@ -31,16 +31,29 @@ use vtium_image::Pixels;
 
 use super::compose::{Beneath, target_size};
 use super::gl::{
-    Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Program, Quad, Size, Texture,
-    Value,
+    Blend, Draw, DrawTarget, Error, ErrorKind, Filter, Format, Gl, Input, InputKind, Program, Quad,
+    Size, Texture, Value,
 };
 use super::glyphs::rgba;
 use super::tile::{Tile, meet, tiles};
+use crate::blend::linear;
 use crate::bounds::{GPU_IDLE_FRAMES, PICTURE_CACHE_SCREENS};
 use crate::picture::copies::{Copies, Name};
 use crate::picture::scale::{self, Taps};
 use crate::picture::{Key, PictureCounts};
 use crate::target::{Orientation, Rect};
+
+/// The picture shader's input that holds the blend's tables, which a
+/// picture that is not opaque reads to go over the pixels beneath it in
+/// linear light, as the CPU path's `blend::picture_over` does.
+///
+/// References:
+/// - ADR-1300 D7: the GPU path blends with the same three tables, held as a
+///   small texture sampled nearest.
+pub(crate) const TABLES: Input = Input {
+    name: "tables",
+    kind: InputKind::Texture,
+};
 
 /// Which step draws a picture at another size (ADR-1303 D2).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -200,6 +213,9 @@ pub(crate) struct Pictures {
     /// The largest texture side the pictures use, when a test sets it
     /// smaller than the GPU's.
     largest: Option<u32>,
+    /// The blend's tables (`blend::linear::texture`), uploaded the first
+    /// time a frame shows a picture that is not opaque.
+    tables: Option<Texture>,
 }
 
 impl Pictures {
@@ -210,6 +226,7 @@ impl Pictures {
             scratch: None,
             ready: Vec::new(),
             largest: None,
+            tables: None,
         }
     }
 
@@ -276,6 +293,17 @@ impl Pictures {
             };
             self.ready.push(ready);
         }
+        if self.tables.is_none() && shown.iter().any(|s| !s.opaque && !s.rects.is_empty()) {
+            let size = Size::new(linear::TEXTURE_WIDTH, linear::TEXTURE_HEIGHT);
+            let texture = gl.create_texture(Format::Rgba8, size)?;
+            let stride = usize::try_from(size.width).unwrap_or(0).saturating_mul(4);
+            calls = calls.saturating_add(2);
+            if let Err(e) = gl.fill_texture(&texture, size.rect(), &linear::texture(), stride) {
+                let _ = gl.free_texture(texture);
+                return Err(e);
+            }
+            self.tables = Some(texture);
+        }
         let scratch = self.ready.iter().any(|r| matches!(r, Ready::Scratch));
         if scratch && self.scratch.is_none() {
             let size = Size::new(frame.width.min(largest), frame.height.min(largest));
@@ -341,6 +369,15 @@ impl Pictures {
         beneath: Option<&Beneath<'_>>,
     ) -> Result<(), Error> {
         let ready = self.ready.get(i).copied().unwrap_or(Ready::Idle);
+        let beneath = match beneath {
+            Some(b) => {
+                let tables = self.tables.as_ref().ok_or_else(|| {
+                    Error::new(ErrorKind::Misuse, "the blend's tables are not uploaded")
+                })?;
+                Some((b, tables))
+            }
+            None => None,
+        };
         let (w, h) = s.key.size;
         match ready {
             Ready::Idle => Ok(()),
@@ -378,7 +415,7 @@ impl Pictures {
         gl: &mut G,
         s: &Shown,
         frame: &[(Tile, DrawTarget)],
-        through: (&Program, Option<&Beneath<'_>>),
+        through: (&Program, Over<'_>),
     ) -> Result<(), Error> {
         let Some((texture, side)) = &self.scratch else {
             return Err(Error::new(ErrorKind::Misuse, "no scratch texture"));
@@ -444,7 +481,8 @@ impl Pictures {
         Ok(())
     }
 
-    /// Gives back every picture texture and the scratch texture.
+    /// Gives back every picture texture, the scratch texture and the
+    /// blend's tables.
     pub(crate) fn release<G: Gl>(&mut self, gl: &mut G) -> Result<(), Error> {
         self.cache.clear();
         self.ready.clear();
@@ -452,9 +490,16 @@ impl Pictures {
         if let Some((t, _)) = self.scratch.take() {
             out = out.and(gl.free_texture(t));
         }
+        if let Some(t) = self.tables.take() {
+            out = out.and(gl.free_texture(t));
+        }
         out
     }
 }
+
+/// What a picture that is not opaque goes over the pixels beneath it
+/// with: where the pixels beneath are copied, and the blend's tables.
+type Over<'a> = Option<(&'a Beneath<'a>, &'a Texture)>;
 
 /// What one draw of a picture samples: a texture, the source and drawn
 /// sizes the shader scales between, and the source pixel its first texel
@@ -515,7 +560,7 @@ fn draw_part<G: Gl>(
     (px, py, pw, ph): (u32, u32, u32, u32),
     pass: &Pass<'_>,
     frame: &[(Tile, DrawTarget)],
-    (program, beneath): (&Program, Option<&Beneath<'_>>),
+    (program, beneath): (&Program, Over<'_>),
 ) -> Result<(), Error> {
     if pw == 0 || ph == 0 {
         return Ok(());
@@ -549,7 +594,7 @@ fn draw_part<G: Gl>(
             continue;
         }
         let copied = match beneath {
-            Some(b) => Some(b.copy(gl, k, tile, target, &quads)?),
+            Some((b, tables)) => Some((b.copy(gl, k, tile, target, &quads)?, tables)),
             None => None,
         };
         let mut inputs = vec![
@@ -566,8 +611,9 @@ fn draw_part<G: Gl>(
                 ]),
             ),
         ];
-        if let Some(c) = &copied {
+        if let Some((c, tables)) = &copied {
             inputs.extend(c.inputs());
+            inputs.push((TABLES.name, Value::Texture(tables, Filter::Nearest)));
         }
         gl.draw(&Draw {
             target,

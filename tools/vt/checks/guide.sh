@@ -8,7 +8,11 @@
 #
 # Each step says what to do and what to expect, runs its command, or its
 # probe until q (or its shell until exit), then asks yes, no or skip and a
-# note. The answers, and every line a probe prints, are appended to
+# note. A run: step's command gets the step's text in its environment, so a
+# command that clears the screen can show it again: GUIDE_STEP_HEADING is
+# "Step K of N: TITLE", GUIDE_STEP_DO and GUIDE_STEP_EXPECT hold the do: and
+# expect: lines, one to a line, with their asterisks (below), and GUIDE_FILE
+# is the guide's path. The answers, and every line a probe prints, are appended to
 # vt-check.log in /tmp/vtium-vt (VTIUM_VT_DIR) under a header line for the run.
 # GUIDE_STEPS="4 8 9" (or 4,8,9) runs only those steps. In the guide's text,
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
@@ -22,11 +26,19 @@
 # A guide is lines of "key: text"; blank lines and lines starting with # are
 # skipped. "title:" once and "intro:" lines come first, then each step:
 # "step: TITLE", an optional "run: COMMAND" or "probe: MODE" (shell, or one of
-# probe.py --list), and "do:" and "expect:" lines, each shown as typed. A run:
+# probe.py --list), and "do:" and "expect:" lines, each shown as typed. A
+# step whose title starts with "Explore" has no right or wrong answer: it
+# asks only for a note, and logs "answer: explored". A run:
 # step shows its command, and runs it on this terminal once the operator
 # presses Enter, so the operator watches it rather than typing it. Each step
 # needs an expect: line, and a do: or run: line. A step with neither asks once
-# the operator presses Enter. An optional "cleanup: COMMAND", once and before
+# the operator presses Enter. In intro:, do: and expect: lines, a span
+# between two asterisks, *like this*, is shown bold: guide.sh prints SGR 1
+# in place of the first asterisk and SGR 22 in place of the second. Bold
+# marks the one or two things a step asks the reader to look at, and the
+# word Wrong:. A span opens and closes on one line, and starts and ends
+# with a character that is not a space. These lines hold no other asterisk,
+# and no title: or step: line holds one. An optional "cleanup: COMMAND", once and before
 # the first step, is a command guide.sh runs however the checks end: after
 # the last step, at q, when the terminal closes, or when a signal ends the
 # run. A guide that changes the machine for a few steps puts the change back
@@ -64,6 +76,10 @@ expects=()
 # prompt. The others are probe.py's.
 mapfile -t modes < <(echo shell; python3 "$probe" --list)
 
+# An intro:, do: or expect: line whose asterisks each open or close a bold
+# span, and a span that starts and ends with a character other than a space.
+marked='^([^*]*\*[^*[:space:]]([^*]*[^*[:space:]])?\*)*[^*]*$'
+
 # Reads the guide into the arrays above, one entry per step, failing on the
 # first line it cannot take, with its number.
 n=0
@@ -80,6 +96,13 @@ while IFS= read -r line || [ -n "$line" ]; do
 	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"
 	s=$((${#titles[@]} - 1))
+	case $key in
+	title | step) [[ $text != *\** ]] || die "$guide:$n: a $key: line has no asterisk" ;;
+	intro | do | expect)
+		[[ $text =~ $marked ]] ||
+			die "$guide:$n: each asterisk opens or closes a bold span, *like this*, on one line"
+		;;
+	esac
 	case $key in
 	title)
 		[ -z "$title" ] && [ "$s" -lt 0 ] || die "$guide:$n: one title, before the first step"
@@ -200,19 +223,48 @@ clear_screen() {
 	printf '\033[0m\033[H\033[2J\033[3J'
 }
 
+# Prints a line of a guide's text with each span between two asterisks bold:
+# SGR 1 for the asterisk that opens the span, SGR 22 for the one that closes
+# it. The guide's check makes each asterisk one of a pair.
+emphasis() {
+	local text=$1 out='' on=''
+	while [[ $text == *\** ]]; do
+		out+=${text%%\**}
+		text=${text#*\*}
+		if [ -n "$on" ]; then
+			out+=$'\033[22m' on=
+		else
+			out+=$'\033[1m' on=1
+		fi
+	done
+	printf '%s%s\n' "$out" "$text"
+}
+
 # Prints a step's lines under a label, the label on the first one only, and
-# nothing when it has none.
+# nothing when it has none. The lines show their bold spans, unless a third
+# argument says to print them as they are, as for the command under Run:.
 lines() {
 	local label=$1 l
 	[ -n "$2" ] || return 0
 	while IFS= read -r l; do
-		printf '%-8s%s\n' "$label" "$l"
+		printf '%-8s' "$label"
+		if [ -n "${3:-}" ]; then printf '%s\n' "$l"; else emphasis "$l"; fi
 		label=
 	done <<<"${2%$'\n'}"
 }
 
 ask() {
 	local a n
+	# A step whose title starts with "Explore" is free exploration of how
+	# the terminal behaves: it has no right or wrong answer, so it asks for
+	# a note alone and logs "explored", never yes, no or skip.
+	if [[ $1 == Explore* ]]; then
+		printf '\nThis step has no right or wrong answer.\n'
+		printf 'Note (Enter for none): '
+		read -r n || n=
+		note "  answer: explored${n:+  note: $n}"
+		return
+	fi
 	while :; do
 		printf '\nLooked right? [y]es [n]o [s]kip: '
 		# Only a closed terminal fails here: read -n takes Ctrl-D as a key.
@@ -241,7 +293,9 @@ shell() {
 # echoed onto the picture nor kept, so it never answers the step. Ctrl-C
 # stops the command, and Ctrl-\ the program it runs, as at a prompt: the trap
 # keeps them from ending the checks, and the command, which gets the default
-# actions, ends with its status.
+# actions, ends with its status. The command gets the step's heading, do:
+# lines and expect: lines, the arguments after the command, in its
+# environment.
 run() {
 	local status=0 saved
 	note "  run: $1"
@@ -249,7 +303,8 @@ run() {
 	trap : INT QUIT
 	saved=$(stty -g)
 	stty -echo
-	/bin/bash --noprofile --norc -c "$1" || status=$?
+	GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
+		/bin/bash --noprofile --norc -c "$1" || status=$?
 	while read -r -s -n 1 -t 0.05 _; do :; done
 	stty "$saved"
 	trap - INT QUIT
@@ -289,7 +344,10 @@ fi
 
 clear_screen
 printf '%s\n\n' "$title"
-[ ${#intro[@]} -eq 0 ] || printf '%s\n' "${intro[@]}" ""
+if [ ${#intro[@]} -gt 0 ]; then
+	for line in "${intro[@]}"; do emphasis "$line"; done
+	printf '\n'
+fi
 cat <<EOF
 Each step says what to do and what to expect. Press Enter to start it: a
 step that shows a command under Run: runs it for you. Do what the step says,
@@ -311,7 +369,7 @@ for ((s = 0; s < total; s++)); do
 	fi
 	clear_screen
 	printf 'Step %s of %s: %s\n\n' "$k" "$total" "${titles[s]}"
-	lines "Run:" "${runs[s]}"
+	lines "Run:" "${runs[s]}" as-typed
 	lines "Do:" "${dos[s]}"
 	lines "Expect:" "${expects[s]}"
 	case ${runs[s]:+run}${probes[s]} in
@@ -332,11 +390,11 @@ for ((s = 0; s < total; s++)); do
 	esac
 	case ${runs[s]:+run}${probes[s]} in
 	'') ;;
-	run) run "${runs[s]}" ;;
+	run) run "${runs[s]}" "Step $k of $total: ${titles[s]}" "${dos[s]}" "${expects[s]}" ;;
 	shell) shell || note "  shell exited with status $?" ;;
 	*) python3 "$probe" "${probes[s]}" || note "  probe exited with status $?" ;;
 	esac
-	ask
+	ask "${titles[s]}"
 done
 
 note "=== done $(date -Is)"

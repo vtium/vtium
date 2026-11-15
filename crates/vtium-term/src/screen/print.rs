@@ -35,6 +35,15 @@
 //! mode, text printed between the margins moves the cells up to the right
 //! margin, and text printed outside them moves nothing (xterm's
 //! `InsertChar`).
+//!
+//! A line of double size (DECDWL, DECDHL) holds half the screen's columns,
+//! so printing on it wraps after its last column, half the screen's width,
+//! as the right margin of a single-size line makes it wrap. The pending
+//! wrap there stands on the last column, as it does before a right margin
+//! inside the screen. Such a row is never marked as continuing, since a
+//! line of double size does not rewrap (`reflow.rs`). A cursor that a
+//! scroll left past the last column of a double-size line prints from
+//! that column.
 
 use super::{Screen, Segment, WidthMethod};
 use crate::cell::Width;
@@ -68,6 +77,10 @@ impl Screen {
         let mut glyph = Glyph::Char(c);
         let mut len = usize::from(width);
         let last = self.last_print_row(self.cursor_y);
+        let line_last = self.line_cols(self.cursor_y).saturating_sub(1);
+        if self.cursor_x > line_last && self.cursor_x < self.cols {
+            self.move_cursor(line_last, self.cursor_y);
+        }
 
         if self.cursor_x >= self.cols || self.margin_wrap {
             let edge = self.cursor_x.min(self.cols.saturating_sub(1));
@@ -79,7 +92,7 @@ impl Screen {
             }
         }
 
-        if len == 2 && self.cursor_x == self.right_edge(self.cursor_x) {
+        if len == 2 && self.cursor_x == self.print_edge(self.cursor_x, self.cursor_y) {
             if self.cols < 2 {
                 glyph = Glyph::Empty;
                 len = 1;
@@ -112,13 +125,21 @@ impl Screen {
     /// row `y`. Past a right margin inside the screen, the cursor stays on
     /// the margin's column with a pending wrap.
     fn advance(&mut self, from: usize, to: usize, y: usize) {
-        let edge = self.right_edge(from);
+        let edge = self.print_edge(from, y);
         if to > edge && edge.saturating_add(1) < self.cols {
             self.move_cursor(edge, y);
             self.margin_wrap = true;
         } else {
             self.move_cursor(to, y);
         }
+    }
+
+    /// The last column printing from column `x` of row `y` writes to
+    /// before it wraps: the right margin, or the screen's last column right
+    /// of the margin (`right_edge`), and on a line of double size no
+    /// further than the line's last column.
+    fn print_edge(&self, x: usize, y: usize) -> usize {
+        self.right_edge(x).min(self.line_cols(y).saturating_sub(1))
     }
 
     /// Whether a wrap from column `edge` of row `y`, whose last row is
@@ -173,14 +194,21 @@ impl Screen {
         }
     }
 
-    /// Marks row `y`'s text as continuing on the next row, for reflow,
-    /// when a wrap from column `edge` reaches another row (`wrap_moves`)
-    /// and goes from the screen's last column to the next row's first. On
+    /// Marks row `y`'s text as continuing on the next row, for reflow and
+    /// reverse wraparound, when a wrap from column `edge` reaches another
+    /// row (`wrap_moves`) and goes from the row's last column to the next
+    /// row's first. The row's last column is the screen's, or on a line of
+    /// double size the last of the half as many columns the line holds. On
     /// the screen's last row below the region the wrap returns to the same
     /// row, whose text does not continue. Returns whether it marked the
     /// row.
+    ///
+    /// References:
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: "The use of
+    ///   double-width characters reduces the number of characters per line
+    ///   by half."
     fn mark_wrapped(&mut self, y: usize, edge: usize, last: usize) -> bool {
-        let edges = self.left == 0 && edge.saturating_add(1) >= self.cols;
+        let edges = self.left == 0 && edge.saturating_add(1) >= self.line_cols(y);
         if !edges || !self.wrap_moves(y, edge, last) {
             return false;
         }
@@ -295,13 +323,9 @@ impl Screen {
             return;
         };
         let next = x.saturating_add(1);
-        if next <= self.right_edge(x) {
+        if next <= self.print_edge(x, y) {
             let insert = self.flags.insert && self.in_lr_margins(x);
-            let end = if insert {
-                self.right.saturating_add(1)
-            } else {
-                self.cols
-            };
+            let end = if insert { self.edit_end(y) } else { self.cols };
             let last = if insert { end.saturating_sub(1) } else { next };
             self.images_cut(y, next, last);
             if insert {
@@ -407,11 +431,7 @@ impl Screen {
         // Insert mode moves the cells up to the right margin, and only
         // from a column between the margins.
         let insert = self.flags.insert && self.in_lr_margins(x);
-        let margin = if insert {
-            self.right.saturating_add(1).min(cols)
-        } else {
-            cols
-        };
+        let margin = if insert { self.edit_end(y) } else { cols };
         // text written over a picture text cuts removes the part it
         // covers; in insert mode the rest of the row shifts, as ICH does
         let last = if insert {

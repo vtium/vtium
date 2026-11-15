@@ -9,56 +9,73 @@
 [![License](https://img.shields.io/github/license/vtium/vtium)](LICENSE)
 
 [![AUR](https://repology.org/badge/version-for-repo/aur/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Debian](https://repology.org/badge/version-for-repo/debian_unstable/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Ubuntu](https://repology.org/badge/version-for-repo/ubuntu_25_10/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Fedora](https://repology.org/badge/version-for-repo/fedora_rawhide/vtium.svg)](https://repology.org/project/vtium/versions)
-[![openSUSE](https://repology.org/badge/version-for-repo/opensuse_tumbleweed/vtium.svg)](https://repology.org/project/vtium/versions)
-[![nixpkgs](https://repology.org/badge/version-for-repo/nix_unstable/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Alpine](https://repology.org/badge/version-for-repo/alpine_edge/vtium.svg)](https://repology.org/project/vtium/versions)
-[![postmarketOS](https://repology.org/badge/version-for-repo/postmarketos_master/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Gentoo](https://repology.org/badge/version-for-repo/gentoo/vtium.svg)](https://repology.org/project/vtium/versions)
-[![Void](https://repology.org/badge/version-for-repo/void_x86_64/vtium.svg)](https://repology.org/project/vtium/versions)
 
-**vtium is a terminal for the Linux console.**
+**vtium is a terminal that runs on the Linux console.**
 
-vtium runs on a Linux virtual terminal (VT)—one of the text screens you can switch to with Ctrl+Alt and a function key. It takes the place of getty, the program that normally displays the login prompt.
+vtium runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. The console your machine boots into becomes a full terminal, with 24-bit color, color emoji, images, mouse reporting, and text in the scripts your fonts cover. Rendering goes through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or the GPU.
 
-vtium renders each frame using either the CPU or, on supported hardware, the GPU through OpenGL ES 3.0. The kernel’s graphics driver then displays the resulting framebuffer. Programs running in vtium get the features they would expect from a desktop terminal: full Unicode support, color emoji, 24-bit color, mouse reporting, and images. That includes right-to-left scripts such as Arabic and Hebrew, with Arabic letters joined, and double-width Chinese, Japanese, and Korean text. If vtium cannot start, getty and the kernel console take over.
+That helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. Editors, file managers and tmux get the color, mouse and image support they expect there.
 
-The kernel’s built-in console has remained simple so it can work when little else does. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic). They propose replacing it with a console that runs as an ordinary program. vtium is one such console.
-
-vtium is built for hardware ranging from small boards with 512 MB of memory and a 320×240 display to desktops with several large monitors. It is written in Rust and began as a port of `kmscon` and its library, `libtsm`, both written in C. See [Provenance](docs/vtium-in-depth.md#provenance) for details.
+This is alpha software, at version 0.1.0-alpha.8. Installing the package turns every free VT over to vtium at that VT's next start. To try one VT only, follow [Try vtium on one VT](docs/tutorial-try-vtium.md) instead.
 
 **Documentation:** [vtium.github.io/vtium](https://vtium.github.io/vtium/)
 
 ![A shell session showing a colored prompt, directory listing, git branch graph, six images with filenames, multilingual text and emoji, and examples of underline and other text styles.](docs/showcase/hero.png)
 
-*A shell session rendered by vtium on a 1920×1080 display. See [the showcase](docs/showcase/README.md) for more screenshots and details about how they were captured.*
+*A shell session rendered by vtium on a 1920×1080 display. [The showcase](docs/showcase/README.md) has more screenshots and explains how they were captured.*
 
-[VTium in depth](docs/vtium-in-depth.md) explains what a terminal is, why the Linux console has remained simple, and how vtium fits in. It also covers vtium’s features, development status, requirements, setup, and configuration.
+## If something goes wrong
 
-## Status
+- **Get off the VT.** Ctrl+Alt and a function key switch to another VT or to your desktop. If vtium has stopped answering keys, that switch fails too, and you work from another machine over ssh instead.
+- **Fall back to a login prompt.** When vtium fails under systemd, a getty starts on its VT, so you get a plain login prompt rather than a dead screen. This holds under the default configuration.
+- **Give a VT back.** From another VT or over ssh, `vtium console disable 3` returns VT 3 to its getty from the VT's next start, and `systemctl start getty@tty3.service` does it at once. `vtium console disable --all` returns every VT.
+- **Boot once without vtium.** Add `vtium.enable=0` to the kernel command line in your boot loader.
+- **Uninstall.** Stop vtium on each VT where it runs, for example with `systemctl stop vtium@tty3.service`, then run `pacman -R vtium`, or `pacman -R vtium-git`. The package's removal script gives every VT back what it had.
 
-See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it.
+The full steps are in [Find out what went wrong](docs/troubleshooting.md) and [Upgrading and removing](docs/install.md#upgrading-and-removing).
 
-To try it while keeping your desktop running, follow [Try vtium on one VT](docs/tutorial-try-vtium.md). The tutorial walks you through running vtium on a spare VT and returning that VT to its previous state afterward.
+## What vtium does
 
-## Documentation
+- [Text in any script](https://vtium.github.io/vtium/home/text/): grapheme clusters lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
+- [A terminal on each display](https://vtium.github.io/vtium/home/displays/): one vtium drives several displays at once, each with its own independent terminal, keyboard, and mouse, for several people working at one machine.
+- [Images](https://vtium.github.io/vtium/home/images/): sixel, the kitty graphics protocol, and iTerm2's inline images.
+- [Keyboards and mice](https://vtium.github.io/vtium/home/input/): how vtium reads your devices, the key and mouse encodings programs receive, and the keys that act on the machine.
+- [The terminal's language](https://vtium.github.io/vtium/home/language/): the specifications vtium follows, and how it settles a conflict between two of them.
+- [Where vtium runs](https://vtium.github.io/vtium/home/where-it-runs/): processors, graphics, init systems, and the smallest build.
+- [Security and the system](https://vtium.github.io/vtium/home/security-and-system/): sandboxed helpers for fonts and images, a reply rule that keeps output from typing into your shell, and how vtium works with systemd and logind.
+- [What vtium leaves to other tools](https://vtium.github.io/vtium/home/leaves-to-other-tools/): opening links, split panes, window management, and other jobs that belong to other programs.
 
-| If you want to… | Start here |
+## Where to start
+
+On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. These are the only packages so far; [Install vtium and give it VTs](docs/install.md) also covers building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
+
+```
+$ git clone https://aur.archlinux.org/vtium.git
+$ cd vtium
+$ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
+$ VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si
+```
+
+Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version.
+
+vtium-config, vtium's setup tool, runs in a terminal. Its Flow view draws your vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. A head is vtium's name for a terminal that spans one or more displays. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts view previews each font on the live console as you move through the list. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
+
+| If you want to | Start here |
 |---|---|
-| Learn by doing | [Try vtium on one VT](docs/tutorial-try-vtium.md) |
-| Complete a specific task | [Install vtium and give it VTs](docs/install.md), [Configure vtium](docs/configure.md), [Choose a font](docs/fonts.md), [Set up heads](docs/heads.md), or [Find out what went wrong](docs/troubleshooting.md) |
-| Look something up | [What vtium does](docs/features.md), [Keys](docs/keys.md), [Configuration keys](docs/config.md), [The head file](docs/head-file.md), [Modes](docs/modes.md), or [systemd, logind and PID 1](docs/systemd.md) |
-| Understand how it works and why | [VTium in depth](docs/vtium-in-depth.md), [Why vtium](docs/why-vtium.md), and [Concepts](docs/concepts/index.md) |
-| Understand a design decision | [Decision records](docs/architecture/INDEX.md) |
-| Contribute | [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [AGENTS.md](AGENTS.md), which lists all required checks and test commands |
+| try vtium on one VT and get back to your desktop afterward | [Try vtium on one VT](docs/tutorial-try-vtium.md) |
+| install vtium, configure it, choose a font, set up heads, or fix a problem | [Install vtium and give it VTs](docs/install.md), [Configure vtium](docs/configure.md), [Choose a font](docs/fonts.md), [Set up heads](docs/heads.md), or [Find out what went wrong](docs/troubleshooting.md) |
+| look up a feature, a key, or a setting | [What vtium does](docs/features.md), [Keys](docs/keys.md), [Configuration keys](docs/config.md), [The head file](docs/head-file.md), [Modes](docs/modes.md), or [systemd, logind and PID 1](docs/systemd.md) |
+| understand how vtium works and why | [VTium in depth](docs/vtium-in-depth.md), [Why vtium](docs/why-vtium.md), and [Concepts](docs/concepts/index.md) |
+| read the reasoning behind a decision | [Decision records](docs/architecture/INDEX.md) |
+| contribute | [Architecture](docs/architecture.md), [CONTRIBUTING.md](CONTRIBUTING.md), and [AGENTS.md](AGENTS.md), which lists all required checks and test commands |
 
 ## Contributing
 
-The maintainer uses large language models to write code for vtium, reviews the results, and evaluates them with the project’s tests. [Decision records](docs/architecture/INDEX.md) document the reasoning behind each decision in the maintainer’s own words.
+vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](docs/vtium-in-depth.md#provenance) tells in full.
 
-Contributions are welcome, whether written by hand or with a large language model. Each pull request must describe how its code was written. All changes go through the same tests and review process. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+The maintainer uses large language models to write code for vtium, reviews the results, and evaluates them with the project's tests. The [decision records](docs/architecture/INDEX.md) give the reasoning behind each decision in the maintainer's own words.
+
+Contributions are welcome, whether you write them by hand or with a large language model. Each pull request must say how its code was written, and every change goes through the same tests and review. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 

@@ -1,0 +1,18 @@
+test copy 6263
+test copy 616263640a7778797a0a31323334
+test copy 7879
+test copy 61626364
+test copy 616263640a
+test copy 62
+size 10x4
+cursor 4,3
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 4,3 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |abcd|
+cells 0 1-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 1 |abcd|
+cells 1 1-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000 inverse
+row 2 |wxyz|
+row 3 |1234|

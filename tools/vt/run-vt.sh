@@ -9,7 +9,7 @@
 # docs/vt-review.md.
 #
 #   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--image=PATH] [--dry-run] [--label=TEXT] [--features=TEXT]
-#        [--render-path=gpu|cpu] [--passes=DIR] [--debug=DIR] [--login |
+#        [--render-path=gpu|cpu] [--pages=LIST] [--passes=DIR] [--debug=DIR] [--login |
 #        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
@@ -24,6 +24,10 @@
 # --render-path chooses the path the acceptance pass judges: gpu runs vtium
 # with --hwaccel and cpu with --no-hwaccel, the pass's record names it, and
 # the vtium options after -- then name neither.
+# --pages="51 56-glyph-fit" makes the acceptance pass walk only those pages:
+# page numbers or file names of tools/vt/sections without .sh, separated by
+# spaces. The list reaches accept.sh as ACCEPT_ONLY, one word of its own, never
+# as shell code, and accept.sh refuses a name that matches no page.
 # --login runs vtium's login prompt (/bin/login, through PAM) in place of the
 # acceptance pass, so the session is a logind session. The first logout ends the run; so
 # do Ctrl-C, a vtium crash and vtium ending on its own, the last two as
@@ -103,6 +107,7 @@ image=
 label=
 features=
 render_path=
+pages=
 passes=
 extra=()
 login=
@@ -120,6 +125,7 @@ while [ $# -gt 0 ]; do
 	--label=*) label=${1#*=} ;;
 	--features=*) features=${1#*=} ;;
 	--render-path=*) render_path=${1#*=} ;;
+	--pages=*) pages=${1#*=} ;;
 	--passes=*) passes=${1#*=} ;;
 	--login) login=1 ;;
 	--guide=*) guide=${1#*=}; [ -n "$guide" ] || die "--guide needs the guide's path: --guide=tools/vt/checks/NAME.guide" ;;
@@ -272,6 +278,10 @@ gpu | cpu)
 	;;
 *) die "--render-path takes gpu or cpu, not '$render_path'" ;;
 esac
+# The pages, like the path below, reach the session as one word of their own.
+[[ -z $pages || ( $pages =~ ^[A-Za-z0-9-]+( [A-Za-z0-9-]+)*$ && ${#pages} -le 4000 ) ]] ||
+	die "--pages takes page names of letters, digits and dashes separated by spaces, not '$pages'"
+[ -z "$pages" ] || [ -z "$login$guide$shell" ] || die "--pages goes with the acceptance pass"
 # The path reaches the session as one word of its own (ACCEPT_DIR=...), never as shell code, so
 # a space or any other printable character is safe in it. A control character, a newline above
 # all, is refused because it would garble the lines the run prints.
@@ -713,7 +723,7 @@ elif [ -n "$shell" ]; then
      exit it to end the run${transcript:+; the session is recorded in
      $transcript}"
 else
-	what="answer each page with y, n, u or s (c adds a comment, b goes back);
+	what="answer each page${pages:+ (only pages $pages)} with y, n, u or s (c adds a comment, b goes back);
      q quits the acceptance pass, and the next run resumes the pass"
 fi
 users_shell="$user's shell"
@@ -755,6 +765,7 @@ terminfo=(TERMINFO="$stage/terminfo")
 accept=(ACCEPT_LABEL="vtium $label" ACCEPT_VT="$vt" ACCEPT_BINARY="$bin" ACCEPT_FEATURES="${features:-none}")
 [ -z "$passes" ] || accept+=(ACCEPT_DIR="$passes")
 [ -z "$render_path" ] || accept+=(ACCEPT_RENDER_PATH="$render_path")
+[ -z "$pages" ] || accept+=(ACCEPT_ONLY="$pages")
 # The pages that blink text name the style vtium draws it in (blink.inc): from
 # the config this run gives vtium, the copy --configdir names, and from the
 # blink options given to vtium, the last of each winning as it does in vtium.

@@ -260,12 +260,16 @@ impl Screen {
         self.flags.lr_margins
     }
 
-    /// Sets DECLRMM. Resetting it returns the left and right margins to
-    /// the screen's first and last columns, as xterm's
-    /// `set_left_right_margin_mode` does; the cursor stays.
+    /// Sets DECLRMM. Setting it returns every line to single size, as the
+    /// VT510 manual's DECLRMM says (`single_size_all`). Resetting it
+    /// returns the left and right margins to the screen's first and last
+    /// columns, as xterm's `set_left_right_margin_mode` does; the cursor
+    /// stays.
     pub fn set_lr_margin_mode(&mut self, on: bool) {
         self.flags.lr_margins = on;
-        if !on {
+        if on {
+            self.single_size_all();
+        } else {
             self.reset_lr_margins();
         }
     }
@@ -879,12 +883,37 @@ impl Screen {
     // Cursor movement.
 
     /// Moves the cursor, which ends the cluster the last print wrote and a
-    /// pending wrap at the right margin.
+    /// pending wrap at the right margin. On a line of double size, which
+    /// holds half the screen's columns, the cursor goes no further right
+    /// than the line's last column, so every movement onto or along such a
+    /// line stops there: CUF, CUP, CHA, HPA, HT and a move from another
+    /// row (VT100 User Guide, DECDWL: the cursor "is moved to the right
+    /// margin" when it would be to the right of it).
     fn move_cursor(&mut self, x: usize, y: usize) {
         self.segment = None;
         self.margin_wrap = false;
-        self.cursor_x = x;
+        let last = self.line_last(y);
+        self.cursor_x = if last.saturating_add(1) < self.cols {
+            x.min(last)
+        } else {
+            x
+        };
         self.cursor_y = y;
+    }
+
+    /// The last column of row `y`. A line of single size ends at the
+    /// screen's last column. A line of double size draws each character
+    /// over two screen columns, so only half as many characters fit across
+    /// the screen, and the line ends at the last of those: column 39 on a
+    /// screen 80 columns wide. The cursor, printing and the edits all stop
+    /// there, because a character past it would fall off the screen.
+    ///
+    /// References:
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: "The use of
+    ///   double-width characters reduces the number of characters per line
+    ///   by half."
+    fn line_last(&self, y: usize) -> usize {
+        self.line_cols(y).saturating_sub(1)
     }
 
     /// The first and last columns the cursor may be addressed to: the
@@ -942,9 +971,9 @@ impl Screen {
     /// on and the cursor stands on a right margin before the screen's last
     /// column, as DECSC saves the wrap (VT510 manual, DECSC).
     pub fn restore_margin_wrap(&mut self) {
-        self.margin_wrap = self.flags.auto_wrap
-            && self.cursor_x == self.right
-            && self.right.saturating_add(1) < self.cols;
+        let edge = self.right.min(self.line_last(self.cursor_y));
+        self.margin_wrap =
+            self.flags.auto_wrap && self.cursor_x == edge && edge.saturating_add(1) < self.cols;
     }
 
     /// CHA and HPA: to column `x` of the cursor's row, counted from the
@@ -1054,9 +1083,19 @@ impl Screen {
     /// a row the row above did not wrap into, and of the screen's first
     /// row. A cursor left of the left margin takes the first column for
     /// it, as xterm's `CursorBack` does. Printing marks a row wrapped only
-    /// where it wraps from the screen's last column to the next row's
-    /// first (`print.rs`), so inside narrower margins the cursor stops at
-    /// the left margin.
+    /// where it wraps from the row's last column to the next row's first
+    /// (`print.rs`), so inside narrower margins the cursor stops at the
+    /// left margin. A line of double size holds half the screen's columns,
+    /// so a row above of double size takes the cursor to its own last
+    /// column.
+    ///
+    /// References:
+    /// - ctlseqs, DECSET 45, "Reverse-wraparound mode (XTREVWRAP)", as
+    ///   ADR-1000's DEC-45 row states it: while DECAWM is set, BS and CUB
+    ///   go on from the first column to the last column of the row above
+    ///   when printing wrapped from that row.
+    /// - VT100 User Guide, chapter 3, DECDWL and DECDHL: a line of double
+    ///   size holds half as many characters.
     pub fn move_left_reverse_wrap(&mut self, n: usize) {
         if n == 0 {
             return;
@@ -1084,7 +1123,7 @@ impl Screen {
                 break;
             }
             y = y.saturating_sub(1);
-            x = self.right;
+            x = self.right.min(self.line_last(y));
             left = left.saturating_sub(1);
         }
         self.move_cursor(x, y);
@@ -1252,8 +1291,10 @@ impl Screen {
     }
 
     /// The logical column view row `y` shows at column `x`, where the
-    /// pointer is: the cell a selection, a mouse report or a link's hover
-    /// takes. In a build with the bidi feature a row drawn in another
+    /// pointer is: the cell a mouse report takes, and the cell a selection
+    /// or a link's hover takes once [`character_col`](Self::character_col)
+    /// has halved a column of a line of double size. In a build with the
+    /// bidi feature a row drawn in another
     /// order than it was written shows another column there (ADR-1004
     /// D10); otherwise every column shows itself.
     pub(crate) fn pointer_col(&self, x: usize, y: usize) -> usize {
@@ -1263,6 +1304,25 @@ impl Screen {
         }
         let _ = y;
         x
+    }
+
+    /// The logical column of the character the pointer is over at screen
+    /// column `x` of view row `y`, which a selection and a link's hover
+    /// take. A line of double size draws each of its characters across two
+    /// of the screen's columns, so screen column `x` shows the line's own
+    /// column `x / 2`, and a click on either half of a doubled character
+    /// lands on that character. That column then goes through
+    /// [`pointer_col`](Self::pointer_col) for a row drawn in another order.
+    ///
+    /// References:
+    /// - ADR-1308 D1, "Selection on a double-size line follows the
+    ///   cursor's rule": the pointer maps a click or a drag on a
+    ///   double-size line to the line's own columns.
+    pub(crate) fn character_col(&self, x: usize, y: usize) -> usize {
+        let double = self
+            .view_line(y)
+            .is_some_and(|l| l.flags().size().is_double());
+        self.pointer_col(if double { x / 2 } else { x }, y)
     }
 
     /// Marks cells of `row` changed. While the view is scrolled back, the

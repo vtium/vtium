@@ -129,6 +129,7 @@ fn an_outline_script_glyph_is_rasterised_at_two_thirds_of_its_size() {
         let top = base - own.0;
         let at = script_baseline(script, (top, own.0 + own.1), base, CELL.height);
         let want = rasterise(&OutlineRequest {
+            double_width: false,
             cluster_width: Default::default(),
             font: Arc::clone(&font),
             family: String::new(),
@@ -217,6 +218,7 @@ fn an_outline_script_stands_on_the_first_sources_own_box() {
     let (num, den) = SCRIPT_SCALE;
     let want = |baseline: u32| {
         let o = rasterise(&OutlineRequest {
+            double_width: false,
             cluster_width: Default::default(),
             font: Arc::clone(&font),
             family: String::new(),
@@ -427,6 +429,7 @@ fn served(requests: &[ServeRequest]) -> Vec<(u32, Vec<u8>)> {
 
 fn ask(text: &str, script: Script) -> ServeRequest {
     ServeRequest {
+        doubled: None,
         cluster_width: Default::default(),
         kind: ASK,
         frit: frit(text),

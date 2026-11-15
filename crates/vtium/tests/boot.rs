@@ -2249,6 +2249,53 @@ fn a_drag_across_two_lines_copies_them_and_the_middle_button_pastes_them() {
     );
 }
 
+/// On a double-width line (ESC # 6) each character draws across two cells,
+/// so the pointer over either half of a doubled character is over that
+/// character. A drag from the left half of the doubled b to the right half
+/// of the doubled c copies bc, and a drag from the right half of the a to
+/// the left half of the b copies ab.
+///
+/// References:
+/// - ADR-1308 D1, "Selection on a double-size line follows the cursor's
+///   rule": the pointer maps a click or a drag on a double-size line to the
+///   line's own columns.
+// covers: text.line-size, clipboard.selection
+#[test]
+fn a_drag_on_a_double_width_line_selects_the_doubled_characters_under_it() {
+    let mut h = Harness::new(&[
+        "--login",
+        "--",
+        "/bin/sh",
+        "-c",
+        "printf '\\033#6abcd\\n'; read x",
+    ]);
+    assert!(h.until(BOUND, |a| shows(a, "abcd")));
+    // In cells of 8 by 16 pixels, the doubled a covers pixels 0 to 15
+    // across, the b 16 to 31 and the c 32 to 47.
+    let at = |x: i32, held: Option<Button>| PointerEvent::Moved { x, y: 8, held };
+    let none = Mods::empty();
+    h.point(
+        [
+            at(17, None),
+            press(Button::Left, false),
+            at(46, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"bc"[..]));
+    h.point(
+        [
+            at(14, None),
+            press(Button::Left, false),
+            at(18, Some(Button::Left)),
+            release(Button::Left),
+        ],
+        none,
+    );
+    assert_eq!(h.app.selection(), Some(&b"ab"[..]));
+}
+
 /// A double click selects a word and a triple click a line, each copied
 /// as it is made; Shift+Insert pastes as the middle button does. A click
 /// with no drag copies nothing.
@@ -6369,7 +6416,7 @@ fn recording(name: &str) -> (Scratch, Sources) {
 /// rest of the request.
 fn first_request(bytes: &[u8]) -> Option<(String, String, &[u8])> {
     let u32_at = |b: &[u8]| Some(u32::from_le_bytes(b.get(..4)?.try_into().ok()?) as usize);
-    let rest = bytes.strip_prefix(b"VTVSREQ9")?.get(4..)?;
+    let rest = bytes.strip_prefix(b"VTVSREQA")?.get(4..)?;
     let n = u32_at(rest)?;
     let name = String::from_utf8(rest.get(4..4 + n)?.to_vec()).ok()?;
     let rest = rest.get(4 + n..)?;
@@ -6461,6 +6508,49 @@ fn a_spaced_cell_is_asked_for_with_its_band() {
     );
 }
 
+// issue #61: a line of double width and a pair of double-height lines ask
+// the helper for their characters at their size, in an ask whose line
+// size is 1 for double width and 2 for double height, in every build
+#[test]
+fn a_line_of_double_size_asks_for_its_characters_at_that_size() {
+    let (_dir, fonts) = recording("doubled-ask");
+    let mut h = Harness::fonts(
+        &[
+            "--font-name=ter-v16n",
+            "--login",
+            "--",
+            "/bin/sh",
+            "-c",
+            "printf '\\033#6ab\\r\\n\\033#3cd\\r\\n\\033#4cd'; read x",
+        ],
+        Memory::default(),
+        fonts.clone(),
+    );
+    // the style, regular, the script, normal, the cluster width, double,
+    // the line size, the reserved capabilities, then the codepoints
+    let ask = |size: u32, chars: &[char]| -> Vec<u8> {
+        [0, 0, 0, size, 0, chars.len() as u32]
+            .into_iter()
+            .chain(chars.iter().map(|&c| u32::from(c)))
+            .flat_map(|w| w.to_le_bytes())
+            .collect()
+    };
+    let asked = |h: &mut Harness, want: &[u8]| {
+        requests(h, &fonts, 1)
+            .iter()
+            .any(|b| b.windows(want.len()).any(|w| w == want))
+    };
+    let (wide, tall) = (ask(1, &['a', 'b']), ask(2, &['c', 'd']));
+    assert!(
+        h.eventually(BOUND, |h| asked(h, &wide)),
+        "a and b are asked for at double width"
+    );
+    assert!(
+        h.eventually(BOUND, |h| asked(h, &tall)),
+        "c and d are asked for at double height"
+    );
+}
+
 // ADR-1200 D21: a cluster the screen shows is asked for whole, by its
 // text, beside each of its characters
 #[test]
@@ -6513,10 +6603,11 @@ fn italic_and_bold_text_is_asked_for_in_its_style() {
         Memory::default(),
         fonts.clone(),
     );
-    // the style, the script, the cluster width, double, the reserved
-    // capabilities, a codepoint count of 1, then the codepoint
+    // the style, the script, the cluster width, double, the line size,
+    // normal, the reserved capabilities, a codepoint count of 1, then the
+    // codepoint
     let ask = |style: u32, script: u32, c: char| -> Vec<u8> {
-        [style, script, 0, 0, 1, u32::from(c)]
+        [style, script, 0, 0, 0, 1, u32::from(c)]
             .iter()
             .flat_map(|w| w.to_le_bytes())
             .collect()
@@ -7300,17 +7391,17 @@ fn the_kernels_font_is_handed_to_the_helper() {
             .collect()
     };
     // the cell, the rows line spacing adds, the style, regular, the
-    // script, normal, the cluster width, double, the reserved
-    // capabilities, then the codepoints, the clusters and the held ranges,
-    // each counted
+    // script, normal, the cluster width, double, the line size, normal,
+    // the reserved capabilities, then the codepoints, the clusters and the
+    // held ranges, each counted
     assert_eq!(words(&rest[8..], 2), [0, 0], "no line spacing");
     assert_eq!(
-        words(&rest[16..], 4),
-        [0, 0, 0, 0],
-        "regular, normal, double, and no capabilities"
+        words(&rest[16..], 5),
+        [0, 0, 0, 0, 0],
+        "regular, normal, double, the normal size, and no capabilities"
     );
-    let codepoints = words(&rest[32..], 1)[0] as usize;
-    let mut rest = &rest[36 + 4 * codepoints..];
+    let codepoints = words(&rest[36..], 1)[0] as usize;
+    let mut rest = &rest[40 + 4 * codepoints..];
     let clusters = words(rest, 1)[0] as usize;
     rest = &rest[4..];
     for _ in 0..clusters {

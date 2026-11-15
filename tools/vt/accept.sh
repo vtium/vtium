@@ -32,8 +32,18 @@
 # It runs in any terminal as any user and needs nothing from vtium, so the same
 # pages can be compared in vtium and in another terminal.
 #
-#   accept.sh [PAGE...]   PAGE is a file name without the number and .sh, such
-#                       as sgr; with none, every page runs
+#   accept.sh [--check] [PAGE...]
+#
+# PAGE names a page by its number (51), its file name without .sh
+# (51-double-size) or that name without its number (double-size). ACCEPT_ONLY
+# names more pages the same way, as one string of names separated by spaces
+# or commas; make vt-accept's PAGES reaches accept.sh as ACCEPT_ONLY. The
+# string is split into names and never run as shell code. With no page named,
+# every page runs. With pages named, only those run, in file name order, and
+# the title page and the record say that the pass is not a full pass. A name
+# that matches no page refuses the pass before it starts, naming the page.
+# --check prints the pages chosen, one file name without .sh per line, and
+# exits 0, or names a page that matches none and exits 2; it draws nothing.
 #
 # ACCEPT_LABEL names the terminal on the title page and in the record; run-vt.sh
 # sets it to "vtium dev build <git describe>". ACCEPT_VT, ACCEPT_BINARY and
@@ -54,6 +64,8 @@ nopage=${ACCEPT_NOPAGE:-}
 noprompt=${ACCEPT_NOPROMPT:-$nopage}
 passes=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 label=${ACCEPT_LABEL:-unlabelled}
+check=
+[ "${1:-}" != --check ] || { check=1; shift; }
 # The render path the pass judges, as the record names it (ADR-1501 D3).
 case ${ACCEPT_RENDER_PATH:-} in
 gpu) render_path='gpu, vtium run with --hwaccel' ;;
@@ -539,6 +551,7 @@ write_record() {
 		printf -- '- fonts: %s\n' "$fonts"
 		printf -- '- started: %s\n' "$started"
 		printf -- '- updated: %s\n' "$(date -Iseconds)"
+		[ -z "$only" ] || printf -- '- pages: %s\n' "$only"
 		printf -- '- answered: %d of %d\n\n' "$n" ${#pages[@]}
 		printf '| page | answer | comment |\n|---|---|---|\n'
 		for i in "${!pages[@]}"; do
@@ -568,8 +581,8 @@ rate() {
 # finds the pass and reads its record; a comment comes back with its
 # backslashes doubled and its line breaks as \n, which printf %b undoes.
 resumable() {
-	local newest k v comment i found
-	newest=$("$here/feedback.sh" --dir "$passes" --newest "$label" 2>/dev/null) || return 1
+	local newest k v comment i found limit=
+	newest=$("$here/feedback.sh" --dir "$passes" --newest "$label" --pages "$only" 2>/dev/null) || return 1
 	[ -n "$newest" ] || return 1
 	answers=() notes=() extra=()
 	while IFS=$'\t' read -r k v comment; do
@@ -579,6 +592,7 @@ resumable() {
 		'#fonts') [ "$v" = "$fonts" ] || return 1 ;;
 		'#hardware') [ "${v%%;*}" = "$hardware" ] || return 1 ;;
 		'#render-path') [ "$v" = "$render_path" ] || return 1 ;;
+		'#pages') limit=$v ;;
 		'#'*) ;;
 		*)
 			found=
@@ -593,6 +607,8 @@ resumable() {
 		esac
 	done < <("$here/feedback.sh" --tsv "$newest")
 	[[ $pass =~ ^[0-9T]+-[0-9]+$ ]] || return 1
+	# A full pass and a pass of only some pages never resume each other.
+	[ "$limit" = "$only" ] || return 1
 	record=$passes/$pass.md
 	for i in "${!pages[@]}"; do
 		[ -n "${answers[$i]:-}" ] || return 0
@@ -757,21 +773,45 @@ summary() {
 	done
 }
 
+# Whether page file F is the one that name W names: by its number, by its
+# file name without .sh, or by that name without its number.
+names_page() {
+	local id
+	id=$(id_of "$1")
+	[ "$2" = "$id" ] || [ "$2" = "$(name_of "$1")" ] || [ "$2" = "${id%%-*}" ]
+}
+
+# The pages named, from ACCEPT_ONLY and the command line. read splits
+# ACCEPT_ONLY at spaces and commas into words, and expands nothing in them.
+only_text=${ACCEPT_ONLY:-}
+read -ra wanted <<<"${only_text//,/ }"
+wanted+=("$@")
+all=("${ACCEPT_PAGES:-$here/sections}"/*.sh)
+for want in "${wanted[@]}"; do
+	found=
+	for f in "${all[@]}"; do
+		! names_page "$f" "$want" || found=1
+	done
+	[ -n "$found" ] || { printf 'accept: no such page: %s\n' "$want" >&2; exit 2; }
+done
+
 # The entries: each page, once in each frit its "# frits:" line names.
 pages=()
 frits=()
 switches=()
+chosen=()
 frit_dir=${ACCEPT_PAGES:-$here/sections}/frits
-for f in "${ACCEPT_PAGES:-$here/sections}"/*.sh; do
+for f in "${all[@]}"; do
 	take=
-	if [ $# -eq 0 ]; then
+	if [ ${#wanted[@]} -eq 0 ]; then
 		take=1
 	else
-		for want in "$@"; do
-			[ "$(name_of "$f")" != "$want" ] || take=1
+		for want in "${wanted[@]}"; do
+			! names_page "$f" "$want" || take=1
 		done
 	fi
 	[ -n "$take" ] || continue
+	chosen+=("$(id_of "$f")")
 	set_frits=$(meta frits "$f")
 	set_switch=$(meta font-switch "$f")
 	if [ -z "$set_frits" ]; then
@@ -782,7 +822,22 @@ for f in "${ACCEPT_PAGES:-$here/sections}"/*.sh; do
 		done
 	fi
 done
-[ ${#pages[@]} -gt 0 ] || { echo "accept: no such page: $*" >&2; exit 2; }
+[ ${#pages[@]} -gt 0 ] || { echo "accept: no page in ${ACCEPT_PAGES:-$here/sections}" >&2; exit 2; }
+if [ -n "$check" ]; then
+	printf '%s\n' "${chosen[@]}"
+	exit 0
+fi
+# A pass of only some pages says so on its title page and in its record, so
+# that it never reads as a full pass. A pass resumes only a pass of the same
+# pages (resumable).
+only=
+if [ ${#wanted[@]} -gt 0 ]; then
+	only="only ${chosen[0]}"
+	for ((k = 1; k < ${#chosen[@]}; k++)); do
+		if [ "$k" -eq $((${#chosen[@]} - 1)) ]; then only+=" and ${chosen[k]}"; else only+=", ${chosen[k]}"; fi
+	done
+	only+=", of the ${#all[@]} pages; this is not a full pass"
+fi
 # The page files, each once.
 files=()
 for f in "${pages[@]}"; do
@@ -865,7 +920,8 @@ if [ -n "$(small_mark)" ]; then
 	printf '  \033[31mThe terminal is smaller than 80x25: a page may be cut, and its\n'
 	printf '  questions moved to a screen of their own.\033[0m\n'
 fi
-[ $# -eq 0 ] || printf '  pages     named on the command line\n'
+[ -z "$only" ] ||
+	printf '  \033[31mpages     only %d of the %d pages: this is not a full pass\033[0m\n' ${#chosen[@]} ${#all[@]}
 echo
 printf '  Each page says below it what right and wrong look like. Answer each with\n'
 printf '  one key: y looks right, n looks wrong, u unsure, s skip; c types a comment\n'

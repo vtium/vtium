@@ -1,6 +1,6 @@
 # vtium's additions to the replay interface
 
-Interface 1.11 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
+Interface 1.12 is `corpus/INTERFACE.md`, interface 1.0, with the additions below. Each is a command, a feature, a view, or a line that only a new command, feature or view prints, so it raises MINOR under 1.0's "Versioning and features", and every golden stays as it is. The runner and the probe runner read the fenced blocks here after 1.0's: this `describe` block's version line replaces 1.0's, and its view, feature and command lines follow 1.0's lines of the same kind; this `grammar` block's lines join 1.0's, using its fragments.
 
 ## The fixture host checks a picture's size
 
@@ -128,7 +128,7 @@ Interface 1.0 reserves three keys for features it lacks: `overline`, `superscrip
 
 ## The selection and copy
 
-A user marks text with the pointer, and the host copies the marked text. The reference host selects through vtium-term's selection calls, the calls the vtium binary makes for a press of the left button and a drag, a double click, a triple click, and Ctrl with the right button. The `select` command names each of these by what it selects. It names a cell in the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback. In a build with right-to-left text, `col` is the column as drawn, where the pointer is, and vtium-term finds the character written there (ADR-1004, D10).
+A user marks text with the pointer, and the host copies the marked text. The reference host selects through vtium-term's selection calls, the calls the vtium binary makes for a press of the left button and a drag, a double click, a triple click, and Ctrl with the right button. The `select` command names each of these by what it selects. It names a cell in the view: column `col` and row `row`, counted from 0 at the top left of the rows the view shows. While the view is scrolled back, a row of the view is a row of the scrollback. In a build with right-to-left text, `col` is the column as drawn, where the pointer is, and vtium-term finds the character written there (ADR-1004, D10). On a line of double size, each character covers two screen columns. So `col` names the doubled character drawn there, the line's own column `col / 2` (ADR-1308 D1).
 
 | Command | Keys | Feature | What it does |
 |---|---|---|---|
@@ -496,16 +496,46 @@ flags AUTO_WRAP
 row 0 |கொ|கொ||
 ```
 
+## The cursor on a double-size line
+
+ESC # 6 makes a line double width. ESC # 3 and ESC # 4 make a line the top or the bottom half of a double-height line, which is double width too. vtium draws each character of such a line twice as wide, and the cursor scales with the character, as ADR-1308 D1 decides. On a double-width line, the cursor covers both display cells of the character. A double-height pair is a top line directly followed by a bottom line. On a pair, the cursor covers the character on both lines, whichever line it stands on. On a top or a bottom line with no partner, the cursor covers its own line. The terminal's cursor stays on its own line, so the position in the head's `cursor` line and in the `frame-cursor` line does not change.
+
+With the feature `cursor-extent`, the frame view's `frame-cursor` line says how far the cursor's drawing reaches. Two keys stand between `visible` and the cell. `span=N` is the number of display cells the cursor covers across. On a double-size line it is twice the cell's `w=`: 2 for a narrow character and 4 for a wide one. `rows=A-B` names the first and the last view row the cursor covers, and appears only on a double-height pair. A block cursor fills that area. A bar runs down its left edge, and an underline runs along the bottom of row B, each twice as thick on a double-size line. On a single-size line, the frame view prints neither key, so the line reads as 1.0 prints it. No case of 1.0 holds a double-size line, so no golden of 1.0 changes.
+
+| Feature | What declaring it means |
+|---|---|
+| `cursor-extent` | The `frame-cursor` line's `span=` and `rows=` keys. |
+
+A worked example: a block cursor on the top line of a double-height pair covers both lines.
+
+```example cursor-extent
+size 8 2
+view frame
+needs cursor-extent view-frame
+send "\e[2 q\e#3Big\r\n\e#4Big\e[1;2H"
+```
+
+```output cursor-extent
+size 8x2
+cursor 1,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 16
+frame-cursor 1,0 block-steady visible span=2 rows=0-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |Big|
+row 1 |Big|
+```
+
 ## The worked examples' strings
 
 The worked examples, here and in 1.0, read each `send` string with the string syntax of tier 1's scenarios (ADR-1504, D2), so the examples and the scenarios have one syntax. It adds three escapes to 1.0's list: `\a` stands for the byte 07, `\b` for the byte 08, and `\u{HEX}` for the UTF-8 of the code point HEX. Every string 1.0's list accepts reads as it did, so no example's input changes.
 
 ## The describe block and the grammar
 
-The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
+The grammar below adds the forms of the `attr`, `cells` and `frame-cursor` lines that print the keys `attrs-renditions` prints, the `test` lines of the clipboard, the copy, the links, the state, the font and text area requests and the display requests, the `bell` line, the two forms of the `anim` line, and the display view's `display-cursor` line and structure. It also adds the `frame-cursor` line's `span=` and `rows=` keys. An `anim` line follows its image's `image` line, and a `bell` line follows a block's replies, so `HEAD`, `IMAGES` and the fragments and structures built on them are given again here. A fragment takes its value where it is defined, so the views' fragments and structures must be restated to use the new `HEAD` and `IMAGES`. They differ from 1.0's only in those two.
 
 ```describe
-interface 1.11
+interface 1.12
 view display
 feature clipboard
 feature attrs-renditions
@@ -523,6 +553,7 @@ feature font-ops
 feature window-ops
 feature display-ops
 feature cluster-width
+feature cursor-extent
 command clipboard clipboard
 command select selection
 command copy selection
@@ -546,7 +577,7 @@ define RATTR (?: fg={CODE})?(?: bg={CODE})?(?: bold)?(?: italic)?(?: underline(?
 define RFCELL w=[0-2] fg={RGB} bg={RGB} ul={RGB}(?: ulset)?(?: underline=(?:single|double|curly|dotted|dashed))?(?: bold)?(?: italic)?(?: dim)?(?: blink)?(?: inverse)?(?: protect)?(?: strike)?(?: overline)?(?: superscript| subscript)?
 line attr screen attr {N} {N}-{N}{RATTR}
 line cells frame cells {N} {N}-{N} {RFCELL}
-line frame-cursor frame frame-cursor {N},{N} (?:{STYLE}) (?:hidden|visible {RFCELL})
+line frame-cursor frame frame-cursor {N},{N} (?:{STYLE}) (?:hidden|visible(?: span=[24])?(?: rows={N}-{N})? {RFCELL})
 line test * test clipboard (?:none|(?:[0-9a-f]{2})+)
 line host: * host: [1-9][0-9]* t=d flags=any(?:,frames)? O=0 max=0 min=0 name= len={N}
 line anim * anim {N} frames [1-9][0-9]* current [1-9][0-9]* run (?:stopped|loading|looping) loops [1-9][0-9]* stamps {N} {N}

@@ -25,7 +25,7 @@
 //! | 8 | version, `u32` |
 //! | 12 | medium letter, `u8` |
 //! | 13 | flags, `u8`: [`INFLATE`], [`PNG`], [`EXACT`], [`DISCARD`], [`ANY_IMAGE`], [`FRAMES`] |
-//! | 14 | the pixel description's layout, `u8`: 0 for none, 3 for RGB, 4 for RGBA |
+//! | 14 | the pixel description's layout, `u8`: 0 for none, 1 for a palette index, 2 for an index and its alpha, 3 for RGB, 4 for RGBA |
 //! | 15 | its alpha, `u8`: 0 straight, 1 premultiplied |
 //! | 16 | the request's id, `u64` |
 //! | 24 | offset, `u64` |
@@ -418,6 +418,8 @@ fn description(packet: &[u8], inflate: bool) -> Result<Option<Description>, Malf
     let (width, height) = (get32(packet, 64), get32(packet, 68));
     let layout = match layout {
         0 if alpha == 0 && width == 0 && height == 0 => return Ok(None),
+        1 => Layout::Index,
+        2 => Layout::IndexAlpha,
         3 => Layout::Rgb,
         4 => Layout::Rgba,
         _ => return Err(Malformed("a request with an unknown pixel layout")),
@@ -626,6 +628,18 @@ mod tests {
         };
         let packet = encode_request(u64::MAX, &png).unwrap();
         assert_eq!(decode_request(&packet).unwrap(), (u64::MAX, png));
+        // kitty's palette formats carry their own layouts, f=8 one byte a
+        // pixel and f=16 two
+        for (layout, min, byte) in [(Layout::Index, 3, 1), (Layout::IndexAlpha, 6, 2)] {
+            let mut r = file(b"/tmp/a");
+            r.min = min;
+            if let Some(d) = r.pixels.as_mut() {
+                d.layout = layout;
+            }
+            let packet = encode_request(3, &r).unwrap();
+            assert_eq!(packet.get(14), Some(&byte));
+            assert_eq!(decode_request(&packet).unwrap(), (3, r));
+        }
     }
 
     #[test]

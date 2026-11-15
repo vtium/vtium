@@ -1,0 +1,20 @@
+checkpoint 29
+size 10x3
+cursor 2,0
+flags INSERT_MODE|AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 30
+frame-cursor 2,0 default visible span=2 rows=0-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |aXbcd|
+row 1 |abcde|
+row 2 ||
+checkpoint 37
+size 10x3
+cursor 4,1
+flags INSERT_MODE|AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 3
+frame-cursor 4,1 default visible span=2 rows=0-1 w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |aXbcd|
+row 1 |abYZc|
+row 2 ||

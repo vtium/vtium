@@ -1,0 +1,13 @@
+# On a double-size line, ICH and DCH move the cells up to the line's last
+# column, column 5 of 10. IL moves the line down with its size, so CUF on
+# it still stops at column 5. Setting DECLRMM returns the line to single
+# size, and DECDWL then changes nothing.
+# spec: the VT510 manual, ICH: "Text between the cursor and right margin moves to the right. Characters scrolled past the right margin are lost"; DCH: "The terminal adds blank spaces with no visual character attributes at the right margin"; IL: "lines below the cursor and in the scrolling region move down"; DECLRMM: "All line attributes currently in page memory for the session are set to single width, single height. The terminal ignores any sequences to change the line attributes to double width or double height (DECDWL or DECDHL)"
+# covers: text.line-size
+size 10 3
+send "\e#6abcde\e[1;2H\e[@"
+dump
+send "\e[2P\e[L\e[2;1H\e[99C"
+dump
+send "\e[?69h\e[2;1H\e[99C\e#6\e[99C"
+dump

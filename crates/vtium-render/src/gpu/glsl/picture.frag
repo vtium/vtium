@@ -15,9 +15,11 @@
 //
 // A quad draws part of the picture: dst where. An opaque picture
 // replaces what lies beneath it. A picture that is not opaque goes over
-// the pixels beneath it with the CPU path's over_px (src/picture/mod.rs)
-// in whole numbers, reading them from `under`, a copy of them, since no
-// draw reads the target it draws into. The GPU's own blending would turn
+// the pixels beneath it in linear light, with the CPU path's
+// picture_over (src/blend.rs) in whole numbers, reading them from
+// `under`, a copy of them, since no draw reads the target it draws into.
+// It reads the blend's three tables from `tables`, the very values the
+// CPU path uses (src/blend/linear.rs). The GPU's own blending would turn
 // its float result into a byte as the driver chooses, rounding or
 // truncating, so the shader does the blend itself and writes every pixel
 // as an opaque one.
@@ -35,6 +37,12 @@ uniform ivec4 origin;
 // first texel holds
 uniform highp sampler2D under;
 uniform ivec4 under_at;
+// the blend's tables, 64 by 22 texels holding their bytes one after
+// another, four bytes a texel and each entry's lowest byte first: the
+// reciprocals of the alphas from byte 0, four bytes each; the linear light
+// of each sRGB byte from byte 1,024, two bytes each; and the sRGB byte of
+// each of the 4,096 steps of linear light from byte 1,536
+uniform highp sampler2D tables;
 #endif
 
 flat in ivec4 dst;
@@ -123,6 +131,34 @@ uint weight(Axis a, uint k) {
     return ONE;
 }
 
+#ifdef OVER
+// The four bytes of the tables' texel that holds byte o.
+uvec4 table(uint o) {
+    ivec2 at = ivec2(int((o >> 2) & 63u), int(o >> 8));
+    return uvec4(floor(texelFetch(tables, at, 0) * 255.0 + 0.5));
+}
+
+// The linear light of the sRGB byte v.
+uint to_linear(uint v) {
+    uvec4 t = table(1024u + 2u * v);
+    uint k = 2u * (v & 1u);
+    return t[k] | t[k + 1u] << 8;
+}
+
+// One channel of picture_over for an alpha a from 1 to 254: the
+// premultiplied s over d, with recip the alpha's reciprocal. The straight
+// color, (s * recip + 32768) >> 16 at most 255, and d go into linear
+// light, where 65,520 is full brightness; one rounded division by
+// 255 * 16 mixes them by the alpha and gives the mix's step of 4,095,
+// whose sRGB byte the last table holds. No product passes 2^32.
+uint linear_channel(uint s, uint d, uint recip, uint a) {
+    uint straight = min((s * recip + 32768u) >> 16, 255u);
+    uint mix = to_linear(straight) * a + to_linear(d) * (255u - a);
+    uint step = min((mix + 2040u) / 4080u, 4095u);
+    return table(1536u + step)[step & 3u];
+}
+#endif
+
 // Source pixel (x, y)'s bytes, red, green, blue and alpha.
 uvec4 source(uint x, uint y) {
     ivec2 at = ivec2(int(x) - origin.z, int(y) - origin.w);
@@ -149,13 +185,21 @@ void main() {
     uvec4 c = min((hi + (lo >> 16) + 32768u) >> 16, uvec4(255u));
     uvec3 out_rgb = c.rgb;
 #ifdef OVER
-    // over_px: the premultiplied c over the opaque pixel d,
-    // each channel c + div255(d * (255 - a)), at most 255
+    // picture_over: the premultiplied c over the opaque pixel d. A clear
+    // pixel leaves d, an opaque one replaces it, and any other alpha mixes
+    // each channel in linear light.
     ivec2 at = ivec2(gl_FragCoord.xy) - under_at.xy;
     uvec3 d = uvec3(floor(texelFetch(under, at, 0).rgb * 255.0 + 0.5));
-    uvec3 t = d * (255u - c.a) + 128u;
-    t = (t + (t >> 8)) >> 8;
-    out_rgb = c.a == 0u ? d : min(c.rgb + t, uvec3(255u));
+    if (c.a == 0u) {
+        out_rgb = d;
+    } else if (c.a < 255u) {
+        uvec4 r = table(4u * c.a);
+        uint recip = r.r | r.g << 8 | r.b << 16 | r.a << 24;
+        out_rgb = uvec3(
+            linear_channel(c.r, d.r, recip, c.a),
+            linear_channel(c.g, d.g, recip, c.a),
+            linear_channel(c.b, d.b, recip, c.a));
+    }
 #endif
     // each channel v written as (v + 0.25) / 255, which an 8-bit target
     // stores as v whether the GPU rounds or truncates

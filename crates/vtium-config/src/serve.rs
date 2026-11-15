@@ -52,7 +52,7 @@
 //! (ADR-1202 D14).
 //!
 //! ```text
-//! request  magic "VTVSREQ9", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
+//! request  magic "VTVSREQA", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
 //!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
@@ -67,7 +67,11 @@
 //!          superscript, 2 subscript; an ask's alone may name one other
 //!          than normal), cluster width u32 (0 double, 1 single, the
 //!          console's `cluster-width`, ADR-1006 D8; an ask's alone may
-//!          name single), capabilities
+//!          name single), line size u32 (0 normal, 1 double width, 2
+//!          double height, for a line of double size; an ask's alone may
+//!          name one other than normal, in the normal script, and only
+//!          where the doubled cell keeps inside CELL_SIDE_MAX),
+//!          capabilities
 //!          length u32, the capabilities (reserved for the
 //!          display's, ADR-1301 D1 and D3: always 0 bytes, and refused
 //!          otherwise), codepoint count u32, each codepoint u32 (an ask's
@@ -190,8 +194,8 @@ use vtium_font::script::Rect;
 use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, InkRows, SpacedCell};
 use vtium_font::{
-    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Glyph, Origin, REACH_CELLS, REACH_ROWS,
-    SET_CHUNK_BYTES, Script, Style, Variant, Width,
+    CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Doubled, Glyph, Origin, REACH_CELLS,
+    REACH_ROWS, SET_CHUNK_BYTES, Script, Style, Variant, Width,
 };
 use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, UniPair};
 
@@ -214,7 +218,7 @@ pub const HELPER_IDLE_MS: u64 = 60_000;
 /// number of times a boot (the console's `RESTARTS_MAX`).
 pub const HELPER_SECONDS: u64 = 300;
 
-pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQ9";
+pub const REQUEST_MAGIC: &[u8; 8] = b"VTVSREQA";
 /// Why the helper refuses a request of another layout of its format: the
 /// console that sent it comes from another build, and the console logs
 /// this as the reason the font helper failed.
@@ -349,6 +353,14 @@ pub struct ServeRequest {
     /// Where an ask's glyphs sit in their cells (ADR-1202 D11): normal, or
     /// superscript or subscript; normal for every other request.
     pub script: Script,
+    /// The double size an ask's glyphs are drawn at, for a line of double
+    /// width or double height (DECDWL, DECDHL), or `None` for the normal
+    /// size, as every other request draws. A double ask draws only the
+    /// outline glyphs of its codepoints, in the cell [`Doubled::cell`]
+    /// gives, and leaves out its clusters, the codepoints a bitmap source
+    /// draws, and color glyphs. The console doubles the pixels of what is
+    /// left out.
+    pub doubled: Option<Doubled>,
     /// The cells the console's terminal gives a cluster with a spacing
     /// mark or a virama conjunct (ADR-1006 D8), which the helper places
     /// an ask's clusters in; `double` for every other request.
@@ -429,6 +441,7 @@ impl ServeRequest {
         put32(&mut out, style_code(self.style));
         put32(&mut out, script_code(self.script));
         put32(&mut out, cluster_width_code(self.cluster_width));
+        put32(&mut out, doubled_code(self.doubled));
         // the display's capabilities, reserved
         put32(&mut out, 0);
         put32(&mut out, len32(self.codepoints.len()));
@@ -561,6 +574,18 @@ impl ServeRequest {
         if !ask && cluster_width != ClusterWidth::Double {
             return Err("a cluster width on a request that is not an ask".to_owned());
         }
+        let doubled = doubled_of(f.u32()?).ok_or("an unknown line size")?;
+        if !ask && doubled.is_some() {
+            return Err("a double size on a request that is not an ask".to_owned());
+        }
+        if doubled.is_some() && script != Script::Baseline {
+            return Err("a superscript or subscript at a double size".to_owned());
+        }
+        if doubled.is_some_and(|d| d.cell(cell).is_none()) {
+            return Err(format!(
+                "a double size whose cell has a side of more than {CELL_SIDE_MAX} pixels"
+            ));
+        }
         if f.u32()? != 0 {
             return Err("display capabilities this helper does not read".to_owned());
         }
@@ -647,6 +672,7 @@ impl ServeRequest {
             band,
             style,
             script,
+            doubled,
             cluster_width,
             codepoints,
             clusters,
@@ -660,6 +686,27 @@ impl ServeRequest {
 /// carries its style.
 pub fn style_code(style: Style) -> u32 {
     u32::from(style.bold) | u32::from(style.italic) << 1
+}
+
+/// A line size as a request carries it: the normal size 0, double width
+/// 1, double height 2.
+pub fn doubled_code(doubled: Option<Doubled>) -> u32 {
+    match doubled {
+        None => 0,
+        Some(Doubled::Width) => 1,
+        Some(Doubled::Height) => 2,
+    }
+}
+
+/// The double size a request's line size `code` names: `Some(None)` for
+/// the normal size, and `None` past double height's 2.
+fn doubled_of(code: u32) -> Option<Option<Doubled>> {
+    match code {
+        0 => Some(None),
+        1 => Some(Some(Doubled::Width)),
+        2 => Some(Some(Doubled::Height)),
+        _ => None,
+    }
 }
 
 /// A cluster width as a request carries it: `double` 0, `single` 1.
@@ -830,6 +877,27 @@ pub fn steps(style: Style) -> Vec<Step> {
         });
     }
     out
+}
+
+/// How `c` uses a row made taller by line spacing when the frit's set
+/// that gives it has no `fit=`. The console places the glyphs it draws
+/// itself by the same function ([`Fit::default_for`]), so the helper and
+/// the console agree on every character's default, combining marks
+/// included: vtium-font's one table of marks decides which characters are
+/// marks for both.
+///
+/// References:
+/// - ADR-1302 D13: the default fit of each kind of character.
+pub fn default_fit(c: u32) -> Fit {
+    Fit::default_for(c)
+}
+
+/// Whether `c` is a private-use character: of the Private Use Area,
+/// U+E000 to U+F8FF, or of Supplementary Private Use Area-A or -B. Unicode
+/// assigns these no meaning, and symbol fonts such as Nerd Fonts and
+/// Powerline put their symbols there.
+fn private_use(c: u32) -> bool {
+    matches!(c, 0xe000..=0xf8ff | 0xf_0000..=0xf_fffd | 0x10_0000..=0x10_fffd)
 }
 
 /// A source [`Engine::load`] left out.
@@ -1538,6 +1606,63 @@ impl Engine {
         Some(b)
     }
 
+    /// Source `i`'s own baseline in a cell `height` pixels high: where the
+    /// source stands when it draws at its own size, its ascent and descent
+    /// spanning the cell ([`Engine::fitted`]). Found once for the engine's
+    /// life, as [`Engine::baseline`] finds the others.
+    fn own_baseline(&self, i: usize, height: u32) -> Option<u32> {
+        if self.size(i, height).is_none() {
+            return self.baseline(i, height);
+        }
+        // the cache holds (i, height) for a source that draws at its own
+        // size only, so a source at the first source's size keeps its own
+        // baseline under a key no other lookup uses
+        let key = (i.checked_add(self.sources.len())?, height);
+        if let Some(&b) = self.baselines.borrow().get(&key) {
+            return Some(b);
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+            return None;
+        };
+        let b = crate::outline::baseline(font, family, height, None, self.hinting).ok()?;
+        self.baselines.borrow_mut().insert(key, b);
+        Some(b)
+    }
+
+    /// Whether source `i`'s glyph for `c` is a merged symbol, fitted to the
+    /// first source's cell: `c` is a private-use character, where Nerd
+    /// Fonts and Powerline put their symbols, and source `i` is an outline
+    /// source with `cover=` lines that would otherwise draw at the first
+    /// source's size ([`Engine::size`]). Such a glyph draws at the source's
+    /// own size, at which the source's ascent and descent span the cell,
+    /// and on the source's own baseline at that size. A symbol font made
+    /// for merging, such as Symbols Nerd Font Mono, lays out its symbols
+    /// in that box, so they fill the cell's height as the font means them
+    /// to: a Powerline separator runs from the cell's top to its bottom,
+    /// and an icon stands in the middle of the cell. A symbol whose ink
+    /// still passes its cells is drawn smaller, as any later source's
+    /// glyph is.
+    ///
+    /// Letters a `cover=` source gives, such as the ideographs of
+    /// `cover=gb2312`, keep the first source's size and baseline, so every
+    /// script on a line shares the first source's baseline.
+    ///
+    /// References:
+    /// - ADR-1200 D17: later sources draw at the first source's size, on its baseline.
+    /// - ADR-1302 D1: font merging fits a merged symbol before ink reaches past its cell.
+    fn fitted(&self, i: usize, c: u32) -> bool {
+        if !private_use(c) {
+            return false;
+        }
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR);
+        let outline = |i: usize| matches!(self.sources.get(i), Some((_, Loaded::Outline { .. })));
+        let merged = self
+            .sources
+            .get(i)
+            .is_some_and(|(source, _)| !source.cover.is_empty());
+        merged && first.is_some_and(|first| first != i && outline(first)) && outline(i)
+    }
+
     /// The baseline and the underline and strike-through a strike at
     /// `cell` reports (ADR-1302 D3, ADR-1200 D2): those of the frit's
     /// first regular source, the font that sets the cell, for an outline
@@ -1741,7 +1866,7 @@ impl Engine {
         self.glyphs(
             cell,
             Band::NONE,
-            REGULAR.into(),
+            (REGULAR.into(), None),
             want,
             (&[], false),
             &mut made,
@@ -1759,7 +1884,7 @@ impl Engine {
         self.glyphs(
             cell,
             Band::NONE,
-            REGULAR.into(),
+            (REGULAR.into(), None),
             &[],
             (clusters, false),
             &mut made,
@@ -1811,12 +1936,34 @@ impl Engine {
         let set = self.glyphs(
             at.cell,
             at.band,
-            variant,
+            (variant, None),
             want,
             (clusters, parts),
             &mut made,
         )?;
         Ok((set, made))
+    }
+
+    /// The glyphs of `variant` at `at` for `want`, sorted codepoints, drawn
+    /// at the double size `doubled`, as a double ask's answer
+    /// ([`ServeRequest::doubled`]): a set whose strikes are at the cell
+    /// [`Doubled::cell`] gives for `at`'s cell.
+    pub fn draw_doubled(
+        &self,
+        at: impl Into<SpacedCell>,
+        (variant, doubled): (Variant, Doubled),
+        want: &[u32],
+    ) -> Result<Option<Vec<u8>>, String> {
+        let at = at.into();
+        let mut made = BTreeMap::new();
+        self.glyphs(
+            at.cell,
+            at.band,
+            (variant, Some(doubled)),
+            want,
+            (&[], false),
+            &mut made,
+        )
     }
 
     /// One note for each `script-source=` font that gives no superscript
@@ -1932,11 +2079,9 @@ impl Engine {
 
     /// How the glyph that source `source` gives for `c` uses a row made
     /// taller by line spacing (ADR-1302 D13): the `fit=` of the source's
-    /// set that holds `c`, else `c`'s default.
+    /// set that holds `c`, else `c`'s default ([`default_fit`]).
     fn fit(source: &Source, c: u32) -> Fit {
-        source
-            .fit(c)
-            .unwrap_or_else(|| Fit::default_for(c, crate::shaping::mark_side(c).is_some()))
+        source.fit(c).unwrap_or_else(|| default_fit(c))
     }
 
     /// `request`, for source `i`'s normal glyphs at `cell` in the text band,
@@ -1951,19 +2096,11 @@ impl Engine {
     fn script_request(
         &self,
         request: OutlineRequest,
-        i: usize,
+        (i, fitted): (usize, bool),
         (cell, band, base): (Cell, Band, u32),
         script: Script,
     ) -> Option<OutlineRequest> {
-        let size = match self.size(i, cell.height) {
-            Some(size) => size,
-            None => {
-                let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
-                    return None;
-                };
-                crate::outline::size(font, family, cell.height).ok()?
-            }
-        };
+        let size = self.drawn_size((i, fitted), cell.height)?;
         let (num, den) = vtium_font::SCRIPT_SCALE;
         let small = size * num as f32 / den as f32;
         Some(OutlineRequest {
@@ -1977,6 +2114,50 @@ impl Engine {
             )],
             reaches: vec![(band.above, band.below)],
             script,
+            ..request
+        })
+    }
+
+    /// The size, in pixels to the em, outline source `i` draws its normal
+    /// glyphs at in a text band `height` pixels high: the first source's
+    /// size for a later source ([`Engine::size`]), and its own size for the
+    /// first source and for a merged symbol (`fitted`, [`Engine::fitted`]).
+    /// `None` for a bitmap source, or one whose font cannot be read.
+    fn drawn_size(&self, (i, fitted): (usize, bool), height: u32) -> Option<f32> {
+        if let Some(size) = self.size(i, height).filter(|_| !fitted) {
+            return Some(size);
+        }
+        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(i) else {
+            return None;
+        };
+        crate::outline::size(font, family, height).ok()
+    }
+
+    /// `request`, source `i`'s request at the text band `cell`, drawn at
+    /// the double size `doubled` instead. The glyphs take the size and the
+    /// baseline that the normal cell gives them. On a line of double height
+    /// both are twice as large. On a line of double width the request
+    /// stretches each outline to twice its width
+    /// ([`OutlineRequest::double_width`]). Each glyph is then the normal
+    /// glyph at twice its width, and twice its height on a line of double
+    /// height, rendered from its outlines at that size. `None` when the
+    /// source has no size or no baseline at the cell.
+    fn doubled_request(
+        &self,
+        request: OutlineRequest,
+        (i, fitted): (usize, bool),
+        cell: Cell,
+        doubled: Doubled,
+    ) -> Option<OutlineRequest> {
+        let rows = doubled.rows();
+        let size = self.drawn_size((i, fitted), cell.height)? * rows as f32;
+        let baseline = match fitted {
+            true => self.own_baseline(i, cell.height),
+            false => self.baseline(i, cell.height),
+        }?;
+        Some(OutlineRequest {
+            sizes: vec![size.to_bits()],
+            baselines: vec![baseline.checked_mul(rows)?],
             ..request
         })
     }
@@ -2010,7 +2191,7 @@ impl Engine {
         &self,
         cell: Cell,
         band: Band,
-        variant: Variant,
+        (variant, doubled): (Variant, Option<Doubled>),
         want: &[u32],
         (clusters, parts_asked): (&[Vec<u32>], bool),
         made: &mut BTreeMap<u32, Made>,
@@ -2046,8 +2227,33 @@ impl Engine {
                 ..script_lines
             },
         );
+        // a double ask draws each glyph in the cell its size gives, and its
+        // strikes report the normal cell's baseline and lines at that size;
+        // the sources are measured at the normal cell all the same
+        if doubled.is_some() && script != Script::Baseline {
+            return Err("a superscript or subscript at a double size".to_owned());
+        }
+        let rows = doubled.map_or(1, Doubled::rows);
+        let (drawn, drawn_whole, drawn_band) = match doubled {
+            None => (cell, whole, band),
+            Some(d) => (
+                d.cell(cell).ok_or("a double size past the largest cell")?,
+                d.cell(whole).ok_or("a double size past the largest cell")?,
+                d.band(band),
+            ),
+        };
+        let (base, lines) = (
+            base.saturating_mul(rows),
+            Decorations {
+                underline: lines.underline.saturating_mul(rows),
+                underline_thickness: lines.underline_thickness.saturating_mul(rows),
+                strike: lines.strike.saturating_mul(rows),
+                strike_thickness: lines.strike_thickness.saturating_mul(rows),
+                overline: lines.overline.saturating_mul(rows),
+            },
+        );
         let strike = |format| {
-            StrikeBuilder::new(format, whole, style)
+            StrikeBuilder::new(format, drawn_whole, style)
                 .script(script)
                 .baseline(base)
                 .decorations(lines)
@@ -2078,22 +2284,41 @@ impl Engine {
         let passes = [true, false]
             .into_iter()
             .flat_map(|color| order.clone().map(move |source| (color, source)));
-        for (color_only, (i, (source, loaded), synth)) in passes {
-            if self.failed.borrow().contains_key(&i) {
+        // a merged symbol font's private-use symbols are drawn in a request
+        // of their own, at the font's own size ([`Engine::fitted`]), before
+        // the rest of what the source gives
+        let passes = passes.flat_map(|pass| [true, false].map(|fitted| (pass, fitted)));
+        // what a double ask leaves to the console, which doubles the pixels
+        // of its glyph at the normal size: the codepoints a bitmap source
+        // draws, and those a color glyph draws
+        let mut left_out: BTreeSet<u32> = BTreeSet::new();
+        for ((color_only, (i, (source, loaded), synth)), fitted) in passes {
+            if self.failed.borrow().contains_key(&i) || (color_only && doubled.is_some()) {
                 continue;
             }
             let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
             let left: Vec<u32> = want
                 .iter()
                 .copied()
-                .filter(|&c| !mapped.contains(&c) && source.covers(c) && asked(&[c]))
+                .filter(|&c| {
+                    !mapped.contains(&c)
+                        && !left_out.contains(&c)
+                        && source.covers(c)
+                        && asked(&[c])
+                        && self.fitted(i, c) == fitted
+                })
                 .collect();
             let lead = |k: &[u32]| k.iter().copied().find(|&c| c != ZWJ);
+            // a cluster is shaped whole with the rest of the source's glyphs
             let unshaped: Vec<&[u32]> = clusters
                 .iter()
                 .map(Vec::as_slice)
                 .filter(|k| {
-                    !shaped.contains(k) && lead(k).is_some_and(|c| source.covers(c)) && asked(k)
+                    !fitted
+                        && doubled.is_none()
+                        && !shaped.contains(k)
+                        && lead(k).is_some_and(|c| source.covers(c))
+                        && asked(k)
                 })
                 .collect();
             match loaded {
@@ -2103,6 +2328,12 @@ impl Engine {
                     let scale = (cell.width / font.cell.width.max(1))
                         .min(cell.height / font.cell.height.max(1));
                     if scale == 0 {
+                        continue;
+                    }
+                    // a bitmap font's glyph doubles its pixels on a line of
+                    // double size, which the console does
+                    if doubled.is_some() {
+                        left_out.extend(left.iter().filter(|c| font.map.contains_key(c)));
                         continue;
                     }
                     let baseline = bitmap_baseline(font);
@@ -2275,23 +2506,31 @@ impl Engine {
                     let request = OutlineRequest {
                         font: Arc::clone(font),
                         family: family.clone(),
-                        cells: vec![(cell.width, cell.height)],
+                        cells: vec![(drawn.width, drawn.height)],
                         cover: ranges(&cover),
                         clusters: unshaped.iter().map(|k| crate::shaping::ask(k)).collect(),
                         cluster_width: self.cluster_width.get(),
-                        baselines: self.baseline(i, cell.height).into_iter().collect(),
+                        baselines: match fitted {
+                            true => self.own_baseline(i, cell.height),
+                            false => self.baseline(i, cell.height),
+                        }
+                        .into_iter()
+                        .collect(),
                         sizes: self
                             .size(i, cell.height)
+                            .filter(|_| !fitted)
                             .map(f32::to_bits)
                             .into_iter()
                             .collect(),
                         // a glyph's ink may use the rows spacing adds and
                         // then a row of the whole cell (ADR-1306 D1, D8)
                         reaches: vec![(
-                            band.above
-                                .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
-                            band.below
-                                .saturating_add(whole.height.saturating_mul(REACH_ROWS)),
+                            drawn_band
+                                .above
+                                .saturating_add(drawn_whole.height.saturating_mul(REACH_ROWS)),
+                            drawn_band
+                                .below
+                                .saturating_add(drawn_whole.height.saturating_mul(REACH_ROWS)),
                         )],
                         script: Script::Baseline,
                         hinting: self.hinting,
@@ -2304,11 +2543,23 @@ impl Engine {
                             .iter()
                             .position(|(s, _)| s.style == source.style)
                             != Some(i),
+                        double_width: doubled == Some(Doubled::Width),
+                    };
+                    let request = match doubled {
+                        None => request,
+                        Some(d) => match self.doubled_request(request, (i, fitted), cell, d) {
+                            Some(request) => request,
+                            None => continue,
+                        },
                     };
                     let request = match script {
                         Script::Baseline => request,
-                        _ => match self.script_request(request, i, (cell, band, text_base), script)
-                        {
+                        _ => match self.script_request(
+                            request,
+                            (i, fitted),
+                            (cell, band, text_base),
+                            script,
+                        ) {
                             Some(request) => request,
                             None => continue,
                         },
@@ -2326,9 +2577,9 @@ impl Engine {
                     let mut placed: BTreeMap<(u32, Fit), Option<u32>> = BTreeMap::new();
                     let mut index =
                         |(g, fit): (u32, Fit), target: &mut StrikeBuilder, glyph: &Placed| {
-                            *placed
-                                .entry((g, fit))
-                                .or_insert_with(|| put_placed(target, glyph, (cell, band, fit)))
+                            *placed.entry((g, fit)).or_insert_with(|| {
+                                put_placed(target, glyph, (drawn, drawn_band, fit))
+                            })
                         };
                     for &(c, g) in &s.map {
                         let (Some(glyph), Some(ch)) = (s.glyphs.get(g as usize), char::from_u32(c))
@@ -2339,6 +2590,10 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
+                            continue;
+                        }
+                        if glyph.color && doubled.is_some() {
+                            left_out.insert(c);
                             continue;
                         }
                         // a character that presents as text by default
@@ -2518,7 +2773,7 @@ impl Bits {
 /// failure; only a write that fails is the outer error.
 fn send_glyphs(
     engine: &Engine,
-    (cell, band, variant): (Cell, Band, Variant),
+    (cell, band, variant, doubled): (Cell, Band, Variant, Option<Doubled>),
     (want, clusters, parts): (&[u32], &[Vec<u32>], bool),
     kind: u32,
     (out, made): (&mut dyn Write, &mut BTreeMap<u32, Made>),
@@ -2527,7 +2782,8 @@ fn send_glyphs(
     // no more glyphs drawn at once than a frame holds at their largest, so
     // a cell whose glyphs each pass a set's chunk (ADR-1302 D6) never draws
     // a batch whose bytes would outgrow the helper's memory limit
-    let at_once = (max / engine.glyph_bytes_max(cell).max(1)).max(1);
+    let drawn = doubled.and_then(|d| d.cell(cell)).unwrap_or(cell);
+    let at_once = (max / engine.glyph_bytes_max(drawn).max(1)).max(1);
     let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::new();
     if want.len().saturating_add(clusters.len()) <= at_once {
         queue.push_back((want, clusters));
@@ -2541,7 +2797,14 @@ fn send_glyphs(
             continue;
         }
         let many = want.len().saturating_add(clusters.len()) > 1;
-        match engine.glyphs(cell, band, variant, want, (clusters, parts), made) {
+        match engine.glyphs(
+            cell,
+            band,
+            (variant, doubled),
+            want,
+            (clusters, parts),
+            made,
+        ) {
             Ok(None) => {}
             // the codepoints apart from the clusters, then each halved
             Ok(Some(set)) if set.len() > max && many => {
@@ -2852,6 +3115,11 @@ impl Work<'_> {
         let mut clusters = request.clusters.clone();
         clusters.sort_unstable();
         clusters.dedup();
+        // a double ask draws no cluster, and the console doubles the pixels
+        // of each cluster's glyph at the normal size
+        if request.doubled.is_some() {
+            clusters.clear();
+        }
         let cell = request.cell;
         let mut result = Ok(());
         // how each script glyph was made, which only an ASK_MADE is sent
@@ -2873,6 +3141,7 @@ impl Work<'_> {
                                 style: request.style,
                                 script: request.script,
                             },
+                            request.doubled,
                         ),
                         (w, k, request.kind == ASK_PARTS),
                         FRAME_GLYPHS,
@@ -2909,7 +3178,7 @@ impl Work<'_> {
         let drawn = match self.engine(&fill.frit) {
             Ok(engine) => send_glyphs(
                 engine,
-                (fill.cell, fill.band, REGULAR.into()),
+                (fill.cell, fill.band, REGULAR.into(), None),
                 (&batch, &[], false),
                 FRAME_FILL,
                 (&mut *out, &mut BTreeMap::new()),
@@ -3286,6 +3555,7 @@ mod tests {
             band: Band::NONE,
             style: Style::default(),
             script: Script::Baseline,
+            doubled: None,
             codepoints: codepoints.iter().map(|&c| u32::from(c)).collect(),
             clusters: Vec::new(),
             held: Vec::new(),
@@ -3384,8 +3654,9 @@ mod tests {
         italic: true,
     };
 
-    // ADR-1006 D8's cluster width moved the magic from VTVSREQ8 to
-    // VTVSREQ9, as ADR-1401 D7's coverage query and ADR-1302 D5's color
+    // the line size of a line of double size moved the magic from
+    // VTVSREQ9 to VTVSREQA, as ADR-1006 D8's cluster width moved it from
+    // VTVSREQ8 to VTVSREQ9, as ADR-1401 D7's coverage query and ADR-1302 D5's color
     // emoji's box moved it from VTVSREQ7 to VTVSREQ8, as ADR-1200 D15's report
     // of the sandbox moved it from VTVSREQ6 to VTVSREQ7, as ADR-1202 D11's script moved it from VTVSREQ5 to VTVSREQ6, as
     // ADR-1302 D13's band moved it from VTVSREQ4 to VTVSREQ5 and the style
@@ -3410,6 +3681,7 @@ mod tests {
             b"VTVSREQ6",
             b"VTVSREQ7",
             b"VTVSREQ8",
+            b"VTVSREQ9",
         ] {
             let mut old = bytes.clone();
             old[..8].copy_from_slice(magic);
@@ -3460,7 +3732,7 @@ mod tests {
     fn a_malformed_request_is_refused_before_allocation() {
         // the frit `a` with no text: its cell at 21, its line spacing at 29,
         // its style at 37, its script at 41, its cluster width at 45, its
-        // capabilities at 49, its codepoint at 57
+        // line size at 49, its capabilities at 53, its codepoint at 61
         let a = FritText {
             name: "a".to_owned(),
             text: String::new(),
@@ -3489,15 +3761,16 @@ mod tests {
         }
         let mut many = head(&[1]);
         many.push(b'a');
-        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, 0, u32::MAX] {
+        for v in [0u32, 8, 16, 0, 0, 0, 0, 0, 0, 0, u32::MAX] {
             many.extend_from_slice(&v.to_le_bytes());
         }
         let e = ServeRequest::read(&mut &many[..]).unwrap_err();
         assert!(e.contains("past its bound"), "{e}");
         // the kind, the cell's width and height, line spacing above and
         // below that leaves no text band, a style past bold italic, a
-        // script past subscript, a cluster width past single, capabilities
-        // not yet read, the codepoint, the cluster count
+        // script past subscript, a cluster width past single, a line size
+        // past double height, capabilities not yet read, the codepoint, the
+        // cluster count
         for (at, value) in [
             (8, 9u32),
             (21, 0),
@@ -3507,9 +3780,10 @@ mod tests {
             (37, 4),
             (41, 3),
             (45, 2),
-            (49, 1),
-            (57, 0xd800),
-            (61, u32::MAX),
+            (49, 3),
+            (53, 1),
+            (61, 0xd800),
+            (65, u32::MAX),
         ] {
             let mut bad = good.clone();
             bad[at..at + 4].copy_from_slice(&value.to_le_bytes());
@@ -3833,7 +4107,7 @@ mod tests {
             .glyphs(
                 cell,
                 Band::NONE,
-                REGULAR.into(),
+                (REGULAR.into(), None),
                 &want,
                 (&clusters, false),
                 &mut BTreeMap::new(),
@@ -3843,7 +4117,7 @@ mod tests {
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (cell, Band::NONE, REGULAR.into()),
+            (cell, Band::NONE, REGULAR.into(), None),
             (&want, &clusters, false),
             FRAME_GLYPHS,
             (&mut out, &mut BTreeMap::new()),
@@ -3942,7 +4216,7 @@ mod tests {
         let mut out = Vec::new();
         let sent = send_glyphs(
             &engine,
-            (huge, Band::NONE, REGULAR.into()),
+            (huge, Band::NONE, REGULAR.into(), None),
             (&[u32::from('A'), u32::from('B')], &[], false),
             FRAME_GLYPHS,
             (&mut out, &mut BTreeMap::new()),
@@ -4216,6 +4490,85 @@ mod tests {
         let ink = l.ink().unwrap();
         assert_eq!((ink.left(), ink.width()), (-3, 15));
         assert!(face.draw(&['A'], Style::default()).unwrap().ink().is_none());
+    }
+
+    /// A tall main font, whose ascent and descent span 1.5 em, and a short
+    /// symbol font, whose span 1 em, merged by `cover=` for the Private
+    /// Use Area and Cyrillic: the symbol font's U+E0B0, a bar from its
+    /// descent to its ascent, and U+0416, the same bar as a letter.
+    fn merged_frit(name: &str) -> (FritText, Scratch) {
+        let dir = scratch(name);
+        let main = super::ttf::Font {
+            family: "Tall Mono".to_owned(),
+            ascent: 1100,
+            descent: -400,
+            ..super::ttf::test_mono()
+        };
+        let symbols = super::ttf::Font {
+            family: "Short Symbols".to_owned(),
+            ascent: 800,
+            descent: -200,
+            glyphs: vec![
+                super::ttf::Glyph::empty(400),
+                super::ttf::Glyph::rect(400, 0, -200, 400, 800),
+            ],
+            cmap: vec![(0x0416, 1), (0xe0b0, 1)],
+            colr: Vec::new(),
+            palette: Vec::new(),
+            ..super::ttf::test_mono()
+        };
+        let (main_path, symbols_path) = (dir.join("main.ttf"), dir.join("symbols.ttf"));
+        std::fs::write(&main_path, main.build()).unwrap();
+        std::fs::write(&symbols_path, symbols.build()).unwrap();
+        let text = format!(
+            "source=outline:{}\nsource=outline:{}\ncover=U+E000-U+F8FF\ncover=U+0400-U+04FF\n",
+            main_path.display(),
+            symbols_path.display()
+        );
+        (frit(&text), dir)
+    }
+
+    // #64: a merged symbol font's private-use glyph is fitted to the main
+    // font's cell. It draws at the size at which the symbol font's own
+    // ascent and descent span the cell, so a bar the font draws from its
+    // descent to its ascent, as a Powerline separator runs, fills the
+    // cell from its top row to its bottom row. At the main font's size it
+    // would span only two thirds of the cell. A letter the same font gives
+    // through cover= keeps the main font's size, on its baseline, as every
+    // later source's letters do (ADR-1200 D17)
+    // covers: text.font-merge
+    #[test]
+    fn a_merged_symbol_fills_the_main_fonts_cell() {
+        let (frit, _dir) = merged_frit("merged-fit");
+        let cell = Cell {
+            width: 12,
+            height: 30,
+        };
+        let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
+            cell,
+            band: Band::NONE,
+            ..request(ASK, frit, &['\u{e0b0}', '\u{416}'])
+        }]);
+        assert_eq!(frames[0].0, FRAME_GLYPHS);
+        let set = Arc::new(Set::from_bytes(frames[0].1.clone()).unwrap());
+        let face = SetFace::new(set, 30).unwrap();
+        let rows = |c: char| -> Vec<u32> {
+            let g = face.draw(&[c], Style::default()).unwrap();
+            (0..g.height())
+                .filter(|&y| (0..g.width()).any(|x| g.pixel(x, y).unwrap()[0] > 0))
+                .collect()
+        };
+        assert_eq!(
+            rows('\u{e0b0}'),
+            (0..30).collect::<Vec<_>>(),
+            "the separator"
+        );
+        let letter = rows('\u{416}');
+        assert!(
+            letter.len() <= 21,
+            "the letter at the main font's size: {letter:?}"
+        );
     }
 
     // ADR-1006 D8: an ask under `cluster-width = single` has the conjunct
@@ -5291,6 +5644,237 @@ mod tests {
         let own = std::fs::read_to_string("/proc/self/status").unwrap();
         assert!(status_ids(&own, "Uid:").is_some_and(|ids| ids.len() == 4));
         assert!(status_ids(&own, "Groups:").is_some());
+    }
+
+    /// DejaVu Sans Mono's ASCII, whose cell at 16 pixels is 9x16.
+    const DEJAVU: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+    );
+    const DEJAVU_CELL: Cell = Cell {
+        width: 9,
+        height: 16,
+    };
+
+    /// An ask of `frit` at DejaVu Sans Mono's cell for `chars`, drawn at
+    /// `doubled`.
+    fn doubled_ask(frit: FritText, chars: &[char], doubled: Option<Doubled>) -> ServeRequest {
+        ServeRequest {
+            cell: DEJAVU_CELL,
+            doubled,
+            ..request(ASK, frit, chars)
+        }
+    }
+
+    /// The set of each glyph frame `frames` holds, and the cell of each of
+    /// its strikes.
+    fn answered(frames: &[(u32, Vec<u8>)]) -> Vec<(Arc<Set>, Vec<Cell>)> {
+        frames
+            .iter()
+            .filter(|f| f.0 == FRAME_GLYPHS)
+            .map(|f| {
+                let set = Arc::new(Set::from_bytes(f.1.clone()).unwrap());
+                let cells = set.cells();
+                (set, cells)
+            })
+            .collect()
+    }
+
+    /// Where a request about `frit` holds its line size: after the magic,
+    /// the kind, the frit's name and text with their lengths, the cell, the
+    /// rows line spacing adds, the style, the script and the cluster width.
+    fn line_size_at(frit: &FritText) -> usize {
+        8 + 4 + 4 + frit.name.len() + 4 + frit.text.len() + 8 + 8 + 4 + 4 + 4
+    }
+
+    /// The one glyph frame `frames` holds, as [`answered`] reads it; fails,
+    /// saying `what`, unless there is exactly one.
+    fn one_answer(frames: &[(u32, Vec<u8>)], what: &str) -> (Arc<Set>, Vec<Cell>) {
+        let mut all = answered(frames);
+        assert_eq!(all.len(), 1, "{what}");
+        all.remove(0)
+    }
+
+    /// The coverage in each of `g`'s rows, added up.
+    fn row_ink(g: &Glyph) -> Vec<u64> {
+        g.pixels()
+            .chunks(g.width() as usize)
+            .map(|row| row.iter().map(|&p| u64::from(p)).sum())
+            .collect()
+    }
+
+    // an ask's line size reads back; a double size on any other request,
+    // a superscript or subscript at a double size, a line size past double
+    // height's 2, and a cell whose double passes CELL_SIDE_MAX are refused
+    #[test]
+    fn a_double_ask_reads_back_and_its_bounds_are_checked() {
+        let font = frit(&format!("source=outline:{DEJAVU}\n"));
+        for doubled in [Doubled::Width, Doubled::Height] {
+            let ask = ServeRequest {
+                style: BOLD_ITALIC,
+                ..doubled_ask(font.clone(), &['H'], Some(doubled))
+            };
+            let bytes = ask.encode();
+            let at = line_size_at(&font);
+            assert_eq!(
+                &bytes[at..at + 4],
+                &doubled_code(Some(doubled)).to_le_bytes()
+            );
+            assert_eq!(ServeRequest::read(&mut &bytes[..]), Ok(Some(ask)));
+        }
+        let fill = ServeRequest {
+            doubled: Some(Doubled::Width),
+            ..request(FILL, font.clone(), &['H'])
+        };
+        let e = ServeRequest::read(&mut &fill.encode()[..]).unwrap_err();
+        assert!(
+            e.contains("double size on a request that is not an ask"),
+            "{e}"
+        );
+        let sup = ServeRequest {
+            script: Script::Super,
+            ..doubled_ask(font.clone(), &['H'], Some(Doubled::Height))
+        };
+        let e = ServeRequest::read(&mut &sup.encode()[..]).unwrap_err();
+        assert!(
+            e.contains("superscript or subscript at a double size"),
+            "{e}"
+        );
+        let mut past = doubled_ask(font.clone(), &['H'], None).encode();
+        let at = line_size_at(&font);
+        past[at..at + 4].copy_from_slice(&3u32.to_le_bytes());
+        assert_eq!(
+            ServeRequest::read(&mut &past[..]),
+            Err("an unknown line size".to_owned())
+        );
+        let tall = Cell {
+            width: 9,
+            height: CELL_SIDE_MAX / 2 + 1,
+        };
+        let height = ServeRequest {
+            cell: tall,
+            ..doubled_ask(font.clone(), &['H'], Some(Doubled::Height))
+        };
+        let e = ServeRequest::read(&mut &height.encode()[..]).unwrap_err();
+        assert!(e.contains("double size whose cell"), "{e}");
+        // the same cell doubles across at double width, which keeps its height
+        let width = ServeRequest {
+            cell: tall,
+            doubled: Some(Doubled::Width),
+            ..height
+        };
+        assert!(ServeRequest::read(&mut &width.encode()[..]).is_ok());
+    }
+
+    // issue #61, the maintainer's direction of 2026-11-14: an outline font
+    // draws a line of double size at true double size. A double-width
+    // ask's glyph is drawn in a cell twice as wide, from the outline
+    // stretched to twice its width at the normal size: each row holds
+    // twice the normal row's coverage, the rows unchanged, and the glyph is
+    // not the normal one with each pixel doubled. A double-height ask's
+    // glyph is drawn at twice the size, in a cell twice as wide and twice
+    // as tall, its ink over twice the rows and four times the coverage,
+    // and it too is not the normal glyph with its pixels doubled
+    #[test]
+    fn a_double_ask_renders_its_outline_glyphs_at_double_size() {
+        let font = frit(&format!("source=outline:{DEJAVU}\n"));
+        let chars = ['H', 'g', 'o'];
+        let normal = run(&[doubled_ask(font.clone(), &chars, None)]);
+        let (normal, _) = &one_answer(&normal, "one glyph frame at the normal size");
+        let normal = SetFace::new(Arc::clone(normal), 16).unwrap();
+        let wide = run(&[doubled_ask(font.clone(), &chars, Some(Doubled::Width))]);
+        let (wide, cells) = &one_answer(&wide, "one glyph frame at double width");
+        assert_eq!(
+            cells,
+            &[Cell {
+                width: 18,
+                height: 16
+            }]
+        );
+        let wide = SetFace::new(Arc::clone(wide), 16).unwrap();
+        let tall = run(&[doubled_ask(font, &chars, Some(Doubled::Height))]);
+        let (tall, cells) = &one_answer(&tall, "one glyph frame at double height");
+        assert_eq!(
+            cells,
+            &[Cell {
+                width: 18,
+                height: 32
+            }]
+        );
+        let tall = SetFace::new(Arc::clone(tall), 32).unwrap();
+        let ink_rows = |g: &Glyph| {
+            let rows = row_ink(g);
+            let first = rows.iter().position(|&n| n > 0).unwrap();
+            let last = rows.iter().rposition(|&n| n > 0).unwrap();
+            (first, last)
+        };
+        for c in chars {
+            let n = normal.draw(&[c], Style::default()).unwrap();
+            let w = wide.draw(&[c], Style::default()).unwrap();
+            let t = tall.draw(&[c], Style::default()).unwrap();
+            assert_eq!((w.width(), w.height()), (18, 16), "{c}");
+            assert_eq!((t.width(), t.height()), (18, 32), "{c}");
+            for (y, (&a, &b)) in row_ink(&n).iter().zip(&row_ink(&w)).enumerate() {
+                // a row's ink moves by a fraction of a pixel as the pen
+                // is placed in the wider cell, which changes its sum by a
+                // few per cent where the glyph meets its cell's edges
+                assert!(
+                    b.abs_diff(2 * a) <= 2 * a / 20 + 18,
+                    "{c} row {y}: {b} against twice {a}"
+                );
+            }
+            let doubled_pairs = w.pixels().chunks(2).all(|p| p[0] == p[1]);
+            assert!(!doubled_pairs, "{c}: each pixel doubled across");
+            let (top, bottom) = ink_rows(&n);
+            let (t_top, t_bottom) = ink_rows(&t);
+            assert!(t_top.abs_diff(2 * top) <= 1, "{c}: {t_top} against {top}");
+            assert!(
+                t_bottom.abs_diff(2 * bottom + 1) <= 1,
+                "{c}: {t_bottom} against {bottom}"
+            );
+            let (sum_n, sum_t): (u64, u64) = (row_ink(&n).iter().sum(), row_ink(&t).iter().sum());
+            assert!(
+                sum_t.abs_diff(4 * sum_n) <= 4 * sum_n / 10,
+                "{c}: {sum_t} against four times {sum_n}"
+            );
+            let blocks = (0..16).all(|y| {
+                (0..9).all(|x| {
+                    let at = |dx: usize, dy: usize| t.pixels()[(2 * y + dy) * 18 + 2 * x + dx];
+                    at(0, 0) == at(1, 0) && at(0, 0) == at(0, 1) && at(0, 0) == at(1, 1)
+                })
+            });
+            assert!(!blocks, "{c}: each pixel doubled across and down");
+        }
+    }
+
+    // a double ask leaves to the console what a bitmap source draws, even
+    // where a later outline source covers it too, so the console doubles
+    // its pixels as the DEC terminals did; the outline source draws the
+    // rest at double size
+    #[test]
+    fn a_double_ask_leaves_a_bitmap_sources_glyphs_to_the_console() {
+        let dir = scratch("doubled-bitmap");
+        let path = dir.join("9x16.psf");
+        let psf = crate::decode::tests::psf2(9, 16, 2, Some(&[(1, 'A')]));
+        std::fs::write(&path, psf).unwrap();
+        let font = frit(&format!(
+            "source=file:{}\nsource=outline:{DEJAVU}\n",
+            path.display()
+        ));
+        let normal = run(&[doubled_ask(font.clone(), &['A', 'B'], None)]);
+        let (normal, _) = &one_answer(&normal, "one glyph frame at the normal size");
+        let normal = SetFace::new(Arc::clone(normal), 16).unwrap();
+        assert!(normal.has_glyph('A') && normal.has_glyph('B'));
+        let frames = run(&[doubled_ask(font, &['A', 'B'], Some(Doubled::Width))]);
+        let (wide, _) = &one_answer(&frames, "one glyph frame at double width");
+        let wide = SetFace::new(Arc::clone(wide), 16).unwrap();
+        assert!(!wide.has_glyph('A'));
+        assert!(wide.has_glyph('B'));
+        assert_eq!(frames.last().map(|f| f.0), Some(FRAME_DONE));
+        // a frit of bitmap fonts alone answers a double ask with nothing
+        let bitmap = frit(&format!("source=file:{}\n", path.display()));
+        let frames = run(&[doubled_ask(bitmap, &['A'], Some(Doubled::Height))]);
+        assert_eq!(frames.iter().map(|f| f.0).collect::<Vec<_>>(), [FRAME_DONE]);
     }
 
     #[test]

@@ -1,0 +1,12 @@
+# Sealed expectation for kit-spec-indexed-media.case, written from the kitty graphics protocol's "Transferring pixel data" and "Compression" and ADR-1100 D15 before vtium ran the case.
+# Replies are exact. A '# expected in the dump' line says in words what the dump must show.
+< reply "\e_Gi=1;OK\e\\"
+< reply "\e_Gi=2;OK\e\\"
+# each of the six transmissions through the fixture host prints its host: line, with the min of 3 bytes for f=8 and 6 for f=16, and inflate for the two zlib payloads
+< reply "\e_Gi=3;OK\e\\"
+< reply "\e_Gi=4;OK\e\\"
+< reply "\e_Gi=5;OK\e\\"
+< reply "\e_Gi=6;OK\e\\"
+< reply "\e_Gi=7;OK\e\\"
+< reply "\e_Gi=8;OK\e\\"
+# expected in the dump: eight placements, one for each image; the images sent as f=8 (i=1, 3, 5, 6 and 7) all have one digest and are opaque; the images sent as f=16 (i=2, 4 and 8) all have another digest and are not opaque.

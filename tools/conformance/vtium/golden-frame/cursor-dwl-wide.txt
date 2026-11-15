@@ -1,0 +1,26 @@
+checkpoint 14
+size 10x4
+cursor 1,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 1,0 default visible span=4 w=2 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |a中b|
+cells 0 1-1 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 2-2 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 1 ||
+row 2 ||
+row 3 ||
+checkpoint 20
+size 10x4
+cursor 2,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 0
+frame-cursor 1,0 default visible span=4 w=2 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |a中b|
+cells 0 1-1 w=2 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+cells 0 2-2 w=0 fg=#e5e5e5 bg=#000000 ul=#e5e5e5
+row 1 ||
+row 2 ||
+row 3 ||

@@ -14,8 +14,9 @@
 //! each picture over the cells it reaches, through slot 1's textures, in
 //! the frame's order, which is the layers' order; the cells' text layers,
 //! premultiplied over the pictures beneath, before the first picture above
-//! the text; the selection's tint; and last vtium's mark, the bar of a bar
-//! cursor or an underline cursor's line.
+//! the text; the selection's tint; and vtium's mark, an underline cursor's
+//! line. Last of all, after every cell, the bar of a bar cursor is drawn
+//! as a quad of one color, over its cell's letter and pictures.
 //!
 //! No draw reads the target it draws into, and the GPU's own blending
 //! turns its float result into a byte as the driver chooses. So each draw
@@ -49,10 +50,11 @@ use crate::arrow::Arrow;
 use crate::blend::pixel;
 use crate::bounds::GPU_IDLE_FRAMES;
 use crate::compose::{Area, Composer, Job};
-use crate::deco::Line;
+use crate::deco::{LINES, Line};
 use crate::notice::Placed;
 use crate::reach::{Bound, Reach};
 use crate::renderer::Back;
+use crate::renderer::double::Piece;
 use crate::target::Rect;
 
 const QUAD_VERT: &str = include_str!("glsl/quad.vert");
@@ -248,13 +250,14 @@ const PICTURE_INPUTS: [Input; 4] = [
 ];
 
 #[cfg(feature = "images")]
-const PICTURE_OVER_INPUTS: [Input; 6] = [
+const PICTURE_OVER_INPUTS: [Input; 7] = [
     PICTURE_INPUTS[0],
     PICTURE_INPUTS[1],
     PICTURE_INPUTS[2],
     PICTURE_INPUTS[3],
     BENEATH[0],
     BENEATH[1],
+    super::pictures::TABLES,
 ];
 
 const UNDER_INPUTS: [Input; 2] = [
@@ -316,6 +319,9 @@ pub struct Work<'a> {
     /// vtium's marks over the cells pictures reach.
     #[cfg(feature = "images")]
     pub(crate) marks: &'a [Cells],
+    /// The bars of bar cursors, each a quad of one color drawn over
+    /// everything else in its cell.
+    pub(crate) bars: &'a [Cells],
 }
 
 impl<'a> Work<'a> {
@@ -338,6 +344,7 @@ impl<'a> Work<'a> {
             tints: &[],
             #[cfg(feature = "images")]
             marks: &[],
+            bars: &[],
         }
     }
 }
@@ -891,6 +898,9 @@ impl Composition {
         self.draw_cells(gl, work.cells)?;
         #[cfg(feature = "images")]
         self.draw_pictured(gl, work, pictures)?;
+        // a bar cursor's bar lies over its cell's letter and over every
+        // picture, text layer and mark in the cell
+        self.draw_cells(gl, work.bars)?;
         if let Some(a) = work.arrow {
             self.draw_arrow(gl, a, &drawn)?;
         }
@@ -1495,6 +1505,8 @@ pub(crate) struct GpuBack<'a, G: Gl> {
     pub(crate) tints: Vec<(Rect, u32)>,
     #[cfg(feature = "images")]
     pub(crate) marks: Vec<Cells>,
+    /// The bars of bar cursors, drawn after everything else.
+    pub(crate) bars: Vec<Cells>,
 }
 
 impl<'a, G: Gl> GpuBack<'a, G> {
@@ -1518,6 +1530,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             tints: Vec::new(),
             #[cfg(feature = "images")]
             marks: Vec::new(),
+            bars: Vec::new(),
         }
     }
 
@@ -1526,6 +1539,7 @@ impl<'a, G: Gl> GpuBack<'a, G> {
     pub(crate) fn restart(&mut self) {
         self.next_row = 0;
         self.cells.clear();
+        self.bars.clear();
         #[cfg(feature = "images")]
         {
             self.picture_rects.clear();
@@ -1590,28 +1604,18 @@ impl<'a, G: Gl> GpuBack<'a, G> {
             underline: job.underline.filter(|_| mark != Mark::Underline),
             ..*job
         };
-        let glyph = place.filter(|_| mark != Mark::Bar);
-        if glyph.is_some() || text.layered() || ink != 0 {
-            let q = quad(&text, glyph, ink);
-            push(&mut self.text, glyph.map(|p| (p.texture, p.color)), q);
+        if place.is_some() || text.layered() || ink != 0 {
+            let q = quad(&text, place, ink);
+            push(&mut self.text, place.map(|p| (p.texture, p.color)), q);
         }
         if job.under.selected
             && let Some(cell) = area_rect(r)
         {
             self.tints.push((cell, pixel(job.bg)));
         }
-        match mark {
-            Mark::Bar => {
-                if let Some(p) = place {
-                    let q = quad(&bare, Some(p), 0);
-                    push(&mut self.marks, Some((p.texture, p.color)), q);
-                }
-            }
-            Mark::Underline if job.underline.is_some() => {
-                let line = Job { over: None, ..*job };
-                push(&mut self.marks, None, quad(&line, None, 0));
-            }
-            _ => {}
+        if mark == Mark::Underline && job.underline.is_some() {
+            let line = Job { over: None, ..*job };
+            push(&mut self.marks, None, quad(&line, None, 0));
         }
         true
     }
@@ -1639,6 +1643,7 @@ fn push(cells: &mut Vec<Cells>, glyphs: Option<(usize, bool)>, quad: Quad) {
 /// it holds past these counts the row's second drawing pushed.
 struct Held {
     cells: Vec<usize>,
+    bars: Vec<usize>,
     #[cfg(feature = "images")]
     text: Vec<usize>,
     #[cfg(feature = "images")]
@@ -1654,6 +1659,7 @@ impl Held {
         let lens = |lists: &[Cells]| lists.iter().map(|c| c.quads.len()).collect();
         Held {
             cells: lens(&back.cells),
+            bars: lens(&back.bars),
             #[cfg(feature = "images")]
             text: lens(&back.text),
             #[cfg(feature = "images")]
@@ -1700,6 +1706,11 @@ impl<G: Gl> GpuBack<'_, G> {
         again.dedup();
         let drawn_again = |dst: &[i32; 4]| again.binary_search(dst).is_ok();
         drop_earlier(&mut self.cells, &held.cells, drawn_again);
+        // a bar lies inside its cell, so the cell's second drawing, which
+        // pushes its bar again, replaces the bar of its first
+        let inside =
+            |dst: &[i32; 4]| dst_rect(*dst).is_some_and(|r| again.iter().any(|&a| contains(a, &r)));
+        drop_earlier(&mut self.bars, &held.bars, inside);
         #[cfg(feature = "images")]
         {
             drop_earlier(&mut self.text, &held.text, drawn_again);
@@ -1733,7 +1744,6 @@ fn keep_unless_earlier<T>(items: &mut Vec<T>, from: usize, earlier: impl Fn(&T) 
 }
 
 /// Whether the quad's `dst` holds all of `r`.
-#[cfg(feature = "images")]
 fn contains(dst: [i32; 4], r: &Rect) -> bool {
     let [x, y, w, h] = dst.map(i64::from);
     let (rx, ry) = (i64::from(r.x), i64::from(r.y));
@@ -1846,6 +1856,13 @@ impl<G: Gl> Back for GpuBack<'_, G> {
 impl<G: Gl> GpuBack<'_, G> {
     /// Pushes the quads of the jobs of grid row `row`.
     fn push_row<F: Face>(&mut self, compose: &Composer, font: &Font<F>, row: usize) {
+        // a line of double size draws the doubled sprites
+        if compose.jobs.iter().any(|j| !j.piece.is_whole())
+            && let Err(e) = self.glyphs.double_sprites(self.gl)
+        {
+            self.error = Some(e);
+            return;
+        }
         for (j, job) in compose.jobs.iter().enumerate() {
             let place = match job.text {
                 Some((start, len, width, style)) => {
@@ -1853,7 +1870,10 @@ impl<G: Gl> GpuBack<'_, G> {
                         .text
                         .get(start..start.saturating_add(len))
                         .unwrap_or_default();
-                    match self.glyphs.glyph(self.gl, font, text, width, style) {
+                    match self
+                        .glyphs
+                        .glyph(self.gl, font, (text, width, style), job.piece)
+                    {
                         Ok(p) => p,
                         Err(e) => {
                             self.error = Some(e);
@@ -1863,6 +1883,10 @@ impl<G: Gl> GpuBack<'_, G> {
                 }
                 None => None,
             };
+            if let Some((bar, color)) = job.bar_area() {
+                let q = bar_quad(self.turn.up_area(bar), color, (job.posx, row));
+                push(&mut self.bars, None, q);
+            }
             let (from, to) = compose.received.get(j).copied().unwrap_or_default();
             let ink = match compose.sources.get(from..to) {
                 Some(sources) if !sources.is_empty() => {
@@ -1909,7 +1933,8 @@ impl<G: Gl> GpuBack<'_, G> {
                 .text
                 .get(start..start.saturating_add(len))
                 .unwrap_or_default();
-            let Some(place) = self.glyphs.glyph(self.gl, font, text, width, style)? else {
+            let key = (text, width, style);
+            let Some(place) = self.glyphs.glyph(self.gl, font, key, Piece::WHOLE)? else {
                 continue;
             };
             let Some((slot, _)) = place.boxed else {
@@ -1925,6 +1950,20 @@ impl<G: Gl> GpuBack<'_, G> {
             flags |= DOWN;
         }
         Ok(flags)
+    }
+}
+
+/// A bar cursor's bar as the cell shader's quad: one color over `r` in the
+/// upright frame, with no glyph and no lines, which the shader draws as a
+/// cell of nothing but its background. `cell` is the column and row of
+/// the bar's cell in the grid.
+fn bar_quad(r: Area, color: Rgb, cell: (usize, usize)) -> Quad {
+    let i = |v: i64| i32::try_from(v).unwrap_or(if v < 0 { i32::MIN } else { i32::MAX });
+    let u = |v: usize| u32::try_from(v).unwrap_or(u32::MAX);
+    Quad {
+        dst: [i(r.x), i(r.y), i(r.w), i(r.h)],
+        src: [0, 0, u(cell.0), u(cell.1)],
+        params: [pixel(color), pixel(color), 0, 0],
     }
 }
 
@@ -1962,7 +2001,12 @@ pub(crate) fn cell_quad(
     };
     // a line's place among the sprites, every script's set in turn
     // (ADR-1202 D8)
-    let sprite = |line: Line| u32::try_from(line.index()).map_or(0, |n| n.saturating_add(1));
+    // and on a line of double size, among the doubled piece's set
+    let set = job.piece.sprite_set().saturating_mul(LINES);
+    let sprite = |line: Line| {
+        let k = set.saturating_add(line.index());
+        u32::try_from(k).map_or(0, |n| n.saturating_add(1))
+    };
     let with = |c: Rgb, k: u32| pixel(c) | k << 24;
     Quad {
         dst: [i(r.x), i(r.y), i(r.w), i(r.h)],

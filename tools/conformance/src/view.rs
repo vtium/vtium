@@ -399,7 +399,9 @@ pub fn frame(term: &mut Terminal, state: &mut FrameState, out: &mut String) {
     let cell = |r: usize, c: usize| frame.cell(r, c);
 
     // the cursor: on the trailing half of a wide character it covers the
-    // character from its leading cell; scrolled out of view it is hidden
+    // character from its leading cell; scrolled out of view it is hidden.
+    // On a line of double size it also states how far its drawing reaches
+    // ([`cursor_extent`])
     let (cx, cy) = screen.cursor();
     let x = cx.min(cols.saturating_sub(1));
     let view_row = cy.saturating_add(screen.scrolled_back());
@@ -415,7 +417,9 @@ pub fn frame(term: &mut Terminal, state: &mut FrameState, out: &mut String) {
         };
         let _ = write!(out, "{x},{view_row} {} visible", style_name(style));
         if let Some(c) = cell(view_row, x) {
-            out.push_str(&cursor_cell(&frame_cell(&c, reverse), style));
+            let fc = frame_cell(&c, reverse);
+            cursor_extent(&frame, view_row, usize::from(fc.width), out);
+            out.push_str(&cursor_cell(&fc, style));
         }
     } else {
         let _ = write!(out, "{x},{cy} {} hidden", style_name(style));
@@ -545,6 +549,27 @@ fn frame_cell(c: &FrameCell<'_>, reverse: bool) -> FCell {
         underline: c.attrs.underline(),
         attrs: c.attrs,
         inverse: (c.attrs.contains(Attrs::INVERSE) != reverse) != c.selected,
+    }
+}
+
+/// The keys that say how far the cursor's drawing reaches when it differs
+/// from the cell it stands on, `width` of the line's columns wide.
+/// `span=N` is the width in display cells: twice the cell's width on a
+/// line of double size. `rows=A-B` is the first and the last view row the
+/// drawing covers, printed only on a pair of double-height lines, where
+/// the cursor covers both rows whichever one it stands on. On a single
+/// line the cursor covers its own cell, and neither key is printed, so the
+/// line reads as interface 1.0 prints it. vtium-term's
+/// [`vtium_term::Frame::cursor_extent`] decides the extent, so the frame
+/// view and a renderer that calls it follow one rule.
+fn cursor_extent(frame: &vtium_term::Frame<'_>, row: usize, width: usize, out: &mut String) {
+    let extent = frame.cursor_extent(row, width);
+    if extent.cells != width {
+        let _ = write!(out, " span={}", extent.cells);
+    }
+    if extent.rows.len() > 1 {
+        let last = extent.rows.end.saturating_sub(1);
+        let _ = write!(out, " rows={}-{last}", extent.rows.start);
     }
 }
 

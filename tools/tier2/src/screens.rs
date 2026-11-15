@@ -1377,7 +1377,7 @@ const AT_16: [Take; 1] = [Take::at(16)];
 
 const ONE_BIT_DESC: &str = "The screen of the same name without `-1bit`, drawn the same way on a 1-bit display, every pixel black or white. Correct: the same shapes as on the color screen; ink that reaches into a neighbouring cell lit or unlit like the text it belongs to, over that cell's own lit or unlit background; the blue and olive cells both unlit, being under luma 128, so the text on them is lit.";
 
-const OVERFLOW_ACCENTS_DESC: &str = "Accented capitals whose accents pass the top of their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down, then seven more times at 16 pixels: with a block, an underline and a bar cursor on the É of the third row and on the j above it, and with blinking text in its hidden phase. Each drawing is 18 by 4 cells: À, É, Î, Ấ and Ộ, then ÀÉÎ reversed and ÉÎ in red, on the grid's first row; gjpqy___ twice and ç_ on cells that alternate between blue and olive; below them À, É, Î, Ấ, Ộ, E with a combining acute, H with a combining acute and H with a combining circumflex and dot below, on the alternating cells the other way round, a blinking ÉÎ and ÀÉÎ reversed; and gjpqy___ and a reversed gjpqy in the last row. A selection runs from the ninth cell of the second row to the twelfth of the third. Correct (ADR-1306 D1, D4, D6): on the first row each accent cut at the grid's top edge; in the third row each accent whole in the cell above its letter, over that cell's blue or olive background, which never paints over it, Ấ's acute reaching half a cell up; E with the combining acute drawn as É is; Ộ's dot whole in the row below; where the second row's descenders and the third row's accents meet, each cell's own glyph over the ink it receives; the selected capitals in the first eight cells of the third row, under unselected cells, their accents there in the colors they have unselected; the reversed ÀÉÎ of the third row, unselected, under selected cells, their accents there in the selection's text color, since a selection takes over the ink inside it; the blinking ÉÎ, selected under selected cells, their accents cut at the top of their row in every take, since a blinking letter's ink stays in its own cell. In the cursor takes, at 16 pixels, where the j above the É hides most of its acute: a block cursor on the É draws its cell in the cursor's colors and leaves the acute in the j's cell in the colors it has unselected; a block cursor on the j draws the acute inside it in the cursor's text color; an underline cursor on the É underlines its cell, and on the j the acute crosses the underline; a bar cursor on the É stands in place of the É, its acute still above it, and on the j it stands in place of the j, over the acute. In the last take the blinking letters dimmed, as vtium draws blinking text in its hidden phase, and every other pixel as in the 16-pixel take of the sweep.";
+const OVERFLOW_ACCENTS_DESC: &str = "Accented capitals whose accents pass the top of their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down, then seven more times at 16 pixels: with a block, an underline and a bar cursor on the É of the third row and on the j above it, and with blinking text in its hidden phase. Each drawing is 18 by 4 cells: À, É, Î, Ấ and Ộ, then ÀÉÎ reversed and ÉÎ in red, on the grid's first row; gjpqy___ twice and ç_ on cells that alternate between blue and olive; below them À, É, Î, Ấ, Ộ, E with a combining acute, H with a combining acute and H with a combining circumflex and dot below, on the alternating cells the other way round, a blinking ÉÎ and ÀÉÎ reversed; and gjpqy___ and a reversed gjpqy in the last row. A selection runs from the ninth cell of the second row to the twelfth of the third. Correct (ADR-1306 D1, D4, D6): on the first row each accent cut at the grid's top edge; in the third row each accent whole in the cell above its letter, over that cell's blue or olive background, which never paints over it, Ấ's acute reaching half a cell up; E with the combining acute drawn as É is; Ộ's dot whole in the row below; where the second row's descenders and the third row's accents meet, each cell's own glyph over the ink it receives; the selected capitals in the first eight cells of the third row, under unselected cells, their accents there in the colors they have unselected; the reversed ÀÉÎ of the third row, unselected, under selected cells, their accents there in the selection's text color, since a selection takes over the ink inside it; the blinking ÉÎ, selected under selected cells, their accents cut at the top of their row in every take, since a blinking letter's ink stays in its own cell. In the cursor takes, at 16 pixels, where the j above the É hides most of its acute: a block cursor on the É draws its cell in the cursor's colors and leaves the acute in the j's cell in the colors it has unselected; a block cursor on the j draws the acute inside it in the cursor's text color; an underline cursor on the É underlines its cell, and on the j the acute crosses the underline; a bar cursor on the É draws along the left edge of its cell with the É still drawn beside it, its acute still above it, and on the j the bar draws over the acute, with the j still drawn beside it. In the last take the blinking letters dimmed, as vtium draws blinking text in its hidden phase, and every other pixel as in the 16-pixel take of the sweep.";
 
 const OVERFLOW_MARKS_DESC: &str = "Arabic letters with marks above and below their row, in the ink test font built in memory, drawn at every cell height from 12 to 32 pixels from the top down. Each drawing is 16 by 3 cells: a row of empty cells that alternate between blue and olive; beh with fatha, beh with kasra, lam with shadda and fatha, noon with damma, alef with sukun, beh with kasratan, lam with shadda, fatha and the superscript alef, and beh with the superscript alef, on alternating cells, then lam with shadda and fatha and noon with damma again; and another row of empty alternating cells. The program writes the letters in the order they are read, and vtium draws them right to left in the order the bidirectional algorithm gives, one cell each, each cell keeping its background (ADR-1004 D3): the two letters after the space at the left end of the row, then the space, then the first eight letters, beh with fatha rightmost. Each letter takes the joined form its neighbours give it where the font holds one; the ink test font holds none, so each draws its own glyph (ADR-1004 D6). Correct (ADR-1306 D1, D2): each mark above its letter whole in the row above, where the font puts it, over that row's backgrounds; kasra and kasratan whole in the row below; lam with shadda and fatha at its full height, the lam's stem passing into the row above; the superscript alef, which stands past the one row ink may reach, moved down or scaled with its letter until it ends inside the row above, at every height.";
 
@@ -1540,7 +1540,7 @@ const BIDI_EXPLICIT_DESC: &str = "Explicit mode, which a program that lays out r
 
 const BIDI_CURSOR_BLOCK_DESC: &str = "A block cursor on a right-to-left letter, drawn in the test font set at 16 pixels, 14 by 2 cells: abc, shalom and def, then marhaban and abc, with the cursor shown on hah, the third letter of marhaban, its shape set by DECSCUSR 2. The cursor stays on the cell the program wrote, wherever that cell is drawn (ADR-1004 D9). Correct: marhaban reads right to left with its letters joined, and the block covers hah, the middle letter of the five, in the third cell from the left, drawn in the cursor's colors.";
 
-const BIDI_CURSOR_BAR_DESC: &str = "The bidi-cursor-block screen with a bar cursor, set by DECSCUSR 6, on hah, the third letter of marhaban. Correct: the bar stands on the right side of the cursor's cell, the third from the left, because hah reads right to left; a bar on a left-to-right letter stands on the left side of its cell (ADR-1004 D9). The bar takes the place of the letter in its cell, as a bar cursor does on any letter.";
+const BIDI_CURSOR_BAR_DESC: &str = "The bidi-cursor-block screen with a bar cursor, set by DECSCUSR 6, on hah, the third letter of marhaban. Correct: the bar stands on the right side of the cursor's cell, the third from the left, because hah reads right to left; a bar on a left-to-right letter stands on the left side of its cell (ADR-1004 D9). The letter stays drawn in its cell beside the bar, as it does under a bar cursor on any letter.";
 
 const BIDI_SELECTION_DESC: &str = "A selection across a row that mixes directions, on the bidi-mixed screen: the pointer drags from the c of abc, the third cell from the left of the first row, to the tenth cell from the left, where the first row draws the vav of shalom. The selection holds the cells between those two in the order the program wrote them (ADR-1004 D10). Correct: the first row reads abc (1) shalom def. The selected cells are c, the space after it, and shin, lamed and vav, the first three letters of shalom, which stand at the right end of the word as it is drawn. So the selection shows in two pieces: c and the space at the left, and the three letters of shalom further right, with (1) and the final mem unselected between them.";
 
@@ -2871,7 +2871,140 @@ const BASE: &[Case] = &[
     Case {
         screen: shipped(7, "frit-cjk-kr", FRIT_CJK_KR_DESC, FRIT_CJK_KR, 6),
     },
+    // the line size screens (DECDWL, DECDHL, DECSWL), each in unifont, a
+    // bitmap font whose glyphs double each pixel, and in the outline test
+    // font set
+    Case {
+        screen: Screen::new("lines-dwl-unifont", LINES_DWL_DESC, LINES_DWL, 32, 4),
+    },
+    Case {
+        screen: outline("lines-dwl", LINES_DWL_DESC, LINES_DWL, 32, 4),
+    },
+    Case {
+        screen: Screen::new("lines-dhl-unifont", LINES_DHL_DESC, LINES_DHL, 24, 4),
+    },
+    Case {
+        screen: outline("lines-dhl", LINES_DHL_DESC, LINES_DHL, 24, 4),
+    },
+    Case {
+        screen: Screen::new("lines-deco-unifont", LINES_DECO_DESC, LINES_DECO, 48, 4),
+    },
+    Case {
+        screen: outline("lines-deco", LINES_DECO_DESC, LINES_DECO, 48, 4),
+    },
+    Case {
+        screen: Screen {
+            selection: Some(((4, 0), (6, 2))),
+            ..Screen::new("lines-mixed-unifont", LINES_MIXED_DESC, LINES_MIXED, 26, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            selection: Some(((4, 0), (6, 2))),
+            ..outline("lines-mixed", LINES_MIXED_DESC, LINES_MIXED, 26, 6)
+        },
+    },
+    lines_cursor(
+        ("lines-cursor-dwl-unifont", LINES_CURSOR_DWL_DESC),
+        LINES_CURSOR_DWL,
+        b"\x1b[1;5H\x1b[2 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dwl", LINES_CURSOR_DWL_DESC),
+        LINES_CURSOR_DWL,
+        b"\x1b[1;5H\x1b[2 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-top-unifont", LINES_CURSOR_DHL_TOP_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[1;5H\x1b[6 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-top", LINES_CURSOR_DHL_TOP_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[1;5H\x1b[6 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
+    lines_cursor(
+        (
+            "lines-cursor-dhl-bottom-unifont",
+            LINES_CURSOR_DHL_BOTTOM_DESC,
+        ),
+        LINES_CURSOR_DHL,
+        b"\x1b[2;5H\x1b[4 q\x1b[?25h",
+        FontKind::Unifont,
+    ),
+    lines_cursor(
+        ("lines-cursor-dhl-bottom", LINES_CURSOR_DHL_BOTTOM_DESC),
+        LINES_CURSOR_DHL,
+        b"\x1b[2;5H\x1b[4 q\x1b[?25h",
+        LINES_OUTLINE,
+    ),
+    Case {
+        screen: merged("glyph-fit", GLYPH_FIT_DESC, GLYPH_FIT, None, ""),
+    },
+    Case {
+        screen: merged(
+            "glyph-fit-spaced",
+            GLYPH_FIT_SPACED_DESC,
+            GLYPH_FIT_SPACED,
+            Some(SPACED_30),
+            "cover=U+1FB00-U+1FBFF\nfit=natural\n",
+        ),
+    },
 ];
+
+/// The `glyph-fit` screens: a Powerline prompt and two icons from the
+/// merged symbol font, Latin letters with combining marks, and the box
+/// drawing and block elements vtium draws itself.
+const GLYPH_FIT: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\x1b[7m ok \x1b[0m\r\n",
+    "\u{f015} home  \u{f07b} src  gjpqy\r\n",
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303}\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2502}\u{2502}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2588}\u{2588}\u{2588} \u{2502}\u{2502}",
+)
+.as_bytes();
+
+/// The `glyph-fit-spaced` screen: the `glyph-fit` screen's rows, with two
+/// full-height bars of Legacy Computing beside the box lines, which no
+/// font of the font set holds, so vtium draws them itself.
+const GLYPH_FIT_SPACED: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\x1b[7m ok \x1b[0m\r\n",
+    "\u{f015} home  \u{f07b} src  gjpqy\r\n",
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303}\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2502}\u{2502} \u{1fb70}\u{1fb73}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2588}\u{2588}\u{2588} \u{2502}\u{2502} \u{1fb70}\u{1fb73}",
+)
+.as_bytes();
+
+const GLYPH_FIT_DESC: &str = "A font set of DejaVu Sans Mono with a short symbol font merged behind it by cover= for the Private Use Area, 24 by 5 cells at 16 and 32 pixels, with no line spacing. The symbol font's ascent and descent span 0.8 em, where DejaVu Sans Mono's span about 1.16 em. The first row is a prompt of Powerline segments: solid triangles between colored segments, a thin separator, and a left-pointing triangle before a reversed segment. The second row has a house icon and a folder icon beside letters with descenders. The third row has Latin letters with combining marks, and the last two rows have box drawing and block elements, which vtium draws itself. Correct: each separator runs from the top row of its cell to the bottom row, so the colored segments join it with no gap above or below. Each icon stands in the middle of its cell. Each mark sits over or under its letter. The box lines and blocks fill their cells and join from row to row.";
+
+const GLYPH_FIT_SPACED_DESC: &str = "The glyph-fit screen with 30 per cent of line spacing, which adds 5 rows to the 16-pixel text and 10 to the 32-pixel text, 3 and 5 of them above the text. Two full-height bars of Legacy Computing, U+1FB70 and U+1FB73, stand beside the box lines in the last two rows. No font of the font set holds them, so vtium draws them itself. The font set's fit= gives Legacy Computing, U+1FB00 to U+1FBFF, the value natural, and leaves everything else at its default. Correct: the Powerline separators stretch to the whole taller cell, since they are fill by default, so the segments still join them. The icons and letters keep their size on the text's baseline, with blank rows above and below. The box lines and blocks, which vtium draws itself and no fit= line names, stretch to the whole cell and join from row to row. The two Legacy Computing bars keep the text band's height under fit=natural, so they show a gap between the rows.";
+
+/// A screen of `bytes`, 24 by 5 cells, in the merged font set ([`InkFonts::Merged`])
+/// at 16 and 32 pixels, its rows made taller by `spacing` when it is
+/// set, with the frit lines `extra` after the symbol font's `source=`
+/// and `cover=` lines.
+const fn merged(
+    name: &'static str,
+    desc: &'static str,
+    bytes: &'static [u8],
+    spacing: Option<Spacing>,
+    extra: &'static str,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_16_AND_32,
+            spacing,
+            fonts: InkFonts::Merged { extra },
+        },
+        ..Screen::new(name, desc, bytes, 24, 5)
+    }
+}
 
 /// Three rows of text, which the `osd` screen draws the render timer's
 /// line over.
@@ -3111,3 +3244,103 @@ const FRIT_CJK_KR: &[u8] = concat!(
 .as_bytes();
 
 const FRIT_CJK_KR_DESC: &str = "The shipped font set cjk-kr at 32 pixels of text, with no line spacing, 48 by 6 cells: ten Han characters whose forms differ by region, 直 骨 刃 写 角 次 化 今 令 器, in Noto Sans CJK KR's Korean forms, then Korean in Hangul syllables, Hangul letters and Han, the start of Article 1 of the Universal Declaration of Human Rights in Korean, and Latin letters with descenders and accented capitals from Noto Sans Mono beside Hangul and Han on one baseline, each wide character across two cells, inside a box of light lines whose left side joins from row to row.";
+
+/// The `lines-dwl` screens: a line of the normal size, two double-width
+/// lines (DECDWL, `ESC # 6`), one of them with colors, reverse video and
+/// a wide character, then a line of the normal size again.
+const LINES_DWL: &[u8] = concat!(
+    "A normal line, for its size\r\n",
+    "\x1b#6Double wide AaGg\r\n",
+    "\x1b#6\x1b[31mred\x1b[0m \x1b[30;42mgreen\x1b[0m \x1b[7mrev\x1b[0m 中\r\n",
+    "A normal line again",
+)
+.as_bytes();
+
+const LINES_DWL_DESC: &str = "Two double-width lines (DECDWL, ESC # 6) between two lines of the normal size, 32 by 4 cells. The second line reads Double wide AaGg. The third reads red, green on a green background, rev in reverse video, and the wide character 中. Correct: each character on the two middle lines twice as wide as on the normal lines and as tall, each pixel of its glyph doubled sideways; the wide character across four cells; colors and reverse video covering both cells of each character; the normal lines unchanged.";
+
+/// The `lines-dhl` screens: two double-height pairs (DECDHL, `ESC # 3`
+/// on the top line and `ESC # 4` on the bottom line), the second with
+/// colors and a wide character.
+const LINES_DHL: &[u8] = concat!(
+    "\x1b#3Tall AaGg\r\n",
+    "\x1b#4Tall AaGg\r\n",
+    "\x1b#3\x1b[33mGold\x1b[0m \x1b[37;44m中\x1b[0m\r\n",
+    "\x1b#4\x1b[33mGold\x1b[0m \x1b[37;44m中\x1b[0m",
+)
+.as_bytes();
+
+const LINES_DHL_DESC: &str = "Two double-height pairs (DECDHL), 24 by 4 cells: each top line set by ESC # 3 and each bottom line by ESC # 4, with the same text on both lines of a pair. The first pair reads Tall AaGg. The second reads Gold in yellow and the wide character 中 in white on blue. Correct: each character twice as wide and twice as tall as at the normal size, each pixel of its glyph doubled both ways, its upper half on the top line and its lower half on the bottom line, joining with no gap or overlap; the wide character across four cells of each line; the blue background covering both lines of its cells.";
+
+/// The `lines-deco` screens: each underline style, strike-through and
+/// overline on a line of the normal size, a double-width line and a
+/// double-height pair.
+macro_rules! lines_deco_text {
+    () => {
+        "\x1b[4mund\x1b[4:2mdbl\x1b[4:3mcur\x1b[4:4mdot\x1b[4:5mdsh\x1b[0m \x1b[9mstr\x1b[0m \x1b[53mov\x1b[0m"
+    };
+}
+
+const LINES_DECO: &[u8] = concat!(
+    lines_deco_text!(),
+    "\r\n\x1b#6",
+    lines_deco_text!(),
+    "\r\n\x1b#3",
+    lines_deco_text!(),
+    "\r\n\x1b#4",
+    lines_deco_text!(),
+)
+.as_bytes();
+
+const LINES_DECO_DESC: &str = "The decorations on lines of double size, 48 by 4 cells: each line holds und with a single underline, dbl with a double underline, cur with a curly one, dot with a dotted one, dsh with a dashed one, str with a strike-through, and ov with an overline. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on the double-width line each line twice as long and as thick as on the normal line, each dot, dash and wave twice as long; on the double-height pair each line also twice as thick, the underlines on the bottom line, the overline on the top line, and the strike-through where the doubled glyph's middle lies, each in the same place against its doubled letters as on the normal line.";
+
+/// The `lines-mixed` screens: every size on one screen, and a selection
+/// across lines of three sizes.
+const LINES_MIXED: &[u8] = concat!(
+    "Normal size: AaGg 0123\r\n",
+    "\x1b#6Double width\r\n",
+    "\x1b#3Double height\r\n",
+    "\x1b#4Double height\r\n",
+    "\x1b#6\x1b#5Set back to normal\r\n",
+    "Normal size: AaGg 0123",
+)
+.as_bytes();
+
+const LINES_MIXED_DESC: &str = "Every line size on one screen, 26 by 6 cells, with a selection from the fifth cell of the first line to the seventh cell of the third. The lines are a normal line, a double-width line, a double-height pair, a line set to double width and then back to the normal size by ESC # 5 (DECSWL), and a normal line. Correct: each line at its own size, each character on the double-size lines twice as wide; the double-height pair joined into one tall line; the line set back drawn at the normal size; the selection's colors on the cells it holds, each double-size cell across both of its display cells. The selection ends on the doubled b, which the seventh and eighth cells of the third line show, and both lines of the double-height pair show Doub selected, in its upper and lower halves.";
+
+/// The `lines-cursor-` screens: a cursor on a line of each size.
+const LINES_CURSOR_DWL: &[u8] = b"\x1b#6Cursor\r\nnormal size";
+const LINES_CURSOR_DHL: &[u8] = b"\x1b#3Cursor\r\n\x1b#4Cursor";
+
+const LINES_CURSOR_DWL_DESC: &str = "A block cursor on a double-width line, 16 by 2 cells: the first line reads Cursor at double width with the cursor on its o, and the second line reads normal size at the normal size. Correct: the block covers both display cells of the o, twice as wide as a cell of the normal line, with the o inside it in the background's color.";
+
+const LINES_CURSOR_DHL_TOP_DESC: &str = "A bar cursor on the top line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the top line. Correct: the cursor covers the whole doubled o. The bar is twice as thick as at the normal size and runs down both lines at the left edge of the o's cells, with the doubled o still drawn beside the bar, as a letter is under a bar cursor on a line of the normal size.";
+
+const LINES_CURSOR_DHL_BOTTOM_DESC: &str = "An underline cursor on the bottom line of a double-height pair, 16 by 2 cells: both lines read Cursor, and the cursor stands on the o of the bottom line. Correct: the cursor covers the whole doubled o, so the underline lies under its lower half, twice as wide and twice as thick as at the normal size, along the bottom of the o's cells on the bottom line. The top line shows the o's upper half with no cursor mark, since an underline lies under the whole character.";
+
+/// A line size screen of 16 by 2 cells in `font`, whose cursor `tail`
+/// shapes and places after the bytes, drawn in the cursor's on phase.
+const fn lines_cursor(
+    (name, desc): (&'static str, &'static str),
+    bytes: &'static [u8],
+    tail: &'static [u8],
+    font: FontKind,
+) -> Case {
+    Case {
+        screen: Screen {
+            font,
+            tail,
+            phase: crate::draw::Phase {
+                cursor_on: true,
+                blink_hidden: false,
+                rapid_hidden: false,
+            },
+            ..Screen::new(name, desc, bytes, 16, 2)
+        },
+    }
+}
+
+/// The outline test font set's font, for the line size screens.
+const LINES_OUTLINE: FontKind = FontKind::Outline {
+    color: true,
+    spacing: None,
+};

@@ -1615,7 +1615,7 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily pointer restart script start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords daily double-size editor insert pointer restart script start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
@@ -1904,7 +1904,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily pointer restart script start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords daily double-size editor insert pointer restart script start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -1966,6 +1966,42 @@ class Make(Case):
                 self.assertEqual(self.s.calls_of("cargo") + self.s.calls_of("sudo"), [])
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", HWACCEL="on")
         self.assertEqual(p.returncode, 0, "one exported in the shell is not refused: " + p.stderr)
+
+    def test_vt_accept_walks_only_the_pages_named(self):
+        # PAGES reaches run-vt.sh as --pages and the session as ACCEPT_ONLY,
+        # each one word, in the order typed; accept.sh walks them in file
+        # name order.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "PAGES=69 51-double-size,56")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(" --pages=69\\ 51-double-size\\ 56 ", p.stdout)
+        self.assertIn(" ACCEPT_ONLY=69\\ 51-double-size\\ 56 ", p.stdout)
+        self.assertIn("(only pages 69 51-double-size 56)", p.stdout)
+        # A name that matches no page, or that is shell code, is refused
+        # before sudo, and the refusal names it.
+        marker = os.path.join(self.s.tmp, "ran")
+        for pages, name in (("51 999", "999"), (f"$(touch {marker})", "$(touch")):
+            with self.subTest(pages=pages):
+                open(self.s.calls, "w").close()
+                p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", f"PAGES={pages}")
+                self.assertNotEqual(p.returncode, 0, p.stdout)
+                self.assertIn(f"accept: no such page: {name}", p.stderr)
+                self.assertIn("PAGES is refused", p.stderr)
+                self.assertEqual(self.s.calls_of("sudo"), [])
+        self.assertFalse(os.path.exists(marker))
+        # Without PAGES the pass walks every page, and the other targets
+        # take no PAGES.
+        p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("ACCEPT_ONLY", p.stdout)
+        p = self.make("vt-shell", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "PAGES=51")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("(only pages", p.stdout)
+        # run-vt.sh takes --pages only for the acceptance pass, and only
+        # names of letters, digits and dashes.
+        for args, why in ((("--pages=51", "--login"), "--pages goes with the acceptance pass"),
+                          (("--pages=51;ls",), "--pages takes page names")):
+            with self.subTest(args=args):
+                self.refused(self.run_vt(*args, "--dry-run", "8"), why)
 
     def test_vt_accept_chooses_the_render_path(self):
         # RENDER_PATH=gpu or cpu, cpu unless named, reaches vtium as --hwaccel
@@ -4159,7 +4195,16 @@ class Guide(Case):
                           (ok + "probe: shell\nprobe: focus\n", "one probe per step"),
                           (ok + "intro: late\n", "intro lines go before the first step"),
                           (ok + "color: red\n", "unknown key 'color'"),
-                          (ok + "not a key line\n", "not a 'key: text' line")):
+                          (ok + "not a key line\n", "not a 'key: text' line"),
+                          # A bold span opens and closes on one line, with
+                          # no space just inside its asterisks.
+                          (ok.replace("do: d", "do: an *open span"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("expect: e", "expect: *a* *b"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("do: d", "do: a * spaced*"), "each asterisk opens or closes a bold span"),
+                          (ok.replace("do: d", "do: an empty ** span"), "each asterisk opens or closes a bold span"),
+                          ("intro: one *two\n" + ok, "each asterisk opens or closes a bold span"),
+                          (ok.replace("step: S", "step: *S*"), "a step: line has no asterisk"),
+                          (ok.replace("title: T", "title: *T*"), "a title: line has no asterisk")):
             with self.subTest(why=why):
                 p = self.check(text)
                 self.refused(p, why)
@@ -4181,6 +4226,31 @@ class Guide(Case):
         p = self.check("title: T\ncleanup: rm -f x\n" + ok[9:])
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertEqual(p.stdout, "T: 1 steps\n   1  (no probe)   S\n  cleanup when the checks end: rm -f x\n")
+
+    def test_a_span_between_asterisks_is_shown_bold(self):
+        # The intro and a step's do: and expect: lines show *a span* with
+        # SGR 1 and SGR 22 in place of its asterisks. The command under
+        # Run: is shown as it is typed, asterisks and all.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Bold guide\nintro: Look at *the letters*.\n"
+                     "step: One\nrun: echo 'a*b*c'\ndo: Press *F2* and *Insert*.\n"
+                     "expect: The *letter* moves.\nexpect: *Wrong:* a gap.\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        self.assertIn(b"Look at \x1b[1mthe letters\x1b[22m.", g.seen)
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it")
+        self.assertIn(b"Run:    echo 'a*b*c'\r\n", g.seen)
+        self.assertIn(b"Do:     Press \x1b[1mF2\x1b[22m and \x1b[1mInsert\x1b[22m.\r\n", g.seen)
+        self.assertIn(b"Expect: The \x1b[1mletter\x1b[22m moves.\r\n        \x1b[1mWrong:\x1b[22m a gap.\r\n",
+                      g.seen)
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        # The log holds the step's title, which has no asterisk, and none of
+        # its text.
+        log = read(os.path.join(self.s.dir, "vt-check.log"))
+        self.assertIn("-- step 1 of 1: One", log)
+        self.assertNotIn("\x1b[1m", log)
 
     def test_the_cleanup_runs_however_the_checks_end(self):
         # A guide that changes the machine for some steps puts it back in its
@@ -4373,6 +4443,47 @@ class Guide(Case):
         self.assertRegex(log[-1], r"^=== ended at step 5, ")
         self.assertEqual(stat.S_IMODE(os.stat(self.s.dir).st_mode), 0o700)
 
+    def test_an_explore_step_asks_only_for_a_note_and_logs_explored(self):
+        # A step whose title starts with "Explore" has no right or wrong
+        # answer: guide.sh asks for a note alone and logs "explored", never
+        # yes, no or skip. A step after it still asks for a verdict.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Explore guide\n"
+                     "step: Explore the edge\ndo: try keys\nexpect: no right or wrong\n"
+                     "step: Explore again\ndo: try more\nexpect: no right or wrong\n"
+                     "step: Look\ndo: look\nexpect: it is there\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Step 1 of 3: Explore the edge")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"This step has no right or wrong answer.")
+        g.wait_for(b"Note (Enter for none): ")
+        # A y here is the note's text, not an answer.
+        g.send(b"y saw it\r")
+        g.wait_for(b"Step 2 of 3: Explore again")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Step 3 of 3: Look")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"\r")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
+        # The verdict prompt shows once, for the last step only.
+        self.assertEqual(g.seen.count(b"[y]es [n]o [s]kip: "), 1)
+        log = read(os.path.join(self.s.dir, "vt-check.log")).splitlines()
+        self.assertEqual(log[1:7], ["-- step 1 of 3: Explore the edge", "  answer: explored  note: y saw it",
+                                    "-- step 2 of 3: Explore again", "  answer: explored",
+                                    "-- step 3 of 3: Look", "  answer: yes"])
+
     def test_a_run_step_runs_its_command_on_the_guides_terminal(self):
         guide = os.path.join(self.s.tmp, "t.guide")
         # The command ends when the test creates this file, after it has typed its keys.
@@ -4459,6 +4570,32 @@ class Guide(Case):
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
+
+    def test_a_run_step_hands_its_command_the_steps_text(self):
+        # A command that clears the screen, such as the typing pad, can show
+        # the step's heading, do: lines and expect: lines again.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        shown = ("printf '<%s|%s|%s|%s>\\n' \"$GUIDE_STEP_HEADING\" \"$GUIDE_STEP_DO\" "
+                 "\"$GUIDE_STEP_EXPECT\" \"$GUIDE_FILE\"")
+        write(guide, "title: Text guide\n"
+                     "step: Plain\ndo: look\nexpect: nothing\n"
+                     f"step: Shown\nrun: {shown}\ndo: one\ndo: two on VT {{vt}}\nexpect: three\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter when done")
+        g.send(b"s\r")
+        g.wait_for(b"Step 2 of 2: Shown")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"<Step 2 of 2: Shown|one\r\ntwo on VT 6\r\n|three\r\n|" + guide.encode() + b">")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
 
     def test_a_console_after_the_first_runs_a_shell_in_place_of_the_guide(self):
         # Ctrl+Super+Enter starts the head's command, the guide, again in the

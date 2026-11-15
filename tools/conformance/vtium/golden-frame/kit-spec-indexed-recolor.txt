@@ -1,0 +1,55 @@
+checkpoint 77
+size 12x4
+cursor 2,0
+flags AUTO_WRAP
+reply 1b5f47693d313b4f4b1b5c1b5f47693d323b4f4b1b5c
+palette legacy fg=#e5e5e5 bg=#000000
+changed 48
+frame-cursor 2,0 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 0 opaque changed
+placement 1 row 0 col 2 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 1 changed
+image 0 3x1 digest d8dfc700
+image 1 3x1 digest c3b93537
+checkpoint 189
+size 12x4
+cursor 2,1
+flags AUTO_WRAP
+reply 1b5f47693d333b4f4b1b5c1b5f47693d343b4f4b1b5c
+palette legacy fg=#e5e5e5 bg=#204060
+changed 48
+frame-cursor 2,1 default visible w=1 fg=#204060 bg=#e5e5e5 ul=#204060
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 0 opaque changed
+placement 1 row 0 col 2 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 1 changed
+placement 2 row 1 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 2 opaque changed
+placement 3 row 1 col 2 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 3 changed
+image 0 3x1 digest 5d341a93
+image 1 3x1 digest 0df3e6c6
+image 2 3x1 digest 5d341a93
+image 3 3x1 digest 0df3e6c6
+checkpoint 205
+size 12x4
+cursor 2,1
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 48
+frame-cursor 2,1 default visible w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 ||
+row 1 ||
+row 2 ||
+row 3 ||
+placement 0 row 0 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 0 opaque changed
+placement 1 row 0 col 2 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 1 changed
+placement 2 row 1 col 0 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 2 opaque changed
+placement 3 row 1 col 2 box 1x1 at 0,0 size 3x1 src 0,0 3x1 cell 8x16 z 0 above-text kitty image 3 changed
+image 0 3x1 digest d8dfc700
+image 1 3x1 digest c3b93537
+image 2 3x1 digest d8dfc700
+image 3 3x1 digest c3b93537

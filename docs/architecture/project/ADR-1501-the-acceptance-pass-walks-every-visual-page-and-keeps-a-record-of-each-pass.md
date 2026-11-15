@@ -133,7 +133,9 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 37-sync | twelve frames of mode 2026, one left open past `sync-timeout`, and what DECRQM answered | `DEC-2026`, `query.decrqm` |
 | 40-boxdraw, 45-blocks, 47-mosaic | box drawing, block elements, Braille, sextants and octants, stacked across cells | `text.sprites` |
 | 50-cjk | double-width characters beside Latin | `text.grapheme` |
+| 51-double-size | double-width and double-height lines (ESC # 3 to 6) between normal ones, with a ruler and a row of E at half the columns, and the cursor at a double-size line's right margin | `text.line-size` |
 | 55-wide-margin | wide characters placed and typed at the right margin | `text.vs-width` |
+| 56-glyph-fit | a symbol font merged behind the text font: Powerline separators, icons, box lines and blocks under the default fit and under fit=natural, walked in two font sets (D6) | `text.font-merge` |
 | 31-conceal | SGR 8 and 28: concealed text between brackets, its background kept | `sgr.conceal` |
 | 32-overline | SGR 53 and 55 with color, underline, strike, reverse and CJK | `sgr.overline` |
 | 33-script | SGR 73, 74 and 75: superscripts and subscripts with tails, accents, wide characters, styles and lines, walked in three font sets (D6) | `sgr.script` |
@@ -144,6 +146,7 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 66-rectangles | DECCRA copying a box with its colors, DECFRA filling one, DECERA emptying one | `ctl.rect` |
 | 67-scroll-region | twelve lines printed into a scroll region of six rows | `ctl.decstbm` |
 | 68-bidi | Hebrew among Latin, after a number and in brackets, and two paragraphs that start right to left, one of them Arabic | `text.bidi`, `ANSI-8`, `DEC-2501` |
+| 69-kitty-spec | kitty pictures sent as palette indices from each medium and compressed, recolored when the palette changes, and two replies that end at their closing quote | `image.kitty` |
 | 70-emoji | a ZWJ family, a flag, a keycap, a skin tone, VS15 and VS16, each between bars | `text.emoji`, `text.vs-width` |
 | 71-kitty-animation | two kitty animations of three frames, one looping for ever and one that plays twice and stops | `image.kitty-animation` |
 | 72-kitty-placeholders | one kitty picture placed virtually and shown three times by its placeholder characters, the third copy with its rows swapped | `image.kitty-placeholders` |
@@ -211,12 +214,16 @@ The walk also runs in any terminal by hand, `ACCEPT_LABEL='foot 1.21' tools/vt/a
 
 ### D6: font sets
 
-A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps four in `tools/vt/sections/frits/`:
+A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps six in `tools/vt/sections/frits/`:
 
 - `acceptance-outline`: DejaVu Sans Mono, then Noto Sans Hebrew, Arabic, Devanagari and Thai, Noto Sans CJK and Noto Color Emoji, each by its file in Arch Linux's packages, then the built-in unifont.
 - `acceptance-bitmap`: Terminus at 8x16 (`ter-v16n`, from `terminus-font`) for Latin, Greek and Cyrillic, then the built-in GNU Unifont, which holds every other script on the pages. GNU Unifont is vtium's own built-in font, so no unifont file is needed.
 - `script-terminus`: Terminus at 8x16 with a `script-source=` line naming Terminus at 6x12 (`ter-v12n`), a smaller size of the same font, which draws its superscripts and subscripts (ADR-1202 D3). The superscript page is walked in it beside the other two, and the superscript guide (`tools/vt/checks/script.guide`) switches to it too.
 - `acceptance-large`: Terminus at 16x32 (`ter-v32n`), then the built-in GNU Unifont. Its cells are twice as wide and twice as tall as the 8x16 fonts', so the reflow page switches the console to it to halve the grid's columns while the page shows.
+- `glyph-fit-default`: DejaVu Sans Mono with Monoid Nerd Font Mono merged behind it by `cover=` for the private-use ranges that hold Nerd Fonts' and Powerline's symbols, with 30 per cent of line spacing and every `fit=` left at its default. The glyph-fit page is walked in it.
+- `glyph-fit-natural`: the same font set with `fit=natural` for the merged source's symbols and for box drawing, U+2500 to U+257F, so those glyphs keep the text's height with gaps between rows. The glyph-fit page is walked in it beside `glyph-fit-default`.
+
+> Edited 2026-11-14: the glyph-fit page brings two font sets, `glyph-fit-default` and `glyph-fit-natural`, so the list names six. The sentence read "The acceptance pass keeps four in `tools/vt/sections/frits/`:". D2's table gains the pages 51-double-size, 56-glyph-fit and 69-kitty-spec.
 
 A page whose `# frits:` line names font sets is an entry of the walk for each, as `84-greek@acceptance-outline` and `84-greek@acceptance-bitmap`. Before such an entry the walk switches the console to the frit with OSC 50, makes a round trip to the terminal so the switch has been read, and asks OSC 50's query which font is in use; a page with no `# frits:` line switches the console back to the font the query named when the walk started, and asks the query again. When vtium does not switch back, that page is recorded as skip, with a comment that names the starting font and what the query answered, so that no page is judged in a font it was not meant for. vtium switches the live console among the frits in its frits directory, so one pass covers both font sets, and the review run gives vtium a frits directory holding the acceptance pass's frits (D5). The page prints which font set it is drawn in and, from the frit's `# checks:` lines, what that set checks: glyphs scaled to the cell with marks placed from the font's own data, or whole-multiple bitmaps with marks placed by vtium's rules.
 

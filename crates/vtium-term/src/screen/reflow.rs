@@ -10,7 +10,9 @@
 //! next row and leaves a pad; on a screen one column wide it becomes one
 //! empty cell, as printing makes it there. A row written while mode 2028
 //! was reset, or of double size, joins nothing, is joined into nothing and
-//! is cut at a narrower margin.
+//! is cut at a narrower margin. A row of double size holds half the new
+//! width's columns (`LineSize::columns`), so it is cut at that half, and
+//! anything anchored past it lands on its last column.
 //!
 //! The logical line's first row keeps its `LineId`, and each other row a
 //! rewrap makes takes the next id. The shell-integration marks of its rows
@@ -82,6 +84,16 @@ impl Place {
 /// Whether `line` rewraps: written while mode 2028 was set, at single size.
 pub(crate) fn rewraps(line: &Line) -> bool {
     !line.flags().contains(LineFlags::FIXED) && line.flags().size() == LineSize::Single
+}
+
+/// Cuts `line` to at most `width` cells, and a line of double size to the
+/// columns it holds at that width, half of them: a cell past them would not
+/// show. A shorter line keeps its length.
+fn cut(line: &mut Line, width: usize) {
+    let held = line.flags().size().columns(width);
+    if line.len() > held {
+        line.resize(held);
+    }
 }
 
 /// Whether the text of `line` goes on in `next`.
@@ -201,13 +213,12 @@ pub(crate) fn rewrap_line(
         // A line that does not rewrap is cut; one that fits stays.
         let fits = !src.flags().contains(LineFlags::WRAPPED) && src.len() <= width;
         if fits || !rewraps(&src) {
+            let held = src.flags().size().columns(width);
             for p in places.iter_mut() {
                 p.row = 0;
-                p.col = p.col.min(last_col);
+                p.col = p.col.min(held.saturating_sub(1));
             }
-            if src.len() > width {
-                src.resize(width);
-            }
+            cut(&mut src, width);
             out.push(src);
             return 1;
         }
@@ -454,6 +465,7 @@ impl Screen {
     /// carried with it.
     pub(super) fn rewrap(&mut self, cols: usize, saved: &mut (usize, usize)) {
         for line in &mut self.alt {
+            cut(line, cols);
             line.resize(cols);
         }
         let old = self.cols;
@@ -584,7 +596,8 @@ impl Screen {
         let y = anchor.row.saturating_sub(top).min(last_row);
         if self.flags.alternate {
             *saved = (anchor.cursor_x(cols), y);
-            self.cursor_x = self.cursor_x.min(cols.saturating_sub(1));
+            let last = self.line_cols(self.cursor_y).saturating_sub(1);
+            self.cursor_x = self.cursor_x.min(last);
         } else {
             self.cursor_x = anchor.cursor_x(cols);
             self.cursor_y = y;
@@ -797,7 +810,8 @@ mod tests {
     }
 
     // A row of double size, or one written with mode 2028 reset, joins
-    // nothing and is cut; a mark goes to its logical line's first row.
+    // nothing and is cut, the row of double size to the half of the new
+    // width it holds; a mark goes to its logical line's first row.
     #[test]
     fn fixed_rows_are_cut_and_marks_go_to_the_first_row() {
         let mut wide = row(1, "abcdef", true);
@@ -811,7 +825,7 @@ mod tests {
         let mut places = [];
         let (out, _) = rewrap_rows(rows, 3, &mut next, &mut places, false);
         let texts: Vec<String> = out.iter().map(text_of).collect();
-        assert_eq!(texts, ["abc", "ghi", "klm", "n"]);
+        assert_eq!(texts, ["a", "ghi", "klm", "n"]);
         assert!(out[2].flags().contains(LineFlags::OUTPUT));
         assert!(!out[3].flags().contains(LineFlags::OUTPUT));
         assert!(!out[0].flags().contains(LineFlags::WRAPPED));

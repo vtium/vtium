@@ -1,0 +1,14 @@
+# With reverse wraparound set, BS and CUB at the first column of a row go
+# on to the last column of the row above when printing wrapped from that
+# row. A line of double size holds half the screen's columns, so a wrap
+# from it starts at its own last column, column 5 of 10, and BS and CUB
+# go back to that column. Row 0 is a double-width line (ESC # 6) and row
+# 2 the top line of a double-height pair (ESC # 3), each printed past its
+# last column. Three BS from column 3 of row 3 reach column 5 of row 2,
+# which CPR reports, and CUB 3 from the first column of row 1 ends at
+# column 3 of row 0.
+# spec: ctlseqs, DECSET 45, "Reverse-wraparound mode (XTREVWRAP)", read as vtium's mode table states it (docs/modes.tsv, DEC-45): "while DECAWM is set, BS and CUB go on from the first column to the last column of the row above when printing wrapped from that row"; the VT100 User Guide, DECDWL and DECDHL: "The use of double-width characters reduces the number of characters per line by half"
+# covers: text.line-size, DEC-45
+size 10 4
+send "\e#6abcdefg\e[3;1H\e#3hijklmn\e[?45h\x08\x08\x08\e[6n\e[2;1H\e[3D"
+dump

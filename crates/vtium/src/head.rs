@@ -1244,16 +1244,12 @@ impl Head {
             .screen()
             .frame(palette, Age::NEVER);
         let mut all = vec![Shown::default()];
+        crate::deferred::read_doubled(&frame, &mut all);
         for row in 0..frame.rows() {
             for cell in frame.cells(row) {
                 let variant = crate::deferred::variant_of(cell.attrs);
-                if !all.iter().any(|s| s.variant == variant) {
-                    all.push(Shown {
-                        variant,
-                        ..Shown::default()
-                    });
-                }
-                let Some(shown) = all.iter_mut().find(|s| s.variant == variant) else {
+                let i = crate::deferred::shown_index(&mut all, variant, None);
+                let Some(shown) = all.get_mut(i) else {
                     continue;
                 };
                 match cell.glyph {

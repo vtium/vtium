@@ -232,6 +232,10 @@ Scale does not change what a source keeps, only what a draw returns. For example
 - Hebrew, Arabic, Syriac, Thaana, N'Ko and any combining mark are `room`.
 - The rest is `natural`.
 
+`marks::is_mark` says whether a character is a combining mark: General_Category Mn, Mc or Me, less the default ignorables. The table in `marks/data.rs` is generated from the Unicode Character Database. `Fit::default_for` reads it, and so does the console when it builds a cluster from its parts. The console and the glyph helper both take a character's default fit from `Fit::default_for`, so the two agree on every character.
+
+`Font` draws a sprite at the whole cell's height when the sprite's fit is `fill`. Otherwise it draws the sprite at the text band's height and places it with `place`. A face gives each character's fit through `Face::fit`, which is `Fit::default_for` unless the face knows a font set's `fit=`.
+
 `place` puts a glyph drawn at the text band's height into the taller cell. A `fill` mask stretches. A bitmap's mask stretches by repeating its top and bottom rows, and an outline's mask stretches by scaling vertically. Everything else gets blank rows above and below, every color glyph included.
 
 A glyph's ink box goes with the glyph. A stretched glyph's box is cut to the text band's rows and stretched with the glyph. A padded glyph may have ink above or below the text band. That ink now lies in the rows that the band adds, and so in the glyph's own cell, so the ink joins the glyph's own pixels. The box keeps only what still passes the taller cell (ADR-1306 D8). A face reports the rows that its cell adds through `Face::band`, which reports none by default.

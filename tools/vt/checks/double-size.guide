@@ -1,0 +1,202 @@
+# Typing and editing on a screen that mixes lines of double size and
+# single size (vtium/vtium#61). ESC # 6 makes a line double width, ESC # 3
+# and ESC # 4 make two lines the top and the bottom of a double-height
+# pair, and ESC # 5 makes a line single size again. A line of double size
+# holds half the screen's columns. Typing wraps after its last column, and
+# the cursor stops at that column for every movement. Insert and Delete
+# move the characters up to that column. Erasing the rest of a line keeps
+# the line's size, and erasing a whole line returns it to single size. The
+# cursor is drawn at the size of the character it stands on.
+#
+# The typing pad echoes each key as a line editor's sequence and nothing
+# more, so it shows the terminal's raw VT510 behaviour. One step, whose
+# title starts with "Explore", shows raw behaviour that looks broken on its
+# own: one line of a tall pair edited alone. That step has no right or
+# wrong answer, quotes the manual, and asks only for a note.
+# Tier 1 checks the rule in the cases line-size-edit and line-size-irm-tall
+# in tools/conformance/vtium. The step after it is a check: it runs the pad
+# in pair mode, which edits both lines of a double-height pair, as a
+# program written for the VT510 does, so the tall letters stay whole.
+#
+# Each step runs the typing pad, tools/vt/checks/typepad.py, which shows
+# the step's text at the top of the screen, draws the step's lines below
+# it, and echoes the keys as the sequences a line editor sends. A shell's line editor
+# counts the screen's full width on every line, so it cannot show these
+# rules; typepad.py says why cat cannot either. make vt-check runs the
+# guide from the checkout's top directory, so the steps name the pad by
+# that relative path.
+#
+#   make vt-check GUIDE=double-size
+
+title: typing and editing on lines of double size
+
+intro: New to these lines? Start with the editor guide:
+intro: *make vt-check GUIDE=editor*. There a program keeps the text and
+intro: wraps it, as zsh and vim do. This guide shows the terminal on its
+intro: own, underneath.
+intro: Each step starts the typing pad. The pad shows what the terminal does
+intro: when a program only echoes the keys you type. The terminal never moves
+intro: text to another row when you insert a letter. Text flows onto the next
+intro: row only when a program redraws the line itself, as zsh and vim do.
+intro: A step whose title starts with "Explore" has no right or wrong answer.
+intro: It shows the terminal working as DEC's manuals for the VT100 and the
+intro: VT510 describe, and it asks only for a note. A separate proof editor, which a later card builds, is to
+intro: show a VT510-capable editor that authors mixed character sizes,
+intro: placement and wrapping. The pad shows the step's text at the top of the screen, then
+intro: its keys, then the lines to type on. Ctrl-D ends the typing, and then
+intro: the step asks its question. A wide line has letters twice as wide as
+intro: normal. A tall pair is two lines that show the top and bottom halves
+intro: of the same letters. "The right edge" is the right edge of the screen.
+
+step: Typing on a wide line wraps at the right edge
+run: python3 tools/vt/checks/typepad.py wide
+do: Hold down a letter key. Let go once the letters fill two lines and part
+do: of a third.
+expect: The letters on the first two lines are *twice as wide* as the
+expect: letters of the key list. Each of those two lines
+expect: *ends at the right edge*, and the next letter starts the line below.
+expect: The third line has letters of normal size.
+expect: *Wrong:* a line that ends in the middle of the screen, or a letter cut
+expect: in half at the right edge.
+
+step: Backspace goes back across the wrap
+run: python3 tools/vt/checks/typepad.py wide
+do: Type until the letters wrap onto the second line, and type a few more.
+do: Then press Backspace slowly until the cursor is back at the start of
+do: the first line.
+expect: Each Backspace erases one letter. After the last letter of the
+expect: second line, the next Backspace erases the letter at
+expect: *the right edge of the first line*. The erasing stops at the start of
+expect: the first line.
+expect: *Wrong:* the cursor jumping to the middle of the screen, or the cursor
+expect: stuck at the start of the second line.
+
+step: The cursor stops at the right edge of a double-size line
+run: python3 tools/vt/checks/typepad.py mixed
+do: Press End. Press Down twice, onto the top line of the tall letters, and
+do: press Right three times. Then press Down twice more, to the last line.
+expect: On the wide line and on both tall lines, the cursor stands
+expect: *at the right edge*. Right does not move the cursor past the right
+expect: edge. On the last line, the cursor stands *in the middle* of the
+expect: screen.
+expect: *Wrong:* a cursor past the right edge, a cursor cut in half, or a Down
+expect: that skips a line.
+
+step: Insert and Delete on a wide line
+run: python3 tools/vt/checks/typepad.py edit
+do: The cursor starts on the k of the wide line. Press Insert three times,
+do: then Delete five times.
+expect: Each Insert opens a blank at the cursor and pushes the wide letters
+expect: after it one place right. The wide letter at the right edge of the
+expect: screen drops off. Each Delete pulls the wide letters one place left
+expect: and brings *a blank* in at the right edge. This is expected: as on
+expect: the VT510, the letters that dropped off never come back. The letters
+expect: stay *wide and whole*.
+expect: *Wrong:* a letter that drops off in the middle of the screen, or a
+expect: narrow letter.
+
+step: Explore editing one line of a tall pair
+run: python3 tools/vt/checks/typepad.py edit
+do: Press Down twice, onto the top line of the tall letters, and press
+do: Insert twice. Then press Down once, onto the bottom line, and press
+do: Insert twice. Try other keys on either line if you like.
+expect: There is no right or wrong here. The terminal changes each line of a
+expect: pair on its own, so the tall letters *show split halves* until both
+expect: lines match again. The terminal works as the VT100 User Guide
+expect: says: "the same character output must be sent to both lines to form
+expect: full double-height characters". Tier 1 checks this rule. Try it as
+expect: long as you like. The next step sends each edit to both lines.
+
+step: A program that edits both lines keeps tall letters whole
+run: python3 tools/vt/checks/typepad.py --pair pair
+do: The pad now sends each edit to both lines of the tall pair. Press
+do: Insert, Delete and Backspace a few times each, then type a word. Then
+do: press Down and do the same on the bottom line. Press Ctrl-K and type a
+do: word. Press Left a few times, then Ctrl-L, and type a word.
+expect: After each key, *every tall letter is whole*: its top half and its
+expect: bottom half line up. Ctrl-K and Ctrl-L each erase both halves of
+expect: the letters from the cursor to the right edge. The words typed
+expect: after them are tall too.
+expect: *Wrong:* a tall letter whose two halves do not match.
+
+step: Typing on a tall pair
+run: python3 tools/vt/checks/typepad.py tall
+do: Type the word Tall on the top line. Then press Down, then Home, and
+do: type Tall on the bottom line.
+expect: On the top line, the letters show *only their top halves*. Once the
+expect: bottom line is typed, each letter is whole: twice as wide and twice
+expect: as tall as the letters of the key list. *No gap* shows between the
+expect: halves.
+expect: *Wrong:* halves that do not line up, or a gap between them.
+
+step: A blinking block cursor on lines of double size
+run: python3 tools/vt/checks/typepad.py --cursor=1 mixed
+do: Move the cursor with the arrows over every line, both lines of the
+do: tall pair included. Stop on each line for a few seconds.
+expect: On the ruler and the last line, the block covers one digit or
+expect: letter. On the wide line, it covers one wide letter. On either line
+expect: of the tall pair, it covers *one whole tall letter*. The whole block
+expect: *blinks at once*.
+expect: *Wrong:* a block on one half of the tall pair only, or a block half as
+expect: wide as the letter under it.
+
+step: A bar cursor on lines of double size
+run: python3 tools/vt/checks/typepad.py --cursor=6 mixed
+do: Move the cursor with the arrows over every line, both lines of the
+do: tall pair included. Stop on each line for a moment.
+expect: The bar does not blink. On the ruler and the last line, the bar is a
+expect: thin line at the left of the character. On the wide line, the bar is
+expect: twice as thick. On the tall pair, the bar is twice as thick and
+expect: *as tall as the tall letters*, from either line. On every line, the
+expect: letter under the bar *stays visible* beside the bar.
+expect: *Wrong:* a bar as tall as one line on the tall pair, a bar of normal
+expect: thickness on a double-size line, or a bar that hides its letter.
+
+step: An underline cursor on lines of double size
+run: python3 tools/vt/checks/typepad.py --cursor=4 mixed
+do: Move the cursor with the arrows over every line, both lines of the
+do: tall pair included. Stop on each line for a moment.
+expect: On the ruler and the last line, the underline lies under one
+expect: character. On the wide line, it lies under one wide letter and is
+expect: *twice as thick*. On the tall pair, it is twice as thick and lies
+expect: *under the bottom line*, from either line.
+expect: *Wrong:* an underline under the top line of the pair, or an underline
+expect: of normal thickness on a double-size line.
+
+step: F5 makes the whole line normal size
+run: python3 tools/vt/checks/typepad.py wide
+do: Type the word wide. Then press F5.
+expect: F5 changes the size of the whole line, not of the letters you type
+expect: next. The word *turns normal size* and stays at the start of the
+expect: line. The cursor stands *right after the word*.
+expect: *Wrong:* the word staying wide, or the cursor left where the wide word
+expect: ended.
+
+step: F6 makes the whole line wide again
+run: python3 tools/vt/checks/typepad.py wide
+do: Press F5. Type until the letters pass the middle of the screen, and
+do: stop before the right edge. Then press F6.
+expect: F6 makes the whole line wide. The letters that were left of the
+expect: middle now fill the line. The letters that were right of the middle
+expect: *are gone*, and the cursor *moves to the right edge*.
+expect: *Wrong:* letters past the middle that come back, or a cursor past the
+expect: right edge.
+
+step: Ctrl-K erases to the end of a line and keeps its size
+run: python3 tools/vt/checks/typepad.py edit
+do: The cursor starts on the k of the wide line. Press Ctrl-K, then type a
+do: few letters.
+expect: Ctrl-K erases the letters from the k to the right edge. The letters
+expect: before the k *stay, and stay wide*. The new letters are wide too.
+expect: *Wrong:* the whole line erased, or the line turning normal size.
+
+step: Ctrl-L erases the tall pair and makes its lines normal size
+run: python3 tools/vt/checks/typepad.py edit
+do: Press Down twice. The cursor is now on the upper line of the tall
+do: letters. Press Home, to go to the start of that line. Press Ctrl-L and
+do: type a few letters. Then press Down once and type a few more.
+expect: Ctrl-L erases both lines of the tall pair, and they become lines of
+expect: *normal size*. The letters on both lines are normal size. The wide
+expect: line at the top *keeps its letters and its size*.
+expect: *Wrong:* half of a tall letter left on the screen, or new letters drawn
+expect: tall.

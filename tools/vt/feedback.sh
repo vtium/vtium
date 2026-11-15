@@ -17,7 +17,11 @@
 #                                           copies the pass (default: the newest)
 #                                           into OUT under the name it is
 #                                           committed by, and prints that path
-#   feedback.sh [--dir DIR] --newest LABEL  the path of the newest pass of LABEL
+#   feedback.sh [--dir DIR] --newest LABEL [--pages TEXT]
+#                                           the path of the newest pass of LABEL;
+#                                           with --pages, the newest whose pages
+#                                           line is TEXT, a full pass when TEXT
+#                                           is empty
 #   feedback.sh --tsv PASS                  the pass as tab-separated lines
 #
 # PASS is a pass's id in DIR, or the path of a record, such as one committed
@@ -49,6 +53,8 @@ here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 dir=${ACCEPT_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/vtium/acceptance}
 into=$here/../../docs/acceptance
 dry=
+pages=
+by_pages=
 mode=show
 args=()
 while [ $# -gt 0 ]; do
@@ -57,6 +63,7 @@ while [ $# -gt 0 ]; do
 	--list) mode=list ;;
 	--compare) mode=compare ;;
 	--newest) [ $# -ge 2 ] || usage; mode=newest; args+=("$2"); shift ;;
+	--pages) [ $# -ge 2 ] || usage; pages=$2; by_pages=1; shift ;;
 	--tsv) mode=tsv ;;
 	--save) mode=save ;;
 	--into) [ $# -ge 2 ] || usage; into=$2; shift ;;
@@ -198,7 +205,11 @@ tsv)
 newest)
 	found=
 	while IFS= read -r f; do
-		[ "$(tsv "$f" | value label)" != "${args[0]}" ] || found=$f
+		t=$(tsv "$f")
+		[ "$(value label <<<"$t")" = "${args[0]}" ] || continue
+		# A pass of only some pages has a pages line, and a full pass none.
+		[ -z "$by_pages" ] || [ "$(value pages <<<"$t")" = "$pages" ] || continue
+		found=$f
 	done < <(records)
 	[ -n "$found" ] || exit 1
 	printf '%s\n' "$found"

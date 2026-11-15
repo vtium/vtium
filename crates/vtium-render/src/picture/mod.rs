@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 
 use vtium_image::{FramePlacement, Layer, Pixels, PlacementKey};
 
-use crate::blend::div255;
+use crate::blend::{div255, picture_over};
 use crate::compose::Area;
 use crate::target::Orientation;
 
@@ -50,7 +50,8 @@ pub(crate) enum Mark {
     /// A block cursor: the cell, drawn as without pictures, covers every
     /// picture under it.
     Opaque,
-    /// A bar cursor: the cell's glyph is the bar.
+    /// A bar cursor: the cell draws its letter, and the bar draws over the
+    /// whole cell once the cell is drawn.
     Bar,
     /// An underline cursor: the cell's underline is the cursor's.
     Underline,
@@ -740,8 +741,17 @@ impl Pictures {
                 *d = s & 0x00ff_ffff;
             }
         } else {
+            // A picture's own pixels mix with what lies below them in
+            // linear light, so a partly transparent pixel shows the
+            // brightness a real mix of the two lights has. A cell's text
+            // layer drawn over a picture keeps the sRGB arithmetic of
+            // `over_px`, as every cell's own layers do.
+            //
+            // References:
+            // - ADR-1300 D7: pictures blend in linear light, and glyphs,
+            //   decorations and a cell's layers keep the sRGB arithmetic.
             for (d, &s) in dst.iter_mut().zip(src) {
-                *d = over_px(*d, s);
+                *d = picture_over(*d, s);
             }
         }
     }

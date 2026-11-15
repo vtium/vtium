@@ -694,13 +694,6 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
     // a frame, which the specification does not support in these formats
     send(&mut k, &mut h, &format!("a=t,f=32,s=1,v=1,i=1;{}", red(1)));
     send(&mut k, &mut h, &format!("a=f,f=8,s=1,v=1,i=1;{px}"));
-    // zlib, and a file, which the image helper would read
-    send(&mut k, &mut h, &format!("a=t,f=8,o=z,s=1,v=1,i=2;{px}"));
-    send(
-        &mut k,
-        &mut h,
-        &format!("a=t,t=f,f=16,s=1,v=1,i=3;{}", b64(b"/x")),
-    );
     // no size, and a size past max-graphic-size
     send(&mut k, &mut h, &format!("a=t,f=8,i=4;{px}"));
     h.limits.graphic = (4, 4);
@@ -715,12 +708,13 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
     assert_eq!(
         h.take(),
         format!(
-            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{indexed}\x1b\\\x1b_Gi=2;{bad}\x1b\\\x1b_Gi=3;{bad}\x1b\\\
+            "\x1b_Gi=1;OK\x1b\\\x1b_Gi=1;{indexed}\x1b\\\
              \x1b_Gi=4;{zero}\x1b\\\x1b_Gi=5;EINVAL:Image too large, width or height greater than 4\x1b\\"
         )
     );
     assert!(h.requests.is_empty(), "nothing goes to the helper");
-    // a host that gives no colors refuses them, the query included
+    // a host that gives no colors refuses them, from every medium and the
+    // query included, before anything goes to the helper
     h.limits = Limits::default();
     h.colors = None;
     send(&mut k, &mut h, &format!("a=t,f=8,s=1,v=1,i=6;{px}"));
@@ -729,11 +723,185 @@ fn palette_index_pictures_are_refused_where_vtium_cannot_take_them() {
         &mut h,
         &format!("a=q,f=16,s=1,v=1,i=7;{}", b64(&[1, 2])),
     );
+    send(&mut k, &mut h, &format!("a=t,f=8,o=z,s=1,v=1,i=8;{px}"));
+    send(
+        &mut k,
+        &mut h,
+        &format!("a=t,t=f,f=16,s=1,v=1,i=9;{}", b64(b"/x")),
+    );
     assert_eq!(
         h.take(),
-        format!("\x1b_Gi=6;{bad}\x1b\\\x1b_Gi=7;{bad}\x1b\\")
+        format!(
+            "\x1b_Gi=6;{bad}\x1b\\\x1b_Gi=7;{bad}\x1b\\\x1b_Gi=8;{bad}\x1b\\\x1b_Gi=9;{bad}\x1b\\"
+        )
     );
+    assert!(h.requests.is_empty(), "nothing goes to the helper");
     assert_eq!(h.store.image_count(), 1);
+}
+
+// The specification lets every medium and o=z carry f=8 and f=16: "You can
+// specify compression for any format". A picture read or inflated by the
+// image helper comes back as indices, four bytes a pixel, and stores the
+// same colors as the same picture sent directly.
+//
+// References:
+// - ADR-1100 D15: the palette formats through every medium.
+// - ADR-1101 D7: the pixel description's palette layouts.
+// covers: image.kitty
+#[test]
+fn palette_index_pictures_come_through_every_medium_and_with_zlib() {
+    use crate::decode::convert::to_reply;
+    for (format, data) in [
+        (8u32, vec![17u8, 200, 249]),
+        (16, vec![17, 0xff, 200, 0x80, 249, 0]),
+    ] {
+        let layout = if format == 8 {
+            Layout::Index
+        } else {
+            Layout::IndexAlpha
+        };
+        // the picture sent directly is the reference
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=T,f={format},s=3,v=1,i=1;{}", b64(&data)),
+        );
+        assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+        let direct = h.top_pixels();
+        let media = [
+            format!("t=f;{}", b64(b"/tmp/p")),
+            format!("t=t;{}", b64(b"/tmp/tty-graphics-protocol-p")),
+            format!("t=s;{}", b64(b"shm")),
+            format!("o=z;{}", b64(&[0x78, 0x9c, 3, 0])),
+        ];
+        for medium in media {
+            let (mut k, mut h) = (Kitty::default(), Host::new());
+            h.helper = true;
+            send(
+                &mut k,
+                &mut h,
+                &format!("a=T,f={format},s=3,v=1,i=1,{medium}"),
+            );
+            let request = h.requests.pop().unwrap_or_else(|| panic!("{medium}"));
+            let d = request.pixels.unwrap();
+            assert_eq!((d.layout, d.width, d.height), (layout, 3, 1), "{medium}");
+            assert_eq!(request.min, 3 * u64::from(format / 8), "{medium}");
+            let mut reply = Vec::new();
+            to_reply(layout, Alpha::Straight, &data, &mut reply);
+            k.decoded(
+                &mut h,
+                Reply::Ok(Payload::Rgba {
+                    width: 3,
+                    height: 1,
+                    data: reply,
+                }),
+            );
+            assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\", "{medium}");
+            assert_eq!(h.top_pixels(), direct, "f={format}, {medium}");
+            let key = h.store.find_image(1, 0).unwrap();
+            assert!(h.store.indexed(key), "{medium}");
+        }
+    }
+}
+
+// A palette-index picture costs the budget its pixels, its 512-byte charge
+// and the indices it keeps, one byte a pixel for f=8 and two for f=16.
+//
+// References:
+// - ADR-1100 D15: what a palette-index picture costs the budget.
+// covers: image.kitty
+#[test]
+fn a_palette_index_picture_is_charged_for_its_indices() {
+    for (format, bpp) in [(8u64, 1u64), (16, 2)] {
+        let (mut k, mut h) = (Kitty::default(), Host::new());
+        let data = vec![1u8; usize::try_from(6 * bpp).unwrap()];
+        send(
+            &mut k,
+            &mut h,
+            &format!("a=t,f={format},s=3,v=2,i=1;{}", b64(&data)),
+        );
+        assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+        assert_eq!(
+            h.store.bytes(),
+            6 * 4 + IMAGE_OVERHEAD + 6 * bpp,
+            "f={format}"
+        );
+    }
+}
+
+// The specification says a palette-index picture "is drawn using the
+// current colors of the terminal and is automatically redrawn when they
+// change". After a color change vtium-term hands the store the new colors,
+// and the store makes the picture's pixels again from its indices; a frame
+// that already holds the old pixels keeps them.
+//
+// References:
+// - ADR-1100 D15: when the colors change, and what the store does.
+// covers: image.kitty
+#[test]
+fn a_palette_index_picture_takes_the_new_colors_when_they_change() {
+    let (mut k, mut h) = (Kitty::default(), Host::new());
+    send(
+        &mut k,
+        &mut h,
+        &format!(
+            "a=T,f=16,s=3,v=1,i=1;{}",
+            b64(&[1, 0xff, 2, 0x80, 248, 0xff])
+        ),
+    );
+    assert_eq!(h.take(), "\x1b_Gi=1;OK\x1b\\");
+    let p = palette();
+    let pm = |[r, g, b]: [u8; 3], a: u8| premultiply(r, g, b, a);
+    assert_eq!(
+        h.top_pixels(),
+        [pm(p.table[1], 0xff), pm(p.table[2], 0x80), pm(p.bg, 0xff)]
+    );
+    let view = Rows {
+        screen: &h.screen,
+        above: &h.above,
+    };
+    let held = h.store.frame(view, h.cols);
+    let before = held.last().unwrap().pixel_revision;
+    // color 2 and the default background change
+    let mut c = palette();
+    c.table[2] = [9, 9, 9];
+    c.bg = [7, 7, 7];
+    h.store.take_work();
+    h.store.recolor(&c.resolved());
+    assert_eq!(h.store.take_work(), 3, "each pixel is input work");
+    assert_eq!(
+        h.top_pixels(),
+        [
+            pm(p.table[1], 0xff),
+            pm([9, 9, 9], 0x80),
+            pm([7, 7, 7], 0xff)
+        ]
+    );
+    let view = Rows {
+        screen: &h.screen,
+        above: &h.above,
+    };
+    let after = h.store.frame(view, h.cols).last().unwrap().pixel_revision;
+    assert_ne!(after, before, "the picture takes a new pixel revision");
+    assert_eq!(
+        held.last().unwrap().pixels.as_slice()[1],
+        pm(p.table[2], 0x80),
+        "a frame already holding the old pixels keeps them"
+    );
+    // the same colors again change nothing, and an RGBA picture is never
+    // recolored
+    send(&mut k, &mut h, &format!("a=T,f=32,s=1,v=1,i=2;{}", red(1)));
+    h.take();
+    let rgba = h.top_pixels();
+    h.store.recolor(&c.resolved());
+    let view = Rows {
+        screen: &h.screen,
+        above: &h.above,
+    };
+    let frame = h.store.frame(view, h.cols);
+    assert_eq!(frame[0].pixel_revision, after);
+    assert_eq!(h.top_pixels(), rgba);
 }
 
 #[test]
@@ -915,7 +1083,7 @@ fn animation_commands_are_answered_as_a_put_is() {
         h.take(),
         "\x1b_Gi=9;ENOENT:Animation command refers to non-existent image with id: 9 and number: 0\x1b\\\
          \x1b_Gi=1,r=4;EINVAL:No frame with number: 7 found\x1b\\\
-         \x1b_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\n\x1b\\\
+         \x1b_Gi=1;ENOENT:No destination frame number 5 exists in image id: 1\x1b\\\
          \x1b_Gi=1;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\"
     );
     assert_eq!(h.store.animation(key).unwrap().frames, 3);
@@ -1909,11 +2077,12 @@ fn a_placement_that_would_follow_itself_is_ecycle() {
         h.take(),
         "\x1b_Gi=1,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
     );
-    // naming itself as its parent is answered with kitty's text
+    // naming itself as its parent makes the shortest cycle, which the
+    // specification answers with ECYCLE
     send(&mut k, &mut h, "a=p,i=2,p=1,P=2,Q=1");
     assert_eq!(
         h.take(),
-        "\x1b_Gi=2,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\"
+        "\x1b_Gi=2,p=1;ECYCLE:relative placement would make a cycle\x1b\\"
     );
     assert_eq!(
         sorted(&h),
@@ -2473,7 +2642,7 @@ fn refusals_carry_kittys_texts() {
          \x1b_Gi=75;EINVAL:Put command creating a virtual placement cannot refer to a parent\x1b\\\
          \x1b_Gi=75,p=2;ENOPARENT:Put command refers to a parent image with id: 99 that does not exist\x1b\\\
          \x1b_Gi=75,p=3;ENOPARENT:Put command refers to a parent image placement with id: 75 and placement id: 9 that does not exist\x1b\\\
-         \x1b_Gi=75,p=1;EINVAL:Put command refers to itself as its own parent\x1b\\",
+         \x1b_Gi=75,p=1;ECYCLE:relative placement would make a cycle\x1b\\",
     );
     for n in 12..20 {
         want += &format!("\x1b_Gi=75,p={n};OK\x1b\\");
@@ -2491,7 +2660,7 @@ fn refusals_carry_kittys_texts() {
         "\x1b_Gi=43;OK\x1b\\\x1b_Gi=43,r=2;OK\x1b\\\
          \x1b_Gi=43;EINVAL:The source and destination rectangles overlap and the src and destination frames are the same\x1b\\\
          \x1b_Gi=43;EINVAL:The destination rectangle is out of bounds\x1b\\\
-         \x1b_Gi=43;ENOENT:No destination frame number 9 exists in image id: 43\n\x1b\\"
+         \x1b_Gi=43;ENOENT:No destination frame number 9 exists in image id: 43\x1b\\"
     );
 }
 
@@ -2510,7 +2679,10 @@ fn a_names_unpadded_last_group_decodes_with_it() {
 
 // The longest error answer fits KITTY_REPLY_MAX: every error the closed
 // set holds, with its numbers at their widest, after the widest keys an
-// answer names, i, I, p and r.
+// answer names, i, I, p and r. Each answer's message holds only printable
+// ASCII and the space, as the specification says a reply's message does:
+// "only printable characters and spaces". A line feed, which kitty puts
+// after one of its texts, fails the test.
 // covers: image.kitty
 #[test]
 fn the_longest_error_answer_fits_the_answer_bound() {
@@ -2538,7 +2710,6 @@ fn the_longest_error_answer_fits_the_answer_bound() {
             parent: big,
             placement: big,
         },
-        Error::SelfParent,
         Error::Cycle,
         Error::TooDeep,
         Error::VirtualParent,
@@ -2568,7 +2739,6 @@ fn the_longest_error_answer_fits_the_answer_bound() {
         | Error::NoSpace
         | Error::NoParentImage { .. }
         | Error::NoParentPlacement { .. }
-        | Error::SelfParent
         | Error::Cycle
         | Error::TooDeep
         | Error::VirtualParent
@@ -2599,6 +2769,14 @@ fn the_longest_error_answer_fits_the_answer_bound() {
         reply(&mut h, &cmd, big, Err(e));
         let answer = h.take();
         assert!(answer.contains(",r="), "{answer:?}");
+        let message = answer
+            .strip_prefix("\x1b_G")
+            .and_then(|a| a.strip_suffix("\x1b\\"))
+            .unwrap();
+        assert!(
+            message.bytes().all(|b| (0x20..0x7f).contains(&b)),
+            "{e:?} answers {answer:?}"
+        );
         longest = longest.max(answer.len());
     }
     assert!(

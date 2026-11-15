@@ -1,0 +1,22 @@
+checkpoint 23
+size 10x4
+cursor 1,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 1,0 block-steady visible span=2 w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |Top|
+row 1 |next|
+row 2 ||
+row 3 ||
+checkpoint 50
+size 10x4
+cursor 0,3
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 20
+frame-cursor 0,3 block-steady visible span=2 w=1 fg=#000000 bg=#e5e5e5 ul=#000000
+row 0 |Top|
+row 1 |next|
+row 2 ||
+row 3 |Bot|

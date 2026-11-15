@@ -20,6 +20,7 @@ const BIN: &str = env!("CARGO_BIN_EXE_vtium-config");
 
 fn request(cells: &[(u32, u32)], cover: &[(u32, u32)]) -> OutlineRequest {
     OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -866,17 +867,17 @@ fn the_request_reads_back() {
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's fourth byte from its end, 0 light and 1
+    // the hinting is the request's fifth byte from its end, 0 light and 1
     // full
     let mut other = full.encode();
     let n = other.len();
-    other[n - 4] = 2;
+    other[n - 5] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),
         "a hinting the parser does not know"
     );
-    // the synthesis is its third byte from the end, bold 1 and italic 2
+    // the synthesis is its fourth byte from the end, bold 1 and italic 2
     // (ADR-1302 D4)
     let slanted = OutlineRequest {
         cluster_width: Default::default(),
@@ -888,14 +889,14 @@ fn the_request_reads_back() {
         ..r.clone()
     };
     let bytes = slanted.encode();
-    assert_eq!(bytes[bytes.len() - 3], 3);
+    assert_eq!(bytes[bytes.len() - 4], 3);
     assert_eq!(OutlineRequest::decode(&bytes), Ok(slanted));
     let mut other = r.encode();
     let n = other.len();
-    other[n - 3] = 4;
+    other[n - 4] = 4;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown synthesis"));
-    // the script is the byte before its last, normal 0, superscript 1 and
-    // subscript 2 (ADR-1202 D2, D5)
+    // the script is its third byte from the end, normal 0, superscript 1
+    // and subscript 2 (ADR-1202 D2, D5)
     for (script, code) in [
         (vtium_font::Script::Baseline, 0u8),
         (vtium_font::Script::Super, 1),
@@ -907,15 +908,15 @@ fn the_request_reads_back() {
             ..r.clone()
         };
         let bytes = scripted.encode();
-        assert_eq!(bytes[bytes.len() - 2], code);
+        assert_eq!(bytes[bytes.len() - 3], code);
         assert_eq!(OutlineRequest::decode(&bytes), Ok(scripted));
     }
     let mut other = r.encode();
     let n = other.len();
-    other[n - 2] = 3;
+    other[n - 3] = 3;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown script"));
-    // the cluster width is its last byte, double 0 and single 1 (ADR-1006
-    // D8)
+    // the cluster width is the byte before its last, double 0 and single
+    // 1 (ADR-1006 D8)
     for (rule, code) in [
         (vtium_term::ClusterWidth::Double, 0u8),
         (vtium_term::ClusterWidth::Single, 1),
@@ -925,11 +926,12 @@ fn the_request_reads_back() {
             ..r.clone()
         };
         let bytes = ruled.encode();
-        assert_eq!(bytes.last(), Some(&code));
+        assert_eq!(bytes[bytes.len() - 2], code);
         assert_eq!(OutlineRequest::decode(&bytes), Ok(ruled));
     }
     let mut other = r.encode();
-    *other.last_mut().expect("a byte") = 2;
+    let n = other.len();
+    other[n - 2] = 2;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown cluster width")
@@ -959,6 +961,7 @@ fn the_parsers_child_rasterises() {
 #[test]
 fn a_color_bitmap_is_scaled_from_its_strike_by_the_chosen_method() {
     let req = OutlineRequest {
+        double_width: false,
         cluster_width: Default::default(),
         fit: false,
         synth: Default::default(),
@@ -1054,9 +1057,10 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     }
     // a request and an answer under the magics before the reach and the
     // box's rows were added, VTVOUT6 and VTVOUTL3, and a request under the
-    // magic before the script was, VTVOUT7, and before the cluster width
-    // was, VTVOUT8, are refused: their layouts lack those fields
-    for magic in [b"VTVOUT6\0", b"VTVOUT7\0", b"VTVOUT8\0"] {
+    // magic before the script was, VTVOUT7, before the cluster width was,
+    // VTVOUT8, and before the double width was, VTVOUT9, are refused: their
+    // layouts lack those fields
+    for magic in [b"VTVOUT6\0", b"VTVOUT7\0", b"VTVOUT8\0", b"VTVOUT9\0"] {
         let mut old = reached.encode();
         old[..8].copy_from_slice(magic);
         assert_eq!(OutlineRequest::decode(&old), Err("not an outline request"));
@@ -1066,9 +1070,26 @@ fn a_request_with_sizes_and_fit_reads_back_and_a_bad_one_is_refused() {
     assert_eq!(Outline::decode(&old, &r), Err("not an outline answer"));
     let mut other = fallback.encode();
     let n = other.len();
-    assert_eq!(other[n - 5], 1);
-    other[n - 5] = 2;
+    assert_eq!(other[n - 6], 1);
+    other[n - 6] = 2;
     assert_eq!(OutlineRequest::decode(&other), Err("an unknown fit"));
+    // the double width is its last byte, 0 or 1
+    let mut other = fallback.encode();
+    let n = other.len();
+    assert_eq!(other[n - 1], 0);
+    other[n - 1] = 2;
+    assert_eq!(
+        OutlineRequest::decode(&other),
+        Err("an unknown double width")
+    );
+    let double = OutlineRequest {
+        double_width: true,
+        ..fallback.clone()
+    };
+    assert_eq!(
+        OutlineRequest::decode(&double.encode()).as_ref(),
+        Ok(&double)
+    );
     for bad in [
         vec![15.5f32.to_bits()],
         vec![0.0f32.to_bits(), 1.0f32.to_bits()],

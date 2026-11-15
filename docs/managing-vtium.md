@@ -1,6 +1,6 @@
 # Managing VTium
 
-vtium is a terminal for the Linux virtual console. The virtual console is the set of text screens that you switch between with Ctrl+Alt and a function key, and each of those screens is a VT. The guides below give the steps you take to run vtium day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium. [Concepts](concepts/index.md) explains its pieces.
+vtium is a terminal that runs on the Linux console. It runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. The guides below give the steps you take to run vtium day to day. [why-vtium.md](why-vtium.md) says why you might choose vtium. [Concepts](concepts/index.md) explains its pieces.
 
 - [Install vtium and give it VTs](install.md) covers installing on Arch Linux or from a checkout, and giving vtium one VT or every VT. It also covers moving from another terminal on a DRM/KMS VT, sharing VTs with `kmscon`, and upgrading and removing vtium.
 - [Configure vtium](configure.md) covers vtium.conf and checking it. It shows how to change the file through a draft with `vtium config`, and how to install the draft. It also covers blanking a VT from a script.

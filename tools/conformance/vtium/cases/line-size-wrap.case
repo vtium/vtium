@@ -1,0 +1,15 @@
+# DECDWL and DECDHL make the cursor's line hold half the screen's columns.
+# The characters right of the center are lost, printing wraps after column
+# 5 of 10, the cursor stops at column 5 and CPR reports it there. DECSWL
+# returns the line to the screen's full width.
+# spec: the VT100 User Guide, DECDWL, DECDHL and DECSWL: "If the line was single-width single-height, all characters to the right of the screen are lost. The cursor remains over the same character position unless it would be to the right of the right margin, in which case, it is moved to the right margin"; "The use of double-width characters reduces the number of characters per line by half"
+# covers: text.line-size
+size 10 4
+send "0123456789\e[1;8H\e#6"
+dump
+send "\e[1;1Habcdefg"
+dump
+send "\e[3;1H\e#3\e[99C\e[6n"
+dump
+send "\e#5\e[99C\e[6n"
+dump

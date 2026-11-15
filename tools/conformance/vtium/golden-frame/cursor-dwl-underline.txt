@@ -1,0 +1,10 @@
+size 10x4
+cursor 0,0
+flags AUTO_WRAP
+palette legacy fg=#e5e5e5 bg=#000000
+changed 40
+frame-cursor 0,0 underline-steady visible span=2 w=1 fg=#e5e5e5 bg=#000000 ul=#e5e5e5 underline=single
+row 0 |wide|
+row 1 ||
+row 2 ||
+row 3 ||

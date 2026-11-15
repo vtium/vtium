@@ -1,0 +1,12 @@
+# In insert mode (IRM) with autowrap (DECAWM) on, a character printed at
+# the last column takes that column, and the character that stood there
+# is lost. The cursor waits at the column with a pending wrap. The next
+# character starts the next row and is inserted there, moving that row's
+# text right.
+# spec: the VT510 manual, IRM: "If IRM mode is set, then new characters move characters in page memory to the right. Characters moved past the page's right border are lost"; DECAWM: "If the DECAWM function is set, then graphic characters received when the cursor is at the right border of the page appear at the beginning of the next line"
+# covers: ANSI-4
+size 6 3
+send "abcdef\e[2;1Hghij\e[1;6H\e[4hX"
+dump
+send "Y"
+dump
