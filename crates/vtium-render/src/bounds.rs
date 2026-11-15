@@ -48,6 +48,38 @@ const POINTER_SIDE: Bound = Bound {
     cite: "64 by 64 is the cursor size DRM reports for `DRM_CAP_CURSOR_WIDTH` and `DRM_CAP_CURSOR_HEIGHT` when a driver sets none, so the arrow fits a cursor plane",
 };
 
+const XCURSOR_FILE: Bound = Bound {
+    name: "XCURSOR_FILE_MAX",
+    value: 16 * 1024 * 1024,
+    what: "Bytes of one cursor theme file that the console reads and the font helper parses",
+    past: "vtium does not read the file, logs why, and tries the shape's next file name",
+    cite: "ADR-1309 D6: Adwaita's busy cursors are 4.7 MB, and the bound matches the font helper's largest frame",
+};
+
+const XCURSOR_TOC: Bound = Bound {
+    name: "XCURSOR_TOC_MAX",
+    value: 4096,
+    what: "Entries in a cursor file's table of contents",
+    past: "The font helper refuses the file, and vtium tries the shape's next file name",
+    cite: "ADR-1309 D6: Adwaita's busy cursors have 360 entries",
+};
+
+const POINTER_SVG_BYTES: Bound = Bound {
+    name: "POINTER_SVG_BYTES_MAX",
+    value: 1024 * 1024,
+    what: "Bytes of an SVG pointer file that the console reads and sends to the font helper",
+    past: "vtium does not read the file, logs why, and draws its own pointer pictures",
+    cite: "ADR-1309 D4: vtium's own file is a few kilobytes",
+};
+
+const POINTER_THEME_PIXELS: Bound = Bound {
+    name: "POINTER_THEME_PIXELS_MAX",
+    value: 16_384,
+    what: "Pixels of one shape's pictures that the console keeps from a cursor theme, across all the sizes it keeps",
+    past: "The font helper keeps the sizes from the smallest up and leaves out the rest",
+    cite: "ADR-1309 D6: four pictures of 64 by 64, so the ten shapes hold at most 640 KiB",
+};
+
 const PICTURE_SCREENS: Bound = Bound {
     name: "PICTURE_CACHE_SCREENS",
     value: 2,
@@ -106,11 +138,15 @@ const IDLE: Bound = Bound {
 
 /// Every bound, in the README table's order.
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const BOUNDS: [Bound; 11] = [
+pub(crate) const BOUNDS: [Bound; 15] = [
     POOL_BYTES,
     ROW_SCRATCH,
     TIMER_SAMPLES,
     POINTER_SIDE,
+    XCURSOR_FILE,
+    XCURSOR_TOC,
+    POINTER_SVG_BYTES,
+    POINTER_THEME_PIXELS,
     PICTURE_SCREENS,
     PRESENT_FRAMES,
     FAILED,
@@ -163,6 +199,18 @@ pub const GPU_IDLE_FRAMES: u64 = IDLE.value as u64;
 /// The pointer's longest side in pixels.
 #[expect(clippy::cast_possible_truncation, reason = "the bound is 64")]
 pub const POINTER_SIDE_MAX: u32 = POINTER_SIDE.value as u32;
+
+/// The most bytes of one cursor theme file vtium reads.
+pub const XCURSOR_FILE_MAX: usize = XCURSOR_FILE.value;
+
+/// The most entries of a cursor file's table of contents.
+pub const XCURSOR_TOC_MAX: usize = XCURSOR_TOC.value;
+
+/// The most bytes of an SVG pointer file vtium reads.
+pub const POINTER_SVG_BYTES_MAX: usize = POINTER_SVG_BYTES.value;
+
+/// The most pixels of one shape's pictures kept from a cursor theme.
+pub const POINTER_THEME_PIXELS_MAX: usize = POINTER_THEME_PIXELS.value;
 
 #[cfg(test)]
 #[expect(

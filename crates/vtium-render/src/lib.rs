@@ -93,7 +93,10 @@ pub use arrow::Arrow;
 pub use bounds::GPU_IDLE_FRAMES;
 #[cfg(feature = "images")]
 pub use bounds::PICTURE_CACHE_SCREENS;
-pub use bounds::{POINTER_SIDE_MAX, POOL_BYTES_PERFORMANCE, RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX};
+pub use bounds::{
+    POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, POINTER_THEME_PIXELS_MAX, POOL_BYTES_PERFORMANCE,
+    RENDER_TIMER_SAMPLES, ROW_SCRATCH_MAX, XCURSOR_FILE_MAX, XCURSOR_TOC_MAX,
+};
 pub use cache::{Budgets, CacheCounts, Profile, Storage};
 pub use mono::Depth;
 #[cfg(feature = "images")]
