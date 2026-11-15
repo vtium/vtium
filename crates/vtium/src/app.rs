@@ -134,6 +134,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(test)]
+mod cursor_blink;
 mod enter_switch;
 mod hand_over;
 mod held;
@@ -2073,7 +2075,8 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
-            if let Some(arms) = head.console.term.blink.activate() {
+            let cursor = crate::blink::cursor_period(&head.console.term.terminal);
+            if let Some(arms) = head.console.term.blink.activate(cursor) {
                 for (timer, arm) in arms {
                     match timer {
                         Timer::Text => head.text_due = Some(after(now, arm.first)),
@@ -3747,14 +3750,7 @@ impl App {
                 head.hide_pointer();
             }
         }
-        let rate = head
-            .console
-            .term
-            .terminal
-            .cursor_blink_ms()
-            .map_or(crate::blink::TEXT_PERIOD, |ms| {
-                Duration::from_millis(ms.into())
-            });
+        let rate = crate::blink::cursor_period(&head.console.term.terminal);
         if let Some(arm) = head.console.term.blink.key(rate) {
             head.cursor_due = Some((after(now, arm.first), arm.every));
         }
@@ -4496,9 +4492,16 @@ impl App {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
-            if let Some((due, every)) = head.cursor_due.filter(|&(d, _)| d <= now) {
-                head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
-                head.cursor_due = Some((after(due, every), every));
+            // A program that set another cursor blink interval with
+            // `CSI 16 ; n ]` gets it from the next phase, which starts now.
+            let every = crate::blink::cursor_period(&head.console.term.terminal);
+            if let Some((due, armed)) = head.cursor_due {
+                if armed != every {
+                    head.cursor_due = Some((after(now, every), every));
+                } else if due <= now {
+                    head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
+                    head.cursor_due = Some((after(due, every), every));
+                }
             }
             let term = &mut head.console.term;
             // SGR 6's timer runs while a shown cell carries it

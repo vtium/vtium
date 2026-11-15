@@ -2,9 +2,11 @@
 //! cursor.
 //!
 //! With `blink` on, two timers run while the terminal is active. The text
-//! timer fires every [`TEXT_PERIOD`]; the cursor timer every
-//! [`TEXT_PERIOD`] too until a key arrives, then [`TYPING_PAUSE`] after
-//! each key and at the cursor's own rate from there. Each firing while the
+//! timer fires every [`TEXT_PERIOD`]. The cursor timer fires at the
+//! cursor's own rate, [`cursor_period`]: the interval a program set with
+//! the Linux console's `CSI 16 ; n ]`, or [`TEXT_PERIOD`] while none did.
+//! A key holds the cursor shown for [`TYPING_PAUSE`], and the timer goes on
+//! at the cursor's rate from there. Each firing while the
 //! terminal is awake flips that timer's phase and redraws every display; a
 //! key shows the cursor at once. With `blink` off there are no timers and
 //! both phases stay shown. With `blink-text=off` there is no text timer,
@@ -86,6 +88,16 @@ pub fn rapid_on_screen(terminal: &Terminal) -> bool {
             .take(cols)
             .any(|&cell| line.style(cell).attrs.contains(Attrs::RAPID_BLINK))
     })
+}
+
+/// How long each phase of `terminal`'s cursor blink lasts: the interval a
+/// program set with the Linux console's `CSI 16 ; n ]`, or [`TEXT_PERIOD`],
+/// the `blink` key's, while no program set one. The interval is the
+/// cursor's alone, so blinking text keeps [`TEXT_PERIOD`].
+pub fn cursor_period(terminal: &Terminal) -> Duration {
+    terminal
+        .cursor_blink_ms()
+        .map_or(TEXT_PERIOD, |ms| Duration::from_millis(ms.into()))
 }
 
 /// The blink phases.
@@ -187,16 +199,21 @@ impl Blink {
         self.cursor_shown
     }
 
-    /// The timers to arm when the terminal activates: none with `blink`
-    /// off, and no text timer with `blink-text` off.
-    pub fn activate(&self) -> Option<impl Iterator<Item = (Timer, Arm)> + use<>> {
-        let every = Arm {
+    /// The timers to arm when the terminal activates, the cursor's with
+    /// phases of `cursor` ([`cursor_period`]): none with `blink` off, and
+    /// no text timer with `blink-text` off.
+    pub fn activate(&self, cursor: Duration) -> Option<impl Iterator<Item = (Timer, Arm)> + use<>> {
+        let text_arm = Arm {
             first: TEXT_PERIOD,
             every: TEXT_PERIOD,
         };
+        let cursor_arm = Arm {
+            first: cursor,
+            every: cursor,
+        };
         let text = self.text;
         self.enabled.then(|| {
-            [(Timer::Text, every), (Timer::Cursor, every)]
+            [(Timer::Text, text_arm), (Timer::Cursor, cursor_arm)]
                 .into_iter()
                 .filter(move |&(t, _)| text || t == Timer::Cursor)
         })
@@ -244,7 +261,7 @@ mod tests {
     }
 
     fn armed(b: &Blink) -> Vec<(Timer, Arm)> {
-        b.activate().into_iter().flatten().collect()
+        b.activate(TEXT_PERIOD).into_iter().flatten().collect()
     }
 
     #[test]
@@ -386,6 +403,43 @@ mod tests {
             assert!(!b.rapid_turn(ms(200), true));
             assert_eq!((b.rapid_due(), b.rapid_shown()), (None, true));
         }
+    }
+
+    // console_codes(4): `CSI 16 ; n ]` sets the cursor blink interval in
+    // milliseconds. The cursor timer runs at the program's 250 ms from the
+    // terminal's activation and after a key. The text timer keeps the
+    // `blink` key's 500 ms. RIS returns the cursor to 500 ms, and with
+    // `blink` off nothing blinks whatever the program set.
+    // covers: ctl.linux-blink-interval
+    #[test]
+    fn the_cursor_timer_runs_at_the_interval_a_program_set() {
+        let mut t = Terminal::new(8, 2, 0);
+        assert_eq!(cursor_period(&t), TEXT_PERIOD);
+        t.input(b"\x1b[16;250]");
+        let every_250 = Arm {
+            first: Duration::from_millis(250),
+            every: Duration::from_millis(250),
+        };
+        assert_eq!(cursor_period(&t), every_250.every);
+        let mut b = Blink::new(true);
+        assert_eq!(
+            b.activate(cursor_period(&t))
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>(),
+            [(Timer::Text, EVERY_500), (Timer::Cursor, every_250)]
+        );
+        assert_eq!(
+            b.key(cursor_period(&t)),
+            Some(Arm {
+                first: TYPING_PAUSE,
+                every: every_250.every
+            })
+        );
+        let off = Blink::new(false);
+        assert_eq!(off.activate(cursor_period(&t)).map(Iterator::count), None);
+        t.input(b"\x1bc");
+        assert_eq!(cursor_period(&t), TEXT_PERIOD);
     }
 
     #[test]
