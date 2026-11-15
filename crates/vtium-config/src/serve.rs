@@ -1338,6 +1338,13 @@ fn outline_coverage(font: &[u8], family: &str) -> Result<Vec<u32>, String> {
     Ok(out)
 }
 
+/// Whether `key` is the key of one piece of a run of ASCII symbols that
+/// may draw as a ligature, rather than of a syllable's piece.
+fn is_ligature_piece(key: &[u32]) -> bool {
+    vtium_font::syllable::piece_of(key)
+        .is_some_and(|(text, _)| vtium_font::syllable::is_ligature_run(text))
+}
+
 /// Sorted codepoints as ranges, runs joined.
 fn ranges(cs: &[u32]) -> Vec<Cover> {
     let mut out: Vec<Cover> = Vec::new();
@@ -2777,6 +2784,9 @@ impl Engine {
         // source, the first source's for each character
         let mut in_one_cell: Vec<(char, Placed, Fit)> = Vec::new();
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
+        // the piece keys of ligature runs that a source has already
+        // decided, whether it joins them or not
+        let mut decided: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
         // an outline source with a strike at this cell draws the strike's
@@ -2837,10 +2847,35 @@ impl Engine {
                     !fitted
                         && !wide_line
                         && !shaped.contains(k)
+                        && !decided.contains(k)
                         && lead(k).is_some_and(|c| source.covers(c))
                         && asked(k)
                 })
                 .collect();
+            // The font that draws a ligature run's first character decides
+            // the run's pieces. If that font is a bitmap one, or does not
+            // join the run, the run draws unjoined: a later source never
+            // gets the pieces, so another font's ligature is never drawn
+            // among the first font's characters.
+            //
+            // References:
+            // - ADR-1308 D8: a bitmap font draws no ligatures, and a run the
+            //   font does not join draws each cell alone.
+            if !color_only && !fitted {
+                let draws = |c: u32| {
+                    source.covers(c)
+                        && match loaded {
+                            Loaded::Bitmap(font) => font.map.contains_key(&c),
+                            Loaded::Outline { mapped, .. } => mapped.binary_search(&c).is_ok(),
+                        }
+                };
+                decided.extend(
+                    clusters
+                        .iter()
+                        .map(Vec::as_slice)
+                        .filter(|k| is_ligature_piece(k) && lead(k).is_some_and(draws)),
+                );
+            }
             match loaded {
                 // a bitmap font has no color glyph
                 Loaded::Bitmap(_) if left.is_empty() || color_only => {}

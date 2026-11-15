@@ -1437,3 +1437,85 @@ fn a_character_with_vs16_and_no_color_source_draws_as_its_character() {
         .expect("the heart");
     assert_eq!(g.format(), Format::Mask);
 }
+
+/// Which of the two pieces of the run `->` the helper draws for `text`'s
+/// frit at an 8×16 cell.
+fn arrow_pieces(test: &str, text: impl Fn(&World) -> String) -> Vec<bool> {
+    let w = World::new(test);
+    let engine = w.engine(&text(&w)).expect("the frit loads");
+    let run: Vec<u32> = "->".chars().map(u32::from).collect();
+    let keys: Vec<Vec<u32>> = (0..2u8)
+        .map(|start| {
+            let mut key = Vec::new();
+            vtium_font::syllable::Piece::new(start, 1, 2)
+                .expect("a piece")
+                .key(&run, &mut key);
+            key
+        })
+        .collect();
+    // no glyph at all when the helper draws neither piece
+    let Some(set) = engine.draw_clusters(cell(8, 16), &keys).expect("draws") else {
+        return vec![false; keys.len()];
+    };
+    let face = SetFace::new(Arc::new(Set::from_bytes(set).expect("a set")), 16).expect("a face");
+    keys.iter()
+        .map(|k| {
+            let chars: Vec<char> = k.iter().filter_map(|&c| char::from_u32(c)).collect();
+            face.cluster(&chars, Style::default()).is_some()
+        })
+        .collect()
+}
+
+fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// Iosevka Term joins `->`, so on its own the helper draws both pieces.
+// covers: text.ligatures
+#[test]
+fn a_ligature_font_alone_draws_the_pieces_of_its_run() {
+    let drawn = arrow_pieces("ligature-alone", |_| {
+        format!(
+            "source=outline:{}\n",
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [true, true]);
+}
+
+/// A bitmap first font draws `-` and `>`, so a later outline font with
+/// ligatures never draws its arrow among the bitmap font's characters.
+// covers: text.ligatures
+#[test]
+fn a_later_source_never_draws_a_ligature_over_a_bitmap_first_font() {
+    let drawn = arrow_pieces("ligature-bitmap-first", |w| {
+        fs::write(
+            w.path("fonts/b.psf"),
+            psf2(8, 16, 2, Some(&[(0, '-'), (1, '>')])),
+        )
+        .expect("psf");
+        format!(
+            "source=file:{}\nsource=outline:{}\n",
+            w.path("fonts/b.psf").display(),
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [false, false]);
+}
+
+/// DejaVu Sans Mono does not join `->`, so the run draws unjoined, though
+/// the Iosevka Term after it would join it.
+// covers: text.ligatures
+#[test]
+fn a_later_source_never_joins_a_run_the_first_outline_font_leaves_apart() {
+    let drawn = arrow_pieces("ligature-outline-first", |_| {
+        format!(
+            "source=outline:{}\nsource=outline:{}\n",
+            fixture("DejaVuSansMono-ascii.ttf").display(),
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [false, false]);
+}
