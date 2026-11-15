@@ -300,8 +300,8 @@ fn transition(state: State, c: u32) -> (Option<State>, Action) {
 /// The escape-sequence parser: bytes in, [`Consumer`] calls out.
 ///
 /// It holds every buffer it uses inline (about 1.7 KiB) but the OSC
-/// string's, which grows by doubling from [`OSC_FLOOR`] to at most
-/// [`OSC_MAX`], is released after a string past [`OSC_KEEP`], and is
+/// string's, which grows by doubling from `OSC_FLOOR` to at most
+/// [`OSC_MAX`], is released after a string past `OSC_KEEP`, and is
 /// emptied as each string ends. Its `Debug` shows only the bytes its
 /// buffers hold.
 #[derive(Clone)]
