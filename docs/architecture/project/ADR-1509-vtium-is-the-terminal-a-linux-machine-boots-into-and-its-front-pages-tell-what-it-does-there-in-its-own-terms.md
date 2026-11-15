@@ -51,7 +51,7 @@ considered:
 ## Summary
 
 - **Decided:** vtium's two front pages, the README on GitHub and the site's Home, open with one sentence: vtium is a terminal that runs on the Linux console, in place of the login prompt a Linux machine boots into. An introduction says what that gives the reader, where a full terminal helps, and that vtium is alpha software. A linked list then names one topic page for each part of what vtium does there: text in any script, a terminal on each display, images, keyboards and mice, the control language and the rules vtium follows, where vtium runs, security and the system, and what vtium leaves to other tools. Each front page ends with where to start. Every claim rests on a row that ADR-1000's tables mark supported, or on the code; a planned or partial row is called planned or partial and links its issue. The pages never define vtium by comparison with another terminal or console, and they name a protocol by its specification where a reader needs the name.
-- **Trades away:** the README grows back from the short page of ADR-1502 D2 to about one screen of sections. Because the two pages tell the same story, a change to one goes to the other in the same change. A reader who wants to know how vtium compares with other consoles reads Why vtium, which this record leaves as it is.
+- **Trades away:** the README grows back from the short page of ADR-1502 D2 to about one screen of sections. Because the two pages tell the same story, a change to one goes to the other in the same change. No page compares vtium with another program: Why vtium tells what vtium gives the console.
 - **One-way?** No. The pages are text that a later change can rewrite, and this record is the yardstick that change is checked against.
 - **Probes:** *Confident (the story):* you want the front pages to say what vtium gives the person who boots into it, part by part, and to name no other terminal or console in a claim. *Not confident (the device class):* vtium answers DA1 as a VT220 (62). Should it answer as a VT420 (64), the class whose editing set it implements, and add the attributes for selective erase (6) and rectangular editing (28)? The probe under Decision gives the case for and against.
 - **Inversion:** Between "a list of features" and "an argument against the kernel's console". A list tells a reader what is there, but not why each part matters to them. An argument tells the reader what is wrong elsewhere, but not what vtium is. The answer tells the story of the console a person meets at boot, from their side, and lets each claim stand on vtium's own tables.
@@ -150,8 +150,11 @@ The pages describe vtium-config by what it does today. It runs in a terminal and
 
 ### Neutral
 
-- Why vtium keeps its comparison with other consoles. The front pages link Why vtium as a page to read, and make no comparison themselves.
+- No page compares vtium with another program. Why vtium tells what vtium gives the console, and the front pages link it as a page to read.
+
 - The device class stays 62 until the probe's answer, and a change to the device class is a change to vtium-term.
+
+> Amended 2026-11-14: the maintainer decided, when the pages that disagreed with the front pages were brought in line with them, that Why vtium makes no comparison either. The Summary's Trades away line and the first Neutral consequence now say so. The earlier text is in git at cfc42ed9.
 
 ## Alternatives Considered
 
