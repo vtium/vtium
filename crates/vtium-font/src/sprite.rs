@@ -147,7 +147,7 @@ impl fmt::Display for Range {
     }
 }
 
-/// Whether vtium can draw `c` as a sprite; a [`Font`](crate::Font)'s
+/// Whether vtium can draw `c` as a sprite; a [`Font`]'s
 /// policy decides whether it does.
 pub fn has(c: char) -> bool {
     Range::of(c).is_some()
