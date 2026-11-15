@@ -8,11 +8,7 @@ A build with the GPU path renders through OpenGL ES 3.0, using EGL and GBM from 
 
 Under systemd, vtium starts on a VT where a getty would. With another init system, vtium starts where that system started a getty. In seat mode, vtium gets its displays and input devices from seatd or logind rather than opening them itself.
 
-When vtium fails under systemd, its unit starts a getty on the VT, so a login prompt returns. There are two exceptions. vtium starts no getty under a closed policy, where you have chosen that no keyboard outside your rules may type. It also starts none when the getty would stop another program, such as a display manager. [systemd, logind and PID 1](../systemd.md) covers each place vtium touches systemd, and what vtium does without it.
-
-## What runs as root
-
-vtium itself runs as root, in direct mode and in seat mode alike. It needs root to open the VT, take control of the displays, read the input devices, and start `/bin/login`. Two helpers parse fonts and images for it, each inside a sandbox, and neither runs as root. The font helper runs as the user `nobody` and refuses to run as root. The image helper runs as the user logged in on that console; before anyone logs in, it reads no files at all. [Security](../concepts/security.md) explains the design and where its protection ends.
+When vtium fails under systemd, a getty takes the VT back. [Security and the system](security-and-system.md#with-systemd-and-logind-and-without-them) covers the exceptions, sessions that survive a restart, and how vtium works with logind.
 
 ## Small machines
 

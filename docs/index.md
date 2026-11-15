@@ -4,7 +4,7 @@
 
 vtium runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. So the console your machine boots into is a full terminal, with 24-bit color, color emoji, images, mouse reporting, and text in any script your fonts cover. vtium renders through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or the GPU.
 
-A full terminal helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a recovery shell, or the console before a desktop starts. There, editors, file managers and tmux get the color, mouse and image support they expect.
+A full terminal helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. There, editors, file managers and tmux get the color, mouse and image support they expect.
 
 vtium is alpha software, at version 0.1.0-alpha.8. A vtium package takes every free VT when you install it, and each VT switches to vtium at its next start. So try vtium on one VT first; [Try vtium on one VT](tutorial-try-vtium.md) shows how. With the default setup under systemd, a getty takes the VT back when vtium fails, so you still get a login prompt.
 
@@ -15,11 +15,12 @@ vtium is alpha software, at version 0.1.0-alpha.8. A vtium package takes every f
 ## What vtium does
 
 - [Text in any script](home/text.md): grapheme clusters lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
-- [A terminal on each display](home/displays.md): one vtium can give each display its own terminal and keyboard.
+- [A terminal on each display](home/displays.md): one vtium drives several displays at once, each with its own independent terminal, keyboard, and mouse, for several people working at one machine.
 - [Images](home/images.md): sixel, the kitty graphics protocol, and iTerm2's inline images.
 - [Keyboards and mice](home/input.md): how vtium reads your devices, the key and mouse encodings programs receive, and the keys that act on the machine.
 - [The terminal's language](home/language.md): the specifications vtium follows, and how it settles a conflict between two of them.
-- [Where vtium runs](home/where-it-runs.md): processors, graphics, init systems, what runs as root, and the smallest build.
+- [Where vtium runs](home/where-it-runs.md): processors, graphics, init systems, and the smallest build.
+- [Security and the system](home/security-and-system.md): sandboxed helpers for fonts and images, a reply rule that keeps output from typing into your shell, and how vtium works with systemd and logind.
 - [What vtium leaves to other tools](home/leaves-to-other-tools.md): opening links, split panes, window management, and other jobs that belong to other programs.
 
 ## Where to start

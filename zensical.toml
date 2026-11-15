@@ -25,6 +25,7 @@ nav = [
       { "Keyboards and mice" = "home/input.md" },
       { "The terminal's language" = "home/language.md" },
       { "Where vtium runs" = "home/where-it-runs.md" },
+      { "Security and the system" = "home/security-and-system.md" },
       { "What vtium leaves to other tools" = "home/leaves-to-other-tools.md" },
       { "Showcase" = "showcase/README.md" },
   ] },

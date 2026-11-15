@@ -12,7 +12,7 @@ Among the newer protocols, vtium supports sixel, the kitty graphics and keyboard
 - Where two specifications give one sequence different meanings, vtium's feature table records which meaning vtium uses. For example, `CSI s` sets the left and right margins (DECSLRM) while mode 69 is set.
 - Where a specification leaves a choice open, vtium's own tests settle it, and the choice is written down.
 
-Above all of these, a reply carries only vtium's own state. When a program asks a question, such as where the cursor is, vtium answers from what it knows, from fixed text, and from numbers. It never copies text from the program's output into the answer. So a sequence hidden in a file you `cat` can change what your screen shows, but it can never make vtium type a command into your shell.
+Above all of these comes the reply rule. vtium builds every answer to a query from its own state, so a program's output can never make vtium type into your shell. [The reply rule](security-and-system.md#the-reply-rule) shows what that protects.
 
 ## What vtium aims to support
 
