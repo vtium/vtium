@@ -354,6 +354,88 @@ class Drawing(unittest.TestCase):
                          + CSI + "6;1H" + ESC + "#5" + CSI + "?25h")
 
 
+def guide_steps():
+    """Each step of the editor's guide as (title, run, do, expect), the
+    do: and expect: lines each a list, as guide.sh reads them."""
+    steps = []
+    with open(GUIDE, encoding="utf-8") as f:
+        for line in f:
+            key, _, text = line.rstrip("\n").partition(": ")
+            if key == "step":
+                steps.append((text, None, [], []))
+            elif key == "run":
+                steps[-1] = steps[-1][:1] + (text,) + steps[-1][2:]
+            elif key in ("do", "expect"):
+                steps[-1][2 if key == "do" else 3].append(text)
+    return steps
+
+
+def step_env(k):
+    """The environment guide.sh gives step K's run: command."""
+    steps = guide_steps()
+    title, _, do, expect = steps[k - 1]
+    return {"GUIDE_STEP_HEADING": "Step %d of %d: %s" % (k, len(steps), title),
+            "GUIDE_STEP_DO": "".join(l + "\n" for l in do),
+            "GUIDE_STEP_EXPECT": "".join(l + "\n" for l in expect), "GUIDE_FILE": GUIDE}
+
+
+class StepText(unittest.TestCase):
+    ENV = {"GUIDE_STEP_HEADING": "Step 2 of 7: Text flows back when you delete",
+           "GUIDE_STEP_DO": "Press Down, then i, and type a few words. Press Backspace\nuntil the words are gone.\n",
+           "GUIDE_STEP_EXPECT": "The text moves back. The letters at the start of\neach row *move up*, so the rows "
+                                "stay full.\n*Wrong:* a gap in a row, or a\ndoubled letter.\n",
+           "GUIDE_FILE": "tools/vt/checks/editor.guide"}
+
+    def test_the_step_text_is_its_heading_and_a_line_for_each_part_without_asterisks(self):
+        self.assertEqual(vim.step_lines(self.ENV), [
+            "Step 2 of 7: Text flows back when you delete",
+            "Do: Press Down, then i, and type a few words. Press Backspace until the words are gone.",
+            "Expect: The text moves back. The letters at the start of each row move up, so the rows stay full.",
+            "Wrong: a gap in a row, or a doubled letter.",
+        ])
+
+    def test_no_step_text_gives_no_lines(self):
+        self.assertEqual(vim.step_lines({}), [])
+        self.assertEqual(vim.step_lines({"GUIDE_FILE": "editor.guide"}), [])
+
+    def test_prepend_step_puts_the_step_text_and_a_blank_line_before_the_file(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        name = os.path.join(d, "f.txt")
+        with open(name, "w", encoding="utf-8") as f:
+            f.write("[wide] first\nsecond\n")
+        vim.prepend_step(name, self.ENV)
+        with open(name, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "Step 2 of 7: Text flows back when you delete\n"
+                                       "Do: Press Down, then i, and type a few words. Press Backspace until the "
+                                       "words are gone.\n"
+                                       "Expect: The text moves back. The letters at the start of each row move up, "
+                                       "so the rows stay full.\n"
+                                       "Wrong: a gap in a row, or a doubled letter.\n"
+                                       "\n"
+                                       "[wide] first\nsecond\n")
+
+    def test_a_step_line_that_starts_with_a_tag_stays_normal(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        name = os.path.join(d, "f.txt")
+        with open(name, "w", encoding="utf-8") as f:
+            f.write("x\n")
+        vim.prepend_step(name, {"GUIDE_STEP_HEADING": "[wide] a heading"})
+        with open(name, encoding="utf-8") as f:
+            self.assertEqual(vim.parse(f.read()), [vim.Line("normal", "[wide] a heading"), vim.Line(),
+                                                   vim.Line("normal", "x")])
+
+    def test_prepend_step_with_no_step_text_leaves_the_file_as_it_was(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d)
+        name = os.path.join(d, "f.txt")
+        shutil.copy(SAMPLE, name)
+        vim.prepend_step(name, {})
+        with open(name, "rb") as f, open(SAMPLE, "rb") as g:
+            self.assertEqual(f.read(), g.read())
+
+
 class Guide(unittest.TestCase):
     def test_the_guide_passes_its_check(self):
         p = subprocess.run(["bash", os.path.join(CHECKS, "guide.sh"), "--check", GUIDE], capture_output=True,
@@ -367,7 +449,22 @@ class Guide(unittest.TestCase):
         self.assertGreater(len(runs), 3)
         for run in runs:
             self.assertEqual(run, "cp tools/vt/checks/vim-vt510-sample.txt /tmp/vim-vt510.txt && "
-                                  "python3 tools/vt/checks/vim-vt510.py /tmp/vim-vt510.txt")
+                                  "python3 tools/vt/checks/vim-vt510.py --prepend-step /tmp/vim-vt510.txt")
+
+    def test_each_line_a_step_names_starts_a_line_of_the_sample(self):
+        # The copy begins with the step's own text, which quotes the line
+        # it names, so a step names a line by how the line starts, never by
+        # a count of rows from the top.
+        with open(SAMPLE, encoding="utf-8") as f:
+            starts = [re.sub(r"^\[(wide|tall)\] ", "", l) for l in f.read().splitlines()]
+        named = 0
+        for title, _, do, _ in guide_steps():
+            text = " ".join(do)
+            self.assertNotRegex(text, r"Down \w+ times", title)
+            for name in re.findall(r'(?:starts|onto) "([^"]+)"', text):
+                named += 1
+                self.assertTrue([l for l in starts if l.startswith(name)], "%s: no line starts %r" % (title, name))
+        self.assertGreater(named, 4)
 
 
 class Session:
@@ -377,13 +474,13 @@ class Session:
 
     SHOW = b"\x1b[?25h"
 
-    def __init__(self, test, cols, rows, *args, cwd=None):
+    def __init__(self, test, cols, rows, *args, cwd=None, env=None):
         self.cols, self.rows = cols, rows
         self.pid, self.fd = pty.fork()
         if self.pid == 0:
             if cwd:
                 os.chdir(cwd)
-            os.execv(sys.executable, [sys.executable, "-I", EDITOR, *args])
+            os.execve(sys.executable, [sys.executable, "-I", EDITOR, *args], {**os.environ, **(env or {})})
         fcntl.ioctl(self.fd, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
         test.addCleanup(self.reap)
         self.stream = b""
@@ -615,6 +712,49 @@ class Replay(unittest.TestCase):
         self.assertIn("test state margins 0-24 0-79", state)
         self.assertRegex(state, r"test state modes ansi (?!.*\b4\b)[0-9,]* dec 7,")
         self.assertIn("test state pen\n", state)
+
+    def test_step_six_saves_each_lines_size_below_the_step_text(self):
+        # Step 6 of the guide as the operator runs it: the copy begins with
+        # the step's text, and saving and reading it again keeps each
+        # line's size, the step's text and the line made wide included.
+        env = step_env(6)
+        self.assertEqual(env["GUIDE_STEP_HEADING"], "Step 6 of 7: Saving keeps each line's size")
+        s = Session(self, 80, 25, "--prepend-step", "sample.txt", cwd=self.dir, env=env)
+        with open(self.file, encoding="utf-8") as f:
+            text = f.read()
+        lines = text.splitlines()
+        with open(SAMPLE, encoding="utf-8") as f:
+            self.assertEqual(text, "".join(l + "\n" for l in vim.step_lines(env)) + "\n" + f.read())
+        self.assertEqual(lines[0], "Step 6 of 7: Saving keeps each line's size")
+        self.assertTrue(lines[1].startswith("Do: Press Down until the cursor is on the line that starts "), lines[1])
+        self.assertTrue(lines[2].startswith("Expect: The first :q refuses to quit: the bottom row says"), lines[2])
+        self.assertTrue(lines[3].startswith("Wrong: a line at another size after :e"), lines[3])
+        rows, _ = self.screen(s)
+        self.assertEqual(rows[0], ("s", "Step 6 of 7: Saving keeps each line's size"))
+        self.assertEqual(rows[1], ("s", lines[1][:80]))
+        self.assertRegex(rows[24][1], r"^Read %d lines\. " % len(lines))
+        target = next(i for i, l in enumerate(lines) if l.startswith("A long normal line"))
+        s.keys(*[DOWN] * target)
+        s.command("wide")
+        s.command("q")
+        rows, _ = self.screen(s)
+        self.assertEqual(rows[24][1], "This file has unsaved changes. :w saves them, and :q! quits without saving.")
+        s.command("w")
+        s.command("e sample.txt")
+        with open(self.file, encoding="utf-8") as f:
+            saved = f.read().splitlines()
+        self.assertEqual(saved[:target], lines[:target])
+        self.assertEqual(saved[target], "[wide] " + lines[target])
+        self.assertEqual(saved[target + 1:], lines[target + 1:])
+        self.assertEqual(vim.parse("\n".join(saved))[target].size, "wide")
+
+    def test_prepend_step_with_no_step_text_opens_the_sample_as_it_is(self):
+        env = {k: "" for k in ("GUIDE_STEP_HEADING", "GUIDE_STEP_DO", "GUIDE_STEP_EXPECT")}
+        s = Session(self, 80, 25, "--prepend-step", self.file, env=env)
+        rows, _ = self.screen(s)
+        self.assertEqual(rows[:21], self.sample_rows(80)[:21])
+        with open(self.file, "rb") as f, open(SAMPLE, "rb") as g:
+            self.assertEqual(f.read(), g.read())
 
     def test_the_sample_at_320_by_45(self):
         s = Session(self, 320, 45, self.file)

@@ -3,7 +3,7 @@
 text in memory and wraps each line itself, so you can see what an editor
 does on top of a VT510 terminal. It is a test fixture: nothing installs it.
 
-  vim-vt510.py [FILE]
+  vim-vt510.py [--prepend-step] [FILE]
 
 Why it exists: the terminal follows the VT510. It never moves text to
 another row when a letter is inserted, and letters pushed past the right
@@ -28,6 +28,17 @@ The file is plain text. A line that starts with "[wide] " or "[tall] " has
 that size, and the tag is not part of the text. Any other line is normal. A
 normal line whose text starts with a tag is saved with "[normal] " in front,
 so that it reads back as normal.
+
+--prepend-step writes the step that guide.sh runs the editor for at the top
+of FILE before the editor opens it. guide.sh hands a run: command the step's
+heading, do: lines and expect: lines in GUIDE_STEP_HEADING, GUIDE_STEP_DO
+and GUIDE_STEP_EXPECT. The heading becomes the file's first line. The do:
+lines become one line that starts "Do:", and the expect: lines one that
+starts "Expect:", except that an expect: line that starts with "Wrong:"
+begins a line of its own. The editor wraps these long lines like any other.
+The asterisks that mark bold text on guide.sh's screen are left out, since
+the file is plain text. A blank line follows the step's text, then the
+file's own text. With none of the three set, the file stays as it is.
 
 Normal mode:
   arrows, h j k l    move through the text: Left and Right along the line,
@@ -814,6 +825,48 @@ class Editor:
         self.set_index(0)
 
 
+def step_lines(env):
+    """The lines of the step that guide.sh runs the editor for, from the
+    step's text in ENV: the heading, a "Do:" line, an "Expect:" line, and a
+    line for each expect: line that starts "Wrong:". The guide's asterisks
+    are left out. A step with no text gives no lines."""
+    lines = []
+    heading = env.get("GUIDE_STEP_HEADING", "").strip()
+    if heading:
+        lines.append(heading)
+    for label, key in (("Do:", "GUIDE_STEP_DO"), ("Expect:", "GUIDE_STEP_EXPECT")):
+        part = []
+        for raw in env.get(key, "").replace("*", "").splitlines():
+            raw = raw.strip()
+            if not raw:
+                continue
+            if raw.startswith("Wrong:"):
+                part.append(raw)
+            elif part:
+                part[-1] += " " + raw
+            else:
+                part.append(label + " " + raw)
+        lines += part
+    return lines
+
+
+def prepend_step(name, env):
+    """Writes the step's lines and a blank line at the top of the file
+    NAME. Each is a normal line, so a step line that starts with a size
+    tag is saved with "[normal] " in front and reads back as it was. With
+    no step text, the file is left as it is."""
+    lines = step_lines(env)
+    if not lines:
+        return
+    try:
+        with open(name, encoding="utf-8") as f:
+            text = f.read()
+    except FileNotFoundError:
+        text = ""
+    with open(name, "w", encoding="utf-8") as f:
+        f.write(unparse([Line("normal", t) for t in lines] + [Line()]) + text)
+
+
 def load(name, first=False):
     """The lines of the file NAME and the message that says what was read,
     which for the FIRST file names the keys to start with. A file that does
@@ -853,12 +906,21 @@ class Done(Exception):
 
 
 def main(argv):
-    if len(argv) > 1 or (argv and argv[0].startswith("-")):
+    step = bool(argv) and argv[0] == "--prepend-step"
+    if step:
+        argv = argv[1:]
+    if len(argv) > 1 or (argv and argv[0].startswith("-")) or (step and not argv):
         return usage()
     fd = sys.stdin.fileno()
     if not os.isatty(fd):
         print("vim-vt510: the editor reads keys from a terminal, and its input is not one", file=sys.stderr)
         return 2
+    if step:
+        try:
+            prepend_step(argv[0], os.environ)
+        except OSError as e:
+            print("vim-vt510: cannot write the step's text into %s: %s" % (argv[0], e.strerror), file=sys.stderr)
+            return 1
     cols, rows = os.get_terminal_size(fd)
     editor = Editor(cols, rows)
     if argv:
