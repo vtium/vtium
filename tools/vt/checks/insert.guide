@@ -30,6 +30,10 @@
 
 title: the terminal's insert mode on lines of every size
 
+intro: New to these lines? Start with the editor guide:
+intro: *make vt-check GUIDE=editor*. There a program keeps the text and
+intro: wraps it, as zsh and vim do. This guide shows the terminal on its
+intro: own, underneath.
 intro: Each step starts the typing pad. The pad shows what the terminal does
 intro: when a program only echoes the keys you type. The terminal never moves
 intro: text to another row when you insert a letter. Text flows onto the next
