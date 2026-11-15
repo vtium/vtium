@@ -424,6 +424,9 @@ pub struct App {
     /// Whether the pointer file `pointer-theme` names has started loading
     /// ([`App::pointer_turn`]).
     pointer_file_started: bool,
+    /// The pointer file while it loads, with the font helper that draws
+    /// its pictures.
+    pointer_file: Option<(crate::pointer_file::Loader, Helper)>,
     /// Each frit a head draws, by its name, with its one helper.
     frits: BTreeMap<String, Frit>,
     /// The kernel's font, read from the VT at start for a frit's
@@ -616,6 +619,7 @@ impl App {
             reread: None,
             launcher: helper::Launcher::configured(&config),
             pointer_file_started: false,
+            pointer_file: None,
             frits: BTreeMap::new(),
             console_font: None,
             locale: locale(&inherited),
@@ -1905,34 +1909,19 @@ impl App {
         let frit = self.frits.get(name)?;
         if frit.helper.is_none() && !frit.refused {
             let launcher = self.launcher.clone();
-            let wake = vtium_platform::calloop::ping::make_ping()
-                .map_err(|e| format!("cannot make its wake-up: {e}"))
-                .and_then(|(ping, source)| {
-                    self.handle
-                        .insert_source(source, |(), (), _: &mut App| {})
-                        .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
-                    Ok(ping)
-                });
-            let started = match launcher.and_then(|l| wake.map(|w| (l, w))) {
-                Ok((launcher, ping)) => {
-                    let wake = std::sync::Mutex::new(ping);
-                    Ok(Helper::new(
-                        launcher,
-                        std::sync::Arc::new(move || {
-                            if let Ok(p) = wake.lock() {
-                                p.ping();
-                            }
-                        }),
-                        self.epoch,
-                        frit.frit.clone(),
-                        self.console_font.clone(),
-                        std::sync::Arc::clone(&frit.generated),
-                        crate::head::frit_store(
-                            crate::deferred::store_limit(physical_memory()),
-                            self.heads.len(),
-                        ),
-                    ))
-                }
+            let started = match launcher.and_then(|l| self.helper_wake().map(|w| (l, w))) {
+                Ok((launcher, wake)) => Ok(Helper::new(
+                    launcher,
+                    wake,
+                    self.epoch,
+                    frit.frit.clone(),
+                    self.console_font.clone(),
+                    std::sync::Arc::clone(&frit.generated),
+                    crate::head::frit_store(
+                        crate::deferred::store_limit(physical_memory()),
+                        self.heads.len(),
+                    ),
+                )),
                 Err(why) => {
                     log::warn!(
                         "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
@@ -1949,14 +1938,33 @@ impl App {
         self.frits.get_mut(name)?.helper.as_mut()
     }
 
-    /// Starts loading the pointer file `pointer-theme` names at the first
-    /// turn, with a wake-up into the loop for its pictures, and draws every
-    /// head once its pictures change, so that each display's pointer takes
-    /// them. A helper that cannot start leaves vtium's own pictures.
+    /// A wake-up into the loop for a helper's answers, which the helper's
+    /// reader calls after each frame.
+    fn helper_wake(&self) -> Result<std::sync::Arc<dyn Fn() + Send + Sync>, String> {
+        let (ping, source) = vtium_platform::calloop::ping::make_ping().map_err(|e| {
+            format!("vtium cannot make a wake-up for the font helper's answers: {e}")
+        })?;
+        self.handle
+            .insert_source(source, |(), (), _: &mut App| {})
+            .map_err(|e| format!("vtium cannot watch for the font helper's answers: {e}"))?;
+        let ping = std::sync::Mutex::new(ping);
+        Ok(std::sync::Arc::new(move || {
+            if let Ok(p) = ping.lock() {
+                p.ping();
+            }
+        }))
+    }
+
+    /// Loads the pointer file `pointer-theme` names, from the first turn
+    /// on: takes the font helper's answer to the last pointer ask, sends
+    /// the next ask, and draws every head once the pictures change, so
+    /// that each display's pointer takes them. The loader and its helper
+    /// go once the loader asks for nothing more. A helper that cannot
+    /// start leaves vtium's own pictures.
     ///
     /// References:
     /// - ADR-1309 D5: the compiled-in pictures draw until the font helper answers.
-    fn pointer_turn(&mut self) {
+    fn pointer_turn(&mut self, now: Instant) {
         if !self.pointer_file_started {
             self.pointer_file_started = true;
             let size = self
@@ -1965,40 +1973,47 @@ impl App {
                 .and_then(|n| u32::try_from(n).ok());
             if let Some(path) = self.config.text(&crate::config::keys::POINTER_THEME) {
                 let path = PathBuf::from(path);
-                let wake = vtium_platform::calloop::ping::make_ping()
-                    .map_err(|e| format!("cannot make its wake-up: {e}"))
-                    .and_then(|(ping, source)| {
-                        self.handle
-                            .insert_source(source, |(), (), _: &mut App| {})
-                            .map_err(|e| format!("cannot watch its wake-up: {e}"))?;
-                        Ok(ping)
-                    });
-                match self.launcher.clone().and_then(|l| wake.map(|w| (l, w))) {
-                    Ok((launcher, ping)) => {
-                        let ping = std::sync::Mutex::new(ping);
-                        crate::pointer_file::start(
-                            &path,
-                            size,
-                            font::trust(),
-                            launcher,
-                            std::sync::Arc::new(move || {
-                                if let Ok(p) = ping.lock() {
-                                    p.ping();
-                                }
-                            }),
-                        );
+                if let Some(loader) = crate::pointer_file::Loader::start(&path, size, font::trust())
+                {
+                    match self
+                        .launcher
+                        .clone()
+                        .and_then(|l| self.helper_wake().map(|w| (l, w)))
+                    {
+                        Ok((launcher, wake)) => {
+                            crate::pointer_file::set_wake(std::sync::Arc::clone(&wake));
+                            let helper = Helper::for_pointers(launcher, wake, self.epoch);
+                            self.pointer_file = Some((loader, helper));
+                        }
+                        Err(why) => log::warn!("{}", crate::pointer_file::lost_line(&path, &why)),
                     }
-                    Err(why) => log::warn!(
-                        "The font helper cannot draw the pointer file {} ({why}), so vtium draws its own pointer pictures.",
-                        path.display()
-                    ),
                 }
             }
         }
-        if crate::pointer_file::take_changed() {
+        let Some((loader, helper)) = &mut self.pointer_file else {
+            return;
+        };
+        helper.poll(now);
+        loop {
+            if let Some(answer) = helper.pointer_answer() {
+                loader.take(answer);
+            }
+            if helper.busy() {
+                break;
+            }
+            match loader.next_ask() {
+                Some(ask) => helper.pointer(&ask, now),
+                None => break,
+            }
+        }
+        loader.emit();
+        if !helper.busy() && loader.publish() {
             for head in &mut self.heads {
                 head.draw_now = true;
             }
+        }
+        if loader.ended() && !helper.busy() {
+            self.pointer_file = None;
         }
     }
 
@@ -4514,7 +4529,7 @@ impl App {
         }
         self.timers(now);
         self.helper_turn(now);
-        self.pointer_turn();
+        self.pointer_turn(now);
         if self.awake {
             self.draw(now);
         }
@@ -4973,6 +4988,7 @@ impl App {
         for frit in self.frits.values() {
             due.extend(frit.helper.as_ref().and_then(Helper::deadline));
         }
+        due.extend(self.pointer_file.as_ref().and_then(|(_, h)| h.deadline()));
         // A notice's time runs out while the displays draw, and its screen
         // has no other timer, since its cursor is hidden (ADR-1401 D3).
         if self.awake {

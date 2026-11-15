@@ -101,6 +101,7 @@ use vtium_platform::vt::font::ConsoleFont;
 use crate::config::Config;
 use crate::config::keys::FONT_HELPER;
 use crate::deferred::{Shared, Shown, Text};
+use crate::pointer_file::{FRAME_NO_POINTER, FRAME_POINTER};
 
 /// How long the helper may take for each answer while work is
 /// outstanding: a CJK frit's first batch on a Cortex-A53 takes about a
@@ -359,29 +360,6 @@ impl Launcher {
         let status = std::fs::read_to_string(format!("/proc/{pid}/status"))
             .map_err(|e| format!("cannot read the helper's ids from /proc/{pid}/status: {e}"))?;
         holds_account(&status, account)
-    }
-
-    /// Starts a helper with its input and output piped, as the glyph
-    /// helper starts, and checks the account it dropped to. The pointer
-    /// file's client starts one this way for its pointer asks
-    /// ([`crate::pointer_file`]), apart from the glyph helper, so that its
-    /// answers never reach the glyph asks' queue.
-    pub(crate) fn spawn_piped(&self) -> Result<Child, String> {
-        vtium_platform::cloexec_above_stdio()
-            .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
-        let mut child = self
-            .process()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-            .map_err(|e| self.failed(&e))?;
-        if let Err(why) = self.dropped(child.id()) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(why);
-        }
-        Ok(child)
     }
 
     /// Why a start failed with `e`. vtium starts the helper from the file it
@@ -715,7 +693,7 @@ fn cell_answer(answer: Event, height: u32) -> Result<Result<OwnCell, NoCell>, St
 
 /// What the reader thread saw.
 #[derive(Debug)]
-enum Event {
+pub(crate) enum Event {
     /// A set, an ask's or a fill's, the codepoints it maps as `(first,
     /// count)` runs, and the bytes its frame took.
     Glyphs {
@@ -750,6 +728,10 @@ enum Event {
     Coverage(Vec<u32>, String),
     /// The frit draws nothing, a coverage query's answer: why.
     DrawsNothing(String),
+    /// A frame that answers a pointer ask: its kind, a picture or a shape
+    /// drawn nothing for, and its payload, which
+    /// [`crate::pointer_file::Reply`] checks.
+    Pointer(u32, Vec<u8>),
     Failed(String),
     /// Bytes that are not a frame, or a set its reader refused.
     Malformed(String),
@@ -842,7 +824,7 @@ fn mapped_runs(bytes: &[u8]) -> Result<Vec<(u32, u32)>, String> {
 /// Reads one frame into an event, or `None` at the end of the stream: its
 /// length checked against its kind's bound before its payload is
 /// allocated.
-fn frame(r: &mut impl Read) -> Option<Event> {
+pub(crate) fn frame(r: &mut impl Read) -> Option<Event> {
     let (kind, len) = match head(r) {
         Ok(Some(h)) => h,
         Ok(None) => return None,
@@ -855,6 +837,8 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         FRAME_OWN_CELL | FRAME_OUTLINE_CELL => 8,
         FRAME_SANDBOX => 4,
         FRAME_COVERAGE => FRAME_BYTES_MAX,
+        FRAME_POINTER => crate::pointer_file::PICTURE_BYTES_MAX,
+        FRAME_NO_POINTER => REASON_BYTES_MAX.saturating_add(8),
         FRAME_FAILED | FRAME_NO_OWN_CELL | FRAME_WARNING | FRAME_DRAWS_NOTHING => REASON_BYTES_MAX,
         other => return Some(Event::Malformed(format!("a frame of unknown kind {other}"))),
     };
@@ -945,6 +929,7 @@ fn frame(r: &mut impl Read) -> Option<Event> {
         },
         FRAME_COVERAGE => coverage_answer(&payload),
         FRAME_DRAWS_NOTHING => Event::DrawsNothing(String::from_utf8_lossy(&payload).into_owned()),
+        FRAME_POINTER | FRAME_NO_POINTER => Event::Pointer(kind, payload),
         _ => Event::Failed(String::from_utf8_lossy(&payload).into_owned()),
     })
 }
@@ -1217,6 +1202,15 @@ pub struct Helper {
     /// once one has been ([`sandbox_notice`]).
     sandbox_noted: Option<String>,
     failed: Option<String>,
+    /// The pointer ask the helper has not answered whole, its frames so
+    /// far, and when it was sent.
+    pointer: Option<(crate::pointer_file::Reply, Instant)>,
+    /// The answer to the last pointer ask, or why the helper gave none,
+    /// until [`Helper::pointer_answer`] takes it.
+    pointer_done: Option<Result<crate::pointer_file::Answer, String>>,
+    /// Whether this helper serves pointer asks alone, so its failures
+    /// reach the pointer file's log line and not the font's.
+    pointers_only: bool,
     answer: Duration,
     request: Duration,
     /// When vtium started, for the line each fill logs.
@@ -1258,8 +1252,56 @@ impl Helper {
             warned: BTreeSet::new(),
             sandbox_noted: None,
             failed: None,
+            pointer: None,
+            pointer_done: None,
+            pointers_only: false,
             answer: Duration::from_millis(ANSWER_MS),
             request: Duration::from_millis(REQUEST_MS),
+        }
+    }
+
+    /// The helper `launcher` starts for pointer asks alone, which a
+    /// pointer file's loader sends one at a time
+    /// ([`crate::pointer_file::Loader`]); its reader calls `wake` after
+    /// each answer. It starts, restarts and gives up as a frit's helper
+    /// does.
+    pub fn for_pointers(
+        launcher: Launcher,
+        wake: Arc<dyn Fn() + Send + Sync>,
+        epoch: Instant,
+    ) -> Helper {
+        let frit = FritText {
+            name: String::new(),
+            text: String::new(),
+        };
+        let mut helper = Helper::new(launcher, wake, epoch, frit, None, Shared::default(), 0);
+        helper.pointers_only = true;
+        helper
+    }
+
+    /// Sends the pointer ask `ask`, starting the helper first when it is
+    /// not running. A helper given up answers at once with why. One ask is
+    /// answered before the next is sent.
+    pub fn pointer(&mut self, ask: &crate::pointer_file::Ask, now: Instant) {
+        if let Some(why) = &self.failed {
+            self.pointer_done = Some(Err(why.clone()));
+            return;
+        }
+        self.pointer = Some((crate::pointer_file::Reply::new(ask), now));
+        self.submit(ask.encode(), now);
+    }
+
+    /// The answer to the last pointer ask, once the helper ended it, or
+    /// why there is none: the helper failed, ended or gave no answer in
+    /// time.
+    pub fn pointer_answer(&mut self) -> Option<Result<crate::pointer_file::Answer, String>> {
+        self.pointer_done.take()
+    }
+
+    /// The pointer ask under way gets no answer, because of `why`.
+    fn lose_pointer(&mut self, why: &str) {
+        if self.pointer.take().is_some() {
+            self.pointer_done = Some(Err(why.to_owned()));
         }
     }
 
@@ -1271,16 +1313,27 @@ impl Helper {
     /// When [`Helper::poll`] must next run: the next answer due, or the
     /// oldest ask's end, whichever comes first.
     pub fn deadline(&self) -> Option<Instant> {
-        let ask = self.asks.front().map(|a| after(a.sent, self.request));
+        let ask = self.oldest_sent().map(|sent| after(sent, self.request));
         match (self.due, ask) {
             (Some(a), Some(b)) => Some(a.min(b)),
             (a, b) => a.or(b),
         }
     }
 
-    /// Whether an ask or a fill is outstanding.
+    /// When the oldest ask, or the pointer ask, that the helper has not
+    /// answered whole was sent.
+    fn oldest_sent(&self) -> Option<Instant> {
+        self.asks
+            .front()
+            .map(|a| a.sent)
+            .or(self.pointer.as_ref().map(|(_, sent)| *sent))
+    }
+
+    /// Whether an ask, a pointer ask or a fill is outstanding.
     pub fn busy(&self) -> bool {
-        !self.asks.is_empty() || self.cells.iter().any(|c| c.fill == Fill::Active)
+        !self.asks.is_empty()
+            || self.pointer.is_some()
+            || self.cells.iter().any(|c| c.fill == Fill::Active)
     }
 
     /// What the console knows of `at` in `variant`, made on first use.
@@ -1639,12 +1692,6 @@ impl Helper {
         held: &[(u32, u32)],
         now: Instant,
     ) {
-        if self.running.is_none() {
-            match self.start() {
-                Ok(r) => self.running = Some(r),
-                Err(why) => return self.fail(&why),
-            }
-        }
         let (kind, at, of, rule) = what;
         let bytes = encode(
             &self.frit,
@@ -1653,6 +1700,18 @@ impl Helper {
             named,
             held,
         );
+        self.submit(bytes, now);
+    }
+
+    /// Sends one request's `bytes`, starting the helper first when it is
+    /// not running, and sets when its answer is due.
+    fn submit(&mut self, bytes: Vec<u8>, now: Instant) {
+        if self.running.is_none() {
+            match self.start() {
+                Ok(r) => self.running = Some(r),
+                Err(why) => return self.fail(&why),
+            }
+        }
         if let Some(r) = &self.running {
             // a send fails only once the writer is gone, which the reader
             // reports as the helper closing
@@ -1758,6 +1817,7 @@ impl Helper {
     /// and logs `why` once.
     fn fail(&mut self, why: &str) {
         self.stop();
+        self.lose_pointer(why);
         self.asks.clear();
         for c in &mut self.cells {
             if c.fill == Fill::Active {
@@ -1766,9 +1826,11 @@ impl Helper {
         }
         self.due = None;
         if self.failed.is_none() {
-            log::warn!(
-                "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
-            );
+            if !self.pointers_only {
+                log::warn!(
+                    "the font helper could not draw the font ({why}), so vtium uses its built-in font, one character at a time with no combined characters"
+                );
+            }
             self.failed = Some(why.to_owned());
         }
     }
@@ -1787,6 +1849,7 @@ impl Helper {
     /// or gives it up past [`RESTARTS_MAX`].
     fn restart(&mut self, why: &str, now: Instant) {
         self.stop();
+        self.lose_pointer(&format!("the font helper {why}"));
         if self.restarts >= RESTARTS_MAX {
             return self.fail(&format!("{why}, after {RESTARTS_MAX} restarts this boot"));
         }
@@ -1859,6 +1922,10 @@ impl Helper {
                 } => self
                     .glyphs((fill, band), &set, runs, bytes, now)
                     .map(|a| out.extend(a)),
+                Event::Done if self.pointer.is_some() => {
+                    self.pointer_done = self.pointer.take().map(|(reply, _)| Ok(reply.finish()));
+                    Ok(())
+                }
                 Event::Done => self.done(),
                 Event::Filled(at) => self.filled(at, now),
                 Event::Stopped(at) => self.stop_taken(at),
@@ -1885,6 +1952,10 @@ impl Helper {
                 Event::Coverage(..) | Event::DrawsNothing(_) => {
                     Err("the helper answered a coverage query not made".to_owned())
                 }
+                Event::Pointer(kind, payload) => match &mut self.pointer {
+                    Some((reply, _)) => reply.frame(kind, &payload),
+                    None => Err("the helper answered a pointer ask not made".to_owned()),
+                },
                 Event::Failed(why) => Err(failure(&why)),
                 Event::Malformed(why) => Err(format!("the helper's answer was refused: {why}")),
                 Event::Closed(status) => {
@@ -1900,9 +1971,8 @@ impl Helper {
         }
         if self.failed.is_none() {
             if self
-                .asks
-                .front()
-                .is_some_and(|a| after(a.sent, self.request) <= now)
+                .oldest_sent()
+                .is_some_and(|sent| after(sent, self.request) <= now)
             {
                 self.restart(
                     &format!("left an ask unanswered for {} s", self.request.as_secs()),
@@ -2122,20 +2192,10 @@ impl Helper {
 
     /// Logs the frit's warning `why`, once a boot and at most
     /// [`WARNINGS_MAX`] of them: a helper started again reads the frit
-    /// again and sends its warnings again.
-    /// Its control characters are escaped, so the helper's text cannot
-    /// steer what shows the log.
+    /// again and sends its warnings again. Its control characters are
+    /// escaped ([`escaped`]).
     fn warn(&mut self, why: &str) {
-        let why: String = why
-            .chars()
-            .flat_map(|c| {
-                let escaped = c.is_control().then(|| c.escape_default());
-                escaped
-                    .into_iter()
-                    .flatten()
-                    .chain((!c.is_control()).then_some(c))
-            })
-            .collect();
+        let why = escaped(why);
         if self.warned.len() < WARNINGS_MAX && self.warned.insert(why.clone()) {
             log::warn!("the frit {why}");
         }
@@ -2280,6 +2340,20 @@ impl Drop for Helper {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// `text` from the helper with its control characters escaped, so that the
+/// helper's text cannot steer what shows the log.
+pub(crate) fn escaped(text: &str) -> String {
+    text.chars()
+        .flat_map(|c| {
+            let escaped = c.is_control().then(|| c.escape_default());
+            escaped
+                .into_iter()
+                .flatten()
+                .chain((!c.is_control()).then_some(c))
+        })
+        .collect()
 }
 
 /// Starts one of a helper's threads, `name` its role.
@@ -3685,37 +3759,103 @@ mod tests {
         drop(woke);
     }
 
-    // The pointer file's helper starts through the same account check: a
-    // helper still holding the console's supplementary groups is refused,
-    // and no child comes back to talk to. One that holds the account asked
-    // for starts.
-    #[test]
-    fn spawn_piped_refuses_a_helper_that_keeps_supplementary_groups() {
-        let own = std::fs::read_to_string("/proc/self/status").unwrap();
-        let groups = status_ids(&own, "Groups:").unwrap();
-        let me = rustix::process::geteuid().as_raw();
-        if me == 0 || groups.is_empty() {
-            // as root the drop works, and with no group there is none to keep
-            return;
+    /// A pointer ask for the text shape at cells 16 pixels tall.
+    fn text_pointer_ask() -> crate::pointer_file::Ask {
+        crate::pointer_file::Ask {
+            svg: true,
+            shape: vtium_term::PointerShape::Text,
+            size: None,
+            heights: vec![16],
+            bytes: Arc::new(b"<svg/>".to_vec()),
         }
-        let gid = rustix::process::getegid().as_raw();
-        let command = |account| Command {
-            program: stand_in_shell().to_path_buf(),
-            args: vec!["-c".into(), "cat >/dev/null".into()],
-            account,
-        };
-        let why = Launcher::open(command(Some((me, gid))))
-            .unwrap()
-            .spawn_piped()
-            .unwrap_err();
-        assert!(why.contains("supplementary groups"), "{why}");
-        let mut child = Launcher::open(command(None))
-            .unwrap()
-            .spawn_piped()
+    }
+
+    /// A picture frame of the text shape, 2 × 2 white pixels, for cells
+    /// `size` pixels tall.
+    fn text_picture(size: u32) -> Vec<u8> {
+        let text = vtium_term::PointerShape::ALL
+            .iter()
+            .position(|&s| s == vtium_term::PointerShape::Text)
             .unwrap();
-        assert!(child.stdin.is_some() && child.stdout.is_some());
-        drop(child.stdin.take());
-        let _ = child.wait();
+        let mut p = Vec::new();
+        for v in [len32(text), size, 2, 2, 0, 0] {
+            p.extend_from_slice(&v.to_le_bytes());
+        }
+        p.extend_from_slice(&[255; 16]);
+        raw_frame(FRAME_POINTER, &p)
+    }
+
+    /// A stand-in helper for pointer asks alone, which answers with
+    /// `fixture`.
+    fn pointer_stand_in(name: &str, script: &str, fixture: &[u8]) -> StandIn {
+        let mut s = StandIn::new(name, script, fixture);
+        s.helper.pointers_only = true;
+        s
+    }
+
+    // A pointer ask goes through the helper client that asks for glyphs:
+    // the helper starts for it, and the picture and the done frame that
+    // end the ask come back as its answer. The helper is then idle.
+    #[test]
+    fn a_pointer_ask_is_answered_through_the_helper_client() {
+        let mut fixture = text_picture(16);
+        fixture.extend(raw_frame(FRAME_DONE, &[]));
+        let mut s = pointer_stand_in("pointer-ask", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.pointer(&text_pointer_ask(), now);
+        assert!(s.helper.busy());
+        assert!(s.helper.pointer_answer().is_none());
+        let _ = s.run(now);
+        assert!(matches!(
+            s.helper.pointer_answer(),
+            Some(Ok(crate::pointer_file::Answer::Pictures(p))) if p.len() == 1
+        ));
+        assert!(!s.helper.busy());
+        assert!(s.helper.failed().is_none());
+    }
+
+    // A helper that sends more pictures than the pointer ask can bring is
+    // ended and given up for the boot, so a hostile file costs one helper:
+    // the ask's answer says why, and a later pointer ask gets the same
+    // reason at once, with no helper started.
+    #[test]
+    fn a_helper_that_sends_more_pictures_than_asked_is_given_up() {
+        let mut fixture = text_picture(16);
+        fixture.extend(text_picture(16));
+        fixture.extend(raw_frame(FRAME_DONE, &[]));
+        let mut s = pointer_stand_in("pointer-flood", ANSWERS, &fixture);
+        let now = t0();
+        s.helper.pointer(&text_pointer_ask(), now);
+        let _ = s.run(now);
+        let why = s.helper.pointer_answer().unwrap().unwrap_err();
+        assert!(why.contains("more than 1 pictures"), "{why}");
+        assert!(s.helper.failed().is_some());
+        s.helper.pointer(&text_pointer_ask(), now);
+        assert_eq!(s.helper.pointer_answer(), Some(Err(why)));
+        assert!(!s.helper.busy());
+        assert!(s.helper.running.is_none());
+    }
+
+    // A helper that does not answer a pointer ask in time is ended, and the
+    // ask's answer says how long vtium waited.
+    #[test]
+    fn a_pointer_ask_left_unanswered_gets_why() {
+        let mut s = pointer_stand_in("pointer-silent", "cat >/dev/null & wait", b"");
+        let now = t0();
+        s.helper.pointer(&text_pointer_ask(), now);
+        let _ = s.helper.poll(now);
+        assert!(s.helper.pointer_answer().is_none());
+        let late = now + Duration::from_millis(ANSWER_MS + 1);
+        assert_eq!(
+            s.helper.deadline(),
+            Some(now + Duration::from_millis(ANSWER_MS))
+        );
+        let _ = s.helper.poll(late);
+        assert_eq!(
+            s.helper.pointer_answer(),
+            Some(Err("the font helper gave no answer for 10 s".to_owned()))
+        );
+        assert!(!s.helper.busy());
     }
 
     #[test]
