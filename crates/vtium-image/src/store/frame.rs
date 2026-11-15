@@ -155,7 +155,7 @@ impl Store {
     /// fitted picture does not reach, draw nothing. The entries take their
     /// virtual placement's place in the draw order, row by row, then column
     /// by column, and each has a key of its own among the frame's entries,
-    /// from [`RUN_KEY_FIRST`](super::runs::RUN_KEY_FIRST) up. A relative
+    /// from `RUN_KEY_FIRST` up. A relative
     /// placement whose parent is virtual draws from the origin its parent's
     /// runs give, and draws nothing when none of them is handed. The frame
     /// takes at most one run for each cell of the view.
