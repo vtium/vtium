@@ -5546,6 +5546,9 @@ mod tests {
         /// Set during each scan, as when the kernel asks for the VT while
         /// a slow probe holds the loop.
         pub(super) asks_for_vt: Option<Rc<std::cell::Cell<bool>>>,
+        /// The levels it reports for each of its displays: `None` for
+        /// color, and 2 for black and white.
+        pub(super) levels: Option<u8>,
     }
 
     impl Still {
@@ -5572,6 +5575,7 @@ mod tests {
                 waits_for_flip: false,
                 hotplugs: 0,
                 asks_for_vt: None,
+                levels: None,
             }
         }
 
@@ -5615,6 +5619,9 @@ mod tests {
         }
         fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
             Some((72.0, 72.0))
+        }
+        fn levels(&self, _: DisplayId) -> Option<u8> {
+            self.levels
         }
         fn identity(&self, id: DisplayId) -> Option<Identity> {
             Some(Identity {
