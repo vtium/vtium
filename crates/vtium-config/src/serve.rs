@@ -232,8 +232,8 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
-use crate::frit::Render;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
+use crate::frit::{Render, RenderLine};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
@@ -1292,7 +1292,7 @@ pub struct Engine {
     text_left_out: Option<String>,
     /// The frit's `render=` lines, by the line of the source each is for
     /// ([`Engine::draws_as_bitmap`]).
-    render: Vec<(usize, Render)>,
+    render: Vec<RenderLine>,
     /// Whether the frit's first source is a bitmap font, which decides how
     /// the outline sources with no `render=` line draw. The engine decides
     /// it once, when [`Engine::own_cell`] picks the source that sets the
@@ -1798,16 +1798,17 @@ impl Engine {
                 }
             }
         }
-        // a font: source that turns out to be a console font draws 1-bit
-        // whatever its render= line says, so the line does nothing
+        // a font: source that turns out to be a console font draws its
+        // pixels fully on or off whatever its render= line says, so the
+        // line does nothing, and the warning names the render= line
         for (source, _) in sources
             .iter()
             .filter(|(_, l)| matches!(l, Loaded::Bitmap(_)))
         {
-            if frit.render_for(source.line).is_some() {
+            if let Some(render) = frit.render_for(source.line) {
                 warnings.push(format!(
-                    "{}:{}: source={}: render= is ignored, because this font is a bitmap font, which always draws 1-bit",
-                    frit.name, source.line, source.spelling
+                    "{}:{}: render= is ignored, because {} is a bitmap font, whose characters always have sharp edges",
+                    frit.name, render.line, source.spelling
                 ));
             }
         }
@@ -1877,8 +1878,8 @@ impl Engine {
         let Some((source, _)) = self.sources.get(i) else {
             return false;
         };
-        if let Some(&(_, render)) = self.render.iter().find(|&&(at, _)| at == source.line) {
-            return render == Render::Bitmap;
+        if let Some(render) = self.render.iter().find(|r| r.source == source.line) {
+            return render.value == Render::Bitmap;
         }
         self.first_is_bitmap()
     }
@@ -5487,7 +5488,7 @@ mod tests {
         assert_eq!(
             engine.warnings(),
             [
-                "t:1: source=font:x: render= is ignored, because this font is a bitmap font, which always draws 1-bit"
+                "t:2: render= is ignored, because font:x is a bitmap font, whose characters always have sharp edges"
             ]
         );
     }

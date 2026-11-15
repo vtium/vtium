@@ -226,14 +226,22 @@ pub enum Render {
     Smooth,
 }
 
+/// A `render=` line of a frit.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct RenderLine {
+    /// The line of the outline `source=` above it, which it is for.
+    pub source: usize,
+    /// Its own line, which a message about it names.
+    pub line: usize,
+    /// What it says.
+    pub value: Render,
+}
+
 impl Frit {
-    /// What the `render=` line under the source on `line` says, or `None`
-    /// when that source has none.
-    pub fn render_for(&self, line: usize) -> Option<Render> {
-        self.render
-            .iter()
-            .find(|&&(at, _)| at == line)
-            .map(|&(_, r)| r)
+    /// The `render=` line under the source on `line`, or `None` when that
+    /// source has none.
+    pub fn render_for(&self, line: usize) -> Option<RenderLine> {
+        self.render.iter().find(|r| r.source == line).copied()
     }
 }
 
@@ -270,9 +278,9 @@ pub struct Frit {
     /// the configuration's keys over it.
     pub glyph_source: Vec<(Option<Range>, vtium_font::Source)>,
     pub license: Option<String>,
-    /// `render=`, by the line of the outline `source=` it is for, in the
-    /// frit's order. A source with no `render=` line is not listed.
-    pub render: Vec<(usize, Render)>,
+    /// The `render=` lines, in the frit's order. A source with no
+    /// `render=` line is not listed.
+    pub render: Vec<RenderLine>,
     /// The frit's bytes, verbatim.
     pub text: String,
     /// The file the frit was read from, for messages.
@@ -451,7 +459,7 @@ impl Frit {
         let mut set: Option<(usize, Option<Vec<Cover>>)> = None;
         let mut glyph_source = Vec::new();
         let mut license = None;
-        let mut render: Vec<(usize, Render)> = Vec::new();
+        let mut render: Vec<RenderLine> = Vec::new();
         let mut warnings = Vec::new();
         // the sources a `style=` line has named, by their place
         let mut styled: Vec<usize> = Vec::new();
@@ -752,10 +760,10 @@ impl Frit {
                     if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
                         return Err(err(
                             n,
-                            "render= is for an outline font, and the source above it is a bitmap font, which always draws 1-bit",
+                            "the source above this render= line is a bitmap font, whose characters always have sharp edges, so render= does not apply to it",
                         ));
                     }
-                    if render.iter().any(|&(at, _)| at == source.line) {
+                    if render.iter().any(|r| r.source == source.line) {
                         return Err(err(n, "render= appears twice for one source"));
                     }
                     let value = match value {
@@ -763,7 +771,11 @@ impl Frit {
                         "smooth" => Render::Smooth,
                         _ => return Err(err(n, "render= takes bitmap or smooth")),
                     };
-                    render.push((source.line, value));
+                    render.push(RenderLine {
+                        source: source.line,
+                        line: n,
+                        value,
+                    });
                 }
                 "hinting" => {
                     once(hinting.is_some())?;
@@ -1237,10 +1249,20 @@ mod tests {
              render = bitmap\n",
         )
         .expect("parses");
-        assert_eq!(r.render, [(2, Render::Smooth), (5, Render::Bitmap)]);
-        assert_eq!(r.render_for(2), Some(Render::Smooth));
+        let smooth = RenderLine {
+            source: 2,
+            line: 3,
+            value: Render::Smooth,
+        };
+        let bitmap = RenderLine {
+            source: 5,
+            line: 7,
+            value: Render::Bitmap,
+        };
+        assert_eq!(r.render, [smooth, bitmap]);
+        assert_eq!(r.render_for(2), Some(smooth));
         assert_eq!(r.render_for(4), None);
-        assert_eq!(r.render_for(5), Some(Render::Bitmap));
+        assert_eq!(r.render_for(5), Some(bitmap));
         let none = parse("source=kbd:x\nsource=outline:/a.ttf\n").expect("parses");
         assert_eq!(none.render, []);
     }
@@ -1259,7 +1281,7 @@ mod tests {
             (
                 "source=kbd:x\nrender=smooth\n",
                 2,
-                "render= is for an outline font, and the source above it is a bitmap font",
+                "the source above this render= line is a bitmap font, whose characters always have sharp edges",
             ),
             ("source=file:/x.psf\nrender=bitmap\n", 2, "is a bitmap font"),
             ("source=bdf:/x.bdf\nrender=bitmap\n", 2, "is a bitmap font"),
@@ -1294,7 +1316,8 @@ mod tests {
         let r =
             parse("source=outline:/x.ttf\nrender=bitmap\nsource=outline:/y.ttf\nrender=bitmap\n")
                 .expect("parses");
-        assert_eq!(r.render, [(1, Render::Bitmap), (3, Render::Bitmap)]);
+        let lines: Vec<(usize, usize)> = r.render.iter().map(|r| (r.source, r.line)).collect();
+        assert_eq!(lines, [(1, 2), (3, 4)]);
     }
 
     #[test]
