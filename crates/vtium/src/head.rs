@@ -296,6 +296,10 @@ pub struct Head {
     /// What the image keys give the head's consoles (ADR-1100 D11).
     #[cfg(feature = "images")]
     pub(crate) image_settings: images::Settings,
+    /// The login picture the head's look or the top level names
+    /// (ADR-1100 D17).
+    #[cfg(feature = "images")]
+    pub(crate) login_image: images::Login,
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
@@ -473,6 +477,8 @@ impl Head {
                 .map(|s| s.value.clone())
         };
         let font_name = own(&keys::FONT_NAME);
+        #[cfg(not(feature = "images"))]
+        images::login_unsupported(config);
         let bindings = crate::grab::Bindings::of(config);
         let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
@@ -551,6 +557,8 @@ impl Head {
             report: None,
             #[cfg(feature = "images")]
             image_settings: images::Settings::read(config),
+            #[cfg(feature = "images")]
+            login_image: images::Login::read(config, images::Settings::read(config).graphic),
         }
     }
 

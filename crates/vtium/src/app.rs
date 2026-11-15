@@ -933,6 +933,12 @@ impl App {
         }
         let since = now.saturating_duration_since(self.epoch);
         for h in 0..self.heads.len() {
+            // ADR-1100 D17: the first login prompt waits for the login
+            // picture, which the head asks for at its first display
+            #[cfg(feature = "images")]
+            if self.heads.get(h).is_some_and(Head::login_image_waits) {
+                continue;
+            }
             let due = self.heads.get(h).is_some_and(|head| {
                 !head.notice_only
                     && !head.started()
@@ -1114,6 +1120,12 @@ impl App {
         let Some(size) = self.heads.get(h).and_then(|head| head.console_pty_size(id)) else {
             return Ok(());
         };
+        // ADR-1100 D17: the login picture is placed before the program
+        // starts, so a banner is in place before its first line
+        #[cfg(feature = "images")]
+        if let Some(head) = self.heads.get_mut(h) {
+            head.place_login_image(id);
+        }
         let spawned = if self.vt.logind_seat() {
             // ADR-1400 D3, its note on each login's own session: the child
             // waits before its exec until systemd has moved it into a scope

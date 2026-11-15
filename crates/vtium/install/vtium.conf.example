@@ -945,6 +945,21 @@
 
 #image-helper=/usr/bin/vtium-image
 
+# -- Login picture -----------------------------------------------------------
+
+## login-image: A PNG or JPEG file shown each time a login prompt starts.
+#
+## login-image-fit: How the login picture fits: `cover`, `contain`, `stretch`,
+## `none` or `banner`.
+#
+## login-image-rows: A banner's height in text rows.
+## login-image-position: Where a banner sits: `left`, `center` or `right`.
+
+#login-image=
+#login-image-fit=cover
+#login-image-rows=
+#login-image-position=left
+
 # == Running vtium ===========================================================
 #
 # Where vtium finds its configuration, its log, the font helper that draws a

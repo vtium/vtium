@@ -26,3 +26,7 @@ link-hints-unifont-1bit	keyboard link hints (ADR-1002, section 7), drawn on 2026
 link-hints-typed-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
 bitmap-outline	new: outline glyphs behind a bitmap first source drawn 1-bit by default (vtium/vtium#311), for the maintainer to review
 bitmap-outline-smooth	new: the same font set with render=smooth under each outline source (vtium/vtium#311), for the maintainer to review
+login-cover	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-contain	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-rotated	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-banner	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed

@@ -570,6 +570,7 @@ impl Handler for Stand {
                 pixels: None,
                 largest: (10_000, 10_000),
                 largest_bytes: 1 << 30,
+                fit: None,
             });
         } else {
             self.show(ctx);

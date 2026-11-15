@@ -3150,6 +3150,25 @@ const BASE: &[Case] = &[
     Case {
         screen: bitmap_outline("bitmap-outline-smooth", BITMAP_OUTLINE_SMOOTH_DESC, true),
     },
+    picture(Screen {
+        pictures: Some(login_cover),
+        ..outline("login-cover", LOGIN_COVER_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_contain),
+        display: Some(LOGIN_WIDE),
+        ..outline("login-contain", LOGIN_CONTAIN_DESC, LOGIN_TEXT, 64, 12)
+    }),
+    picture(Screen {
+        pictures: Some(login_rotated),
+        orientation: Orientation::Right,
+        ..outline("login-rotated", LOGIN_ROTATED_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_banner),
+        display: Some(LOGIN_WIDE),
+        ..outline("login-banner", LOGIN_BANNER_DESC, b"", 64, 12)
+    }),
 ];
 
 /// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a
@@ -3696,3 +3715,188 @@ const LINES_POWERLINE: &[u8] = concat!(
 .as_bytes();
 
 const LINES_POWERLINE_DESC: &str = "Powerline separators on lines of double size, 32 by 4 cells, in the merged font set, DejaVu Sans Mono with the symbol test font behind it for the Private Use Area, drawn at 16 and at 32 pixels and stacked. Each line is a prompt of two colored segments, vt and src, each closed by a solid separator, then a thin separator. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: the font helper fits each separator to its doubled cell, so on every line a separator runs from the cell's top to its bottom and its point meets the next segment's color with no gap. The separators are twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
+// The login picture's screens (ADR-1100 D17): the picture made by
+// vtium-image's login module, as the console makes it, and placed as the
+// console places it, a kitty placement with no id at the lowest z, before
+// or below a login prompt's text.
+
+/// The text of a login prompt over a background: a cell with a background
+/// color of its own, which covers the picture, and reverse video.
+const LOGIN_TEXT: &[u8] = concat!(
+    "vtium 0.1 tty1\r\n",
+    "\r\n",
+    "\x1b[44m blue cells \x1b[0m cover it, \x1b[7mreverse\x1b[0m too\r\n",
+    "login: ",
+)
+.as_bytes();
+
+/// The display of the wide screens: 10 pixel columns and 5 pixel rows more
+/// than a grid of 64×12 cells of the outline font's 9×16 cell.
+const LOGIN_WIDE: (u32, u32) = (64 * 9 + 10, 12 * 16 + 5);
+
+/// The source picture, 96×64 pixels, opaque: a gradient from red at the
+/// left to green at the right and blue at the bottom, a dark blue frame two
+/// pixels wide, and a dark disc in the middle. Its shape, 3:2, is neither
+/// the grid's nor the display's, so cover cuts it and contain leaves bands.
+fn login_source() -> ((u32, u32), Vec<u32>) {
+    let (w, h) = (96u32, 64u32);
+    let px = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| {
+                let (dx, dy) = (i64::from(x) - 48, i64::from(y) - 32);
+                if x < 2 || y < 2 || x >= w - 2 || y >= h - 2 {
+                    0xff10_30c0
+                } else if dx * dx + dy * dy < 14 * 14 {
+                    0xff20_2030
+                } else {
+                    let r = 255 - x * 255 / w;
+                    let g = x * 255 / w;
+                    let b = y * 255 / h;
+                    0xff00_0000 | r << 16 | g << 8 | b
+                }
+            })
+        })
+        .collect();
+    ((w, h), px)
+}
+
+/// Standard base64 of `bytes`, as kitty's payloads take it.
+fn login_base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in bytes.chunks(3) {
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(char::from(A[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// The picture `form` makes on a screen of `grid` cells of `f`'s cell and
+/// a display of `display`, placed as the console places it: a kitty
+/// transmission with no id at the lowest z that keeps the cursor, and for
+/// a banner a cursor move to the row below it.
+fn login_place(
+    f: &mut Feed,
+    form: vtium_term::images::login::Form,
+    grid: (u32, u32),
+    display: Option<(u32, u32)>,
+) -> Result<(), String> {
+    use vtium_term::images::login::{Geometry, make};
+    let (cw, ch) = f.cell;
+    let geometry = Geometry {
+        display: display.unwrap_or((grid.0 * cw, grid.1 * ch)),
+        cell: f.cell,
+        grid,
+    };
+    let (size, source) = login_source();
+    let made = make(&form, &geometry, size, &source).ok_or("the login picture has no room")?;
+    // every pixel is opaque or wholly transparent, so straight RGBA carries
+    // the premultiplied pixels exactly
+    let mut rgba = Vec::with_capacity(made.pixels.as_slice().len() * 4);
+    for p in made.pixels.as_slice() {
+        let a = p >> 24;
+        if a != 0 && a != 0xff {
+            return Err(format!("a login picture pixel of alpha {a}"));
+        }
+        rgba.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8, a as u8]);
+    }
+    let boxed = if made.place.cols > 0 {
+        format!(",c={},r={}", made.place.cols, made.place.rows)
+    } else {
+        String::new()
+    };
+    let payload = login_base64(&rgba);
+    let chunks: Vec<&str> = payload
+        .as_bytes()
+        .chunks(4096)
+        .map(|c| std::str::from_utf8(c).unwrap_or(""))
+        .collect();
+    let mut out = format!("\x1b[1;{}H", made.place.col + 1).into_bytes();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let more = u8::from(i + 1 < chunks.len());
+        let keys = if i == 0 {
+            format!(
+                "a=T,f=32,s={},v={}{boxed},z={},C=1,q=2,m={more}",
+                made.width,
+                made.height,
+                vtium_term::images::login::Z
+            )
+        } else {
+            format!("m={more}")
+        };
+        out.extend(format!("\x1b_G{keys};{chunk}\x1b\\").into_bytes());
+    }
+    if let Some(row) = made.prompt_row {
+        out.extend(format!("\x1b[{};1H", row + 1).into_bytes());
+    }
+    f.bytes(&out)
+}
+
+/// `login-cover`: a background under `cover` on a grid of 40×8 cells.
+fn login_cover(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Cover), (40, 8), None)
+}
+
+/// `login-contain`: a background under `contain` on the wide display.
+fn login_contain(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Contain), (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-rotated`: `login-cover` on a display turned a quarter clockwise.
+fn login_rotated(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Cover), (40, 8), None)
+}
+
+/// `login-banner`: a banner at its own size, centered, and the login
+/// prompt below it.
+fn login_banner(f: &mut Feed) -> Result<(), String> {
+    let form = vtium_term::images::login::Form {
+        position: vtium_term::images::login::Position::Center,
+        ..login_form(Fit::Banner)
+    };
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
+    f.bytes(LOGIN_TEXT)
+}
+
+use vtium_term::images::login::Fit;
+
+fn login_form(fit: Fit) -> vtium_term::images::login::Form {
+    vtium_term::images::login::Form {
+        fit,
+        rows: None,
+        position: vtium_term::images::login::Position::Left,
+    }
+}
+
+const LOGIN_COVER_DESC: &str = concat!(
+    "A login prompt over a login picture as a background under cover, on a grid of 40 by 8 cells of 9 by 16 pixels: the picture scaled until it covers the 360 by 128 display, keeping its shape, and centered (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture's full width fills the screen, its frame at the left and right edges, and its top and bottom cut off equally, so the frame shows at neither; the disc is round, in the middle; the text draws over the picture, the blue cells and the reversed word cover it, and the picture shows through every other cell."
+);
+
+const LOGIN_CONTAIN_DESC: &str = concat!(
+    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid on the display, with 5 spare pixel columns on each side, 2 spare pixel rows above it and 3 below. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the left and right; its first 2 and last 3 pixel rows, part of its top and bottom frame, fall in the strips above and below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
+);
+
+const LOGIN_ROTATED_DESC: &str = concat!(
+    "login-cover on a display turned a quarter clockwise, so the text reads from top to bottom: the picture is made for the screen as the text sees it, 360 by 128 pixels, and turns with the text. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the same drawing as login-cover, turned a quarter clockwise as a whole, the picture with the text."
+);
+
+const LOGIN_BANNER_DESC: &str = concat!(
+    "A login picture as a banner at its own size, centered, above a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, and the 53 spare columns put 26 on its left and 27 on its right. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, drawn one to one, starting 26 columns from the left at the top of the screen, its frame on all four sides; the login prompt starts in the first column of the fifth row, below the banner, and its text covers no part of the picture."
+);

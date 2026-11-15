@@ -37,7 +37,10 @@
 //! | 72 | the name's length, `u32` |
 //! | 76 | `max_frames`, `u32`, 0 without [`FRAMES`] |
 //! | 80 | `max_frame_bytes`, `u64`, 0 without [`FRAMES`] |
-//! | 88 | the name |
+//! | 88 | the login picture's fit, `u8`: 0 for none, 1 `cover`, 2 `contain`, 3 `stretch`, 4 `none`, 5 `banner`; its position, `u8`: 0 left, 1 center, 2 right; two reserved bytes |
+//! | 92 | the banner's rows, `u32`, 0 for its own size |
+//! | 96 | the display's width and height, the cell's, and the grid's columns and rows, `u32` each |
+//! | 120 | the name |
 //!
 //! A described picture's zlib compression travels as the [`INFLATE`] flag.
 //!
@@ -49,9 +52,10 @@
 //! a picture counts one frame or more, and any other reply none.
 
 use super::{Alpha, Description, FrameLimits, Layout, Medium, Request};
+use crate::login::{Fit, Fitting, Form, Geometry, Position};
 
 /// The wire's version, which both ends of one build share.
-pub const VERSION: u32 = 2;
+pub const VERSION: u32 = 3;
 
 /// The helper's first packet.
 pub const KIND_HELLO: u32 = 1;
@@ -86,7 +90,7 @@ pub const HEADER: usize = 8;
 /// The bytes of a hello.
 pub const HELLO_BYTES: usize = 20;
 /// The bytes of a request before its name.
-pub const REQUEST_FIXED: usize = 88;
+pub const REQUEST_FIXED: usize = 120;
 /// The bytes of a reply before its delays and its reason.
 pub const REPLY_FIXED: usize = 52;
 /// The most frames a reply counts: ADR-1102's `FRAMES_MAX`.
@@ -327,6 +331,7 @@ pub fn encode_request(id: u64, request: &Request) -> Result<Vec<u8>, Malformed> 
         .map_or((0, 0), |l| (l.max_frames, l.max_frame_bytes));
     put32(&mut out, limits.0);
     put64(&mut out, limits.1);
+    put_fitting(&mut out, request.fit.as_ref());
     out.extend_from_slice(name);
     decode_request(&out)?;
     Ok(out)
@@ -386,9 +391,88 @@ pub fn decode_request(packet: &[u8]) -> Result<(u64, Request), Malformed> {
         pixels,
         largest: (get32(packet, 56), get32(packet, 60)),
         largest_bytes: get64(packet, 48),
+        fit: fitting(packet)?,
     };
     valid(&request)?;
     Ok((get64(packet, 16), request))
+}
+
+/// The login picture's fitting, at offsets 88 to 120.
+fn put_fitting(out: &mut Vec<u8>, fit: Option<&Fitting>) {
+    let Some(f) = fit else {
+        out.extend_from_slice(&[0; 32]);
+        return;
+    };
+    let kind = match f.form.fit {
+        Fit::Cover => 1,
+        Fit::Contain => 2,
+        Fit::Stretch => 3,
+        Fit::Natural => 4,
+        Fit::Banner => 5,
+    };
+    let position = match f.form.position {
+        Position::Left => 0,
+        Position::Center => 1,
+        Position::Right => 2,
+    };
+    out.extend_from_slice(&[kind, position, 0, 0]);
+    put32(out, f.form.rows.unwrap_or(0));
+    let g = &f.geometry;
+    for v in [
+        g.display.0,
+        g.display.1,
+        g.cell.0,
+        g.cell.1,
+        g.grid.0,
+        g.grid.1,
+    ] {
+        put32(out, v);
+    }
+}
+
+/// The login picture's fitting at offsets 88 to 120: `None` when its kind
+/// is 0 and every byte is 0, and refused with an unknown kind or position,
+/// or a reserved byte that is not 0.
+fn fitting(packet: &[u8]) -> Result<Option<Fitting>, Malformed> {
+    let fit = match get8(packet, 88) {
+        0 => {
+            let rest = packet.get(89..REQUEST_FIXED).unwrap_or_default();
+            return if rest.iter().all(|&b| b == 0) {
+                Ok(None)
+            } else {
+                Err(Malformed("a request with no fit but a fitting"))
+            };
+        }
+        1 => Fit::Cover,
+        2 => Fit::Contain,
+        3 => Fit::Stretch,
+        4 => Fit::Natural,
+        5 => Fit::Banner,
+        _ => return Err(Malformed("a request with an unknown fit")),
+    };
+    let position = match get8(packet, 89) {
+        0 => Position::Left,
+        1 => Position::Center,
+        2 => Position::Right,
+        _ => return Err(Malformed("a request with an unknown position")),
+    };
+    if get8(packet, 90) != 0 || get8(packet, 91) != 0 {
+        return Err(Malformed("a request with a reserved byte set"));
+    }
+    let rows = get32(packet, 92);
+    let at = |o: usize| get32(packet, o);
+    Ok(Some(Fitting {
+        form: Form {
+            fit,
+            rows: (rows > 0).then_some(rows),
+            position,
+        },
+        geometry: Geometry {
+            display: (at(96), at(100)),
+            cell: (at(104), at(108)),
+            grid: (at(112), at(116)),
+        },
+    }))
 }
 
 /// The frame bounds at offsets 76 and 80: present only with [`FRAMES`],
@@ -441,6 +525,11 @@ fn description(packet: &[u8], inflate: bool) -> Result<Option<Description>, Malf
 /// The combinations a request may not make, whoever built it.
 fn valid(r: &Request) -> Result<(), Malformed> {
     let direct = matches!(r.medium, Medium::Direct(_));
+    if r.fit.is_some() && !(direct && r.any_image && r.frames.is_none()) {
+        return Err(Malformed(
+            "a login picture's fit beside anything but one inline picture",
+        ));
+    }
     if r.discard {
         let removable = matches!(r.medium, Medium::TempFile(_) | Medium::SharedMemory(_));
         let alone = !(r.inflate
@@ -606,6 +695,7 @@ mod tests {
             }),
             largest: (10, 20),
             largest_bytes: 4096,
+            fit: None,
         }
     }
 
@@ -868,5 +958,52 @@ mod tests {
         bad[16] = 2;
         assert!(decode_hello(&bad).is_err());
         assert!(decode_hello(&packet).is_err());
+    }
+
+    // ADR-1100 D17: the login picture's fitting travels with its request
+    #[test]
+    fn a_login_pictures_fitting_round_trips_and_an_unknown_fit_is_refused() {
+        use crate::login::{Fit, Fitting, Form, Geometry, Position};
+        let fit = Fitting {
+            form: Form {
+                fit: Fit::Banner,
+                rows: Some(3),
+                position: Position::Center,
+            },
+            geometry: Geometry {
+                display: (1920, 1080),
+                cell: (8, 16),
+                grid: (240, 67),
+            },
+        };
+        let request = Request {
+            medium: Medium::Direct(Vec::new()),
+            offset: 0,
+            max: 0,
+            min: 0,
+            inflate: false,
+            png: false,
+            exact: false,
+            discard: false,
+            any_image: true,
+            frames: None,
+            pixels: None,
+            largest: (8192, 8192),
+            largest_bytes: 256 << 20,
+            fit: Some(fit),
+        };
+        let packet = encode_request(7, &request).unwrap();
+        assert_eq!(decode_request(&packet), Ok((7, request.clone())));
+        let mut bad = packet.clone();
+        if let Some(b) = bad.get_mut(88) {
+            *b = 6;
+        }
+        assert!(decode_request(&bad).is_err());
+        // a fit beside a named file is refused
+        let file = Request {
+            medium: Medium::File(b"/a".to_vec()),
+            ..request
+        };
+        assert!(encode_request(8, &file).is_err());
     }
 }

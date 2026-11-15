@@ -127,6 +127,27 @@ pub fn program(config: &Config) -> std::path::PathBuf {
 pub use built::*;
 
 #[cfg(feature = "images")]
+mod login;
+#[cfg(feature = "images")]
+pub(crate) use login::Login;
+
+/// Logs, in a build without image support, that it ignores the login
+/// picture `config` names: such a build carries no picture code, and
+/// still reads the key, so one vtium.conf serves every build.
+///
+/// References:
+/// - ADR-1100 D17: the line a build without image support logs.
+#[cfg(not(feature = "images"))]
+pub(crate) fn login_unsupported(config: &Config) {
+    if config.text(&keys::LOGIN_IMAGE).is_some() {
+        log::warn!(
+            target: "image",
+            "This build of vtium cannot show pictures, so it ignores login-image."
+        );
+    }
+}
+
+#[cfg(feature = "images")]
 mod built {
     use std::os::fd::OwnedFd;
     use std::path::{Path, PathBuf};
@@ -294,7 +315,7 @@ mod built {
     /// The loop watching a host's socket while a request is out, so the
     /// loop wakes when the reply arrives (ADR-1101 D7). Dropping it takes
     /// the descriptor out of the loop.
-    struct Watch {
+    pub(super) struct Watch {
         handle: LoopHandle<'static, App>,
         token: RegistrationToken,
     }
@@ -304,7 +325,7 @@ mod built {
         /// the loop wakes for as long as there is something to read; the
         /// turn after the wake reads it. `None`, logged, when the loop
         /// cannot take it: the reply then waits for the next wake.
-        fn new(fd: OwnedFd, handle: &LoopHandle<'static, App>) -> Option<Watch> {
+        pub(super) fn new(fd: OwnedFd, handle: &LoopHandle<'static, App>) -> Option<Watch> {
             let source = Generic::new(fd, Interest::READ, Mode::Level);
             match handle.insert_source(source, |_, _, _: &mut App| Ok(PostAction::Continue)) {
                 Ok(token) => Some(Watch {
@@ -516,6 +537,12 @@ mod built {
         pub(crate) fn due(&self) -> Option<Instant> {
             self.out.as_ref().map(|(_, due)| *due)
         }
+
+        /// Whether the console's host was last found able to start a
+        /// helper.
+        pub(crate) fn helper(&self) -> bool {
+            self.given.is_some_and(|g| g.helper)
+        }
     }
 
     impl crate::head::Head {
@@ -562,11 +589,71 @@ mod built {
             for console in std::iter::once(&mut self.console).chain(&mut self.hidden) {
                 log_notes(&self.name, console.id, &mut console.term);
             }
+            let geometry = self.login_geometry();
+            self.login_image.turn(geometry, now, helpers, handle);
         }
 
-        /// When each request out of the head's consoles fails unanswered.
+        /// When each request out of the head's consoles fails unanswered,
+        /// and the login picture's request.
         pub(crate) fn image_due(&self) -> impl Iterator<Item = Instant> + '_ {
-            self.consoles().filter_map(|c| c.pictures.due())
+            self.consoles()
+                .filter_map(|c| c.pictures.due())
+                .chain(self.login_image.due())
+        }
+
+        /// The screen the login picture is made for: the head's first
+        /// display, as text reads on it, the head's cell and its grid.
+        /// `None` while the head has no display.
+        fn login_geometry(&self) -> Option<vtium_image::login::Geometry> {
+            use vtium_render::Orientation;
+            let view = self.views.values().next()?;
+            let (w, h) = view.size;
+            let display = match view.orientation {
+                Orientation::Right | Orientation::Left => (h, w),
+                Orientation::Normal | Orientation::UpsideDown => (w, h),
+            };
+            let (cols, rows) = self.grid;
+            Some(vtium_image::login::Geometry {
+                display,
+                cell: self.cell,
+                grid: (u32::try_from(cols).ok()?, u32::try_from(rows).ok()?),
+            })
+        }
+
+        /// Whether the head's first login prompt waits for its login
+        /// picture, which the head asks for at its first display.
+        pub(crate) fn login_image_waits(&self) -> bool {
+            self.login_image.waits()
+        }
+
+        /// Places the login picture in console `id`, whose session's
+        /// program is about to start, once the head's state has given the
+        /// console its budget and cell. Only a console that stores new
+        /// pictures, on displays that all draw them, takes it.
+        pub(crate) fn place_login_image(&mut self, id: u64) {
+            let draw = self.views.values().all(crate::term::View::draws_placements);
+            let sizes = self.views.values().map(|v| v.size);
+            let (limit, switches) = offer(&self.image_settings, sizes, draw);
+            let (console, cell) = if self.console.id == id {
+                (&mut self.console, self.cell)
+            } else {
+                let Some(console) = self.hidden.iter_mut().find(|c| c.id == id) else {
+                    return;
+                };
+                let cell = console.fit.cell;
+                (console, cell)
+            };
+            let helper = console.pictures.helper();
+            console.pictures.give(
+                &mut console.term,
+                Given {
+                    limit,
+                    switches: iterm2(switches, limit, helper),
+                    cell,
+                    helper,
+                },
+            );
+            self.login_image.place(&mut console.term, draw && limit > 0);
         }
     }
 
@@ -601,6 +688,21 @@ mod built {
         log::log!(target: "image", level, "{line}");
         #[cfg(test)]
         SAID.with(|s| s.borrow_mut().push((level, line.to_string())));
+    }
+
+    /// Keeps a line of the image log for the tests to read back.
+    #[cfg(test)]
+    pub(super) fn keep(level: log::Level, line: String) {
+        SAID.with(|s| s.borrow_mut().push((level, line)));
+    }
+
+    /// The lines the image log wrote on this thread since the last call.
+    #[cfg(test)]
+    pub(super) fn said_lines() -> Vec<String> {
+        SAID.with(|s| std::mem::take(&mut *s.borrow_mut()))
+            .into_iter()
+            .map(|(_, line)| line)
+            .collect()
     }
 
     #[cfg(test)]
