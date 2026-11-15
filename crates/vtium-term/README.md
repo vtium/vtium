@@ -20,6 +20,7 @@ These parts are in place:
 - the colors a program sets, queries and resets (vtium/vtium#38);
 - OSC 8's links and OSC 133's prompt marks (vtium/vtium#40, ADR-1002);
 - OSC 50's font requests (vtium/vtium#126, ADR-1200);
+- OSC 22's pointer shapes (vtium/vtium#59, ADR-1000);
 - setBackground and setForeground, kmscon's private OSC strings (vtium/vtium#36, ADR-1000).
 
 | Path | What it is |
@@ -55,6 +56,7 @@ These parts are in place:
 | `src/terminal/inband.rs` | The in-band reports: the text area (mode 2048), the visibility (mode 2033, `CSI ? 998 n`) and the color scheme (mode 2031, `CSI ? 996 n`), and the luma rule that makes a background dark or light. |
 | `src/terminal/clipboard.rs` | OSC 52: the selection a program sets, its base64 decoded strictly, read as UTF-8 text with ill-formed bytes replaced, and held to `CLIPBOARD_MAX`, for the host to take. |
 | `src/terminal/font.rs` | OSC 50: a font set a program asks for by name, for the host to take, and the query, answered with the set the host names. |
+| `src/terminal/pointer.rs` | OSC 22: the pointer shape a program sets, pushes, pops and queries, a stack of shapes for each screen, and `PointerShape`, vtium's fixed set of shapes. |
 | `src/terminal/display.rs` | setBackground and setForeground: a program hands the display to a graphical program and takes it back, for the host to take. |
 | `src/terminal/input.rs` | What keys, the pointer, focus and pastes send the program: xterm's encodings, modifyOtherKeys and xterm's paste filtering. |
 | `src/termcap.rs` | XTGETTCAP's table, its bounds and its reply. |
@@ -499,6 +501,12 @@ The kitty keyboard protocol lets a program ask the terminal to send every key in
   - A Pt starting with `#` is xterm's font menu: absolute, relative, and its query. vtium ignores such a Pt, because vtium has no menu.
   - The query is answered only while font operations are on, as the set is.
   - Tests: `tests/font.rs`.
+- **OSC 22 sets, pushes, pops and queries the pointer's shape.** The host reads the shape to draw with `Terminal::pointer_shape`. Spec: kitty's pointer-shapes protocol and ctlseqs, OSC 22.
+  - vtium's set is default, text, pointer, crosshair, wait, progress, not-allowed, move, ew-resize and ns-resize.
+  - A set takes the first name in its list that vtium has a shape for, and the default shape when it has none. `>` pushes each name, and `<` pops one.
+  - The main screen and the alternate screen keep a stack each, of at most `POINTER_STACK_MAX` entries. A push onto a full stack drops the bottom entry. RIS empties both stacks.
+  - `?` answers each name in turn: `1` or `0` for a shape name, the top shape's name for `__current__`, and `default` for `__default__` and `__grabbed__`. A query is answered for its first `POINTER_QUERY_NAMES_MAX` names, and a reply never carries the request's text.
+  - Tests: `tests/pointer.rs`.
 - **OSC 8 links the cells printed while a link is open, and the link store holds each distinct link once.** Spec: Egmont Koblinger's "Hyperlinks in terminal emulators", with ADR-1002's bounds and one difference.
   - A URI is 1 to 2,083 bytes, and an id is 1 to 250. These are VTE's and iTerm2's limits.
   - Some URIs close the open link: a URI past its bound, one with a byte outside 0x21 to 0x7E, and one with no RFC 3986 scheme. An id past its bound is ignored.
