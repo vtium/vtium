@@ -15,7 +15,7 @@ use common::{Screen, rgb, style};
 use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder};
 use vtium_font::{Cell, Font, Style, Width};
 use vtium_render::{Canvas, Config, DrawState, Renderer};
-use vtium_term::Age;
+use vtium_term::{Age, LineSize};
 
 const CW: u32 = 8;
 const CH: u32 = 16;
@@ -176,4 +176,116 @@ fn a_raised_bitmap_glyph_draws_its_hook_in_the_row_above_on_the_gpu_path() {
         inked_rows(&want, 1, 0..16).contains(&14),
         "the hook drawn in the row above"
     );
+}
+
+/// unifont's 😀 (U+1F600), its 16 rows of 16 pixels: its ink on rows 1 to
+/// 14, which stand on unifont's baseline, row 14.
+const UNIFONT_GRIN: [u16; 16] = [
+    0x0000, 0x03e0, 0x0c18, 0x1004, 0x2002, 0x2632, 0x4631, 0x4001, 0x4001, 0x4ff9, 0x2aaa, 0x26b2,
+    0x13e4, 0x0c18, 0x03e0, 0x0000,
+];
+
+/// `rows` of a 16-pixel glyph as the set's 1-bit bytes, two a row.
+fn wide_bits(rows: &[u16]) -> Vec<u8> {
+    rows.iter().flat_map(|r| r.to_be_bytes()).collect()
+}
+
+/// The set the helper writes for 😀 behind a first source whose baseline
+/// is row 12, as Terminus's 8x16 has it: 😀 raised 2 rows onto that
+/// baseline, so its top row lies 1 row above its cell. Its pixels are cut
+/// to its two cells, and its ink box holds the 17 rows from that top row.
+fn grin_set() -> SetFace {
+    let cell = Cell {
+        width: CW,
+        height: CH,
+    };
+    let mut s = StrikeBuilder::new(PixelFormat::Bits, cell, Style::default()).baseline(12);
+    let mut own = UNIFONT_GRIN[2..].to_vec();
+    own.extend([0, 0]);
+    let g = s.glyph(Width::Wide, wide_bits(&own));
+    s.map('😀', g);
+    let mut boxed = UNIFONT_GRIN[1..].to_vec();
+    boxed.extend([0, 0]);
+    s.ink(g, (0, -1), (2 * CW, CH + 1), wide_bits(&boxed));
+    let bytes = SetBuilder::new("t").strike(s).write().expect("written");
+    SetFace::new(Arc::new(Set::from_bytes(bytes).expect("read")), CH).expect("a face")
+}
+
+/// Four rows of four cells, 😀 at the left of row 1 at `top`'s size, and
+/// when `bottom` is given, of row 2 at its size.
+fn grin_screen(top: LineSize, bottom: Option<LineSize>) -> Screen {
+    let mut s = Screen::new(4, 4, rgb(FG), rgb(BG));
+    s.cursor.visible = false;
+    for (row, size) in [(1, Some(top)), (2, bottom)] {
+        let Some(size) = size else { continue };
+        s.put(0, row, '😀', true, style(rgb(FG), rgb(BG)));
+        s.lines[row].flags_mut().set_size(size);
+        s.damage.mark_cells(row, 0..s.cols);
+    }
+    s
+}
+
+/// The foreground's pixels in the grid's first `cols` columns of pixels,
+/// one row of them for each display row from the top of the grid to
+/// `rows`, with the rows that hold none left out.
+fn inked_lines(c: &Canvas, cols: u32, rows: std::ops::Range<u32>) -> Vec<Vec<bool>> {
+    let want = u32::from_str_radix(FG, 16).unwrap();
+    rows.map(|y| {
+        (0..cols)
+            .map(|x| c.pixel(2 + x, 1 + y).is_some_and(|p| p & 0xff_ffff == want))
+            .collect::<Vec<bool>>()
+    })
+    .filter(|line| line.contains(&true))
+    .collect()
+}
+
+/// 😀's inked rows, each pixel `across` pixels wide and `down` rows tall.
+fn grin_lines(across: usize, down: usize) -> Vec<Vec<bool>> {
+    UNIFONT_GRIN
+        .iter()
+        .filter(|&&r| r != 0)
+        .flat_map(|&r| {
+            let line: Vec<bool> = (0..16)
+                .flat_map(|x| std::iter::repeat_n(r & (0x8000 >> x) != 0, across))
+                .collect();
+            std::iter::repeat_n(line, down)
+        })
+        .collect()
+}
+
+// The maintainer's note of 2026-11-15, from the acceptance page of
+// double-size scripts in the Terminus-then-unifont font set: unifont's
+// 😀, raised onto Terminus's baseline, lost its top row on a double-width
+// line and on a double-height pair. Every one of its 14 inked rows
+// reaches the screen at the normal size, on a double-width line and on a
+// double-height pair, whole and in order. A line of double size keeps its
+// glyphs' ink in their cells, and each piece of a doubled glyph is cut from
+// the glyph's own pixels, which stop at its cell, so the row above the cell
+// is lost on both. The test waits for the fix, which draws that ink past
+// the line as the normal size draws it.
+#[test]
+#[ignore = "fails until a line of double size draws a glyph's ink past its cells"]
+fn a_raised_bitmap_glyph_keeps_every_row_on_lines_of_every_size() {
+    use LineSize::*;
+    let cases = [
+        ("normal", (Single, None), 1, 1),
+        ("double width", (DoubleWidth, None), 2, 1),
+        (
+            "double height",
+            (DoubleHeightTop, Some(DoubleHeightBottom)),
+            2,
+            2,
+        ),
+    ];
+    let cut: Vec<&str> = cases
+        .into_iter()
+        .filter(|&(_, (top, bottom), across, down)| {
+            let c = cpu(&grin_screen(top, bottom), grin_set());
+            // rows 0 to 2 of the grid, in the columns of 😀's cells
+            let wide = 2 * CW * across as u32;
+            inked_lines(&c, wide, 0..3 * CH) != grin_lines(across, down)
+        })
+        .map(|(what, ..)| what)
+        .collect();
+    assert_eq!(cut, [] as [&str; 0], "the sizes that cut 😀's ink");
 }
