@@ -185,6 +185,69 @@ mod tests {
         }
     }
 
+    /// Each strike draws the letter F with the rows written out here, read
+    /// by eye from its source file, so a reader that turned or shifted
+    /// every glyph would fail this test even though the strike would then
+    /// still match what the same reader makes of the source. F tells
+    /// left from right and top from bottom.
+    #[test]
+    fn each_strike_draws_f_as_its_source_does() {
+        let unscii_8x8 = [
+            ".######.", ".##.....", ".##.....", ".#####..", ".##.....", ".##.....", ".##.....",
+            "........",
+        ];
+        let terminus_8x16 = [
+            "........", "........", ".######.", ".#......", ".#......", ".#......", ".####...",
+            ".#......", ".#......", ".#......", ".#......", ".#......", "........", "........",
+            "........", "........",
+        ];
+        let blank = "................";
+        let bar = "..############..";
+        let arm = "..#########.....";
+        let stem = "..##............";
+        let mut terminus_16x32 = vec![blank; 6];
+        terminus_16x32.extend([bar, bar]);
+        terminus_16x32.extend([stem; 7]);
+        terminus_16x32.extend([arm, arm]);
+        terminus_16x32.extend([stem; 9]);
+        terminus_16x32.extend([blank; 6]);
+        let expected: [&[&str]; 3] = [&unscii_8x8, &terminus_8x16, &terminus_16x32];
+        for (n, rows) in expected.into_iter().enumerate() {
+            let s = &STRIKES[n];
+            let face = SetFace::new(Arc::clone(strike(n).unwrap()), s.height.into()).unwrap();
+            let g = face.draw(&['F'], Default::default()).unwrap();
+            let drawn: Vec<String> = (0..u32::from(s.height))
+                .map(|y| {
+                    (0..u32::from(s.width))
+                        .map(|x| match g.pixel(x, y).is_some_and(|p| p[0] != 0) {
+                            true => '#',
+                            false => '.',
+                        })
+                        .collect()
+                })
+                .collect();
+            assert_eq!(drawn, rows, "{}", s.file);
+        }
+    }
+
+    /// Each strike records the SHA-256 of the source file it was cut
+    /// from, and that digest is the one `data/README.md` states. A source
+    /// file replaced or edited, for example regenerated from another
+    /// Terminus version, changes the digest and fails this test.
+    #[test]
+    fn each_strike_is_cut_from_its_pinned_source() {
+        let pinned = [
+            "03094f7fbab7085cf6a6b624cee61e47e71ce5d0c2f308c2f4436afdc17f776c",
+            "5197662b22bf9f3e68d4af9f969a7fefa3edae40dd82ae969a147381130fb4ae",
+            "5ad01972d58adfee75077e2c65ba5947e260043031664cb8ad8f98b5473b23a4",
+        ];
+        for (n, sha) in pinned.into_iter().enumerate() {
+            let set = strike(n).unwrap();
+            let file = STRIKES[n].file;
+            assert_eq!(set.meta_values("source-sha256").next(), Some(sha), "{file}");
+        }
+    }
+
     /// Each strike's provenance names the font as a set name spells
     /// "vtium built-in", never Terminus, and its source.
     #[test]
