@@ -318,7 +318,7 @@ fn unread(rejected: &vtium_settings::Rejected) -> String {
     match rejected.errors.first().map(|e| &e.problem) {
         Some(vtium_settings::Problem::NotAFile) => "the file is not a regular file.".to_owned(),
         Some(vtium_settings::Problem::Unreadable(kind)) => {
-            format!("{}.", std::io::Error::from(*kind))
+            format!("reading it failed ({}).", std::io::Error::from(*kind))
         }
         _ => "the file cannot be read.".to_owned(),
     }
