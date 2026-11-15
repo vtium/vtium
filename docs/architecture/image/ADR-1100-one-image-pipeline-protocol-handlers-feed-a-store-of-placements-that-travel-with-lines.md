@@ -272,6 +272,18 @@ considered:
   - operator: aaronsb
     said: "Anchor a background, Scale a background down, Banner at the bottom, these placements along with the ability to clear it on login (via shell init script) makes it straightforward to use without interfering"
     via: the steering session, 2026-11-15, the question tool
+  - operator: aaronsb
+    said: "A bottom anchor"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [banner at the bottom]
+  - operator: aaronsb
+    said: "Of the fit's size"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [a share of what]
+  - operator: aaronsb
+    said: "Print over, then scroll"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [text over a bottom banner]
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
