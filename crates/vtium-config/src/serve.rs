@@ -6917,6 +6917,67 @@ mod tests {
     }
 
     // covers: text.line-size
+    // issue #61: a character that presents as text by default, whose only
+    // glyph is a color glyph one cell wide, waits for a later source's text
+    // glyph, and takes the color glyph once no source has one. On a pair of
+    // double-height lines that color glyph is placed in the doubled cell,
+    // with the doubled rows that line spacing adds, like every other glyph
+    // of the answer. Test Mono here draws U+263A, which presents as text by
+    // default, as one opaque red layer of its `A` bar. A cell of 8 by 20
+    // with 2 rows of spacing above and below the text doubles to 16 by 40
+    // with 4 rows above and below, and those rows stay clear
+    #[test]
+    fn a_double_ask_places_a_color_glyph_held_for_text_in_the_doubled_cell() {
+        let dir = scratch("doubled-held-color");
+        let path = dir.join("TestMono.ttf");
+        let mut mono = super::ttf::test_mono();
+        mono.glyphs
+            .push(super::ttf::Glyph::rect(600, 100, 0, 500, 700));
+        let held = mono.glyphs.len() as u16 - 1;
+        mono.cmap.push((0x263a, held));
+        mono.cmap.sort_unstable();
+        mono.colr.push((held, vec![(2, 0)]));
+        std::fs::write(&path, mono.build()).unwrap();
+        let font = frit(&format!("source=outline:{}\n", path.display()));
+        let smiley = ['\u{263a}'];
+        assert!(!crate::shaping::emoji_by_default(0x263a));
+        let ask = ServeRequest {
+            cell: Cell {
+                width: 8,
+                height: 20,
+            },
+            band: Band { above: 2, below: 2 },
+            doubled: Some(Doubled::Height),
+            ..request(ASK, font, &smiley)
+        };
+        let (tall, cells) = answered_face(&run(&[ask]), "double height");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 16,
+                height: 40
+            }]
+        );
+        let t = tall.draw(&smiley, Style::default()).unwrap();
+        assert_eq!(
+            (t.format(), t.cells(), t.width(), t.height()),
+            (Format::Rgba, Width::Narrow, 16, 40)
+        );
+        let red_rows: Vec<usize> = t
+            .pixels()
+            .chunks(16 * 4)
+            .enumerate()
+            .filter(|(_, row)| row.chunks(4).any(|p| p[0] > 200 && p[3] > 200))
+            .map(|(y, _)| y)
+            .collect();
+        assert!(!red_rows.is_empty(), "the glyph holds its red layer");
+        assert!(
+            red_rows.iter().all(|y| (4..36).contains(y)),
+            "red outside the text band: {red_rows:?}"
+        );
+    }
+
+    // covers: text.line-size
     // issue #61: a cluster on a line of double size comes from the helper
     // at that size. E with a grave accent, decomposed, is shaped whole in
     // the doubled cell of a double-height pair, 18 by 32, and on a line of
