@@ -25,6 +25,13 @@ copy to its standard output.
 For example: git rev-parse HEAD | {name} copy
 
 The text can be at most {max} bytes, the most vtium's clipboard holds.
+vtium puts the replacement character U+FFFD, which takes 3 bytes, in place
+of each part of the text that is not valid UTF-8, and the limit counts the
+text with those characters.
+
+While {name} waits for this terminal's answer, it reads
+the keys you type, so keys you type before the copy ends are lost. That
+includes keys you type during an earlier command on the same command line.
 
 {name} cannot see whether vtium kept the text, because OSC 52 has no answer.
 When clipboard-write is off in vtium.conf, vtium ignores the copies that
@@ -36,11 +43,12 @@ Paste with Shift+Insert or the middle mouse button.
 Exit status:
   0  The copy was sent, and the terminal answered as vtium.
   1  Nothing was copied: the text was too large, the file could not be read,
-     or there was no terminal.
+     there was no terminal, or the terminal did not take the copy.
   2  The command line was wrong, or the command was paste.
   3  The copy was sent, but the terminal did not answer as vtium. Under tmux
      or screen, the multiplexer answers for itself, so a copy there exits 3
-     even when the copy reached vtium.
+     even when the copy reached vtium. In a background job, {name}
+     cannot ask the terminal, so a copy there exits 3 too.
 "
     )
 }
@@ -91,6 +99,14 @@ pub fn too_large(max: usize) -> String {
     )
 }
 
+/// The text fits the clipboard as it is, but not once vtium has replaced
+/// its bytes that are not valid UTF-8.
+pub fn too_large_replaced(kept: usize, max: usize) -> String {
+    format!(
+        "The text is too large once vtium replaces its bytes that are not valid UTF-8. vtium puts the replacement character U+FFFD, which takes 3 bytes, in place of each part that is not valid UTF-8, and that makes the text {kept} bytes. vtium's clipboard holds at most {max} bytes. Nothing was copied."
+    )
+}
+
 /// The process has no terminal to send the copy to.
 pub fn no_terminal(name: &str, error: &str) -> String {
     format!(
@@ -105,6 +121,13 @@ pub fn write_failed(name: &str, error: &str) -> String {
     )
 }
 
+/// The terminal took no byte of the copy for the time the program allows.
+pub fn stalled(name: &str, seconds: u64) -> String {
+    format!(
+        "The terminal /dev/tty took nothing of the copy for {seconds} seconds, so {name} stopped writing it. {name} cannot tell how much of it was sent, so the clipboard may hold nothing new."
+    )
+}
+
 /// The text has bytes that are not valid UTF-8; it was copied anyway.
 pub fn not_utf8() -> String {
     "The text is not all valid UTF-8. vtium shows the replacement character U+FFFD in place of the bytes that are not valid UTF-8.".to_owned()
@@ -113,4 +136,12 @@ pub fn not_utf8() -> String {
 /// The copy was sent, but no reply named vtium.
 pub fn unconfirmed() -> String {
     "The copy was sent, but this terminal did not answer as vtium, so the text may not have reached a clipboard.".to_owned()
+}
+
+/// The copy was sent from a background job, which may not read the
+/// terminal's answer.
+pub fn background(name: &str) -> String {
+    format!(
+        "The copy was sent, but {name} runs in a background job, so it cannot wait for this terminal's answer. It cannot tell whether the terminal is vtium, so the text may not have reached a clipboard."
+    )
 }

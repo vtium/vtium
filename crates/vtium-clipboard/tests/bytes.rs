@@ -9,7 +9,7 @@
 //!   scenario that feeds the same bytes to vtium.
 
 use vtium_clipboard::{
-    Answers, CLIPBOARD_MAX, QUERIES, Text, answers, names_vtium, read_text, sequence,
+    Answers, CLIPBOARD_MAX, QUERIES, Text, answers, kept_len, names_vtium, read_text, sequence,
 };
 use vtium_term::Terminal;
 
@@ -77,6 +77,60 @@ fn text_past_the_clipboard_bound_is_refused() {
     // a source far larger is read only to the bound and one byte more
     let endless = std::io::repeat(b'a');
     assert_eq!(read_text(endless).unwrap(), Text::TooLarge);
+}
+
+/// What vtium's clipboard holds after the program's bytes for `text`, or
+/// `None` when vtium keeps nothing.
+fn vtium_keeps(text: &[u8]) -> Option<Vec<u8>> {
+    let mut t = vtium();
+    let mut bytes = sequence(text);
+    bytes.extend_from_slice(QUERIES);
+    t.input(&bytes);
+    t.take_clipboard_write()
+}
+
+// Unicode 16.0, 3.9, "U+FFFD Substitution of Maximal Subparts": vtium
+// puts one U+FFFD, 3 bytes, in place of each maximal subpart that is not
+// valid UTF-8, and drops the copy when the text then passes the bound.
+// The program counts the same length, and refuses exactly the texts that
+// vtium would drop, though each fits the bound as it is.
+#[test]
+fn text_past_the_bound_once_replaced_is_refused() {
+    // a byte that never starts UTF-8, a 3-byte sequence cut off after 2
+    // bytes, and a 4-byte sequence cut off after 3 bytes each become one
+    // U+FFFD; the valid text around them keeps its length
+    assert_eq!(kept_len(b""), 0);
+    assert_eq!(kept_len(b"caf\xc3\xa9"), 5);
+    assert_eq!(kept_len(b"h\xffi"), 5);
+    assert_eq!(kept_len(b"\xe4\xb8x"), 4);
+    assert_eq!(kept_len(b"\xf0\x9f\x98"), 3);
+    assert_eq!(kept_len(b"\xff\xff"), 6);
+    // 174762 bytes of 0xff are 524286 bytes once replaced, and fit; one
+    // more is 524289 bytes, and vtium drops it
+    let fits = vec![0xff; 174_762];
+    let over = vec![0xff; 174_763];
+    assert!(matches!(read_text(&fits[..]).unwrap(), Text::Fits(_)));
+    assert_eq!(vtium_keeps(&fits).map(|k| k.len()), Some(524_286));
+    assert_eq!(
+        read_text(&over[..]).unwrap(),
+        Text::TooLargeReplaced { kept: 524_289 }
+    );
+    assert_eq!(vtium_keeps(&over), None);
+    // a cut-off sequence at the end of text at the bound: exactly the
+    // bound once replaced fits, and one byte more does not
+    let mut at = vec![b'a'; CLIPBOARD_MAX - 3];
+    at.extend_from_slice(b"\xe4\xb8");
+    let mut past = vec![b'a'; CLIPBOARD_MAX - 2];
+    past.extend_from_slice(b"\xe4\xb8");
+    assert_eq!(read_text(&at[..]).unwrap(), Text::Fits(at.clone()));
+    assert_eq!(vtium_keeps(&at).map(|k| k.len()), Some(CLIPBOARD_MAX));
+    assert_eq!(
+        read_text(&past[..]).unwrap(),
+        Text::TooLargeReplaced {
+            kept: CLIPBOARD_MAX + 1
+        }
+    );
+    assert_eq!(vtium_keeps(&past), None);
 }
 
 /// The `send "..."` lines of the scenario, unquoted: `\e` is ESC and `\\`

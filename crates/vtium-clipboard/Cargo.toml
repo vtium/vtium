@@ -20,10 +20,13 @@ path = "src/main.rs"
 # refuses text larger than vtium keeps from the one place that sets it.
 vtium-term.workspace = true
 # tcgetattr and tcsetattr for the terminal's mode while the program reads
-# the replies; the version vtium-platform already builds.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "termios"] }
+# the replies, poll and a non-blocking /dev/tty for the bounded writes and
+# reads, and tcgetpgrp and getpgrp to tell a background job; the version
+# and features vtium-platform already builds.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "process", "termios"] }
 
 [dev-dependencies]
-# A pty for the exit status tests; vtium-platform already builds this
-# version with these features.
-rustix = { version = "=1.1.6", default-features = false, features = ["std", "fs", "pty", "termios"] }
+# A pty for the exit status tests, and kill for a test whose program does
+# not end in time; vtium-platform already builds this version with these
+# features.
+rustix = { version = "=1.1.6", default-features = false, features = ["std", "event", "fs", "process", "pty", "termios"] }
