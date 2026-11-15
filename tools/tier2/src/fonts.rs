@@ -499,7 +499,7 @@ fn digest(path: &Path) -> Result<String, String> {
 
 /// Why `file` in `dir` is not the pinned bytes `sha256`, absent included;
 /// `None` when it is.
-fn fault(dir: &Path, file: &str, sha256: &str) -> Option<String> {
+pub(crate) fn fault(dir: &Path, file: &str, sha256: &str) -> Option<String> {
     match digest(&dir.join(file)) {
         Err(e) => Some(format!("{file} is not in {}: {e}", dir.display())),
         Ok(got) if got != sha256 => Some(format!("{file} has SHA-256 {got}, not {sha256}")),
@@ -564,7 +564,7 @@ pub fn scripts_frit_text(dir: &Path) -> String {
 
 /// Downloads `url` into `dir` as `file` with curl, through a `.part` file,
 /// so a download that stops leaves no file of that name.
-fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
+pub(crate) fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
     let part = dir.join(format!("{file}.part"));
     let status = Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])

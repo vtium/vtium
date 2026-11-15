@@ -22,6 +22,7 @@ use crate::draw::{
 };
 use crate::notices;
 use crate::pictures;
+use crate::pointers::PointerFile;
 
 /// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
@@ -1634,6 +1635,33 @@ const POINTER_NS_DESC: &str = "The ns-resize shape, OSC 22 ns-resize. See pointe
 
 const POINTER_CHANGE_DESC: &str = "A change of shape between frames: the program sets wait, two frames are drawn, then it sets pointer and two more frames are drawn into the same two buffers. See pointer-default for the screen. Correct: the same picture as pointer-pointer, the hand with its tip at pixel 48,16, with no part of the hourglass left. Tier 2 also checks that both buffers and a fresh draw end equal.";
 
+/// The `pointer_shape!` screen `$name` with its pointer drawn from
+/// `$file`, the pointer file whose checked pictures the renderer holds, as
+/// the console's renderer holds them once the font helper answers.
+macro_rules! pointer_file_shape {
+    ($name:literal, $desc:expr, $shape:literal, $file:expr) => {
+        Case {
+            screen: Screen {
+                pointer_file: Some($file),
+                ..pointer_shape!($name, $desc, $shape).screen
+            },
+        }
+    };
+}
+
+const POINTER_FILE_DEFAULT_DESC: &str = "The default shape from vtium's own pointer file, crates/vtium/install/pointers.svg, which vtium installs as /usr/share/vtium/pointers.svg. The font helper's SVG code draws each of the file's ten shapes for cells 16 pixels tall, each picture is checked as the console checks the helper's answer, and the renderer draws the default one. See pointer-default for the screen. Correct: the arrow, 11×16 pixels, white with a black outline, pointing up and left, its hotspot on its top left pixel and so its tip on pixel 48,16, over the light second row. It is the picture of pointer-default within a pixel at each edge: the file's outline is thinner in places and its tip starts a pixel further up and left, since the file's outline scales smoothly where the compiled-in outline grows by whole pixels.";
+const POINTER_FILE_TEXT_DESC: &str = "The text shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: an I-beam 8×16 pixels, a white stem with a bar across each end, outlined in black, its centre on pixel 48,16, so its top half lies over the dark first row and its bottom half over the light second row. It is the picture of pointer-text within a pixel at each edge of the outline.";
+const POINTER_FILE_HAND_DESC: &str = "The pointer shape from vtium's pointer file, the hand over a link. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hand 12×16 pixels with a black outline, its index finger raised with its tip at pixel 48,16, the palm and the three folded fingers below and to the right, and the thumb at the left, over the light row. It is the picture of pointer-pointer within a pixel at each edge: the file's hand is one pixel narrower, and its fingertip starts a pixel higher.";
+const POINTER_FILE_CROSSHAIR_DESC: &str = "The crosshair shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross 16×16 pixels, each arm one pixel wide inside a black outline, its centre on pixel 48,16, half over the dark first row and half over the light second row, pixel for pixel the picture of pointer-crosshair.";
+const POINTER_FILE_WAIT_DESC: &str = "The wait shape from vtium's pointer file, an hourglass. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hourglass 12×16 pixels with a black outline and a bar across its top and its bottom, its waist on pixel 48,16, its top half over the dark first row and its bottom half over the light second row. It is the picture of pointer-wait within a pixel at each edge of the outline.";
+const POINTER_FILE_PROGRESS_DESC: &str = "The progress shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: the arrow with a small white hourglass at its lower right, 16×16 pixels together, outlined in black, the arrow's tip at pixel 48,16, over the light second row. It is the picture of pointer-progress within a pixel at each edge: the file's arrow starts a pixel further up and left, and the outline of its small hourglass differs by a pixel in places.";
+const POINTER_FILE_NOT_ALLOWED_DESC: &str = "The not-allowed shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white ring 16×16 pixels with a black outline and a white slash from its upper left to its lower right, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-not-allowed within a pixel at each edge of the outline.";
+const POINTER_FILE_MOVE_DESC: &str = "The move shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross of four arrows 16×16 pixels, each arrowhead pointing outwards, outlined in black, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-move within a pixel at each edge of the outline.";
+const POINTER_FILE_EW_DESC: &str = "The ew-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing left and right, 16 pixels wide and 8 tall, outlined in black, its centre on pixel 48,16, across the boundary of the first two rows. It is the picture of pointer-ew-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_NS_DESC: &str = "The ns-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row. It is the picture of pointer-ns-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_ADWAITA_DESC: &str = "The default shape from a cursor theme: Adwaita 51.0's default cursor file, which tier 2 fetches by its pinned URL and SHA-256. The font helper's Xcursor code reads the file at nominal size 24, as pointer-size=24 asks, the picture is checked as the console checks the helper's answer, and the renderer draws it at its own size, never scaled. See pointer-default for the screen. Correct: Adwaita's arrow, 24×24 pixels, black with a white outline, pointing up and left, with a soft grey shadow below and to the right of it. Its hotspot, the picture's pixel 3,1, lies on pixel 48,16, so the arrow's white tip starts just below that pixel, over the light second row. The half-transparent shadow blends over the text and the rows it covers.";
+const POINTER_FILE_TURNED_DESC: &str = "The default shape from vtium's pointer file, as pointer-file-default draws it, on a display turned right, 48×96 pixels. The text reads from top to bottom, with the first row along the right edge. Correct: the arrow of pointer-file-default turned a quarter turn clockwise with the screen, white with a black outline, its tip on display pixel 31,48, where the grid's pixel 48,16 lands. The arrow's body lies below and to the left of its tip, over the light middle column.";
+
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
 pub const CASES: &[Case] =
@@ -1876,6 +1904,84 @@ const BASE: &[Case] = &[
         screen: Screen {
             next: Some(b"\x1b]22;pointer\x1b\\"),
             ..pointer_shape!("pointer-change", POINTER_CHANGE_DESC, "wait").screen
+        },
+    },
+    pointer_file_shape!(
+        "pointer-file-default",
+        POINTER_FILE_DEFAULT_DESC,
+        "default",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-text",
+        POINTER_FILE_TEXT_DESC,
+        "text",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-pointer",
+        POINTER_FILE_HAND_DESC,
+        "pointer",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-crosshair",
+        POINTER_FILE_CROSSHAIR_DESC,
+        "crosshair",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-wait",
+        POINTER_FILE_WAIT_DESC,
+        "wait",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-progress",
+        POINTER_FILE_PROGRESS_DESC,
+        "progress",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-not-allowed",
+        POINTER_FILE_NOT_ALLOWED_DESC,
+        "not-allowed",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-move",
+        POINTER_FILE_MOVE_DESC,
+        "move",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ew-resize",
+        POINTER_FILE_EW_DESC,
+        "ew-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ns-resize",
+        POINTER_FILE_NS_DESC,
+        "ns-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-adwaita",
+        POINTER_FILE_ADWAITA_DESC,
+        "default",
+        PointerFile::Adwaita
+    ),
+    Case {
+        screen: Screen {
+            orientation: Orientation::Right,
+            ..pointer_file_shape!(
+                "pointer-file-turned",
+                POINTER_FILE_TURNED_DESC,
+                "default",
+                PointerFile::Shipped
+            )
+            .screen
         },
     },
     Case {
