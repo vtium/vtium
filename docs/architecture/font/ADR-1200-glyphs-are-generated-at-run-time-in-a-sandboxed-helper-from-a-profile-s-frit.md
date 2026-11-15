@@ -505,6 +505,8 @@ source=bdf:/usr/share/fonts/fusion-pixel/fusion-pixel-12px-monospaced-zh_hans.bd
 
 > Note 2026-11-11: ADR-1202 adds the key `script-source=` under a bitmap `source=` line. It names a smaller size of the same font, and the source's superscript and subscript glyphs come from it where its height suits them (ADR-1202 D3, D12). vtium refuses the key under an outline source. A script glyph comes only from the source that draws the character's normal glyph, so no other font of the frit and no built-in font stands in for it (ADR-1202 D15).
 
+> Note 2026-11-15: ADR-1204 adds two parts to the frit. A `layer=NAME` line puts the sources of the layer file `layers/NAME.vtlayer` in place of the line, and the console reads each layer under the ownership check it gives the frit (ADR-1204 D5). A `strike=` line under an outline `source=` line names a bitmap file of the same design, which draws in each cell up to the tallest strike's height (ADR-1204 D2).
+
 ### D4: `vtium-vitrify`, the profile builder
 
 `vtium-vitrify` is a binary of its own in the install tree, apart from `vtium`. It holds every font decoder, parser and rasterizer, and the shaper, outside the console and outside the console's size budget.
@@ -562,6 +564,8 @@ With no font named, a head takes the default profile and its default frit (D16),
 - **A zoom's step depends on the kind of font the frit draws,** as the C reference's zoom stepped by its engine's `increase_step` (C notes), and a zoom starts from the frit's `size=` (D1) (the operator, 2026-10-28). An outline frit, and a frit that mixes outline and bitmap sources, steps by 1 point: to the next whole point size that gives a different size in pixels at the display's density. An all-bitmap frit steps by whole multiples of its cell.
 
 The C reference loaded its font before its first frame and took the font's cell. vtium knows the cell just as surely, from the profile, without waiting on a font. It waits only for the cell of a frit that states none, and only for a bounded time.
+
+> Note 2026-11-15: ADR-1204 D5 changes which source sets the cell when the first source is missing. The first source is the set's text font. When the machine lacks it or cannot read it, the built-in font takes its place, and the cell is the frit's `cell=`, else the cell for the configured size, as for a console with no font named. The next source no longer sets the cell, so a layer's font never does. A first source that fails as it draws still leaves the cell to the next source.
 
 > Edited 2026-11-14: the maintainer's direction of 2026-11-05 on outline glyphs behind a bitmap first source (D1's `render=` row and its note). The paragraph's last sentence ended at "span the cell's height.", and such glyphs drew antialiased.
 
@@ -639,6 +643,8 @@ The C reference loaded its font before its first frame and took the font's cell.
 - vtium chooses the font in this order, the most specific first (D16): the frit that the head's profile names, where that frit has a source; else `font-name` from the command line or vtium.conf; else `vconsole.font=` from the kernel command line, then `FONT=` from `/etc/vconsole.conf`; else the built-in font.
 - vtium looks a name up as a frit under `/etc/vtium/fonts`. When no frit has that name, a kbd name, a font path given with `font-engine=psf`, a family given with `font-engine=freetype` or `pango`, or vconsole.conf's `FONT=` becomes a one-source frit that vtium makes on the fly, with a `kbd:`, `file:`, `font:<family>` or `vconsole` source (D1), so that existing console setups keep working (the operator, 2026-10-28).
 - **The frit made from a family stays one font.** The frit that vtium makes for a family that `font-name` names holds that family alone, so no emoji source reaches it, and every emoji that the family lacks draws from the built-in unifont, in 1 bit. vtium adds no font to a frit it makes, for emoji or for any other coverage, until a specification decides how font sets are organized. A person who wants color emoji with such a family writes a frit that names both fonts, as `docs/fonts.md` shows.
+
+> Note 2026-11-15: ADR-1204 D5 lets a person compose a frit by name: `vtium config new-frit FONT --layer NAME`, once for each layer, writes a frit with the font and the named layers, in the order of their roles.
 
 > Note 2026-11-14: ADR-1204, accepted the same day, decides how font sets are organized. The frit made from a family keeps its one source. With no font named, vtium draws the catalog set `terminus`, whose fonts the vtium package installs, before it falls back to the built-in font. Where this decision's text differs, ADR-1204 decides, until the text is rewritten to match.
 

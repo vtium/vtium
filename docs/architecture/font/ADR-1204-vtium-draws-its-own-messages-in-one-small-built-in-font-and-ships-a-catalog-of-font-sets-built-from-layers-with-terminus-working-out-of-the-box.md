@@ -464,7 +464,7 @@ Whether the built-in font's glyphs sit in the same place when the built-in font 
 
 The build cards, in order:
 
-1. **Layers.** The `strike=` key, by which one source draws bitmap strikes at their heights and its outline between them. The frit reader takes `layer=` and reads `.vtlayer` files with `role=`. The console puts each layer's sources in place and checks each layer's ownership. The cell rule for a missing text font. `new-frit --layer` and the TUI's choice. ADR-1200 D1@@ D9 and D19 gain dated notes.
+1. **Layers.** The `strike=` key, by which one source draws bitmap strikes at their heights and its outline between them. The frit reader takes `layer=` and reads `.vtlayer` files with `role=`. The console puts each layer's sources in place and checks each layer's ownership. The cell rule for a missing text font. `new-frit --layer` and the TUI's choice. ADR-1200 D1, D9 and D17 gain dated notes.
 2. **Font requirements.** The keys `version=`, `check=`, `sha256=` and `url=`. The helper's match against them, the console's log line, vtium-config's report, and the help page on installing fonts that each report points to.
 3. **The catalog.** `docs/concepts/fonts.md` and `docs/fonts-for-scripts.md` say plainly that installing a Nerd Fonts build gives the Font Logos icons and full Nerd Fonts coverage. The kernel-font sets, each checked glyph by glyph against the kernel's font it names. The category folders and layers, every member of D3, the renames, the fold of `proof`, the Makefile's lists, and the docs. Specimens that move go in a golden commit of their own.
 4. **The catalog check** of D12, and the TSV beside this record.
