@@ -1,0 +1,6 @@
+# What the Cullet Mono build fetches, and what it must produce. README.md explains the columns.
+# kind	file	bytes	sha256	from
+source	terminus-ttf-4.49.3.zip	558303	0ead921d98d99a4590ffe6cd66dc037fc0a2ceea1c735d866ba73fe058257577	https://files.ax86.net/terminus-ttf/files/4.49.3/terminus-ttf-4.49.3.zip
+source	FontPatcher.zip	3120813	a8f11e511ed7c69e96680858c06b50a643ea7752e26d5cd13dd5e5cc53ab1760	https://github.com/ryanoasis/nerd-fonts/releases/download/v3.4.0/FontPatcher.zip
+face	CulletMono-Regular.ttf	2617476	a4da196c28826e6ea5d0c4ffe85f42e0a2806252871d07dd0da966cdaa925e8e	fontforge 20251009
+face	CulletMono-Bold.ttf	2618316	2e54ca8bbc4f3e13dbe9d11cae347af2c6ff00817650dea5e149250081144b39	fontforge 20251009

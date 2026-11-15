@@ -1,0 +1,103 @@
+Cullet Mono: notices
+
+Cullet Mono is vtium's outline version of the Terminus font, with Nerd Fonts' icons added. vtium builds it from Terminus (TTF) 4.49.3 with Nerd Fonts' font patcher 3.4.0, as tools/cullet-mono/README.md in vtium's source describes. This file lists each part of Cullet Mono with its copyright, its license, and the attribution that license asks for. The other files in this folder hold the full license texts it names.
+
+Cullet Mono as a whole is a Modified Version of Terminus (TTF) under the SIL Open Font License, Version 1.1 (OFL-1.1). Its full text is in terminus-ttf-COPYING.txt.
+
+
+Terminus (TTF) 4.49.3
+=====================
+
+The font Cullet Mono is made from: TerminusTTF-4.49.3.ttf and TerminusTTF-Bold-4.49.3.ttf, from https://files.ax86.net/terminus-ttf/.
+
+Copyright (c) 2010 Dimitar Toshkov Zhekov, with Reserved Font Name "Terminus Font".
+Copyright (c) 2011-2023 Tilman Blumenbach, with Reserved Font Name "Terminus (TTF)".
+
+License: OFL-1.1, in terminus-ttf-COPYING.txt, a verbatim copy of the release's COPYING file.
+
+The OFL forbids a Modified Version to use a Reserved Font Name, so the patched font is named Cullet Mono. It uses neither "Terminus Font" nor "Terminus (TTF)" as its name, and it stays under the OFL-1.1.
+
+
+Nerd Fonts font patcher 3.4.0
+=============================
+
+The program that adds the icons: FontPatcher.zip from https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0.
+
+Copyright (c) 2014 Ryan L McIntyre.
+
+License: nerd-fonts-LICENSE.txt, Nerd Fonts' LICENSE file at v3.4.0. It licenses the patcher and Nerd Fonts' other source files under the MIT License, and Nerd Fonts' own glyph fonts under the OFL-1.1.
+
+
+The icon sets
+=============
+
+The patcher adds the glyph sets below, each scaled and placed to fit one character cell of Cullet Mono (the patcher's --mono option). Some sets move to the code points of Nerd Fonts' layout. Each entry gives the set's name as the patcher's log gives it, its source, its copyright, and its license as Nerd Fonts' license-audit.md lists it. Where the patcher's archive carries the set's license file, this folder holds a verbatim copy of it. MIT.txt holds the MIT License's permission notice for the MIT sets whose license file the archive lacks.
+
+Seti-UI + Custom
+  Nerd Fonts' original-source.otf: icons from Seti-UI, modified by Nerd Fonts, and Nerd Fonts' own icons. https://github.com/jesseweed/seti-ui
+  Copyright (c) 2014 Jesse Weed. Copyright (c) 2014 Ryan L McIntyre.
+  License: MIT, in MIT.txt and nerd-fonts-LICENSE.txt.
+
+Heavy Angle Brackets, Box Drawing, Progress Indicators
+  Nerd Fonts' own glyphs, from its extraglyphs.sfd.
+  Copyright (c) 2014 Ryan L McIntyre.
+  License: nerd-fonts-LICENSE.txt, which licenses Nerd Fonts' glyph fonts under the OFL-1.1.
+
+Devicons
+  The non-linemark icons of Devicon 2.16.0, which Nerd Fonts assembles into a font of its own. https://github.com/devicons/devicon
+  Copyright (c) 2015 konpa.
+  License: MIT, in MIT.txt.
+
+Powerline Symbols
+  From Powerline. Nerd Fonts widens U+E0B0 and U+E0B2 by a 7% strip on their straight side. https://github.com/powerline/powerline
+  Copyright 2013 Kim Silkebækken and other contributors.
+  License: license-audit.md lists it as a free license; the archive's license file, in powerline-symbols-LICENSE.txt, gives the MIT License's terms.
+
+Powerline Extra Symbols
+  Version 1.200, Nerd Fonts' own modification of version 1.000. https://github.com/ryanoasis/powerline-extra-symbols
+  Copyright (c) 2016 Ryan L McIntyre.
+  License: MIT, in powerline-extra-LICENSE.txt.
+
+Pomicons
+  Version 1.001. https://github.com/gabrielelana/pomicons
+  Copyright (c) 2021, Gabriele Lana, with Reserved Font Name Pomicons.
+  License: OFL-1.1, in pomicons-LICENSE.txt.
+
+Font Awesome
+  Icons from Font Awesome Free 6.5.1 by Fonticons, Inc., https://fontawesome.com. Nerd Fonts builds a font of its own from Font Awesome's SVG icons, not from Font Awesome's font files, and does not hold every icon of 6.5.1.
+  Copyright (c) 2022 Fonticons, Inc.
+  License: Creative Commons Attribution 4.0 International (CC BY 4.0), https://creativecommons.org/licenses/by/4.0/. Font Awesome's license file is in font-awesome-LICENSE.txt, and the full text of CC BY 4.0 is in codicons-LICENSE.txt. The icons are changed: scaled and placed to fit one character cell. The licensor offers them as-is and makes no warranties, as section 5 of CC BY 4.0 states.
+
+Font Awesome Extension
+  https://github.com/AndreLZGava/font-awesome-extension
+  Copyright (c) 2017 André Luiz Gava.
+  License: MIT, in MIT.txt.
+
+Power Symbols
+  The IEC Power Symbols. https://unicodepowersymbol.com/
+  Copyright (c) 2013 Joe Loughry.
+  License: MIT, in MIT.txt.
+
+Material
+  Material Design Icons by Pictogrammers, fetched by Nerd Fonts on 6 October 2022, with glyph U+F1522 repaired by Nerd Fonts. https://github.com/Templarian/MaterialDesign-Font
+  License: Apache License 2.0. Pictogrammers' license file is in materialdesign-LICENSE.txt, and the full text of the Apache License 2.0 is in Apache-2.0.txt. The icons are changed: scaled and placed to fit one character cell.
+
+Weather Icons
+  By Erik Flowers; the icon designs are originally by Lukas Bischoff. https://github.com/erikflowers/weather-icons
+  License: OFL-1.1, in weather-icons-OFL.txt. The copyright lines at the head of that file are the OFL's unfilled template, as the patcher's archive ships them.
+
+Octicons
+  https://github.com/primer/octicons
+  Copyright (c) 2023 GitHub Inc.
+  License: MIT, in octicons-LICENSE.txt.
+
+Codicons
+  Version 0.0.35, with glyphs U+EB40 and U+EB41 repaired by Nerd Fonts. https://github.com/microsoft/vscode-codicons
+  Copyright (c) Microsoft Corporation.
+  License: CC BY 4.0, https://creativecommons.org/licenses/by/4.0/, in codicons-LICENSE.txt. The icons are changed: scaled and placed to fit one character cell. The licensor offers them as-is and makes no warranties, as section 5 of CC BY 4.0 states.
+
+
+Font Logos, left out
+====================
+
+Cullet Mono leaves out the patcher's Font Logos set, the logos of operating systems and projects at U+F300 to U+F385, because Nerd Fonts' license-audit.md lists it as unlicensed. vtium draws those characters from a Nerd Fonts font that the system has installed, such as Symbols Nerd Font Mono.
