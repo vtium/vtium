@@ -518,8 +518,11 @@ impl Terminal {
         self.state.set_cursor_style(style);
     }
 
-    /// The cursor's blink interval the program asked for with the Linux
-    /// console's `CSI 16 ; Pn ]` (console_codes(4)), kept for the host.
+    /// The length of each phase of the cursor's blink, in milliseconds, as
+    /// a program set it with the Linux console's `CSI 16 ; Pn ]`
+    /// (console_codes(4)): 50 to 65535. `None` means the default, the
+    /// host's own interval, which RIS and an interval outside that range
+    /// return to (`terminal/blank.rs`).
     pub fn cursor_blink_ms(&self) -> Option<u32> {
         self.state.cursor_blink_ms
     }
@@ -806,7 +809,8 @@ impl State {
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph
     /// properties in a build with the bidi feature, the cursor home, the
-    /// blank timeout the host's again, and an OSC 50 or XTWINOPS 8 request
+    /// blank timeout the host's again, the cursor's blink interval the
+    /// default again, and an OSC 50 or XTWINOPS 8 request
     /// the host has not taken dropped.
     fn hard_reset(&mut self) {
         self.soft_reset();
@@ -829,6 +833,7 @@ impl State {
         modes::reset(self, true);
         self.screen.move_to(0, 0);
         self.reset_blank_timeout();
+        self.reset_cursor_blink_interval();
         // A font set or a text area asked for and not yet taken goes with
         // the program that asked, so the host acts on neither after a reset.
         self.font_request = None;
@@ -977,12 +982,7 @@ impl State {
             b'n' => self.reply_dsr(params),
             b't' if params.get(0) == Some(8) => self.request_grid(params),
             b't' => self.reply_window(params),
-            b']' if params.get(0) == Some(16) => {
-                if let Some(ms) = params.get(1) {
-                    self.cursor_blink_ms = Some(ms);
-                }
-            }
-            b']' => self.console_blank(params),
+            b']' => self.console_private(params),
             // DECLL: a console's LEDs are the keyboard's, and stay as the
             // user set them (ADR-1000, ctl.decll).
             _ => {}
