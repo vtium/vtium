@@ -36,17 +36,16 @@ right=$'\xee\x82\xb0' # U+E0B0, the Powerline right-pointing triangle
 thin=$'\xee\x82\xb1'  # U+E0B1, the Powerline thin separator
 prompt="${esc}[30;44m vt ${esc}[34;42m${right}${esc}[30m src ${esc}[32;49m${right}${reset} ${thin}"
 
-# The sample on a line of the normal size, a double-width line and a
-# double-height pair, under its name.
-sample() {
-	printf '  %s:\n' "$1"
-	printf '%s%s\n' "$2" "$reset"
-	printf '%s%s%s\n' "$dwl" "$2" "$reset"
-	printf '%s%s%s\n' "$top" "$2" "$reset"
-	printf '%s%s%s\n' "$bottom" "$2" "$reset"
-}
-sample 'Color emoji with a VS16 heart and a skin tone, then letters with marks' "$emoji  $marks"
-sample 'Arabic with the lam-alef ligature and vowel marks, then Hindi' "$arabic  $hindi"
-sample 'DEC special graphics, blocks and box drawing, drawn by vtium' "$graphics $blocks"
-sample 'Powerline separators' "$prompt"
+# Each sample on a line of the normal size, a double-width line and a
+# double-height pair: color emoji with a VS16 heart and a skin tone, then
+# letters with marks; Arabic with the lam-alef ligature and vowel marks, then
+# Hindi; DEC special graphics, blocks and box drawing, which vtium draws
+# itself; and Powerline separators. The page holds 17 rows, so the samples
+# carry no titles.
+for text in "$emoji  $marks" "$arabic  $hindi" "$graphics $blocks" "$prompt"; do
+	printf '%s%s\n' "$text" "$reset"
+	printf '%s%s%s\n' "$dwl" "$text" "$reset"
+	printf '%s%s%s\n' "$top" "$text" "$reset"
+	printf '%s%s%s\n' "$bottom" "$text" "$reset"
+done
 frit_line
