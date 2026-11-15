@@ -386,7 +386,7 @@ impl<'a> Frame<'a> {
     }
 
     /// The other row of the pair of double-height lines that `row` belongs
-    /// to, by [`pair_of`]'s rule over the sizes the rows draw at. A row
+    /// to, by `pair_of`'s rule over the sizes the rows draw at. A row
     /// whose partner the frame does not show, and the overlay row, belong
     /// to no pair. The pair decides where the cursor draws
     /// ([`Frame::cursor_extent`]).

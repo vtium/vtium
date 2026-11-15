@@ -1479,7 +1479,7 @@ impl Line {
     /// becomes an empty cell, and new cells are empty in the line's fill.
     /// Shrinking holds the clusters the cells left name to the budget of
     /// the shorter line, as writing it at that width would
-    /// ([`hold_to_budget`](Self::hold_to_budget)), and compacts the tables,
+    /// (`hold_to_budget`), and compacts the tables,
     /// so they hold no more than the shorter line can name.
     pub fn resize(&mut self, cols: usize) {
         let cols = cols.min(COLUMNS_MAX);
