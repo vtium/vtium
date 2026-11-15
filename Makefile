@@ -843,20 +843,26 @@ showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 # that has a library, on the pinned toolchain, written to target/doc. The
 # flags turn every rustdoc warning into an error, a broken intra-doc link
 # included, so the build is the check of rustdoc's links, which the site's
-# strict build cannot see. make site-api copies the reference into the built
-# site under /api/, beside the pages Zensical builds from docs/api/, and make
-# site builds the whole site that way. The docs workflow runs make site-api
-# after its own strict build.
+# strict build cannot see. make api first removes target/doc, so the
+# reference holds only what this build writes, and no page that an earlier
+# cargo doc left there. make site-api copies the reference into the built
+# site under /api/, and make site builds the whole site that way.
+#
+# make api still fails on rustdoc warnings in several crates. Until it
+# passes, it is not a gate, the docs workflow does not run make site-api,
+# and zensical.toml leaves the pages in docs/api/ out of the site.
 API_DOC_DIR = $(or $(CARGO_TARGET_DIR),target)/doc
 API_PACKAGES = $(foreach c,$(patsubst crates/%/src/lib.rs,%,$(wildcard crates/*/src/lib.rs)),-p $(c))
 API_RUSTDOCFLAGS = -D warnings -D rustdoc::broken_intra_doc_links
 
 .PHONY: api site-api site release-notes
 api: ## Build the crates' interfaces with rustdoc into target/doc, failing on any rustdoc warning or broken intra-doc link
+	rm -rf $(API_DOC_DIR)
 	RUSTDOCFLAGS="$(API_RUSTDOCFLAGS)" cargo doc --no-deps --all-features --lib $(API_PACKAGES)
 
 site-api: api ## Copy the crates' interfaces into the built site under target/site/api (run make docs first)
-	@test -f target/site/api/index.html || { echo "target/site/api has no index page: run make docs first" >&2; exit 1; }
+	@test -f target/site/index.html || { echo "target/site has no built site: run make docs first" >&2; exit 1; }
+	mkdir -p target/site/api
 	cp -R $(API_DOC_DIR)/. target/site/api/
 
 site: docs ## Build the documentation site with the crates' interfaces under /api/
@@ -865,10 +871,12 @@ site: docs ## Build the documentation site with the crates' interfaces under /ap
 # A release's notes (ADR-1508 D3): docs/releases/VERSION.md is the one text,
 # and this writes the GitHub release's body from it, with each link to a page
 # of the site turned into the page's full address. The release's steps pass
-# the file to gh release create --notes-file.
+# the file to gh release create --notes-file. The file goes to
+# target/release-notes/ in the checkout even when CARGO_TARGET_DIR points
+# elsewhere, because the release's steps name that path.
 release-notes: ## Write the GitHub release body for VERSION=V from docs/releases/V.md to target/release-notes/V.md
 	@test -n "$(VERSION)" || { echo "name the release: make release-notes VERSION=0.1.0-alpha.9" >&2; exit 1; }
-	cargo run -q -p vtium-site --bin release-notes -- --out $(or $(CARGO_TARGET_DIR),target)/release-notes/$(VERSION).md $(VERSION)
+	cargo run -q -p vtium-site --bin release-notes -- --out target/release-notes/$(VERSION).md $(VERSION)
 
 # Tier 3: vtium's install tree in a QEMU/KVM guest with a real kernel VT and
 # KMS device, its screens captured and compared with the goldens in

@@ -1,6 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="872" height="620" viewBox="0 0 872 620" font-family="DejaVu Sans Mono, monospace">
+<svg xmlns="http://www.w3.org/2000/svg" width="872" height="596" viewBox="0 0 872 596" font-family="DejaVu Sans Mono, monospace">
 <title>vtium's suite, and who runs each piece</title>
-<rect width="872" height="620" fill="#ffffff"/>
+<rect width="872" height="596" fill="#ffffff"/>
 <defs>
 <marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
 <marker id="arrow-blue" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#2f6fb0"/></marker>
@@ -49,7 +49,7 @@
 <line x1="436" y1="402" x2="436" y2="332" stroke="#2f6fb0" stroke-width="1.5"/>
 <rect x="40" y="390" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="140" y="415" font-size="14" text-anchor="middle" fill="#1f2933">vtium config use-frit</text>
-<rect x="40" y="450" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
+<rect x="40" y="450" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="140" y="475" font-size="14" text-anchor="middle" fill="#1f2933">vtium-clipboard</text>
 <rect x="336" y="402" width="200" height="40" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
 <text x="436" y="427" font-size="14" text-anchor="middle" fill="#1f2933">shell and programs</text>
@@ -77,6 +77,4 @@
 <text x="610" y="346" font-size="13" fill="#1f2933">each install</text>
 <line x1="24" y1="576" x2="64" y2="576" stroke="#2f6fb0" stroke-width="2"/>
 <text x="76" y="581" font-size="13" fill="#1f2933">the only way from the session to vtium: bytes on the session's terminal</text>
-<rect x="24" y="594" width="40" height="12" fill="#ffffff" stroke="#9aa5b1" stroke-width="1" stroke-dasharray="6 4"/>
-<text x="76" y="605" font-size="13" fill="#1f2933">proposed, not built yet</text>
 </svg>
