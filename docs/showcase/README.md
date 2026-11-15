@@ -1,32 +1,36 @@
-<!-- tools/tier3/showcase.sh writes this page from tier 3's showcase run. Change the scenes in tools/tier3/guest/screens/ and run it again; an edit here is lost. -->
+<!-- tools/tier3/showcase.sh writes this page from tier 3's showcase run. Change the scenes in tools/tier3/guest/screens/ or the figures in docs/figures/ and run it again; an edit here is lost. -->
 
 # Showcase
 
-These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display, and nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. The screens are made again for each release, and they judge nothing: [How vtium is judged](../concepts/how-vtium-is-judged.md) explains how vtium's output is judged.
-
-## A shell session
+These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, vtium's test harness in a virtual machine, ran vtium on a VT of its guest and captured each screen from the guest's display, and nothing in them is mocked up or edited. Each scene is a shell script that writes fixed bytes, so every run draws the same screen. Some categories also show how vtium behaves over time, in figures drawn by hand. The screens are made again once per wave of work and before each release. They judge nothing, and [How vtium is judged](../concepts/how-vtium-is-judged.md) explains how vtium's output is judged.
 
 ![A console screen showing a shell session in a smooth monospaced font: prompts in blue, gray and green segments, a colored listing of the vtium source tree, a git log with a branch graph and yellow commit hashes, the crates of vtium, then a row of six pictures, each with its file name under it: the Earth rising over the Moon, hexagonal tiles in teal, gold and coral, a Julia set glowing violet and orange, a rainbow plasma, a sun setting behind purple hills, and the whole Earth. Below them are three lines of greetings and thanks in English, Chinese, Japanese, Korean, Thai, Greek, Russian, Vietnamese, French and German with emoji, the first also in Hindi, Arabic and Hebrew, the Arabic and Hebrew reading right to left, and a line of words each drawn in the style it names: underline, double, curly, dotted, dashed, a red curly underline, strike, inverse and dim.](hero.png)
 
 vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28 rows of 128 columns: prompts in powerline segments with an icon from Symbols Nerd Font Mono, a colored directory listing, a git history with its branch graph, a gallery of six pictures in kitty graphics with their file names, greetings in several scripts with emoji, and a line of text styles: straight, double, curly, dotted and dashed underlines, a curly underline in a color of its own, strike, inverse and dim. vtium's own gallery tool, tools/gallery/gallery, draws the gallery: four pictures computed from a few lines of arithmetic, and two photographs NASA's astronauts took, Earthrise and the Blue Marble. The scene writes the rest of the session byte for byte, and the last prompt is the shell's own, with its cursor.
 
-## Outline text
+## Text and fonts
+
+![A console screen in a smooth monospaced font: a gold title twice as tall and twice as wide reading Lines of double size, a gray normal line under it, a light blue heading twice as wide, words twice as wide in single, double, curly, dotted and dashed underlines, struck and overlined, a blue badge reading READY twice as tall beside the words in 24-bit color, Greek and Russian words twice as wide, and two rulers of digits, one twice as wide, both ending at the right edge.](double-size.png)
+
+vtium draws lines of double size, as the DEC terminals did: a line twice as tall and twice as wide for a title, and a line twice as wide for a heading. The font helper renders each character of Iosevka Term at twice its size from the outline itself, so the large letters stay as smooth as the small ones. A double-width line holds 60 characters, half of a normal line's 120, and its ruler ends at the right edge as the normal ruler under it does. Colors, reverse video and every underline style follow the doubled letters.
+
+[Every screen of text and fonts](text-and-fonts.md)
+
+## Scripts and emoji
+
+![A console screen with three rows of syllables on colored tiles, in Tamil, Hindi and Kannada, the tiles one or two cells wide; two rows of Kannada and Tamil conjuncts, each drawn as one joined shape across tiles of alternating shades; and a sentence in Tamil and one in Kannada, each beside the name of its language.](syllables.png)
+
+vtium draws the syllables of South Asian scripts whole. The upper rows show how many character cells a syllable takes: each sits on a colored tile as wide as its cells, and a syllable with a spacing vowel sign, such as Tamil கொ or Hindi का, takes two, as the shell's line editor counts it. In the lower rows each Kannada and Tamil conjunct is several clusters, each on a shade of its own, as Unicode cuts it. vtium keeps those cells and shapes the syllable once, so the joined form stretches across them: ra under ka, the reph over ka, and five consonants stacked in one syllable. Under them, the first sentence of the Universal Declaration of Human Rights in Tamil and in Kannada.
+
+[Every screen of scripts and emoji](scripts-and-emoji.md)
+
+## Styles and modes
 
 ![A console screen in a smooth monospaced font: a paragraph about vtium, a short Rust function with colored keywords, strings and comments beside line numbers, words underlined in single, double, curly, dotted and dashed lines in several colors, words in italic, struck through, dim, reversed and in 24-bit color, raised and lowered small text such as E = mc² and H₂O with an underlined footnote mark and struck small text, an overlined word, and rows of arrows, mathematical symbols and typographic marks.](text.png)
 
 vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points on a 1920x1080 display, prose, a code listing in 24-bit color, every underline style a program can ask for, the other text styles, and the symbols of mathematics and typography. Iosevka Term has no italic face, so vtium slants the regular face for italic. Raised and lowered text (SGR 73 and 74) draws at two thirds of the size, and an underline or a strike on it follows the small glyph.
 
-## Emoji
-
-![A console screen with lines of text mixing words and color emoji, a family, a flag, a raised fist, scales and a dove each under a single, struck, red curly, over or double line, then rows of faces, animals, food and objects, people and families drawn as single pictures, national flags, number keycaps, and hands in five skin tones.](emoji.png)
-
-vtium draws color emoji from Noto Color Emoji beside the text, two cells wide, with the sequences that join several emoji into one picture: people and families joined by zero-width joiners, flags, keycaps and skin tones. An underline, a strike or an overline reaches across the whole emoji.
-
-## Scripts
-
-![A console screen listing the first sentence of the Universal Declaration of Human Rights under the English sentence, each beside the name of its language: Chinese, Japanese and Korean; Thai and Vietnamese; Hindi and Bengali; Arabic and Hebrew, whose lines run from the right edge, the language's name at the right; a Hebrew line from the right edge holding the Latin name vtium 0.1, and an English sentence quoting Hebrew words and the number 1; Amharic, Armenian and Georgian; then French, German, Polish, Greek and Russian.](scripts.png)
-
-vtium draws the world's scripts. Each line is the first sentence of the Universal Declaration of Human Rights, beside the name of its language. Chinese, Japanese and Korean are two cells wide. Thai stacks its vowel and tone marks above and below its letters. Hindi and Bengali join their consonants and place each vowel sign before, after, above or below its letter. Arabic and Hebrew run right to left: each of those two lines starts at the right edge, and the Arabic letters join into words. Two lines mix the directions in one paragraph: a Hebrew line that carries the Latin name vtium and a version number, which read left to right inside it, and an English sentence that quotes Hebrew with a number, which read right to left inside it. Amharic is written in the Ethiopic script, and Armenian, Georgian, Latin, Greek and Cyrillic carry their own letters and accents.
+[Every screen of styles and modes](styles-and-modes.md)
 
 ## Color
 
@@ -34,11 +38,15 @@ vtium draws the world's scripts. Each line is the first sentence of the Universa
 
 vtium draws every color a program can ask for: the 256 colors of xterm's palette, the 16 colors of the console's palette, and 24-bit color, here as smooth gradients. Below, vtium's named palettes, each drawn as its 16 colors; vtium.conf's palette key chooses one.
 
-## Box drawing
+[Every screen of color](color.md)
+
+## Lines and blocks
 
 ![A console dashboard of five framed panels with rounded and double borders: a bar chart of block elements, a sine wave plotted in Braille dots, disk gauges, a table of services with colored status marks, and a filled area chart drawn in sextants.](boxes.png)
 
 vtium draws box drawing, block elements, Braille and sextants itself, edge to edge in every cell, so lines join and bars stack without gaps whatever the font: here a dashboard a script draws.
+
+[Every screen of lines and blocks](lines-and-blocks.md)
 
 ## Pictures
 
@@ -46,27 +54,31 @@ vtium draws box drawing, block elements, Braille and sextants itself, edge to ed
 
 vtium shows pictures in the console as desktop terminals do: on the left a sixel picture of the Mandelbrot set in 201 colors, on the right a kitty graphics picture of a lit sphere in 24-bit color. tools/tier3/t3_showcase.py computes both from a few lines of arithmetic.
 
-## Fonts
+[Every screen of pictures](pictures.md)
 
-![Four horizontal bands on a black background, each naming its font, Iosevka Term, Terminus, GNU Unifont and JetBrains Mono, then showing in that font the same pangrams, digits and symbols, accented, Greek and Cyrillic letters, a line of styles (italic, struck, curly underlined, E = mc² and H₂O in raised and lowered text, and dim), and a line of box drawing and block elements.](fonts.png)
+## Input and pointer
 
-vtium draws any font a frit names, bitmap or outline. These four bands are four captures of the same screen, each in one font and starting with its name and kind: Iosevka Term and JetBrains Mono are outline fonts, which vtium scales to the cell and antialiases; Terminus is a PSF console font, and GNU Unifont, which vtium carries, is drawn at twice its size, both as bitmaps of whole pixels. Each band's styles line shows italic, which vtium slants itself where a font has no italic face, in whole pixels in the two bitmap fonts; strike, a curly underline, raised and lowered text at two thirds of the size, and dim. [Choose a font](../fonts.md) shows how to choose your own.
+![Four numbered panels. 1: a program on a remote host sends OSC 52 with the word hello in base64. 2: vtium holds hello as its selection. 3: Shift+Insert or the middle button pastes hello into the shell. 4: a program sends OSC 52 with a question mark to read the selection, and vtium sends nothing back.](../figures/showcase-osc52-copy.svg)
+
+A program copies text with OSC 52, even over SSH or inside tmux, where it shares no clipboard with you. vtium decodes the text and keeps it as its selection, the one a paste sends. Shift+Insert or the middle button pastes it into the console you are using. A program that asks to read the selection back gets no reply, so no program can read what you copied.
+
+[Every screen of input and pointer](input-and-pointer.md)
 
 ## Small machines
 
-The same console runs on a machine with 512 MB of memory and no GPU. These two screens are tier 3 goldens of vtium's smallest build, minspec.
-
-![vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 drawn black on black; the words bold, underline, reverse, bold-underline-red, faint and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green to red, and a shell prompt with a block cursor](small/sgr.png)
-
-vtium's minspec build draws this on a VT of tier 3's guest, which has 1 vCPU and 512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font made from Unifont's glyphs, 80 by 30 cells. It is a tier 3 golden. The font has no italic face, so vtium slants the word `italic` itself. It moves the upper rows of each letter to the right in steps of one pixel, and the lowest rows stay where they are.
+The same console runs on a machine with 512 MB of memory and no GPU. These screens are tier 3 goldens of vtium's smallest build, minspec.
 
 ![vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 background colors, six color names, bold, faint, underlined, reversed and struck words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, four underline styles, a progress bar at 50%, and a prompt](small/small-console.png)
 
 The same build draws this in the same guest on a 320x240 display, the smallest vtium supports, in vtium's 8x8 PSF test font made from Unifont's glyphs folded to half height, 40 by 30 cells. It is also a tier 3 golden. The maintainer reviewed and accepted it.
 
+[Every screen of small machines](small-machines.md)
+
 ## How these screens are made
 
-`tools/tier3/showcase.sh` built vtium at commit `b45fa45b`, whose console logged itself as vtium v0.1.0-alpha.7-192-gb45fa45b, ran tier 3's variant `showcase-1920x1080` on 2026-11-13, and wrote this page. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+`tools/tier3/showcase.sh` built vtium at commit `be0aeb42`, whose console logged itself as vtium v0.1.0-alpha.8-210-gbe0aeb42, ran tier 3's variant `showcase-1920x1080` on 2026-11-15, and wrote these pages. The variant's machine has 4 virtual CPUs and 4096 MB of memory, a virtio-vga display at 1920x1080 and Linux 7.2.11-arch1-1, and runs vtium built with the `images` feature, drawing on its CPU renderer. The console starts in a cell of 16x40 pixels, and the shell scene, the hero, switches to its own frit, `showcase-shell`, in a cell of 15x38 pixels, so the hero holds 28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md#the-showcase) describes the variant.
+
+Each figure under "How it behaves" is drawn by hand, as the other figures of these pages are. A claim file beside each figure names the code that each step rests on, and `docs/scripts/claims` checks that the code is still there.
 
 Every font may be redistributed. vtium carries no font file but GNU Unifont, so `t3_showcase.py` pins each other font by its address and SHA-256 and fetches it into a cache, and the run carries it into the guest.
 
@@ -85,6 +97,8 @@ Every font may be redistributed. vtium carries no font file but GNU Unifont, so 
 | Noto Sans Hebrew | 3.001 | SIL Open Font License 1.1 | Hebrew in the scripts scene | [the Noto project's monthly release 24.9.1 on GitHub, pinned by tools/tier2/src/fonts.rs](https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansHebrew/hinted/ttf/NotoSansHebrew-Regular.ttf) | `cdefaf8efd47045f6820928eba84db5bed7557539328952b5f828315485e02ee` |
 | Noto Sans Georgian | 2.005 | SIL Open Font License 1.1 | Georgian in the scripts scene | [the Noto project's monthly release 24.9.1 on GitHub](https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansGeorgian/hinted/ttf/NotoSansGeorgian-Regular.ttf) | `d3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346` |
 | Noto Sans Ethiopic | 2.102 | SIL Open Font License 1.1 | Amharic in the scripts scene, in the Ethiopic script | [the Noto project's monthly release 24.9.1 on GitHub](https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansEthiopic/hinted/ttf/NotoSansEthiopic-Regular.ttf) | `f6f7fc379db9438959a2b0527e7a2cf36ea9c84626d56ec444fff37fc24c3c10` |
+| Noto Sans Tamil | 2.004 | SIL Open Font License 1.1 | Tamil in the syllables scene | [the Noto project's monthly release 24.9.1 on GitHub, pinned by tools/tier2/src/fonts.rs](https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansTamil/hinted/ttf/NotoSansTamil-Regular.ttf) | `3c0a186feb3c63c7f6d63e1511dcdc144e745ae09b98e217c83f3e317974f6f9` |
+| Noto Sans Kannada | 2.005 | SIL Open Font License 1.1 | Kannada in the syllables scene | [the Noto project's monthly release 24.9.1 on GitHub, pinned by tools/tier2/src/fonts.rs](https://github.com/notofonts/notofonts.github.io/raw/noto-monthly-release-24.9.1/fonts/NotoSansKannada/hinted/ttf/NotoSansKannada-Regular.ttf) | `f1a39a97a40486a345b1930169cb111098a4eaf40a88eb4303d2c0b8e7ceeeb5` |
 | Symbols Nerd Font Mono | 3.4.0 | MIT | the prompt's symbols | [the release's file, pinned by tools/specimens/src/fonts.rs](https://github.com/ryanoasis/nerd-fonts/raw/v3.4.0/patched-fonts/NerdFontsSymbolsOnly/SymbolsNerdFontMono-Regular.ttf) | `f0f624d9b474bea1662cf7e862d44aebe1ae1f6c7f9cb7a0ca5d0e5ac9561c60` |
 
 In the hero, vtium's gallery tool, `tools/gallery/gallery`, shows six pictures. `t3_showcase_gallery.py` computes `hex-tiles.png`, `julia-set.png`, `plasma.png` and `sunset-hills.png` from a few lines of arithmetic. The other two are photographs in the public domain, shrunk once to 256x160 pixels and committed in `tools/tier3/showcase-photos/`:

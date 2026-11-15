@@ -1,4 +1,6 @@
 #!/bin/bash
+# category: lines and blocks
+# hero: yes
 # vtium draws box drawing, block elements, Braille and sextants itself,
 # edge to edge in every cell, so lines join and bars stack without gaps
 # whatever the font: here a dashboard a script draws.

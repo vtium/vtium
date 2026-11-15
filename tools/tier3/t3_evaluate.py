@@ -337,10 +337,15 @@ def header(case, script=None):
     """The leading comment lines of a screen's script, or of `script` in the
     screens' directory, by field: "" for the caption, then the "# look-for:",
     "# wrong-looks-like:", "# screen-text:" and "# kit:" lines (the local VT
-    demo's review kit), and the "# alt:" lines, a showcase scene's alt text
-    (t3_showcase)."""
+    demo's review kit), and a showcase scene's "# alt:" lines, its alt text,
+    and its "# category:" and "# hero:" lines, which sort it on the
+    showcase's pages (t3_showcase). Each keyed line goes to its field and
+    stays out of the caption.
+
+    References:
+    - ADR-1502 D6, "The header lines": the category and hero lines."""
     fields = {"": [], "look-for": [], "wrong-looks-like": [], "screen-text": [], "kit": [],
-              "alt": []}
+              "alt": [], "category": [], "hero": []}
     with open(os.path.join(GUEST, "screens", script or case + ".sh")) as f:
         for line in f:
             if line.startswith("#!"):  # the script's interpreter

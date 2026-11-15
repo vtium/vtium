@@ -1,4 +1,5 @@
 #!/bin/bash
+# category: front page
 # vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28
 # rows of 128 columns: prompts in powerline segments with an icon from
 # Symbols Nerd Font Mono, a colored directory listing, a git history with its

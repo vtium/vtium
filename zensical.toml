@@ -105,6 +105,7 @@ not_in_nav = """
 /acceptance/*.md
 /specimens/*/README.md
 /specimens/simulated/*/README.md
+/showcase/*.md
 """
 
 [project.theme]

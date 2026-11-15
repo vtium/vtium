@@ -7,6 +7,8 @@
 # Arabic, Hebrew, Georgian and Ethiopic for the scripts scene's lines in those
 # scripts, which Iosevka Term and the fonts before them lack, listed after
 # Noto Sans CJK SC so that no character an earlier font draws moves to them;
+# Noto Sans Tamil and Kannada for the syllables scene, after them for the
+# same reason;
 # and the built-in GNU Unifont for anything none of them holds. Each font is
 # pinned by URL and SHA-256 in t3_showcase.py and carried to the guest on the
 # run's disc. Iosevka Term holds a few monochrome emoji, such as U+1F642,
@@ -32,6 +34,8 @@ source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansArabic-Regular.ttf
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansHebrew-Regular.ttf
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansGeorgian-Regular.ttf
 source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansEthiopic-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansTamil-Regular.ttf
+source=outline:/usr/local/share/fonts/vtium-showcase/NotoSansKannada-Regular.ttf
 source=builtin:unifont
 size=30
 cell=16x40

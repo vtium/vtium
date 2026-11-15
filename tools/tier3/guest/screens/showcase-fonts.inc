@@ -1,3 +1,4 @@
+# category: text and fonts
 # vtium draws any font a frit names, bitmap or outline. These four bands are
 # four captures of the same screen, each in one font and starting with its
 # name and kind: Iosevka Term and JetBrains Mono are outline fonts, which

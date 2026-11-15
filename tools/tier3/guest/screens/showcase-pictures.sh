@@ -1,4 +1,6 @@
 #!/bin/bash
+# category: pictures
+# hero: yes
 # vtium shows pictures in the console as desktop terminals do: on the left
 # a sixel picture of the Mandelbrot set in 201 colors, on the right a kitty
 # graphics picture of a lit sphere in 24-bit color.

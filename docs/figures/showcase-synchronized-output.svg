@@ -1,0 +1,92 @@
+<!-- category: styles and modes -->
+<!-- caption: A full-screen program brackets each frame in mode 2026, synchronized output. While the mode is set, vtium keeps showing the last whole frame, however many pieces the next one arrives in. -->
+<!-- caption: When the program resets the mode, vtium draws the new frame at once, so the display never shows half of one. If a program never resets the mode, vtium shows the screen as it is after sync-timeout, 200 ms by default. -->
+<!-- alt: Three numbered panels, each with two small screens, the terminal's screen above and the display below. 1: the program sends CSI ? 2026 h, and both show frame A in blue. -->
+<!-- alt: 2: the program has written the top of frame B, so the terminal's screen is half green and half blue, and the display still shows frame A whole. 3: the program sends CSI ? 2026 l, and both show frame B in green. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="392" viewBox="0 0 960 392" font-family="DejaVu Sans Mono, monospace">
+<title>A frame sent in pieces inside mode 2026</title>
+<rect width="960" height="392" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<rect x="16" y="16" width="304" height="360" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="38" cy="38" r="11" fill="#2f6fb0"/>
+<text x="38" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">1</text>
+<text x="56" y="43" font-size="13" fill="#1f2933">the frame begins</text>
+<text x="32" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="32" y="68" width="272" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="40" y="85" font-size="12" fill="#1f2933">CSI ? 2026 h</text>
+<text x="32" y="122" font-size="11" fill="#1f2933">the terminal's screen</text>
+<rect x="32" y="128" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="42" y="138" width="150" height="7" fill="#2f6fb0"/>
+<rect x="42" y="151" width="110" height="7" fill="#2f6fb0"/>
+<rect x="42" y="164" width="130" height="7" fill="#2f6fb0"/>
+<rect x="42" y="177" width="90" height="7" fill="#2f6fb0"/>
+<rect x="42" y="190" width="140" height="7" fill="#2f6fb0"/>
+<text x="32" y="222" font-size="11" fill="#1f2933">the display</text>
+<rect x="32" y="228" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="42" y="238" width="150" height="7" fill="#2f6fb0"/>
+<rect x="42" y="251" width="110" height="7" fill="#2f6fb0"/>
+<rect x="42" y="264" width="130" height="7" fill="#2f6fb0"/>
+<rect x="42" y="277" width="90" height="7" fill="#2f6fb0"/>
+<rect x="42" y="290" width="140" height="7" fill="#2f6fb0"/>
+<rect x="216" y="128" width="88" height="78" fill="none"/>
+<text x="216" y="150" font-size="11" fill="#1f2933">frame A</text>
+<text x="216" y="166" font-size="11" fill="#1f2933"></text>
+<text x="216" y="250" font-size="11" fill="#1f2933">frame A</text>
+<text x="32" y="334" font-size="12" fill="#1f2933">vtium holds its drawing from here on.</text>
+<rect x="332" y="16" width="304" height="360" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="354" cy="38" r="11" fill="#2f6fb0"/>
+<text x="354" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">2</text>
+<text x="372" y="43" font-size="13" fill="#1f2933">the frame arrives in pieces</text>
+<text x="348" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="348" y="68" width="272" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="356" y="85" font-size="12" fill="#1f2933">the top of frame B</text>
+<text x="348" y="122" font-size="11" fill="#1f2933">the terminal's screen</text>
+<rect x="348" y="128" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="358" y="138" width="120" height="7" fill="#3b8f5a"/>
+<rect x="358" y="151" width="150" height="7" fill="#3b8f5a"/>
+<rect x="358" y="164" width="100" height="7" fill="#3b8f5a"/>
+<rect x="358" y="177" width="90" height="7" fill="#2f6fb0"/>
+<rect x="358" y="190" width="140" height="7" fill="#2f6fb0"/>
+<text x="348" y="222" font-size="11" fill="#1f2933">the display</text>
+<rect x="348" y="228" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="358" y="238" width="150" height="7" fill="#2f6fb0"/>
+<rect x="358" y="251" width="110" height="7" fill="#2f6fb0"/>
+<rect x="358" y="264" width="130" height="7" fill="#2f6fb0"/>
+<rect x="358" y="277" width="90" height="7" fill="#2f6fb0"/>
+<rect x="358" y="290" width="140" height="7" fill="#2f6fb0"/>
+<rect x="532" y="128" width="88" height="78" fill="none"/>
+<text x="532" y="150" font-size="11" fill="#1f2933">half B,</text>
+<text x="532" y="166" font-size="11" fill="#1f2933">half A</text>
+<text x="532" y="250" font-size="11" fill="#1f2933">frame A</text>
+<text x="348" y="334" font-size="12" fill="#1f2933">The screen changes, so vtium</text>
+<text x="348" y="350" font-size="12" fill="#1f2933">owes a draw. The display</text>
+<text x="348" y="366" font-size="12" fill="#1f2933">keeps frame A.</text>
+<rect x="648" y="16" width="304" height="360" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="670" cy="38" r="11" fill="#2f6fb0"/>
+<text x="670" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">3</text>
+<text x="688" y="43" font-size="13" fill="#1f2933">the frame ends</text>
+<text x="664" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="664" y="68" width="272" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="672" y="85" font-size="12" fill="#1f2933">CSI ? 2026 l</text>
+<text x="664" y="122" font-size="11" fill="#1f2933">the terminal's screen</text>
+<rect x="664" y="128" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="674" y="138" width="120" height="7" fill="#3b8f5a"/>
+<rect x="674" y="151" width="150" height="7" fill="#3b8f5a"/>
+<rect x="674" y="164" width="100" height="7" fill="#3b8f5a"/>
+<rect x="674" y="177" width="135" height="7" fill="#3b8f5a"/>
+<rect x="674" y="190" width="80" height="7" fill="#3b8f5a"/>
+<text x="664" y="222" font-size="11" fill="#1f2933">the display</text>
+<rect x="664" y="228" width="176" height="78" rx="3" fill="#1f2933"/>
+<rect x="674" y="238" width="120" height="7" fill="#3b8f5a"/>
+<rect x="674" y="251" width="150" height="7" fill="#3b8f5a"/>
+<rect x="674" y="264" width="100" height="7" fill="#3b8f5a"/>
+<rect x="674" y="277" width="135" height="7" fill="#3b8f5a"/>
+<rect x="674" y="290" width="80" height="7" fill="#3b8f5a"/>
+<rect x="848" y="128" width="88" height="78" fill="none"/>
+<text x="848" y="150" font-size="11" fill="#1f2933">frame B</text>
+<text x="848" y="166" font-size="11" fill="#1f2933"></text>
+<text x="848" y="250" font-size="11" fill="#1f2933">frame B</text>
+<text x="664" y="334" font-size="12" fill="#1f2933">vtium draws frame B whole, at once.</text>
+</svg>
