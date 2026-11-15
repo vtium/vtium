@@ -1161,6 +1161,18 @@ class RunVt(Case):
         copy = os.path.join(seen, "config", "vtium.conf")
         self.assertEqual(read(copy), read(conf))
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        # A private file's copy stays private, while the review's own file
+        # is copied readable by everyone, as the acceptance pass reads it.
+        os.chmod(conf, 0o600)
+        p = self.run_vt("--shell", f"--config={conf}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0600 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+        shutil.rmtree(seen)
+        os.mkdir(seen)
+        p = self.run_vt("--shell", f"--config={conf}", "8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o600)
+        os.chmod(conf, 0o644)
         # The acceptance pass keeps the review's file.
         self.refused(self.run_vt(f"--config={conf}", "--dry-run", "8"), "--config goes with --login, --shell or --guide")
         # The given file is held to the review file's rules, a symlink
@@ -1723,6 +1735,12 @@ class VtSh(Case):
         p = self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="t.conf", VTIUM_VT_DRY_RUN="1")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f" --config={conf} ", p.stdout)
+        # A symlink reaches run-vt.sh as it was named, and run-vt.sh refuses
+        # it, as it refuses a symlink named with --config.
+        link = os.path.join(self.s.tmp, "link.conf")
+        os.symlink(conf, link)
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="link.conf", VTIUM_VT_DRY_RUN="1"),
+                     f"{link} is a symlink")
 
     def test_the_log_directory_must_be_the_users_own(self):
         os.symlink(self.s.tmp, self.s.dir)

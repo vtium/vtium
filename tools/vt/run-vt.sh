@@ -73,7 +73,9 @@
 # --guide, --config=FILE names a vtium.conf that takes the place of the
 # review's for this run, under the same rules, such as
 # config/login-picture.conf, which names a login picture, or a conf beside a
-# guide, such as checks/pointer-file-svg.conf. The acceptance pass always
+# guide, such as checks/pointer-file-svg.conf. Its copy is readable by group
+# and others only where the file itself is, so a private file stays private
+# while the run lasts. The acceptance pass always
 # reads the review's file, since its pages expect the review's settings.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
@@ -498,6 +500,12 @@ fetch "$config_src" || die "$user cannot read $config_src"
 check_file "$config_src" "vtium, as root, would read it"
 [ "$flinks" -eq 1 ] || die "$config_src has $flinks hard links; the run copies only a file of its own"
 config_copy=$fetched
+# The copy of the review's file is readable by everyone, since the acceptance
+# pass reads it as the user. The copy of a file --config names is readable by
+# group and others only where the file itself is, so a private file stays
+# private while the run lasts.
+config_mode=0644
+[ -z "$config" ] || config_mode=$(printf '%04o' $((8#$fmode & 8#0644)))
 # vtium names itself TERM=xterm-vtium; the run compiles that entry from the
 # checkout, as the package does, for the sessions it starts itself.
 terminfo_src=$checkout/crates/vtium/install/xterm-vtium.ti
@@ -816,8 +824,8 @@ EOF
 # first logout instead, below. vtium is started in the background so that it
 # ignores Ctrl-C (bash does that for background jobs in a script) and this
 # script decides how it stops: SIGTERM from restore(). --configdir names the
-# stage's copy of config/vtium.conf, the review's own configuration, so the
-# system's is never read.
+# stage's copy of the run's configuration, config/vtium.conf or the file
+# --config names, so the system's is never read.
 terminfo=(TERMINFO="$stage/terminfo")
 # The acceptance pass records the build it judges: the VT, the binary and its
 # features, beside the label (ADR-1501 D5).
@@ -879,7 +887,7 @@ stage_made=1
 	umask 022
 	act rm -rf -- "$stage"
 	act install -d -m 0755 "${own[@]}" -- "$stage" "$stage/terminfo" "$stage/frits" "$stage/config"
-	copy 0644 "$config_copy" "$config_src" "$stage/config/vtium.conf"
+	copy "$config_mode" "$config_copy" "$config_src" "$stage/config/vtium.conf"
 	for i in "${!frit_files[@]}"; do
 		copy 0644 "${frit_srcs[i]}" "${frit_files[i]}" "$stage/frits/${frit_files[i]##*/}"
 	done
