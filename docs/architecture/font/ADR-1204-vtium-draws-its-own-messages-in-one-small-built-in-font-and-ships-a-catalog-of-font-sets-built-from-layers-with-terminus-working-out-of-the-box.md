@@ -120,6 +120,9 @@ considered:
   - operator: aaronsb
     said: "I don't think it needs to know the distro command to install fonts as much as the help docs for it could advise more generally"
     via: the steering session, 2026-11-15
+  - operator: aaronsb
+    said: "It's just hard to track a bunch of specific commands for distros"
+    via: the steering session, 2026-11-15
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -359,7 +362,7 @@ vtium draws a set with every named font that it finds and that passes its `check
 
 vtium-config tells the person before they meet a gap. `vtium config fonts` lists each set's missing fonts, each by its name, its version and its upstream page. The TUI's Fonts and Looks views mark a set with a missing font, and name the missing fonts when the person chooses that set. `vtium check-config` prints the same lines for each set that vtium.conf names.
 
-vtium-config names fonts and leaves installing them to the person (amended 2026-11-15). The maintainer chose general advice over a command for each distribution. vtium's help page on fonts says how to install a font: search the distribution's packages for the font's name, or download it from its upstream page into a fonts folder. Each report of a missing font points to that page.
+vtium-config names fonts and leaves installing them to the person (amended 2026-11-15). The maintainer chose general advice over a command for each distribution, because a list of commands for each distribution is hard to keep current. vtium's help page on fonts says how to install a font: search the distribution's packages for the font's name, or download it from its upstream page into a fonts folder. Each report of a missing font points to that page.
 
 ### D8: how each font reaches the machine
 
