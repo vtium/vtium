@@ -6,10 +6,14 @@
 //!
 //! - a planned, partial or weighed row names no issue, or names only
 //!   closed issues, so nothing open carries its work or its decision;
-//! - an issue that a supported row names is open, and no planned, partial
-//!   or weighed row names it, so the open issue's remaining work has no
-//!   row, or the issue's work is done and the issue was never closed;
 //! - a number in the issue column is a pull request or does not exist.
+//!
+//! An open issue that only supported rows name is not a failure. Its work is
+//! done on this branch, and the issue stays open until the stage pull request
+//! that brings these rows to main merges and closes it. Closing the issue
+//! earlier fails main's own check, because main's rows still wait on it.
+//! `to_close` lists those issues, so the stage pull request's body can say
+//! `Closes #N` for each.
 //!
 //! The rules take the states as a lookup, so the tests need no network.
 
@@ -131,6 +135,14 @@ pub fn check(rows: &[Row], state: impl Fn(u32) -> State) -> Vec<String> {
             ));
         }
     }
+    out
+}
+
+/// Each open issue that only supported rows name, one message each, in the
+/// order of the issue numbers. The stage pull request that brings these rows
+/// to main closes each of them.
+pub fn to_close(rows: &[Row], state: impl Fn(u32) -> State) -> Vec<String> {
+    let mut out = Vec::new();
     // each open issue a supported row names, with the supported rows that
     // name it, when no row still waiting on work names it
     let mut supported: BTreeMap<u32, Vec<&str>> = BTreeMap::new();
@@ -147,7 +159,7 @@ pub fn check(rows: &[Row], state: impl Fn(u32) -> State) -> Vec<String> {
             .any(|r| OWED.contains(&r.status.as_str()) && r.issues.contains(&n));
         if !owed {
             out.push(format!(
-                "Issue #{n} is open, and only supported ADR-1000 rows name it: {}. Close the issue if its work is done, or add a planned or partial row that names it for the work it still holds.",
+                "Issue #{n} is open, and only supported ADR-1000 rows name it: {}. The stage pull request that brings these rows to main closes it, so its body says Closes #{n}. If the issue still holds work, add a planned or partial row that names it.",
                 ids.join(", ")
             ));
         }
@@ -225,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn an_open_issue_only_supported_rows_name_fails() {
+    fn an_open_issue_only_supported_rows_name_is_left_for_the_stage_to_close() {
         let rows = [
             row("a.one", "supported", &[5]),
             row("a.two", "supported", &[10, 5]),
@@ -233,10 +245,11 @@ mod tests {
             row("c.one", "supported", &[6]),
             row("c.rest", "partial", &[6]),
         ];
+        assert_eq!(check(&rows, state), Vec::<String>::new());
         assert_eq!(
-            check(&rows, state),
+            to_close(&rows, state),
             [
-                "Issue #5 is open, and only supported ADR-1000 rows name it: a.one, a.two. Close the issue if its work is done, or add a planned or partial row that names it for the work it still holds."
+                "Issue #5 is open, and only supported ADR-1000 rows name it: a.one, a.two. The stage pull request that brings these rows to main closes it, so its body says Closes #5. If the issue still holds work, add a planned or partial row that names it."
             ]
         );
     }

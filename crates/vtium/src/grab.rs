@@ -59,13 +59,18 @@ pub enum Action {
     Head(HeadChord),
     /// The paste.
     Paste,
+    /// Link hints start, or end while they are on.
+    ///
+    /// References:
+    /// - ADR-1002, section 7: the key that labels each link on the screen.
+    LinkHints,
     /// A terminal's grab.
     Grab(Grab),
 }
 
 /// Every key of vtium.conf that binds an action, in the key order: a
 /// combination two of them bind goes to the one that comes first here.
-pub const ORDER: [(&Key, Action); 21] = [
+pub const ORDER: [(&Key, Action); 22] = [
     (&keys::KEY_REBOOT, Action::Power(PowerKey::Reboot)),
     (&keys::KEY_POWER_OFF, Action::Power(PowerKey::PowerOff)),
     (&keys::KEY_SUSPEND, Action::Power(PowerKey::Suspend)),
@@ -91,6 +96,7 @@ pub const ORDER: [(&Key, Action); 21] = [
         Action::Head(HeadChord::PreviousHead),
     ),
     (&keys::KEY_PASTE, Action::Paste),
+    (&keys::KEY_LINK_HINTS, Action::LinkHints),
     (&keys::KEY_SCROLL_UP, Action::Grab(Grab::ScrollUp)),
     (&keys::KEY_SCROLL_DOWN, Action::Grab(Grab::ScrollDown)),
     (&keys::KEY_PAGE_UP, Action::Grab(Grab::PageUp)),
@@ -388,6 +394,7 @@ mod tests {
         assert_eq!(action(LOGO, &[MINUS]), g(Grab::RotateCcw));
         assert_eq!(action(CTRL | SHIFT, &[DELETE]), g(Grab::Reset));
         assert_eq!(action(SHIFT, &[INSERT]), Some(Action::Paste));
+        assert_eq!(action(CTRL | SHIFT, &[0x4f]), Some(Action::LinkHints), "O");
         let ctrl_super = CTRL | LOGO;
         assert_eq!(action(ctrl_super, &[RIGHT]), c(HeadChord::NextConsole));
         assert_eq!(action(ctrl_super, &[LEFT]), c(HeadChord::PreviousConsole));

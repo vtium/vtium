@@ -77,6 +77,7 @@ key-kitty-associated-text     works   -     input.kitty-keyboard           flag 
 
 # strings vtium does not take yet
 osc-8-hyperlink               works   -     osc.8                          links stay in their cells through a wrap and the scrollback, an invalid URI closes the open link, and the pointer and Ctrl show a link whole with its URI
+pointer-shape                 works   -     window.pointer-shape           OSC 22 sets, pushes and pops the pointer's shape, and a query answers from vtium's own set of shapes
 osc-52-clipboard              works   -     osc.52.write                   OSC 52 sets the clipboard, which the host takes once
 vtium-clipboard-copy          works   -     clipboard.copy-tool            the bytes vtium-clipboard copy writes set the clipboard to its text, and vtium answers XTVERSION with its name, then DA1
 osc-133-marks                 works   -     osc.133                        the view jumps between the prompts OSC 133 marks, and a command's output selects whole

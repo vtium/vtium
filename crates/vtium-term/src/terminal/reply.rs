@@ -97,6 +97,8 @@ queries! {
     /// XTSMGRAPHICS, `CSI ? Pi ; Pa ; Pv S`: the sixel graphics settings,
     /// answered in every build.
     Xtsmgraphics,
+    /// OSC 22's query of the pointer's shape, kitty's pointer-shapes.
+    PointerShape,
     ; images:
     /// The image protocols' replies (ADR-1100, D6): each `ReplyKind` a
     /// handler writes, in a build with images.
@@ -774,6 +776,23 @@ mod tests {
                 let request = cat(&[b"\x1b]50;", &tok, b"\x07\x1b]50;?\x1b\\"]);
                 (request, vec![tok], vec![])
             }
+            // A hostile name pushed and set, then asked about with the
+            // current shape: the reply names vtium's own default shape and
+            // answers 0 for the name, never the name itself.
+            Query::PointerShape => {
+                let request = cat(&[
+                    b"\x1b]22;>",
+                    &tok,
+                    b"\x1b\\\x1b]22;=",
+                    &tok,
+                    b"\x07\x1b]22;?__current__,",
+                    &tok,
+                    b",",
+                    &tok,
+                    b"\x1b\\",
+                ]);
+                (request, vec![tok], vec![])
+            }
         };
         Probe {
             request,
@@ -872,6 +891,10 @@ mod tests {
                 Query::ColorScheme => (b"\x1b[?996n", b"\x1b[?997;1n"),
                 Query::ColorStack => (b"\x1b[#P\x1b[3#P\x1b[#R", b"\x1b[?3;3#Q"),
                 Query::Font => (b"\x1b]50;?\x07", b"\x1b]50;unifont\x07"),
+                Query::PointerShape => (
+                    b"\x1b]22;>hand2\x1b\\\x1b]22;?__current__,text,cell\x07",
+                    b"\x1b]22;pointer,1,0\x07",
+                ),
                 Query::Xtsmgraphics => (b"\x1b[?1;1S", b"\x1b[?1;1S"),
             };
             let mut t = fixture();

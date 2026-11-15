@@ -1,0 +1,9 @@
+> size 10 2
+> send "\e]22;<\e\\\e]22;?__current__\e\\"
+< reply "\e]22;0\e\\"
+> send "\e]22;>move,ns-resize\e\\\e]22;=ew-resize\e\\\e]22;?__current__\e\\"
+< reply "\e]22;ew-resize\e\\"
+> send "\e]22;<wait\e\\\e]22;?__current__\e\\"
+< reply "\e]22;move\e\\"
+> send "\e]22;<\e\\\e]22;<\e\\\e]22;?__current__\e\\"
+< reply "\e]22;0\e\\"

@@ -670,6 +670,34 @@ pub fn frit_text(dir: &Path, color: bool, spacing: u32) -> String {
     text
 }
 
+/// The bitmap-first frit's text, its outline sources the fonts in `dir`.
+/// The built-in GNU Unifont comes first, limited to ASCII by its `cover=`
+/// line, so it is a bitmap first source that sets the 8x16 cell. Each
+/// regular font of the test frit follows with its `cover=` lines, the
+/// color emoji font included, and with a `render=smooth` line under it
+/// when `smooth` is set. Without that line, each outline source draws
+/// 1-bit, because the first source is a bitmap font.
+///
+/// References:
+/// - ADR-1200 D1, the `render=` row: the default behind a bitmap first
+///   source and its override.
+pub fn bitmap_frit_text(dir: &Path, smooth: bool) -> String {
+    let mut text = String::from("source=builtin:unifont\ncover=ascii\n");
+    for font in FONTS.iter().filter(|f| f.style.line().is_none()) {
+        text.push_str(&format!(
+            "source=outline:{}\n",
+            dir.join(font.file).display()
+        ));
+        for cover in font.cover {
+            text.push_str(&format!("cover={cover}\n"));
+        }
+        if smooth {
+            text.push_str("render=smooth\n");
+        }
+    }
+    text
+}
+
 /// The test frit's name: `tier2-outline`, or `tier2-outline-mono` without
 /// the color emoji font.
 fn frit_name(color: bool) -> &'static str {
@@ -744,14 +772,12 @@ pub fn chosen_frit(
             .collect();
         return Err(format!("the frit {name} left out {}", why.join("; ")));
     }
-    let cell = match engine.own_cell(height)? {
-        EngineCell::Outline(cell) => cell,
-        EngineCell::Bitmap(cell) => {
-            return Err(format!(
-                "the frit {name}'s first source is a bitmap font of cell {}x{}",
-                cell.width, cell.height
-            ));
-        }
+    // the cell the frit's first source gives, as the helper answers the
+    // console's cell query: a bitmap font's own cell, or an outline font's
+    // at `height`
+    let own = match engine.own_cell(height)? {
+        EngineCell::Outline(cell) => OwnCell::Outline(cell),
+        EngineCell::Bitmap(cell) => OwnCell::Bitmap(cell),
     };
     let mut chosen = Chosen::frit(
         FritText {
@@ -766,7 +792,7 @@ pub fn chosen_frit(
             "the frit {name} asks for no cell at {height} pixels"
         ));
     }
-    chosen.set_own_cell(OwnCell::Outline(cell), false);
+    chosen.set_own_cell(own, false);
     // the cell and the rows its spacing adds, as the console reads them
     // from a display's face to ask the helper at
     let at = {

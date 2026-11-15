@@ -1,0 +1,15 @@
+# A name vtium has no shape for gives the default shape: a set of one
+# makes the pointer the default, a push of one pushes the default, and a
+# query of one answers 0. The reply never repeats the unknown name.
+# spec: xterm's ctlseqs, OSC Ps = 2 2: a name that matches no standard name gives the default shape; kitty's pointer-shapes specification, the query's 0 for a name the terminal does not support; ADR-1000 window.pointer-shape
+# covers: window.pointer-shape
+size 10 2
+send "\e]22;pointer\e\\\e]22;no-such-shape\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;default\e\\"
+send "\e]22;>text\e\\\e]22;>no-such-shape\e\\\e]22;?__current__,no-such-shape\e\\"
+check
+reply "\e]22;default,0\e\\"
+send "\e]22;<\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;text\e\\"

@@ -1,0 +1,7 @@
+> size 10 2
+> send "\e]22;?pointer,crosshair,no-such-name,wait\e\\"
+< reply "\e]22;1,1,0,1\e\\"
+> send "\e]22;?__default__,__grabbed__\e\\"
+< reply "\e]22;default,default\e\\"
+> send "\e]22;?text,grab,not-allowed,zoom-out,progress\e\\"
+< reply "\e]22;1,0,1,0,1\e\\"

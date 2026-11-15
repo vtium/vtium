@@ -536,6 +536,7 @@ impl Handler for Iterm2 {
             pixels: None,
             largest: graphic(ctx),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),
+            fit: None,
         };
         self.pending = Some((keys, reservation));
         ctx.request(request);

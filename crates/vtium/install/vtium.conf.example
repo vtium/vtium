@@ -432,6 +432,15 @@
 #key-prompt-up=<Ctrl><Shift>Up
 #key-prompt-down=<Ctrl><Shift>Down
 
+# -- Links -------------------------------------------------------------------
+
+## Label each link on the screen with letters, and copy the address of the
+## link whose label you type.
+##
+## When empty, no key labels the links.
+
+#key-link-hints=<Ctrl><Shift>O
+
 # -- Zoom, rotation and reset ------------------------------------------------
 
 ## key-zoom-in: Make the font of the console on screen larger.
@@ -935,6 +944,21 @@
 ## A build without image support accepts this key and starts no helper.
 
 #image-helper=/usr/bin/vtium-image
+
+# -- Login picture -----------------------------------------------------------
+
+## login-image: A PNG or JPEG file shown each time a login prompt starts.
+#
+## login-image-fit: How the login picture fits: `cover`, `contain`, `stretch`,
+## `none` or `banner`.
+#
+## login-image-rows: A banner's height in text rows.
+## login-image-position: Where a banner sits: `left`, `center` or `right`.
+
+#login-image=
+#login-image-fit=cover
+#login-image-rows=
+#login-image-position=left
 
 # == Running vtium ===========================================================
 #

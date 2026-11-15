@@ -101,6 +101,7 @@ fn base(medium: Medium, w: u32, h: u32) -> Request {
         pixels: None,
         largest: (w, h),
         largest_bytes: u64::from(w) * u64::from(h) * 4 * 2,
+        fit: None,
     }
 }
 

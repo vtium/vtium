@@ -459,7 +459,15 @@ VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,
 # before login, so the driver never logs in ("login": False).
 VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_account="nobody",
                                          login=False, screens=[], rpc_pipefs=False)
-IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
+# The login picture (ADR-1100 D17): the images machine and tree, whose
+# configuration names the test disc picture as the login picture under
+# cover. The login prompt is captured as the case "login-image"
+# ("login_shot"), and the driver never logs in.
+VARIANTS["images-login-640x480"] = dict(VARIANTS["images-640x480"],
+                                        conf="vtium-login-image.conf",
+                                        login_shot="login-image", login=False,
+                                        screens=[], prelogin=False, rpc_pipefs=False)
+IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody", "images-login-640x480"]
 
 # The showcase (ADR-1502 D6, t3_showcase): the default machine at 1920x1080,
 # its console built with images and bidi, so the scripts scene's Arabic and
@@ -715,7 +723,8 @@ def variant_cases(variant):
     if v.get("kmsg"):
         return ["kernel-message"]
     first = ([v["first"]] if "first" in v else []) + (
-        [t3_images.CASE] if v.get("prelogin") else [])
+        [t3_images.CASE] if v.get("prelogin") else []) + (
+        [v["login_shot"]] if "login_shot" in v else [])
     if not v.get("login", True):
         return first + list(v.get("checks", []))
     out = first + (CASES if "screens" not in v else cases(screens_of(variant)))
@@ -1207,6 +1216,11 @@ def run_variant(variant, timing, impl, log):
         prompt = None
         if v["device"] is not None and v["renderer"] is not None:
             prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
+        if "login_shot" in v and prompt is not None:
+            # the login prompt as it first settles, the login picture behind it
+            path = os.path.join(work, v["login_shot"] + ".ppm")
+            shutil.copyfile(tmp, path)
+            caps[v["login_shot"]] = path
         if "second" in v:
             wait_stable(vm, os.path.join(work, "two-heads-start.ppm"), settle=2.0, timeout=90,
                         want=not_blank, output=t3_heads.second_output(v))

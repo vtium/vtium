@@ -158,6 +158,9 @@ struct Shown {
     /// screen without any cell's damage. OSC 12's color is the palette's,
     /// and a palette change marks every cell.
     cursor: ((usize, usize), bool, CursorStyle),
+    /// The pointer's shape, OSC 22's. A new shape draws the pointer again
+    /// and marks no cell, as a cursor change does.
+    pointer: vtium_term::PointerShape,
 }
 
 impl Shown {
@@ -165,6 +168,7 @@ impl Shown {
         Shown {
             since: terminal.screen_mut().checkpoint(),
             cursor: Shown::cursor(terminal),
+            pointer: terminal.pointer_shape(),
         }
     }
 
@@ -177,10 +181,12 @@ impl Shown {
         )
     }
 
-    /// Whether `terminal`'s screen changed since: a cell or the cursor.
+    /// Whether `terminal`'s screen changed since: a cell, the cursor or
+    /// the pointer's shape.
     fn changed(&self, terminal: &Terminal) -> bool {
         let damage = terminal.screen().damage();
         self.cursor != Shown::cursor(terminal)
+            || self.pointer != terminal.pointer_shape()
             || (0..damage.rows()).any(|row| damage.row_changed(row, self.since))
     }
 }
@@ -221,6 +227,8 @@ pub struct Snapshot {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<(usize, String)>,
+    /// The labels of link hints, while they are on.
+    link_hints: Vec<vtium_term::LinkHint>,
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
     /// The order each row is drawn in, which the frame the snapshot
@@ -245,6 +253,7 @@ impl Snapshot {
         let order = frame.order().clone();
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
+        let link_hints = frame.link_hints().to_vec();
         #[cfg(feature = "images")]
         let placements = frame.placements().to_vec();
         Snapshot {
@@ -255,6 +264,7 @@ impl Snapshot {
             selection,
             hovered,
             overlay,
+            link_hints,
             palette,
             #[cfg(feature = "images")]
             placements,
@@ -277,7 +287,8 @@ impl Snapshot {
         .with_hover(
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
-        );
+        )
+        .with_link_hints(&self.link_hints);
         #[cfg(feature = "images")]
         let frame = frame.with_placements(self.placements.clone());
         // the cursor came from the screen's frame already drawn where its
@@ -1150,6 +1161,11 @@ impl View {
             return Prepared::Nothing;
         }
         let tip = state.pointer;
+        if let Some(drawing) = self.drawing.as_mut() {
+            let shape = term.terminal.pointer_shape();
+            self.pointer
+                .follow(&mut drawing.renderer, &mut self.arrow, shape);
+        }
         let state = DrawState {
             pointer: self.pointer.before_draw(video, self.id, &self.arrow, tip),
             ..*state
@@ -1414,6 +1430,28 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // ADR-1002, section 7: the frame a head's render thread draws from the
+    // snapshot carries the labels of link hints and vtium's note on the
+    // overlay row.
+    #[test]
+    fn a_snapshot_carries_the_labels_of_link_hints() {
+        let mut terminal = Terminal::new(10, 2, 0);
+        terminal.input(b"  \x1b]8;;x:a\x1b\\link\x1b]8;;\x1b\\");
+        let links = terminal.screen().view_links();
+        let screen = terminal.screen_mut();
+        screen.set_link_hints(links.into_iter().map(|l| (l, "a".to_owned())).collect());
+        screen.set_overlay_note(Some("pick".to_owned()));
+        let snapshot = Snapshot::take(&terminal);
+        let frame = snapshot.frame(Age::NEVER);
+        let placed: Vec<_> = frame
+            .link_hints()
+            .iter()
+            .map(|h| (h.label.as_str(), h.at))
+            .collect();
+        assert_eq!(placed, [("a", (2, 0))]);
+        assert_eq!(frame.overlay().map(|o| (o.row, o.uri)), Some((1, "pick")));
+    }
 
     // ADR-1004 D8 to D10: the frame a head's render thread draws from the
     // snapshot shows a mixed line in the order vtium-term draws it, the
@@ -3708,6 +3746,32 @@ mod tests {
         assert_eq!(term.terminal.screen().images().image_count(), 1, "stored");
         assert_eq!(video.composed, 1, "no frame for the transmission");
         assert_eq!(counted(&mut view), (1, 0));
+    }
+
+    // OSC 22 changes the pointer's shape and no cell: the screen changed,
+    // and the next draw hands the shape's picture to the cursor plane. A
+    // set of the shape it already has changes nothing.
+    // covers: window.pointer-shape
+    #[test]
+    fn a_pointer_shape_changes_the_screen_and_goes_to_the_plane() {
+        let (mut term, mut view) = view();
+        let mut video = Plane::new(true);
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        let arrow = view.arrow().clone();
+        term.changed = false;
+        term.parse(b"\x1b]22;pointer\x1b\\", &mut |_| {});
+        assert!(term.changed, "a new shape changes the screen");
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_ne!(view.arrow(), &arrow);
+        assert_eq!(video.arrow.as_ref(), Some(view.arrow()));
+        term.changed = false;
+        term.parse(b"\x1b]22;=hand2\x1b\\", &mut |_| {});
+        assert!(!term.changed, "the same shape again changes nothing");
+        term.parse(b"\x1b]22;\x1b\\", &mut |_| {});
+        assert!(term.changed, "the default shape again");
+        draw(&mut term, &mut view, &mut video, Some((5, 6)));
+        assert_eq!(view.arrow(), &arrow);
+        assert_eq!(video.arrow.as_ref(), Some(&arrow));
     }
 
     // What output changes of a frame beyond its cells is the cursor: its

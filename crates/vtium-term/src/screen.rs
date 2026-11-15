@@ -596,7 +596,7 @@ impl Screen {
     /// The view, as the display that last drew at `since` reads it: the
     /// screen, or the scrollback and the screen while scrolled back, with
     /// the cursor in the palette's cursor color, the selection, the
-    /// hovered link and the overlay showing its URI.
+    /// hovered link, the overlay row and the labels of link hints.
     pub fn frame<'a>(&'a self, palette: &'a Palette, since: Age) -> Frame<'a> {
         let lines = self.view();
         let offset = self.scrollback.offset();
@@ -635,12 +635,8 @@ impl Screen {
             self.flags.reverse,
         )
         .with_selection(selected)
-        .with_hover(
-            self.hover.link,
-            self.hover
-                .overlay
-                .zip(self.hover.link.and_then(|l| self.link_uri(l))),
-        );
+        .with_hover(self.hover.link, self.hover.overlay.zip(self.overlay_text()))
+        .with_link_hints(&self.hover.hints);
         #[cfg(feature = "images")]
         let frame = frame.with_placements(placements);
         #[cfg(feature = "bidi")]

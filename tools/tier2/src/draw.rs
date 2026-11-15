@@ -126,6 +126,11 @@ pub enum InkFonts {
     /// symbol test font [`crate::fitfont`] behind it for the Private Use
     /// Area, then the frit lines `extra` ([`crate::fitfont::frit_text`]).
     Merged { extra: &'static str },
+    /// The built-in GNU Unifont for ASCII, a bitmap first source, with the
+    /// test frit's regular outline fonts behind it, which draw 1-bit unless
+    /// `smooth` puts a `render=smooth` line under each
+    /// ([`crate::fonts::bitmap_frit_text`]).
+    Bitmap { smooth: bool },
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -543,6 +548,18 @@ impl Feed<'_> {
     }
 }
 
+/// Link hints on a screen, set after the bytes and the pointer: the view's
+/// links take labels as vtium gives them, the labels the letters `typed`
+/// do not begin are hidden, and the overlay row shows the line that tells
+/// how to pick a label.
+///
+/// References:
+/// - ADR-1002, section 7: the labels, their letters and the overlay row.
+#[derive(Clone, Copy, Debug)]
+pub struct LinkHints {
+    pub typed: &'static str,
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -576,6 +593,12 @@ pub struct Screen {
     /// Ctrl held with the pointer: the hovered link's address shows on
     /// the overlay row (ADR-1002, "Drawing").
     pub ctrl: bool,
+    /// The pointer's tip in the grid's pixels, where the renderer draws
+    /// the pointer in the shape the terminal names, OSC 22's, as a display
+    /// without a cursor plane draws it. `None` draws no pointer.
+    pub arrow: Option<(u32, u32)>,
+    /// Link hints on, set after the bytes and the pointer.
+    pub link_hints: Option<LinkHints>,
     /// The pictures, fed with the terminal's sixel and kitty handlers on
     /// (`crate::pictures`): before the first frame, after the bytes, and,
     /// for a screen with a second part, before each later frame too, the
@@ -633,6 +656,8 @@ impl Screen {
             alone: None,
             pointer: None,
             ctrl: false,
+            arrow: None,
+            link_hints: None,
             pictures: None,
             made_cell: None,
             selection: None,
@@ -825,6 +850,15 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                     crate::fonts::check_shipped(&fetched)?;
                     (frit.name, frit.text.to_owned(), fetched.as_path())
                 }
+                InkFonts::Bitmap { smooth } => {
+                    crate::fonts::check(&fetched)?;
+                    let text = crate::fonts::bitmap_frit_text(&fetched, smooth);
+                    let name = match smooth {
+                        true => "tier2-bitmap-outline-smooth",
+                        false => "tier2-bitmap-outline",
+                    };
+                    (name, text, fetched.as_path())
+                }
             };
             let mut drawn = Vec::new();
             for take in takes {
@@ -1001,14 +1035,20 @@ impl Display {
     }
 
     /// Draws the terminal's frame into the back buffer and swaps when the
-    /// frame drew anything, as a display does.
+    /// frame drew anything, as a display does. The pointer, when `arrow`
+    /// places it, takes the shape the terminal names, as the console
+    /// hands it to the renderer before each draw.
     fn frame<F: Face>(
         &mut self,
         r: &mut Renderer<F>,
-        (term, phase): (&mut Terminal, Phase),
+        (term, phase, arrow): (&mut Terminal, Phase, Option<(u32, u32)>),
         since: &mut Age,
     ) {
-        let state = phase.state(term.palette().bg());
+        r.set_pointer_shape(term.pointer_shape());
+        let state = DrawState {
+            pointer: arrow,
+            ..phase.state(term.palette().bg())
+        };
         let age = self.age();
         let drew = {
             let frame = term.screen().frame(term.palette(), *since);
@@ -1161,6 +1201,14 @@ pub(crate) fn prepare<F: Face>(
     if let Some(at) = screen.pointer {
         term.screen_mut().set_pointer(Some(at), screen.ctrl);
     }
+    if let Some(hints) = screen.link_hints {
+        let s = term.screen_mut();
+        let links = s.view_links();
+        let labels = vtium::hints::labels(links.len());
+        s.set_link_hints(links.into_iter().zip(labels).collect());
+        s.show_link_hints(|label| label.starts_with(hints.typed));
+        s.set_overlay_note(Some(vtium::hints::PROMPT.to_owned()));
+    }
     if matches!(screen.font, FontKind::Sprites { .. }) {
         check_sprites(font, &term)?;
     }
@@ -1208,22 +1256,22 @@ fn draw_config<F: Face>(
     let mut display = Display::new(w, h);
     let mut r = Renderer::new(font, w, h, config);
     let mut since = Age::NEVER;
-    display.frame(&mut r, (&mut term, screen.phase), &mut since);
+    display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
     if let Some(next) = screen.next {
         later(screen, &mut term, 1, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         feed(&mut term, next)?;
         later(screen, &mut term, 2, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         later(screen, &mut term, 3, made)?;
-        display.frame(&mut r, (&mut term, screen.phase), &mut since);
+        display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
         if display.buffers[0].pixels() != display.buffers[1].pixels() {
             return Err("the two buffers differ after the last frame".to_owned());
         }
         let mut fresh = Display::new(w, h);
         let mut r2 = Renderer::new(make_font(), w, h, config);
         let mut never = Age::NEVER;
-        fresh.frame(&mut r2, (&mut term, screen.phase), &mut never);
+        fresh.frame(&mut r2, (&mut term, screen.phase, screen.arrow), &mut never);
         if fresh.front().pixels() != display.front().pixels() {
             return Err("the frames drawn in turn differ from a fresh draw".to_owned());
         }

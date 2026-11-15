@@ -360,6 +360,22 @@ def header(case, script=None):
     return fields
 
 
+# The login picture's capture (ADR-1100 D17, t3_scenario's "login_shot"):
+# the login prompt as it first settles, with no script of its own.
+LOGIN_SHOTS = {
+    "login-image": (
+        "The login prompt of images-login-640x480, whose vtium.conf names the "
+        "test disc picture as the login picture under cover. Correct: the disc "
+        "picture scaled, keeping its shape, until it covers the 640x480 display "
+        "and centered, cut at the top and bottom, the corners outside its "
+        "disc transparent, so the default background shows there; the login "
+        "prompt's text over it, and the picture behind every cell of the "
+        "default background.",
+        "No picture behind the prompt, a picture stretched out of shape, or "
+        "a picture over the text."),
+}
+
+
 def describe(case):
     """(caption, what a defect looks like) of a case.
 
@@ -378,6 +394,8 @@ def describe(case):
         return CHECKS[case], None
     if case in t3_heads.FIRST:
         return t3_heads.FIRST[case], None
+    if case in LOGIN_SHOTS:
+        return LOGIN_SHOTS[case]
     fields = header(case)
     caption = " ".join(fields[""])
     if fields["look-for"]:

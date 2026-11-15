@@ -630,6 +630,13 @@ impl Head {
                 self.name()
             );
         }
+        // Link hints end with the shown console's session.
+        //
+        // References:
+        // - ADR-1002, section 7: how link hints end.
+        if self.console.id == id {
+            self.end_link_hints();
+        }
         // The shown console is drawn at once, a hidden one when it is shown.
         if self.console.id == id {
             self.draw_now = true;

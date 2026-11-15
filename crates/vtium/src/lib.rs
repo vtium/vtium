@@ -42,6 +42,7 @@ pub mod gpu;
 pub mod grab;
 pub mod head;
 pub mod helper;
+pub mod hints;
 pub mod hook;
 pub mod kernel;
 pub mod layout;

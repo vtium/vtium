@@ -1,0 +1,7 @@
+# A program sets the pointer's shape with OSC 22 and reads it back.
+# spec: kitty's pointer-shapes specification; ADR-1000 window.pointer-shape
+# capability: pointer-shape
+size 10 2
+send "\e]22;>pointer\e\\\e]22;?__current__,text,no-such-name\e\\"
+check
+reply "\e]22;pointer,1,0\e\\"

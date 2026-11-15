@@ -10,3 +10,23 @@ lines-graphics-unifont	DEC special graphics, box drawing and blocks on double-si
 lines-powerline	Powerline separators on double-size lines in the merged font set, drawn on 2026-11-14 from the symbols the font helper fits to the doubled cell at 16 and 32 pixels; not reviewed yet
 ligatures	programming ligatures (ADR-1308 D8), drawn on 2026-11-14 in Iosevka Term at 40 pixels with font-ligatures on, as written and with the cursor on the ! of !=; not reviewed yet
 ligatures-off	the ligatures text with font-ligatures off, drawn on 2026-11-14 in Iosevka Term at 40 pixels; not reviewed yet
+pointer-default	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-text	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-pointer	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-crosshair	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-wait	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-progress	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-not-allowed	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-move	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ew-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-ns-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+pointer-change	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+link-hints-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
+link-hints-unifont-1bit	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
+link-hints-typed-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
+bitmap-outline	new: outline glyphs behind a bitmap first source drawn 1-bit by default (vtium/vtium#311), for the maintainer to review
+bitmap-outline-smooth	new: the same font set with render=smooth under each outline source (vtium/vtium#311), for the maintainer to review
+login-cover	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-contain	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-rotated	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
+login-banner	new with the login picture (ADR-1100 D17), drawn by vtium and not yet reviewed
