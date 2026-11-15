@@ -184,6 +184,45 @@ pub enum Hinting {
     /// a font that has none, may also move a glyph's stems sideways onto
     /// whole columns.
     Full,
+    /// Hinted as `Full` hints, and then drawn 1-bit: each pixel the glyph
+    /// covers at least half of is fully on, and every other pixel is off.
+    /// No `hinting=` line gives this value. The helper asks for it for an
+    /// outline source whose glyphs draw as a bitmap font's glyphs draw, as
+    /// that source's `render=` says, so the request to the parser carries
+    /// it in place of the frit's own hinting.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: full hinting and the 1-bit
+    ///   coverage of `render=bitmap`, whatever `hinting=` says.
+    Bitmap,
+}
+
+/// The value of a `render=` line: how the monochrome glyphs of the outline
+/// source above it draw. A source with no `render=` line draws as
+/// `Bitmap` behind a bitmap first source and as `Smooth` otherwise, which
+/// the helper decides once it knows what each source is.
+///
+/// References:
+/// - ADR-1200 D1, the `render=` row: the two values and the default.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Render {
+    /// Each glyph as a bitmap font's glyph draws: hinted to the pixel grid
+    /// both ways, then every pixel fully on or fully off.
+    Bitmap,
+    /// Each glyph as any outline glyph draws, antialiased where the
+    /// console's antialiasing rules allow it.
+    Smooth,
+}
+
+impl Frit {
+    /// What the `render=` line under the source on `line` says, or `None`
+    /// when that source has none.
+    pub fn render_for(&self, line: usize) -> Option<Render> {
+        self.render
+            .iter()
+            .find(|&&(at, _)| at == line)
+            .map(|&(_, r)| r)
+    }
 }
 
 /// The ranges `glyph-source-<range>=` names, by the configuration's
@@ -219,6 +258,9 @@ pub struct Frit {
     /// the configuration's keys over it.
     pub glyph_source: Vec<(Option<Range>, vtium_font::Source)>,
     pub license: Option<String>,
+    /// `render=`, by the line of the outline `source=` it is for, in the
+    /// frit's order. A source with no `render=` line is not listed.
+    pub render: Vec<(usize, Render)>,
     /// The frit's bytes, verbatim.
     pub text: String,
     /// The file the frit was read from, for messages.
@@ -296,6 +338,7 @@ impl Frit {
         let mut set: Option<(usize, Option<Vec<Cover>>)> = None;
         let mut glyph_source = Vec::new();
         let mut license = None;
+        let mut render: Vec<(usize, Render)> = Vec::new();
         let mut warnings = Vec::new();
         // the sources a `style=` line has named, by their place
         let mut styled: Vec<usize> = Vec::new();
@@ -541,6 +584,30 @@ impl Frit {
                         set_line,
                     });
                 }
+                "render" => {
+                    let i = current(&mut sources)?;
+                    let source = sources
+                        .get(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    // a font: source is a console font or an outline font,
+                    // which only the helper finds out, so it may take one;
+                    // every other source but outline: is a bitmap font
+                    if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
+                        return Err(err(
+                            n,
+                            "render= is for an outline font, and the source above it is a bitmap font, which always draws 1-bit",
+                        ));
+                    }
+                    if render.iter().any(|&(at, _)| at == source.line) {
+                        return Err(err(n, "render= appears twice for one source"));
+                    }
+                    let value = match value {
+                        "bitmap" => Render::Bitmap,
+                        "smooth" => Render::Smooth,
+                        _ => return Err(err(n, "render= takes bitmap or smooth")),
+                    };
+                    render.push((source.line, value));
+                }
                 "hinting" => {
                     once(hinting.is_some())?;
                     hinting = Some(match value {
@@ -609,6 +676,7 @@ impl Frit {
             line_spacing,
             glyph_source,
             license,
+            render,
             text: text.to_owned(),
             file: file.to_owned(),
             warnings,
@@ -963,6 +1031,84 @@ mod tests {
         assert_eq!(b.fit(0x0628), Some(Fit::Room));
         assert_eq!(b.fit(0x41), None);
         assert_eq!(r.sources[2].fits, []);
+    }
+
+    // A render= line says how the outline source above it draws, and a
+    // source with none is left out of the list, for the helper to decide.
+    // A font: source may turn out to be an outline font, so it takes one.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the key, its values and its default.
+    #[test]
+    fn render_names_how_the_outline_source_above_it_draws() {
+        let r = parse(
+            "source=kbd:ter-v16n\n\
+             source=outline:/a.ttf\n\
+             render=smooth\n\
+             source=outline:/b.ttf\n\
+             source=font:Symbols Nerd Font Mono\n\
+             cover=U+E000-U+F8FF\n\
+             render = bitmap\n",
+        )
+        .expect("parses");
+        assert_eq!(r.render, [(2, Render::Smooth), (5, Render::Bitmap)]);
+        assert_eq!(r.render_for(2), Some(Render::Smooth));
+        assert_eq!(r.render_for(4), None);
+        assert_eq!(r.render_for(5), Some(Render::Bitmap));
+        let none = parse("source=kbd:x\nsource=outline:/a.ttf\n").expect("parses");
+        assert_eq!(none.render, []);
+    }
+
+    // The refusals of a render= line, each naming its line. A bitmap font
+    // always draws 1-bit, so a render= line under one is an error, as a
+    // script-source= line under an outline font is.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: a render= line under a bitmap source
+    //   is an error in the frit.
+    #[test]
+    fn a_render_line_is_refused_where_it_cannot_apply() {
+        for (text, line, why) in [
+            ("render=bitmap\n", 1, "before any source="),
+            (
+                "source=kbd:x\nrender=smooth\n",
+                2,
+                "render= is for an outline font, and the source above it is a bitmap font",
+            ),
+            ("source=file:/x.psf\nrender=bitmap\n", 2, "is a bitmap font"),
+            ("source=bdf:/x.bdf\nrender=bitmap\n", 2, "is a bitmap font"),
+            (
+                "source=builtin:unifont\nrender=bitmap\n",
+                2,
+                "is a bitmap font",
+            ),
+            ("source=vconsole\nrender=bitmap\n", 2, "is a bitmap font"),
+            ("source=console:2\nrender=bitmap\n", 2, "is a bitmap font"),
+            (
+                "source=outline:/x.ttf\nrender=crisp\n",
+                2,
+                "render= takes bitmap or smooth",
+            ),
+            (
+                "source=outline:/x.ttf\nrender=Bitmap\n",
+                2,
+                "bitmap or smooth",
+            ),
+            (
+                "source=outline:/x.ttf\nrender=bitmap\ncover=ascii\nrender=smooth\n",
+                4,
+                "render= appears twice for one source",
+            ),
+        ] {
+            let (at, said) = refusal(text);
+            assert_eq!(at, line, "{text:?}");
+            assert!(said.contains(why), "{text:?}: {said}");
+        }
+        // a second source takes its own render= line
+        let r =
+            parse("source=outline:/x.ttf\nrender=bitmap\nsource=outline:/y.ttf\nrender=bitmap\n")
+                .expect("parses");
+        assert_eq!(r.render, [(1, Render::Bitmap), (3, Render::Bitmap)]);
     }
 
     #[test]

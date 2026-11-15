@@ -201,6 +201,7 @@ use vtium_platform::vt::font::{ConsoleFont, FONT_GLYPHS_MAX, FONT_PITCH_TALL, Un
 
 use crate::child::PARSER_MEMORY;
 use crate::font::Font;
+use crate::frit::Render;
 use crate::frit::{Cover, FRIT_BYTES_MAX, Frit, Hinting, Source, valid_name};
 pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
@@ -976,6 +977,9 @@ pub struct Engine {
     smaller: Vec<Vec<SmallerFont>>,
     /// The frit's `cell=`, which sets its own cell where it states one.
     cell: Option<Cell>,
+    /// The frit's `render=` lines, by the line of the source each is for
+    /// ([`Engine::draws_as_bitmap`]).
+    render: Vec<(usize, Render)>,
 }
 
 /// A vitrified set of glyphs, `None` when no source gives any, and how the
@@ -1414,6 +1418,19 @@ impl Engine {
                 }
             }
         }
+        // a font: source that turns out to be a console font draws 1-bit
+        // whatever its render= line says, so the line does nothing
+        for (source, _) in sources
+            .iter()
+            .filter(|(_, l)| matches!(l, Loaded::Bitmap(_)))
+        {
+            if frit.render_for(source.line).is_some() {
+                warnings.push(format!(
+                    "{}:{}: source={}: render= is ignored, because this font is a bitmap font, which always draws 1-bit",
+                    frit.name, source.line, source.spelling
+                ));
+            }
+        }
         if sources.is_empty() {
             return Err(if why.is_empty() {
                 format!("{}: the frit names no source", file.display())
@@ -1446,7 +1463,50 @@ impl Engine {
             hinting: frit.hinting,
             smaller,
             cell: frit.cell,
+            render: frit.render,
         })
+    }
+
+    /// Whether the glyphs of the outline source at `i` in `sources` draw as
+    /// a bitmap font's glyphs draw: 1-bit and hinted to the pixel grid both
+    /// ways. The source's `render=` line decides where it has one. A source
+    /// with none draws as a bitmap when the frit's first source is a bitmap
+    /// font, so that the outline glyphs that fill its gaps look like the
+    /// rest of it. The first source is the first regular one the engine can
+    /// still draw from, the one that sets the frit's cell
+    /// ([`Engine::own_cell`]).
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: the values and the default.
+    fn draws_as_bitmap(&self, i: usize) -> bool {
+        let Some((source, _)) = self.sources.get(i) else {
+            return false;
+        };
+        if let Some(&(_, render)) = self.render.iter().find(|&&(at, _)| at == source.line) {
+            return render == Render::Bitmap;
+        }
+        let failed = self.failed.borrow();
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(at, (s, _))| s.style == REGULAR && !failed.contains_key(at))
+            .map(|(_, (_, loaded))| loaded)
+            .next()
+            .is_some_and(|loaded| matches!(loaded, Loaded::Bitmap(_)))
+    }
+
+    /// `request`, for the outline source at `i` in `sources`, asking for
+    /// that source's glyphs 1-bit where they draw as a bitmap
+    /// ([`Engine::draws_as_bitmap`]). Such a request carries
+    /// [`Hinting::Bitmap`] in place of the frit's `hinting=`.
+    fn rendered(&self, request: OutlineRequest, i: usize) -> OutlineRequest {
+        match self.draws_as_bitmap(i) {
+            true => OutlineRequest {
+                hinting: Hinting::Bitmap,
+                ..request
+            },
+            false => request,
+        }
     }
 
     /// The frit text's warnings and one for each source the helper
@@ -2562,6 +2622,7 @@ impl Engine {
                             != Some(i),
                         double_width: doubled == Some(Doubled::Width),
                     };
+                    let request = self.rendered(request, i);
                     let request = match doubled {
                         None => request,
                         Some(d) => match self.doubled_request(request, (i, fitted), cell, d) {
@@ -4818,6 +4879,73 @@ mod tests {
             assert_eq!(s.baseline, base, "{key:?}");
             assert_eq!(drawn.pixels(), &s.glyphs[0].pixels[..], "{key:?}");
         }
+    }
+
+    // Outline glyphs behind a bitmap first source draw 1-bit, so they look
+    // like the bitmap font's own; render=smooth draws them antialiased, and
+    // render=bitmap draws even a first outline source 1-bit. The frit's
+    // first source is an 8x16 PSF font that holds only A, and DejaVu Sans
+    // Mono fills a, g and @; a glyph drawn 1-bit holds only fully lit and
+    // fully dark pixels, and some of them lit. A font: source that turns
+    // out to be a console font draws 1-bit whatever its render= says, so
+    // the helper warns that the line does nothing.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the default and its override.
+    // covers: text.outline
+    #[test]
+    fn outline_glyphs_behind_a_bitmap_first_source_draw_one_bit() {
+        let dejavu = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-ascii.ttf"
+        );
+        let (psf, _dir) = psf_frit("render-psf", &[Ok((8, 16))]);
+        let outline = format!("source=outline:{dejavu}\n");
+        let cases = [
+            (format!("{}{outline}", psf.text), true),
+            (format!("{}{outline}render=smooth\n", psf.text), false),
+            (format!("{}{outline}render=bitmap\n", psf.text), true),
+            (outline.clone(), false),
+            (format!("{outline}render=bitmap\n"), true),
+            (format!("{outline}{}", psf.text), false),
+        ];
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        for (text, one_bit) in cases {
+            let frames = run(&[ServeRequest {
+                cell,
+                ..request(ASK, frit(&text), &['a', 'g', '@'])
+            }]);
+            assert_eq!(frames[0].0, FRAME_GLYPHS, "{text}");
+            let set = Set::from_bytes(frames[0].1.clone()).unwrap();
+            let face = SetFace::new(Arc::new(set), 16).unwrap();
+            let mut partial = false;
+            for c in ['a', 'g', '@'] {
+                let drawn = face.draw(&[c], Style::default()).unwrap();
+                let px = drawn.pixels();
+                assert!(px.iter().any(|&p| p > 0), "{c:?} has ink: {text}");
+                partial |= px.iter().any(|&p| p != 0 && p != 255);
+            }
+            assert_eq!(partial, !one_bit, "{text}");
+        }
+        let kbd = scratch("render-kbd");
+        std::fs::create_dir_all(kbd.join("consolefonts")).unwrap();
+        let font = crate::decode::tests::psf2(8, 16, 1, Some(&[(0, 'A')]));
+        std::fs::write(kbd.join("consolefonts/x.psf"), font).unwrap();
+        let paths = Paths {
+            kbd_dirs: vec![kbd.to_path_buf()],
+            font_dirs: Vec::new(),
+            ..Paths::default()
+        };
+        let engine = Engine::load(&frit("source=font:x\nrender=bitmap\n"), &paths, None).unwrap();
+        assert_eq!(
+            engine.warnings(),
+            [
+                "t:1: source=font:x: render= is ignored, because this font is a bitmap font, which always draws 1-bit"
+            ]
+        );
     }
 
     // one helper keeps a source's baseline for each height apart (review

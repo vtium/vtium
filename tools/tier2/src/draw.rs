@@ -126,6 +126,11 @@ pub enum InkFonts {
     /// symbol test font [`crate::fitfont`] behind it for the Private Use
     /// Area, then the frit lines `extra` ([`crate::fitfont::frit_text`]).
     Merged { extra: &'static str },
+    /// The built-in GNU Unifont for ASCII, a bitmap first source, with the
+    /// test frit's regular outline fonts behind it, which draw 1-bit unless
+    /// `smooth` puts a `render=smooth` line under each
+    /// ([`crate::fonts::bitmap_frit_text`]).
+    Bitmap { smooth: bool },
 }
 
 /// One drawing of a [`FontKind::Ink`] screen: at `height` pixels, with
@@ -844,6 +849,15 @@ pub fn draw_on(screen: &Screen, painter: &mut impl Paint) -> Result<Image, Strin
                 InkFonts::Shipped(frit) => {
                     crate::fonts::check_shipped(&fetched)?;
                     (frit.name, frit.text.to_owned(), fetched.as_path())
+                }
+                InkFonts::Bitmap { smooth } => {
+                    crate::fonts::check(&fetched)?;
+                    let text = crate::fonts::bitmap_frit_text(&fetched, smooth);
+                    let name = match smooth {
+                        true => "tier2-bitmap-outline-smooth",
+                        false => "tier2-bitmap-outline",
+                    };
+                    (name, text, fetched.as_path())
                 }
             };
             let mut drawn = Vec::new();

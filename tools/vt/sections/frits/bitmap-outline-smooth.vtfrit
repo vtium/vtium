@@ -1,0 +1,26 @@
+# bitmap-outline-smooth: the bitmap-outline font set with render=smooth under
+# each outline source, so those sources draw antialiased beside Terminus's
+# 1-bit letters. The bitmap-outline page is walked in it beside
+# bitmap-outline, so the two can be compared.
+#
+# References:
+# - ADR-1200 D1, the render= row: render=smooth draws an outline source as
+#   any outline glyph draws.
+#
+# checks: render=smooth overrides the 1-bit default
+
+name=bitmap-outline-smooth
+license=OFL-1.1 AND Bitstream-Vera
+
+source=file:/usr/share/kbd/consolefonts/ter-v16n.psf.gz
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf
+render=smooth
+source=outline:/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf
+render=smooth
+source=outline:/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf
+render=smooth
+source=outline:/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+render=smooth
+source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf
+render=smooth
+source=builtin:unifont

@@ -1345,7 +1345,9 @@ fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
     let w = World::new("outline-behind-bitmap");
     latin_and_cjk(&w);
     let engine = w
-        .engine("source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\n")
+        .engine(
+            "source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\nrender=smooth\n",
+        )
         .expect("the frit loads");
     let bytes = engine
         .draw(cell(8, 16), &[0x4e00])
@@ -1362,6 +1364,47 @@ fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
         .count();
     let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
     assert_eq!((columns, inked_rows), (11, 6));
+}
+
+// The same frit with no render= line: Test CJK sits behind a bitmap first
+// source, so its ideograph draws 1-bit, every pixel fully lit or dark, at
+// its own size. The edges that smooth rendering covers by less than half a
+// pixel go dark, so it inks 10 columns and 5 rows where it inks 11 and 6
+// antialiased.
+//
+// References:
+// - ADR-1200 D1, the render= row: outline glyphs behind a bitmap first
+//   source draw 1-bit unless render=smooth says otherwise.
+// - ADR-1200 D17: an outline source behind a bitmap first source keeps its
+//   own size.
+#[test]
+fn outline_sources_behind_a_bitmap_first_source_draw_one_bit_at_their_own_size() {
+    let w = World::new("outline-behind-bitmap-one-bit");
+    latin_and_cjk(&w);
+    let engine = w
+        .engine("source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(8, 16), &[0x4e00])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{4e00}'], Style::default())
+        .expect("the ideograph");
+    let rows: Vec<&[u8]> = g.rows().collect();
+    assert!(
+        rows.iter()
+            .flat_map(|r| r.iter())
+            .all(|&p| p == 0 || p == 255),
+        "every pixel fully lit or dark"
+    );
+    let columns = (0..g.width() as usize)
+        .filter(|&x| rows.iter().any(|r| r.get(x).is_some_and(|&p| p != 0)))
+        .count();
+    let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
+    assert_eq!((columns, inked_rows), (10, 5));
 }
 
 // ADR-1200 D21, D22: when no source has a color glyph for the heart with
