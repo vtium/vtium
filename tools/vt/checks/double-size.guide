@@ -37,7 +37,9 @@ intro: row only when a program redraws the line itself, as zsh and vim do.
 intro: A step whose title starts with "Explore" has no right or wrong answer.
 intro: It shows the terminal working as DEC's manuals for the VT100 and the
 intro: VT510 describe. Press s when you are done with it, and add a note if
-intro: you like. The pad shows the step's text at the top of the screen, then
+intro: you like. A separate proof editor, which a later card builds, is to
+intro: show a VT510-capable editor that authors mixed character sizes,
+intro: placement and wrapping. The pad shows the step's text at the top of the screen, then
 intro: its keys, then the lines to type on. Ctrl-D ends the typing, and then
 intro: the step asks its question. A wide line has letters twice as wide as
 intro: normal. A tall pair is two lines that show the top and bottom halves
@@ -93,9 +95,10 @@ do: Insert twice. Then press Down once, onto the bottom line, and press
 do: Insert twice. Try other keys on either line if you like.
 expect: There is no right or wrong here. The terminal changes each line of a
 expect: pair on its own, so the tall letters show split halves until both
-expect: lines match again. The VT100 User Guide says: "the same character
-expect: output must be sent to both lines to form full double-height
-expect: characters". Press s. The next step sends each edit to both lines.
+expect: lines match again. The terminal works as the VT100 User Guide
+expect: says: "the same character output must be sent to both lines to form
+expect: full double-height characters". Tier 1 checks this rule. Press s
+expect: when you are done. The next step sends each edit to both lines.
 
 step: A program that edits both lines keeps tall letters whole
 run: python3 tools/vt/checks/typepad.py --pair pair

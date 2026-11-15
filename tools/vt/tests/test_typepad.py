@@ -502,13 +502,16 @@ class Screens(unittest.TestCase):
                 self.assertIn("Text flows onto the next row only when a program redraws the line itself, as zsh "
                               "and vim do.", intro)
                 self.assertRegex(intro, r'"Explore" ha(s|ve) no right or wrong answer\.')
+                self.assertIn("A separate proof editor, which a later card builds, is to show a VT510-capable editor "
+                              "that authors mixed character sizes, placement and wrapping.", intro)
 
     def test_explore_steps_quote_the_manual_and_ask_for_no_verdict(self):
         # Raw VT510 behaviour that looks broken on its own, a letter lost at
         # the right edge or one line of a tall pair edited alone, stays in
         # the guides as free exploration. Each such step's title starts
         # with "Explore", says there is no right or wrong, quotes the
-        # manual's sentence and asks for s. Every other step is a check
+        # manual's sentence, says that tier 1 checks the rule and asks for
+        # s, because guide.sh asks every step for an answer. Every other step is a check
         # with a "Wrong:" line, and the pair-mode steps are among them.
         for guide, count in ((GUIDE, 1), (INSERT_GUIDE, 2)):
             with self.subTest(guide=os.path.basename(guide)):
@@ -519,7 +522,7 @@ class Screens(unittest.TestCase):
                     if title.startswith("Explore"):
                         self.assertTrue(expect.startswith("There is no right or wrong here."), title)
                         self.assertRegex(expect, r'(VT510 manual|VT100 User Guide) says[^"]*: "[^"]+"', title)
-                        self.assertIn("Press s.", expect, title)
+                        self.assertIn("Tier 1 checks this rule. Press s when you are done.", expect, title)
                         self.assertNotIn("Wrong:", expect, title)
                         self.assertNotIn("--pair", args, title)
                     else:

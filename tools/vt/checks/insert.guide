@@ -34,7 +34,9 @@ intro: text to another row when you insert a letter. Text flows onto the next
 intro: row only when a program redraws the line itself, as zsh and vim do.
 intro: Steps whose titles start with "Explore" have no right or wrong answer.
 intro: They show the terminal working as DEC's manuals describe. Press s
-intro: when you are done with one, and add a note if you like.
+intro: when you are done with one, and add a note if you like. A separate
+intro: proof editor, which a later card builds, is to show a VT510-capable
+intro: editor that authors mixed character sizes, placement and wrapping.
 intro: The pad shows the step's text at the top of the screen, then its keys,
 intro: then the lines to type on. F2 turns the terminal's insert mode on and
 intro: off, and the key list says whether insert mode is on. Ctrl-D ends the
@@ -55,8 +57,9 @@ do: Press F2, then End. Type one letter, then one more. Try more keys if
 do: you like.
 expect: There is no right or wrong here. The first letter takes the right
 expect: edge, and the letter that stood there is lost. The next letter starts
-expect: the wide line below. The VT510 manual says of insert mode:
-expect: "Characters moved past the page's right border are lost". Press s.
+expect: the wide line below. The terminal works as the VT510 manual says of
+expect: insert mode: "Characters moved past the page's right border are
+expect: lost". Tier 1 checks this rule. Press s when you are done.
 
 step: Insert mode on a wide line
 run: python3 tools/vt/checks/typepad.py --insert insert
@@ -73,8 +76,9 @@ do: Press Down three times, onto the upper tall line. Press F2 and type a
 do: few letters. Try the lower line too if you like.
 expect: There is no right or wrong here. Only the line the cursor is on
 expect: changes, so the tall letters after the cursor show split halves. The
-expect: VT100 User Guide says: "the same character output must be sent to
-expect: both lines to form full double-height characters". Press s.
+expect: terminal works as the VT100 User Guide says: "the same character
+expect: output must be sent to both lines to form full double-height
+expect: characters". Tier 1 checks this rule. Press s when you are done.
 
 step: Pair mode keeps tall letters whole in insert mode
 run: python3 tools/vt/checks/typepad.py --pair --insert insert
