@@ -141,3 +141,65 @@ fn the_blank_sequences_leave_the_screen_alone() {
         );
     }
 }
+
+/// The cursor blink interval a terminal fed `bytes` holds for the host.
+fn blink_ms(bytes: &[u8]) -> Option<u32> {
+    let mut t = term(8, 2, bytes);
+    assert_eq!(t.take_replies(), b"", "{bytes:?} replied");
+    t.cursor_blink_ms()
+}
+
+// console_codes(4): `CSI 16 ; n ]` sets the cursor blink interval in
+// milliseconds. The Linux console takes n from 50 to 65535. Any other n,
+// or no n at all, returns the interval to the default, which for vtium is
+// the interval of the `blink` key: `None` here.
+// covers: ctl.linux-blink-interval
+#[test]
+fn csi_16_sets_the_cursor_blink_interval_in_milliseconds() {
+    assert_eq!(blink_ms(b""), None);
+    assert_eq!(blink_ms(b"\x1b[16;50]"), Some(50));
+    assert_eq!(blink_ms(b"\x1b[16;250]"), Some(250));
+    assert_eq!(blink_ms(b"\x1b[16;65535]"), Some(65_535));
+    assert_eq!(blink_ms(b"\x1b[16;250;7]"), Some(250));
+    assert_eq!(blink_ms(b"\x1b[16;250]\x1b[16;800]"), Some(800));
+    for default in [
+        &b"\x1b[16;49]"[..],
+        b"\x1b[16;0]",
+        b"\x1b[16;1]",
+        b"\x1b[16]",
+        b"\x1b[16;]",
+        b"\x1b[16;65536]",
+        b"\x1b[16;4294967295]",
+    ] {
+        let bytes = [&b"\x1b[16;250]"[..], default].concat();
+        assert_eq!(blink_ms(&bytes), None, "{default:?}");
+    }
+}
+
+// The Linux console's reset, which ESC c runs, returns the cursor blink
+// interval to its default. The Linux console has no DECSTR, so DECSTR keeps
+// the interval. The interval belongs to the console, so switching to the
+// alternate screen and back keeps it too.
+// covers: ctl.linux-blink-interval
+#[test]
+fn ris_returns_the_cursor_blink_interval_to_the_default() {
+    assert_eq!(blink_ms(b"\x1b[16;250]\x1bc"), None);
+    assert_eq!(blink_ms(b"\x1b[16;250]\x1bc\x1b[16;300]"), Some(300));
+    assert_eq!(blink_ms(b"\x1b[16;250]\x1b[!p"), Some(250));
+    assert_eq!(blink_ms(b"\x1b[16;250]\x1b[?1049h"), Some(250));
+    assert_eq!(blink_ms(b"\x1b[?1049h\x1b[16;250]\x1b[?1049l"), Some(250));
+}
+
+#[test]
+fn the_cursor_blink_interval_leaves_the_screen_alone() {
+    let screen = |t: &Terminal| (rows(t.screen()), t.screen().cursor());
+    let plain = term(8, 2, b"ab\x1b[1;31mcd");
+    for seq in [&b"\x1b[16;250]"[..], b"\x1b[16;0]", b"\x1b[16]"] {
+        let mut t = term(8, 2, b"ab\x1b[1;31m");
+        t.input(seq);
+        t.input(b"cd");
+        assert_eq!(screen(&t), screen(&plain), "{seq:?}");
+        assert_eq!(t.screen().pen(), plain.screen().pen(), "{seq:?}");
+        assert_eq!(t.take_blank_request(), None, "{seq:?} asked a blank");
+    }
+}
