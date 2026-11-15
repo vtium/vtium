@@ -1,8 +1,11 @@
 # What VTium does not do
 
-vtium leaves out some things on purpose. Each limit below is recorded with its reason.
+vtium leaves some jobs to other programs on purpose. [What vtium leaves to other tools](../home/leaves-to-other-tools.md) lists them in short, and each limit below comes with its reason.
 
-- **It never opens a link.** vtium never starts a browser or any other program from the console. It only copies a link's address.
-- **It never hands the clipboard to a program.** When a program asks to read the selection, vtium does not answer. The answer would go to whatever program reads the terminal.
-- **It never repeats a window title back.** When a program asks for the window title, vtium answers with a fixed empty title. Otherwise a hostile program could set a title and have vtium send it back as input. See [architecture.md](../architecture.md#determinism) for details.
+- **It never opens a link.** A link's address comes from a program's output, and vtium never lets that output start a program on the machine. So vtium never starts a browser or any other program from the console. Ctrl+click copies the link's address, and you decide where to paste it.
+- **It never hands the clipboard to a program.** A program can copy text into vtium's clipboard with OSC 52. When a program asks to read the clipboard, vtium does not answer. The answer would go to whatever program reads the terminal.
+- **It keeps no window title.** A console is the whole screen, with no title bar, so vtium ignores the title a program sets. When a program asks for the window title, vtium answers with a fixed empty title. Otherwise a hostile program could set a title and have vtium send it back as input. See [architecture.md](../architecture.md#determinism) for details.
+- **It has no window to move or resize.** vtium refuses a program's requests to move, raise, iconify, or maximize a window. A program can still ask for a grid of a given number of rows and columns. vtium meets that request by changing the font size, while the `allow-window-ops` setting is on ([config.md](../config.md)).
+- **It has no tabs or split panes.** Each head, a terminal on one or more displays, shows one console at a time, and keys switch between its consoles. A terminal multiplexer such as tmux runs in vtium as an ordinary program and splits a console into panes.
+- **It leaves desktop features to a desktop.** A VT has no notification service and no taskbar. So vtium ignores desktop notifications (OSC 9, OSC 777, and OSC 99) and progress reports (OSC 9;4). It refuses kitty's file transfer, which would read and write files on the machine at a program's request. It also refuses kitty's remote control, which would let a program's output drive the terminal.
 - **It does not sandbox its unit.** vtium's systemd unit, the file that tells systemd how to run vtium, sets no sandbox restrictions. The login session that vtium starts would inherit every restriction the unit set.
