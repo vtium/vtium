@@ -44,6 +44,7 @@ mod bounds;
 pub mod decode;
 mod handler;
 mod image;
+pub mod login;
 pub mod protocol;
 mod rules;
 mod store;
