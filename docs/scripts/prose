@@ -26,7 +26,7 @@ FILE arguments read only those files, whatever their path.
 
 The pages it reads:
     The files git tracks (`git ls-files`) at README.md, docs/*.md,
-    docs/concepts/*.md and crates/*/README.md. It leaves out a generated
+    docs/concepts/*.md, docs/home/*.md and crates/*/README.md. It leaves out a generated
     page, which is a page with a line that starts "Generated from" or
     "<!-- Generated from" among its first five lines. The decision records
     under docs/architecture/ and the pages under docs/acceptance/ are not in
@@ -86,7 +86,7 @@ AVERAGE = 20
 SHORTEST = 4
 ALLOW = "docs/scripts/prose-allow.tsv"
 
-PAGE = re.compile(r"^(?:README\.md|docs/[^/]+\.md|docs/concepts/[^/]+\.md|crates/[^/]+/README\.md)$")
+PAGE = re.compile(r"^(?:README\.md|docs/[^/]+\.md|docs/concepts/[^/]+\.md|docs/home/[^/]+\.md|crates/[^/]+/README\.md)$")
 GENERATED = re.compile(r"^\s*(?:<!--\s*)?Generated from\b")
 
 # These match a line's text after its indent, which units() measures first.
