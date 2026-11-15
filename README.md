@@ -12,17 +12,27 @@
 
 **vtium is a terminal that runs on the Linux console.**
 
-vtium runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. So the console your machine boots into is a full terminal, with 24-bit color, color emoji, images, mouse reporting, and text in any script your fonts cover. vtium renders through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or the GPU.
+vtium runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. The console your machine boots into becomes a full terminal, with 24-bit color, color emoji, images, mouse reporting, and text in the scripts your fonts cover. Rendering goes through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or the GPU.
 
-A full terminal helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. There, editors, file managers and tmux get the color, mouse and image support they expect.
+That helps wherever you work at the machine's own screen: a server without a desktop, a kiosk, a small board, or the console before a desktop starts. Editors, file managers and tmux get the color, mouse and image support they expect there.
 
-vtium is alpha software, at version 0.1.0-alpha.8. A vtium package takes every free VT when you install it, and each VT switches to vtium at its next start. So try vtium on one VT first; [Try vtium on one VT](docs/tutorial-try-vtium.md) shows how. With the default setup under systemd, a getty takes the VT back when vtium fails, so you still get a login prompt.
+This is alpha software, at version 0.1.0-alpha.8. Installing the package turns every free VT over to vtium at that VT's next start. To try one VT only, follow [Try vtium on one VT](docs/tutorial-try-vtium.md) instead.
 
 **Documentation:** [vtium.github.io/vtium](https://vtium.github.io/vtium/)
 
 ![A shell session showing a colored prompt, directory listing, git branch graph, six images with filenames, multilingual text and emoji, and examples of underline and other text styles.](docs/showcase/hero.png)
 
 *A shell session rendered by vtium on a 1920×1080 display. [The showcase](docs/showcase/README.md) has more screenshots and explains how they were captured.*
+
+## If something goes wrong
+
+- **Get off the VT.** Ctrl+Alt and a function key switch to another VT or to your desktop. If vtium has stopped answering keys, that switch fails too, and you work from another machine over ssh instead.
+- **Fall back to a login prompt.** When vtium fails under systemd, a getty starts on its VT, so you get a plain login prompt rather than a dead screen. This holds under the default configuration.
+- **Give a VT back.** From another VT or over ssh, `vtium console disable 3` returns VT 3 to its getty from the VT's next start, and `systemctl start getty@tty3.service` does it at once. `vtium console disable --all` returns every VT.
+- **Boot once without vtium.** Add `vtium.enable=0` to the kernel command line in your boot loader.
+- **Uninstall.** Stop vtium on each VT where it runs, for example with `systemctl stop vtium@tty3.service`, then run `pacman -R vtium`, or `pacman -R vtium-git`. The package's removal script gives every VT back what it had.
+
+The full steps are in [Find out what went wrong](docs/troubleshooting.md) and [Upgrading and removing](docs/install.md#upgrading-and-removing).
 
 ## What vtium does
 
@@ -37,7 +47,7 @@ vtium is alpha software, at version 0.1.0-alpha.8. A vtium package takes every f
 
 ## Where to start
 
-On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. The `vtium` recipe checks the maintainer's signing key, which the recipe carries:
+On Arch, the AUR carries `vtium`, built from the latest release, and `vtium-git`, built from the tip of `main`. These are the only packages so far; [Install vtium and give it VTs](docs/install.md) also covers building from a checkout. The `vtium` recipe checks the maintainer's signing key, and the recipe carries its own copy of that key:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
@@ -46,7 +56,9 @@ $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
 $ VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si
 ```
 
-[Install vtium and give it VTs](docs/install.md) covers the other packages and building from source. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version.
+Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version.
+
+vtium-config, vtium's setup tool, runs in a terminal. Its Flow view draws your vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. A head is vtium's name for a terminal that spans one or more displays. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts view previews each font on the live console as you move through the list. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
 
 | If you want to | Start here |
 |---|---|
