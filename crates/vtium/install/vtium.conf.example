@@ -547,8 +547,8 @@
 
 #sb-size=1000
 #sb-size-cap=
-#sb-memory=5242880
-# (in a build with images: sb-memory=4653056)
+#sb-memory=5373952
+# (in a build with images: sb-memory=4915200)
 
 # -- Bell --------------------------------------------------------------------
 
