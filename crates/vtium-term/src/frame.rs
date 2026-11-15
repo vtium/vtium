@@ -87,6 +87,29 @@ pub struct Overlay<'a> {
     pub uri: &'a str,
 }
 
+/// A link's label while link hints are on: letters drawn over the first
+/// cells of the link where it first appears in the view, so a person can
+/// type them to copy the link's address. A label is no part of the screen:
+/// no cell, selection, copy or reply sees it.
+///
+/// References:
+/// - ADR-1002, section 7: which links get labels, where a label draws, and
+///   that labels are no part of the screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkHint {
+    pub link: LinkId,
+    /// The label's letters.
+    pub label: String,
+    /// The label begins with the letters typed so far, so it draws. Every
+    /// cell of a labelled link takes the hover's dashed underline either
+    /// way.
+    pub shown: bool,
+    /// Where the label starts in the view: a column and a row. The screen
+    /// sets it where the link first appears, moved left so that the label
+    /// ends at the row's last column at the latest.
+    pub at: (usize, usize),
+}
+
 /// One cell of a frame, resolved for drawing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameCell<'a> {
@@ -149,6 +172,8 @@ pub struct Frame<'a> {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<Overlay<'a>>,
+    /// The labels of link hints, while they are on.
+    link_hints: &'a [LinkHint],
     /// The image placements with a row in view, in draw order (ADR-1100,
     /// D9).
     #[cfg(feature = "images")]
@@ -183,6 +208,7 @@ impl<'a> Frame<'a> {
             selection: Vec::new(),
             hovered: None,
             overlay: None,
+            link_hints: &[],
             #[cfg(feature = "images")]
             placements: Vec::new(),
             #[cfg(feature = "bidi")]
@@ -287,6 +313,17 @@ impl<'a> Frame<'a> {
     /// The overlay row showing the hovered link's URI, while Ctrl is held.
     pub fn overlay(&self) -> Option<Overlay<'a>> {
         self.overlay
+    }
+
+    /// The frame with the labels of link hints.
+    pub fn with_link_hints(mut self, hints: &'a [LinkHint]) -> Self {
+        self.link_hints = hints;
+        self
+    }
+
+    /// The labels of link hints, while they are on.
+    pub fn link_hints(&self) -> &'a [LinkHint] {
+        self.link_hints
     }
 
     pub fn rows(&self) -> usize {
