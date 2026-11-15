@@ -543,6 +543,18 @@ impl Feed<'_> {
     }
 }
 
+/// Link hints on a screen, set after the bytes and the pointer: the view's
+/// links take labels as vtium gives them, the labels the letters `typed`
+/// do not begin are hidden, and the overlay row shows the line that tells
+/// how to pick a label.
+///
+/// References:
+/// - ADR-1002, section 7: the labels, their letters and the overlay row.
+#[derive(Clone, Copy, Debug)]
+pub struct LinkHints {
+    pub typed: &'static str,
+}
+
 /// One screen of tier 2.
 #[derive(Clone, Copy, Debug)]
 pub struct Screen {
@@ -576,6 +588,8 @@ pub struct Screen {
     /// Ctrl held with the pointer: the hovered link's address shows on
     /// the overlay row (ADR-1002, "Drawing").
     pub ctrl: bool,
+    /// Link hints on, set after the bytes and the pointer.
+    pub link_hints: Option<LinkHints>,
     /// The pictures, fed with the terminal's sixel and kitty handlers on
     /// (`crate::pictures`): before the first frame, after the bytes, and,
     /// for a screen with a second part, before each later frame too, the
@@ -629,6 +643,7 @@ impl Screen {
             alone: None,
             pointer: None,
             ctrl: false,
+            link_hints: None,
             pictures: None,
             made_cell: None,
             selection: None,
@@ -1153,6 +1168,14 @@ pub(crate) fn prepare<F: Face>(
     }
     if let Some(at) = screen.pointer {
         term.screen_mut().set_pointer(Some(at), screen.ctrl);
+    }
+    if let Some(hints) = screen.link_hints {
+        let s = term.screen_mut();
+        let links = s.view_links();
+        let labels = vtium::hints::labels(links.len());
+        s.set_link_hints(links.into_iter().zip(labels).collect());
+        s.show_link_hints(|label| label.starts_with(hints.typed));
+        s.set_overlay_note(Some(vtium::hints::PROMPT.to_owned()));
     }
     if matches!(screen.font, FontKind::Sprites { .. }) {
         check_sprites(font, &term)?;
