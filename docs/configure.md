@@ -381,3 +381,31 @@ A draft that was made before such an edit shows `made before the installed file 
 ```
 # vtium blank --vt 3
 ```
+
+## Remove the login picture when you log in
+
+A picture that `login-image` names stays on the screen after you log in, until it scrolls away or a screen clear removes it. To remove it as soon as you log in, add one line to the startup file that your login shell reads.
+
+For bash, the line goes in `~/.bash_profile`, or in `~/.profile` when you have no `~/.bash_profile`. For zsh, the same line goes in `~/.zprofile`:
+
+```sh
+[ "$TERM_PROGRAM" = vtium ] && printf '\033_Ga=d,d=Z,z=-2147483648,q=2\033\\'
+```
+
+For fish, the line goes in `~/.config/fish/config.fish`:
+
+```fish
+status is-login; and test "$TERM_PROGRAM" = vtium; and printf '\033_Ga=d,d=Z,z=-2147483648,q=2\033\\\\'
+```
+
+fish's single quotes turn `\\` into one backslash, so the fish line doubles the last pair to send the same bytes.
+
+The line sends a [kitty graphics](https://sw.kovidgoyal.net/kitty/graphics-protocol/) delete command. `a=d` deletes, and `d=Z` with `z=-2147483648` names every picture at that depth. The login picture always sits at -2147483648, the lowest depth there is, beneath every picture a program sends. The capital `Z` also frees the picture's memory at once. `q=2` asks vtium to send no answer, so nothing appears on the screen.
+
+The line first checks that vtium is the terminal, since your startup file also runs when you log in on other terminals and other machines. vtium sets `TERM_PROGRAM=vtium` in every session, and its default login command, `/bin/login -p`, keeps it. When `reset-env` is off, the default command is `/bin/login` without `-p`, which keeps only `TERM`. Test `TERM` in that case instead:
+
+```sh
+[ "$TERM" = xterm-vtium ] && printf '\033_Ga=d,d=Z,z=-2147483648,q=2\033\\'
+```
+
+The line only deletes. No program can read the login picture's pixels or its file.
