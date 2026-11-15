@@ -954,11 +954,7 @@ const OCTANTS: [u8; 0xe6] = [
 ];
 
 #[cfg(test)]
-#[expect(
-    clippy::unwrap_used,
-    clippy::arithmetic_side_effects,
-    reason = "a test fails by panicking, on small known sizes"
-)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
 mod tests {
     use super::*;
     use crate::face::Cell;
