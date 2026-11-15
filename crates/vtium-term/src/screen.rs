@@ -30,6 +30,7 @@
 //! margin.
 
 mod edit;
+mod hints;
 mod images;
 mod links;
 mod marks;
