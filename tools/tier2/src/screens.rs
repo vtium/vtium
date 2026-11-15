@@ -2836,6 +2836,12 @@ const BASE: &[Case] = &[
         ),
     },
     Case {
+        screen: ligatures("ligatures", LIGATURES_DESC, &LIGATURE_TAKES, true),
+    },
+    Case {
+        screen: ligatures("ligatures-off", LIGATURES_OFF_DESC, &AT_40, false),
+    },
+    Case {
         screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
     },
     Case {
@@ -3091,6 +3097,57 @@ const fn scripts(
         ..Screen::new(name, desc, bytes, cols, rows)
     }
 }
+
+/// The ligatures screens' text: operators that Iosevka Term draws as its
+/// ligatures, runs it does not join, and an arrow in two colors, with the
+/// cursor hidden.
+const LIGATURES: &[u8] = concat!(
+    "\x1b[?25l",
+    "a -> b => c != d === e\r\n",
+    "f <= g >= h && i || j /* k */\r\n",
+    "apart: ,- >, \x1b[38;2;255;110;110m-\x1b[38;2;120;210;120m>\x1b[0m",
+)
+.as_bytes();
+
+/// The `ligatures` screen's two drawings, stacked: as written, and with
+/// the cursor shown on the `!` of `!=`.
+const LIGATURE_TAKES: [Take; 2] = [
+    Take::at(crate::fonts::SCRIPTS_HEIGHT),
+    Take {
+        tail: b"\x1b[?25h\x1b[1;13H",
+        ..Take::at(crate::fonts::SCRIPTS_HEIGHT)
+    },
+];
+
+/// A screen of the ligatures text, 30 by 3 cells, drawn in the scripts frit
+/// at 40 pixels in Iosevka Term's 16x40 cell once for each of `takes`, with
+/// `font-ligatures` set as `on` says and the cursor's blink in its shown
+/// phase.
+const fn ligatures(
+    name: &'static str,
+    desc: &'static str,
+    takes: &'static [Take],
+    on: bool,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes,
+            spacing: None,
+            fonts: InkFonts::Scripts,
+        },
+        ligatures: on,
+        phase: crate::draw::Phase {
+            cursor_on: true,
+            blink_hidden: false,
+            rapid_hidden: false,
+        },
+        ..Screen::new(name, desc, LIGATURES, 30, 3)
+    }
+}
+
+const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16x40 cell draws ->, =>, !=, <= and >= as its ligatures, each across the cells of its characters, so every character keeps its column, and it draws ===, &&, || and /* as their own characters, as the font designs them. The runs ,- and >, which the font does not join, draw each character alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
+
+const LIGATURES_OFF_DESC: &str = "The ligatures screen's text with font-ligatures off, vtium's default: Iosevka Term at 40 pixels draws every character on its own, so ->, !=, === and the other operators show as their separate characters (ADR-1308 D8).";
 
 /// The `scripts-indic` screen: the first sentence of the Universal
 /// Declaration of Human Rights in Hindi, then in Bengali, as the

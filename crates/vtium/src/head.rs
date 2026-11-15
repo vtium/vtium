@@ -240,6 +240,9 @@ pub struct Head {
     /// overrides the frit's `line-spacing=` (ADR-1302 D13); `None` when
     /// neither sets it.
     pub(crate) line_spacing: Option<u32>,
+    /// `font-ligatures`, vtium.conf's or the head's look's: whether a run
+    /// of ASCII symbols draws as the font's ligature (ADR-1308 D8).
+    ligatures: bool,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -519,6 +522,7 @@ impl Head {
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
+            ligatures: config.font_ligatures(),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -1137,6 +1141,7 @@ impl Head {
             pointer: config
                 .char(&keys::POINTER_CHAR)
                 .map_or(PointerShape::Arrow, PointerShape::Glyph),
+            ligatures: self.ligatures,
             ..RenderConfig::default()
         }
     }
@@ -1297,7 +1302,7 @@ impl Head {
             .screen()
             .frame(palette, Age::NEVER);
         let mut all = vec![Shown::default()];
-        crate::deferred::read_shown(&frame, &mut all);
+        crate::deferred::read_shown(&frame, &mut all, self.ligatures);
         crate::deferred::settle(&mut all);
         // the helper places the clusters in the cells this terminal gives
         // them (ADR-1006 D8)

@@ -696,6 +696,14 @@ impl Config {
         }
     }
 
+    /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
+    /// ligature across its cells, `on`; `off`, the default, draws each
+    /// character alone (ADR-1308 D8). In a head's configuration, the one
+    /// [`Config::for_head`] gives, a look's value wins over the top level's.
+    pub fn font_ligatures(&self) -> bool {
+        self.text(&keys::FONT_LIGATURES) == Some("on")
+    }
+
     /// `font-line-spacing`: the height added to each row, a percentage
     /// of the text's height from 0 to 100, or `None` when no source sets
     /// it and the frit's `line-spacing=` decides (ADR-1302 D13).

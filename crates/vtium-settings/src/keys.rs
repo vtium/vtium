@@ -1543,6 +1543,19 @@ pub const FONT_LINE_SPACING: Key = Key {
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
 };
 
+pub const FONT_LIGATURES: Key = Key {
+    name: "font-ligatures",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("off"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium-render",
+    what: "Draw a programming font's ligatures, such as `->` and `!=`, across the character cells of their characters.\n\n\
+           Each character keeps its own cell. A ligature draws apart while the cursor stands on it. Bitmap fonts draw none.",
+    cite: "[the programming ligatures issue](https://github.com/vtium/vtium/issues/23)",
+};
+
 pub const CELL: Key = Key {
     name: "cell",
     short: None,
@@ -2170,7 +2183,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 129] = [
+pub static KEYS: [Key; 130] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2275,6 +2288,7 @@ pub static KEYS: [Key; 129] = [
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
+    FONT_LIGATURES,
     CELL,
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
@@ -2333,7 +2347,13 @@ pub const SECTIONS: [Section; 11] = [
         groups: &[
             Group {
                 title: "Font",
-                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_PATHS, &FONT_ENGINE],
+                keys: &[
+                    &FONT_NAME,
+                    &FONT_FRITS,
+                    &FONT_PATHS,
+                    &FONT_ENGINE,
+                    &FONT_LIGATURES,
+                ],
             },
             Group {
                 title: "Font size and spacing",
@@ -2860,6 +2880,7 @@ mod tests {
                 "font-size",
                 "font-hinting",
                 "font-line-spacing",
+                "font-ligatures",
                 "cell",
                 "display-depth",
                 "display-dpi",
