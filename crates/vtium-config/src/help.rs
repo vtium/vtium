@@ -336,7 +336,7 @@ const TOPICS: &[Topic] = &[
         command: Command::NewFrit,
         forms: &[
             form(
-                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS]",
+                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]...",
                 "make a font set from fonts",
             ),
             form(
@@ -352,7 +352,7 @@ const TOPICS: &[Topic] = &[
                 "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
