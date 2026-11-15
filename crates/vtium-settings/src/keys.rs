@@ -788,7 +788,7 @@ pub const BLINK: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. When off, neither blinks.",
+    what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. A program can set another pace for the cursor with the Linux console's `CSI 16 ; n ]`. When off, neither blinks.",
     cite: "kmscon's `blink` key",
 };
 

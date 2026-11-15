@@ -2166,6 +2166,8 @@ impl App {
         self.awake = true;
         for head in &mut self.heads {
             head.set_visible(true);
+            // The cursor's first phase lasts the interval its program set,
+            // so a phase longer than 500 ms is not cut short.
             let cursor = crate::blink::cursor_period(&head.console.term.terminal);
             if let Some(arms) = head.console.term.blink.activate(cursor) {
                 for (timer, arm) in arms {
@@ -4610,12 +4612,18 @@ impl App {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
-            // A program that set another cursor blink interval with
-            // `CSI 16 ; n ]` gets it from the next phase, which starts now.
+            // The cursor's interval can differ from the one its timer was
+            // armed with: a program set another with `CSI 16 ; n ]`, or
+            // another console of the head is shown now. The phase that is
+            // running keeps its end, so a program that keeps changing the
+            // interval never stops the blink, and a longer interval never
+            // stretches that phase. A shorter interval ends the phase
+            // within the new interval. Each later phase lasts the new
+            // interval.
             let every = crate::blink::cursor_period(&head.console.term.terminal);
             if let Some((due, armed)) = head.cursor_due {
-                if armed != every {
-                    head.cursor_due = Some((after(now, every), every));
+                if armed != every && due > now {
+                    head.cursor_due = Some((due.min(after(now, every)), every));
                 } else if due <= now {
                     head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
                     head.cursor_due = Some((after(due, every), every));
@@ -5538,6 +5546,9 @@ mod tests {
         /// Set during each scan, as when the kernel asks for the VT while
         /// a slow probe holds the loop.
         pub(super) asks_for_vt: Option<Rc<std::cell::Cell<bool>>>,
+        /// The levels it reports for each of its displays: `None` for
+        /// color, and 2 for black and white.
+        pub(super) levels: Option<u8>,
     }
 
     impl Still {
@@ -5564,6 +5575,7 @@ mod tests {
                 waits_for_flip: false,
                 hotplugs: 0,
                 asks_for_vt: None,
+                levels: None,
             }
         }
 
@@ -5607,6 +5619,9 @@ mod tests {
         }
         fn dpi(&self, _: DisplayId) -> Option<(f64, f64)> {
             Some((72.0, 72.0))
+        }
+        fn levels(&self, _: DisplayId) -> Option<u8> {
+            self.levels
         }
         fn identity(&self, id: DisplayId) -> Option<Identity> {
             Some(Identity {

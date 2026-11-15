@@ -293,6 +293,18 @@ impl Head {
         }
         news
     }
+
+    /// The black-and-white displays that the log has named since the
+    /// programs now running on the head started, so a test can check that
+    /// vtium logged the line.
+    #[cfg(test)]
+    pub(crate) fn black_and_white_named(&self) -> BTreeSet<(PathBuf, DisplayId)> {
+        self.colorterm
+            .told
+            .values()
+            .flat_map(|told| told.named.iter().cloned())
+            .collect()
+    }
 }
 
 impl Head {

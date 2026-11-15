@@ -1248,8 +1248,8 @@ fn flag_2_alone_gives_enter_tab_and_backspace_no_release() {
 // table's `1 H`. It is never `CSI 57427 u`.
 //
 // References:
-// - ADR-1005's amendment of 2026-11-14: the table's entry for the key wins
-//   over the disambiguate section's dedicated numbers.
+// - ADR-1005 D15: the table's entry for KP_BEGIN wins over the
+//   disambiguate section's dedicated numbers.
 // covers: input.kitty-keyboard
 #[test]
 fn the_keypads_begin_is_csi_e_under_flags_1_and_8() {
