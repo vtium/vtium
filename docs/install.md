@@ -6,47 +6,51 @@ In the commands below, `#` marks a command that you run as root, for example wit
 
 ## Arch Linux
 
-The AUR (the Arch User Repository) carries vtium's packages for Arch. Each package is built from a recipe, a `PKGBUILD`, which is the build script that makepkg reads. The repository `vtium/vtium-arch` keeps nine recipes, one for each package. The AUR carries five of them. The console packages conflict with each other, so you install only one of them:
+The AUR (the Arch User Repository) carries vtium's packages for Arch. Each package is built from a recipe, a `PKGBUILD`, which is the build script that makepkg reads. The repository `vtium/vtium-arch` keeps nine recipes, one for each package. The AUR carries five of them. The six packages that hold vtium itself conflict with each other, so you install only one of them:
 
 | Package | What it builds | Built from | On the AUR |
 |---|---|---|---|
-| `vtium` | the console for an ordinary desktop or laptop | a release: the tag the maintainer signs, the latest on [the releases page](https://github.com/vtium/vtium/releases) | yes |
-| `vtium-git` | the same console | the tip of vtium's `main` branch | yes |
-| `vtium-minspec` | vtium's smallest console, without images and without the GPU path | the same release tag | no: build it from the `vtium` recipe ([below](#build-the-minspec-console)) |
-| `vtium-minspec-git` | the same console | the tip of `main` | no: build it from the `vtium-git` recipe |
-| `vtium-minspec-gpu` | the smallest console with the GPU path | the same release tag | no: build it from the `vtium` recipe |
-| `vtium-minspec-gpu-git` | the same console | the tip of `main` | no: build it from the `vtium-git` recipe |
+| `vtium` | vtium for an ordinary desktop or laptop | a release: the tag the maintainer signs, the latest on [the releases page](https://github.com/vtium/vtium/releases) | yes |
+| `vtium-git` | the same build | the tip of vtium's `main` branch | yes |
+| `vtium-minspec` | vtium's smallest build, without images and without the GPU path | the same release tag | no: build it from the `vtium` recipe ([below](#build-minspec-the-smallest-build)) |
+| `vtium-minspec-git` | the same build | the tip of `main` | no: build it from the `vtium-git` recipe |
+| `vtium-minspec-gpu` | the smallest build with the GPU path | the same release tag | no: build it from the `vtium` recipe |
+| `vtium-minspec-gpu-git` | the same build | the tip of `main` | no: build it from the `vtium-git` recipe |
 | `vtium-terminfo` | `xterm-vtium`, the terminfo entry that sessions in vtium name in `TERM` | the same release tag | yes |
 | `vtium-terminfo-git` | the same entry | the tip of `main` | yes |
 | `vtium-fonts` | a curated set of fonts chosen to go with vtium's frits (font set files). It installs them through the distribution's own font packages. | the recipe repository alone | from the next publish |
 
-Each console package depends on a terminfo package. A console built from the release tag depends on `vtium-terminfo`. A console built from `main` depends on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe, and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
+Each of those six depends on a terminfo package. A build from the release tag depends on `vtium-terminfo`, and a build from `main` depends on `vtium-terminfo-git`. Today the AUR builds `vtium-terminfo` from the `vtium` recipe, and `vtium-terminfo-git` from the `vtium-git` recipe. From the next publish, each terminfo package has a recipe of its own on the AUR.
 
-A recipe builds the console with the features that `VTIUM_FEATURES` names in makepkg's environment. There are five features:
+Sessions in vtium run with `TERM=xterm-vtium`, the entry that the terminfo package installs. ssh passes `TERM` on to the remote host, and most hosts have no `xterm-vtium` entry, so programs there misbehave. [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) gives two fixes: a wrapper that makes ssh send `xterm-256color`, or the entry installed on a host you own.
+
+Out of the box, the `vtium` package builds every feature listed below and renders through the GPU path. A head whose GPU set-up fails renders on the CPU. vtium draws text in its built-in fonts until you install the fonts its frits name, and the install gives vtium every free VT. The paragraphs below give the details.
+
+A recipe builds vtium with the features that `VTIUM_FEATURES` names in makepkg's environment. There are five features:
 
 - The `images` feature renders sixel and kitty graphics images.
 - The `logind` feature lets the suspend key ask logind, systemd's login manager, to suspend the machine.
 - The `gpu` feature builds in the path that renders through the GPU.
 - The `bidi` feature lays out right-to-left text, such as Arabic and Hebrew.
-- The `libseat` feature lets vtium run in seat mode, where it gets the screen, the keyboards and VT switching from a seat manager through libseat. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes seat mode.
+- The `libseat` feature lets vtium get the screen, the keyboards and VT switching through libseat, the seat management library. In direct mode, vtium gets them from seatd where seatd runs. Seat mode, which gets them from logind, needs both `libseat` and `logind`. [Direct mode and seat mode](#direct-mode-and-seat-mode) describes both modes.
 
-When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
+When `VTIUM_FEATURES` is unset, the `vtium` and `vtium-git` recipes build `images logind gpu bidi libseat`, for an ordinary desktop or laptop. These are the features of the packages that the AUR carries. To build another set of features from a checkout, stage it with `make install`. See [From a checkout](#from-a-checkout) for details.
 
-From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. The console therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
+From v0.1.0-alpha.6 on, the `vtium` and `vtium-git` recipes build with `HWACCEL=on DISPLAY_BUFFERS=3`. These settings compile in two defaults: `hwaccel` is on, and each display gets three buffers. See [config.md](config.md) for both keys. vtium therefore renders through the GPU path. vtium renders a head on the CPU when the GPU set-up for that head fails. A head is a terminal for one or more displays. A line `no-hwaccel` in `/etc/vtium/vtium.conf` turns the GPU path off.
 
-v0.1.0-alpha.5 built with `HWACCEL=off`. Its console rendered on the CPU until a line `hwaccel` in `/etc/vtium/vtium.conf` turned the GPU path on.
+v0.1.0-alpha.5 built with `HWACCEL=off`. Its vtium rendered on the CPU until a line `hwaccel` in `/etc/vtium/vtium.conf` turned the GPU path on.
 
 `vtium` and `vtium-git` depend on `libglvnd` and `mesa`. These two packages hold the two libraries that the GPU path loads, `libEGL.so.1` and `libgbm.so.1`. They also depend on `seatd`, which holds `libseat.so`, the library that seat mode links. Installing `seatd` enables no seatd daemon.
 
-No package ships a font. The console renders text in its built-in fonts, unifont and unscii-8. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
+No package ships a font. vtium renders text in its two built-in fonts, unifont and unscii-8, until a frit names fonts that the machine has. `vtium` and `vtium-git` install three frits (font set files): `desktop`, `minspec-16` and `minspec-8`. Each of them names fonts that the distribution packages. A frit leaves out any font that the machine lacks. So a frit with none of its fonts installed renders in the built-in fonts. On Arch, the frits' fonts are in `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono` and `noto-fonts-emoji`.
 
-makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. The example builds the features that the recipe builds by default: images, the power keys, the GPU path, right-to-left text, and seat mode.
+makepkg refuses to build the `vtium` recipe until your keyring holds the maintainer's signing key, `33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. The recipe carries a copy of the key. Import it once from there, then build and install. With `VTIUM_FEATURES` unset, makepkg builds the recipe's default features, as above:
 
 ```
 $ git clone https://aur.archlinux.org/vtium.git
 $ cd vtium
 $ gpg --import keys/pgp/33F9B54FD2A4B6A4110749B3BA464FC9847A832A.asc
-$ VTIUM_FEATURES='images logind gpu bidi libseat' makepkg -si
+$ makepkg -si
 ```
 
 `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A` fetches the same key from a keyserver instead. `vtium-git` checks no signature, because GitHub signs the merge commits on `main` with its own key.
@@ -55,41 +59,43 @@ The packages install these files:
 
 | File | What it is |
 |---|---|
-| `/usr/bin/vtium` | the console, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
-| `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs. It keeps your changes in a draft, and installs the draft as `/etc/vtium/vtium.conf`. `vtium config tui` opens its full-screen view, where you can also try each font on the live console. `vtium config use-frit` switches the font. See [Configure vtium](configure.md) for details. The same program is also the glyph helper, which renders a font's glyphs for the console. |
+| `/usr/bin/vtium` | vtium itself, with its subcommands `vtium console`, `vtium check-config`, `vtium config`, `vtium blank` and `vtium wake` |
+| `/usr/bin/vtium-config` | the configuration tool, which `vtium config` runs. It keeps your changes in a draft, and installs the draft as `/etc/vtium/vtium.conf`. `vtium config tui` opens its full-screen view, where you can also try each font on the live console. `vtium config use-frit` switches the font. See [Configure vtium](configure.md) for details. The same program is also the font helper, which renders a font's glyphs for vtium. |
 | `/usr/lib/systemd/system/vtium@.service` | the unit that runs vtium on one VT in place of its getty |
 | `/usr/lib/systemd/system/vtium-getty@.service` | the fallback that starts a getty on the VT when vtium fails |
-| `/usr/bin/vtium-image` | the image helper, in a console built with `images`. It reads an image that a program names by its file. |
-| `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a console built with `images` |
-| `/usr/bin/vtium-gallery` | the image gallery tool, in a console built with `images`. It shows PNG images as a grid of thumbnails. |
+| `/usr/bin/vtium-image` | the image helper, in a build with `images`. It reads an image that a program names by its file. |
+| `/usr/lib/sysusers.d/vtium-image.conf` | the image helper's account, in a build with `images` |
+| `/usr/bin/vtium-gallery` | the image gallery tool, in a build with `images`. It shows PNG images as a grid of thumbnails. |
 | `/etc/vtium/vtium.conf.example` | the example configuration. It lists every key at its default, commented out. Then it lists the heads and rules that vtium runs with when there is no configuration. |
 | `/etc/vtium/fonts/` | the frits `desktop`, `minspec-16` and `minspec-8`. You can choose each one with `vtium config` or with vtium.conf's `font-name`. A frit that nothing names changes nothing. |
 | `/usr/share/doc/vtium/examples/` | an example udev rule and hwdb fragment. They are documentation, and they are never active. |
 | `/usr/share/terminfo/x/xterm-vtium`, `/usr/share/terminfo/v/vtium` | the terminfo entry, under its name and its alias `vtium`, from the terminfo package |
 | `/usr/share/licenses/<package>/LICENSE` | the license, in each package |
 | `/usr/share/licenses/<package>/COPYING` | vtium's authors, and the notices for the third-party code and data that vtium builds in. Every package carries it except `vtium-fonts`, which carries only its own `LICENSE`. |
-| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to: the SIL Open Font License of the Unifont font, and the license of X.Org's color names. Each console package carries them. |
+| `/usr/share/licenses/<package>/OFL-1.1.txt`, `rgb-license.txt` | the two license texts that `COPYING` points to: the SIL Open Font License of the Unifont font, and the license of X.Org's color names. Each of the six packages that hold vtium carries them. |
 
-When you first install a console package, it gives vtium every free VT. It starts nothing. [What the install does to your VTs](#what-the-install-does-to-your-vts) explains what that means.
+The commands in these guides belong to two of those programs, `vtium` and `vtium-config`. `vtium-config` is vtium's setup tool, and `vtium config` runs it with the words that follow, so `vtium config tui` and `vtium-config tui` both open its full-screen view. `vtium-config serve` is the font helper, which vtium starts by itself, so you never run it. `vtium console` gives VTs to vtium and takes them back. `vtium check-config` checks a vtium.conf before you install it. `vtium config status` is planned, and [the vtium-config issue](https://github.com/vtium/vtium/issues/367) tracks it.
 
-### Build the minspec console
+When you first install one of those packages, it gives vtium every free VT. It starts nothing. [What the install does to your VTs](#what-the-install-does-to-your-vts) explains what that means.
 
-The minspec console is vtium's smallest build. It suits a small machine, such as a single-board computer, a server's console, or a kiosk. The AUR carries no minspec package. You build the minspec console from the `vtium` recipe instead, or from the `vtium-git` recipe for the tip of `main`. To build the console with no features, set `VTIUM_FEATURES` and leave it empty. The console then has no images, no logind, no GPU path, and no seat mode:
+### Build minspec, the smallest build
+
+minspec is vtium's smallest build. It suits a small machine, such as a single-board computer, a server's screen, or a kiosk. The AUR carries no minspec package. You build minspec from the `vtium` recipe instead, or from the `vtium-git` recipe for the tip of `main`. To build vtium with no features, set `VTIUM_FEATURES` and leave it empty. That build has no images, no logind, no GPU path, and no seat mode:
 
 ```
 $ cd vtium
 $ VTIUM_FEATURES= makepkg -si
 ```
 
-`VTIUM_FEATURES=gpu makepkg -si` builds the minspec console with the GPU path alone. `vtium --version` names the features that a console was built with, such as `features none` or `features gpu`.
+`VTIUM_FEATURES=gpu makepkg -si` builds minspec with the GPU path alone. `vtium --version` names the features that vtium was built with, such as `features none` or `features gpu`.
 
 `VTIUM_FEATURES` changes only the features. The package you build keeps everything else that the recipe sets: its dependencies on `libglvnd`, `mesa` and `seatd`, its frits, and its defaults for `hwaccel` and `display-buffers`. A line in `/etc/vtium/vtium.conf` changes either default. For example, `display-buffers=2` gives each display two buffers. See [config.md](config.md) for the keys.
 
-The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspec`, `vtium-minspec-gpu`, and their `-git` twins. Its CI builds them to check that the minspec console still builds.
+The repository `vtium/vtium-arch` also keeps four minspec recipes: `vtium-minspec`, `vtium-minspec-gpu`, and their `-git` twins. Its CI builds them to check that minspec still builds.
 
 ### What the next publish adds
 
-`vtium-fonts` reaches the AUR with the next publish. It is a curated set of fonts chosen to go with the frits (font set files) that vtium ships. It grows as new frits are added. It installs no font file itself. Instead, it depends on the distribution's package for each font that the frits name. On Arch these are `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`. The console packages list `vtium-fonts` as an optional dependency, so you install it only if you want those fonts.
+`vtium-fonts` reaches the AUR with the next publish. It is a curated set of fonts chosen to go with the frits (font set files) that vtium ships. It grows as new frits are added. It installs no font file itself. Instead, it depends on the distribution's package for each font that the frits name. On Arch these are `ttf-jetbrains-mono`, `ttf-nerd-fonts-symbols-mono`, `noto-fonts-emoji` and `terminus-font`. The packages that hold vtium list `vtium-fonts` as an optional dependency, so you install it only if you want those fonts.
 
 The `vtium` and `vtium-git` recipes in `vtium/vtium-arch` also ship a fourth frit, `terminus`, for the Terminus console font. The packages that the AUR carries today do not have it yet.
 
@@ -99,7 +105,7 @@ From the next publish, `vtium-fonts` also installs five frits for scripts whose 
 
 Building vtium needs Rust 1.88 or later, and clang. The checkout's `rust-toolchain.toml` names the toolchain that the tests run on. rustup installs that toolchain for you inside the checkout. The first build fetches a Debian sysroot to link against. The sysroot is a copy of a Debian system's libraries, with glibc 2.36. Because vtium links against it, the binaries run on any distribution with that glibc or a newer one. See [tools/arm/README.md](https://github.com/vtium/vtium/blob/main/tools/arm/README.md) for details.
 
-On a machine with systemd and logind, `make vt-shell` builds the console, picks a free VT, and asks for sudo. Then it runs your own shell in vtium on that VT, until you exit the shell. It installs nothing. [The tutorial](tutorial-try-vtium.md#without-a-package) walks through it. [vt-review.md](vt-review.md) describes it, along with the other runs on a VT that a checkout offers.
+On a machine with systemd and logind, `make vt-shell` builds vtium, picks a free VT, and asks for sudo. Then it runs your own shell in vtium on that VT, until you exit the shell. It installs nothing. [The tutorial](tutorial-try-vtium.md#without-a-package) walks through it. [vt-review.md](vt-review.md) describes it, along with the other runs on a VT that a checkout offers.
 
 ```
 $ make vt-shell
@@ -111,12 +117,12 @@ To install a branch of your own as a package, point the `vtium-git` recipe at yo
 $ VTIUM_GIT_URL=file:///home/me/src/vtium VTIUM_GIT_BRANCH=my-branch makepkg -si
 ```
 
-On another distribution, a package build can call two make targets:
+vtium is packaged only for Arch so far. [The issue for Fedora, RHEL, Debian and Ubuntu](https://github.com/vtium/vtium/issues/378) and [the issue for Alpine, Void and Artix](https://github.com/vtium/vtium/issues/377) track other distributions. On another distribution, a package build can call two make targets:
 
-- `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that a console package ships.
+- `make install DESTDIR=DIR PREFIX=/usr` stages under DIR exactly the files that the `vtium` package ships.
 - `make install-terminfo DESTDIR=DIR PREFIX=/usr` stages the terminfo entry.
 
-`make install` builds the console with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
+`make install` builds vtium with the features that `FEATURES='...'` names. By default it names none. `make install` also stages the frits that `FRITS='...'` names. By default these are `desktop`, `minspec-16` and `minspec-8`. `make install-fonts` stages the frits that the `vtium-fonts` package ships. Two more variables set defaults that the build compiles in. `HWACCEL=on` or `off` sets the default of `hwaccel`. `DISPLAY_BUFFERS=1`, `2` or `3` sets the default of `display-buffers`. The Arch recipes name all four of these variables: `FEATURES`, `FRITS`, `HWACCEL` and `DISPLAY_BUFFERS`. Both make targets refuse an empty DESTDIR, and they refuse `/`. So neither of them installs onto the machine itself. The [vtium-arch README](https://github.com/vtium/vtium-arch) describes how the Arch recipes use them.
 
 Some package builds run with no network, as Debian's does. Such a build takes the crates that vtium builds with from the release:
 
@@ -128,7 +134,7 @@ When a release is published, a CI workflow packs the archive. The workflow build
 
 With both `libseat` and `logind` in `FEATURES`, `make install` also stages a second unit, `vtium-seat@.service`, and the PAM file `/etc/pam.d/vtium`. These two files run vtium in seat mode, which [Direct mode and seat mode](#direct-mode-and-seat-mode) describes. See [systemd.md](systemd.md) for details.
 
-`make install-tree` stages the same programs under `target/install-tree`: the console, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration, and the frits. It also needs `tic`, which compiles the terminfo entry. Tier 3 is vtium's test harness on a virtual machine. It installs that tree in its guest.
+`make install-tree` stages the same programs under `target/install-tree`: vtium, `vtium-config`, the VT unit and its getty fallback, the terminfo entry, the example configuration, and the frits. It also needs `tic`, which compiles the terminfo entry. Tier 3 is vtium's test harness on a virtual machine. It installs that tree in its guest.
 
 ## What the install does to your VTs
 
@@ -156,14 +162,14 @@ The install still succeeds. Its message then says that vtium took no VT, and giv
 # vtium console enable --direct --all
 ```
 
-On a machine where `kmscon` holds the template link, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) first.
+On a machine where `kmscon` holds the template link, read [Moving from another KMS/DRM VT](#moving-from-another-kmsdrm-vt) first.
 
 ### Direct mode and seat mode
 
 vtium can run on a VT in two ways. The install turns on the first:
 
-- In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a console built with `libseat` gets them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, just as a login at a getty does. So sound, removable disks, and the actions that polkit allows the active session all work as usual. The unit is `vtium@.service`.
-- In seat mode, vtium gets the screen, the keyboards and VT switching from logind, through libseat. logind is the service that manages logins and seats. Each login gets a logind session with no seat. polkit then asks for an administrator's password for more actions, such as powering off. udev gives that session no devices, such as sound cards. The unit is `vtium-seat@.service`. Only a console built with both `libseat` and `logind` ships this unit. The `vtium` and `vtium-git` packages are built that way by default. The minspec packages are not, so they do not ship it. When you build from the `vtium` recipe with your own `VTIUM_FEATURES`, the package ships this unit only if `VTIUM_FEATURES` names both `libseat` and `logind`.
+- In direct mode, vtium opens the screen and the keyboards itself, as root. Where seatd runs, a vtium built with `libseat` gets them from seatd instead. Each login at vtium's prompt gets an active logind session on seat0, just as a login at a getty does. So sound, removable disks, and the actions that polkit allows the active session all work as usual. The unit is `vtium@.service`.
+- In seat mode, vtium gets the screen, the keyboards and VT switching from logind, through libseat. logind is the service that manages logins and seats. Each login gets a logind session with no seat. polkit then asks for an administrator's password for more actions, such as powering off. udev gives that session no devices, such as sound cards. The unit is `vtium-seat@.service`. Only a build with both `libseat` and `logind` ships this unit. The `vtium` and `vtium-git` packages are built that way by default. The minspec packages are not, so they do not ship it. When you build from the `vtium` recipe with your own `VTIUM_FEATURES`, the package ships this unit only if `VTIUM_FEATURES` names both `libseat` and `logind`.
 
 You can tell which mode a VT runs in from `vtium console status`, and from `loginctl`. See [What you see in each mode](concepts/seats-and-sessions.md#what-you-see-in-each-mode) for examples of both, and for what you see in seat mode.
 
@@ -176,7 +182,7 @@ A VT runs one mode at a time. To ask which mode fits your machine, run `vtium co
 
 `vtium console enable --seat` refuses, and changes nothing, in these cases:
 
-- on a console built without `libseat` and `logind`;
+- on a vtium built without `libseat` and `logind`;
 - when `vtium-seat@.service` is missing or masked;
 - when `/etc/pam.d/vtium` is missing;
 - on a machine where logind manages no seat0.
@@ -272,7 +278,7 @@ Nothing frees a VT. For example, a display manager's greeter may run on VT 2. VT
 
 If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. The fallback never does this when the getty's start would stop another program. For example, starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. To find out why vtium failed, log in on another VT or over ssh. See [A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty) for details.
 
-On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) before you run `enable --all`.
+On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another KMS/DRM VT](#moving-from-another-kmsdrm-vt) before you run `enable --all`.
 
 Before `enable` changes anything, it records what each VT had, in `/var/lib/vtium/console/`. `disable` puts back exactly that:
 
@@ -285,9 +291,9 @@ Before `enable` changes anything, it records what each VT had, in `/var/lib/vtiu
 
 [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing, and says so. There you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, in the way your init system runs the getty. [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows how for sysvinit, OpenRC, and runit.
 
-## Moving from another DRM/KMS VT
+## Moving from another KMS/DRM VT
 
-Other terminals also render on a VT through [DRM/KMS](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. `kmscon` is one of them. Such a terminal starts on a VT in one of two ways:
+Other terminals also render on a VT through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. `kmscon` is one of them. Such a terminal starts on a VT in one of two ways:
 
 - from a unit enabled at boot for that VT;
 - from the template link `/etc/systemd/system/autovt@.service`, which logind follows when you switch to a VT that nothing runs on.
@@ -323,7 +329,7 @@ $ systemctl list-units 'vtium@*'
 # pacman -R vtium
 ```
 
-`disable --all` puts back what each VT had, and then forgets its record. So `/var/lib/vtium/console/` is left empty, and you can remove it. You may replace one console package with another, such as `vtium-minspec` in place of `vtium`. Then the old package gives the VTs back, and the new one takes the free VTs again. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
+`disable --all` puts back what each VT had, and then forgets its record. So `/var/lib/vtium/console/` is left empty, and you can remove it. You may replace one of the packages that hold vtium with another, such as `vtium-minspec` in place of `vtium`. Then the old package gives the VTs back, and the new one takes the free VTs again. The [vtium-arch README](https://github.com/vtium/vtium-arch#removing-vtium) says what to do when you removed the package first.
 
 ## Sharing VTs with kmscon
 

@@ -1,6 +1,6 @@
 # What VTium is
 
-vtium is a terminal that runs on the Linux console. The console is the set of full-screen text terminals that the kernel provides, and each of them is called a VT. vtium takes the place of getty, the program that normally shows the login prompt on a VT. It renders the terminal itself, straight to the display, through the kernel's display interface, KMS/DRM. It can render entirely on the CPU, so a GPU is optional. On a machine that has only the older fbdev framebuffer, vtium renders through fbdev instead.
+vtium is a terminal that runs on the Linux console. The Linux console is the set of full-screen text terminals that the kernel provides, and each of them is called a VT. vtium takes the place of getty, the program that normally shows the login prompt on a VT. It renders the terminal itself, straight to the display, through the kernel's display interface, KMS/DRM. It can render entirely on the CPU, so a GPU is optional. On a machine that has only the older fbdev framebuffer, vtium renders through fbdev instead.
 
 A program running in vtium sees a modern terminal, with colors, text styles, Unicode, and mouse reporting. A vtium built with the `images` feature also shows images. A program can send them as sixel, through the kitty graphics protocol, or as iTerm2's inline images. [What vtium does](../features.md) lists its features, and [modes.md](../modes.md) lists the terminal modes it recognizes.
 
@@ -12,7 +12,7 @@ vtium is written in Rust. Two things set what it does: the specifications it cit
 
 ## Small machines first
 
-vtium is built for small machines first, and it runs on large ones as well. Its default build is called minspec. Minspec is the smallest build that is still a complete console. It renders on the CPU into a plain memory buffer that the display shows.
+vtium is built for small machines first, and it runs on large ones as well. Its default build is called minspec. Minspec is the smallest build that is still a complete terminal. It renders on the CPU into a plain memory buffer that the display shows.
 
 The fonts built into vtium are bitmap fonts. A separate program, the font helper, draws the glyphs of any other font while vtium runs. A glyph is the drawn shape of a character. The font helper also draws outline fonts. See [Fonts, generated at run time](fonts.md) for details.
 
