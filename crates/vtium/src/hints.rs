@@ -2,14 +2,15 @@
 //! letters, and typing a label copies that link's address, so a console
 //! with no mouse can still reach a link.
 //!
-//! This module holds the rules, as functions of what they are given:
-//! which links get a label and in what order, the labels themselves, how
-//! each key press is read while hints are on, and what the letters typed
-//! so far pick. The head keeps a [`Hints`] while hints are on, hands it
-//! each key press, and acts on the [`Step`] it returns. The terminal's
-//! screen keeps the labelled links beside the hovered link, so a sweep of
-//! the link store renames them and never frees one while its label shows,
-//! and the frame carries the labels to the renderer.
+//! This module holds the rules, as functions of what they are given: the
+//! labels, how each key press reads while hints are on, and what the
+//! letters typed so far pick. The head keeps a [`Hints`] while hints are
+//! on, hands it each key press with the labels the screen holds, and acts
+//! on the [`Step`] it returns. The terminal's screen keeps the labels:
+//! it lists the view's links in the order they get labels, places each
+//! label where its link first appears, drops the label of a link that
+//! leaves the view, and renames the labelled links when a sweep of the
+//! link store renumbers the links it keeps.
 //!
 //! Labels are made from the 26 lowercase letters, the home row first.
 //! Every label has the same number of letters, the fewest that give each
@@ -17,9 +18,9 @@
 //! therefore picks the link, and no Enter is needed.
 //!
 //! References:
-//! - ADR-1002, section 7 ("Keyboard link hints"): the key, the order of
-//!   the links, the alphabet, the labels' length, the keys read while
-//!   hints are on, and how hints end.
+//! - ADR-1002, section 7 ("Keyboard link hints"): the key, the alphabet,
+//!   the labels' length, the keys read while hints are on, and how hints
+//!   end.
 
 /// The letters labels are made from, in the order labels count through
 /// them: the home row, then the row above it, then the row below it.
@@ -64,8 +65,9 @@ pub fn label(index: usize, len: usize) -> String {
     let mut letters = vec!['a'; len];
     let mut rest = index;
     for slot in letters.iter_mut().rev() {
-        *slot = ALPHABET.get(rest % base).copied().unwrap_or('a');
-        rest /= base;
+        let digit = rest.checked_rem(base).unwrap_or(0);
+        *slot = ALPHABET.get(digit).copied().unwrap_or('a');
+        rest = rest.checked_div(base).unwrap_or(0);
     }
     letters.into_iter().collect()
 }
@@ -74,33 +76,6 @@ pub fn label(index: usize, len: usize) -> String {
 pub fn labels(count: usize) -> Vec<String> {
     let len = label_len(count);
     (0..count).map(|i| label(i, len)).collect()
-}
-
-/// The distinct links of a view `cols` columns wide and `rows` rows tall,
-/// in the order they first appear: row by row from the top, and in each
-/// row from left to right as the row is drawn. `link_at` gives the link
-/// of the cell drawn at a column and a row, if the cell has one.
-pub fn links_in_view<L: PartialEq + Copy>(
-    cols: usize,
-    rows: usize,
-    link_at: impl Fn(usize, usize) -> Option<L>,
-) -> Vec<L> {
-    let mut found: Vec<L> = Vec::new();
-    for y in 0..rows {
-        for x in 0..cols {
-            if let Some(link) = link_at(x, y).filter(|l| !found.contains(l)) {
-                found.push(link);
-            }
-        }
-    }
-    found
-}
-
-/// The column a label `len` letters long starts at, for a link that first
-/// appears at column `col` of a row `cols` columns wide. A label that
-/// would pass the row's last column moves left so that it ends there.
-pub fn label_col(col: usize, len: usize, cols: usize) -> usize {
-    col.min(cols.saturating_sub(len))
 }
 
 /// What a key press means while hints are on.
@@ -167,64 +142,28 @@ pub enum Step<L> {
     End,
 }
 
-/// Link hints while they are on: the labels fixed when they started, and
-/// the letters typed so far.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Hints<L> {
-    /// Each labelled link with its label, in the order the links were
-    /// labelled.
-    labelled: Vec<(L, String)>,
+/// Link hints while they are on: the letters typed so far. The labels
+/// themselves are the screen's, which fixes them when hints start.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Hints {
     /// The letters kept, which every label shown begins with.
     typed: String,
 }
 
-impl<L: PartialEq + Copy> Hints<L> {
-    /// Hints over `links`, given in the order they first appear in the
-    /// view. Returns `None` when no link is visible, since vtium then starts
-    /// no hints.
-    pub fn start(links: &[L]) -> Option<Hints<L>> {
-        if links.is_empty() {
-            return None;
-        }
-        let labelled = links.iter().copied().zip(labels(links.len())).collect();
-        Some(Hints {
-            labelled,
-            typed: String::new(),
-        })
-    }
-
-    /// The labelled links and their labels, in the order they were
-    /// labelled.
-    pub fn labelled(&self) -> &[(L, String)] {
-        &self.labelled
-    }
-
+impl Hints {
     /// The letters kept so far.
     pub fn typed(&self) -> &str {
         &self.typed
     }
 
-    /// Whether the label of `link` shows: the link has a label, and the
-    /// label begins with the letters kept.
-    pub fn shows(&self, link: L) -> bool {
-        self.labelled
-            .iter()
-            .any(|(l, text)| *l == link && text.starts_with(&self.typed))
+    /// Whether `label` shows: it begins with the letters kept.
+    pub fn shows(&self, label: &str) -> bool {
+        label.starts_with(&self.typed)
     }
 
-    /// Keeps only the labelled links that `keep` holds, so a link that
-    /// left the view loses its label, and renames each link through
-    /// `keep`, as a sweep of the link store renumbers the links it keeps.
-    pub fn retain(&mut self, keep: impl Fn(L) -> Option<L>) {
-        self.labelled = self
-            .labelled
-            .drain(..)
-            .filter_map(|(link, text)| keep(link).map(|l| (l, text)))
-            .collect();
-    }
-
-    /// Reads `key`, a key press made while hints are on.
-    pub fn key(&mut self, key: HintKey) -> Step<L> {
+    /// Reads `key`, a key press made while hints are on, against
+    /// `labelled`, each labelled link with its label.
+    pub fn key<L: Copy, S: AsRef<str>>(&mut self, labelled: &[(L, S)], key: HintKey) -> Step<L> {
         match key {
             HintKey::Modifier => Step::Ignored,
             HintKey::End => Step::End,
@@ -238,15 +177,14 @@ impl<L: PartialEq + Copy> Hints<L> {
             HintKey::Letter(c) => {
                 let mut next = self.typed.clone();
                 next.push(c);
-                let mut continued = self
-                    .labelled
+                let Some((link, label)) = labelled
                     .iter()
-                    .filter(|(_, text)| text.starts_with(&next));
-                let Some(&(first, ref text)) = continued.next() else {
+                    .find(|(_, label)| label.as_ref().starts_with(&next))
+                else {
                     return Step::Ignored;
                 };
-                if text.len() == next.len() {
-                    return Step::Picked(first);
+                if label.as_ref().len() == next.len() {
+                    return Step::Picked(*link);
                 }
                 self.typed = next;
                 Step::Typed
@@ -298,28 +236,6 @@ mod tests {
     }
 
     #[test]
-    fn links_are_ordered_by_where_each_first_appears() {
-        // a 4×3 view: link 7 first on row 0 at column 2, link 5 at row 0
-        // column 3, and link 7 again on row 2, which adds nothing
-        let cells = [
-            [None, None, Some(7), Some(5)],
-            [Some(9), None, None, None],
-            [Some(7), Some(5), None, Some(1)],
-        ];
-        let at = |x: usize, y: usize| cells.get(y).and_then(|r| r.get(x)).copied().flatten();
-        assert_eq!(links_in_view(4, 3, at), [7, 5, 9, 1]);
-        assert!(links_in_view(4, 3, |_, _| None::<u8>).is_empty());
-    }
-
-    #[test]
-    fn a_label_past_the_last_column_moves_left_to_end_there() {
-        assert_eq!(label_col(3, 2, 80), 3);
-        assert_eq!(label_col(79, 1, 80), 79);
-        assert_eq!(label_col(79, 2, 80), 78);
-        assert_eq!(label_col(5, 3, 2), 0, "a row narrower than the label");
-    }
-
-    #[test]
     fn keys_read_as_letters_backspace_modifiers_or_the_end() {
         assert_eq!(hint_key(&[u32::from('a')], false), HintKey::Letter('a'));
         assert_eq!(hint_key(&[u32::from('S')], false), HintKey::Letter('s'));
@@ -334,82 +250,75 @@ mod tests {
         assert_eq!(hint_key(&[], false), HintKey::End);
     }
 
-    #[test]
-    fn no_link_starts_no_hints() {
-        assert_eq!(Hints::<u8>::start(&[]), None);
+    /// Labels for `count` links, the links numbered from 0.
+    fn labelled(count: u16) -> Vec<(u16, String)> {
+        (0..count).zip(labels(count.into())).collect()
     }
 
     #[test]
     fn the_last_letter_of_a_label_picks_its_link() {
-        let mut h = Hints::start(&[10u8, 20, 30]).expect("hints");
-        assert_eq!(h.key(HintKey::Letter('s')), Step::Picked(20));
-        let links: Vec<u8> = (0..30).collect();
-        let mut h = Hints::start(&links).expect("hints");
-        assert_eq!(h.key(HintKey::Letter('s')), Step::Typed);
-        assert!(h.shows(26), "sa, the 27th label, still shows");
-        assert!(!h.shows(0), "aa no longer shows");
-        assert_eq!(h.key(HintKey::Letter('d')), Step::Picked(28));
+        let mut h = Hints::default();
+        assert_eq!(h.key(&labelled(3), HintKey::Letter('s')), Step::Picked(1));
+        let links = labelled(30);
+        let mut h = Hints::default();
+        assert_eq!(h.key(&links, HintKey::Letter('s')), Step::Typed);
+        assert!(h.shows("sa"), "the 27th label still shows");
+        assert!(!h.shows("aa"));
+        assert_eq!(h.key(&links, HintKey::Letter('d')), Step::Picked(28));
     }
 
     #[test]
     fn a_letter_that_continues_no_label_is_ignored() {
-        let mut h = Hints::start(&[1u8, 2]).expect("hints");
-        assert_eq!(h.key(HintKey::Letter('m')), Step::Ignored);
+        let mut h = Hints::default();
+        assert_eq!(h.key(&labelled(2), HintKey::Letter('m')), Step::Ignored);
         assert_eq!(h.typed(), "");
-        let links: Vec<u8> = (0..30).collect();
-        let mut h = Hints::start(&links).expect("hints");
+        let links = labelled(30);
         assert_eq!(
-            h.key(HintKey::Letter('d')),
+            h.key(&links, HintKey::Letter('d')),
             Step::Ignored,
             "no label starts d"
         );
-        assert_eq!(h.key(HintKey::Letter('s')), Step::Typed);
-        assert_eq!(h.key(HintKey::Letter('m')), Step::Ignored, "no sm among 30");
+        assert_eq!(h.key(&links, HintKey::Letter('s')), Step::Typed);
+        assert_eq!(
+            h.key(&links, HintKey::Letter('m')),
+            Step::Ignored,
+            "no sm among 30"
+        );
         assert_eq!(h.typed(), "s");
     }
 
     #[test]
     fn backspace_takes_back_the_last_letter_kept() {
-        let links: Vec<u8> = (0..30).collect();
-        let mut h = Hints::start(&links).expect("hints");
-        assert_eq!(h.key(HintKey::Backspace), Step::Ignored);
-        assert_eq!(h.key(HintKey::Letter('s')), Step::Typed);
-        assert_eq!(h.key(HintKey::Backspace), Step::Typed);
+        let links = labelled(30);
+        let mut h = Hints::default();
+        assert_eq!(h.key(&links, HintKey::Backspace), Step::Ignored);
+        assert_eq!(h.key(&links, HintKey::Letter('s')), Step::Typed);
+        assert_eq!(h.key(&links, HintKey::Backspace), Step::Typed);
         assert_eq!(h.typed(), "");
-        assert!(h.shows(0));
-        assert_eq!(h.key(HintKey::Letter('a')), Step::Typed);
-        assert_eq!(h.key(HintKey::Letter('a')), Step::Picked(0));
+        assert!(h.shows("aa"));
+        assert_eq!(h.key(&links, HintKey::Letter('a')), Step::Typed);
+        assert_eq!(h.key(&links, HintKey::Letter('a')), Step::Picked(0));
     }
 
     #[test]
     fn any_other_key_ends_hints_and_a_modifier_changes_nothing() {
-        let mut h = Hints::start(&[1u8]).expect("hints");
-        assert_eq!(h.key(HintKey::Modifier), Step::Ignored);
-        assert_eq!(h.key(HintKey::End), Step::End);
+        let links = labelled(1);
+        let mut h = Hints::default();
+        assert_eq!(h.key(&links, HintKey::Modifier), Step::Ignored);
+        assert_eq!(h.key(&links, HintKey::End), Step::End);
     }
 
     #[test]
-    fn a_link_that_leaves_the_view_loses_its_label_for_good() {
-        let mut h = Hints::start(&[1u8, 2, 3]).expect("hints");
-        // link 2 left the view, and a sweep renamed link 3 to 2
-        h.retain(|l| match l {
-            1 => Some(1),
-            3 => Some(2),
-            _ => None,
-        });
-        assert_eq!(
-            h.labelled(),
-            [(1, "a".to_owned()), (2, "d".to_owned())],
-            "each label keeps its letters, and so its link"
-        );
-        assert_eq!(h.key(HintKey::Letter('s')), Step::Ignored);
-        assert_eq!(h.key(HintKey::Letter('d')), Step::Picked(2));
+    fn a_label_that_lost_its_link_picks_nothing() {
+        // the screen dropped the label "s" when its link left the view
+        let links = vec![(0u16, "a".to_owned()), (2, "d".to_owned())];
+        let mut h = Hints::default();
+        assert_eq!(h.key(&links, HintKey::Letter('s')), Step::Ignored);
+        assert_eq!(h.key(&links, HintKey::Letter('d')), Step::Picked(2));
     }
 
     #[test]
     fn the_same_screen_always_gets_the_same_labels() {
-        let a = Hints::start(&[4u8, 8, 15]);
-        let b = Hints::start(&[4u8, 8, 15]);
-        assert_eq!(a, b);
+        assert_eq!(labels(40), labels(40));
     }
 }

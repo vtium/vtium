@@ -221,6 +221,8 @@ pub struct Snapshot {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<(usize, String)>,
+    /// The labels of link hints, while they are on.
+    link_hints: Vec<vtium_term::LinkHint>,
     #[cfg(feature = "images")]
     placements: Vec<vtium_image::FramePlacement>,
     /// The order each row is drawn in, which the frame the snapshot
@@ -245,6 +247,7 @@ impl Snapshot {
         let order = frame.order().clone();
         let (cursor, hovered) = (frame.cursor(), frame.hovered());
         let overlay = frame.overlay().map(|o| (o.row, o.uri.to_owned()));
+        let link_hints = frame.link_hints().to_vec();
         #[cfg(feature = "images")]
         let placements = frame.placements().to_vec();
         Snapshot {
@@ -255,6 +258,7 @@ impl Snapshot {
             selection,
             hovered,
             overlay,
+            link_hints,
             palette,
             #[cfg(feature = "images")]
             placements,
@@ -277,7 +281,8 @@ impl Snapshot {
         .with_hover(
             self.hovered,
             self.overlay.as_ref().map(|(row, uri)| (*row, uri.as_str())),
-        );
+        )
+        .with_link_hints(&self.link_hints);
         #[cfg(feature = "images")]
         let frame = frame.with_placements(self.placements.clone());
         // the cursor came from the screen's frame already drawn where its
@@ -1414,6 +1419,28 @@ mod tests {
 
     const ID: DisplayId = DisplayId(1);
     const SIZE: (u32, u32) = (36, 34);
+
+    // ADR-1002, section 7: the frame a head's render thread draws from the
+    // snapshot carries the labels of link hints and vtium's note on the
+    // overlay row.
+    #[test]
+    fn a_snapshot_carries_the_labels_of_link_hints() {
+        let mut terminal = Terminal::new(10, 2, 0);
+        terminal.input(b"  \x1b]8;;x:a\x1b\\link\x1b]8;;\x1b\\");
+        let links = terminal.screen().view_links();
+        let screen = terminal.screen_mut();
+        screen.set_link_hints(links.into_iter().map(|l| (l, "a".to_owned())).collect());
+        screen.set_overlay_note(Some("pick".to_owned()));
+        let snapshot = Snapshot::take(&terminal);
+        let frame = snapshot.frame(Age::NEVER);
+        let placed: Vec<_> = frame
+            .link_hints()
+            .iter()
+            .map(|h| (h.label.as_str(), h.at))
+            .collect();
+        assert_eq!(placed, [("a", (2, 0))]);
+        assert_eq!(frame.overlay().map(|o| (o.row, o.uri)), Some((1, "pick")));
+    }
 
     // ADR-1004 D8 to D10: the frame a head's render thread draws from the
     // snapshot shows a mixed line in the order vtium-term draws it, the

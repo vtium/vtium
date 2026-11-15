@@ -1937,8 +1937,9 @@ pub const KEY_LINK_HINTS: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "Label each link on the screen with letters, so you can copy a link's address without a mouse.\n\n\
-           Type a link's label to copy its address, as Ctrl+click copies it, then paste it with the middle button or Shift+Insert. Escape, or this key again, stops without a copy. Only links that a program marks with OSC 8 get a label. The key works on the main screen and on the alternate screen. When empty, no key labels the links.",
+    what: "Label each link on the screen with letters, and copy the address of the link whose label you type.\n\n\
+           When empty, no key labels the links.\n\n\
+           [docs] Paste the address with the middle button or Shift+Insert. Escape, or this key again, stops without a copy. Only links that a program marks with OSC 8 get a label, on the main screen and on the alternate screen.",
     cite: "[the keyboard link mode issue](https://github.com/vtium/vtium/issues/106)",
 };
 
