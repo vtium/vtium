@@ -43,7 +43,7 @@ related:
 ## Summary
 
 - **Decided:** `Line::bytes_max`, the most a screen row may cost, counts the row's run table. The run table holds at most one entry for each of the row's cells, since runs on a line never overlap. vtium pays for it without raising the bound. A line's style table, link table and cluster arena compact at one and a half times what its cells can name, where they compacted at twice. A run's entry shrinks from 10 bytes to 6, and a line's link table keeps 16-bit link numbers. A 170-column row's bound falls from 9,648 bytes to 8,142 on x86-64, and from 15,428 to 12,477 in a build with images. The memory tests run on armv7 as well as aarch64, through a new make target that joins the gate line and CI.
-- **Trades away:** A line compacts its tables about twice as often. In the prototype that cost up to 9% on a redraw that gives every cell a new link and a cluster, and nothing on ordinary redraws. The scrollback's worst row now counts its runs, so `sb-memory`'s default holds fewer of the worst rows at the minspec grid: 650 where it held 693.
+- **Trades away:** A line compacts its tables about twice as often. In the prototype that made a run of clusters 3 to 4% slower, plain text about 3% slower, and a redraw with a new link and a cluster in every cell 5 to 9% slower. A redraw that gives every cell a new color became 8 to 14% faster. The scrollback's worst row now counts its runs, so `sb-memory`'s default holds fewer of the worst rows at the minspec grid: 650 where it held 693.
 - **One-way?** No. Everything here lives in memory, and nothing on disk or on the wire holds it. The compaction factor and the entry sizes can change again in one release.
 - **Probes:**
   - *Confident (no cap below the cells):* a line may hold one sized run in every cell, because kitty's text sizing protocol shows a program sending one w=1 sequence per character. vtium refuses none of them. Right?
@@ -117,6 +117,41 @@ The "before" columns leave the run table out, so they understate what a row with
 
 `make arm-memory` runs vtium-term's library tests and `tests/memory.rs` for armv7-unknown-linux-gnueabihf under qemu-user, in a release build, through the wrappers and sysroot that `make arm` uses. It runs them once without images and once with all features. Those two binaries ran in about 12 seconds in the measurement, where vtium-term's whole debug suite under qemu-user took more than ten minutes without finishing. It joins the gate line right after `make arm`, and CI's arm-cross job runs it after `make arm`. aarch64 keeps its native run in the arm-native job. The tests pin the 32-bit figures beside the 64-bit ones, so a change that moves either fails on its own target.
 
+### D8: what each change costs in CPU time
+
+`make bench` runs vtium-term's standing write benchmarks, `crates/vtium-term/examples/write_bench.rs`. Each benchmark feeds a fresh 170 by 48 terminal with 1,000 lines of scrollback and no renderer:
+
+- `redraw` is 60 frames that give every cell a new 24-bit color.
+- `tui` is 60 frames in the 16 colors.
+- `scroll` is 4 MiB of colored 160-character lines.
+- `clusters` is 2 MiB of combining marks, emoji, ZWJ sequences, flags and CJK.
+- `cat` is 8 MiB of plain ASCII lines.
+
+The table gives the median of 15 runs in a release build on x86-64, with the fastest and slowest run in brackets. Each build was timed twice, an hour apart. Where the two rounds differ, the table gives both medians.
+
+| Build | `redraw`, ms a frame | `tui`, ms a frame | `scroll`, ms a MiB | `clusters`, ms a MiB | `cat`, ms a MiB |
+|---|---|---|---|---|---|
+| integration, before sized runs | 4.58, 4.65 (4.41 to 4.81) | 0.487 (0.475 to 0.491) | 40.4 (40.4 to 40.8) | 26.8, 27.0 (26.8 to 27.6) | 46.4, 46.5 (46.3 to 46.7) |
+| sized runs, before the repack | 4.62 (4.37 to 4.79) | 0.559 (0.533 to 0.569) | 44.5 (44.4 to 44.7) | 29.4 (29.3 to 29.5) | 52.2 (51.2 to 53.5) |
+| the repack | 4.69, 4.70 (4.39 to 4.97) | 0.529, 0.535 (0.523 to 0.560) | 44.5, 44.9 (44.4 to 45.3) | 29.4, 29.2 (29.2 to 29.6) | 51.2, 50.9 (50.7 to 51.3) |
+| the repack and D3 and D4, at 1.5 times | 4.31, 4.03 (3.97 to 4.40) | 0.537, 0.535 (0.527 to 0.546) | 44.8, 44.5 (44.5 to 45.4) | 30.3, 30.3 (30.2 to 30.5) | 52.6, 52.5 (52.1 to 53.8) |
+
+- **The repack** costs nothing measurable and saves a little. `tui` is 5% faster and `cat` 2% faster. The other three move by less than their spread. A profile of the repack build finds no time spent growing the boxed arena, so making the length the capacity costs nothing in these runs.
+- **Compaction at one and a half times** makes `redraw` 8 to 14% faster, because a miss in the style table searches a shorter table. It makes `clusters` 3 to 4% slower and `cat` about 3% slower. `tui` and `scroll` move by less than their spread. On the link-heavy redraw of the evidence, it costs 5 to 9%.
+- **The 6-byte run entry** cannot move these benchmarks, because only a sized run reads it, and none of them writes one.
+- **16-bit link numbers** moved the link-heavy redraw from 731 ms to 720 ms, inside its spread. None of the standing benchmarks writes a link.
+- **Boxed style and link tables, and a boxed cell array**, were not prototyped. No profile spends time in the code they would change.
+- **The sized-run work itself** costs 10 to 15% on `tui`, `scroll`, `clusters` and `cat`. Its print path looks up a character's Unicode properties more often, and it marks more damage on plain text. That cost is the sized-run work's, not this record's. It belongs to the performance work below.
+
+**Where the time goes.** An in-process sampling profiler ran each benchmark on integration's code. perf could not sample on this machine without a kernel setting that needs root, so the profiler sampled with a timer signal instead.
+
+- Looking up a character's Unicode properties takes 49% of `cat`, 67% of `scroll`, 58% of `tui` and 52% of `clusters`. The lookup is a binary search over 2,646 runs of the property table. Printing looks it up for every character, ASCII included. vtium has no fast path for printable ASCII. A prototype that answers U+0000 to U+007F from a 128-entry table made `cat` 38% faster, `scroll` 38%, `tui` 32% and `clusters` 9%, and the library's tests passed.
+- In `redraw`, interning styles takes 40%. A new style is compared with every entry of the line's table, from the newest back, before it is appended. A cell that repeats the previous cell's style matches the newest entry on the first comparison, so only new styles pay for the search.
+- The parser takes 30% of `redraw`, where every cell carries a 24-bit SGR. It reads the input one byte at a time and calls the screen once for each character. Only DCS and APC strings are taken as runs, so no bulk scan such as memchr skips the printable bytes.
+- Compaction takes at most 0.5% of any benchmark, and the arena's growth takes none. So compacting on a dead-entry threshold or at scroll-off, or growing the arena in steps, could save at most 0.5% in these runs. This record takes neither.
+- Freeing memory takes 7% of `clusters`, from the temporary strings the print path builds for a cluster's text.
+- Damage marking takes 6% of `tui`. A redraw costs no extra drawing work in the terminal: vtium draws once at the end of each turn of reading the program's output, paced to the display's flips, never once per write. The glyph cache is the renderer's, and these benchmarks run no renderer, so they cannot count its misses.
+
 ## Verification
 
 - vtium-term, `tests/memory.rs`: the worst screen row gains rows of one-column runs, each cell with its own style, its own link and a cluster, and reaches `Line::bytes_max` exactly at 170, 80 and 40 columns. The worst scrollback row gains a run in every cell. The tests pin the figures of D6 for both builds and both targets.
@@ -125,6 +160,7 @@ The "before" columns leave the run table out, so they understate what a row with
 - vtium-term, the link store: the compile-time check of D5 fails when `LINKS_BYTES_MAX` is raised past 65,535 links' worth of charge.
 - Each new or changed check is seen failing on a planted defect: the run table left out of the bound, the table let grow past the cells, the trigger reverted to 129 bytes.
 - `make arm-memory` passes on armv7 in both builds.
+- `make bench` runs before and after the change. The figures of D8 are the baseline.
 
 ## Consequences
 
