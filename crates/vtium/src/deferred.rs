@@ -4609,10 +4609,7 @@ mod tests {
             vec![ZWJ, lam, alef],
         ];
         for doubled in [Doubled::Width, Doubled::Height] {
-            let shown = all
-                .iter()
-                .find(|s| s.doubled == Some(doubled))
-                .unwrap_or_else(|| panic!("nothing asked at {doubled:?}"));
+            let shown = all.iter().find(|s| s.doubled == Some(doubled)).unwrap();
             for key in &keys {
                 assert!(shown.clusters.contains(key), "{key:?} in {shown:?}");
             }
