@@ -5717,6 +5717,52 @@ mod tests {
         assert_eq!(drawn_chars(&after, cell, &chars), ['\u{4e00}']);
     }
 
+    // Whatever the order, a character the built-in font holds and no
+    // source before it holds is left to the console, which draws it from
+    // the built-in font. A frit whose only source is a missing text font
+    // draws nothing in the helper: the ask fails, and the console draws
+    // the text in the built-in font. With the text font missing and a
+    // layer that holds no Latin, after the text font's line or before it,
+    // the helper draws U+4E00 from the layer and leaves A to the console.
+    //
+    // References:
+    // - ADR-1204 D5 and D7: the built-in font draws the text when the
+    //   set's text font is missing.
+    #[test]
+    fn a_missing_text_font_leaves_a_to_the_built_in_font_in_any_order() {
+        let dir = scratch("built-in-lone");
+        let mut han = super::ttf::test_mono();
+        han.family = "Test Han".to_owned();
+        han.cmap.retain(|&(c, _)| c == 0x4e00);
+        let ttf = dir.join("han.ttf");
+        std::fs::write(&ttf, han.build()).unwrap();
+        let script = format!("role=script\nsource=outline:{}\n", ttf.display());
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', '\u{4e00}'];
+        let lone = frit("source=font:Nonesuch Mono\n");
+        let frames = run(&[ServeRequest {
+            cluster_width: Default::default(),
+            cell,
+            band: Band::NONE,
+            ..request(ASK, lone, &chars)
+        }]);
+        assert_eq!(
+            frames.iter().map(|f| f.0).collect::<Vec<_>>(),
+            [FRAME_FAILED],
+            "no glyph from a frit with no source here"
+        );
+        for text in [
+            "source=font:Nonesuch Mono\nlayer=han\n",
+            "layer=han\nsource=font:Nonesuch Mono\n",
+        ] {
+            let layered = layered(text, "han", &script);
+            assert_eq!(drawn_chars(&layered, cell, &chars), ['\u{4e00}'], "{text}");
+        }
+    }
+
     // In a zh, ja or ko locale the console draws Unifont as its built-in
     // font at every height, so a set whose text font is missing leaves Han
     // to the console even in an 8-pixel cell, where Unscii-8, which holds
