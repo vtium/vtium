@@ -193,6 +193,9 @@ pub struct Head {
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
+    /// What each console's running program was told about 24-bit color
+    /// when it started, which [`session::Colorterm`] keeps.
+    colorterm: session::Colorterm,
     pub(crate) attached: Attached,
     /// Every display of the head draws at once at the end of the turn.
     pub(crate) draw_now: bool,
@@ -499,6 +502,7 @@ impl Head {
             when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
             views: BTreeMap::new(),
+            colorterm: session::Colorterm::default(),
             attached: Attached::NotYet,
             draw_now: false,
             text_due: None,

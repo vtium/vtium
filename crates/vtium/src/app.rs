@@ -134,6 +134,8 @@ use crate::term::{Clock, Prepared, Term, View};
 use crate::video::Video;
 use crate::wait::Wait;
 
+#[cfg(test)]
+mod colorterm;
 mod enter_switch;
 mod hand_over;
 mod held;
@@ -1061,7 +1063,20 @@ impl App {
             },
             console: self.heads.get(h).map(|head| (head.name(), id)),
             logind_seat: self.vt.logind_seat(),
+            truecolor: self.truecolor(h),
         }
+    }
+
+    /// Whether a program that starts now in head `h` is told
+    /// `COLORTERM=truecolor`, as [`Head::truecolor`] decides from the
+    /// head's displays. With no display set up, the head counts the depth
+    /// its `display-depth` names, or color at `auto`.
+    ///
+    /// References:
+    /// - ADR-1301 D10: the displays that count.
+    fn truecolor(&self, h: usize) -> bool {
+        let unlit = depth(&self.head_config(h), None);
+        self.heads.get(h).is_none_or(|head| head.truecolor(unlit))
     }
 
     /// Starts the session of head `h`'s console `id`, unless a crash loop
@@ -1087,6 +1102,7 @@ impl App {
             .and_then(|head| head.login.as_ref())
             .unwrap_or(&self.config);
         let spec = child::child(config, &self.place(h, id), self.inherited.clone());
+        let truecolor = spec.truecolor();
         let command = spec.command().ok_or("no command to run")?;
         let erase = if self.config.switch(&keys::BACKSPACE_DELETE) {
             Erase::Delete
@@ -1119,6 +1135,9 @@ impl App {
         if let Some(console) = self.heads.get_mut(h).and_then(|head| head.console_mut(id)) {
             console.pty_id = Some(pty_id);
             console.pty = Some(pty);
+        }
+        if let Some(head) = self.heads.get_mut(h) {
+            head.told_truecolor(id, truecolor);
         }
         Ok(())
     }
@@ -1578,6 +1597,9 @@ impl App {
             self.start_lit.insert(key.clone(), display.clone());
         }
         self.lit.insert(key.clone(), display);
+        if let Some(head) = self.heads.get_mut(h) {
+            head.black_and_white_joins(&key, &name);
+        }
         self.focus_due = true;
         self.guard_due = true;
         // the line names the path that draws the display (ADR-1303 D10):
