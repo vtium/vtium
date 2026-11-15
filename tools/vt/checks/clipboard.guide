@@ -1,0 +1,65 @@
+# vtium-clipboard and its short name vticlip, which copy text from a
+# script or a pipe to the console's clipboard (ADR-1007). The program
+# writes OSC 52 to its own terminal, then asks XTVERSION and DA1, and its
+# exit status says whether vtium answered. Tier 1 judges the bytes
+# (tools/conformance/scenarios/vtium-clipboard-copy.scenario). This guide
+# checks what a person sees: the copy pastes back with Shift+Insert and the
+# middle mouse button, and each refusal says why.
+#
+# The first step builds the program with cargo and links it as vticlip in
+# /tmp/vtium-vt/bin, so every step names that directory. make vt-check runs
+# the guide from the checkout's top directory, where cargo finds the
+# workspace. Each step that pastes reads one line with the shell's read, so
+# the pasted text shows on the screen with what the step expects.
+#
+#   make vt-check GUIDE=clipboard
+
+title: copy text to the console's clipboard with vticlip
+
+intro: vticlip copy reads text from a file or from a pipe and copies it to
+intro: the console's clipboard. Shift+Insert and the middle mouse button
+intro: paste it. Each step runs the commands for you, then shows the
+intro: program's exit status: 0 means vtium took the copy, and any other
+intro: number means it did not.
+
+step: Build vticlip
+run: cargo build -q --release -p vtium-clipboard && mkdir -p /tmp/vtium-vt/bin && ln -sfn "$(pwd)/${CARGO_TARGET_DIR:-target}/release/vtium-clipboard" /tmp/vtium-vt/bin/vticlip && /tmp/vtium-vt/bin/vticlip --version; sleep 3
+expect: cargo builds the program, which can take a minute. The last line
+expect: reads *vticlip* and a version number.
+
+step: Copy from a pipe, then paste with Shift+Insert
+run: clear; echo hello | /tmp/vtium-vt/bin/vticlip copy; echo "exit status $?"; printf 'Press Shift+Insert, then Enter: '; read -r line; printf 'You pasted: %s\n' "$line"; sleep 5
+expect: The first line reads *exit status 0*, with no message above it.
+expect: Shift+Insert types *hello* after the prompt, and the last line
+expect: reads "You pasted: hello".
+
+step: Copy a file with accents, wide characters and emoji, then paste with the middle button
+run: clear; printf 'café 中文 😀\n' > /tmp/vtium-vt/clip.txt; /tmp/vtium-vt/bin/vticlip copy /tmp/vtium-vt/clip.txt; echo "exit status $?"; printf 'Press the middle mouse button, then Enter: '; read -r line; printf 'You pasted: %s\n' "$line"; sleep 5
+expect: The first line reads *exit status 0*. The middle button pastes
+expect: *café 中文 😀* after the prompt, each character whole, and the last
+expect: line shows the same text.
+
+step: Copy with the output redirected
+run: clear; echo redirected | /tmp/vtium-vt/bin/vticlip copy > /tmp/vtium-vt/clip-out.txt; echo "exit status $?, $(wc -c < /tmp/vtium-vt/clip-out.txt) bytes in the output file"; printf 'Press Shift+Insert, then Enter: '; read -r line; printf 'You pasted: %s\n' "$line"; sleep 5
+expect: The first line reads *exit status 0, 0 bytes in the output file*:
+expect: the copy went to the console, not to the file. Shift+Insert pastes
+expect: *redirected*.
+
+step: Text too large for the clipboard
+run: clear; head -c 600000 /dev/zero | tr '\0' a | /tmp/vtium-vt/bin/vticlip copy; echo "exit status $?"; printf 'Press Shift+Insert, then Enter: '; read -r line; printf 'You pasted: %s\n' "$line"; sleep 5
+expect: A message says the text is more than 524288 bytes and that
+expect: *nothing was copied*, and the next line reads exit status 1.
+expect: Shift+Insert still pastes *redirected*, the text of the step before.
+
+step: Text that is not valid UTF-8
+run: clear; printf 'h\377i' | /tmp/vtium-vt/bin/vticlip copy; echo "exit status $?"; printf 'Press Shift+Insert, then Enter: '; read -r line; printf 'You pasted: %s\n' "$line"; sleep 5
+expect: A message says the text is not all valid UTF-8, and the next line
+expect: reads exit status 0. Shift+Insert pastes h, then
+expect: *the replacement character*, a question mark in a diamond or a box,
+expect: then i.
+
+step: Paste from a program is not available
+run: clear; /tmp/vtium-vt/bin/vticlip paste; echo "exit status $?"; sleep 8
+expect: A message starting with "vticlip:" says that
+expect: *paste is not available yet*, and points to Shift+Insert and the
+expect: middle mouse button. The next line reads exit status 2.
