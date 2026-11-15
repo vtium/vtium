@@ -37,8 +37,9 @@ use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
+use vtium_image::Pixels;
 use vtium_image::decode::{Medium, Reply, Request};
-use vtium_image::login::{Fit, Form, Geometry, Made, Position, make};
+use vtium_image::login::{Fit, Fitting, Form, Geometry, Made, Position, place};
 use vtium_platform::calloop::LoopHandle;
 use vtium_platform::image_helper::Session;
 
@@ -242,6 +243,10 @@ impl Login {
             pixels: None,
             largest: self.largest,
             largest_bytes: LOGIN_IMAGE_PIXELS_MAX,
+            fit: Some(Fitting {
+                form: self.form,
+                geometry,
+            }),
         };
         // the request asks for the account that runs before login: no
         // session's program runs yet, and the pty would belong to root
@@ -299,18 +304,29 @@ impl Login {
         let Some(size) = payload.size() else {
             return self.fail("the image helper sent no picture");
         };
-        let Some((pixels, _)) = payload.copy_into(Vec::new()) else {
+        let fitting = Fitting {
+            form: self.form,
+            geometry,
+        };
+        // the helper has fitted the picture already: a size it would not
+        // make for this screen is refused before a pixel is read
+        let Some((place, prompt_row)) = place(&fitting, size) else {
+            return self.fail("the image helper's picture does not fit the screen");
+        };
+        let Some((pixels, opaque)) = payload.copy_into(Vec::new()) else {
             return self.fail("the image helper's picture cannot be read");
         };
-        match make(&self.form, &geometry, size, &pixels) {
-            Some(made) => {
-                self.state = State::Ready {
-                    geometry,
-                    made: Rc::new(made),
-                }
-            }
-            None => self.fail("the screen has no room for it"),
-        }
+        self.state = State::Ready {
+            geometry,
+            made: Rc::new(Made {
+                width: size.0,
+                height: size.1,
+                pixels: Pixels::new(pixels),
+                opaque,
+                place,
+                prompt_row,
+            }),
+        };
     }
 
     /// Logs why vtium cannot show the picture, once, and shows none.
@@ -337,7 +353,7 @@ impl Login {
         }
         let screen = term.terminal.screen_mut();
         let placed = screen
-            .add_image(made.image())
+            .add_shared_image(made.image(), made.pixels.clone())
             .and_then(|key| screen.place_image(key, made.place));
         if placed.is_err() {
             if !self.no_room_logged {
@@ -427,6 +443,26 @@ mod tests {
             assert_eq!((session.child, session.pty_owner.clone()), (None, Ok(0)));
             self.sent.borrow_mut().push(request.clone());
             match &self.answer {
+                // the real helper fits a login picture before it answers
+                Some(Reply::Ok(Payload::Rgba {
+                    width,
+                    height,
+                    data,
+                })) => {
+                    let fitting = request.fit.expect("the login request asks for a fit");
+                    let source = vtium_image::login::Source::Rgba(data);
+                    let (w, h, px) = vtium_image::login::fit(&fitting, (*width, *height), source)
+                        .ok_or(Reply::TooLarge)?;
+                    let data = px
+                        .iter()
+                        .flat_map(|p| p.to_be_bytes().into_iter().cycle().skip(1).take(4))
+                        .collect();
+                    Err(Reply::Ok(Payload::Rgba {
+                        width: w,
+                        height: h,
+                        data,
+                    }))
+                }
                 Some(reply) => Err(reply.clone()),
                 None => Ok(()),
             }
@@ -610,6 +646,8 @@ mod tests {
         let request = sent.borrow()[0].clone();
         assert!(request.any_image && request.medium.letter() == 'd');
         assert_eq!(request.largest_bytes, LOGIN_IMAGE_PIXELS_MAX);
+        // the helper is asked to fit the picture to this screen
+        assert_eq!(request.fit.map(|f| f.geometry), Some(SCREEN));
         assert!(login.waits());
         assert_eq!(login.due(), Some(start + REPLY_TIMEOUT));
         login.step(
@@ -740,5 +778,79 @@ mod tests {
         let lines = said();
         assert_eq!(lines.len(), 1);
         assert!(lines[0].contains("the console's image memory cannot hold it"));
+    }
+
+    // ADR-1100 D17: the helper hands back only the fitted pixels, and the
+    // consoles of a head share one copy of them
+    #[test]
+    fn a_4k_picture_comes_back_fitted_and_two_consoles_share_one_copy() {
+        let path = file("4k", PNG);
+        let (make, _) = helpers(Some(decoded(3840, 2160)));
+        let mut login = login(path, Fit::Cover);
+        let hd = Geometry {
+            display: (1920, 1080),
+            cell: (8, 16),
+            grid: (240, 67),
+        };
+        login.step(Some(hd), now(), Some(&make));
+        let made = login.made().expect("made").clone();
+        // 1920×1072 pixels, 8,232,960 bytes: the only copy the console holds
+        assert_eq!((made.width, made.height), (1920, 1072));
+        assert_eq!(made.pixels.as_slice().len() * 4, 8_232_960);
+        let mut consoles = [console(64 << 20), console(64 << 20)];
+        for term in &mut consoles {
+            term.terminal.resize(240, 67);
+            login.place(term, true);
+            let images = term.terminal.screen().images();
+            let shown = term.terminal.screen().placements();
+            let pixels = images
+                .frame_pixels(shown[0].image, 1)
+                .expect("pixels")
+                .pixels;
+            assert!(
+                pixels.same(&made.pixels),
+                "a console holds a copy of its own"
+            );
+        }
+    }
+
+    #[test]
+    fn a_reply_the_helper_did_not_fit_is_refused() {
+        let path = file("unfitted", PNG);
+        // a helper that answers the decoded picture at its own size
+        let sent = Rc::new(RefCell::new(Vec::new()));
+        let make: Helpers = Rc::new(move || {
+            Box::new(Unfitted {
+                sent: Rc::clone(&sent),
+            })
+        });
+        said();
+        let mut login = login(path, Fit::Cover);
+        login.step(Some(SCREEN), now(), Some(&make));
+        assert!(login.made().is_none());
+        assert!(said()[0].contains("the image helper's picture does not fit the screen"));
+    }
+
+    /// An image helper that ignores the fit and answers a picture of 8×8.
+    struct Unfitted {
+        sent: Rc<RefCell<Vec<Request>>>,
+    }
+
+    impl Helper for Unfitted {
+        fn send(&mut self, request: &Request, _: &Session) -> Result<(), Reply> {
+            self.sent.borrow_mut().push(request.clone());
+            Err(decoded(8, 8))
+        }
+        fn reply(&mut self) -> Option<Reply> {
+            None
+        }
+        fn stop(&mut self) {}
+        fn session_ended(&mut self) {}
+        fn wake(&self) -> Option<OwnedFd> {
+            None
+        }
+        fn available(&self) -> bool {
+            true
+        }
     }
 }
