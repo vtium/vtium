@@ -975,6 +975,10 @@ pub struct Engine {
     /// fonts its `script-source=` lines name (ADR-1202 D3, D12). Its own
     /// strike, which comes first, is not repeated here.
     smaller: Vec<Vec<SmallerFont>>,
+    /// Each outline source's strikes by its place in `sources`, each a
+    /// [`Loaded::Bitmap`]: the bitmap files its `strike=` lines name that
+    /// this machine has and that read. Empty for a bitmap source.
+    strikes: Vec<Vec<Loaded>>,
     /// The frit's `cell=`, which sets its own cell where it states one.
     cell: Option<Cell>,
     /// The frit's `render=` lines, by the line of the source each is for
@@ -1279,29 +1283,8 @@ fn smaller_fonts(
     let mut fonts = Vec::new();
     for (named, input) in crate::sources::smaller(source, host) {
         let font = input.and_then(|input| {
-            match input {
-                Input::Bitmap(font) => Ok(font),
-                Input::Bdf(bytes) => crate::bdf::font(&bytes),
-                Input::Font(req) => req
-                    .unimap
-                    .as_ref()
-                    .and_then(|_| crate::decode::font(&req.font, None, None).ok())
-                    .map_or_else(
-                        || {
-                            crate::decode::font(
-                                &req.font,
-                                req.unimap.as_deref(),
-                                req.def_uni.as_deref(),
-                            )
-                        },
-                        Ok,
-                    )
-                    .map(Font::from_glyphs),
-                Input::Outline(_) => {
-                    Err("this is an outline font, not a smaller bitmap font".to_owned())
-                }
-            }
-            .map_err(SourceError::Failed)
+            bitmap_of(input, "this is an outline font, not a smaller bitmap font")
+                .map_err(SourceError::Failed)
         });
         match (font, &named) {
             (Ok(font), _) => fonts.push(SmallerFont { font, named }),
@@ -1311,6 +1294,70 @@ fn smaller_fonts(
             // a font this machine lacks, and a CPI height that does not
             // decode, are left out quietly
             (Err(_), _) => {}
+        }
+    }
+    fonts
+}
+
+/// The glyphs of a bitmap font that a source names besides its own: a
+/// smaller size or a strike. A font with a Unicode table of its own keeps
+/// it, and one with none takes the source's `unimap=`, else kbd's
+/// `def.uni`. An outline font is refused with `outline`.
+fn bitmap_of(input: Input, outline: &str) -> Result<Font, String> {
+    match input {
+        Input::Bitmap(font) => Ok(font),
+        Input::Bdf(bytes) => crate::bdf::font(&bytes),
+        Input::Font(req) => req
+            .unimap
+            .as_ref()
+            .and_then(|_| crate::decode::font(&req.font, None, None).ok())
+            .map_or_else(
+                || crate::decode::font(&req.font, req.unimap.as_deref(), req.def_uni.as_deref()),
+                Ok,
+            )
+            .map(Font::from_glyphs),
+        Input::Outline(_) => Err(outline.to_owned()),
+    }
+}
+
+/// The strikes that the outline `source`'s `strike=` lines name, read and
+/// parsed, each a [`Loaded::Bitmap`]. A strike this machine does not have
+/// is left out quietly, as a source is, and one that is here and is
+/// refused is left out with a warning naming its line in the frit `name`.
+///
+/// References:
+/// - ADR-1204 D2: the `strike=` key under an outline source.
+fn strike_fonts(
+    source: &Source,
+    host: &Host<'_>,
+    name: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<Loaded> {
+    let mut fonts = Vec::new();
+    for strike in &source.strikes {
+        let file = Source {
+            spelling: strike.spelling.clone(),
+            origin: strike.origin.clone(),
+            unimap: None,
+            cover: Vec::new(),
+            cp_size: None,
+            script_sources: Vec::new(),
+            strikes: Vec::new(),
+            style: source.style,
+            fits: Vec::new(),
+            line: strike.line,
+        };
+        let font = resolve(&file, host).and_then(|input| {
+            bitmap_of(input, "this is an outline font, not a bitmap strike")
+                .map_err(SourceError::Failed)
+        });
+        match font {
+            Ok(font) => fonts.push(Loaded::Bitmap(font)),
+            Err(SourceError::Failed(e)) => warnings.push(format!(
+                "{name}:{}: strike={}: {e}; the strike is left out",
+                strike.line, strike.spelling
+            )),
+            Err(SourceError::Missing(_)) => {}
         }
     }
     fonts
@@ -1351,6 +1398,7 @@ impl Engine {
         };
         let mut sources = Vec::new();
         let mut smaller = Vec::new();
+        let mut strikes = Vec::new();
         let mut why = Vec::new();
         let mut left_out = Vec::new();
         for source in &frit.sources {
@@ -1376,6 +1424,20 @@ impl Engine {
             });
             match loaded {
                 Ok(l) => {
+                    strikes.push(match l {
+                        Loaded::Outline { .. } => {
+                            strike_fonts(source, &host, &frit.name, &mut warnings)
+                        }
+                        Loaded::Bitmap(_) => {
+                            if let Some(strike) = source.strikes.first() {
+                                warnings.push(format!(
+                                    "{}:{}: strike={} is ignored, because the source above it is a bitmap font",
+                                    frit.name, strike.line, strike.spelling
+                                ));
+                            }
+                            Vec::new()
+                        }
+                    });
                     let small = match l {
                         Loaded::Bitmap(_) => {
                             smaller_fonts(source, &host, &frit.name, &mut warnings)
@@ -1440,11 +1502,15 @@ impl Engine {
         }
         let mut coverage: Vec<u32> = sources
             .iter()
-            .flat_map(|(source, l)| {
-                let cs: Vec<u32> = match l {
-                    Loaded::Bitmap(f) => f.map.keys().copied().collect(),
-                    Loaded::Outline { mapped, .. } => mapped.clone(),
-                };
+            .zip(&strikes)
+            .flat_map(|((source, l), strikes)| {
+                let cs: Vec<u32> = std::iter::once(l)
+                    .chain(strikes)
+                    .flat_map(|l| match l {
+                        Loaded::Bitmap(f) => f.map.keys().copied().collect::<Vec<u32>>(),
+                        Loaded::Outline { mapped, .. } => mapped.clone(),
+                    })
+                    .collect();
                 cs.into_iter().filter(|&c| source.covers(c))
             })
             .collect();
@@ -1462,6 +1528,7 @@ impl Engine {
             baselines: RefCell::default(),
             hinting: frit.hinting,
             smaller,
+            strikes,
             cell: frit.cell,
             render: frit.render,
         })
@@ -1734,6 +1801,42 @@ impl Engine {
     /// glyphs for italic (vtium-font's set reader) leans them as the helper
     /// does. One whose font cannot be read, or that fits the cell at no
     /// whole factor, reports the cell's bottom row.
+    /// The strike that source `i` draws from in a text band `cell`: the
+    /// tallest of its strikes that fits the cell, when the cell is no
+    /// taller than the tallest strike. Above that height, and in a cell
+    /// that no strike fits, the source draws its outline. A character the
+    /// strike lacks draws from the outline at every height.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the largest strike that fits a cell up to the
+    ///   tallest strike's height, and the outline above it.
+    fn strike_at(&self, i: usize, cell: Cell) -> Option<&Loaded> {
+        let strikes = self.strikes.get(i)?;
+        let height = |l: &Loaded| match l {
+            Loaded::Bitmap(font) => Some(font.cell),
+            Loaded::Outline { .. } => None,
+        };
+        let tallest = strikes.iter().filter_map(height).map(|c| c.height).max()?;
+        if cell.height > tallest {
+            return None;
+        }
+        strikes
+            .iter()
+            .filter(|l| height(l).is_some_and(|c| c.width <= cell.width && c.height <= cell.height))
+            .max_by_key(|l| height(l).map_or(0, |c| c.height))
+    }
+
+    /// The frit's first regular source, the one that sets the cell, as it
+    /// draws in a text band `cell`: its place in `sources`, and its strike
+    /// at that cell where it has one ([`Engine::strike_at`]), else the
+    /// source itself. Its baseline and lines are the strike's where the
+    /// strike draws, as a bitmap first source's are.
+    fn first_drawn(&self, cell: Cell) -> Option<(usize, &Loaded)> {
+        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        let (_, own) = self.sources.get(first)?;
+        Some((first, self.strike_at(first, cell).unwrap_or(own)))
+    }
+
     /// The first regular source's own box in a text band `cell` (ADR-1202
     /// D1), as its first row and its rows: a bitmap source's cell at the
     /// whole factor it draws at, on the band's bottom row; an outline
@@ -1741,11 +1844,11 @@ impl Engine {
     /// else the whole band.
     fn own_box(&self, cell: Cell) -> (u32, u32) {
         let band = (0, cell.height);
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+        let Some((first, drawn)) = self.first_drawn(cell) else {
             return band;
         };
-        match self.sources.get(first) {
-            Some((_, Loaded::Bitmap(font))) => {
+        match drawn {
+            Loaded::Bitmap(font) => {
                 let scale = (cell.width / font.cell.width.max(1))
                     .min(cell.height / font.cell.height.max(1));
                 let tall = font.cell.height * scale;
@@ -1754,7 +1857,7 @@ impl Engine {
                 }
                 (cell.height - tall, tall)
             }
-            Some((_, Loaded::Outline { font, family, .. })) => {
+            Loaded::Outline { font, family, .. } => {
                 let (Some(base), Ok((above, below))) = (
                     self.baseline(first, cell.height),
                     crate::outline::own_box(font, family, cell.height, None),
@@ -1764,16 +1867,15 @@ impl Engine {
                 let top = base.saturating_sub(above);
                 (top, (base + below).min(cell.height) - top)
             }
-            _ => band,
         }
     }
 
     fn metrics_at(&self, cell: Cell) -> (u32, Decorations) {
         let plain = (cell.height, Decorations::for_height(cell.height));
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+        let Some((first, drawn)) = self.first_drawn(cell) else {
             return plain;
         };
-        if let Some((_, Loaded::Bitmap(font))) = self.sources.get(first) {
+        if let Loaded::Bitmap(font) = drawn {
             let scale =
                 (cell.width / font.cell.width.max(1)).min(cell.height / font.cell.height.max(1));
             if scale == 0 {
@@ -1782,7 +1884,7 @@ impl Engine {
             let top = cell.height - font.cell.height * scale;
             return (top + bitmap_baseline(font) * scale, plain.1);
         }
-        let Some((_, Loaded::Outline { font, family, .. })) = self.sources.get(first) else {
+        let Loaded::Outline { font, family, .. } = drawn else {
             return plain;
         };
         let Some(base) = self.baseline(first, cell.height) else {
@@ -1818,11 +1920,11 @@ impl Engine {
         }
         let own = self.own_box(cell);
         let mapped = lines::mapped(normal, script, own, cell.height, Band::NONE);
-        let Some(first) = self.sources.iter().position(|(s, _)| s.style == REGULAR) else {
+        let Some((first, drawn)) = self.first_drawn(cell) else {
             return mapped;
         };
-        match self.sources.get(first) {
-            Some((_, Loaded::Bitmap(font))) => {
+        match drawn {
+            Loaded::Bitmap(font) => {
                 let scale = (cell.width / font.cell.width.max(1))
                     .min(cell.height / font.cell.height.max(1));
                 let others = self.smaller.get(first).map_or(&[][..], Vec::as_slice);
@@ -1844,7 +1946,7 @@ impl Engine {
                 let at = lines::at_multiple(Decorations::for_height(own.height), own.height, j);
                 lines::placed(at, script, size, (cell.width, cell.height), Band::NONE)
             }
-            Some((_, Loaded::Outline { font, family, .. })) => {
+            Loaded::Outline { font, family, .. } => {
                 let Ok(size) = crate::outline::size(font, family, cell.height) else {
                     return mapped;
                 };
@@ -1869,7 +1971,6 @@ impl Engine {
                     ..measured
                 }
             }
-            _ => mapped,
         }
     }
 
@@ -2344,12 +2445,20 @@ impl Engine {
         let mut shaped: BTreeSet<&[u32]> = BTreeSet::new();
         let mut parts: BTreeSet<Vec<u32>> = BTreeSet::new();
         let steps = steps(style);
+        // an outline source with a strike at this cell draws the strike's
+        // glyphs first, and its outline the characters the strike lacks
+        // (ADR-1204 D2)
         let order = steps.iter().flat_map(|step| {
             self.sources
                 .iter()
                 .enumerate()
                 .filter(move |(_, (source, _))| source.style == step.face)
-                .map(move |(i, source)| (i, source, step.synth))
+                .flat_map(move |(i, (source, loaded))| {
+                    self.strike_at(i, cell)
+                        .map(|strike| (i, (source, strike), step.synth))
+                        .into_iter()
+                        .chain(std::iter::once((i, (source, loaded), step.synth)))
+                })
         });
         // what asks for emoji presentation goes first to the sources in
         // order that give it a color glyph, then everything left to the
@@ -5064,6 +5173,86 @@ mod tests {
         out.extend(rows.iter().cloned());
         out.extend(vec![blank; below]);
         out
+    }
+
+    // ADR-1204 D2: an outline source's strike= lines name bitmap files of
+    // its design. A cell up to the tallest strike's height draws the
+    // largest strike that fits it, placed on the cell's bottom row as a
+    // bitmap source is placed; above that height, and in a cell no strike
+    // fits, the outline draws. A character the strikes lack, W here, draws
+    // from the outline at every height. The 12-pixel strike draws its A in
+    // the cell's last column and the 16-pixel strike in the one before it
+    #[test]
+    fn an_outline_sources_strikes_draw_up_to_the_tallest_strikes_height() {
+        let dir = scratch("strikes");
+        let outline = dir.join("mono.ttf");
+        std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
+        let strike = |height: u32, glyph: u32| {
+            let path = dir.join(format!("{height}.psf"));
+            let font = crate::decode::tests::psf2(8, height, 3, Some(&[(glyph, 'A')]));
+            std::fs::write(&path, font).unwrap();
+            path
+        };
+        let (twelve, sixteen) = (strike(12, 1), strike(16, 2));
+        let plain = frit(&format!("source=outline:{}\n", outline.display()));
+        let struck = frit(&format!(
+            "source=outline:{}\nstrike=file:{}\nstrike=file:{}\n",
+            outline.display(),
+            sixteen.display(),
+            twelve.display()
+        ));
+        // the strike's A: its column lit on its rows, at the cell's bottom
+        let strike_a = |height: u32, tall: u32, column: usize| -> Vec<Vec<u8>> {
+            (0..height)
+                .map(|y| {
+                    let mut row = vec![0u8; 8];
+                    if y >= height.saturating_sub(tall) {
+                        row[column] = 255;
+                    }
+                    row
+                })
+                .collect()
+        };
+        for height in [10, 12, 14, 15, 16, 17, 20] {
+            let cell = Cell { width: 8, height };
+            let (drawn, _) = spaced_rows(&struck, cell, Band::NONE, &['A', 'W']);
+            let (outline_drawn, _) = spaced_rows(&plain, cell, Band::NONE, &['A', 'W']);
+            let want_a = match height {
+                12..=15 => strike_a(height, 12, 7),
+                16 => strike_a(height, 16, 6),
+                _ => outline_drawn[0].clone(),
+            };
+            assert_ne!(strike_a(height, 12, 7), outline_drawn[0], "{height}");
+            assert_eq!(drawn[0], want_a, "A at {height} pixels");
+            assert_eq!(drawn[1], outline_drawn[1], "W at {height} pixels");
+        }
+    }
+
+    // ADR-1204 D2: strike= follows an outline source, names a bitmap file,
+    // and a strike this machine lacks is left out quietly while one it
+    // refuses is a warning
+    #[test]
+    fn a_strike_this_machine_lacks_is_left_out_and_a_bad_one_warns() {
+        let dir = scratch("strikes-bad");
+        let outline = dir.join("mono.ttf");
+        std::fs::write(&outline, super::ttf::test_mono().build()).unwrap();
+        let broken = dir.join("broken.psf");
+        std::fs::write(&broken, b"not a font").unwrap();
+        let text = format!(
+            "source=outline:{}\nstrike=file:{}/gone.psf\nstrike=file:{}\n",
+            outline.display(),
+            dir.display(),
+            broken.display()
+        );
+        let engine = Engine::load(&frit(&text), &Paths::default(), None).unwrap();
+        assert_eq!(engine.warnings().len(), 1, "{:?}", engine.warnings());
+        assert!(
+            engine.warnings()[0].starts_with(&format!("t:3: strike=file:{}: ", broken.display())),
+            "{:?}",
+            engine.warnings()
+        );
+        assert!(engine.warnings()[0].ends_with("; the strike is left out"));
+        assert!(engine.strikes.iter().all(Vec::is_empty));
     }
 
     // ADR-1302 D13: where line spacing adds rows to the cell, the helper

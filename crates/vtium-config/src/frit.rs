@@ -99,6 +99,16 @@ pub struct Source {
     /// which its superscript and subscript glyphs may come (ADR-1202 D3,
     /// D12), in the frit's order.
     pub script_sources: Vec<ScriptSource>,
+    /// `strike=`: the bitmap files of an outline source's design at the
+    /// heights they were drawn for, in the frit's order. A cell up to the
+    /// tallest strike's height draws the largest strike that fits it, and
+    /// the outline draws above that height and every character the strike
+    /// lacks.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the `strike=` key, and the switch at the tallest
+    ///   strike's height.
+    pub strikes: Vec<ScriptSource>,
     /// `style=`: the style the source draws, regular unless the frit names
     /// another (ADR-1200 D1, D21).
     pub style: Style,
@@ -111,7 +121,8 @@ pub struct Source {
 
 /// One `script-source=` line: a smaller size of the same font as the
 /// bitmap `source=` line above it (ADR-1202 D12). It takes that line's
-/// `unimap=` where it has no Unicode table of its own.
+/// `unimap=` where it has no Unicode table of its own. A `strike=` line,
+/// a bitmap file of the outline source above it, is held the same way.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ScriptSource {
     /// The value as the frit spelled it.
@@ -510,6 +521,7 @@ impl Frit {
                         cover: Vec::new(),
                         cp_size: None,
                         script_sources: Vec::new(),
+                        strikes: Vec::new(),
                         style: Style::default(),
                         fits: Vec::new(),
                         line: n,
@@ -591,6 +603,37 @@ impl Frit {
                         }
                     };
                     source.script_sources.push(ScriptSource {
+                        spelling: value.to_owned(),
+                        origin,
+                        line: n,
+                    });
+                }
+                "strike" => {
+                    let i = current(&mut sources)?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    // a font: source is a console font or an outline font,
+                    // which only the helper finds out, so it may take one
+                    if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
+                        return Err(err(
+                            n,
+                            "strike= is for an outline font, and the source above it is a bitmap font",
+                        ));
+                    }
+                    let origin = match origin(value) {
+                        Ok(o @ (Origin::Kbd(_) | Origin::File(_) | Origin::Bdf(_))) => o,
+                        _ => {
+                            return Err(err(
+                                n,
+                                "strike= takes a bitmap font as kbd:NAME, file:PATH or bdf:PATH",
+                            ));
+                        }
+                    };
+                    if source.strikes.iter().any(|k| k.origin == origin) {
+                        return Err(err(n, "strike= names this font twice for one source"));
+                    }
+                    source.strikes.push(ScriptSource {
                         spelling: value.to_owned(),
                         origin,
                         line: n,
@@ -1430,6 +1473,59 @@ mod tests {
 
     // ADR-1200 D1: compress= has nothing to act on, so a frit carrying it
     // is accepted, with one warning naming the file and the line.
+    // ADR-1204 D2: strike= names a bitmap file of the outline source above
+    // it, once for each file, and nothing else takes it
+    #[test]
+    fn strike_names_bitmap_files_of_the_outline_source_above_it() {
+        let frit = parse(
+            "source=outline:/t.ttf\nstrike=bdf:/t12.bdf\nstrike=kbd:ter-v16n\nsource=font:Other\nstrike=file:/o.psf\n",
+        )
+        .expect("the frit");
+        let named: Vec<Vec<(&str, usize)>> = frit
+            .sources
+            .iter()
+            .map(|s| {
+                s.strikes
+                    .iter()
+                    .map(|k| (k.spelling.as_str(), k.line))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                vec![("bdf:/t12.bdf", 2), ("kbd:ter-v16n", 3)],
+                vec![("file:/o.psf", 5)]
+            ]
+        );
+        for (text, line, why) in [
+            (
+                "strike=bdf:/a.bdf\n",
+                1,
+                "strike= comes before any source= line",
+            ),
+            (
+                "source=kbd:x\nstrike=bdf:/a.bdf\n",
+                2,
+                "strike= is for an outline font",
+            ),
+            (
+                "source=outline:/t.ttf\nstrike=outline:/a.ttf\n",
+                2,
+                "strike= takes a bitmap font",
+            ),
+            (
+                "source=outline:/t.ttf\nstrike=bdf:/a.bdf\nstrike=bdf:/a.bdf\n",
+                3,
+                "strike= names this font twice",
+            ),
+        ] {
+            let (n, e) = refusal(text);
+            assert_eq!(n, line, "{text:?}");
+            assert!(e.starts_with(why), "{text:?}: {e}");
+        }
+    }
+
     // ADR-1204 D5: vtium-config reads a frit's layers from the layers/
     // folder beside it and puts their sources in place, reads each layer
     // strictly, and reads a layer= line that adds nothing as a warning
