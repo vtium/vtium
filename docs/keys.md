@@ -1,6 +1,6 @@
 # Keys
 
-Each session in vtium runs with `TERM=xterm-vtium`. Programs look up that name in terminfo, the database that describes what each kind of terminal can do. Most remote hosts do not have a terminfo entry for `xterm-vtium`. Read [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) before you ssh from vtium.
+Each session in vtium runs with `TERM=xterm-vtium`. Before you ssh from vtium to another host, read what [Install vtium and give it VTs](install.md#arch-linux) says about `TERM` and ssh.
 
 vtium keeps the keys in the table below for itself. Two words in the table need explaining. A "head" is a terminal that shows on one or more displays. A "console" is one session within a head, with its own login, screen and scrollback.
 

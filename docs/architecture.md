@@ -4,7 +4,7 @@ vtium is a Cargo workspace. Each crate owns one responsibility. The dependencies
 
 ```text
 vtium (binary)
-├── vtium-platform   displays (DRM/KMS, fbdev), VT, seat, input, pty, event loop
+├── vtium-platform   displays (KMS/DRM, fbdev), VT, seat, input, pty, event loop
 ├── vtium-settings   the key table, vtium.conf's line syntax and editor, and vtium.conf's sections: their reader, parser, rules, guards, complete-route check and one writer
 │   ├── vtium-font   the cell's largest side, for font-size's bound (constants only)
 │   └── vtium-term   the scrollback's bounds and default (constants only)
@@ -97,7 +97,7 @@ A graphical program, such as a video player or a kiosk application, can take the
 
 ## The minspec build
 
-The default build is minspec, the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty, and keyboard input. Images, outline fonts and the GPU path are features added on top. `cargo build --profile minspec` builds it optimised for size. `make minspec` links the binary with packed relative relocations (DT_RELR). Such a binary needs glibc 2.36 at run time (vtium/vtium#143), and the link needs binutils 2.38. Tier 3 measures the binary's size and memory on every run. It fails a run whose binary is over the budget of 4,194,304 bytes. See [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md) for details.
+The default build is minspec, the smallest complete console. It covers drm2d or fbdev, the CPU renderer, bitmap fonts, the parser and screen, the pty, and keyboard input. Images and the GPU path are features added on top. Every build, minspec among them, draws outline fonts through the font helper, vtium-config. `cargo build --profile minspec` builds it optimised for size. `make minspec` links the binary with packed relative relocations (DT_RELR). Such a binary needs glibc 2.36 at run time (vtium/vtium#143), and the link needs binutils 2.38. Tier 3 measures the binary's size and memory on every run. It fails a run whose binary is over the budget of 4,194,304 bytes. See [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/README.md) for details.
 
 minspec is judged against a single-board computer that presents a DRM buffer (vtium/vtium#75). Such a machine has:
 
