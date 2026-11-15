@@ -3202,9 +3202,14 @@ impl Engine {
             }
         }
         // a line of double width takes its color glyphs and its clusters
-        // from a line of double height, each row pair made one row
+        // from a line of double height, each row pair made one row. Where
+        // the double-height cell passes the largest cell, the line leaves
+        // them to the console, which doubles the pixels of their glyphs at
+        // the normal size, as it does for a bitmap font's
         let mut halved = false;
-        if wide_line && (!squashed.is_empty() || !clusters.is_empty()) {
+        let tall_fits =
+            Doubled::Height.cell(cell).is_some() && Doubled::Height.cell(whole).is_some();
+        if wide_line && tall_fits && (!squashed.is_empty() || !clusters.is_empty()) {
             let want: Vec<u32> = squashed.into_iter().collect();
             let tall = self.glyphs(
                 whole,
@@ -3409,9 +3414,18 @@ fn send_glyphs(
 ) -> io::Result<Result<bool, String>> {
     // no more glyphs drawn at once than a frame holds at their largest, so
     // a cell whose glyphs each pass a set's chunk (ADR-1302 D6) never draws
-    // a batch whose bytes would outgrow the helper's memory limit
+    // a batch whose bytes would outgrow the helper's memory limit. A line of
+    // double width draws its color glyphs and its clusters at double height
+    // too, and keeps both sizes until it halves the tall ones, so each of
+    // its glyphs counts at both sizes
     let drawn = doubled.and_then(|d| d.cell(cell)).unwrap_or(cell);
-    let at_once = (max / engine.glyph_bytes_max(drawn).max(1)).max(1);
+    let mut glyph_bytes = engine.glyph_bytes_max(drawn);
+    if doubled == Some(Doubled::Width)
+        && let Some(tall) = Doubled::Height.cell(cell)
+    {
+        glyph_bytes = glyph_bytes.saturating_add(engine.glyph_bytes_max(tall));
+    }
+    let at_once = (max / glyph_bytes.max(1)).max(1);
     let mut queue: VecDeque<(&[u32], &[Vec<u32>])> = VecDeque::new();
     if want.len().saturating_add(clusters.len()) <= at_once {
         queue.push_back((want, clusters));
@@ -4869,6 +4883,46 @@ mod tests {
             .map(|(_, p)| Set::from_bytes(p).unwrap())
             .collect();
         assert_eq!(sets.len(), 2);
+    }
+
+    // issue #61: a line of double width draws its color glyphs and its
+    // clusters at double height as well, so a batch of its glyphs counts
+    // each at both sizes. Test Mono's glyphs at an 8×16 cell take at most
+    // 2,048 bytes on a line of double width, 16×16 two cells wide in RGBA,
+    // and 4,096 at double height. With room for 5,120 bytes a frame, the
+    // line draws its glyphs one at a time, where a line of double width
+    // alone would draw two
+    #[test]
+    fn a_batch_on_a_line_of_double_width_counts_its_glyphs_at_both_sizes() {
+        let dir = scratch("batch-wide");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=outline:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let wide = Doubled::Width.cell(CELL).unwrap();
+        let tall = Doubled::Height.cell(CELL).unwrap();
+        assert_eq!(engine.glyph_bytes_max(wide), 2048);
+        assert_eq!(engine.glyph_bytes_max(tall), 4096);
+        let sets = |doubled| {
+            let mut out = Vec::new();
+            let sent = send_glyphs(
+                &engine,
+                (CELL, Band::NONE, REGULAR.into(), doubled),
+                (&[u32::from('A'), u32::from('W')], &[], false),
+                FRAME_GLYPHS,
+                (&mut out, &mut BTreeMap::new()),
+                5120,
+            )
+            .unwrap();
+            assert_eq!(sent, Ok(true));
+            frames(&out).len()
+        };
+        assert_eq!(sets(Some(Doubled::Width)), 2, "one glyph a frame");
+        assert_eq!(sets(None), 1, "both glyphs in one frame");
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.
@@ -6914,6 +6968,45 @@ mod tests {
                 .count()
         };
         assert!(red(&t) >= 3 * red(&n), "{} against {}", red(&t), red(&n));
+    }
+
+    // issue #61: a line of double width draws its color glyphs from a
+    // double-height cell. Where that cell passes CELL_SIDE_MAX, as 640×1100
+    // does at 1280×2200 while its double width is 1280×1100, the line
+    // leaves the color glyph to the console, which doubles the pixels of
+    // the glyph at the normal size, and still draws its other glyphs. The
+    // ask does not fail, so the helper is not given up
+    #[test]
+    fn a_double_width_ask_whose_double_height_is_too_large_leaves_its_color_glyphs() {
+        let dir = scratch("doubled-wide-tall");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let font = frit(&format!("source=outline:{}\n", path.display()));
+        let cell = Cell {
+            width: 640,
+            height: 1100,
+        };
+        assert!(Doubled::Height.cell(cell).is_none());
+        let ask = ServeRequest {
+            cell,
+            doubled: Some(Doubled::Width),
+            ..request(ASK, font, &['A', '\u{1f600}'])
+        };
+        let frames = run(&[ask]);
+        assert!(frames.iter().all(|f| f.0 != FRAME_FAILED), "the ask failed");
+        let (wide, cells) = answered_face(&frames, "double width");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 1280,
+                height: 1100
+            }]
+        );
+        assert!(wide.draw(&['A'], Style::default()).is_some(), "A is drawn");
+        assert!(
+            wide.draw(&['\u{1f600}'], Style::default()).is_none(),
+            "the color glyph is left to the console"
+        );
     }
 
     // covers: text.line-size
