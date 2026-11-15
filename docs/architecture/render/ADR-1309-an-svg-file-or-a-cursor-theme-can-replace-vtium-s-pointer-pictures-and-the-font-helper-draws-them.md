@@ -52,7 +52,10 @@ considered:
     said: "data-hotspot, required"
     via: the steering session, 2026-11-15, the question tool
     covers: [hotspot]
-status: proposed
+  - operator: aaronsb
+    said: "accept"
+    via: the steering session, 2026-11-15, after the steering session proposed a reference page for the pointer file's format, a comment at the top of pointers.svg, and a test of the shipped file against the page
+status: accepted
 date: 2026-11-15
 deciders:
   - aaronsb
@@ -190,9 +193,12 @@ The Xcursor parser lives in the helper, in `crates/vtium-config/src/xcursor.rs`,
 ### D7: vtium's own shapes as a file
 
 - **vtium ships its shapes as `/usr/share/vtium/pointers.svg`,** installed from `crates/vtium/install/pointers.svg`. A person can copy it, change it in an SVG editor, and point `pointer-theme` at the copy.
+- **A reference page states the format,** `docs/reference/pointer-file.md`, for people who use vtium. It names the ten shapes, the symbol, the viewBox and `data-hotspot`, and gives the limits of D4 and D6. It says what vtium does with a file that breaks a rule, and the help text of `pointer-theme` links to it. The shipped file is an example of the format, and the page is its rule.
+- **The shipped file opens with a comment** that names the reference page and says how to start: copy this file and change its symbols.
 - **The file is generated** from the definitions in `crates/vtium-render/src/arrow.rs`, the same polygons, rectangles, discs and rings the compiled-in pictures draw. Each symbol's viewBox is the shape's grid, and its hotspot is the shape's hotspot unit. Each part is drawn twice: first as a black outline stroke at 220 of 255, then filled white. The polygons keep the even-odd rule.
 - **The file asks for crisp edges.** Its root carries `shape-rendering="crispEdges"`, so the helper fills each pixel whose centre lies inside a shape. That is the compiled-in pictures' own rule. The pointer then looks the same before and after the helper answers.
 - **Two tests keep the file and the compiled-in shapes the same.** A test in vtium-render generates the file and fails when it differs from the committed copy, as the README's table of bounds does. `VTIUM_RENDER_BLESS=1` rewrites it. A test in tools/tier2 draws each symbol through the helper's code at every height from 8 to 64 and compares it with the compiled-in picture.
+- **A third test holds the shipped file to the page's rules.** Each of the ten shapes is a symbol once, with its `data-hotspot` inside its viewBox. The file stays within its size limit.
 - **What the second test allows.** The white fill and the hotspot must match pixel for pixel. The outline may differ by one pixel at an edge: the compiled-in outline grows by one pixel for each 32 of height, while the file's stroke scales smoothly. Each outline pixel the helper draws lies within one pixel of the compiled-in outline, and the reverse.
 
 ### D8: turning, colors and the GPU path
@@ -224,6 +230,7 @@ One agent builds this record as one card.
 - **deny.toml:** BSD-2-Clause and BSD-3-Clause in the allowed licenses, once the maintainer answers the probe on them.
 - **tools/tier2:** the pinned Adwaita file, the screens and the comparison test of D7.
 - **tools/vt/checks:** the guide `pointer-file.guide`.
+- **docs:** the reference page `docs/reference/pointer-file.md` and its place in the site's navigation.
 - **ADR-1000:** the note of the `window.pointer-shape` row gains a sentence on the pointer file. The row's status does not change.
 
 vtium-term does not change, because OSC 22, its names and its stacks stay as they are.
@@ -237,7 +244,7 @@ The card runs at V1 (ADR-1505): its new tests and screens, each seen failing fir
 - **The pointer ask's tests** in vtium-config and vtium: a stand-in helper that answers each wrong frame the console must refuse. Those are a picture too large, rows of the wrong length, a hotspot outside, a channel over its alpha, and a shape not asked for. Following the testing rules, the stand-in checks what the real helper checks.
 - **The console's tests** in vtium run under a temporary root that the tests own. They tell a file from a theme folder and refuse a folder with no `cursors`. They cover D3's order of names, a symlinked cursor file, and a file in a folder that others can write. Each D9 line fires. `pointer-char` keeps the default shape, and the compiled-in picture draws until the helper answers.
 - **The size choice:** the nominal size nearest `pointer-size` and nearest a cell height, and the smaller of two equally near. A zoom picks again from the kept sizes with no new ask, and asks again for an SVG file.
-- **D7's two tests:** the generated file against the committed copy, and each symbol against the compiled-in picture at every height from 8 to 64.
+- **D7's three tests:** the generated file against the committed copy, and each symbol against the compiled-in picture at every height from 8 to 64. The third checks the shipped file against the reference page's rules.
 - **Tier 2:** ten screens, `pointer-file-default` to `pointer-file-ns-resize`, on the 12 × 3 cell screen that `pointer-default` uses. Each draws one shape from vtium's shipped `pointers.svg` through the helper. An eleventh, `pointer-file-adwaita`, draws Adwaita's default arrow at nominal size 24. A twelfth, `pointer-file-turned`, draws the SVG's default shape on a display turned right. The screens are provisional until the maintainer reviews them at 1:1.
 - **The pinned theme file.** Tier 2 fetches Adwaita 51.0's `default` file from GNOME's repository at the tag `51.0`, as ADR-1503 D9 pins test inputs. It comes by its URL and SHA-256 into tier 2's cache, and is never committed. Adwaita's license, CC-BY-SA-3.0 or LGPL-3.0-only, lets vtium's tools fetch and use it. The URL is `https://gitlab.gnome.org/GNOME/adwaita-icon-theme/-/raw/51.0/Adwaita/cursors/default`, and its SHA-256 is `47f579498d72b12d828aa40e7e484c5ebd6b75ae04293cf5c96532c21c3e1594`. The agent fetched it on 2026-11-15, and it matched the file the adwaita-cursors 51.0 package installs.
 - **The fuzz targets** in `crates/vtium-config/fuzz`: `xcursor` feeds any bytes to the parser, and `pointer_svg` feeds any bytes to the SVG drawing, each with a size taken from the input. Each asserts that nothing panics, and that each picture is at most 64 a side with its hotspot inside. The runs' rows go in `crates/vtium-config/fuzz/runs.tsv`.
