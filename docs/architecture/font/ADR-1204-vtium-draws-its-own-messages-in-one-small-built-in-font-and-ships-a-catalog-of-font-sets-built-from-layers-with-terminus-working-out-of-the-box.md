@@ -82,6 +82,15 @@ considered:
   - operator: aaronsb
     said: "essentially, a complete terminus outline font is vtium's default vtfrit. in a normal 'full build package' (images, etc) we get one good frit configured with terminus, that offers as much support as possible including color emojis etc"
     via: the steering session, 2026-11-14
+  - operator: aaronsb
+    said: "this is on top of the built in bitmap font"
+    via: the steering session, 2026-11-14
+  - operator: aaronsb
+    said: "our fonts package, which can be installed, can offer a redistribution of all those other fonts to fully support all the frits?"
+    via: the steering session, 2026-11-14
+  - operator: aaronsb
+    said: "notices and attributions clear in an independent fonts package makes a clean break for distribution, and makes all the shipped frits work well"
+    via: the steering session, 2026-11-14
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -164,7 +173,7 @@ The acceptance check: vtium starts with no vtium.conf, no font sets, no font fil
 
 ### D2: the default set, `terminus`, in two tiers
 
-`terminus`, in `console/`, is vtium's default font set. It draws Terminus's bitmap glyphs for text, and how much else it draws out of the box depends on the build.
+vtium's default font set, `terminus` in `console/`, sits on top of the built-in font (D1). The built-in font is always there, and it always draws vtium's own messages. On the minspec builds, bitmap Terminus sits on top of it. In the full package, the complete `terminus` set sits on top of it. A character that none of the set's sources holds falls through to the built-in font, and a character that the built-in font lacks too draws as a hollow box.
 
 **The full package,** the build with images, the GPU path and bidi that the AUR `vtium` package builds, makes `terminus` complete:
 
@@ -220,7 +229,7 @@ The members, their fonts and their sources:
 | `unifont-icons`, `unscii-icons` | GNU Unifont or Unscii-8, as files | Unifont or Unscii-8; `nerd-symbols-small`; `noto-emoji-small` | required |
 | `tiny5` | Tiny5 Mono | Tiny5 Mono's BDF file; `nerd-symbols-small`; `noto-emoji-small` | required |
 
-A brought font comes with the vtium-fonts package, and a required font is one the person installs (D8). The vtium package installs the Terminus files of `terminus` itself, so that set works out of the box (D2). Every set ends with the `unifont` layer, which the table leaves out. The script sets keep the line spacing they have now (ADR-1302 D13). Each set states its starting `size=` or its `cell=`, as the set it replaces does.
+The last column says how the font reaches a machine without vtium-fonts. Once vtium-fonts is installed on Arch, every font of the catalog is there (D8). The vtium package installs the Terminus files of `terminus` itself, so that set works out of the box (D2). Every set ends with the `unifont` layer, which the table leaves out. The script sets keep the line spacing they have now (ADR-1302 D13). Each set states its starting `size=` or its `cell=`, as the set it replaces does.
 
 #### The Linux kernel's own fonts
 
@@ -317,41 +326,57 @@ vtium draws a set with every named font that it finds and that passes its `check
 
 vtium-config tells the person before they meet a gap. `vtium config fonts` lists each set's missing fonts with the package or the page that provides each one. The TUI's Fonts and Looks views mark a set with a missing font, and they show the install command for this distribution when the person chooses that set. `vtium check-config` prints the same lines for each set that vtium.conf names.
 
-### D8: what vtium brings, what it requires, and the bar for each
+### D8: how each font reaches the machine
 
-vtium ships the catalog's sets and layers as text files. The vtium package also installs the Terminus files of `terminus`, the set that works out of the box (D2). Every other font reaches a machine in one of two ways:
+vtium ships every catalog set and layer as a text file. A font reaches the machine in one of three ways:
 
-- **Brought.** The vtium-fonts package depends on the font's distribution package, so installing vtium-fonts installs the font. A brought font has one of the licenses OFL-1.1, Apache-2.0, MIT or Bitstream-Vera. Arch's own repositories package it, and Debian or Fedora package it too, in a release or in its development branch. A font is brought when a shared layer or a script set uses it and it meets that bar.
-- **Required.** The set names the font with D7's keys, and the person installs it. A required font has a license that lets the person install it and use it, and it can be found: a distribution package names it, or its `url=` gives a stable upstream release. The set's `license=` line names the font's license, so the person sees it before installing.
+- **Installed by vtium.** The vtium packages install the Terminus files, and the full package also installs Unifont's file (D2).
+- **Brought by vtium-fonts.** vtium-fonts is an optional package of its own, apart from vtium. Once it is installed, every catalog set works. It provides each font in the way that suits that font. Where a distribution packages the font, vtium-fonts depends on that package: the Arch recipe on Arch's own repositories, and other recipes on the Debian and Fedora names in the table below. Where no distribution packages the font and its license allows it, vtium-fonts carries a pinned copy with the license text.
+- **Required.** A font that neither vtium nor vtium-fonts provides is one the person installs. The set names it with D7's keys, and vtium-config names where to get it.
 
-The catalog's fonts, as read on 2026-11-14:
+vtium-fonts carries no Nerd Fonts file. Every Nerd Fonts build, Symbols Nerd Font Mono included, holds the Font Logos icons, which Nerd Fonts' `license-audit.md` lists as "Unlicensed". So vtium-fonts depends on a distribution's package of such a font. On a distribution that packages none, a Nerd set stays required, with `url=`.
 
-| Font | License | Arch | Debian | Fedora | Reaches the machine | vtium could ship the file |
-|---|---|---|---|---|---|---|
-| Terminus | OFL-1.1 | terminus-font | console-setup, xfonts-terminus | terminus-fonts-console | installed by vtium | yes |
-| kbd's `default8x16`, `sun12x22` | kbd's GPL-2.0-or-later, and each font's own notice | kbd | kbd | kbd | required, with kbd | with the GPL's terms |
-| The Linux kernel's own fonts | GPL-2.0, by each file's SPDX line or the kernel's own license | not applicable | not applicable | not applicable | required, from the system | no |
-| Px437 IBM VGA 9x16 | CC-BY-SA-4.0 | AUR only | none checked | none checked | required, by `url=` | yes, with attribution and the same license |
-| Glass TTY VT220 | Unlicense | none checked | none checked | none checked | required, by `url=` | yes |
-| JetBrains Mono | OFL-1.1 | ttf-jetbrains-mono | fonts-jetbrains-mono | jetbrains-mono-fonts | required | yes |
-| Fira Code | OFL-1.1 | ttf-fira-code | fonts-firacode | fira-code-fonts | required | yes |
-| Cascadia Code | OFL-1.1 | ttf-cascadia-code | fonts-cascadia-code | cascadia-code-fonts | required | yes |
-| Hack | MIT and Bitstream-Vera | ttf-hack | fonts-hack | none found | required | yes |
-| IBM Plex Mono | OFL-1.1 | ttf-ibm-plex | fonts-ibm-plex | ibm-plex-mono-fonts | required | yes |
-| Source Code Pro | OFL-1.1 | adobe-source-code-pro-fonts | not found under the name tried | adobe-source-code-pro-fonts | required | yes |
-| Monoid | MIT and OFL-1.1 | ttf-monoid | fonts-monoid | not checked | required | yes |
-| DejaVu Sans Mono | Bitstream-Vera | ttf-dejavu | fonts-dejavu | dejavu-sans-mono-fonts | required | yes |
-| The Nerd Font Mono builds of JetBrains Mono, Fira Code, Hack and Monoid | the base font's license, and MIT for the patcher | ttf-*-nerd | none found | none found | required | yes |
-| CaskaydiaCove and SauceCodePro Nerd Font Mono | OFL-1.1 with Reserved Font Names, which is why the builds carry new names | ttf-cascadia-code-nerd, ttf-sourcecodepro-nerd | none found | none found | required | yes, under their new names |
-| Noto Sans Mono and the Noto script fonts | OFL-1.1 | noto-fonts | fonts-noto | google-noto-sans-*-fonts | brought | yes |
-| Noto Sans CJK | OFL-1.1 | noto-fonts-cjk | fonts-noto-cjk | google-noto-sans-cjk-fonts | brought | yes |
-| Symbols Nerd Font Mono | MIT; its icon sets MIT, CC-BY-4.0 and Apache-2.0 | ttf-nerd-fonts-symbols-mono | fonts-nerd-symbols, forky and sid | none found | brought | yes, with the icon sets' attribution |
-| Noto Color Emoji | OFL-1.1 | noto-fonts-emoji | fonts-noto-color-emoji | google-noto-color-emoji-fonts | brought | yes |
-| GNU Unifont 17.0.03 | OFL-1.1, the option vtium takes of its two licenses | not in Arch's own repositories | unifont | unifont-fonts | installed by vtium in the full package | yes |
-| Terminess Nerd Font Mono 3.4.0, Regular 2,665,032 bytes and Bold 2,665,872 | OFL-1.1 with the Reserved Font Names "Terminus Font" and "Terminus (TTF)", which is why Nerd Fonts names it Terminess; MIT for the patcher; each icon set under its own license, Font Logos unlicensed | ttf-terminus-nerd, 3.5.1 | none found | none found | required | the Terminus shapes yes; the file carries Font Logos |
-| Tiny5 Mono | OFL-1.1 | none | not checked | not checked | required, by `url=` | yes |
+The maintainer gave the reason for a package of its own: "notices and attributions clear in an independent fonts package makes a clean break for distribution, and makes all the shipped frits work well".
 
-The DejaVu row's packages were not checked here. The catalog work checks each `package=` line before it lands. A set that takes CC-BY-4.0 icon sets gives their attribution in its own comment.
+The fonts, with Arch's installed sizes as `pacman -Si` gave them on 2026-11-14:
+
+| Font | License | vtium-fonts on Arch | Size | Debian | Fedora |
+|---|---|---|---|---|---|
+| Terminus, bitmap | OFL-1.1, with the Reserved Font Name "Terminus Font"; Arch lists GPL2 and OFL | depends on terminus-font, for `linux-ter-16x32`'s `ter-i32b` | 3.0 MiB | console-setup, xfonts-terminus | terminus-fonts-console |
+| kbd's console fonts: `default8x16`, `sun12x22`, `cp865-8x16`, `cp865-8x8` | GPL-2.0-or-later as kbd, with each file's own notice | depends on kbd | 3.3 MiB | kbd | kbd |
+| The Linux kernel's own fonts | GPL-2.0 | provides nothing; `linux-console` reads the font from the running kernel | none | none | none |
+| Px437 IBM VGA 9×16 | CC-BY-SA-4.0: attribution, and the same license for the copy | carries `Px437_IBM_VGA_9x16.ttf` from the Ultimate Oldschool PC Font Pack 2.2 | 26,264 bytes | not checked | not checked |
+| Glass TTY VT220 | Unlicense | carries `Glass_TTY_VT220.ttf` | 88,404 bytes | not checked | not checked |
+| JetBrains Mono | OFL-1.1 | depends on ttf-jetbrains-mono | 7.4 MiB | fonts-jetbrains-mono | jetbrains-mono-fonts |
+| Fira Code | OFL-1.1 | depends on ttf-fira-code | 1.7 MiB | fonts-firacode | fira-code-fonts |
+| Cascadia Code | OFL-1.1 | depends on ttf-cascadia-code | 14.2 MiB | fonts-cascadia-code | cascadia-code-fonts |
+| Hack | MIT and Bitstream-Vera | depends on ttf-hack | 1.2 MiB | fonts-hack | none found |
+| IBM Plex Mono | OFL-1.1 | depends on ttf-ibm-plex, which holds every Plex family | 99.4 MiB | fonts-ibm-plex | ibm-plex-mono-fonts |
+| Source Code Pro | OFL-1.1 | depends on adobe-source-code-pro-fonts | 1.9 MiB | not found under the name tried | adobe-source-code-pro-fonts |
+| Monoid | MIT or OFL-1.1 | depends on ttf-monoid | 0.6 MiB | fonts-monoid | not checked |
+| DejaVu Sans Mono | Bitstream-Vera | depends on ttf-dejavu | 9.8 MiB | not checked | not checked |
+| The Nerd Font Mono builds of JetBrains Mono, Fira Code, Hack and Monoid, and CaskaydiaCove, SauceCodePro and Terminess | the base font's license and MIT for the patcher. CaskaydiaCove, SauceCodePro and Terminess carry new names because their base fonts reserve theirs. The icon sets carry their own licenses, CC-BY-4.0 for Font Awesome and Codicons, and Font Logos none | depends on ttf-jetbrains-mono-nerd, ttf-firacode-nerd, ttf-hack-nerd, ttf-monoid-nerd, ttf-cascadia-code-nerd, ttf-sourcecodepro-nerd and ttf-terminus-nerd, and carries none of them | 569.3 MiB together | none found | none found |
+| Symbols Nerd Font Mono | MIT, with the icon sets' licenses as above | depends on ttf-nerd-fonts-symbols-mono | 2.5 MiB | fonts-nerd-symbols, in forky and sid | none found |
+| Noto Sans Mono and the Noto script fonts | OFL-1.1 | depends on noto-fonts | 106.8 MiB | fonts-noto | google-noto-sans-*-fonts |
+| Noto Sans CJK | OFL-1.1 | depends on noto-fonts-cjk | 298.8 MiB | fonts-noto-cjk | google-noto-sans-cjk-fonts |
+| Noto Color Emoji | OFL-1.1 | depends on noto-fonts-emoji | 10.2 MiB | fonts-noto-color-emoji | google-noto-color-emoji-fonts |
+| GNU Unifont 17.0.03 | OFL-1.1, the option vtium takes of its two licenses | provides nothing on Arch, where the full vtium package installs the file (D2); other recipes depend on the distribution's package | about 1.7 MB | unifont | unifont-fonts |
+| Unscii-8 | public domain | carries it, converted to a form the font helper reads | 73,409 bytes as hex | not checked | not checked |
+| Tiny5 Mono | OFL-1.1 | carries `Tiny5Mono.bdf` | 571,375 bytes | not checked | not checked |
+
+vtium-fonts carries 759,452 bytes of fonts, and their license texts beside them. On Arch, vtium-fonts and every package it depends on install about 1,130 MiB, of which the Nerd Fonts builds are 569 MiB and Noto Sans CJK 299 MiB.
+
+The Arch recipe's metadata then holds:
+
+- `depends=`, the distribution packages above: terminus-font, kbd, ttf-jetbrains-mono, ttf-fira-code, ttf-cascadia-code, ttf-hack, ttf-ibm-plex, adobe-source-code-pro-fonts, ttf-monoid, ttf-dejavu, the seven Nerd Fonts packages, ttf-nerd-fonts-symbols-mono, noto-fonts, noto-fonts-cjk and noto-fonts-emoji;
+- `source=`, the four carried fonts, each pinned by its URL and SHA-256;
+- `license=`, the licenses of what the package itself carries: MIT for the font sets, and OFL-1.1, CC-BY-SA-4.0, Unlicense and the public domain for the carried fonts. The licenses of the fonts it depends on stay with their own packages, and the notices file names them.
+
+Each of the Arch names above was checked with `pacman -Si` on 2026-11-14.
+
+**The notices.** vtium-fonts carries one notices file. For each font that a catalog set names, it gives the font's source, its version, its copyright line, its license, and its Reserved Font Name or the attribution its license asks for, such as Px437's and the CC-BY-4.0 icon sets' in the Nerd Fonts builds. It says that vtium-fonts carries no Nerd Fonts file because of Font Logos. Beside it, vtium-fonts carries the full text of each license. vtium itself carries only the notices of its own fonts: the built-in font's Unscii-8 and Terminus lines, the OFL text, and the notices of the Terminus and Unifont files it installs. vtium names vtium-fonts as an optional dependency.
+
+**Font Logos in a prompt.** vtium leaves out U+F300 to U+F385 wherever it draws from a Nerd Fonts file: the `nerd-symbols` layer's `cover=` lines leave the range out, and so do the `cover=` lines of each Nerd set's text font. Those code points are the Font Logos icons, the logos of operating systems and distributions. A prompt that shows its system's logo, such as Starship's operating-system module with Arch Linux's logo at U+F303, draws a hollow box there, because Unifont and the built-in font hold none of that range either.
 
 ### D9: names, folders and the package lists
 
@@ -373,7 +398,7 @@ A test set judges vtium's drawing in tier 2, tier 3, the specimens, the acceptan
 
 ### D12: a check holds the catalog to this record
 
-A test in vtium-config reads every catalog set and layer. Its text half runs in every build. It checks the category folder, that the name is unique, the order of the roles, that every symbols and emoji layer carries `cover=` lines or an emoji font, that every source carries `package=` or `url=`, and that the `license=` line names every source's license. Its font half runs with the pinned fonts that tier 2 and the specimens fetch. It asks the helper's engine which source supplies each character, and it checks that each layer supplies characters of its role alone, and some of them. The catalog's font table moves from this record into a TSV beside it, which the test reads.
+A test in vtium-config reads every catalog set and layer, and the notices file of vtium-fonts. The notices half checks that every font vtium-fonts carries has an entry, and that no entry names a font the package lacks. Its text half runs in every build. It checks the category folder, that the name is unique, the order of the roles, that every symbols and emoji layer carries `cover=` lines or an emoji font, that every source carries `package=` or `url=`, and that the `license=` line names every source's license. Its font half runs with the pinned fonts that tier 2 and the specimens fetch. It asks the helper's engine which source supplies each character, and it checks that each layer supplies characters of its role alone, and some of them. The catalog's font table moves from this record into a TSV beside it, which the test reads.
 
 ### D13: how the existing sets map onto the catalog
 
@@ -403,7 +428,7 @@ The build cards, in order:
 4. **The catalog check** of D12, and the TSV beside this record.
 5. **The built-in font.** The list file, the build step that cuts the three strikes, the hollow box for every other character, the English message for a translation beyond the list, and the acceptance check of D1, as a unit test and a tier 3 case.
 6. **The default set in two tiers.** The full package installs the Terminus and Unifont files in `/usr/share/vtium/fonts/` and depends on the icon and emoji packages; the minspec builds install the Terminus files alone. `terminus` becomes the font with none named, and the tier 3 case of D2 runs with each install tree on a guest with no other font package.
-7. **The recipes.** vtium-arch's vtium-fonts installs the catalog and keeps its dependencies on the brought fonts. The vtium recipe drops its own `terminus.vtfrit`.
+7. **The recipes.** vtium-arch's vtium-fonts installs the catalog, depends on the distribution's font packages, carries the four pinned fonts with their license texts and the notices file, and carries no Nerd Fonts file. The vtium recipe drops its own `terminus.vtfrit`, installs the Terminus and Unifont files, and names vtium-fonts as optional.
 
 ### D15: the maintainer's choices
 
@@ -411,13 +436,14 @@ Each choice gives the options, what each trades away, and the record's lean. The
 
 1. **The categories.** (a) Six: console, classic, code, Nerd Fonts, scripts and regions, and small panels. (b) Five, with each code font's Nerd build in `code/` beside it. That keeps a font's two sets together, and it makes `code/` twice as long. **Lean: (a),** because the maintainer named Nerd Fonts as a family of their own.
 2. **How many members each category starts with.** (a) The list in D3: two console sets, three classic, eight code, six Nerd, nine scripts and three small. (b) One or two in each category, with more added as people ask. That keeps the first card small, and it leaves categories that look empty. **Lean: (a).**
-3. **Brought or required.** (a) vtium-fonts brings the fonts of the shared layers and of the script sets, which are the fonts it depends on today, and every other font is required. (b) It also brings every required font that Arch's own repositories package, such as Fira Code and Hack. The package then installs about a dozen more fonts. (c) vtium-fonts also carries the font files of fonts that no distribution packages and whose license allows it: Glass TTY VT220, Tiny5 Mono and the Px437 fonts. That reverses ADR-1500 D8's rule that a vtium package holds text files alone. **Lean: (a).**
+3. **How vtium-fonts provides the fonts.** (a) Mixed per font: it depends on a distribution's package where one exists, and carries a pinned copy where none does, apart from Nerd Fonts files. (b) It carries every font itself, about 1.1 GB, and duplicates what distributions keep up to date. (c) It depends on packages alone, and the fonts that no distribution packages stay required. **Lean: (a).**
 4. **The layering form.** (a) `layer=NAME` lines and `.vtlayer` files with a `role=`, in `layers/`. (b) `include=NAME` of a whole frit. The included frit's own keys, such as `cell=`, would then need rules for which one wins. (c) Named sections inside one file. That changes vtium.conf's line syntax that frits share. **Lean: (a).**
 5. **A missing required font at run time.** (a) vtium draws with the fonts it has, the built-in font draws the text when the text font is missing, the console logs one line, and vtium-config names the package. (b) vtium draws the whole set in the built-in fonts until every required font is there. The screen then looks the same before and after a partial install, and it loses the fonts that are there. (c) As (a), plus a one-time notice on the console. The notice reaches someone who never reads the log, and it writes into the session's screen. **Lean: (a).**
 6. **A font that differs from its pin.** (a) A lower version or another hash still draws, and vtium-config reports it; only a failed `check=` counts the font as missing. (b) Any difference counts the font as missing. A distribution's newer or rebuilt font would then fall back on every update. **Lean: (a).**
 7. **The renames.** (a) `desktop`, `minspec-16`, `minspec-8` and the nine script sets take the catalog's names now. (b) The old names stay as sets that hold one `layer=`-style alias each. Two names then mean one set. **Lean: (a),** while few installs exist.
 8. **Unifont in the full package.** (a) The full package installs Unifont's file, about 1.7 MB, so `terminus` draws Han, kana, Hangul and the other scripts out of the box. (b) Unifont stays a required font, and those scripts draw as hollow boxes until the person installs it. **Lean: (a),** as much support as possible.
-9. **The built-in 8×16 strike.** (a) Terminus, as D1 decides. (b) A Unifont subset. It holds the same list, its data is about the same size, 1,594 bytes deflated, its focus marks are larger, and it keeps today's look. Terminus is drawn for reading on a console, and it matches the `terminus` set. **Lean: (a).**
+9. **Font Logos.** (a) vtium leaves U+F300 to U+F385 out of every Nerd Fonts source, so distribution logos draw as hollow boxes. (b) vtium draws them from Nerd Fonts files that the person's distribution installed, since drawing a glyph redistributes nothing, and leaves them out only where vtium itself would ship the file, which it never does. **Lean: (a),** as the steering session directed; (b) gives prompts their logos.
+10. **The built-in 8×16 strike.** (a) Terminus, as D1 decides. (b) A Unifont subset. It holds the same list, its data is about the same size, 1,594 bytes deflated, its focus marks are larger, and it keeps today's look. Terminus is drawn for reading on a console, and it matches the `terminus` set. **Lean: (a).**
 
 ## Consequences
 
