@@ -245,8 +245,9 @@ pub fn make(form: &Form, geometry: &Geometry, size: (u32, u32), source: &[u32]) 
 /// For a background that is the part of the fitted, scaled and anchored
 /// picture that falls on the character grid, and for a banner the whole
 /// banner. The image helper runs this, so it hands back only these pixels.
-/// `None` when the screen has no room for the picture: a grid of no cells,
-/// a cell of no pixels, or a banner on a grid of 2 rows or fewer.
+/// `None` when the screen has no room for the picture, which [`room`]
+/// tells apart: a grid of no cells, a cell of no pixels, or a banner on a
+/// grid of 2 rows or fewer.
 pub fn fit(
     fitting: &Fitting,
     size: (u32, u32),
@@ -283,6 +284,24 @@ pub fn fit(
     );
     let pixels = resample(source, size, scaled, offset, shown)?;
     Some((shown.0, shown.1, pixels))
+}
+
+/// Whether the screen `fitting` names has room for a picture in its form:
+/// a grid of at least one cell, each cell at least one pixel, and for a
+/// banner more than 2 rows, since a banner always leaves the login prompt
+/// 2 rows. Where this is false, [`fit`] makes nothing, so the console
+/// checks it before it asks the image helper and can log the reason.
+pub fn room(fitting: &Fitting) -> bool {
+    let geometry = &fitting.geometry;
+    if grid_pixels(geometry).is_none() {
+        return false;
+    }
+    let banner_h = geometry
+        .grid
+        .1
+        .checked_sub(2)
+        .and_then(|r| r.checked_mul(geometry.cell.1));
+    fitting.form.fit != Fit::Banner || banner_h.is_some_and(|h| h > 0)
 }
 
 /// Where a picture goes, worked out from its size as [`fit`] made it: its
@@ -1031,6 +1050,98 @@ mod tests {
         // nothing larger than the grid, and nothing empty
         assert_eq!(place(&fitting(Fit::Natural, SCALE_FULL), (81, 8)), None);
         assert_eq!(place(&fitting(Fit::Natural, SCALE_FULL), (0, 8)), None);
+    }
+
+    /// A small pseudo-random number generator, xorshift64, so a sweep is
+    /// the same on every run.
+    struct Dice(u64);
+
+    impl Dice {
+        /// A number from `lo` to `hi`, both included.
+        fn roll(&mut self, lo: u32, hi: u32) -> u32 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            lo + (self.0 % u64::from(hi - lo + 1)) as u32
+        }
+    }
+
+    // The image helper runs `fit`, and the console checks the helper's
+    // answer with `place` and `Spot::made`. Over random screens, forms and
+    // sizes, nothing panics, `room` says exactly when `fit` makes a
+    // picture, every size `fit` makes passes the console's checks, and
+    // `place` refuses any other size or gives a box that holds it.
+    #[test]
+    fn fit_place_and_made_agree_over_random_screens_and_forms() {
+        let fits = [
+            Fit::Contain,
+            Fit::Cover,
+            Fit::Stretch,
+            Fit::Natural,
+            Fit::Banner,
+        ];
+        let mut dice = Dice(0x9e37_79b9_7f4a_7c15);
+        for case in 0..4000 {
+            let cell = (dice.roll(0, 12), dice.roll(0, 20));
+            let grid = (dice.roll(0, 24), dice.roll(0, 12));
+            let spare = (dice.roll(0, 12), dice.roll(0, 12));
+            let geometry = Geometry {
+                display: (grid.0 * cell.0 + spare.0, grid.1 * cell.1 + spare.1),
+                cell,
+                grid,
+            };
+            let position = match dice.roll(0, 9) {
+                9 => None,
+                n => Position::ALL.get(n as usize).copied(),
+            };
+            let form = Form {
+                fit: fits[dice.roll(0, 4) as usize],
+                rows: [None, Some(dice.roll(0, 6))][dice.roll(0, 1) as usize],
+                position,
+                scale: [SCALE_FULL, dice.roll(1, 100) as u8][dice.roll(0, 1) as usize],
+            };
+            let fitting = Fitting { form, geometry };
+            let size = (dice.roll(1, 64), dice.roll(1, 64));
+            let src = picture(size.0, size.1);
+            let made = fit(&fitting, size, Source::Argb(&src));
+            assert_eq!(made.is_some(), room(&fitting), "case {case}: {fitting:?}");
+            if let Some((w, h, pixels)) = made {
+                let spot = place(&fitting, (w, h))
+                    .unwrap_or_else(|| panic!("case {case}: {fitting:?} refuses {w}×{h}"));
+                let made = spot.made((w, h), pixels, true);
+                assert!(made.is_some(), "case {case}: {fitting:?}");
+            }
+            let other = (dice.roll(0, 300), dice.roll(0, 300));
+            if let Some(spot) = place(&fitting, other) {
+                assert!(
+                    spot.inset.0 + other.0 <= spot.frame.0
+                        && spot.inset.1 + other.1 <= spot.frame.1,
+                    "case {case}: {fitting:?} puts {other:?} outside its box"
+                );
+                let pixels = vec![0xff00_0000; (other.0 * other.1) as usize];
+                assert!(spot.made(other, pixels, true).is_some(), "case {case}");
+            }
+        }
+    }
+
+    // A screen has room for a background when its grid has a cell, and
+    // for a banner when it also has more than 2 rows.
+    #[test]
+    fn room_needs_a_cell_and_a_banner_needs_three_rows() {
+        let fitting = |fit, grid, cell| Fitting {
+            form: form(fit),
+            geometry: Geometry {
+                grid,
+                cell,
+                ..SCREEN
+            },
+        };
+        assert!(room(&fitting(Fit::Cover, (10, 3), (8, 16))));
+        assert!(room(&fitting(Fit::Banner, (10, 3), (8, 16))));
+        assert!(room(&fitting(Fit::Cover, (10, 2), (8, 16))));
+        assert!(!room(&fitting(Fit::Banner, (10, 2), (8, 16))));
+        assert!(!room(&fitting(Fit::Cover, (0, 3), (8, 16))));
+        assert!(!room(&fitting(Fit::Contain, (10, 3), (8, 0))));
     }
 
     #[test]

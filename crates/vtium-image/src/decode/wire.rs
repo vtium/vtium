@@ -1013,9 +1013,48 @@ mod tests {
         // a fit beside a named file is refused
         let file = Request {
             medium: Medium::File(b"/a".to_vec()),
-            ..request
+            ..request.clone()
         };
         assert!(encode_request(8, &file).is_err());
+        // so is a fit beside a pixel description, a PNG's flag, zlib, an
+        // exact length or a discard: the helper fits only a decoded picture
+        let described = Request {
+            pixels: Some(Description {
+                layout: Layout::Rgba,
+                alpha: Alpha::Straight,
+                width: 1,
+                height: 1,
+                compressed: false,
+            }),
+            min: 4,
+            ..request.clone()
+        };
+        let png = Request {
+            png: true,
+            ..request.clone()
+        };
+        let inflated = Request {
+            inflate: true,
+            ..request.clone()
+        };
+        let exact = Request {
+            inflate: true,
+            exact: true,
+            ..request.clone()
+        };
+        let discard = Request {
+            discard: true,
+            ..request
+        };
+        for (what, r) in [
+            ("pixels", described),
+            ("png", png),
+            ("inflate", inflated),
+            ("exact", exact),
+            ("discard", discard),
+        ] {
+            assert!(encode_request(9, &r).is_err(), "{what}");
+        }
     }
 
     // ADR-1100 D17: the position byte carries the nine anchors and unset,
