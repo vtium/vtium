@@ -208,7 +208,9 @@ fn an_outline_script_stands_on_the_first_sources_own_box() {
     let dir = Scratch::new("own-box");
     let bitmap = dir.file("f.psf", &psf(&[('H', bar(0b1100_0110))]));
     let path = dejavu();
-    let e = engine(&format!("source=file:{bitmap}\nsource=outline:{path}\n"));
+    let e = engine(&format!(
+        "source=file:{bitmap}\nsource=outline:{path}\nrender=smooth\n"
+    ));
     let tall = Cell {
         width: 8,
         height: 24,
