@@ -3,7 +3,7 @@
 //! (ADR-1400 D3): direct mode through `vtium@.service`, and seat mode
 //! through `vtium-seat@.service`. `enable` takes the mode as `--direct` or
 //! `--seat`, and moves a VT that has the other mode to the one asked for.
-//! Without a mode it changes nothing and gives advice ([`advice`]).
+//! Without a mode it changes nothing and gives advice (`advice`).
 //!
 //! systemd starts the units `getty.target` wants at boot, and logind starts
 //! `autovt@ttyN.service` on a VT that nothing holds when the user switches
@@ -19,11 +19,11 @@
 //! what was there under `/var/lib/vtium/console/`, and `disable` puts back
 //! what the records say. It passes by every VT another program holds: a
 //! VT that a unit enabled at boot, such as the display manager's, claims,
-//! judged from what is on the machine ([`held`]), and a VT a graphical
+//! judged from what is on the machine (`held`), and a VT a graphical
 //! session, a greeter or another console is on now, or that is the
-//! controlling terminal of a program running now ([`process`]). `fallback N`, which
+//! controlling terminal of a program running now (`process`). `fallback N`, which
 //! `vtium-getty@.service` runs when vtium on VT N fails, starts the VT's
-//! getty only when that start stops no other program ([`fallback`]).
+//! getty only when that start stops no other program (`fallback`).
 //!
 //! The subcommand starts and stops nothing, since either ends every
 //! session on the VT, and masks nothing, since a mask is the
@@ -564,7 +564,7 @@ fn logind_starts(n: u16) -> bool {
 /// The VTs vtium is enabled on under `root`, in either mode: where
 /// systemd starts it at boot, or where logind starts it when the user
 /// switches there, as the "at boot" and "when switched to" cells of
-/// `vtium console status`'s table name them ([`State::vtium_enabled`]).
+/// `vtium console status`'s table name them (`State::vtium_enabled`).
 /// It reads systemd's links alone, and runs nothing, so the cells hold
 /// every part that names a unit of vtium's. The mode is the one those
 /// units share, else direct mode. `None` when `root` was not booted with

@@ -11,7 +11,7 @@ use super::{Config, Origin, keys};
 /// Where the machine's memory is read.
 const MEMINFO: &str = "/proc/meminfo";
 
-/// The machine's memory in bytes, from [`MEMINFO`]'s `MemTotal`; `None`
+/// The machine's memory in bytes, from `MEMINFO`'s `MemTotal`; `None`
 /// when it cannot be read.
 pub fn physical_memory() -> Option<u64> {
     MEMORY.with(|m| {

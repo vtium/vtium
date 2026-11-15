@@ -1037,7 +1037,7 @@ impl Generated {
     /// `runs` and the clusters its cluster map holds at the cell in that
     /// variant, and taking `bytes`, without the glyphs the store holds at
     /// `at` in `variant` (ADR-1200 D18): a set that carries some is written again without them, as
-    /// compaction writes one ([`rewrite`]), and counts the bytes written.
+    /// compaction writes one (`rewrite`), and counts the bytes written.
     /// It adds nothing when it carries nothing new, or when it cannot be
     /// written again. `None` when `set` has no face at the cell.
     pub fn fresh(
@@ -1187,7 +1187,7 @@ impl Generated {
     /// Frees at least `overrun` bytes for an ask at a full store: drops
     /// the glyphs least recently shown, across every set, until their
     /// share of their sets' bytes covers it, and writes each set they
-    /// leave again without them ([`rewrite`]). When the rewritten sets
+    /// leave again without them (`rewrite`). When the rewritten sets
     /// free less than their share, the next least recently shown glyphs
     /// go too. The texts no longer held, by cell, band, variant and double
     /// size; nothing is redrawn, and each is asked for again when the
@@ -1819,7 +1819,7 @@ impl Face for DeferredFace {
     /// cluster `c` begins: the renderer asks by a cluster's first
     /// character before it draws the cluster.
     /// In a build with the bidi feature U+200D counts as held too: a key
-    /// that starts with it is a joined letter's ([`joined`]), which draws
+    /// that starts with it is a joined letter's (`joined`), which draws
     /// at least the letter's own glyph.
     fn has_glyph(&self, c: char) -> bool {
         #[cfg(feature = "bidi")]
@@ -1884,14 +1884,14 @@ impl Face for DeferredFace {
     }
 
     /// The frit's `fit=` for `c`, else `c`'s default ([`FritFits`]), which
-    /// places a sprite as [`DeferredFace::built_in`] places a built-in
+    /// places a sprite as `DeferredFace::built_in` places a built-in
     /// glyph.
     fn fit(&self, c: char, style: Style) -> Fit {
         self.fits.fit(u32::from(c), style)
     }
 
     /// For a character the store lacks, and for the last resort, the
-    /// built-in font's origin, moved where [`DeferredFace::fit`] puts the
+    /// built-in font's origin, moved where `DeferredFace::fit` puts the
     /// built-in glyph in the text band (ADR-1202 D1, D4). The store's
     /// glyphs come from the helper, and a longer cluster draws from several
     /// glyphs, so their origin is the default, a smooth glyph over the text

@@ -1,4 +1,4 @@
-//! The session's command and its environment, which [`vtium_platform::Pty`]
+//! The session's command and its environment, which [`vtium_platform::pty::Pty`]
 //! runs on the pty.
 //!
 //! The command is `login`, or `/bin/login -p` with `reset-env` on and
@@ -62,7 +62,7 @@ pub struct Place<'a> {
     /// displays is black and white, vtium leaves `COLORTERM` out of the
     /// environment, and removes a value the environment inherited, so the
     /// program never hears of more color than the displays can show.
-    /// [`crate::head::Head::truecolor`] decides it.
+    /// `Head::truecolor` decides it.
     ///
     /// References:
     /// - ADR-1301 D10: which displays count, and the inherited value.
@@ -155,7 +155,7 @@ impl Child {
             == Some(OsStr::new("truecolor"))
     }
 
-    /// The command for [`vtium_platform::Pty::spawn`]; `None` with no
+    /// The command for [`vtium_platform::pty::Pty::spawn`]; `None` with no
     /// word to run.
     pub fn command(&self) -> Option<Command> {
         let (program, args) = self.argv.split_first()?;

@@ -44,7 +44,7 @@
 //!   head's grid. While the program tracks it, its events are reported,
 //!   but a button pressed, a move without a button and the wheel with
 //!   Shift held, as xterm's are. The others select, copy, paste and scroll
-//!   ([`Head::pointer_event`]).
+//!   (`Head::pointer_event`).
 //! - **The blank** is the seat's. Each key press and pointer action (a
 //!   move, a button or the wheel) goes to every device's `input`, which
 //!   retries a failed wake-up, and to [`Blank::input`]; a device's `Awake`

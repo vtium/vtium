@@ -263,8 +263,8 @@ impl Reply {
         }
     }
 
-    /// Takes one frame of the answer, a [`FRAME_POINTER`] or a
-    /// [`FRAME_NO_POINTER`]. A picture that fails its checks refuses the
+    /// Takes one frame of the answer, a `FRAME_POINTER` or a
+    /// `FRAME_NO_POINTER`. A picture that fails its checks refuses the
     /// ask's file, and the frames after it are read and dropped. The error
     /// refuses the whole answer, and the console then ends the helper: a
     /// frame about a shape not asked for, or more picture frames than the

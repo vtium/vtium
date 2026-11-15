@@ -1098,7 +1098,7 @@ impl Chosen {
 
     /// [`Chosen::face`], with `spacing`, vtium.conf's
     /// `font-line-spacing`, over a frit's own `line-spacing=`: the cell is
-    /// taller by the rows [`Chosen::band`] gives, split above and below
+    /// taller by the rows `Chosen::band` gives, split above and below
     /// the text band, and each glyph is placed in it (ADR-1302 D13). The
     /// text band is the cell [`Chosen::face`] would draw in, so `height`
     /// stays the text's height.

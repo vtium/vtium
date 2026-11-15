@@ -50,7 +50,7 @@
 //! are in force (ADR-1200 D15). A helper that runs without its landlock
 //! domain, on a kernel without landlock, is logged once a boot, with
 //! whether its fallback filter stands in for the domain, and so is a
-//! helper that runs without its socket filter ([`sandbox_notice`]).
+//! helper that runs without its socket filter (`sandbox_notice`).
 //!
 //! A helper that answers what is not a frame, what was not asked, or a
 //! failure is given up for the boot, logged once, and the built-in font

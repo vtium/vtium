@@ -3,7 +3,7 @@
 //! laid out over its own displays by the scaled rule ([`crate::layout`])
 //! at its own density, zoom and rotation.
 //!
-//! [`identity`] maps vtium-platform's identities of a display and of an
+//! [`vtium_devices`] maps vtium-platform's identities of a display and of an
 //! input into the head file's, which the rules walk. The app holds the
 //! heads, places each display in one, and drives each head's session as
 //! it drove the seat's one session before heads: each head is one
