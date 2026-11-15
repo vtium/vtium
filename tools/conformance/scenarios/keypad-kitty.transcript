@@ -13,7 +13,7 @@
 > key KP_Enter mods=num
 < reply "\e[57414;129u"
 > key KP_Begin
-< reply "\e[57427u"
+< reply "\e[E"
 > key KP_Up
 < reply "\e[57419u"
 > key KP_Insert
