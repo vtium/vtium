@@ -357,6 +357,12 @@ class Insert(unittest.TestCase):
         self.assertEqual(typepad.pairs(lines, 8), {11: 12, 12: 11})
 
 
+def guide_intro(guide):
+    """A guide's intro: lines, as guide.sh reads them."""
+    with open(guide, encoding="utf-8") as f:
+        return [m.group(1) for m in (re.match(r"^intro:\s?(.*)$", line) for line in f.read().splitlines()) if m]
+
+
 def guide_steps(guide=GUIDE):
     """The steps of a guide that runs the pad, double-size.guide unless
     another is named, as guide.sh reads them and hands them to the pad:
@@ -466,7 +472,7 @@ class Screens(unittest.TestCase):
                         self.assertLessEqual(len(row), cols, row)
 
     def test_every_step_of_the_guides_fits_80_by_25(self):
-        for guide, count in ((GUIDE, 14), (INSERT_GUIDE, 6)):
+        for guide, count in ((GUIDE, 14), (INSERT_GUIDE, 7)):
             steps = guide_steps(guide)
             self.assertEqual(len(steps), count, guide)
             for heading, do, expect, args in steps:
@@ -481,6 +487,48 @@ class Screens(unittest.TestCase):
                     # The lines, a row for typing past them and the
                     # question's row fit below the text.
                     self.assertLessEqual(len(text) + len(lines) + 2, 25)
+
+    def test_each_guides_intro_says_what_the_pad_shows_and_who_makes_text_flow(self):
+        # The maintainer read a letter lost at the right edge as a fault,
+        # because a shell's line editor makes text flow onto the next row.
+        # Each guide says at the start that the pad only echoes keys, and
+        # that a program's own redraw makes text flow.
+        for guide in (GUIDE, INSERT_GUIDE):
+            with self.subTest(guide=os.path.basename(guide)):
+                intro = " ".join(guide_intro(guide))
+                self.assertIn("The pad shows what the terminal does when a program only echoes the keys you type.",
+                              intro)
+                self.assertIn("The terminal never moves text to another row when you insert a letter.", intro)
+                self.assertIn("Text flows onto the next row only when a program redraws the line itself, as zsh "
+                              "and vim do.", intro)
+                self.assertRegex(intro, r'"Explore" ha(s|ve) no right or wrong answer\.')
+                self.assertIn("A separate proof editor, which a later card builds, is to show a VT510-capable editor "
+                              "that authors mixed character sizes, placement and wrapping.", intro)
+
+    def test_explore_steps_quote_the_manual_and_ask_for_no_verdict(self):
+        # Raw VT510 behaviour that looks broken on its own, a letter lost at
+        # the right edge or one line of a tall pair edited alone, stays in
+        # the guides as free exploration. Each such step's title starts
+        # with "Explore", says there is no right or wrong, quotes the
+        # manual's sentence, says that tier 1 checks the rule and invites
+        # the maintainer to try it. guide.sh asks such a step only for a
+        # note. Every other step is a check
+        # with a "Wrong:" line, and the pair-mode steps are among them.
+        for guide, count in ((GUIDE, 1), (INSERT_GUIDE, 2)):
+            with self.subTest(guide=os.path.basename(guide)):
+                steps = [(h.split(": ", 1)[1], " ".join(e.split()), args) for h, _, e, args in guide_steps(guide)]
+                explore = [st for st in steps if st[0].startswith("Explore")]
+                self.assertEqual(len(explore), count, [st[0] for st in explore])
+                for title, expect, args in steps:
+                    if title.startswith("Explore"):
+                        self.assertTrue(expect.startswith("There is no right or wrong here."), title)
+                        self.assertRegex(expect, r'(VT510 manual|VT100 User Guide) says[^"]*: "[^"]+"', title)
+                        self.assertIn("Tier 1 checks this rule. Try it as long as you like.", expect, title)
+                        self.assertNotIn("Press s", expect, title)
+                        self.assertNotIn("Wrong:", expect, title)
+                        self.assertNotIn("--pair", args, title)
+                    else:
+                        self.assertIn("Wrong:", expect, title)
 
     def test_every_step_of_the_insert_guide_runs_the_pad_with_insert(self):
         for heading, _, _, args in guide_steps(INSERT_GUIDE):
