@@ -229,6 +229,10 @@ pub(super) type Shown = Option<(u32, (i64, i64), (i32, i32))>;
 pub(super) struct Cursor {
     pub(super) dumb: Dumb,
     pub(super) fb: u32,
+    /// The second buffer of the plane, and its framebuffer: the image
+    /// shown before the last new one. A new image goes into it while the
+    /// plane still shows `fb`.
+    pub(super) spare: Option<(Dumb, u32)>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) hot: (i32, i32),

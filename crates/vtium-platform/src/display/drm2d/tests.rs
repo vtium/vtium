@@ -548,28 +548,122 @@ fn a_busy_commit_keeps_the_cursor_waiting() {
     assert!(!v.need_commit(DisplayId(A)));
 }
 
-// Removing the framebuffer the cursor plane shows takes the plane off its
-// CRTC in the kernel, so the plane is recorded hidden. A cursor-only
-// commit hiding it again would name no CRTC, which the kernel refuses
-// with a flip event.
+// A new image on a display that shows one, as when a program changes the
+// pointer's shape, goes into a second buffer. The plane keeps showing the
+// old image until the commit that shows the new one, so the pointer never
+// vanishes in between: removing the framebuffer the plane shows would
+// take the plane off at once. Once both buffers exist, a new image
+// allocates and frees nothing.
 #[test]
-fn a_new_cursor_image_leaves_the_plane_recorded_hidden() {
+fn a_new_cursor_image_keeps_the_plane_until_the_commit_that_shows_it() {
     let mut v = awake(one());
-    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    let cp = cursor_plane(&v, A);
+    let first_px = |v: &Drm2d<FakeCard>| {
+        let c = v.outputs[0].cursor.as_ref().unwrap();
+        let bytes = v.card().memory(c.dumb.handle).unwrap();
+        (c.fb, u32::from_ne_bytes(bytes[..4].try_into().unwrap()))
+    };
+    let creates = |v: &Drm2d<FakeCard>| {
+        let s = v.card().state();
+        let calls = &s.buffer_calls;
+        let made = calls
+            .iter()
+            .filter(|c| matches!(c, BufferCall::CreateDumb(_)))
+            .count();
+        let freed = calls
+            .iter()
+            .filter(|c| matches!(c, BufferCall::RmFb(_) | BufferCall::DestroyDumb(_)))
+            .count();
+        (made, freed)
+    };
+    v.setup_cursor(DisplayId(A), &[0xff00_0001; 4], 2, 2, (0, 0))
+        .unwrap();
     v.show_cursor(DisplayId(A), 1, 1).unwrap();
     assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
     flip(&mut v);
-    let cp = cursor_plane(&v, A);
-    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
-    assert!(!v.card().state().plane_crtc.contains_key(&cp));
-    assert!(!v.need_commit(DisplayId(A)));
-    assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Nothing);
+    let (fb1, px) = first_px(&v);
+    assert_eq!(px, 0xff00_0001);
+    // the second image: a new buffer, and the plane still shows the first
+    v.setup_cursor(DisplayId(A), &[0xff00_0002; 4], 2, 2, (1, 1))
+        .unwrap();
+    let (fb2, px) = first_px(&v);
+    assert_ne!(fb2, fb1);
+    assert_eq!(px, 0xff00_0002);
+    assert_eq!(v.card().state().plane_fb.get(&cp), Some(&fb1));
+    assert_eq!(v.card().state().plane_crtc.get(&cp), Some(&100));
+    assert!(v.card().state().fbs.contains_key(&fb1));
     v.show_cursor(DisplayId(A), 2, 2).unwrap();
     assert_eq!(v.commit(DisplayId(A)).unwrap(), Swapped::Cursor);
-    let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
     let c = v.card().last_commit().unwrap();
-    assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(fb)));
+    assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(fb2)));
     assert_eq!(c.get(cp, "CRTC_ID"), Some(100));
+    assert_eq!(c.get(cp, "CRTC_X"), Some(2 - 1));
+    flip(&mut v);
+    // the third image goes into the first buffer, which the plane no
+    // longer shows: nothing is made or freed
+    let before = creates(&v);
+    v.setup_cursor(DisplayId(A), &[0xff00_0003; 4], 2, 2, (0, 0))
+        .unwrap();
+    assert_eq!(first_px(&v), (fb1, 0xff00_0003));
+    assert_eq!(v.card().state().plane_fb.get(&cp), Some(&fb2));
+    // a fourth before any commit: the plane still shows the second, so
+    // the first buffer takes it in place
+    v.setup_cursor(DisplayId(A), &[0xff00_0004; 4], 2, 2, (0, 0))
+        .unwrap();
+    assert_eq!(first_px(&v), (fb1, 0xff00_0004));
+    assert_eq!(creates(&v), before);
+    v.show_cursor(DisplayId(A), 2, 2).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    let c = v.card().last_commit().unwrap();
+    assert_eq!(c.get(cp, "FB_ID"), Some(u64::from(fb1)));
+    flip(&mut v);
+    // taking the image away frees both buffers
+    v.destroy_cursor(DisplayId(A));
+    let s = v.card().state();
+    assert!(!s.fbs.contains_key(&fb1) && !s.fbs.contains_key(&fb2));
+}
+
+// A new image on a display whose plane shows nothing writes into the
+// buffer it holds, whose framebuffer no plane shows.
+#[test]
+fn a_new_cursor_image_on_a_hidden_plane_reuses_its_buffer() {
+    let mut v = awake(one());
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    let fb = v.outputs[0].cursor.as_ref().unwrap().fb;
+    let calls = v.card().state().buffer_calls.len();
+    v.setup_cursor(DisplayId(A), &[0xff00_0000; 4], 2, 2, (1, 0))
+        .unwrap();
+    let c = v.outputs[0].cursor.as_ref().unwrap();
+    assert_eq!((c.fb, c.hot, c.visible), (fb, (1, 0), false));
+    let s = v.card().state();
+    assert!(
+        s.buffer_calls[calls..]
+            .iter()
+            .all(|c| matches!(c, BufferCall::MapDumb(_))),
+        "{:?}",
+        &s.buffer_calls[calls..]
+    );
+}
+
+// A new image that cannot be written takes the image away whole, both
+// buffers with it, so the owner draws the pointer in software and no
+// buffer is left behind.
+#[test]
+fn a_new_cursor_image_that_cannot_be_written_frees_both_buffers() {
+    let mut v = awake(one());
+    let (fbs, dumbs) = {
+        let s = v.card().state();
+        (s.fbs.len(), s.dumbs.len())
+    };
+    v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    flip(&mut v);
+    v.card().state().map_errors.push_back(Errno::NOMEM);
+    assert!(v.setup_cursor(DisplayId(A), &[0; 4], 2, 2, (0, 0)).is_err());
+    assert!(!v.hardware_cursor(DisplayId(A)));
+    let s = v.card().state();
+    assert_eq!((s.fbs.len(), s.dumbs.len()), (fbs, dumbs));
 }
 
 // A cursor change undone before the swap leaves the plane as the last

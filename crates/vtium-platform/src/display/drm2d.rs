@@ -37,7 +37,7 @@ use drm_ffi::{
 use rustix::io::Errno;
 
 use super::edid::{Edid, EdidId};
-use super::kms::{Connector, CrtcEvent, Encoder, Kms, Object, Property, Request, Resources};
+use super::kms::{Connector, CrtcEvent, Dumb, Encoder, Kms, Object, Property, Request, Resources};
 use super::mode::{self, Choice, Mode, ModePolicy};
 use super::path;
 use super::{
@@ -872,6 +872,14 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
     /// without a cursor plane, or whose plane, at most [`CURSOR_MAX`] a
     /// side, is smaller than the image, with `Unsupported`, so the owner
     /// draws the image whole rather than cut.
+    ///
+    /// A display that already holds an image, as when a program changes
+    /// the pointer's shape, keeps two buffers for the plane and writes the
+    /// new image into the one the plane does not show. The plane keeps
+    /// showing the old image until the commit that shows the new one, so
+    /// the pointer never vanishes in between, and a change of shape
+    /// allocates nothing once both buffers exist. Removing the framebuffer
+    /// the plane shows would instead take the plane off at once.
     pub fn setup_cursor(
         &mut self,
         id: DisplayId,
@@ -908,45 +916,65 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 format!("a {width}x{height} image on a {cw}x{ch} cursor plane"),
             ));
         }
-        self.destroy_cursor(id);
-        let dumb = self.card.create_dumb(cw, ch)?;
-        let made = self
-            .card
-            .add_fb(dumb.handle, dumb.pitch, cw, ch, ARGB8888)
-            .and_then(|fb| {
-                let mut map = self.card.map_dumb(&dumb).inspect_err(|_| {
-                    let _ = self.card.rm_fb(fb);
-                })?;
-                let dst = map.as_mut();
-                dst.fill(0);
-                let pitch = usize::try_from(dumb.pitch).unwrap_or(0);
-                let cols = usize::try_from(width.min(cw)).unwrap_or(0);
-                let src_w = usize::try_from(width).unwrap_or(0);
-                for y in 0..usize::try_from(height.min(ch)).unwrap_or(0) {
-                    let src = pixels.get(y.saturating_mul(src_w)..).unwrap_or_default();
-                    let row = dst.get_mut(y.saturating_mul(pitch)..).unwrap_or_default();
-                    for (px, out) in src.iter().take(cols).zip(row.as_chunks_mut::<4>().0) {
-                        *out = px.to_ne_bytes();
-                    }
-                }
-                Ok(fb)
-            });
-        let fb = match made {
-            Ok(fb) => fb,
-            Err(e) => {
+        let image = CursorImage {
+            pixels,
+            width,
+            height,
+        };
+        let shown = o.cursor_set.map(|(fb, _, _)| fb);
+        let held = o
+            .cursor
+            .as_ref()
+            .filter(|c| (c.width, c.height) == (cw, ch));
+        let Some(held) = held else {
+            self.destroy_cursor(id);
+            let (dumb, fb) = cursor_buffer(&self.card, cw, ch)?;
+            if let Err(e) = paint_cursor(&self.card, &dumb, &image) {
+                let _ = self.card.rm_fb(fb);
                 let _ = self.card.destroy_dumb(dumb.handle);
                 return Err(e);
             }
+            if let Some(o) = self.output_mut(id) {
+                o.cursor = Some(Cursor {
+                    dumb,
+                    fb,
+                    width: cw,
+                    height: ch,
+                    hot,
+                    ..Cursor::default()
+                });
+            }
+            return Ok(());
         };
-        if let Some(o) = self.output_mut(id) {
-            o.cursor = Some(Cursor {
-                dumb,
-                fb,
-                width: cw,
-                height: ch,
-                hot,
-                ..Cursor::default()
-            });
+        // The plane shows the held buffer: the new image goes into the
+        // spare, made the first time, and the two swap places. Otherwise
+        // the held buffer is not on screen and takes the new image itself.
+        let (target, swap) = match (shown == Some(held.fb), held.spare) {
+            (false, _) => ((held.dumb, held.fb), false),
+            (true, Some(spare)) => (spare, true),
+            (true, None) => match cursor_buffer(&self.card, cw, ch) {
+                Ok(made) => (made, true),
+                Err(e) => {
+                    self.destroy_cursor(id);
+                    return Err(e);
+                }
+            },
+        };
+        if let Err(e) = paint_cursor(&self.card, &target.0, &image) {
+            if swap && held.spare.is_none() {
+                let _ = self.card.rm_fb(target.1);
+                let _ = self.card.destroy_dumb(target.0.handle);
+            }
+            self.destroy_cursor(id);
+            return Err(e);
+        }
+        if let Some(c) = self.output_mut(id).and_then(|o| o.cursor.as_mut()) {
+            if swap {
+                c.spare = Some((c.dumb, c.fb));
+                (c.dumb, c.fb) = target;
+            }
+            c.hot = hot;
+            c.visible = false;
         }
         Ok(())
     }
@@ -3549,10 +3577,53 @@ fn drop_cursor<K: Kms, M>(card: &K, o: &mut Output<M>) {
     if let Some(c) = o.cursor.take()
         && !card.removed()
     {
-        let _ = card.rm_fb(c.fb);
-        let _ = card.destroy_dumb(c.dumb.handle);
+        for (dumb, fb) in std::iter::once((c.dumb, c.fb)).chain(c.spare) {
+            let _ = card.rm_fb(fb);
+            let _ = card.destroy_dumb(dumb.handle);
+        }
     }
     o.cursor_set = None;
+}
+
+/// A pointer image for the cursor plane: ARGB8888 rows of `width`.
+struct CursorImage<'a> {
+    pixels: &'a [u32],
+    width: u32,
+    height: u32,
+}
+
+/// Makes a buffer for a cursor plane of `width` × `height`, and its
+/// framebuffer.
+fn cursor_buffer<K: Kms>(card: &K, width: u32, height: u32) -> io::Result<(Dumb, u32)> {
+    let dumb = card.create_dumb(width, height)?;
+    match card.add_fb(dumb.handle, dumb.pitch, width, height, ARGB8888) {
+        Ok(fb) => Ok((dumb, fb)),
+        Err(e) => {
+            let _ = card.destroy_dumb(dumb.handle);
+            Err(e)
+        }
+    }
+}
+
+/// Writes `image` into the cursor buffer `dumb` from its corner, and
+/// clears the rest of the buffer, which may hold an earlier image.
+fn paint_cursor<K: Kms>(card: &K, dumb: &Dumb, image: &CursorImage<'_>) -> io::Result<()> {
+    let mut map = card.map_dumb(dumb)?;
+    let dst = map.as_mut();
+    dst.fill(0);
+    let pitch = usize::try_from(dumb.pitch).unwrap_or(0);
+    let cols = usize::try_from(image.width).unwrap_or(0);
+    for y in 0..usize::try_from(image.height).unwrap_or(0) {
+        let src = image
+            .pixels
+            .get(y.saturating_mul(cols)..)
+            .unwrap_or_default();
+        let row = dst.get_mut(y.saturating_mul(pitch)..).unwrap_or_default();
+        for (px, out) in src.iter().take(cols).zip(row.as_chunks_mut::<4>().0) {
+            *out = px.to_ne_bytes();
+        }
+    }
+    Ok(())
 }
 
 /// How a modeset failed: the card refused it, as an atomic modeset's
