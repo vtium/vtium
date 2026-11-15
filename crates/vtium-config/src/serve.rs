@@ -2806,8 +2806,9 @@ impl Engine {
         let passes = passes.flat_map(|pass| [true, false].map(|fitted| (pass, fitted)));
         // what a double ask leaves to the console, which doubles the pixels
         // of its glyph at the normal size: the codepoints a bitmap source
-        // draws; and on a line of double width, the codepoints a color
-        // glyph draws, which `squashed` holds and which are drawn again
+        // draws; and on a line of double width, the codepoints the
+        // rasteriser leaves out because a color glyph draws them
+        // ([`Outline::color`]), which `squashed` holds and which are drawn
         // below from a line of double height
         let mut left_out: BTreeSet<u32> = BTreeSet::new();
         let mut squashed: BTreeSet<u32> = BTreeSet::new();
@@ -3092,6 +3093,14 @@ impl Engine {
                             continue;
                         }
                     };
+                    // the color glyphs a line of double width leaves out,
+                    // which it draws below from a line of double height
+                    for &c in &outline.color {
+                        if !mapped.contains(&c) && left.binary_search(&c).is_ok() {
+                            left_out.insert(c);
+                            squashed.insert(c);
+                        }
+                    }
                     let Some(s) = outline.strikes.first() else {
                         continue;
                     };
@@ -3111,11 +3120,6 @@ impl Engine {
                             || left.binary_search(&c).is_err()
                             || (color_only && !glyph.color)
                         {
-                            continue;
-                        }
-                        if glyph.color && wide_line {
-                            left_out.insert(c);
-                            squashed.insert(c);
                             continue;
                         }
                         // a character that presents as text by default
@@ -4923,6 +4927,50 @@ mod tests {
         };
         assert_eq!(sets(Some(Doubled::Width)), 2, "one glyph a frame");
         assert_eq!(sets(None), 1, "both glyphs in one frame");
+    }
+
+    // issue #61: a line of double width draws each color glyph once, at
+    // double height, and halves it. The rasteriser stretches each outline
+    // sideways for the line, which a color glyph cannot take, so it leaves
+    // the color glyph out and names it rather than drawing it for nothing.
+    // The rasteriser draws a color glyph again, smaller, until it fits its
+    // cells, so the test compares counts: the line of double width draws
+    // Test Mono's COLR U+1F600 exactly as often as a pair of double-height
+    // lines does
+    #[test]
+    fn a_double_width_ask_draws_each_color_glyph_once() {
+        let dir = scratch("doubled-wide-color-once");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let engine = Engine::load(
+            &frit(&format!("source=outline:{}\n", path.display())),
+            &Paths::default(),
+            None,
+        )
+        .unwrap();
+        let drawn = |doubled| {
+            let draws = || crate::outline::raster::COLOR_DRAWS.with(core::cell::Cell::get);
+            let before = draws();
+            let set = engine
+                .glyphs(
+                    CELL,
+                    Band::NONE,
+                    (REGULAR.into(), doubled),
+                    &[0x1f600],
+                    (&[], false),
+                    &mut BTreeMap::new(),
+                )
+                .unwrap();
+            assert!(set.is_some(), "the emoji is answered at {doubled:?}");
+            draws() - before
+        };
+        let tall = drawn(Some(Doubled::Height));
+        assert!(tall >= 1, "drawn at double height");
+        assert_eq!(
+            drawn(Some(Doubled::Width)),
+            tall,
+            "on a line of double width"
+        );
     }
 
     /// A cell query for `frit`: at no cell, naming nothing.
