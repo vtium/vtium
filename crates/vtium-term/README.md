@@ -311,6 +311,21 @@ A black-box run of xterm 411 printed the same screen and cursor as vtium for eve
 
 The renderer draws a double-size line at its size, and the pointer's columns on such a line are the screen's for now (vtium/vtium#61).
 
+### Sized text (OSC 66)
+
+`OSC 66 ; metadata ; text` writes text at a larger size, as kitty's text sizing protocol defines it. vtium-term stores the block of cells that one sequence writes as a sized run. Each line the run covers holds its share of the run in a run table. The first cell of each row holds the run's text, and every cell of the run carries a mark. Every edit treats a run as one unit: an edit that would move, clear or overwrite only part of a run erases the whole run first. An edit that moves all of a run's cells together moves the run. The renderer does not draw a run at its size yet. Spec: kitty's text sizing protocol, read with ADR-1308 D2 to D7. Tests: `src/terminal/text_size.rs`, `tests/sized_runs.rs`, `tests/memory.rs`, and the ten tier 1 cases whose names start with `osc66-`.
+
+- **A value out of its range discards the whole sequence.** vtium ignores a key it does not know. A known key whose value is not a whole number in its range discards the sequence, text included. So does a d that is not 0 with n not below it.
+- **The text loses its control characters.** Text over 4096 bytes discards the sequence. An empty text with w set writes a blank run.
+- **A run that would pass the bottom margin scrolls the region up first,** and the cursor moves up with the text. A run taller than the scrolling region is discarded. The protocol does not say what happens near the bottom, and this is vtium's reading.
+- **Text written onto a run's lower row moves the cursor past the run's cells on that row first,** as the protocol's fourth overwriting rule says. Where the run reaches the right margin, the text goes to the next line with autowrap set, and nowhere with autowrap reset.
+- **On a double-size line, OSC 66 takes only its width.** vtium writes the text one row high, at the width w gives, or as printed text when w is 0. It does the same when a lower row of the run would lie on a double-size line.
+- **REP after a run repeats nothing,** since a run is not the graphic character REP repeats.
+- **The rectangle edits erase each run they touch, on every row of it.** DECCRA copies a run only when the source holds the whole run and the target holds the whole copy. The cells of a run it does not copy arrive as empty cells. DECCARA and DECRARA change the style of a run's cells and keep the run.
+- **A resize erases each run that the screen's new last row cuts,** on both screens. That includes the rows a shorter screen keeps below its last row, so a screen that grows again shows no part of the run.
+- **A run's text keeps whole grapheme clusters** within the cluster bytes its line has left, and every row of the run keeps the same text. When not even the first cluster fits, the run keeps the first codepoints of that cluster that fit, as printed text does.
+- **vtium ignores `CSI 22 J`,** which kitty documents as copying the screen into the scrollback, as ADR-1000's row `ctl.kitty-clear` decides.
+
 ### Change tracking and the frame
 
 - **A region scroll marks only its rows.** Scrolling inside margins, IL and DL mark the rows that moved. They leave the rows outside the margins unchanged. No specification covers change tracking. The reason for this rule is that a renderer redraws what is marked. A one-row scroll in a status pane should not redraw the whole screen. Tests: `a_region_scroll_marks_only_the_region` (`Damage`'s rule, and the screen's), and the property test `a_frames_changed_set_covers_every_cell_that_differs`. A planted skip turns that property test red.

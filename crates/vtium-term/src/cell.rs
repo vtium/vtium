@@ -165,6 +165,12 @@ impl Cell {
         Self { content, ..self }
     }
 
+    /// The cell with the style at `style` of its line's style table, and
+    /// everything else as it is.
+    pub(crate) fn with_style(self, style: StyleIndex) -> Self {
+        Self { style, ..self }
+    }
+
     /// Whether the cell is [`Cell::BLANK`]. Trailing blank cells are what
     /// a line drops when it is trimmed.
     pub fn is_blank(self) -> bool {

@@ -792,7 +792,10 @@ impl Screen {
     /// keeping the cursor's line on the screen; with nothing in the
     /// scrollback, or on the alternate screen, it scrolls only as far as
     /// the cursor needs. A taller main screen pulls lines back from the
-    /// scrollback. A host resizes through
+    /// scrollback. Last, each sized run that the screen's new last row
+    /// cuts is erased, on both screens: a shorter screen, or a rewrap that
+    /// moved lines down, can leave part of a run below the screen. A host
+    /// resizes through
     /// [`Terminal::resize`](crate::Terminal::resize), which carries the
     /// saved cursor and reports the resize to a program that set mode
     /// 2048.
@@ -841,6 +844,13 @@ impl Screen {
             if diff > 0 {
                 self.rows = rows;
                 self.bottom = rows.saturating_sub(1);
+                // The rows that come back from the scrollback push the
+                // screen's lines down, and the lines that would come into
+                // view at the bottom go instead: a run with a row on those
+                // lines goes whole first, its rows below them included.
+                for y in rows.saturating_sub(diff)..rows {
+                    self.erase_runs_in(y, 0..cols);
+                }
                 self.rotate_down(diff);
                 self.pull_from_scrollback(diff);
                 self.move_cursor(self.cursor_x, self.cursor_y.saturating_add(diff));
@@ -848,6 +858,7 @@ impl Screen {
         }
         self.rows = rows;
         self.bottom = rows.saturating_sub(1);
+        self.erase_runs_past(rows);
         if self.cursor_y >= rows {
             self.move_cursor(self.cursor_x, rows.saturating_sub(1));
         }

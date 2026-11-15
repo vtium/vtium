@@ -93,6 +93,17 @@ pub enum Erase {
     Unprotected,
 }
 
+/// Whether `line`, row `row` of a screen, holds the share of the sized run
+/// whose share on row `y` is `run`: the row of that run that lies as far
+/// below or above row `y`.
+fn holds_share(line: &Line, run: SizedRun, y: usize, row: usize) -> bool {
+    line.run_at(run.col()).is_some_and(|r| {
+        r.span() == run.span()
+            && r.size() == run.size()
+            && r.row().saturating_add(y) == run.row().saturating_add(row)
+    })
+}
+
 impl Screen {
     /// A wide character whose halves lie on both sides of the boundary
     /// before cell `x` of row `y` goes whole: an edit on one side would
@@ -142,7 +153,7 @@ impl Screen {
 
     /// Whether any row of `top..=bottom` holds a share of a sized run.
     #[inline]
-    fn rows_have_runs(&self, top: usize, bottom: usize) -> bool {
+    pub(super) fn rows_have_runs(&self, top: usize, bottom: usize) -> bool {
         self.sized_runs && (top..=bottom).any(|y| self.row_has_runs(y))
     }
 
@@ -168,21 +179,64 @@ impl Screen {
 
     /// Erases the whole sized run whose share on row `y` is `run`: every
     /// one of its cells, on every row of it the screen holds, becomes an
-    /// empty cell of the blank style.
+    /// empty cell of the blank style. That includes the rows the screen
+    /// keeps below its last row after it became shorter, so that no part
+    /// of the run comes back when it grows again.
     pub(super) fn erase_run(&mut self, y: usize, run: SizedRun) {
-        for row in self.run_rows(y, run) {
-            // The share on `row` belongs to the same run when it is the row
-            // of the run that lies that far below or above row `y`.
-            let same = self
-                .line(row)
-                .and_then(|l| l.run_at(run.col()))
-                .filter(|r| {
-                    r.span() == run.span()
-                        && r.size() == run.size()
-                        && r.row().saturating_add(y) == run.row().saturating_add(row)
-                });
-            if same.is_some() {
-                self.erase_cells(row, run.span());
+        let top = y.saturating_sub(run.row());
+        let end = y.saturating_add(run.rows().saturating_sub(run.row()));
+        for row in top..end {
+            if row < self.rows {
+                if self.line(row).is_some_and(|l| holds_share(l, run, y, row)) {
+                    self.erase_cells(row, run.span());
+                }
+            } else {
+                let blank = self.blank_style();
+                if let Some(line) = self.active_mut().get_mut(row)
+                    && holds_share(line, run, y, row)
+                {
+                    line.erase(run.span(), &blank);
+                }
+            }
+        }
+    }
+
+    /// After a resize to `rows` rows, erases each sized run that the
+    /// screen's last row cuts, on both screens: each run with a row on the
+    /// screen and a row at or below row `rows`. Each run's rows that the
+    /// screen keeps below its last row are erased as well, so a screen
+    /// that grows again brings back no part of the run. A run wholly below
+    /// the screen stays whole, and rows of a run in the scrollback stay as
+    /// they are.
+    ///
+    /// References:
+    /// - ADR-1308 D6: a resize that makes the screen too short for a run
+    ///   erases the run.
+    /// - ADR-1308 D4: rows in the scrollback stay as they are.
+    pub(super) fn erase_runs_past(&mut self, rows: usize) {
+        if !self.sized_runs {
+            return;
+        }
+        let blank = self.blank_style();
+        for lines in [&mut self.main, &mut self.alt] {
+            let mut cut = Vec::new();
+            for (y, line) in lines.iter().enumerate().take(rows) {
+                for &run in line.runs() {
+                    let below = run.rows().saturating_sub(1).saturating_sub(run.row());
+                    if y.saturating_add(below) >= rows {
+                        cut.push((y, run));
+                    }
+                }
+            }
+            for (y, run) in cut {
+                let below = run.rows().saturating_sub(run.row());
+                for row in y.saturating_sub(run.row())..y.saturating_add(below) {
+                    if let Some(line) = lines.get_mut(row)
+                        && holds_share(line, run, y, row)
+                    {
+                        line.erase(run.span(), &blank);
+                    }
+                }
             }
         }
     }
@@ -421,8 +475,10 @@ impl Screen {
         for (screen, lines) in [(false, &mut self.main), (true, &mut self.alt)] {
             for (y, line) in lines.iter_mut().enumerate() {
                 if line.flags().size().is_double() {
-                    // A run on a double-size line is one row high, so
-                    // erasing this line's share erases it whole.
+                    // A run on a double-size line is one row high, since
+                    // vtium writes OSC 66 one row high on any row of
+                    // double size and erases the runs on a line whose size
+                    // changes. Erasing this line's share erases it whole.
                     for run in line.runs().to_vec() {
                         line.erase(run.span(), &Style::DEFAULT);
                     }

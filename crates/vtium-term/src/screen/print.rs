@@ -70,9 +70,9 @@
 use core::ops::Range;
 
 use super::{Screen, Segment, WidthMethod};
-use crate::bounds::{CLUSTER_BYTES_PER_CELL, CLUSTER_MAX};
+use crate::bounds::CLUSTER_BYTES_PER_CELL;
 use crate::cell::Width;
-use crate::line::{Glyph, LinkId, SizedRun, TextSize};
+use crate::line::{Glyph, LinkId, SizedRun, TextSize, run_fit, whole_clusters};
 use crate::style::Style;
 use crate::unicode::{self, Segmenter};
 
@@ -572,7 +572,9 @@ impl Screen {
     }
 
     /// Writes one sized run of `text`, `cols` columns wide and the scale's
-    /// rows high, at the cursor, and moves the cursor past it.
+    /// rows high, at the cursor, and moves the cursor past it. When a row
+    /// the run would lie on is double size, vtium writes the text one row
+    /// high instead, as OSC 66 writes on a double-size line.
     fn write_run(&mut self, text: &str, cols: usize, size: TextSize) {
         let rows = usize::from(size.scale.max(1));
         if cols == 0 || cols > self.line_cols(self.cursor_y) || rows > self.rows {
@@ -612,6 +614,10 @@ impl Screen {
         if x.saturating_add(cols) > self.line_cols(y) {
             return;
         }
+        if rows > 1 && !self.run_rows_single_size(y, rows) {
+            self.write_run_flat(text, cols.checked_div(rows).unwrap_or(cols), size);
+            return;
+        }
         // The run's last row lies on or above the bottom margin: the region
         // scrolls up first, and the cursor moves up with the text. Below
         // the region the run must fit above the screen's last row.
@@ -633,16 +639,28 @@ impl Screen {
         if x == 0 {
             self.carry_paragraph(y);
         }
-        let kept = run_text(text, cols);
-        let glyph = glyph_of(kept);
         let (pen, link) = (self.pen, self.link);
         let end = x.saturating_add(cols);
+        // Every row is cleared before any is written, so no erase of an old
+        // run takes a share of the new one.
         for r in 0..rows {
             let row = y.saturating_add(r);
             self.erase_runs_in(row, x..end);
             self.split_wide(row, x);
             self.split_wide(row, end);
             self.images_cut(row, x, end.saturating_sub(1));
+        }
+        // Every row holds the same text: what the line with the least room
+        // keeps.
+        let room = (y..y.saturating_add(rows))
+            .filter_map(|row| self.line(row).map(|l| l.run_room(x..end)))
+            .min()
+            .unwrap_or(0);
+        let own = cols.saturating_mul(CLUSTER_BYTES_PER_CELL);
+        let kept = run_fit(whole_clusters(text, own), room);
+        let glyph = glyph_of(kept);
+        for r in 0..rows {
+            let row = y.saturating_add(r);
             if let Some(line) = self.line_mut(row) {
                 line.put_run(SizedRun::new(x, cols, r, size), glyph, &pen, link);
             }
@@ -652,6 +670,39 @@ impl Screen {
         self.advance(x, end, y);
         if let Some(state) = last_cluster_state(kept) {
             self.set_segment(x, y, state);
+        }
+    }
+
+    /// Whether every row that a run `rows` high, written at row `y`, lies on
+    /// is single size. Inside the scrolling region, the rows past its
+    /// bottom margin are the new single-size lines that the region scrolls
+    /// in for the run.
+    fn run_rows_single_size(&self, y: usize, rows: usize) -> bool {
+        let mut last = y.saturating_add(rows).saturating_sub(1);
+        if y >= self.top && y <= self.bottom {
+            last = last.min(self.bottom);
+        }
+        (y..=last).all(|row| self.line(row).is_none_or(|l| !l.flags().size().is_double()))
+    }
+
+    /// Writes `text` as OSC 66 writes it on a double-size line: as a run of
+    /// scale 1 `width` columns wide when the program set the width, and as
+    /// printed text when it did not. The other keys size nothing there.
+    ///
+    /// References:
+    /// - ADR-1308 D7: a block of several rows across lines of different
+    ///   sizes has no meaning, so vtium writes it one row high.
+    fn write_run_flat(&mut self, text: &str, width: usize, size: TextSize) {
+        let flat = TextSize {
+            width: size.width,
+            ..TextSize::NORMAL
+        };
+        if flat.is_normal() {
+            for c in text.chars() {
+                self.print(c);
+            }
+        } else {
+            self.write_run(text, width, flat);
         }
     }
 
@@ -673,10 +724,17 @@ impl Screen {
             return;
         };
         text.push(c);
-        if run_text(&text, run.cols()).len() < text.len() {
+        let top = y.saturating_sub(run.row());
+        // Every row must hold the longer text whole, so all rows keep the
+        // same text.
+        let room = (top..top.saturating_add(run.rows()))
+            .filter_map(|row| self.line(row).map(|l| l.run_room(run.span())))
+            .min()
+            .unwrap_or(0);
+        let own = run.cols().saturating_mul(CLUSTER_BYTES_PER_CELL);
+        if run_fit(whole_clusters(&text, own), room).len() < text.len() {
             return;
         }
-        let top = y.saturating_sub(run.row());
         for r in 0..run.rows() {
             let row = top.saturating_add(r);
             let same = self
@@ -769,39 +827,6 @@ impl Screen {
     }
 }
 
-/// What a sized run `cols` columns wide keeps of `text`: as many whole
-/// grapheme clusters, from the first, as keep within the row's cluster
-/// budget and one cluster's codepoints, and at least the first cluster.
-///
-/// References:
-/// - ADR-1308 D3, "The text's bound".
-fn run_text(text: &str, cols: usize) -> &str {
-    let budget = cols.saturating_mul(CLUSTER_BYTES_PER_CELL);
-    // A line stores a cluster as a length byte and its bytes.
-    let fits = |bytes: usize, codepoints: usize| {
-        bytes.saturating_add(1) <= budget && codepoints <= CLUSTER_MAX
-    };
-    let mut state: Option<Segmenter> = None;
-    let (mut kept, mut codepoints) = (0usize, 0usize);
-    for (i, c) in text.char_indices() {
-        if !state.as_mut().is_some_and(|s| s.continues(c)) {
-            // A cluster ends at `i`: the first one stays whatever its size.
-            if i > 0 {
-                if kept > 0 && !fits(i, codepoints) {
-                    return text.get(..kept).unwrap_or(text);
-                }
-                kept = i;
-            }
-            state = Some(Segmenter::start(c));
-        }
-        codepoints = codepoints.saturating_add(1);
-    }
-    if kept > 0 && !fits(text.len(), codepoints) {
-        return text.get(..kept).unwrap_or(text);
-    }
-    text
-}
-
 /// The segmentation state after the last grapheme cluster of `text`, for
 /// a codepoint printed after it to join, or `None` for empty text.
 fn last_cluster_state(text: &str) -> Option<Segmenter> {
@@ -815,7 +840,7 @@ fn last_cluster_state(text: &str) -> Option<Segmenter> {
 }
 
 /// The glyph of a cell's text: one codepoint, or a cluster.
-fn glyph_of(text: &str) -> Glyph<'_> {
+pub(super) fn glyph_of(text: &str) -> Glyph<'_> {
     let mut chars = text.chars();
     match (chars.next(), chars.next()) {
         (None, _) => Glyph::Empty,
