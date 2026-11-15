@@ -527,7 +527,7 @@ conformance-issues: ## Check ADR-1000's issue column and the capability list aga
 .PHONY: test-tools
 # shellcheck gates at warning: its info notes differ between versions, and
 # the scripts' `A && B || die` is deliberate.
-test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check and the vendor archive's manifest without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
+test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, the tier 1 pictures tool's selection, naming, manifest and match check and its live path's parity with the pictures in a pty, the fuzz runner, the gate runner, the fork-refs check, the prose check, the docs' claims check, the sysroot fetch, the stage check, the vendor archive's manifest and the Cullet Mono build's checks without a VT, sudo, logind, a VM or nightly (shellcheck when installed), the set writer without its deflate, the key table's crates built as a package names HWACCEL and DISPLAY_BUFFERS, that the console leaves the deflate out, and that make gates runs AGENTS.md's gate line
 	python3 -I tools/vt/tests/test_vt.py
 	python3 -I tools/vt/tests/test_accept.py
 	python3 -I tools/vt/tests/test_typepad.py
@@ -547,6 +547,7 @@ test-tools: ## Test the VT review tools, the tier 3 harness, the gallery tool, t
 	cargo test -q -p vtium-font --test set
 	cargo test -q -p vtium-tier1-shots --features draw
 	cargo test -q -p vtium-site
+	cargo test -q --manifest-path tools/cullet-mono/Cargo.toml --target-dir $(or $(CARGO_TARGET_DIR),target)/cullet-mono-tool
 	$(TEST_BUILD_SETTINGS)
 	@if cargo tree -p vtium --target $(X86_TARGET) -e no-dev,features -i vtium-font | grep -q 'feature "deflate"'; then echo "the console enables vtium-font's deflate feature, which only vtium-config takes (ADR-1200 D19)" >&2; exit 1; else echo "the console links no deflate"; fi
 	@$(check-gate-line)
