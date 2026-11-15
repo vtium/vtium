@@ -617,6 +617,8 @@ $(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
+# CONF is make vt-login's and make vt-shell's.
+$(VT_GOALS): export VTIUM_VT_CONF =
 # RENDER_PATH is make vt-accept's; the others run vtium as DEMO_ARGS says.
 $(VT_GOALS): export VTIUM_VT_RENDER_PATH =
 
@@ -629,12 +631,14 @@ vt-accept: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run the acceptanc
 
 .PHONY: vt-login
 vt-login: export VTIUM_VT_SESSION = login
-vt-login: $(vt_build) $(vt_helper_build) ## Run vtium with a login prompt on the development VT or a free VT, until the first logout (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-login: export VTIUM_VT_CONF = $(value CONF)
+vt-login: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run vtium with a login prompt on the development VT or a free VT, until the first logout, with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named (VT=N, CONF=PATH, FEATURES='...', DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 .PHONY: vt-shell
 vt-shell: export VTIUM_VT_SESSION = shell
-vt-shell: $(vt_build) $(vt_helper_build) ## Run your login shell, as you, in vtium on the development VT or a free VT; exit it to end the run (VT=N, DEMO_ARGS='...', VT_DEBUG=1)
+vt-shell: export VTIUM_VT_CONF = $(value CONF)
+vt-shell: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run your login shell, as you, in vtium on the development VT or a free VT; exit it to end the run; with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named (VT=N, CONF=PATH, FEATURES='...', DEMO_ARGS='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # Without GUIDE it fails before the build, naming the guides.
@@ -647,7 +651,7 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) ## Run a guide's checks on the development VT or a free VT; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', VT_DEBUG=1)
+vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', FEATURES='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,

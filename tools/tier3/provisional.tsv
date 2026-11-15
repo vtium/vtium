@@ -2,4 +2,3 @@
 # golden under goldens/, and why. A case compared with a provisional golden
 # is drawn and compared, and its difference is noted but does not fail the
 # run; the row goes when the operator accepts the golden.
-images-login-640x480/login-image	new with the login picture (ADR-1100 D17), captured at 1ae5b4dd; not yet reviewed

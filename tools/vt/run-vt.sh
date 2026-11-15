@@ -10,7 +10,7 @@
 #
 #   sudo tools/vt/run-vt.sh --bin=PATH [--helper=PATH] [--image=PATH] [--dry-run] [--label=TEXT] [--features=TEXT]
 #        [--render-path=gpu|cpu] [--pages=LIST] [--passes=DIR] [--debug=DIR] [--login |
-#        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [N] [-- vtium-option...]
+#        --guide=FILE [--steps=LIST] | --shell [--transcript=FILE]] [--config=FILE] [N] [-- vtium-option...]
 #
 # --bin names the vtium binary, which runs as root: a regular file owned by
 # root or the invoking user, writable by nobody else. N is the VT, 2-12,
@@ -69,7 +69,10 @@
 # --configdir naming that directory. vtium reads a vtium.conf only when root
 # owns it and no one else can write it or a directory above it (ADR-1403
 # D3), which a file in the checkout never is, so the run reads the copy and
-# never the system's /etc/vtium/vtium.conf.
+# never the system's /etc/vtium/vtium.conf. With --login or --shell,
+# --config=FILE names a vtium.conf that takes the place of the review's for
+# this run, under the same rules, such as config/login-picture.conf, which
+# names a login picture.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -116,6 +119,7 @@ steps=
 shell=
 transcript=
 debug=
+config=
 while [ $# -gt 0 ]; do
 	case $1 in
 	--dry-run) dry=1 ;;
@@ -133,6 +137,7 @@ while [ $# -gt 0 ]; do
 	--shell) shell=1 ;;
 	--transcript=*) transcript=${1#*=}; [ -n "$transcript" ] || die "--transcript needs the file's path" ;;
 	--debug=*) debug=${1#*=}; [ -n "$debug" ] || die "--debug needs the directory the DRM state goes in" ;;
+	--config=*) config=${1#*=}; [ -n "$config" ] || die "--config needs the vtium.conf's path" ;;
 	-h | --help) usage ;;
 	--) shift; extra=("$@"); break ;;
 	[0-9]*) [ -z "$vt" ] || usage; vt=$1 ;;
@@ -290,6 +295,9 @@ esac
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
 [ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
 [ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
+[ -z "$config" ] || [ -n "$login$shell" ] || die "--config goes with --login or --shell"
+# Absolute, and not resolved: a symlink is refused below.
+[ -z "$config" ] || [[ $config == /* ]] || config=$PWD/$config
 if [ -n "$guide" ]; then
 	# The guide is read by the session, as the user, from this absolute path.
 	guide=$(readlink -m -- "$guide")
@@ -476,8 +484,9 @@ for f in "$system_frits"/*.vtfrit "$here"/sections/frits/*.vtfrit; do
 done
 # The review's vtium.conf, which root copies into a directory of root's for
 # vtium to read, is held to the frits' rules: a regular file of root's or the
-# user's with one link, writable by no one else.
-config_src=$here/config/vtium.conf
+# user's with one link, writable by no one else. The file --config names
+# takes its place.
+config_src=${config:-$here/config/vtium.conf}
 [ ! -L "$config_src" ] || die "$config_src is a symlink; the run copies only the file it checked"
 [ -f "$config_src" ] || die "no $config_src, the configuration the review's vtium reads"
 fetch "$config_src" || die "$user cannot read $config_src"
@@ -727,6 +736,9 @@ else
      q quits the acceptance pass, and the next run resumes the pass"
 fi
 users_shell="$user's shell"
+config_note=
+[ -z "$config" ] || config_note="
+  vtium reads $config in place of the review's configuration"
 term_note=
 [ ${#term_opt[@]} -eq 0 ] ||
 	term_note="  The system has no xterm-vtium terminfo entry, which /bin/login's session
@@ -735,7 +747,7 @@ term_note=
 "
 cat <<EOF
 
-vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}
+vtium $label on VT $vt${login:+, with a login prompt}${guide:+, with guided checks}${shell:+, with $users_shell}$config_note
   1. switch with Ctrl-Alt-F$vt
   2. $what
   $last. $after;

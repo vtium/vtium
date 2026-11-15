@@ -2245,13 +2245,13 @@ pub const LOGIN_IMAGE: Key = Key {
 pub const LOGIN_IMAGE_FIT: Key = Key {
     name: "login-image-fit",
     short: None,
-    kind: Kind::Choice(&["cover", "contain", "stretch", "none", "banner"]),
-    default: Default::Text("cover"),
+    kind: Kind::Choice(&["contain", "cover", "stretch", "none", "banner"]),
+    default: Default::Text("contain"),
     scope: Scope::Anywhere,
     levels: TOP_LOOK,
     reader: "vtium",
-    what: "How the login picture fits: `cover`, `contain`, `stretch`, `none` or `banner`.\n\n\
-           [docs] `cover` scales the background until it covers the display, keeping its shape, and cuts off what passes the edges. `contain` scales it until it fits inside the display, and the default background shows in the bands left over. `stretch` fills the display exactly. `none` shows the background at its own size, centered.\n\n\
+    what: "The login picture's fit: `contain`, `cover`, `stretch`, `none` or `banner`.\n\n\
+           [docs] `contain`, the default, scales the background until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `cover` scales it until it covers the display, keeping its shape, and cuts off what passes the edges. `stretch` fills the display exactly. `none` shows the background at its own size, centered.\n\n\
            [docs] `banner` shows the picture at the top of the screen, like a message of the day, and the login prompt starts on the row below it.\n\n\
            [docs] A background shows through every character cell whose background is the default color. Text, colored cells and every picture a program sends cover it.",
     cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image-fit`",

@@ -1083,6 +1083,49 @@ class RunVt(Case):
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
         self.assertFalse(os.path.exists(stage))
 
+    def test_a_login_or_shell_run_reads_the_config_it_is_given(self):
+        # --config names a vtium.conf, such as config/login-picture.conf, in
+        # place of the review's for a login or a shell run, copied as the
+        # review's is. A run without it keeps the review's.
+        review = os.path.join(VT, "config", "vtium.conf")
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        conf = os.path.join(self.s.tmp, "t.conf")
+        write(conf, "login-image=/usr/share/pixmaps/t.png\n", 0o644)
+        for session in ("--login", "--shell"):
+            with self.subTest(session=session):
+                p = self.run_vt(session, f"--config={conf}", "--dry-run", "8")
+                self.assertEqual(p.returncode, 0, p.stderr)
+                self.assertIn(f"+ install -m 0644 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+                self.assertIn(f"vtium reads {conf} in place of the review's configuration", p.stdout)
+        # A relative path is taken from the working directory.
+        p = self.run_vt("--login", "--config=t.conf", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+        p = self.run_vt("--login", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {review} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertNotIn("in place of the review's configuration", p.stdout)
+        # A real run: the copy holds the given file, mode 0644.
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt("--shell", f"--config={conf}", "8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        copy = os.path.join(seen, "config", "vtium.conf")
+        self.assertEqual(read(copy), read(conf))
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        # The acceptance pass and a guide keep the review's file.
+        guide = os.path.join(VT, "checks", "start.guide")
+        for opts in ([], [f"--guide={guide}"]):
+            with self.subTest(opts=opts):
+                self.refused(self.run_vt(*opts, f"--config={conf}", "--dry-run", "8"), "--config goes with --login or --shell")
+        # The given file is held to the review file's rules, a symlink
+        # included.
+        os.chmod(conf, 0o664)
+        self.refused(self.run_vt("--login", f"--config={conf}", "--dry-run", "8"), "is writable by group or others")
+        os.remove(conf)
+        os.symlink(review, conf)
+        self.refused(self.run_vt("--login", f"--config={conf}", "--dry-run", "8"), "t.conf is a symlink")
+
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
             with self.subTest(mode=oct(mode)):
@@ -1615,13 +1658,25 @@ class VtSh(Case):
                 self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE=bad), "is refused (above)")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="start", VTIUM_VT_STEPS="3"),
                      "is refused (above)")
-        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords clipboard daily double-size editor insert login pointer restart script start token vt wave-a window")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="guide", VTIUM_VT_GUIDE="nonesuch"), "the guides in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window")
         self.refused(self.vt_sh(VTIUM_VT_SESSION="guide"), "GUIDE=NAME names the guide")
         self.assertEqual(self.s.calls_of("sudo"), [])
         self.assertEqual(self.s.changes(), [])
 
     def test_a_guide_is_make_vt_checks(self):
         self.refused(self.vt_sh(VTIUM_VT_GUIDE="start"), "go with make vt-check")
+
+    def test_conf_goes_with_a_login_or_a_shell_and_must_exist(self):
+        conf = os.path.join(self.s.tmp, "t.conf")
+        write(conf, "login-image=/usr/share/pixmaps/t.png\n", 0o644)
+        for session in ("accept", "guide"):
+            with self.subTest(session=session):
+                self.refused(self.vt_sh(VTIUM_VT_SESSION=session, VTIUM_VT_GUIDE="start" if session == "guide" else "",
+                                        VTIUM_VT_CONF=conf), "CONF goes with make vt-login and make vt-shell")
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF=conf + "-missing"), "CONF=" + conf + "-missing: no file")
+        p = self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="t.conf", VTIUM_VT_DRY_RUN="1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn(f" --config={conf} ", p.stdout)
 
     def test_the_log_directory_must_be_the_users_own(self):
         os.symlink(self.s.tmp, self.s.dir)
@@ -1904,7 +1959,7 @@ class Make(Case):
     def test_vt_check_without_a_guide_fails_before_the_build(self):
         p = self.make("vt-check")
         self.assertNotEqual(p.returncode, 0)
-        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords clipboard daily double-size editor insert login pointer restart script start token vt wave-a window.", p.stderr)
+        self.assertIn("vt-check: GUIDE=NAME, a guide in tools/vt/checks: blank blink chords clipboard daily double-size editor insert pointer restart script start token vt wave-a window.", p.stderr)
         self.assertNotIn("cargo", p.stdout)
 
     def test_vt_debug_reaches_every_vt_target(self):
@@ -1918,6 +1973,21 @@ class Make(Case):
         self.assertIn(" --debug=" + self.s.dir, p.stdout)
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertNotIn("--debug", p.stdout)
+
+    def test_conf_reaches_only_vt_login_and_vt_shell(self):
+        # CONF names the run's vtium.conf; CONF or VTIUM_VT_CONF exported in
+        # the shell does not reach the other targets.
+        conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
+        for target in ("vt-login", "vt-shell"):
+            with self.subTest(target=target):
+                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", "CONF=tools/vt/config/login-picture.conf")
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertIn(f" --config={conf} ", p.stdout)
+        for target, extra in (("vt-accept", ()), ("vt-check", ("GUIDE=start",))):
+            with self.subTest(target=target):
+                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", *extra, CONF=conf, VTIUM_VT_CONF=conf)
+                self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+                self.assertNotIn(" --config=", p.stdout)
 
     def test_a_guide_reaches_only_vt_check(self):
         # One exported in the shell does not turn vt-accept into a guided run.
@@ -1950,7 +2020,9 @@ class Make(Case):
                               "FEATURES=images", "HWACCEL=on", "DISPLAY_BUFFERS=2")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 calls = self.s.calls_of("cargo")
-                want = builds if target == "vt-accept" else builds - {"build --release -p vtium-image-helper"}
+                # With pictures, every review target builds the image helper:
+                # vtium places the login picture in each session it starts.
+                want = builds
                 self.assertEqual({c for c in want if any(f" {c} " in f" {call} " for call in calls)}, want, calls)
                 for call in calls:
                     self.assertTrue(call.startswith("VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 "), call)
@@ -4699,6 +4771,19 @@ class Guide(Case):
                 g.send(b"q\r")
                 self.assertEqual(g.finish(), 0)
                 self.assertNotIn(b"This is console", g.seen)
+
+    def test_a_chord_named_by_its_name_is_refused(self):
+        # "The open chord" left the operator without the keys at a guided
+        # pass; a guide names the keys. A command's words are not prose.
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for line in ("do: open a console with the open chord", "expect: The close chord closes it",
+                     "intro: press the switch chord"):
+            with self.subTest(line=line):
+                text = line + "\n" + ok if line.startswith("intro") else ok.replace("do: d", line) \
+                    if line.startswith("do") else ok.replace("expect: e", line)
+                self.refused(self.check(text), "name the chord's keys, such as Ctrl+Super+Enter")
+        p = self.check(ok.replace("do: d", "do: press Ctrl+Super+Enter, a console chord") + "run: echo the open chord\n")
+        self.assertEqual(p.returncode, 0, p.stderr)
 
     def test_the_closing_lines_fit_a_run_in_vtium_and_one_by_hand(self):
         # In vtium (VTIUM_CONSOLE set) the run ends with vtium; by hand in a

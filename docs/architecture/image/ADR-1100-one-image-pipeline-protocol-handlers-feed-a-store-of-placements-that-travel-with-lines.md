@@ -266,6 +266,9 @@ considered:
   - operator: aaronsb
     said: "because a banner that can be part of a look makes more sense than in the config, globally"
     via: the steering session's questions on 2026-11-14, on the login picture's two forms
+  - operator: aaronsb
+    said: "the arch logo fills beyond the screen. I think our earlier choice of scaling was incorrect and it should fit with bars rather than fill"
+    via: the steering session, 2026-11-15, after a VT check of the login picture
 observable:
   - "`cargo tree -p vtium -e normal` with default features lists no vtium-image, and with `--features images` lists it"
   - "The flood test feeds a stream of transmissions and placements past a full store whole and cut at random points, with frames drawn at different points, and every run ends in the same store; with the input-work count removed from a scan, planted, it fails"
@@ -555,7 +558,7 @@ Each setting takes the name another terminal gives it, as the C reference's did,
 | `private-color-registers` | xterm's `privateColorRegisters` | `true` | The state of mode 1070 at reset. |
 | `sixel`, `kitty-graphics` | the C reference's switches | on | Turn one protocol off: it is neither offered nor decoded. |
 | `login-image` | Ghostty's `background-image`, renamed because the picture belongs to the login prompt | unset | A PNG or JPEG file that vtium places each time a login prompt of the head starts (D17). |
-| `login-image-fit` | Ghostty's `background-image-fit`, with `banner` added | `cover` | `cover`, `contain`, `stretch` or `none` place a background; `banner` prints a banner above the login prompt (D17). |
+| `login-image-fit` | Ghostty's `background-image-fit`, with `banner` added | `contain` | `contain`, `cover`, `stretch` or `none` place a background; `banner` prints a banner above the login prompt (D17). |
 | `login-image-rows` | vtium's own | unset | A banner's height in text rows; unset, the banner takes its own size (D17). |
 | `login-image-position` | vtium's own | `left` | Where a banner sits across the screen: `left`, `center` or `right` (D17). |
 
@@ -758,6 +761,8 @@ Four terms. An *upload* is a picture or a frame whose data comes in several comm
 
 > Edited 2026-11-14, in the build: the console sends the file's bytes to the image helper in a sealed memory file, rather than handing it the open file, since every inline request already travels that way and the bytes cross the same boundary. The sentence read: "It hands the open file to the image helper (ADR-1101), which decodes it as the pre-login account, `vtium-image`, else `nobody`, whoever has logged in."
 
+> Edited 2026-11-15, after a VT check of the login picture: the default fit is now `contain`. The maintainer saw the picture under `cover` and said: "the arch logo fills beyond the screen. I think our earlier choice of scaling was incorrect and it should fit with bars rather than fill" (`considered`). The fit paragraph read: "`cover`, the default, scales the picture until it covers the whole display", the two key tables gave `cover` as the default, and the options table did not take Ghostty's default, `contain`.
+
 The person who sets up vtium can name one picture for a head, and choose one of two forms for it. As a background, the picture fills the display beneath the text. As a banner, vtium prints the picture at the top of the screen like a message of the day, and the login prompt starts on the row below it. In both forms vtium places the picture each time it starts a login prompt in one of the head's consoles. From then on the picture is an ordinary picture placement in that console's store (D2). It travels with its lines, so it scrolls up and away as the text scrolls. A screen clear removes it, and a program can remove it with a kitty graphics delete command. vtium needs no sign of when login ends.
 
 #### The keys
@@ -765,7 +770,7 @@ The person who sets up vtium can name one picture for a head, and choose one of 
 | Key | Default | Meaning |
 |---|---|---|
 | `login-image` | unset | The path of a PNG or JPEG file. Unset, vtium places no picture. |
-| `login-image-fit` | `cover` | The form, and for a background how the picture fits the display: `cover`, `contain`, `stretch` or `none` place a background, and `banner` prints a banner. |
+| `login-image-fit` | `contain` | The form, and for a background how the picture fits the display: `contain`, `cover`, `stretch` or `none` place a background, and `banner` prints a banner. |
 | `login-image-rows` | unset | For a banner, its height in text rows. Unset, the banner takes its own size in pixels, rounded up to whole cells. A background ignores it. |
 | `login-image-position` | `left` | Where a banner sits across the screen: `left`, `center` or `right`. A background ignores it. |
 
@@ -780,7 +785,7 @@ The four keys are look keys. A `[look NAME]` section sets them, and a head shows
 #### The background form
 
 - **Where it sits.** The placement is a kitty placement with no image id, at z -2,147,483,648, the lowest z there is. That puts it in the layer below cell backgrounds (D4), beneath every picture a program sends. Its anchor is the screen's top line, and its box is the whole character grid. A cell with a background color of its own covers it, and so do the text, every program's pictures, the selection, the cursor, the pointer and vtium's own notices. It shows through every cell whose background is the default. It goes in the main screen's buffer.
-- **How it fits the display.** vtium fits the picture to the whole display, and then keeps the part that falls on the character grid. `cover`, the default, scales the picture until it covers the whole display, keeping its shape, and cuts off what passes the edges. `contain` scales the picture until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `stretch` scales the width and the height apart to fill the display exactly. `none` draws the picture at its own size, centered, and cuts off what passes the edges. A picture made at the display's own resolution draws one to one under `cover`, with neither bands nor any cropping, as a picture on a CRT fills its screen.
+- **How it fits the display.** vtium fits the picture to the whole display, and then keeps the part that falls on the character grid. `contain`, the default, scales the picture until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `cover` scales the picture until it covers the whole display, keeping its shape, and cuts off what passes the edges. `stretch` scales the width and the height apart to fill the display exactly. `none` draws the picture at its own size, centered, and cuts off what passes the edges. A picture made at the display's own resolution draws one to one under `contain` or `cover`, with neither bands nor any cropping, as a picture on a CRT fills its screen.
 - **What a placement cannot do.** A placement covers whole character cells. The thin strip of the display outside the grid, less than one cell on each side, shows the default background color, never the picture. vtium works out the fit once, against the first lit display of the head. Another display of the same head draws the same placement scaled to its own cells, so its picture can be slightly stretched. After a zoom, a rotation or a resize, the placement keeps its box in cells, as every placement does (D8), so it no longer matches the screen exactly. The next login prompt places the picture again at the new size.
 
 #### The banner form
@@ -812,7 +817,8 @@ The four keys are look keys. A `[look NAME]` section sets them, and a head shows
 | The picture as the default background, outside every store, for as long as the setting names it | a program cannot remove it, and vtium cannot tell when login ends | Ghostty's `background-image` | Rejected by the maintainer: a login picture is not needed after login |
 | The picture at the login prompt only, removed when login ends | vtium would need a sign of login's end that it does not have | | Rejected: vtium cannot tell the login prompt from the shell |
 | The console decodes the file as root | a fault in a PNG or JPEG decoder would act with root's rights | | Rejected, as D7 rejects it for every picture |
-| Ghostty's default fit, `contain` | bands of the default background around a picture whose shape differs from the display's | Ghostty | Not taken (the maintainer): a picture made at the display's resolution fills it one to one under `cover` |
+| `contain` as the default fit, as Ghostty's | bands of the default background around a picture whose shape differs from the display's | Ghostty | Taken (the maintainer, after a VT check): the whole picture shows, and a picture made at the display's resolution still draws one to one with no bands |
+| `cover` as the default fit | a picture whose shape differs from the display's loses its edges | | Rejected (the maintainer, after a VT check): the picture filled beyond the screen |
 
 The strip outside the grid, and the box that stays as it was after a resize, may cost a background too much. If so, the smallest change keeps the placement and adds one rule. The compositor would draw the background's image into the strip around the grid as well, for as long as the placement exists. That is a rule outside the store's protocol rules, so this decision leaves it out.
 
