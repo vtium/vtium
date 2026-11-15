@@ -27,7 +27,7 @@ A `Font` puts a face and the sprites together. For each sprite range, the `Font`
 | `src/set/read/parse.rs` | Each section's check against its bounds and against the other sections. |
 | `src/set/builtin.rs` | The built-in sets, `unifont` and `unscii-8`, and the choice of one of them for a cell height and locale (ADR-1200 D7). |
 | `src/set/face.rs` | `SetFace`: one cell size of a set, drawn as a `Face`, and the strike that a height picks (ADR-1200 D9). |
-| `src/set/layer.rs` | Layers, the parts a font set (a frit) adds by name: a layer file's structure, its `role=` and its sources, and the splice that puts each layer's sources in place of the frit's `layer=` line (ADR-1204 D5, D6). The console and vtium-config both splice through it, so a frit holds the same sources wherever it is read. |
+| `src/set/layer.rs` | Layers, the parts a font set (a frit) adds by name: a layer file's structure, its `role=` and its sources, and the splice that puts each layer's sources in place of the frit's `layer=` line (ADR-1204 D5, D6). The console and vtium-config both splice through it, so a frit holds the same sources wherever it is read. A layer's source takes the keys a frit's source takes, `strike=` among them, and vtium-config's font helper draws those strikes. |
 | `src/sha256.rs` | SHA-256 (FIPS 180-4), for the built-in sets' provenance and vtium-config's source pins. `build.rs` includes it. |
 | `src/unifont.rs` | `Unifont`: the built-in unifont set, drawn at whole multiples of 8×16. |
 | `src/hex.rs` | The missing glyph that `Missing::Hex` draws: the codepoint in 3×5 and 3×4 hex digits. |
