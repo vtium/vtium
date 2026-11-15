@@ -21,27 +21,27 @@
 
 **vtium is a terminal that runs on the Linux console.**
 
-vtium runs on a Linux virtual terminal (VT)—one of the text screens you can switch to with Ctrl+Alt and a function key. vtium takes the place of getty, the program that normally displays the login prompt. So your machine boots into a terminal with text in any script, color emoji, 24-bit color, images, and mouse reporting. vtium renders through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or on the GPU.
+vtium runs on a Linux virtual terminal (VT), one of the text screens you reach with Ctrl+Alt and a function key. It takes the place of getty, the program that normally shows the login prompt there. Your machine then boots into a terminal with text in any script, color emoji, 24-bit color, images, and mouse reporting. vtium renders through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface, on the CPU or the GPU.
 
 **Documentation:** [vtium.github.io/vtium](https://vtium.github.io/vtium/)
 
 ![A shell session showing a colored prompt, directory listing, git branch graph, six images with filenames, multilingual text and emoji, and examples of underline and other text styles.](docs/showcase/hero.png)
 
-*A shell session rendered by vtium on a 1920×1080 display. See [the showcase](docs/showcase/README.md) for more screenshots and details about how they were captured.*
+*A shell session rendered by vtium on a 1920×1080 display. [The showcase](docs/showcase/README.md) has more screenshots and explains how they were captured.*
 
 ## What vtium does
 
-- [Text in any script](https://vtium.github.io/vtium/home/text/) says how vtium lines up every script, and which fonts vtium reads.
-- [A terminal on each display](https://vtium.github.io/vtium/home/displays/) says how one vtium gives each display a terminal and keyboard of its own.
-- [Images](https://vtium.github.io/vtium/home/images/) names the image protocols that programs use in vtium.
-- [Keyboards and mice](https://vtium.github.io/vtium/home/input/) says how vtium reads your devices, and what programs get from them.
-- [The terminal's language](https://vtium.github.io/vtium/home/language/) names the specifications vtium follows, and the rules vtium uses when two specifications disagree.
-- [Where vtium runs](https://vtium.github.io/vtium/home/where-it-runs/) covers processors, graphics, init systems, and the smallest build.
-- [What vtium leaves to other tools](https://vtium.github.io/vtium/home/leaves-to-other-tools/) lists the jobs that vtium hands to other programs.
+- [Text in any script](https://vtium.github.io/vtium/home/text/): grapheme clusters lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
+- [A terminal on each display](https://vtium.github.io/vtium/home/displays/): one vtium can give each display its own terminal and keyboard.
+- [Images](https://vtium.github.io/vtium/home/images/): sixel, the kitty graphics protocol, and iTerm2's inline images.
+- [Keyboards and mice](https://vtium.github.io/vtium/home/input/): how vtium reads your devices, and the key and mouse encodings programs receive.
+- [The terminal's language](https://vtium.github.io/vtium/home/language/): the specifications vtium follows, and how it settles a conflict between two of them.
+- [Where vtium runs](https://vtium.github.io/vtium/home/where-it-runs/): processors, graphics, init systems, and the smallest build.
+- [What vtium leaves to other tools](https://vtium.github.io/vtium/home/leaves-to-other-tools/): opening links, split panes, window management, and other jobs that belong to other programs.
 
 ## Where to start
 
-See [the releases](https://github.com/vtium/vtium/releases) for the latest version and what changed in it. To try vtium while your desktop keeps running, follow [Try vtium on one VT](docs/tutorial-try-vtium.md). The tutorial runs vtium on a spare VT and returns that VT to its previous state afterward.
+[The releases](https://github.com/vtium/vtium/releases) list the latest version and what changed in it. To try vtium while your desktop keeps running, follow [Try vtium on one VT](docs/tutorial-try-vtium.md). The tutorial runs vtium on a spare VT and puts that VT back the way it was afterward.
 
 | If you want to… | Start here |
 |---|---|
@@ -54,11 +54,11 @@ See [the releases](https://github.com/vtium/vtium/releases) for the latest versi
 
 ## Contributing
 
-vtium is written in Rust. vtium's code began as a port of two programs written in C. See [Provenance](docs/vtium-in-depth.md#provenance) for details.
+vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](docs/vtium-in-depth.md#provenance) tells in full.
 
-The maintainer uses large language models to write code for vtium, reviews the results, and evaluates them with the project's tests. [Decision records](docs/architecture/INDEX.md) document the reasoning behind each decision in the maintainer's own words.
+The maintainer uses large language models to write code for vtium, reviews the results, and evaluates them with the project's tests. The [decision records](docs/architecture/INDEX.md) give the reasoning behind each decision in the maintainer's own words.
 
-Contributions are welcome, whether written by hand or with a large language model. Each pull request must describe how its code was written. All changes go through the same tests and review process. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
+Contributions are welcome, whether you write them by hand or with a large language model. Each pull request must say how its code was written, and every change goes through the same tests and review. See [CONTRIBUTING.md](CONTRIBUTING.md) for details.
 
 ## License
 
