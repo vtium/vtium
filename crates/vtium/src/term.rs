@@ -424,11 +424,13 @@ impl Overlay {
 
     /// Draws the overlay into `target`, a display buffer of `size` that is
     /// only written, as [`Overlay::draw`] does. Every character of a notice
-    /// and the mark comes from the built-in fonts in the renderer's cell
-    /// (ADR-1401 D5, D7): from the face's [`Face::builtins`] where it draws
-    /// a font set's glyphs over them, as a frit's face does, and otherwise
-    /// from the renderer's face, a built-in font itself. The renderer's
-    /// sprite policy and missing glyph hold for either.
+    /// and the mark comes from vtium's built-in font in the renderer's cell
+    /// ([`crate::font::own_face`]), whatever font the terminal draws in.
+    /// The renderer's sprite policy and missing glyph hold for it.
+    ///
+    /// References:
+    /// - ADR-1204 D1: vtium's own messages always draw in the built-in
+    ///   font.
     pub fn draw_into<F: Face>(
         &self,
         renderer: &Renderer<F>,
@@ -439,7 +441,7 @@ impl Overlay {
     ) -> Vec<DisplayRect> {
         let own = renderer.font();
         let depth = renderer.depth();
-        match own.face().builtins() {
+        match crate::font::own_face(own.face().cell()) {
             Some(face) => {
                 let font = Font::new(face)
                     .with_policy(own.policy())

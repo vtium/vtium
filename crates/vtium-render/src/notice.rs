@@ -23,6 +23,7 @@ use vtium_term::Rgb;
 
 use crate::blend::{mask, over_bg, pixel};
 use crate::mono::{Depth, Fallback, Ink, Threshold};
+use crate::sprite::hollow_box;
 use crate::target::{Orientation, Rect, Target};
 
 /// A display's buffer as the console's own drawing sees it: its size, how
@@ -648,8 +649,13 @@ fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Opti
 
 /// The glyphs of a notice's characters, each drawn once however often it
 /// appears, with the cells it takes: its face's advance for it, which the
-/// face gives without drawing the glyph, and one cell for a character the
-/// face lacks.
+/// face gives without drawing the glyph. A character the font lacks takes
+/// the cells the terminal gives it and draws as a hollow box as wide as
+/// them ([`hollow_box`]).
+///
+/// References:
+/// - ADR-1204 D1: a character the built-in font lacks draws as a hollow
+///   box as wide as its cells.
 struct Glyphs {
     /// Sorted by character.
     glyphs: Vec<(char, Width, Option<Glyph>)>,
@@ -663,6 +669,13 @@ impl Glyphs {
         let glyphs = chars
             .into_iter()
             .map(|c| {
+                if !font.has_glyph(c) {
+                    let width = match vtium_term::cluster_width(&[c]) {
+                        2 => Width::Wide,
+                        _ => Width::Narrow,
+                    };
+                    return (c, width, hollow_box(font.cell(), width));
+                }
                 let width = font.face().advance(c).unwrap_or(Width::Narrow);
                 (c, width, standin(font, depth, c, width))
             })
@@ -1360,6 +1373,51 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A character the built-in font lacks draws as a hollow box as wide
+    /// as its cells: a wide one across two cells, a narrow one in one,
+    /// beside letters drawn from the font.
+    ///
+    /// References:
+    /// - ADR-1204 D1: the hollow box for a character the built-in font
+    ///   lacks.
+    #[test]
+    fn a_character_the_built_in_font_lacks_draws_as_a_hollow_box() {
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        let font = Font::new(vtium_font::set::own::face(cell).expect("a strike"));
+        let (w, h) = (320, 240);
+        let mut canvas = Canvas::new(w, h, 0);
+        Notice::new("a\u{4e2d}\u{2194}b")
+            .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        let c = Colors::NOTICE;
+        let inset = (2 + 4, 2 + 4);
+        let at = |col: u32, glyph: &vtium_font::Glyph| {
+            let want: Vec<u32> = glyph
+                .pixels()
+                .iter()
+                .map(|&a| mask(c.ink, c.paper, a))
+                .collect();
+            let x = inset.0 + col * 8;
+            assert_eq!(
+                block(&canvas, x, inset.1, glyph.width(), 16),
+                want,
+                "column {col}"
+            );
+        };
+        let letter = |ch| {
+            font.glyph(&[ch], Width::Narrow, Style::default())
+                .expect("a glyph")
+        };
+        let boxed = |w| hollow_box(cell, w).expect("a box");
+        at(0, &letter('a'));
+        at(1, &boxed(Width::Wide));
+        at(3, &boxed(Width::Narrow));
+        at(4, &letter('b'));
     }
 
     #[test]

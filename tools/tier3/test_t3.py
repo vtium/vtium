@@ -42,6 +42,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3  # noqa: E402
 import t3_bench  # noqa: E402
+import t3_builtin  # noqa: E402
 import t3_devices  # noqa: E402
 import t3_evaluate  # noqa: E402
 import t3_heads  # noqa: E402
@@ -1165,9 +1166,11 @@ class VtiumGoldenTest(unittest.TestCase):
         # the maintainer's drawing of Tux (ADR-1401 D7) and the img-delete
         # golden of kitty 0.50.0's replies (ADR-1100 D15) on 2026-11-13, and
         # the login picture's capture (ADR-1100 D17) on 2026-11-15. The list
-        # in the tree is empty; a golden it names must be one a case draws.
+        # in the tree names the built-in font's two captures (ADR-1204 D1); a
+        # golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        self.assertEqual(sorted(prov), ["builtin-font/builtin-login",
+                                        "builtin-font/builtin-notice"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
@@ -3973,7 +3976,8 @@ class HeadsTest(unittest.TestCase):
                     "vts 7", "Vts", "vts;id", "seat-wait 4", "Seat-wait", "seat-wait;id",
                     "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release",
                     "chvt", "chvt 3", "chvt 12", "Chvt 1", "chvt 1;id", "chvt 2 now",
-                    "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name]
+                    "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name,
+                    "bare now", "Bare", "bare;id", "bare && touch pwned-bare"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 self.assertEqual(ask(n, request), ["refused %s" % request.strip()])
@@ -7099,6 +7103,158 @@ class SeatTest(unittest.TestCase):
         for case in t3_seat.CHECKS:
             self.assertIn(case, t3_evaluate.NO_GOLDEN)
             self.assertEqual(t3_evaluate.golden_for("seat-seatd", case), (None, None))
+
+
+class BuiltinFontTest(unittest.TestCase):
+    """The case of vtium's built-in font (t3_builtin, ADR-1204 D1): its
+    variant, the agent's `bare` and the verdict on its answer, and the
+    driver's path through both cases."""
+
+    def test_the_variant(self):
+        # The minspec machine of 2d-potato-min, in make tier3-minimal, with
+        # the agent; its two cases are judged by goldens of its own.
+        v = t3_scenario.VARIANTS["builtin-font"]
+        potato = t3_scenario.VARIANTS["2d-potato-min"]
+        for key in ("device", "cpus", "memory_mb", "renderer", "images", "conf"):
+            self.assertEqual(v[key], potato[key], key)
+        self.assertTrue(v["agent"])
+        with open(os.path.join(t3_common.ROOT, "Makefile")) as f:
+            minimal = re.search(r"^tier3-minimal:.*\n\t(.*)", f.read(), re.M).group(1)
+        self.assertIn(" builtin-font)", minimal)
+        self.assertEqual(t3_scenario.variant_cases("builtin-font"),
+                         ["builtin-login", "builtin-notice"])
+        self.assertIn("builtin-font", t3_scenario.golden_cases())
+        for case in t3_builtin.CASES:
+            self.assertNotIn(case, t3_evaluate.NO_GOLDEN)
+            self.assertEqual(t3_evaluate.describe(case), (t3_builtin.CAPTIONS[case], None))
+            self.assertEqual(t3_evaluate.golden_for("builtin-font", case, t3_evaluate.GOLDEN)[0],
+                             os.path.join(t3_evaluate.GOLDEN, "builtin-font", case + ".png"))
+
+    GOOD = ["before 765", "stopped vtium@tty2.service"] + [
+        "gone %s" % p for p in t3_builtin.BARE_PATHS] + [
+        "started vtium@tty2.service", "unit vtium@tty2.service active", "vtium 832 0.0"]
+
+    def test_the_answer_to_bare_is_judged_both_ways(self):
+        self.assertIsNone(t3_builtin.bare_verdict(t3_builtin.parse_bare(self.GOOD)))
+        for change, why in (
+                (("gone /etc/vtium", "kept /etc/vtium"), "the agent did not remove /etc/vtium: kept"),
+                (("gone /usr/bin/vtium-config", "rm: cannot remove"),
+                 "the agent did not remove /usr/bin/vtium-config: no answer"),
+                (("started vtium@tty2.service", "Job failed"),
+                 "vtium's unit did not start again: its state is active"),
+                (("unit vtium@tty2.service active", "unit vtium@tty2.service failed"),
+                 "vtium's unit did not start again: its state is failed"),
+                (("vtium 832 0.0", "none"), "vtium's unit runs no process after its start"),
+                (("vtium 832 0.0", "vtium 765 9.0"),
+                 "vtium's PID is 765 before and after, so the agent started no new vtium")):
+            with self.subTest(change):
+                lines = [change[1] if line == change[0] else line for line in self.GOOD]
+                self.assertEqual(t3_builtin.bare_verdict(t3_builtin.parse_bare(lines)), why)
+
+    # vtium's unit, as a fake systemctl on PATH: each call is logged with
+    # whether /etc/vtium still exists below T3_AGENT_ROOT, and a start
+    # gives the unit a new PID, T3_FAKE_PID, a process that exists, whose
+    # age the agent reads from /proc.
+    FAKE_SYSTEMCTL = """#!/bin/bash
+d=$T3_FAKE_UNIT
+there=no; [ -e "$T3_AGENT_ROOT/etc/vtium" ] && there=yes
+echo "$* etc-vtium=$there" >> "$d/calls"
+case "$1 $2 $3" in
+"show -P MainPID") cat "$d/pid" ;;
+"show -P ActiveState") echo active ;;
+"stop vtium@tty2.service ") ;;
+"start vtium@tty2.service ") echo "$T3_FAKE_PID" > "$d/pid" ;;
+*) echo "fake systemctl: $*" >&2; exit 1 ;;
+esac
+"""
+
+    def test_the_agent_removes_what_bare_names_while_vtium_is_stopped(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        bin_dir, unit, root = (os.path.join(d.name, n) for n in ("bin", "unit", "root"))
+        for path in (bin_dir, unit, os.path.join(root, "etc/vtium/fonts"),
+                     os.path.join(root, "usr/local/share/fonts/vtium-tier3"),
+                     os.path.join(root, "usr/bin")):
+            os.makedirs(path)
+        for path in ("etc/vtium/vtium.conf", "etc/vtium/fonts/minspec-16.vtfrit",
+                     "usr/local/share/fonts/vtium-tier3/a.otf", "usr/bin/vtium-config",
+                     "usr/bin/vtium"):
+            with open(os.path.join(root, path), "w") as f:
+                f.write("x\n")
+        with open(os.path.join(bin_dir, "systemctl"), "w") as f:
+            f.write(self.FAKE_SYSTEMCTL)
+        os.chmod(os.path.join(bin_dir, "systemctl"), 0o755)
+        with open(os.path.join(unit, "pid"), "w") as f:
+            f.write("765\n")
+        ask = HeadsTest.start_agent(self, d.name, {
+            "PATH": bin_dir + os.pathsep + os.environ["PATH"], "T3_FAKE_UNIT": unit,
+            "T3_AGENT_ROOT": root, "T3_AGENT_TEMPLATE": os.path.join(d.name, "none"),
+            "T3_FAKE_PID": str(os.getpid())})
+        answer = ask(1, "bare")
+        self.assertEqual(answer[:-1], self.GOOD[:-1])
+        self.assertRegex(answer[-1], r"^vtium %d [0-9.]+$" % os.getpid())
+        self.assertIsNone(t3_builtin.bare_verdict(t3_builtin.parse_bare(answer)))
+        # vtium is stopped before anything is removed and started after
+        with open(os.path.join(unit, "calls")) as f:
+            calls = [c for c in f.read().splitlines() if not c.startswith("show")]
+        self.assertEqual(calls, ["stop vtium@tty2.service etc-vtium=yes",
+                                 "start vtium@tty2.service etc-vtium=no"])
+        # the console's own binary stays, and nothing the list leaves out goes
+        self.assertEqual(sorted(os.listdir(root)), ["etc", "usr"])
+        self.assertEqual(os.listdir(os.path.join(root, "etc")), [])
+        self.assertEqual(os.listdir(os.path.join(root, "usr/bin")), ["vtium"])
+        self.assertEqual(os.listdir(os.path.join(root, "usr/local/share/fonts")), [])
+
+    class FakeVm:
+        """A guest whose agent answers `bare` with `answer`."""
+
+        def __init__(self, serial, answer):
+            self.serial, self.answer, self.asked, self.waited = serial, answer, [], []
+
+        def ask(self, request, timeout=30):
+            self.asked.append(request)
+            return self.answer
+
+        def wait_serial(self, marker, timeout, since=0):
+            self.waited.append((marker, since))
+            return marker
+
+    def drive(self, answer):
+        """t3_builtin.run on a FakeVm answering `answer`, a screen that
+        settles at once and a kernel message that is captured: (caps,
+        errors, the vm, the phases)."""
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        serial = os.path.join(d.name, "serial.log")
+        with open(serial, "wb") as f:
+            f.write(b"0123456789")
+        vm = self.FakeVm(serial, answer)
+        caps, errors, phases = {}, {}, []
+
+        def message(vm, work, caps, errors, log, case):
+            caps[case] = os.path.join(work, case + ".ppm")
+        with mock.patch.object(t3_builtin, "wait_stable") as stable, \
+                mock.patch.object(t3_seat, "kernel_message", side_effect=message):
+            t3_builtin.run(vm, d.name, caps, errors, LOG, phases.append)
+        return caps, errors, vm, phases, stable, d.name
+
+    def test_the_driver_runs_both_cases_on_the_new_vtium(self):
+        caps, errors, vm, phases, stable, work = self.drive(self.GOOD)
+        self.assertEqual(errors, {})
+        self.assertEqual(vm.asked, ["bare"])
+        # the new vtium's display line, written after the request
+        self.assertEqual(vm.waited, [(t3_builtin.DISPLAY, 10)])
+        self.assertEqual(stable.call_args.args[1], os.path.join(work, "builtin-login.ppm"))
+        self.assertEqual(sorted(caps), ["builtin-login", "builtin-notice"])
+        self.assertEqual(phases, ["builtin-login", "builtin-notice"])
+
+    def test_a_bare_that_fails_fails_both_cases(self):
+        lines = ["kept /etc/vtium" if l == "gone /etc/vtium" else l for l in self.GOOD]
+        caps, errors, vm, phases, stable, _ = self.drive(lines)
+        self.assertEqual(caps, {})
+        self.assertEqual(errors, {case: "the agent did not remove /etc/vtium: kept"
+                                  for case in t3_builtin.CASES})
+        self.assertEqual((vm.waited, phases, stable.called), ([], [], False))
 
 
 class HandOverTest(unittest.TestCase):

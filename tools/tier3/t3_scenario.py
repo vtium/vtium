@@ -9,6 +9,7 @@ import subprocess
 import time
 
 import t3_bench
+import t3_builtin
 import t3_devices
 import t3_handover
 import t3_heads
@@ -327,6 +328,14 @@ VARIANTS["hand-over"] = dict(SEAT, tree_features=[], checks=["hand-over"], agent
                              probe=True)
 SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
                  "kmsg-notice"]
+
+# builtin-font checks vtium with nothing installed (ADR-1204 D1, t3_builtin)
+# on the minspec machine, in make tier3-minimal. vtium starts with the
+# minimal configuration; once it shows its login prompt, the agent stops it,
+# removes /etc/vtium, the font files tier 3 installs for vtium and the font
+# helper, and starts it again. Its cases are the new vtium's login prompt and
+# the notice of a kernel message, both judged by their goldens.
+VARIANTS["builtin-font"] = dict(POWER, conf="vtium-minimal.conf", builtin=True, agent=True)
 
 # boot-claim checks that vtium console enable --direct --all starts vtium at
 # boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
@@ -722,6 +731,8 @@ def variant_cases(variant):
         return ["kernel-panic"]
     if v.get("kmsg"):
         return ["kernel-message"]
+    if v.get("builtin"):
+        return list(t3_builtin.CASES)
     first = ([v["first"]] if "first" in v else []) + (
         [t3_images.CASE] if v.get("prelogin") else []) + (
         [v["login_shot"]] if "login_shot" in v else [])
@@ -1247,6 +1258,8 @@ def run_variant(variant, timing, impl, log):
         elif v.get("kmsg"):
             t3_seat.kernel_message(vm, work, caps, errors, log)
             phase("kernel-message")
+        elif v.get("builtin"):
+            t3_builtin.run(vm, work, caps, errors, log, phase)
         elif not v.get("login", True):
             run_checks(variant, vm, work, caps, errors, log, phase)
         else:
