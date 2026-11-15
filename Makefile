@@ -246,6 +246,7 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
@@ -297,8 +298,9 @@ PKGNAME := vtium
 # license texts COPYING points to, the SIL Open Font License of the Unifont
 # font and the license of X.Org's color names. make install-terminfo stages
 # LICENSE and COPYING alone, because the terminfo entry holds neither the
-# font nor the color names.
-LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt
+# font nor the color names. tiny-skia's BSD-3-Clause notice goes with the
+# font helper, which draws SVG pointer files with it (ADR-1309).
+LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt crates/vtium-config/licenses/tiny-skia-LICENSE
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
@@ -388,6 +390,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
