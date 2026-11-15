@@ -150,10 +150,11 @@ pub struct Shown {
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
-    use vtium_render::syllable::Syllable;
+    use vtium_render::syllable::Runs;
     use vtium_term::Glyph;
     let shown_in = |all: &mut Vec<Shown>, variant: Variant| shown_index(all, variant, None);
     let mut drawn = Vec::new();
+    let mut runs = Runs::default();
     read_doubled(frame, all);
     for row in 0..frame.rows() {
         // a line of double size asks for what it draws at its size too
@@ -165,7 +166,9 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
         };
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell, ligatures) {
+            if let Some((run, 0)) = runs.find(frame, (col, row), &cell, ligatures)
+                && let Some(s) = runs.get(run)
+            {
                 let mut keys = Vec::new();
                 for index in 0..s.len() {
                     let mut key = Vec::new();
