@@ -543,16 +543,19 @@ mod tests {
     // one of its own.
     #[test]
     fn every_word_of_the_fit_key_is_a_fit() {
-        let keys::Kind::Choice(words) = keys::LOGIN_IMAGE_FIT.kind else {
-            panic!("login-image-fit is a choice");
+        let words = match keys::LOGIN_IMAGE_FIT.kind {
+            keys::Kind::Choice(words) => words,
+            _ => &[],
         };
+        assert!(!words.is_empty(), "login-image-fit is a choice");
         for word in words {
             assert!(Fit::parse(word).is_some(), "{word}");
         }
-        let keys::Default::Text(default) = keys::LOGIN_IMAGE_FIT.default else {
-            panic!("login-image-fit has a default word");
+        let default = match keys::LOGIN_IMAGE_FIT.default {
+            keys::Default::Text(word) => word,
+            _ => "",
         };
-        assert!(words.contains(&default), "{default}");
+        assert!(words.contains(&default), "{default:?}");
         assert_eq!(Fit::parse(default), Some(table_fit()));
     }
 
