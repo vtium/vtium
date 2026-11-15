@@ -45,6 +45,15 @@ ifneq ($(filter environment%,$(origin VTIUM_IMAGE_BIN)),)
 $(error VTIUM_IMAGE_BIN is set in the environment; make vt-install installs it for vtium, which starts it from root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) VTIUM_IMAGE_BIN=PATH)
 endif
 endif
+# CONF names the vtium.conf that vtium, as root, reads in a review run, and
+# that file's login line is a command vtium runs. Other tools export a
+# variable of that name too, so the targets that read CONF take it only from
+# make's command line.
+ifneq ($(filter vt-login vt-shell vt-check,$(MAKECMDGOALS)),)
+ifneq ($(filter environment%,$(origin CONF)),)
+$(error CONF is set in the environment; the review run gives the file to vtium, which runs as root, so name it on make's command line: make $(firstword $(MAKECMDGOALS)) CONF=PATH)
+endif
+endif
 # Simply expanded, so the recipes' $(value VTIUM_BIN) is the path itself.
 ifeq ($(origin VTIUM_BIN),undefined)
 VTIUM_BIN := $(if $(filter vt-install,$(MAKECMDGOALS)),$(VTIUM_DEV),$(VTIUM_MINSPEC))
@@ -617,7 +626,7 @@ $(VT_GOALS): export VTIUM_VT_IMAGE = $(if $(IMAGES),$(value VTIUM_IMAGE_BIN))
 # not reach the others.
 $(VT_GOALS): export VTIUM_VT_GUIDE =
 $(VT_GOALS): export VTIUM_VT_STEPS =
-# CONF is make vt-login's and make vt-shell's.
+# CONF is make vt-login's, make vt-shell's and make vt-check's.
 $(VT_GOALS): export VTIUM_VT_CONF =
 # RENDER_PATH is make vt-accept's; the others run vtium as DEMO_ARGS says.
 $(VT_GOALS): export VTIUM_VT_RENDER_PATH =

@@ -2067,11 +2067,24 @@ class Make(Case):
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertNotIn("--debug", p.stdout)
 
+    def test_conf_is_never_taken_from_the_environment(self):
+        # The file decides what vtium, as root, runs: its login line is a
+        # command. CONF is a common name, so one exported for another tool
+        # is refused, as VTIUM_BIN is.
+        conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
+        for target, extra in (("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
+            with self.subTest(target=target):
+                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", *extra, CONF=conf)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("CONF is set in the environment", p.stderr)
+                self.assertNotIn("--config=", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo") + self.s.calls_of("loginctl"), [])
+
     def test_conf_reaches_only_vt_login_vt_shell_and_vt_check(self):
         # CONF names the run's vtium.conf, such as the confs beside
-        # pointer-file.guide; CONF or VTIUM_VT_CONF exported in the shell
-        # does not reach make vt-accept, whose pages expect the review's
-        # file.
+        # pointer-file.guide, on make's command line. VTIUM_VT_CONF exported
+        # in the shell does not reach make vt-accept, whose pages expect the
+        # review's file, and CONF exported in the shell does not stop it.
         conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
         for target, extra in (("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
             with self.subTest(target=target):
