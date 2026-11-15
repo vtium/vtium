@@ -64,7 +64,10 @@ lays all of this out for the terminal's size, which it reads from the
 terminal when it starts. When the step's text does not fit above the lines,
 the do: lines come first, and the last line that fits says that the rest is
 in the guide, GUIDE_FILE. Run by hand, with none of these set, the pad shows
-the key list alone.
+the key list alone. A span between two asterisks in the step's text, *like
+this*, is drawn bold: SGR 1 where it starts and SGR 22 where it ends, with
+no asterisk shown. The pad wraps the text by the characters it shows, so
+the asterisks take no column.
 
 The VT510 edits each line of a double-height pair on its own: Insert on the
 top line moves only the top halves of the letters. A program that shows tall
@@ -105,6 +108,7 @@ The pad uses python3, which guide.sh needs for its probes anyway, so it runs
 on every machine where the guides run.
 """
 import os
+import re
 import signal
 import sys
 import termios
@@ -134,6 +138,14 @@ PAIR_KEYS = (
 # The width of the labels that start the step's text and the key list, as
 # guide.sh prints them.
 LABEL = 8
+
+# A guide marks the words a reader should look at with an asterisk on each
+# side, *like this*, and the pad draws them bold: SGR 1 turns bold on and
+# SGR 22 turns it off.
+MARK = "*"
+BOLD = "\033[1m"
+NORMAL = "\033[22m"
+SGR = re.compile("\033\\[[0-9;]*m")
 
 LETTERS = "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -218,28 +230,93 @@ def pairs(lines, floor):
 def paragraphs(text):
     """A guide's do: or expect: lines as paragraphs. The guide wraps its
     lines by hand, so the pad joins them, and starts a new paragraph at a
-    line that begins with "Wrong:"."""
+    line that begins with "Wrong:", bold or not."""
     out = []
     for line in text.splitlines():
         line = line.strip()
         if not line:
             continue
-        if out and not line.startswith("Wrong:"):
+        if out and not shown(line).startswith("Wrong:"):
             out[-1] += " " + line
         else:
             out.append(line)
     return out
 
 
+def shown(text):
+    """The characters of a row that take columns on the screen: the row
+    without its asterisks and without the SGR sequences that bold() puts
+    in their place. Every width the pad works out counts these alone."""
+    return SGR.sub("", text).replace(MARK, "")
+
+
+def wrap(para, width):
+    """A paragraph broken into rows of at most width columns, between
+    words. A word counts the characters shown(), so the asterisks around
+    a bold span take no column. A word wider than a row gets rows of its
+    own, cut every width characters."""
+    rows, row = [], ""
+    for word in para.split():
+        while len(shown(word)) > width:
+            if row:
+                rows.append(row)
+                row = ""
+            head, word = cut(word, width)
+            rows.append(head)
+        if not word:
+            continue
+        if row and len(shown(row)) + 1 + len(shown(word)) > width:
+            rows.append(row)
+            row = ""
+        row = row + " " + word if row else word
+    if row:
+        rows.append(row)
+    return rows
+
+
+def cut(word, width):
+    """A word split after its first width characters that shown() counts,
+    each asterisk staying with the letter it stands before."""
+    count = 0
+    for i, c in enumerate(word):
+        if c != MARK:
+            if count == width:
+                return word[:i], word[i:]
+            count += 1
+    return word, ""
+
+
+def bold(rows):
+    """A paragraph's rows with each span between two asterisks drawn bold:
+    SGR 1 where a span starts and SGR 22 where it ends. A span that a wrap
+    splits ends at the end of its row and starts again at the start of the
+    next one, so no row leaves bold on for the rows after it. The pad sets
+    no other attribute, so SGR 22 brings back its normal text."""
+    out, on = [], False
+    for row in rows:
+        parts = row.split(MARK)
+        text = BOLD if on else ""
+        for i, part in enumerate(parts):
+            if i:
+                on = not on
+                text += BOLD if on else NORMAL
+            text += part
+        if on:
+            text += NORMAL
+        out.append(text.replace(BOLD + NORMAL, ""))
+    return out
+
+
 def labelled(label, paras, cols):
     """Paragraphs wrapped to the screen's width, after a label as guide.sh
     prints it: the label on the first line, and the others indented as far.
-    A screen too narrow for the label gets the text alone."""
+    A screen too narrow for the label gets the text alone. The spans
+    between asterisks come out bold (bold())."""
     indent = LABEL if cols > 2 * LABEL else 0
     width = max(1, cols - indent)
     rows = []
     for para in paras:
-        for line in textwrap.wrap(para, width) or [""]:
+        for line in bold(wrap(para, width)) or [""]:
             rows.append(" " * indent + line)
     if rows and indent:
         rows[0] = (label + ":").ljust(indent) + rows[0][indent:]
