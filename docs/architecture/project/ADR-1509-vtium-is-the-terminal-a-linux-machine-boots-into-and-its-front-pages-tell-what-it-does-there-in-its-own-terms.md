@@ -150,11 +150,13 @@ The pages describe vtium-config by what it does today. It runs in a terminal and
 
 ### Neutral
 
-- No page compares vtium with another program. Why vtium tells what vtium gives the console, and the front pages link it as a page to read.
+- No page compares vtium with another program. Why vtium tells what vtium gives the console, and the front pages link it as a page to read. The release notes under `docs/releases/` are exempt, because they are dated history and keep the words GitHub shows for each release.
 
 - The device class stays 62 until the probe's answer, and a change to the device class is a change to vtium-term.
 
 > Amended 2026-11-14: the maintainer decided, when the pages that disagreed with the front pages were brought in line with them, that Why vtium makes no comparison either. The Summary's Trades away line and the first Neutral consequence now say so. The earlier text is in git at cfc42ed9.
+
+> Amended 2026-11-15: the maintainer decided that release notes are dated history and stay word for word as GitHub has them. The first Neutral consequence now exempts them from the rule against comparisons, and the Summary's Trades away line reads with that exemption.
 
 ## Alternatives Considered
 
