@@ -4,10 +4,12 @@
 # that the program writes these same bytes. vtium sets the clipboard to the
 # text, with U+FFFD for each maximal subpart that is not valid UTF-8 (the
 # OSC 52 rules in crates/vtium-term/src/terminal/clipboard.rs), and answers
-# with its name and then DA1. The host names itself vtium(test), and offers
-# sixel, so DA1 answers 62;4;22. The texts: one, two and three bytes, for
-# each padding of base64; a line of mixed scripts with its newline; three
-# multibyte characters; and h, the byte FF, then i.
+# with its name and then DA1. The host names itself vtium(test). DA1's
+# attributes depend on the build: a build with images adds 4 for sixel. The
+# program needs only some DA1 reply to end its wait, so each reply line
+# matches DA1 with level 62, any attributes, and 22 last. The texts: one,
+# two and three bytes, for each padding of base64; a line of mixed scripts
+# with its newline; three multibyte characters; and h, the byte FF, then i.
 # spec: ADR-1007 D2 and D4; ctlseqs, OSC 52, XTVERSION and DA1; RFC 4648, section 4
 # capability: vtium-clipboard-copy
 size 8 1
@@ -16,29 +18,35 @@ send "\e]52;c;YQ==\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard 61
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
 send "\e]52;c;YWI=\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard 6162
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
 send "\e]52;c;YWJj\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard 616263
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
 send "\e]52;c;Y2Fmw6kg5Lit5paHCg==\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard 636166c3a920e4b8ade696870a
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
 send "\e]52;c;w6nkuK3wn5iA\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard c3a9e4b8adf09f9880
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
 send "\e]52;c;aP9p\e\\\e[>0q\e[c"
 clipboard
 check
 want test clipboard 68efbfbd69
-reply "\eP>|vtium(test)\e\\\e[?62;4;22c"
+reply-re "\eP>\\|vtium\\(test\\)\e\\\\\e\\[\\?62(;[0-9]+)*;22c"
+example "\eP>|vtium(test)\e\\\e[?62;22c"
