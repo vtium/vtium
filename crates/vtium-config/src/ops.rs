@@ -198,7 +198,7 @@ pub fn head_add(text: &str, name: &str, look: Option<&str>) -> Result<String, Fa
 /// it to `vtium config look add` and `look set`, in the order the TUI's
 /// look card lists them. Those two commands and the look card read this
 /// one table, and a test holds it to the key table's keys of a look.
-pub const LOOK_KEYS: [(&str, &str); 9] = [
+pub const LOOK_KEYS: [(&str, &str); 13] = [
     ("font-name", "--frit"),
     ("font-size", "--size"),
     ("cell", "--cell"),
@@ -208,6 +208,10 @@ pub const LOOK_KEYS: [(&str, &str); 9] = [
     ("font-ligatures", "--ligatures"),
     ("display-depth", "--display-depth"),
     ("display-dpi", "--display-dpi"),
+    ("login-image", "--login-image"),
+    ("login-image-fit", "--login-image-fit"),
+    ("login-image-rows", "--login-image-rows"),
+    ("login-image-position", "--login-image-position"),
 ];
 
 /// The option of [`LOOK_KEYS`] that names the look key `key`.
