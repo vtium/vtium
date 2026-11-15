@@ -237,11 +237,16 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
     }
 }
 
-// ADR-1204 D5, D6: new-frit --layer, once for each layer, writes the
-// layers after the fonts in the order of their roles, script, symbols,
-// emoji and fallback, whatever order the flags come in. An unknown layer,
-// a layer named twice and a second layer of a role a set holds once are
-// refused, and draft nothing
+// new-frit --layer, once for each layer, writes the layers after the
+// fonts in the order of their roles, script, symbols, emoji and fallback,
+// whatever order the flags come in. An unknown layer, a layer named twice,
+// a second layer of a role a set holds once, and layers that would take
+// the set past its 16 sources are refused, and draft nothing.
+//
+// References:
+// - ADR-1204 D5: new-frit --layer.
+// - ADR-1204 D6: the roles' order, and one symbols, emoji and fallback
+//   layer at most.
 #[test]
 fn new_frit_writes_its_layers_in_the_order_of_their_roles() {
     let f = fixture("new-layers", None);
@@ -315,6 +320,50 @@ fn new_frit_writes_its_layers_in_the_order_of_their_roles() {
     }
     let ran = f.run(&["new-frit", "--template", "--layer", "arabic"]);
     assert_eq!(ran.status, 2, "{}", ran.err);
+    // three script layers of six sources each give the set 19 sources
+    let six: String = (0..6).map(|i| format!("source=font:S{i}\n")).collect();
+    for name in ["s1", "s2", "s3"] {
+        std::fs::write(
+            layers.join(format!("{name}.vtlayer")),
+            format!("role=script\n{six}"),
+        )
+        .expect("a layer");
+    }
+    let args = [
+        "new-frit", "x", "--layer", "s1", "--layer", "s2", "--layer", "s3",
+    ];
+    let ran = f.run(&args);
+    assert_eq!(ran.status, 1, "{}", ran.out);
+    assert!(
+        ran.err.contains(
+            "the layer s3 would give the font set 19 sources, and a font set holds 16 at most"
+        ),
+        "{}",
+        ran.err
+    );
+    assert!(ran.out.is_empty(), "{}", ran.out);
+}
+
+// check FILE reads a frit's layers from the layers' folder of the frits'
+// directory, wherever the frit being checked is.
+//
+// References:
+// - ADR-1204 D5 and D9: the layers live in the frits' directory.
+#[test]
+fn check_reads_a_drafts_layers_from_the_frits_directory() {
+    let f = fixture("check-layers", None);
+    let layers = f.etc().join("fonts").join("layers");
+    std::fs::create_dir_all(&layers).expect("the layers' folder");
+    std::fs::write(
+        layers.join("noto-emoji.vtlayer"),
+        "role=emoji\nsource=font:Noto Color Emoji\n",
+    )
+    .expect("a layer");
+    let draft = f.etc().join("draft.vtfrit");
+    std::fs::write(&draft, "source=font:Text\nlayer=noto-emoji\n").expect("the draft");
+    let ran = f.run(&["check", &draft.to_string_lossy()]);
+    assert_eq!(ran.status, 0, "{}{}", ran.out, ran.err);
+    assert!(!ran.out.contains("warning"), "{}", ran.out);
 }
 
 /// vtium.conf's `font-frits` names the frits' directory the console

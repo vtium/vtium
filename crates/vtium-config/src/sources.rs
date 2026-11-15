@@ -739,6 +739,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             strikes: Vec::new(),
             style: source.style,
             fits: Vec::new(),
+            layer: source.layer.clone(),
             line: named.line,
         };
         out.push((
@@ -958,6 +959,7 @@ mod tests {
             strikes: Vec::new(),
             style: vtium_font::Style::default(),
             fits: Vec::new(),
+            layer: None,
             line: 1,
         }
     }

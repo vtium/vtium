@@ -539,13 +539,17 @@ pub struct FritText {
 }
 
 impl FritText {
-    /// The frit at `path`, named for its file less `.vtfrit`, read once
-    /// the ownership check `trust` makes passes
-    /// ([`crate::font::frit_text`]), with its layers in place
-    /// ([`crate::font::with_layers`]). Each sentence about a `layer=` line
-    /// that adds nothing is logged once a boot.
-    pub fn read(path: &Path, trust: &vtium_settings::Trust) -> Result<FritText, String> {
-        let (frit, notes) = FritText::read_noting(path, trust)?;
+    /// The frit at `path` in the frits' directory `frits`, named for its
+    /// file less `.vtfrit`, read once the ownership check `trust` makes
+    /// passes ([`crate::font::frit_text`]), with the layers of the frits'
+    /// directory in place ([`crate::font::with_layers`]). Each sentence
+    /// about a `layer=` line that adds nothing is logged once a boot.
+    pub fn read(
+        path: &Path,
+        frits: &Path,
+        trust: &vtium_settings::Trust,
+    ) -> Result<FritText, String> {
+        let (frit, notes) = FritText::read_noting(path, frits, trust)?;
         for note in &notes {
             crate::font::log_layer_note(note);
         }
@@ -557,6 +561,7 @@ impl FritText {
     /// caller reports.
     pub fn read_noting(
         path: &Path,
+        frits: &Path,
         trust: &vtium_settings::Trust,
     ) -> Result<(FritText, Vec<String>), String> {
         let name = path
@@ -567,7 +572,7 @@ impl FritText {
             .ok_or_else(|| format!("there is no font set named {}", path.display()))?;
         let text = crate::font::frit_text(path, trust)
             .map_err(|why| crate::font::refusal(name, path, &why))?;
-        let (text, notes) = crate::font::with_layers(name, path, &text, trust);
+        let (text, notes) = crate::font::with_layers(name, frits, &text, trust);
         Ok((
             FritText {
                 name: name.to_owned(),
@@ -3066,8 +3071,8 @@ mod tests {
         let path = dir.join("ter-v16n.vtfrit");
         std::fs::write(&path, "source=kbd:ter-v16n\n").unwrap();
         let trust = crate::font::trust().below(&dir);
-        let read = FritText::read(&path, &trust);
-        let gone = FritText::read(&dir.join("gone.vtfrit"), &trust);
+        let read = FritText::read(&path, &dir, &trust);
+        let gone = FritText::read(&dir.join("gone.vtfrit"), &dir, &trust);
         assert_eq!(
             read,
             Ok(FritText {
