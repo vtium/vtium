@@ -111,6 +111,23 @@ fn judge(file: &Path, trust: &Trust) -> Judged {
     }
 }
 
+/// What check-config says of the layers the frit `name` at `file` adds,
+/// read under `trust` as the start reads them: a sentence for each
+/// `layer=` line that adds nothing, such as a missing layer, a layer the
+/// ownership check refuses or a layer whose `role=` is wrong. Each counts
+/// against the configuration, as a look's missing frit does, since the
+/// start draws the set without that layer. A frit the account cannot read
+/// says nothing here: [`judge`] reports it.
+///
+/// References:
+/// - ADR-1204 D5: `vtium check-config` reads a set's layers too.
+fn frit_layers(name: &str, file: &Path, trust: &Trust) -> Vec<String> {
+    font::frit_text(file, trust).map_or_else(
+        |_| Vec::new(),
+        |text| font::with_layers(name, file, &text, trust).1,
+    )
+}
+
 /// What check-config says of the frit `font-name` names in `frits`, read
 /// under `trust`: the refusal, which counts against the configuration, or
 /// the refusal of a start as root, which is a note.
@@ -438,7 +455,10 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
         .map(ToString::to_string);
     // the font-name frit, which at the start the font's own read reports
     let (refused, root_refuses) = font_name_frit(&loaded.config, settings.frits, &settings.trust);
-    let stderr: Vec<String> = stderr.into_iter().chain(refused).collect();
+    let layers = named_frit(&loaded.config, settings.frits)
+        .map(|(name, file)| frit_layers(&name, &file, &settings.trust))
+        .unwrap_or_default();
+    let stderr: Vec<String> = stderr.into_iter().chain(refused).chain(layers).collect();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
@@ -716,8 +736,12 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         };
         let line = Some(named.line);
         let judged = judge(&file, &settings.trust);
-        // a font set the account reads is checked for the locale's letters
+        // a font set the account reads is checked for its layers and for
+        // the locale's letters
         if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
+            for said in frit_layers(&named.value, &file, &settings.trust) {
+                out.counted.push(at(path, line, said).to_string());
+            }
             let said = settings
                 .squeeze
                 .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
@@ -758,7 +782,8 @@ fn squeeze_note(
     sq: Squeeze<'_>,
 ) -> Option<String> {
     let script = vtium_font::letters::script_of(sq.locale)?;
-    let frit = helper::FritText::read(file, &settings.trust).ok()?;
+    // the layers' sentences are frit_layers' to report, so none is logged
+    let (frit, _) = helper::FritText::read_noting(file, &settings.trust).ok()?;
     let cell = font::frit_cell(&frit.text)
         .ok()
         .flatten()
@@ -1265,6 +1290,88 @@ mod tests {
         assert!(
             frit(&config("ter-v16n"), &dir, &trust).is_empty(),
             "no frit"
+        );
+    }
+
+    // ADR-1204 D5: check-config reads a set's layers as the start reads
+    // them, and reports a missing layer, a layer the ownership check
+    // refuses and a layer whose role= is wrong
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn check_config_reports_a_sets_layers() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-layers");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).unwrap();
+        let write = |path: &Path, text: &str, mode: u32| {
+            std::fs::write(path, text).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        for d in [dir.as_ref(), layers.as_path()] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let set = dir.join("set.vtfrit");
+        write(
+            &set,
+            "source=builtin:unifont\nlayer=fine\nlayer=gone\nlayer=theirs\nlayer=icons\n",
+            0o644,
+        );
+        write(
+            &layers.join("fine.vtlayer"),
+            "role=emoji\nsource=font:E\n",
+            0o644,
+        );
+        write(
+            &layers.join("theirs.vtlayer"),
+            "role=script\nsource=font:T\n",
+            0o664,
+        );
+        write(
+            &layers.join("icons.vtlayer"),
+            "role=icons\nsource=font:I\n",
+            0o644,
+        );
+        let trust = font::trust().below(&dir);
+        let said = frit_layers("set", &set, &trust);
+        let file = |name: &str| font::quoted(&layers.join(format!("{name}.vtlayer")));
+        assert_eq!(
+            said,
+            [
+                format!(
+                    "font set set: line 3: the layer gone is missing, because there is no file {}. vtium draws the font set without that layer.",
+                    file("gone")
+                ),
+                format!(
+                    "font set set: line 4: vtium does not read the layer theirs from {}, because other users can change {} (mode 664). Run `chmod go-w {}` so that only its owner can change it. vtium draws the font set without that layer.",
+                    file("theirs"),
+                    file("theirs"),
+                    layers.join("theirs.vtlayer").display()
+                ),
+                format!(
+                    "font set set: line 5: the layer icons in {} has an error: line 1: role=icons is not a role: use script, symbols, emoji or fallback. vtium draws the font set without that layer.",
+                    file("icons")
+                ),
+            ]
+        );
+        // a look naming the set counts each sentence against the file
+        let text =
+            "version = 1\n[look l]\nfont-name = set\n[head a]\nlook = l\n[rules]\ndisplay * -> a\n";
+        let (_heads, conf, conf_trust) = heads_fixture("look-layers", text, 0o644);
+        let settings = Settings {
+            frits: &dir,
+            trust,
+            ..caps(4)
+        };
+        let out = conf_file(&conf, false, &conf_trust, &machine(true), &settings);
+        let counted: Vec<&String> = out.counted.iter().filter(|l| l.contains("layer")).collect();
+        let at = |line: &String| format!("{}:3: {line}", conf.display());
+        assert_eq!(
+            counted,
+            said.iter()
+                .map(at)
+                .collect::<Vec<_>>()
+                .iter()
+                .collect::<Vec<_>>()
         );
     }
 

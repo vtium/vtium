@@ -9,6 +9,7 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
+use vtium_font::set::layer;
 use vtium_font::spacing::{Fit, LINE_SPACING_MAX};
 use vtium_font::sprite::Range;
 use vtium_font::{Cell, Style};
@@ -98,6 +99,16 @@ pub struct Source {
     /// which its superscript and subscript glyphs may come (ADR-1202 D3,
     /// D12), in the frit's order.
     pub script_sources: Vec<ScriptSource>,
+    /// `strike=`: the bitmap files of an outline source's design at the
+    /// heights they were drawn for, in the frit's order. A cell up to the
+    /// tallest strike's height draws the largest strike that fits it, and
+    /// the outline draws above that height and every character the strike
+    /// lacks.
+    ///
+    /// References:
+    /// - ADR-1204 D2: the `strike=` key, and the switch at the tallest
+    ///   strike's height.
+    pub strikes: Vec<ScriptSource>,
     /// `style=`: the style the source draws, regular unless the frit names
     /// another (ADR-1200 D1, D21).
     pub style: Style,
@@ -110,7 +121,8 @@ pub struct Source {
 
 /// One `script-source=` line: a smaller size of the same font as the
 /// bitmap `source=` line above it (ADR-1202 D12). It takes that line's
-/// `unimap=` where it has no Unicode table of its own.
+/// `unimap=` where it has no Unicode table of its own. A `strike=` line,
+/// a bitmap file of the outline source above it, is held the same way.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ScriptSource {
     /// The value as the frit spelled it.
@@ -265,6 +277,10 @@ pub struct Frit {
     pub text: String,
     /// The file the frit was read from, for messages.
     pub file: PathBuf,
+    /// `layer=` lines, each with its line from 1, in the frit's order. A
+    /// frit read with [`Frit::load`] has its layers' sources in place in
+    /// [`Frit::sources`] and [`Frit::text`].
+    pub layers: Vec<(usize, String)>,
     /// What the frit carries that does nothing, each naming its line:
     /// `compress=`.
     pub warnings: Vec<FritError>,
@@ -293,8 +309,25 @@ pub fn valid_name(name: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'+' | b'-'))
 }
 
+/// Which kind of file the reader reads: a frit, or a layer, whose
+/// `role=` line the reader has already read and left blank.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Part {
+    Set,
+    Layer,
+}
+
 impl Frit {
-    /// Reads and parses the frit at `path`.
+    /// Reads and parses the frit at `path`, with the sources of each layer
+    /// it names in place of its `layer=` line, as the console hands the
+    /// frit to the helper. Each layer is read strictly too, and an error
+    /// in it names the layer's file and line. A `layer=` line that adds
+    /// nothing, such as one naming a missing layer, is a warning, and the
+    /// set reads without that layer, as the console draws it.
+    ///
+    /// References:
+    /// - ADR-1204 D5: layers, read from the `layers/` folder of the frits'
+    ///   directory, and their sources put in place.
     pub fn load(path: &Path) -> Result<Frit, FritError> {
         let err = |why: String| FritError {
             file: path.to_owned(),
@@ -307,12 +340,92 @@ impl Frit {
             .and_then(|n| n.to_str())
             .map(|n| n.strip_suffix(".vtfrit").unwrap_or(n))
             .unwrap_or_default();
-        Frit::parse(&bytes, path, stem)
+        let own = Frit::parse(&bytes, path, stem)?;
+        if own.layers.is_empty() {
+            return Ok(own);
+        }
+        let dir = path.parent().unwrap_or(Path::new("/")).join(layer::DIR);
+        let file_of = |name: &str| dir.join(format!("{name}{}", layer::SUFFIX));
+        let mut invalid = None;
+        let mut read = |name: &str| -> Result<Option<String>, String> {
+            let file = file_of(name);
+            if std::fs::symlink_metadata(&file)
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound)
+            {
+                return Ok(None);
+            }
+            let bytes = crate::sources::read_regular(&file, FRIT_BYTES_MAX as u64)
+                .map_err(|why| format!("{why}."))?;
+            if invalid.is_none()
+                && let Err(e) = Frit::parse_layer(&bytes, &file, name)
+            {
+                invalid = Some(e);
+            }
+            String::from_utf8(bytes)
+                .map(Some)
+                .map_err(|_| "the file is not UTF-8 text.".to_owned())
+        };
+        let expanded = layer::expand(&own.text, &mut read);
+        if let Some(e) = invalid {
+            return Err(e);
+        }
+        let place = |n: usize| match expanded.from(n) {
+            Some(layer::From::Layer { layer, line }) => expanded
+                .placed
+                .get(layer)
+                .map_or((path.to_owned(), 0), |p| (file_of(&p.name), line)),
+            Some(layer::From::Set(line)) => (path.to_owned(), line),
+            None => (path.to_owned(), 0),
+        };
+        let mapped = |e: FritError| {
+            let (file, line) = if e.line == 0 {
+                (path.to_owned(), 0)
+            } else {
+                place(e.line)
+            };
+            FritError { file, line, ..e }
+        };
+        let mut frit = Frit::parse(expanded.text.as_bytes(), path, stem).map_err(mapped)?;
+        frit.warnings = frit.warnings.into_iter().map(mapped).collect();
+        frit.warnings
+            .extend(expanded.notes.iter().map(|note| FritError {
+                file: path.to_owned(),
+                line: note.line,
+                why: layer_why(&file_of(&note.layer), note),
+            }));
+        frit.layers = own.layers;
+        Ok(frit)
+    }
+
+    /// Reads a layer's bytes strictly, as a frit's are read: its structure
+    /// first, `role=` and then sources and the keys that describe them,
+    /// and then every value. `file` names it in errors, each naming the
+    /// layer's own line, and `name` is the layer's name. The layer's role
+    /// is the answer.
+    pub fn parse_layer(bytes: &[u8], file: &Path, name: &str) -> Result<layer::Role, FritError> {
+        let err = |line: usize, why: String| FritError {
+            file: file.to_owned(),
+            line,
+            why,
+        };
+        let text = std::str::from_utf8(bytes).map_err(|_| err(0, "not UTF-8".to_owned()))?;
+        let parsed = layer::parse(text).map_err(|e| err(e.line, e.why))?;
+        Frit::parse_part(parsed.body.as_bytes(), file, name, Part::Layer)?;
+        Ok(parsed.role)
     }
 
     /// Parses a frit's bytes; `file` names it in errors and `stem` is the
-    /// set's name when the frit gives none.
+    /// set's name when the frit gives none. A `layer=` line is read as the
+    /// name of a layer and listed in [`Frit::layers`], and adds no source:
+    /// [`Frit::load`] puts the layers' sources in place, as the console
+    /// does before it hands a frit to the helper.
     pub fn parse(bytes: &[u8], file: &Path, stem: &str) -> Result<Frit, FritError> {
+        Frit::parse_part(bytes, file, stem, Part::Set)
+    }
+
+    /// Parses a frit's bytes, or for [`Part::Layer`] the lines of a layer
+    /// after its `role=` line, which take no set name.
+    fn parse_part(bytes: &[u8], file: &Path, stem: &str, part: Part) -> Result<Frit, FritError> {
         let err = |line: usize, why: &str| FritError {
             file: file.to_owned(),
             line,
@@ -342,6 +455,7 @@ impl Frit {
         let mut warnings = Vec::new();
         // the sources a `style=` line has named, by their place
         let mut styled: Vec<usize> = Vec::new();
+        let mut layers: Vec<(usize, String)> = Vec::new();
         for (line, n) in text.split('\n').zip(1usize..) {
             if line.len() > FRIT_LINE_MAX {
                 return Err(err(n, "the line is too long"));
@@ -377,6 +491,17 @@ impl Frit {
                     .ok_or_else(|| err(n, &format!("{key}= comes before any source= line")))
             };
             match key {
+                "layer" => {
+                    if !layer::valid_name(value) {
+                        return Err(err(
+                            n,
+                            &format!(
+                                "layer={value} does not name a layer: use 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with ."
+                            ),
+                        ));
+                    }
+                    layers.push((n, value.to_owned()));
+                }
                 "name" => {
                     once(name.is_some())?;
                     name = Some(value.to_owned());
@@ -396,6 +521,7 @@ impl Frit {
                         cover: Vec::new(),
                         cp_size: None,
                         script_sources: Vec::new(),
+                        strikes: Vec::new(),
                         style: Style::default(),
                         fits: Vec::new(),
                         line: n,
@@ -477,6 +603,37 @@ impl Frit {
                         }
                     };
                     source.script_sources.push(ScriptSource {
+                        spelling: value.to_owned(),
+                        origin,
+                        line: n,
+                    });
+                }
+                "strike" => {
+                    let i = current(&mut sources)?;
+                    let source = sources
+                        .get_mut(i)
+                        .ok_or_else(|| err(n, "there is no source line"))?;
+                    // a font: source is a console font or an outline font,
+                    // which only the helper finds out, so it may take one
+                    if !matches!(source.origin, Origin::Outline(_) | Origin::Font(_)) {
+                        return Err(err(
+                            n,
+                            "strike= is for an outline font, and the source above it is a bitmap font",
+                        ));
+                    }
+                    let origin = match origin(value) {
+                        Ok(o @ (Origin::Kbd(_) | Origin::File(_) | Origin::Bdf(_))) => o,
+                        _ => {
+                            return Err(err(
+                                n,
+                                "strike= takes a bitmap font as kbd:NAME, file:PATH or bdf:PATH",
+                            ));
+                        }
+                    };
+                    if source.strikes.iter().any(|k| k.origin == origin) {
+                        return Err(err(n, "strike= names this font twice for one source"));
+                    }
+                    source.strikes.push(ScriptSource {
                         spelling: value.to_owned(),
                         origin,
                         line: n,
@@ -649,7 +806,7 @@ impl Frit {
             }
         }
         let name = name.unwrap_or_else(|| stem.to_owned());
-        if !valid_name(&name) {
+        if part == Part::Set && !valid_name(&name) {
             return Err(err(
                 0,
                 &format!(
@@ -657,14 +814,14 @@ impl Frit {
                 ),
             ));
         }
-        if RESERVED.contains(&name.as_str()) {
+        if part == Part::Set && RESERVED.contains(&name.as_str()) {
             return Err(err(
                 0,
                 &format!("{name} is the name of a built-in font set"),
             ));
         }
-        if sources.is_empty() {
-            return Err(err(0, "there is no source= line"));
+        if sources.is_empty() && layers.is_empty() {
+            return Err(err(0, "there is no source= or layer= line"));
         }
         Ok(Frit {
             name,
@@ -680,7 +837,36 @@ impl Frit {
             text: text.to_owned(),
             file: file.to_owned(),
             warnings,
+            layers,
         })
+    }
+}
+
+/// Why the `layer=` line `note` names adds nothing to the set, for the
+/// layer whose file is `file`: the reason, and that vtium draws the set
+/// without it.
+fn layer_why(file: &Path, note: &layer::Note) -> String {
+    let name = &note.layer;
+    let file = format!("{:?}", file.to_string_lossy());
+    match &note.problem {
+        layer::Problem::BadName => format!(
+            "layer={name} does not name a layer. A layer's name is 1 to 64 of A-Z a-z 0-9 . _ + -, not starting with a dot. vtium draws the font set without it."
+        ),
+        layer::Problem::Missing => format!(
+            "the layer {name} is missing, because there is no file {file}. vtium draws the font set without that layer."
+        ),
+        layer::Problem::Unread(why) => format!(
+            "vtium-config cannot read the layer {name} from {file}: {why} vtium draws the font set without that layer."
+        ),
+        layer::Problem::Invalid(e) => format!(
+            "the layer {name} in {file} has an error: {e}. vtium draws the font set without that layer."
+        ),
+        layer::Problem::Twice(first) => {
+            format!("the layer {name} is already on line {first}, so vtium leaves this line out.")
+        }
+        layer::Problem::RoleTaken { role, by, at } => format!(
+            "the layer {name} is a second {role} layer, after {by} on line {at}. A font set holds one {role} layer, so vtium draws the font set without {name}."
+        ),
     }
 }
 
@@ -1277,7 +1463,7 @@ mod tests {
                 "cannot be a font set's name",
             ),
             ("name=a b\nsource=kbd:x\n", 0, "cannot be a font set's name"),
-            ("# nothing\n", 0, "there is no source= line"),
+            ("# nothing\n", 0, "there is no source= or layer= line"),
         ] {
             let (l, w) = refusal(text);
             assert_eq!(l, line, "{text:?}: {w}");
@@ -1287,6 +1473,180 @@ mod tests {
 
     // ADR-1200 D1: compress= has nothing to act on, so a frit carrying it
     // is accepted, with one warning naming the file and the line.
+    // ADR-1204 D2: strike= names a bitmap file of the outline source above
+    // it, once for each file, and nothing else takes it
+    #[test]
+    fn strike_names_bitmap_files_of_the_outline_source_above_it() {
+        let frit = parse(
+            "source=outline:/t.ttf\nstrike=bdf:/t12.bdf\nstrike=kbd:ter-v16n\nsource=font:Other\nstrike=file:/o.psf\n",
+        )
+        .expect("the frit");
+        let named: Vec<Vec<(&str, usize)>> = frit
+            .sources
+            .iter()
+            .map(|s| {
+                s.strikes
+                    .iter()
+                    .map(|k| (k.spelling.as_str(), k.line))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(
+            named,
+            [
+                vec![("bdf:/t12.bdf", 2), ("kbd:ter-v16n", 3)],
+                vec![("file:/o.psf", 5)]
+            ]
+        );
+        for (text, line, why) in [
+            (
+                "strike=bdf:/a.bdf\n",
+                1,
+                "strike= comes before any source= line",
+            ),
+            (
+                "source=kbd:x\nstrike=bdf:/a.bdf\n",
+                2,
+                "strike= is for an outline font",
+            ),
+            (
+                "source=outline:/t.ttf\nstrike=outline:/a.ttf\n",
+                2,
+                "strike= takes a bitmap font",
+            ),
+            (
+                "source=outline:/t.ttf\nstrike=bdf:/a.bdf\nstrike=bdf:/a.bdf\n",
+                3,
+                "strike= names this font twice",
+            ),
+        ] {
+            let (n, e) = refusal(text);
+            assert_eq!(n, line, "{text:?}");
+            assert!(e.starts_with(why), "{text:?}: {e}");
+        }
+    }
+
+    // ADR-1204 D5: vtium-config reads a frit's layers from the layers/
+    // folder beside it and puts their sources in place, reads each layer
+    // strictly, and reads a layer= line that adds nothing as a warning
+    #[test]
+    fn load_puts_each_layers_sources_in_place() {
+        let dir = crate::scratch::Scratch::new("frit-layers");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let set = dir.join("set.vtfrit");
+        std::fs::write(
+            &set,
+            "source=font:Text\nlayer=symbols\nlayer=gone\nlayer=emoji\nlayer=emoji2\ncompress=yes\nsize=12\n",
+        )
+        .expect("the frit");
+        std::fs::write(
+            layers.join("symbols.vtlayer"),
+            "# icons\nrole=symbols\nsource=font:Symbols\ncover=U+E000-U+F8FF\nfit=natural\n",
+        )
+        .expect("a layer");
+        for name in ["emoji", "emoji2"] {
+            std::fs::write(
+                layers.join(format!("{name}.vtlayer")),
+                "role=emoji\nsource=font:Emoji\n",
+            )
+            .expect("a layer");
+        }
+        let frit = Frit::load(&set).expect("the frit");
+        let spelled: Vec<&str> = frit.sources.iter().map(|s| s.spelling.as_str()).collect();
+        assert_eq!(spelled, ["font:Text", "font:Symbols", "font:Emoji"]);
+        assert_eq!(frit.sources[1].cover, [(0xe000, 0xf8ff)]);
+        assert_eq!(frit.size, Some(12));
+        assert_eq!(
+            frit.layers,
+            [
+                (2, "symbols".to_owned()),
+                (3, "gone".to_owned()),
+                (4, "emoji".to_owned()),
+                (5, "emoji2".to_owned())
+            ]
+        );
+        let warnings: Vec<String> = frit.warnings.iter().map(ToString::to_string).collect();
+        let gone = layers.join("gone.vtlayer");
+        assert_eq!(
+            warnings,
+            [
+                format!(
+                    "{}:6: compress= has no effect here, and is ignored",
+                    set.display()
+                ),
+                format!(
+                    "{}:3: the layer gone is missing, because there is no file {:?}. vtium draws the font set without that layer.",
+                    set.display(),
+                    gone.display().to_string()
+                ),
+                format!(
+                    "{}:5: the layer emoji2 is a second emoji layer, after emoji on line 4. A font set holds one emoji layer, so vtium draws the font set without emoji2.",
+                    set.display()
+                ),
+            ]
+        );
+    }
+
+    // ADR-1204 D5: a layer is read as strictly as a frit, and its error
+    // names the layer's file and the layer's own line
+    #[test]
+    fn a_layers_error_names_the_layers_file_and_line() {
+        let dir = crate::scratch::Scratch::new("frit-layer-error");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let set = dir.join("set.vtfrit");
+        std::fs::write(&set, "source=font:Text\nlayer=bad\n").expect("the frit");
+        let bad = layers.join("bad.vtlayer");
+        for (text, line, why) in [
+            (
+                "role=symbols\nsource=font:S\ncover=nowhere\n",
+                3,
+                "cover=nowhere is not one of",
+            ),
+            (
+                "role=symbols\n\nsource=font:S\nfit=tight\n",
+                4,
+                "fit= takes fill, natural or room",
+            ),
+            (
+                "role=symbols\nsource=font:S\ncell=8x16\n",
+                3,
+                "cell= is a font set's key",
+            ),
+            ("source=font:S\n", 1, "a layer starts with role="),
+            (
+                "role=symbols\nsource=font:S\nversion=1.0\n",
+                3,
+                "unknown key version",
+            ),
+        ] {
+            std::fs::write(&bad, text).expect("the layer");
+            let e = Frit::load(&set).expect_err(text);
+            assert_eq!(
+                (e.file.as_path(), e.line),
+                (bad.as_path(), line),
+                "{text:?}"
+            );
+            assert!(e.why.starts_with(why), "{text:?}: {}", e.why);
+        }
+        // a layer named unifont is a layer's name, though no frit takes it
+        std::fs::write(&set, "source=font:Text\nlayer=unifont\n").expect("the frit");
+        std::fs::write(
+            layers.join("unifont.vtlayer"),
+            "role=fallback\nsource=bdf:/usr/share/fonts/unifont.bdf.gz\n",
+        )
+        .expect("the layer");
+        assert_eq!(Frit::load(&set).expect("the frit").sources.len(), 2);
+        // the set's own error still names the set's own line, after a layer
+        std::fs::write(&set, "source=font:Text\nlayer=unifont\nsize=0\n").expect("the frit");
+        let e = Frit::load(&set).expect_err("size=0");
+        assert_eq!((e.file.as_path(), e.line), (set.as_path(), 3));
+        // a layer= line names a layer by a frit's name
+        let e = parse("source=font:A\nlayer=../x\n").expect_err("../x");
+        assert_eq!(e.line, 2);
+    }
+
     #[test]
     fn compress_is_accepted_with_one_warning_naming_its_line() {
         for value in ["yes", "no", "zstd"] {

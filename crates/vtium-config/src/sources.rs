@@ -720,6 +720,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             let other = Source {
                 cp_size: Some(height),
                 script_sources: Vec::new(),
+                strikes: Vec::new(),
                 ..source.clone()
             };
             if let Ok(input) = resolve(&other, host) {
@@ -735,6 +736,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             cover: Vec::new(),
             cp_size: None,
             script_sources: Vec::new(),
+            strikes: Vec::new(),
             style: source.style,
             fits: Vec::new(),
             line: named.line,
@@ -953,6 +955,7 @@ mod tests {
             cover: Vec::new(),
             cp_size: None,
             script_sources: Vec::new(),
+            strikes: Vec::new(),
             style: vtium_font::Style::default(),
             fits: Vec::new(),
             line: 1,

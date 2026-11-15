@@ -21,6 +21,7 @@ use crate::draft::{FileEdit, Plan, Removal};
 use crate::frit::{FRIT_BYTES_MAX, Frit, RESERVED, valid_name};
 use crate::specimen::Sources;
 use crate::tui::{Paths, model::FontState};
+use vtium_font::set::layer;
 
 /// The usage error `why`, as every command reports one.
 fn usage(err: &mut dyn Write, why: &str) -> u8 {
@@ -392,6 +393,17 @@ pub const TEMPLATE: &str = "\
 source=font:DejaVu Sans Mono
 #source=builtin:unifont
 #
+# A layer: the sources of /etc/vtium/fonts/layers/NAME.vtlayer, put in place
+# of this line. A layer brings a script, symbols, emoji or the fallback, and
+# a font set holds one symbols, one emoji and one fallback layer at most.
+#layer=noto-emoji
+#
+# A bitmap file of the same design as the outline font on the source= line
+# above it. A cell up to the tallest such file's height draws the tallest
+# one that fits it, and the outline draws larger cells. Write it as kbd:NAME,
+# file:PATH or bdf:PATH, and repeat the line for each file.
+#strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+#
 # A smaller size of the bitmap font on the source= line above it, which
 # draws that font's superscripts and subscripts. Its characters must be
 # from half to three quarters as high as the font's own. Write it as kbd:NAME,
@@ -455,6 +467,8 @@ pub fn name_from(font: &str) -> String {
 /// What `new`'s words ask for.
 struct NewArgs {
     fonts: Vec<String>,
+    /// `--layer`'s names, in the order the flags came in.
+    layers: Vec<String>,
     name: Option<String>,
     cell: Option<String>,
     size: Option<String>,
@@ -465,6 +479,7 @@ struct NewArgs {
 fn new_args(words: &[String]) -> Result<NewArgs, String> {
     let mut a = NewArgs {
         fonts: Vec::new(),
+        layers: Vec::new(),
         name: None,
         cell: None,
         size: None,
@@ -484,6 +499,7 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
             "--name" => a.name = Some(value("--name")?),
             "--cell" => a.cell = Some(value("--cell")?),
             "--size" => a.size = Some(value("--size")?),
+            "--layer" => a.layers.push(value("--layer")?),
             w if w.starts_with("--") => return Err(format!("new-frit has no option {w}")),
             w => a.fonts.push(w.to_owned()),
         }
@@ -491,11 +507,26 @@ fn new_args(words: &[String]) -> Result<NewArgs, String> {
     Ok(a)
 }
 
-/// A new frit's text from `new`'s fonts and options.
+/// A new frit's text from `new`'s fonts and options, with no layer.
 pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<&str>) -> String {
+    layered_frit(name, fonts, &[], cell, size)
+}
+
+/// A new frit's text from `new`'s fonts, its `layers` in the order they
+/// go in the set ([`layer_order`]), and its options.
+pub fn layered_frit(
+    name: &str,
+    fonts: &[String],
+    layers: &[String],
+    cell: Option<&str>,
+    size: Option<&str>,
+) -> String {
     let mut text = format!("# {name}: made by vtium-config new-frit\nname={name}\n");
     for font in fonts {
         text.push_str(&format!("source={}\n", source_spelling(font)));
+    }
+    for layer in layers {
+        text.push_str(&format!("layer={layer}\n"));
     }
     if let Some(cell) = cell {
         text.push_str(&format!("cell={cell}\n"));
@@ -504,6 +535,50 @@ pub fn frit_from(name: &str, fonts: &[String], cell: Option<&str>, size: Option<
         text.push_str(&format!("size={size}\n"));
     }
     text
+}
+
+/// The layers `names` in the order a set holds them: script layers, then
+/// the symbols layer, then the emoji layer, then the fallback layer, each
+/// role's layers in the order they were named. Each layer is read from
+/// the `layers/` folder of `frits`, strictly, for its role. A name with no
+/// layer file, a layer the reader refuses, a name given twice and a
+/// second layer of a role a set holds once are refused.
+///
+/// References:
+/// - ADR-1204 D5: `new-frit --layer`.
+/// - ADR-1204 D6: the roles' order, and one symbols, emoji and fallback
+///   layer in a set at most.
+pub fn layer_order(frits: &Path, names: &[String]) -> Result<Vec<String>, String> {
+    let dir = frits.join(layer::DIR);
+    let mut roles: Vec<(layer::Role, &str)> = Vec::new();
+    for name in names {
+        if !layer::valid_name(name) {
+            return Err(format!(
+                "{name:?} cannot be a layer's name: a name has 1 to 64 letters, digits, '.', '_', '+' or '-'"
+            ));
+        }
+        if roles.iter().any(|&(_, n)| n == name) {
+            return Err(format!("--layer {name} is named twice"));
+        }
+        let file = dir.join(format!("{name}{}", layer::SUFFIX));
+        if !file.exists() {
+            return Err(format!(
+                "there is no layer {name}: {} does not exist",
+                file.display()
+            ));
+        }
+        let bytes = read_bounded(&file)?;
+        let role = Frit::parse_layer(&bytes, &file, name).map_err(|e| e.to_string())?;
+        if let Some(&(_, other)) = roles.iter().find(|&&(r, _)| r == role && role.single()) {
+            return Err(format!(
+                "{other} and {name} are both {role} layers, and a font set holds one {role} layer"
+            ));
+        }
+        roles.push((role, name));
+    }
+    // a stable sort keeps each role's layers in the order they were named
+    roles.sort_by_key(|&(role, _)| role);
+    Ok(roles.into_iter().map(|(_, n)| n.to_owned()).collect())
 }
 
 /// The plan that installs the frit `text` as `name` in `paths`' frits,
@@ -553,22 +628,23 @@ pub fn frit_plan(paths: &Paths, name: &str, text: &str) -> Result<Plan, String> 
 /// `new`'s non-interactive forms (ADR-1200 D4, ADR-1201 D9): `new
 /// --template` prints a frit to edit; `new --from FILE [--name NAME]`
 /// installs the frit in FILE; `new FONT... [--name NAME] [--cell WxH]
-/// [--size POINTS]` makes a frit of the fonts, in order, each a family or
-/// a source as a frit spells it.
+/// [--size POINTS] [--layer NAME]...` makes a frit of the fonts, in
+/// order, each a family or a source as a frit spells it, and the layers
+/// in the order of their roles ([`layer_order`]).
 pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     let a = match new_args(words) {
         Ok(a) => a,
         Err(why) => return usage(err, &why),
     };
     if a.template {
-        if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() {
+        if !a.fonts.is_empty() || a.from.is_some() || a.name.is_some() || !a.layers.is_empty() {
             return usage(err, "new-frit --template takes no other argument");
         }
         let _ = write!(out, "{TEMPLATE}");
         return 0;
     }
     let (name, text) = match (&a.from, a.fonts.is_empty()) {
-        (Some(file), true) if a.cell.is_none() && a.size.is_none() => {
+        (Some(file), true) if a.cell.is_none() && a.size.is_none() && a.layers.is_empty() => {
             let bytes = match read_bounded(Path::new(file)) {
                 Ok(bytes) => bytes,
                 Err(why) => return failed(err, &why),
@@ -591,13 +667,28 @@ pub fn new(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn W
                 .name
                 .clone()
                 .unwrap_or_else(|| a.fonts.first().map(|f| name_from(f)).unwrap_or_default());
-            let text = frit_from(&name, &a.fonts, a.cell.as_deref(), a.size.as_deref());
+            let layers = match &paths.frits {
+                _ if a.layers.is_empty() => Ok(Vec::new()),
+                Ok(frits) => layer_order(frits, &a.layers),
+                Err(why) => Err(why.clone()),
+            };
+            let layers = match layers {
+                Ok(layers) => layers,
+                Err(why) => return failed(err, &why),
+            };
+            let text = layered_frit(
+                &name,
+                &a.fonts,
+                &layers,
+                a.cell.as_deref(),
+                a.size.as_deref(),
+            );
             (name, text)
         }
         _ => {
             return usage(
                 err,
-                "new-frit takes FONT... with --name, --cell and --size, or --from FILE with --name, or --template",
+                "new-frit takes FONT... with --name, --cell, --size and --layer, or --from FILE with --name, or --template",
             );
         }
     };

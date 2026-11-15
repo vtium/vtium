@@ -237,6 +237,86 @@ fn new_makes_a_frit_of_fonts_and_installs_one_from_a_file() {
     }
 }
 
+// ADR-1204 D5, D6: new-frit --layer, once for each layer, writes the
+// layers after the fonts in the order of their roles, script, symbols,
+// emoji and fallback, whatever order the flags come in. An unknown layer,
+// a layer named twice and a second layer of a role a set holds once are
+// refused, and draft nothing
+#[test]
+fn new_frit_writes_its_layers_in_the_order_of_their_roles() {
+    let f = fixture("new-layers", None);
+    let fonts = f.etc().join("fonts");
+    let layers = fonts.join("layers");
+    std::fs::create_dir_all(&layers).expect("the layers' folder");
+    for (name, role) in [
+        ("unifont", "fallback"),
+        ("noto-emoji", "emoji"),
+        ("other-emoji", "emoji"),
+        ("nerd-symbols", "symbols"),
+        ("arabic", "script"),
+        ("hebrew", "script"),
+    ] {
+        std::fs::write(
+            layers.join(format!("{name}.vtlayer")),
+            format!("role={role}\nsource=font:{name}\n"),
+        )
+        .expect("a layer");
+    }
+    let ran = f.run(&[
+        "new-frit",
+        "Iosevka Term",
+        "--layer",
+        "unifont",
+        "--layer",
+        "noto-emoji",
+        "--layer",
+        "hebrew",
+        "--layer",
+        "nerd-symbols",
+        "--layer",
+        "arabic",
+        "--name",
+        "mine",
+    ]);
+    let applied = f.apply_printed(&ran);
+    assert_eq!(applied.status, 0, "{}{}", applied.out, applied.err);
+    let made = std::fs::read_to_string(fonts.join("mine.vtfrit")).expect("the new frit");
+    assert!(
+        made.ends_with(
+            "\nsource=font:Iosevka Term\nlayer=hebrew\nlayer=arabic\nlayer=nerd-symbols\nlayer=noto-emoji\nlayer=unifont\n"
+        ),
+        "{made}"
+    );
+    for (args, says) in [
+        (
+            &["new-frit", "x", "--layer", "gone"][..],
+            "there is no layer gone",
+        ),
+        (
+            &["new-frit", "x", "--layer", "arabic", "--layer", "arabic"],
+            "--layer arabic is named twice",
+        ),
+        (
+            &[
+                "new-frit",
+                "x",
+                "--layer",
+                "noto-emoji",
+                "--layer",
+                "other-emoji",
+            ],
+            "noto-emoji and other-emoji are both emoji layers",
+        ),
+    ] {
+        let ran = f.run(args);
+        assert_eq!(ran.status, 1, "{args:?}: {}", ran.out);
+        assert!(ran.err.contains(says), "{args:?}: {}", ran.err);
+        assert!(ran.out.is_empty(), "{args:?}: {}", ran.out);
+    }
+    let ran = f.run(&["new-frit", "--template", "--layer", "arabic"]);
+    assert_eq!(ran.status, 2, "{}", ran.err);
+}
+
 /// vtium.conf's `font-frits` names the frits' directory the console
 /// reads, so with no `--frits` every command lists, writes and removes
 /// frits there, and never in the build's default directory.
