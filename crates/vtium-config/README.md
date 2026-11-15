@@ -297,7 +297,7 @@ This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 - `cover=` (`ascii`, `latin-1`, `gb2312`, `gbk`, `big5`, `jis-x-0208`, `ks-x-1001`, `U+XXXX` and `U+XXXX-U+YYYY`);
 - `cp-size=`;
 - `style=`, which is `regular`, `bold`, `italic` or `bold-italic`, for the source above it. The style is regular when no line names one. Any other value refuses the frit, naming its line.
-- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=` and `license=`.
+- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`.
 
 The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
 
@@ -310,6 +310,15 @@ The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a s
 `antialias=` is `auto` or `no`. The engine reads it once ADR-1301 D6's grid is built.
 
 `hinting=`, given once, is `light` or `full`. `light` is the default, and fits outline glyphs to the pixel grid up and down only. `full` also fits them sideways. See [Outline fonts](#outline-fonts) for how.
+
+`render=`, once for each outline source, says how the glyphs of the `source=` line above it draw. `bitmap` draws them as a bitmap font's glyphs draw. The helper hints each outline fully, as `hinting=full` does, whatever `hinting=` says. It then lights each pixel that the glyph covers at least half of, and turns every other pixel off. A glyph that would light no pixel at all, such as a small dot between two pixels, keeps the one pixel it covers most. `smooth` draws the glyphs as any outline glyph draws, under the console's own rules for antialiasing. A source with no `render=` line draws as `bitmap` when the frit's first source is a bitmap font, and as `smooth` otherwise. So the outline glyphs that fill a bitmap font's gaps look like the rest of that font. For example, Noto Sans CJK behind Terminus draws its ideographs 1-bit:
+
+```ini
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+```
+
+Color glyphs keep their color under both values, and vtium's own sprites draw as the sprite policy says. The line under a bitmap source refuses the frit, naming its line. The line under a `font:` source that turns out to be a console font is ignored, with a warning (ADR-1200 D1).
 
 `script-source=` names a smaller size of the same font as the bitmap `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`. The line can repeat (ADR-1202 D12). The source's superscripts and subscripts (SGR 73 and 74) come from one of its smaller sizes (ADR-1202 D3). It is the tallest smaller size whose characters are from one half to three quarters as high as the source's characters in the cell. Those smaller sizes are these, each at any whole multiple that fits the cell:
 

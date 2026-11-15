@@ -4772,6 +4772,7 @@ mod tests {
     //
     // References:
     // - ADR-1200 D1, the render= row: the default and its override.
+    // covers: text.outline
     #[test]
     fn outline_glyphs_behind_a_bitmap_first_source_draw_one_bit() {
         let dejavu = concat!(
