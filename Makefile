@@ -485,6 +485,18 @@ arm: arm-sysroot ## Build the minspec profile for each ARM target, target/TRIPLE
 arm-test: arm-sysroot ## Run the workspace's tests for each ARM target under qemu-user (ARM_TEST_TARGETS='...'; needs clang, qemu-user)
 	cargo test --workspace --all-features --no-fail-fast $(addprefix --target ,$(ARM_TEST_TARGETS))
 
+# vtium-term's standing write benchmarks (crates/vtium-term/examples/
+# write_bench.rs): the CPU time the terminal takes to interpret a full-screen
+# redraw, a scroll flood, a run of clusters and plain text, with no renderer.
+# It is no gate. BENCH='redraw cat' picks benchmarks, BENCH_REPS sets the
+# repetitions, and BENCH_FEATURES passes features, for example images.
+BENCH          ?=
+BENCH_REPS     ?= 15
+BENCH_FEATURES ?=
+.PHONY: bench
+bench: ## Time vtium-term's write benchmarks: ms a frame and a MiB, median with the fastest and slowest of BENCH_REPS runs (BENCH='redraw tui scroll clusters cat')
+	cargo run --release -p vtium-term --example write_bench $(if $(BENCH_FEATURES),--features $(BENCH_FEATURES)) -- --reps $(BENCH_REPS) $(BENCH)
+
 # Tier 1 and the capability probes, against the goldens and probes in
 # tools/conformance/.
 .PHONY: conformance
