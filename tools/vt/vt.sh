@@ -39,7 +39,7 @@
 #   VTIUM_VT_GUIDE    for guide: a name in tools/vt/checks (NAME.guide) or a
 #                     path, checked here with guide.sh --check before sudo
 #   VTIUM_VT_STEPS    for guide: only these steps (GUIDE_STEPS="4 8 9")
-#   VTIUM_VT_CONF     for login and shell: a vtium.conf (CONF=) that takes
+#   VTIUM_VT_CONF     for login, shell and guide: a vtium.conf (CONF=) that takes
 #                     the place of tools/vt/config/vtium.conf for the run,
 #                     checked here before sudo and by run-vt.sh as it checks
 #                     the review's (run-vt.sh --config)
@@ -112,7 +112,8 @@ fi
 # The run's own vtium.conf, by its absolute path, as sudo's run-vt.sh reads it.
 conf_arg=()
 if [ -n "${VTIUM_VT_CONF:-}" ]; then
-	[ "$mode" = login ] || [ "$mode" = shell ] || die "CONF goes with make vt-login and make vt-shell"
+	[ "$mode" = login ] || [ "$mode" = shell ] || [ "$mode" = guide ] ||
+		die "CONF goes with make vt-login, make vt-shell and make vt-check"
 	conf=$(readlink -m -- "$VTIUM_VT_CONF")
 	[ -f "$conf" ] || die "CONF=$VTIUM_VT_CONF: no file $conf"
 	conf_arg=(--config="$conf")

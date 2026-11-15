@@ -651,7 +651,8 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', FEATURES='...', VT_DEBUG=1)
+vt-check: export VTIUM_VT_CONF = $(value CONF)
+vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', CONF=PATH, FEATURES='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,
@@ -723,14 +724,15 @@ tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/$
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
-# with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
-# it fetches nothing.
+# with into $XDG_CACHE_HOME/vtium/tier2/fonts, and Adwaita's default cursor file the pointer-file-adwaita
+# screen draws into $XDG_CACHE_HOME/vtium/tier2/pointers, and checks each against its SHA-256; once they
+# are cached, it fetches nothing.
 .PHONY: tier2 tier2-fonts
 tier2: tier2-fonts ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
-tier2-fonts: ## Fetch tier 2's pinned outline fonts into the cache, checking each SHA-256
+tier2-fonts: ## Fetch tier 2's pinned outline fonts and its pinned Adwaita cursor file into the cache, checking each SHA-256
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 fetch-fonts
 
