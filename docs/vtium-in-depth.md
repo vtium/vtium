@@ -16,9 +16,7 @@ You can switch between VTs with Ctrl+Alt and a function key. Ctrl+Alt+F3 usually
 
 The kernel’s built-in text console has remained simple by design. It serves as a fallback when other parts of the system fail. A terminal connected through a serial port provides an even more basic way to access the machine.
 
-That role is changing. Since Linux 6.10, the kernel has been able to display its own crash screen through modern graphics drivers. The Red Hat graphics developers behind that work describe the VT console as one of the [legacy parts of the kernel](https://fedoraproject.org/wiki/Changes/EnableDrmPanic). They propose replacing it with a console that runs as an ordinary program.
-
-vtium is one such console. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
+vtium is a terminal that runs on the Linux console as an ordinary program. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
 
 vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](#provenance) tells in full.
 
