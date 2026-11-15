@@ -44,6 +44,7 @@ use crate::bounds::{
 };
 use crate::cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 use crate::style::Style;
+use crate::unicode::Segmenter;
 
 /// A line's identity: unique within its screen buffer for the buffer's
 /// life, and never reused. A placement anchors to the line holding its top
@@ -1106,15 +1107,16 @@ impl Line {
     }
 
     /// Whether the line holds a share of any sized run. Every run check on
-    /// the print and edit paths asks this first, so a line without runs
-    /// pays one test of its tables for them and nothing more.
+    /// the print and edit paths asks this first. A run marks its line as
+    /// holding wide cells, so a line with no wide cell answers from that
+    /// mark alone, and a line with one reads whether its run table is
+    /// empty. A line without runs pays those one or two reads and nothing
+    /// more.
     ///
     /// References:
     /// - ADR-1009 D9: a line with no run pays no time for runs.
     #[inline]
     pub(crate) fn has_runs(&self) -> bool {
-        // A run marks the line wide, so a line that is not wide answers
-        // from the line itself, without reading its tables.
         self.wide && self.tables.as_ref().is_some_and(|t| !t.runs.is_empty())
     }
 
@@ -1156,16 +1158,56 @@ impl Line {
             return false;
         }
         self.drop_runs(span.clone());
-        for col in span.clone() {
-            let g = if col == span.start {
-                glyph
-            } else {
-                Glyph::Empty
-            };
-            self.write(col, g, Width::Narrow, style, link);
+        // The other cells give back their clusters before the first cell
+        // stores the text, so the text has the room that
+        // [`run_room`](Self::run_room) reports.
+        for col in span.clone().skip(1) {
+            self.write(col, Glyph::Empty, Width::Narrow, style, link);
         }
+        self.write(span.start, glyph, Width::Narrow, style, link);
         self.mark_run(run);
         true
+    }
+
+    /// The bytes of the line's cluster budget that a sized run written over
+    /// the cells `cols` has for its text: the budget less what the cells
+    /// outside `cols` name. A run's text keeps to this room, so the line
+    /// never cuts it in the middle of a grapheme cluster ([`run_fit`]).
+    pub(crate) fn run_room(&self, cols: Range<usize>) -> usize {
+        let Some(t) = self.tables.as_ref() else {
+            return self.cluster_budget();
+        };
+        let freed: usize = self
+            .cells
+            .get(cols)
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|c| match c.content() {
+                Content::Cluster(ClusterOffset(o)) if !t.cluster(o).is_some_and(is_placeholder) => {
+                    Some(t.cluster_size(o))
+                }
+                _ => None,
+            })
+            .fold(0, usize::saturating_add);
+        self.cluster_budget()
+            .saturating_sub(t.live().saturating_sub(freed))
+    }
+
+    /// Gives cell `col` the style `style`, and keeps its text, its width,
+    /// its link and its mark as a cell of a sized run. DECCARA and DECRARA
+    /// change a cell's style this way, so a run whose cells they change
+    /// stays whole.
+    pub(crate) fn set_style(&mut self, col: usize, style: &Style) {
+        if col >= self.cells.len() {
+            return;
+        }
+        // Compaction renumbers the cells, so the style is interned after
+        // it.
+        self.make_room(None);
+        let style = self.intern_style(style);
+        if let Some(cell) = self.cells.get_mut(col) {
+            *cell = cell.with_style(style);
+        }
     }
 
     /// Replaces the text of the share `run` of a sized run with `glyph`,
@@ -1935,7 +1977,13 @@ impl Line {
                     placeholders = placeholders.saturating_add(u16::from(content.is_some()));
                     return content.unwrap_or(first);
                 }
-                let Some(content) = fit(s, room).and_then(|s| {
+                // A run's text keeps whole grapheme clusters.
+                let held = if cell.in_run() {
+                    Some(run_fit(s, room)).filter(|k| k.chars().nth(1).is_some())
+                } else {
+                    fit(s, room)
+                };
+                let Some(content) = held.and_then(|s| {
                     live = live.saturating_add(s.len()).saturating_add(1);
                     append_cluster(&mut kept, s)
                 }) else {
@@ -2006,6 +2054,57 @@ fn fit(s: &str, room: usize) -> Option<&str> {
         count = count.saturating_add(1);
     }
     s.get(..end).filter(|_| count >= 2)
+}
+
+/// The longest run of whole grapheme clusters at the start of `text` that
+/// fits `budget` bytes with a length byte and keeps within [`CLUSTER_MAX`]
+/// codepoints, and at least the first cluster, whatever its size.
+pub(crate) fn whole_clusters(text: &str, budget: usize) -> &str {
+    let fits = |bytes: usize, codepoints: usize| {
+        bytes.saturating_add(1) <= budget && codepoints <= CLUSTER_MAX
+    };
+    let mut state: Option<Segmenter> = None;
+    let (mut kept, mut codepoints) = (0usize, 0usize);
+    for (i, c) in text.char_indices() {
+        if !state.as_mut().is_some_and(|s| s.continues(c)) {
+            // A cluster ends at `i`: the first one stays whatever its size.
+            if i > 0 {
+                if kept > 0 && !fits(i, codepoints) {
+                    return text.get(..kept).unwrap_or(text);
+                }
+                kept = i;
+            }
+            state = Some(Segmenter::start(c));
+        }
+        codepoints = codepoints.saturating_add(1);
+    }
+    if kept > 0 && !fits(text.len(), codepoints) {
+        return text.get(..kept).unwrap_or(text);
+    }
+    text
+}
+
+/// What a line with `room` bytes of its cluster budget left keeps of a
+/// sized run's text: as many whole grapheme clusters as fit
+/// ([`whole_clusters`]). When not even the first cluster fits, the line
+/// keeps that cluster as it keeps printed text, the longest run of its
+/// first codepoints that fits, and at least its first codepoint, since the
+/// line's budget bounds its memory.
+///
+/// References:
+/// - ADR-1308 D3, "The text's bound": whole clusters, and what a line
+///   whose budget is spent keeps.
+/// - ADR-1009 D1: the cluster budget bounds a line's memory.
+pub(crate) fn run_fit(text: &str, room: usize) -> &str {
+    let kept = whole_clusters(text, room);
+    let mut chars = kept.chars();
+    let first = chars.next().map_or(0, char::len_utf8);
+    if chars.next().is_none()
+        || (kept.len().saturating_add(1) <= room && kept.chars().count() <= CLUSTER_MAX)
+    {
+        return kept;
+    }
+    fit(kept, room).unwrap_or_else(|| kept.get(..first).unwrap_or(kept))
 }
 
 /// Appends the cluster `s` to `arena` as its length byte and its bytes,
