@@ -123,3 +123,15 @@ pub use vtium_image as images;
 /// to the image store (ADR-1100, D13).
 #[cfg(feature = "images")]
 pub use vtium_image::PlaceholderRun;
+
+/// The page "Getting started" of the crates' interfaces,
+/// `docs/api/getting-started.md`, included here so that `cargo test` runs
+/// its code as doc tests. A change to vtium-term that breaks the page's
+/// code then fails the tests. The item exists only when rustdoc collects
+/// doc tests, so it adds nothing to the crate.
+///
+/// References:
+/// - ADR-1508 D1: vtium-term's doc tests compile and run the page's code.
+#[cfg(doctest)]
+#[doc = include_str!("../../../docs/api/getting-started.md")]
+pub struct GettingStarted;
