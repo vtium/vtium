@@ -3685,6 +3685,39 @@ mod tests {
         drop(woke);
     }
 
+    // The pointer file's helper starts through the same account check: a
+    // helper still holding the console's supplementary groups is refused,
+    // and no child comes back to talk to. One that holds the account asked
+    // for starts.
+    #[test]
+    fn spawn_piped_refuses_a_helper_that_keeps_supplementary_groups() {
+        let own = std::fs::read_to_string("/proc/self/status").unwrap();
+        let groups = status_ids(&own, "Groups:").unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        if me == 0 || groups.is_empty() {
+            // as root the drop works, and with no group there is none to keep
+            return;
+        }
+        let gid = rustix::process::getegid().as_raw();
+        let command = |account| Command {
+            program: stand_in_shell().to_path_buf(),
+            args: vec!["-c".into(), "cat >/dev/null".into()],
+            account,
+        };
+        let why = Launcher::open(command(Some((me, gid))))
+            .unwrap()
+            .spawn_piped()
+            .unwrap_err();
+        assert!(why.contains("supplementary groups"), "{why}");
+        let mut child = Launcher::open(command(None))
+            .unwrap()
+            .spawn_piped()
+            .unwrap();
+        assert!(child.stdin.is_some() && child.stdout.is_some());
+        drop(child.stdin.take());
+        let _ = child.wait();
+    }
+
     #[test]
     fn a_helper_that_crashes_is_started_again_a_bounded_number_of_times() {
         let (why, restarts) = given_up("dies", "kill -SEGV $$", b"", false);
