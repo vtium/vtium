@@ -48,8 +48,10 @@
 ## font-ligatures: Draw a programming font's ligatures, such as `->` and `!=`,
 ## across the character cells of their characters.
 ##
-## Each character keeps its own cell. A ligature draws apart while the cursor
-## stands on it. Bitmap fonts draw none.
+## Each character keeps its own cell. A ligature splits into its separate
+## characters while the cursor is on one of them, while a selection covers
+## only part of it, or when its characters differ in color or style. Bitmap
+## fonts and the built-in fonts show no ligatures.
 
 #font-name=
 #font-frits=/etc/vtium/fonts

@@ -1584,7 +1584,7 @@ pub const FONT_LIGATURES: Key = Key {
     levels: TOP_LOOK,
     reader: "vtium-render",
     what: "Draw a programming font's ligatures, such as `->` and `!=`, across the character cells of their characters.\n\n\
-           Each character keeps its own cell. A ligature draws apart while the cursor stands on it. Bitmap fonts draw none.",
+           Each character keeps its own cell. A ligature splits into its separate characters while the cursor is on one of them, while a selection covers only part of it, or when its characters differ in color or style. Bitmap fonts and the built-in fonts show no ligatures.",
     cite: "[the programming ligatures issue](https://github.com/vtium/vtium/issues/23)",
 };
 
