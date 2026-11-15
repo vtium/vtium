@@ -213,6 +213,8 @@ When the built-in font is all vtium has, it draws each character of its list. Ev
 
 The acceptance check: vtium starts with no vtium.conf, no font sets, no font files and no font helper. It reaches a login prompt drawn in the built-in font, and its notices draw in the built-in font. A unit test in vtium checks the drawing with an empty configuration directory and no helper. A tier 3 case removes `/etc/vtium`, vtium's font files and the helper from the guest, restarts vtium's service, and compares the login prompt and a notice with their goldens.
 
+> Note 2026-11-15: card 5 of D14 lands in two parts. Card 5a compiles the built-in font in and draws vtium's notices, on-screen display, focus mark and panic screen in it. In those messages, a character outside the list draws as the hollow box. Card 5a also gives vtium the check that shows a translation beyond the list in English. The terminal itself still draws in the compiled-in GNU Unifont and Unscii-8 when no font is named, so with nothing installed the login prompt draws in Unifont. Card 5b removes Unifont and Unscii-8 from the binary and moves the terminal to the built-in font. Only then does the acceptance check's login prompt draw in the built-in font, and only then does a character outside the list draw as a hollow box in the terminal.
+
 ### D2: the default set, `terminus`, in two tiers
 
 vtium's default font set, `terminus` in `console/`, sits on top of the built-in font (D1). The built-in font is always there, and it always draws vtium's own messages. On the minspec builds, bitmap Terminus sits on top of it. In the full package, the complete `terminus` set sits on top of it. A character that none of the set's sources holds falls through to the built-in font, and a character that the built-in font lacks too draws as a hollow box.
@@ -481,6 +483,9 @@ The build cards, in order:
 3. **The catalog.** `docs/concepts/fonts.md` and `docs/fonts-for-scripts.md` say plainly that installing a Nerd Fonts build gives the Font Logos icons and full Nerd Fonts coverage. The kernel-font sets, each checked glyph by glyph against the kernel's font it names. The category folders and layers, every member of D3, the renames, the fold of `proof`, the Makefile's lists, and the docs. Specimens that move go in a golden commit of their own.
 4. **The catalog check** of D12, and the TSV beside this record.
 5. **The built-in font.** The list file, the build step that cuts the three strikes, the hollow box for every other character, the English message for a translation beyond the list, and the acceptance check of D1, as a unit test and a tier 3 case.
+
+   > Note 2026-11-15: this card lands as cards 5a and 5b, as D1's note of the same date says.
+
 6. **The default set in two tiers.** The full package installs the Terminus and Unifont files in `/usr/share/vtium/fonts/` and depends on the icon and emoji packages; the minspec builds install the Terminus files alone. `terminus` becomes the font with none named, and the tier 3 case of D2 runs with each install tree on a guest with no other font package.
 7. **Cullet Mono.** The build step that patches Terminus (TTF) 4.49.3 with Nerd Fonts' patcher at a pinned release and every icon set apart from Font Logos, reproducibly from pinned sources; and its notices.
 8. **The recipes.** vtium-arch's vtium-fonts installs the catalog, depends on the distribution's font packages, carries the four pinned fonts with their license texts and the notices file, and carries no Nerd Fonts file. The vtium recipe drops its own `terminus.vtfrit`, installs the Terminus and Unifont files, and names vtium-fonts as optional.

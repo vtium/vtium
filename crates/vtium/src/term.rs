@@ -430,7 +430,10 @@ impl Overlay {
     /// only written, as [`Overlay::draw`] does. Every character of a notice
     /// and the mark comes from vtium's built-in font in the renderer's cell
     /// ([`crate::font::own_face`]), whatever font the terminal draws in.
-    /// The renderer's sprite policy and missing glyph hold for it.
+    /// The renderer's sprite policy holds for it. A character the built-in
+    /// font lacks draws as a hollow box, and the mark as its square. An
+    /// overlay with no notice and no mark draws nothing, so the frames
+    /// that show neither build no face for it.
     ///
     /// References:
     /// - ADR-1204 D1: vtium's own messages always draw in the built-in
@@ -443,13 +446,14 @@ impl Overlay {
         size: (u32, u32),
         target: &mut impl Target,
     ) -> Vec<DisplayRect> {
+        if self.notice.is_none() && self.mark.is_none() {
+            return Vec::new();
+        }
         let own = renderer.font();
         let depth = renderer.depth();
         match crate::font::own_face(own.face().cell()) {
             Some(face) => {
-                let font = Font::new(face)
-                    .with_policy(own.policy())
-                    .with_missing(own.missing());
+                let font = Font::new(face).with_policy(own.policy());
                 self.draw_with(&font, depth, grid, orientation, size, target)
             }
             None => self.draw_with(own, depth, grid, orientation, size, target),
@@ -1956,6 +1960,22 @@ mod tests {
                 .collect();
             assert_eq!(shown, want, "{n} buffers");
         }
+    }
+
+    /// An overlay with no notice and no mark builds no face of the
+    /// built-in font, so the frames of a head that shows neither cost no
+    /// allocation for it.
+    #[test]
+    fn an_empty_overlay_builds_no_face() {
+        let (mut term, mut view) = view();
+        let mut video = Flip::new();
+        term.terminal.input(b"AB");
+        crate::font::OWN_FACES.set(0);
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(crate::font::OWN_FACES.get(), 0, "no notice, no mark");
+        view.overlay = Overlay::new(None, &["a notice"], None, OverlayColors::default());
+        draw(&mut term, &mut view, &mut video, None);
+        assert_eq!(crate::font::OWN_FACES.get(), 1, "a notice");
     }
 
     // A notice drawn over the frame and gone is gone from every buffer: the

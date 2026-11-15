@@ -640,25 +640,44 @@ impl Mark {
 /// sprite of partial coverage.
 fn standin<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width) -> Option<Glyph> {
     let g = font.glyph(&[c], width, Style::default())?;
-    Some(
-        Fallback::new(depth, font.cell())
-            .and_then(|f| f.glyph(&g, 1, &[c], width, Variant::default()))
-            .unwrap_or(g),
-    )
+    Some(at_depth(font, depth, c, width, g))
+}
+
+/// `g`, the glyph of `c` `width` cells wide in `font`, as a cell at
+/// `depth` draws it, as [`standin`] says.
+fn at_depth<F: Face>(font: &Font<F>, depth: Depth, c: char, width: Width, g: Glyph) -> Glyph {
+    Fallback::new(depth, font.cell())
+        .and_then(|f| f.glyph(&g, 1, &[c], width, Variant::default()))
+        .unwrap_or(g)
+}
+
+/// How a notice draws one of its characters.
+enum Shape {
+    /// The character's own glyph, or nothing where the font draws none.
+    Glyph(Option<Glyph>),
+    /// The hollow box as wide as the character's cells.
+    Box,
 }
 
 /// The glyphs of a notice's characters, each drawn once however often it
 /// appears, with the cells it takes: its face's advance for it, which the
-/// face gives without drawing the glyph. A character the font lacks takes
-/// the cells the terminal gives it and draws as a hollow box as wide as
-/// them ([`hollow_box`]).
+/// face gives without drawing the glyph. A character of a range that
+/// vtium draws as sprites, such as box drawing, draws as its sprite where
+/// the font lacks it, whatever the font's policy says, so a dashed line
+/// in a notice stays a dashed line. Any other character the font lacks
+/// takes the cells the terminal gives it and draws as a hollow box as
+/// wide as them ([`hollow_box`]). Every narrow box is the same, and so is
+/// every wide one, so the notice draws each at most once.
 ///
 /// References:
 /// - ADR-1204 D1: a character the built-in font lacks draws as a hollow
-///   box as wide as its cells.
+///   box as wide as its cells, and the sprites draw the box-drawing
+///   characters the built-in font lacks.
 struct Glyphs {
     /// Sorted by character.
-    glyphs: Vec<(char, Width, Option<Glyph>)>,
+    glyphs: Vec<(char, Width, Shape)>,
+    /// The narrow box and the wide one, where a character draws as one.
+    boxes: [Option<Glyph>; 2],
 }
 
 impl Glyphs {
@@ -666,24 +685,36 @@ impl Glyphs {
         let mut chars: Vec<char> = text.chars().filter(|&c| c != '\n').collect();
         chars.sort_unstable();
         chars.dedup();
+        let cell = font.cell();
+        let mut boxes = [None, None];
         let glyphs = chars
             .into_iter()
             .map(|c| {
-                if !font.has_glyph(c) {
-                    let width = match vtium_term::cluster_width(&[c]) {
-                        2 => Width::Wide,
-                        _ => Width::Narrow,
-                    };
-                    return (c, width, hollow_box(font.cell(), width));
+                if font.has_glyph(c) {
+                    let width = font.face().advance(c).unwrap_or(Width::Narrow);
+                    return (c, width, Shape::Glyph(standin(font, depth, c, width)));
                 }
-                let width = font.face().advance(c).unwrap_or(Width::Narrow);
-                (c, width, standin(font, depth, c, width))
+                let width = match vtium_term::cluster_width(&[c]) {
+                    2 => Width::Wide,
+                    _ => Width::Narrow,
+                };
+                let thick = vtium_font::sprite::light_line(cell.height);
+                let w = cell.width.saturating_mul(width.cells());
+                if let Some(g) = vtium_font::sprite::draw(c, w, cell.height, thick) {
+                    let g = at_depth(font, depth, c, width, g.with_cells(width));
+                    return (c, width, Shape::Glyph(Some(g)));
+                }
+                let slot = usize::from(width == Width::Wide);
+                if let Some(empty @ None) = boxes.get_mut(slot) {
+                    *empty = hollow_box(cell, width);
+                }
+                (c, width, Shape::Box)
             })
             .collect();
-        Glyphs { glyphs }
+        Glyphs { glyphs, boxes }
     }
 
-    fn get(&self, c: char) -> Option<&(char, Width, Option<Glyph>)> {
+    fn get(&self, c: char) -> Option<&(char, Width, Shape)> {
         let i = self.glyphs.binary_search_by_key(&c, |g| g.0).ok()?;
         self.glyphs.get(i)
     }
@@ -693,7 +724,10 @@ impl Glyphs {
     }
 
     fn glyph(&self, c: char) -> Option<&Glyph> {
-        self.get(c).and_then(|g| g.2.as_ref())
+        match self.get(c)? {
+            (_, _, Shape::Glyph(g)) => g.as_ref(),
+            (_, width, Shape::Box) => self.boxes.get(usize::from(*width == Width::Wide))?.as_ref(),
+        }
     }
 }
 
@@ -1418,6 +1452,59 @@ mod tests {
         at(1, &boxed(Width::Wide));
         at(3, &boxed(Width::Narrow));
         at(4, &letter('b'));
+    }
+
+    /// Under a policy that draws box drawing from the font, a box-drawing
+    /// character the built-in font lacks still draws as its sprite, not
+    /// as a hollow box: Terminus has no U+2504, the dashed line.
+    ///
+    /// References:
+    /// - ADR-1204 D1: the sprites draw the characters Terminus lacks.
+    #[test]
+    fn a_box_drawing_character_the_font_lacks_draws_as_its_sprite() {
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        let face = vtium_font::set::own::face(cell).expect("a strike");
+        let policy = vtium_font::SpritePolicy::all(vtium_font::Source::Font);
+        let font = Font::new(face).with_policy(policy);
+        assert!(!font.has_glyph('\u{2504}'), "Terminus lacks U+2504");
+        let (w, h) = (320, 240);
+        let mut canvas = Canvas::new(w, h, 0);
+        Notice::new("\u{2504}")
+            .draw(&font, display(w, h), Colors::NOTICE, None, &mut canvas)
+            .expect("it fits");
+        let c = Colors::NOTICE;
+        let thick = vtium_font::sprite::light_line(16);
+        let sprite = vtium_font::sprite::draw('\u{2504}', 8, 16, thick).expect("a sprite");
+        let want: Vec<u32> = sprite
+            .pixels()
+            .iter()
+            .map(|&a| mask(c.ink, c.paper, a))
+            .collect();
+        assert_eq!(block(&canvas, 2 + 4, 2 + 4, 8, 16), want);
+    }
+
+    /// Every character the font lacks and draws as a narrow box shares one
+    /// box, and every wide one shares another, so a notice quoting many
+    /// such characters draws two boxes at most.
+    #[test]
+    fn the_hollow_boxes_are_drawn_once() {
+        let cell = vtium_font::Cell {
+            width: 8,
+            height: 16,
+        };
+        let font = Font::new(vtium_font::set::own::face(cell).expect("a strike"));
+        let glyphs = Glyphs::new(&font, Depth::default(), "\u{4e2d}\u{6587}\u{2194}\u{21d2}a");
+        let same = |a, b| match (glyphs.glyph(a), glyphs.glyph(b)) {
+            (Some(x), Some(y)) => std::ptr::eq(x, y),
+            _ => false,
+        };
+        assert!(same('\u{4e2d}', '\u{6587}'), "the wide box");
+        assert!(same('\u{2194}', '\u{21d2}'), "the narrow box");
+        assert!(!same('\u{4e2d}', '\u{2194}'), "a wide box and a narrow one");
+        assert_eq!(glyphs.width('\u{4e2d}'), Width::Wide);
     }
 
     #[test]

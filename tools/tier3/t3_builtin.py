@@ -44,7 +44,7 @@ CAPTIONS = {
            "installs for vtium and the font helper /usr/bin/vtium-config, and started vtium "
            "again (ADR-1204 D1). Correct: the login prompt drawn in the font vtium draws "
            "text in when nothing names one, which is still the compiled-in GNU Unifont at "
-           "8×16 (ADR-1204 replaces it with vtium built-in in a later step); the cursor's "
+           "8×16 (card 5b of ADR-1204 replaces it with vtium built-in); the cursor's "
            "cell is masked, because with no vtium.conf the cursor blinks.",
     NOTICE: "The same login prompt after the kernel logged an error of its own, tmpfs: "
             "Unknown parameter 'vtium_tier3_warning', at level err. Correct: the message in "

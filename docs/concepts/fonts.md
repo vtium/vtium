@@ -56,7 +56,7 @@ The font helper starts the first time the console needs it, and exits when it ha
 
 The console uses the built-in fonts in two cases, and it logs the reason. In the first case, the configured font names no frit, and no font that vtium can make a frit from on the fly. In the second case, the font helper is not available.
 
-The built-in fonts are compiled into vtium. They are Unifont, and Unscii-8 for character cells under 16 pixels high. They also draw each character that a frit does not have.
+The built-in fonts are compiled into vtium. They are Unifont, and Unscii-8 for character cells under 16 pixels high. They also draw each character that a frit does not have. vtium's own messages, such as its notices, use a smaller font of their own. See [The font of vtium's messages](osd-and-notices.md#the-font-of-vtiums-messages) for details.
 
 vtium-config's use-frit command switches the running console to another frit or to a built-in font. It does this through the terminal, with xterm's font control sequence, OSC 50. vtium acts on that sequence while its allow-font-ops setting is on, as it is by default.
 

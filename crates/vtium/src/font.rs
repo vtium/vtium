@@ -605,6 +605,13 @@ fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<Di
     .face(height, locale)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times this thread has called [`own_face`], so that a test
+    /// can check which frames build the face.
+    pub static OWN_FACES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The face vtium draws its own messages in for a grid of `cell`: the
 /// notices, the on-screen display's line and dot, and the panic screen.
 /// It is the built-in font, "vtium built-in", whose strike the cell's
@@ -616,6 +623,8 @@ fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<Di
 /// - ADR-1204 D1: vtium's own messages always draw in the built-in font,
 ///   and which strike draws which cell.
 pub fn own_face(cell: Cell) -> Option<DisplayFace> {
+    #[cfg(test)]
+    OWN_FACES.set(OWN_FACES.get().saturating_add(1));
     let face = vtium_font::set::own::face(cell)?;
     if face.cell() == cell {
         return Some(Box::new(face));
@@ -1299,15 +1308,18 @@ mod tests {
     use vtium_font::Width;
 
     /// With nothing installed, no vtium.conf, no font sets, no font files
-    /// and no font helper, vtium draws its terminal in the built-in fonts
-    /// it has always drawn, and its notices in its built-in font, "vtium
+    /// and no font helper, vtium draws its terminal in the compiled-in GNU
+    /// Unifont and Unscii-8, and its notices in its built-in font, "vtium
     /// built-in", in the terminal's cell. At 16 pixels the notice's letters
     /// differ from the terminal's Unifont, so the notice draws from neither
-    /// the terminal's font nor Unifont.
+    /// the terminal's font nor Unifont. The terminal moves to the built-in
+    /// font with card 5b of ADR-1204, which removes Unifont and Unscii-8
+    /// from the binary.
     ///
     /// References:
     /// - ADR-1204 D1: vtium's own messages always draw in the built-in
-    ///   font, and the acceptance check's unit test.
+    ///   font, the acceptance check's unit test, and the note of 2026-11-15
+    ///   on cards 5a and 5b.
     #[test]
     fn with_nothing_installed_a_notice_draws_in_the_built_in_font() {
         use crate::term::{Overlay, OverlayColors};
