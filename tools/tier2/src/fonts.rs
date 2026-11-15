@@ -781,16 +781,21 @@ pub fn chosen_frit(
     };
     for one in &shown(at.cell)? {
         let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
-        if let Some(doubled) = one.doubled {
-            add_doubled(&engine, generated, (at, one.variant, doubled), &one.chars)
-                .map_err(|why| format!("the frit {name}: {why}"))?;
-            continue;
-        }
         let clusters: Vec<Vec<u32>> = one
             .clusters
             .iter()
             .map(|t| t.iter().map(|&c| u32::from(c)).collect())
             .collect();
+        if let Some(doubled) = one.doubled {
+            add_doubled(
+                &engine,
+                generated,
+                (at, one.variant, doubled),
+                (&one.chars, &clusters),
+            )
+            .map_err(|why| format!("the frit {name}: {why}"))?;
+            continue;
+        }
         let Some(bytes) = engine.draw_variant(at, one.variant, &want, (&clusters, true))? else {
             continue;
         };
@@ -815,10 +820,10 @@ pub fn chosen_frit(
     Ok(chosen)
 }
 
-/// Adds to the console's store `generated` the glyphs of `chars` that the
-/// engine draws at the double size `doubled` for the cell `at` in
-/// `variant`, as the helper answers a double ask and the console takes
-/// the answer. The engine refuses a superscript or subscript and a cell
+/// Adds to the console's store `generated` the glyphs of `chars` and of
+/// `clusters` that the engine draws at the double size `doubled` for the
+/// cell `at` in `variant`, as the helper answers a double ask and the
+/// console takes the answer. The engine refuses a superscript or subscript and a cell
 /// whose double passes the largest cell, as the helper does, and the set
 /// must hold one cell, the one the double size gives `at`, as the console
 /// checks.
@@ -830,10 +835,12 @@ fn add_doubled(
         vtium_font::Variant,
         vtium_font::Doubled,
     ),
-    chars: &[char],
+    (chars, clusters): (&[char], &[Vec<u32>]),
 ) -> Result<(), String> {
-    let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
-    let Some(bytes) = engine.draw_doubled(at, (variant, doubled), &want)? else {
+    let mut want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+    want.sort_unstable();
+    want.dedup();
+    let Some(bytes) = engine.draw_doubled_clusters(at, (variant, doubled), &want, clusters)? else {
         return Ok(());
     };
     let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);

@@ -1333,13 +1333,8 @@ impl Helper {
             .saturating_sub(known.pending.len())
             .min(FIRST_MAX);
         let mut clusters = BTreeSet::new();
-        // the helper draws no cluster at a double size
-        let clusters_asked = if doubled.is_some() {
-            &[][..]
-        } else {
-            &shown.clusters[..]
-        };
-        for t in clusters_asked
+        for t in shown
+            .clusters
             .iter()
             .filter(|t| (2..=longest).contains(&t.len()))
         {
@@ -2891,6 +2886,44 @@ mod tests {
             s.helper.ask(CELL, Band::NONE, &doubled_a(None), now);
             assert!(s.helper.busy(), "{doubled:?}");
         }
+    }
+
+    // issue #61: a line of double size asks for its clusters at its size
+    // too, so a letter with its marks, an emoji sequence or a syllable's
+    // piece draws from the helper's glyph at that size
+    #[test]
+    fn a_double_ask_names_its_clusters() {
+        let key: Text = vec!['A', '\u{301}'];
+        let ask = encode(
+            &frit("source=builtin:unscii-8\n"),
+            None,
+            (
+                ASK,
+                CELL,
+                Band::NONE,
+                (Variant::default(), Some(Doubled::Height)),
+                ClusterWidth::Double,
+            ),
+            (&[], std::slice::from_ref(&key)),
+            &[],
+        );
+        let fixture = frame_bytes(FRAME_DONE, &[]);
+        let script = format!(
+            "head -c {} >\"$1.ask\"; cat \"$1\"; cat >/dev/null",
+            ask.len()
+        );
+        let mut s = StandIn::new("doubled-cluster", &script, &fixture);
+        let now = t0();
+        let shown = Shown {
+            doubled: Some(Doubled::Height),
+            clusters: vec![key],
+            ..Shown::default()
+        };
+        s.helper.ask(CELL, Band::NONE, &shown, now);
+        assert!(s.helper.busy(), "the cluster is asked for");
+        s.run(now);
+        assert_eq!(s.helper.failed(), None);
+        assert_eq!(std::fs::read(s.dir.join("answer.ask")).unwrap(), ask);
     }
 
     // the console refuses a double ask's answer at any cell but the one its

@@ -191,7 +191,7 @@ use landlock::{
 };
 use rustix::process::{Resource, Rlimit, setrlimit};
 use vtium_font::script::Rect;
-use vtium_font::set::{PixelFormat, SetBuilder, StrikeBuilder};
+use vtium_font::set::{PixelFormat, Set, SetBuilder, SetFace, StrikeBuilder};
 use vtium_font::spacing::{self, Band, Fit, InkRows, SpacedCell};
 use vtium_font::{
     CELL_SIDE_MAX, CLUSTER_SCALARS_MAX, Cell, Decorations, Doubled, Glyph, Origin, REACH_CELLS,
@@ -1951,8 +1951,21 @@ impl Engine {
     pub fn draw_doubled(
         &self,
         at: impl Into<SpacedCell>,
+        kind: (Variant, Doubled),
+        want: &[u32],
+    ) -> Result<Option<Vec<u8>>, String> {
+        self.draw_doubled_clusters(at, kind, want, &[])
+    }
+
+    /// [`Engine::draw_doubled`] for `want` and for `clusters`, sorted, as a
+    /// double ask that names clusters is answered: each cluster shaped
+    /// whole at the double size, its color glyphs among them.
+    pub fn draw_doubled_clusters(
+        &self,
+        at: impl Into<SpacedCell>,
         (variant, doubled): (Variant, Doubled),
         want: &[u32],
+        clusters: &[Vec<u32>],
     ) -> Result<Option<Vec<u8>>, String> {
         let at = at.into();
         let mut made = BTreeMap::new();
@@ -1961,7 +1974,7 @@ impl Engine {
             at.band,
             (variant, Some(doubled)),
             want,
-            (&[], false),
+            (clusters, false),
             &mut made,
         )
     }
@@ -2290,10 +2303,14 @@ impl Engine {
         let passes = passes.flat_map(|pass| [true, false].map(|fitted| (pass, fitted)));
         // what a double ask leaves to the console, which doubles the pixels
         // of its glyph at the normal size: the codepoints a bitmap source
-        // draws, and those a color glyph draws
+        // draws; and on a line of double width, the codepoints a color
+        // glyph draws, which `squashed` holds and which are drawn again
+        // below from a line of double height
         let mut left_out: BTreeSet<u32> = BTreeSet::new();
+        let mut squashed: BTreeSet<u32> = BTreeSet::new();
+        let wide_line = doubled == Some(Doubled::Width);
         for ((color_only, (i, (source, loaded), synth)), fitted) in passes {
-            if self.failed.borrow().contains_key(&i) || (color_only && doubled.is_some()) {
+            if self.failed.borrow().contains_key(&i) {
                 continue;
             }
             let asked = |k: &[u32]| !color_only || crate::shaping::asks_for_emoji(k);
@@ -2315,7 +2332,7 @@ impl Engine {
                 .map(Vec::as_slice)
                 .filter(|k| {
                     !fitted
-                        && doubled.is_none()
+                        && !wide_line
                         && !shaped.contains(k)
                         && lead(k).is_some_and(|c| source.covers(c))
                         && asked(k)
@@ -2592,8 +2609,9 @@ impl Engine {
                         {
                             continue;
                         }
-                        if glyph.color && doubled.is_some() {
+                        if glyph.color && wide_line {
                             left_out.insert(c);
+                            squashed.insert(c);
                             continue;
                         }
                         // a character that presents as text by default
@@ -2674,12 +2692,30 @@ impl Engine {
             if mapped.contains(&c) {
                 continue;
             }
-            if let Some(at) = put_placed(&mut rgba, &glyph, (cell, band, fit)) {
+            if let Some(at) = put_placed(&mut rgba, &glyph, (drawn, drawn_band, fit)) {
                 rgba.map(ch, at);
                 mapped.insert(c);
             }
         }
-        if mapped.is_empty() && shaped.is_empty() && parts.is_empty() {
+        // a line of double width takes its color glyphs and its clusters
+        // from a line of double height, each row pair made one row
+        let mut halved = false;
+        if wide_line && (!squashed.is_empty() || !clusters.is_empty()) {
+            let want: Vec<u32> = squashed.into_iter().collect();
+            let tall = self.glyphs(
+                whole,
+                band,
+                (variant, Some(Doubled::Height)),
+                &want,
+                (clusters, parts_asked),
+                made,
+            )?;
+            if let Some(tall) = tall {
+                let tall = tall_set(tall, whole)?;
+                halved = halve_into(&tall, (&want, variant), (&mut r8, &mut rgba));
+            }
+        }
+        if mapped.is_empty() && shaped.is_empty() && parts.is_empty() && !halved {
             return Ok(None);
         }
         let mut set = SetBuilder::new(&self.name);
@@ -2726,6 +2762,94 @@ fn put_placed(
         target.ink(at, (ink.left, ink.top), (ink.width, ink.height), ink.pixels);
     }
     Some(at)
+}
+
+/// The set `bytes` that the engine drew for a line of double height at
+/// `whole`, the cell of the normal size, read back as the face that draws
+/// it, so that a line of double width can take its glyphs.
+fn tall_set(bytes: Vec<u8>, whole: Cell) -> Result<SetFace, String> {
+    let set = Set::from_bytes(bytes).map_err(|e| format!("{e:?}"))?;
+    let tall = Doubled::Height
+        .cell(whole)
+        .ok_or("a double size past the largest cell")?;
+    SetFace::new(Arc::new(set), tall.height)
+        .ok_or_else(|| format!("no strike at {} pixels", tall.height))
+}
+
+/// Adds to the strikes of a line of double width, `r8` for coverage and
+/// `rgba` for color, each glyph that `tall` holds in `variant`: the glyph
+/// of each codepoint of `want` and of each cluster its cluster map holds,
+/// drawn for a line of double height. Each glyph comes in at half its
+/// height ([`halved`]), so it is the glyph of the normal size at twice its
+/// width, as a line of double width shows it. Gives whether any glyph
+/// went in.
+///
+/// The engine draws an outline glyph for a line of double width by
+/// stretching its outline sideways before it rasterises it. It cannot do
+/// that for a color glyph, which is a bitmap or layers of color, or for a
+/// cluster, whose glyphs the shaper places. So those two come from the
+/// glyphs of a line of double height, which are twice as wide and twice as
+/// tall, made half as tall.
+fn halve_into(
+    tall: &SetFace,
+    (want, variant): (&[u32], Variant),
+    (r8, rgba): (&mut StrikeBuilder, &mut StrikeBuilder),
+) -> bool {
+    let mut put = |glyph: &Glyph| -> Option<(bool, u32)> {
+        let pixels = halved(glyph)?;
+        let color = glyph.format() == vtium_font::Format::Rgba;
+        let target = if color { &mut *rgba } else { &mut *r8 };
+        Some((color, target.glyph(glyph.cells(), pixels)))
+    };
+    let mut maps: Vec<(char, bool, u32)> = Vec::new();
+    for ch in want.iter().filter_map(|&c| char::from_u32(c)) {
+        if let Some(glyph) = tall.draw_variant(&[ch], variant)
+            && let Some((color, at)) = put(&glyph)
+        {
+            maps.push((ch, color, at));
+        }
+    }
+    let mut keys: Vec<(Vec<char>, bool, u32)> = Vec::new();
+    for (_, key) in tall.set().strike_clusters() {
+        if let Some(glyph) = tall.draw_variant(&key, variant)
+            && let Some((color, at)) = put(&glyph)
+        {
+            keys.push((key, color, at));
+        }
+    }
+    for &(ch, color, at) in &maps {
+        if color { &mut *rgba } else { &mut *r8 }.map(ch, at);
+    }
+    for (key, color, at) in &keys {
+        if *color { &mut *rgba } else { &mut *r8 }.cluster(key, *at);
+    }
+    !maps.is_empty() || !keys.is_empty()
+}
+
+/// The pixels of `glyph` at half its height: each pair of rows made one
+/// row by the mean of each pixel's bytes, rounded to the nearest. A color
+/// glyph's colors are premultiplied by their alpha, so their mean is the
+/// mean color. `None` for a glyph of an odd height, which no cell of a
+/// line of double height has.
+fn halved(glyph: &Glyph) -> Option<Vec<u8>> {
+    let height = glyph.height();
+    if !height.is_multiple_of(2) {
+        return None;
+    }
+    let row = usize::try_from(glyph.width())
+        .ok()?
+        .checked_mul(usize::try_from(glyph.format().bytes_per_pixel()).ok()?)?;
+    let mut out = Vec::with_capacity(glyph.pixels().len() / 2);
+    for pair in glyph.pixels().chunks_exact(row.checked_mul(2)?) {
+        let (upper, lower) = pair.split_at(row);
+        out.extend(
+            upper
+                .iter()
+                .zip(lower)
+                .map(|(&a, &b)| (u16::from(a) + u16::from(b)).div_ceil(2) as u8),
+        );
+    }
+    Some(out)
 }
 
 /// A coverage query's answer ([`FRAME_COVERAGE`]): which of `letters` the
@@ -3115,11 +3239,6 @@ impl Work<'_> {
         let mut clusters = request.clusters.clone();
         clusters.sort_unstable();
         clusters.dedup();
-        // a double ask draws no cluster, and the console doubles the pixels
-        // of each cluster's glyph at the normal size
-        if request.doubled.is_some() {
-            clusters.clear();
-        }
         let cell = request.cell;
         let mut result = Ok(());
         // how each script glyph was made, which only an ASK_MADE is sent
@@ -3488,6 +3607,7 @@ mod tests {
     use crate::scratch::Scratch;
     use std::time::Instant;
     use vtium_font::Face;
+    use vtium_font::Format;
     use vtium_font::set::{Set, SetFace};
 
     /// A directory of a test's own, `vtium-serve-<name>-<pid>` in the
@@ -5875,6 +5995,140 @@ mod tests {
         let bitmap = frit(&format!("source=file:{}\n", path.display()));
         let frames = run(&[doubled_ask(bitmap, &['A'], Some(Doubled::Height))]);
         assert_eq!(frames.iter().map(|f| f.0).collect::<Vec<_>>(), [FRAME_DONE]);
+    }
+
+    /// The face of the one glyph set `frames` answer with, at `height`.
+    fn answered_face(frames: &[(u32, Vec<u8>)], what: &str) -> (SetFace, Vec<Cell>) {
+        let (set, cells) = one_answer(frames, what);
+        let height = cells[0].height;
+        (SetFace::new(set, height).unwrap(), cells)
+    }
+
+    // covers: text.line-size
+    // issue #61: a color glyph on a line of double size comes from the
+    // helper at that size, never with its pixels doubled. Test Mono's
+    // U+1F600 is a wide COLR glyph, a red block under a half-clear blue
+    // one. On a double-height pair the helper draws it in the doubled cell,
+    // 32 by 32 for two cells of 8 by 16. On a line of double width it is
+    // that glyph made half as tall, 32 by 16, each pair of rows averaged:
+    // the normal glyph at twice its width
+    #[test]
+    fn a_double_ask_draws_a_color_glyph_at_its_size() {
+        let dir = scratch("doubled-color");
+        let path = dir.join("TestMono.ttf");
+        std::fs::write(&path, super::ttf::test_mono().build()).unwrap();
+        let font = frit(&format!("source=outline:{}\n", path.display()));
+        let emoji = ['\u{1f600}'];
+        let ask = |doubled| ServeRequest {
+            doubled,
+            ..request(ASK, font.clone(), &emoji)
+        };
+        let (normal, _) = answered_face(&run(&[ask(None)]), "at the normal size");
+        let (tall, cells) = answered_face(&run(&[ask(Some(Doubled::Height))]), "double height");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 16,
+                height: 32
+            }]
+        );
+        let (wide, cells) = answered_face(&run(&[ask(Some(Doubled::Width))]), "double width");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 16,
+                height: 16
+            }]
+        );
+        let n = normal.draw(&emoji, Style::default()).unwrap();
+        let t = tall.draw(&emoji, Style::default()).unwrap();
+        let w = wide.draw(&emoji, Style::default()).unwrap();
+        assert_eq!((n.format(), n.width(), n.height()), (Format::Rgba, 16, 16));
+        assert_eq!(
+            (t.format(), t.cells(), t.width(), t.height()),
+            (Format::Rgba, Width::Wide, 32, 32)
+        );
+        assert_eq!(
+            (w.format(), w.cells(), w.width(), w.height()),
+            (Format::Rgba, Width::Wide, 32, 16)
+        );
+        assert_eq!(Some(w.pixels().to_vec()), halved(&t));
+        // the double-height glyph holds the normal one's red over at least
+        // three times as many pixels, as a glyph drawn at twice the size
+        // does; each fits its cells by its own rounding, so the ratio is
+        // not exactly four
+        let red = |g: &Glyph| {
+            g.pixels()
+                .chunks(4)
+                .filter(|p| p[0] > 200 && p[2] == 0)
+                .count()
+        };
+        assert!(red(&t) >= 3 * red(&n), "{} against {}", red(&t), red(&n));
+    }
+
+    // covers: text.line-size
+    // issue #61: a cluster on a line of double size comes from the helper
+    // at that size. E with a grave accent, decomposed, is shaped whole in
+    // the doubled cell of a double-height pair, 18 by 32, and on a line of
+    // double width it is that glyph made half as tall, 18 by 16. The tall
+    // glyph's ink spans about twice the rows of the normal glyph's
+    #[test]
+    fn a_double_ask_shapes_a_cluster_at_its_size() {
+        let marks = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/DejaVuSansMono-marks.ttf"
+        );
+        let font = frit(&format!("source=outline:{marks}\n"));
+        let key = ['E', '\u{300}'];
+        let ask = |doubled| ServeRequest {
+            doubled,
+            clusters: vec![key.iter().map(|&c| u32::from(c)).collect()],
+            ..doubled_ask(font.clone(), &[], doubled)
+        };
+        let (normal, _) = answered_face(&run(&[ask(None)]), "at the normal size");
+        let (tall, cells) = answered_face(&run(&[ask(Some(Doubled::Height))]), "double height");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 18,
+                height: 32
+            }]
+        );
+        let (wide, cells) = answered_face(&run(&[ask(Some(Doubled::Width))]), "double width");
+        assert_eq!(
+            cells,
+            [Cell {
+                width: 18,
+                height: 16
+            }]
+        );
+        let n = normal.cluster(&key, Style::default()).unwrap();
+        let t = tall.cluster(&key, Style::default()).unwrap();
+        let w = wide.cluster(&key, Style::default()).unwrap();
+        assert_eq!((t.width(), t.height()), (18, 32));
+        assert_eq!((w.width(), w.height()), (18, 16));
+        assert_eq!(Some(w.pixels().to_vec()), halved(&t));
+        let span = |g: &Glyph| {
+            let rows = row_ink(g);
+            let first = rows.iter().position(|&n| n > 0).unwrap();
+            rows.iter().rposition(|&n| n > 0).unwrap() - first + 1
+        };
+        assert!(
+            span(&t).abs_diff(2 * span(&n)) <= 2,
+            "{} against {}",
+            span(&t),
+            span(&n)
+        );
+    }
+
+    // halving a glyph averages each pair of rows, rounded to the nearest
+    #[test]
+    fn halving_a_glyph_averages_each_pair_of_rows() {
+        let g =
+            Glyph::from_pixels(2, 4, Format::Mask, vec![0, 255, 0, 254, 10, 20, 11, 20]).unwrap();
+        assert_eq!(halved(&g), Some(vec![0, 255, 11, 20]));
+        let odd = Glyph::from_pixels(1, 3, Format::Mask, vec![1, 2, 3]).unwrap();
+        assert_eq!(halved(&odd), None);
     }
 
     #[test]
