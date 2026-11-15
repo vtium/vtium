@@ -1,14 +1,13 @@
 #!/bin/bash
 # category: text and fonts
 # hero: yes
-# vtium draws lines of double size, as the DEC terminals did: a line twice
-# as tall and twice as wide for a title, and a line twice as wide for a
-# heading. The font helper renders each character of Iosevka Term at twice
-# its size from the outline itself, so the large letters stay as smooth as
-# the small ones. A double-width line holds 60 characters, half of a normal
-# line's 120, and its ruler ends at the right edge as the normal ruler under
-# it does. Colors, reverse video and every underline style follow the
-# doubled letters.
+# vtium draws lines of double size when a program asks for them. A title
+# line is twice as tall and twice as wide, and a heading line is twice as
+# wide. vtium's font helper renders each character of Iosevka Term at twice
+# its size from the outline, so the large letters stay as smooth as the
+# small ones. A double-width line holds 60 characters, half of a normal
+# line's 120. Its ruler ends at the right edge, as the normal ruler under it
+# does. Colors and every underline style follow the doubled letters.
 # alt: A console screen in a smooth monospaced font: a gold title twice as
 # alt: tall and twice as wide reading Lines of double size, a gray normal
 # alt: line under it, a light blue heading twice as wide, words twice as
