@@ -86,8 +86,8 @@ pub struct Form {
 }
 
 /// The screen the picture is made for: the display's size in pixels, the
-/// character cell in pixels, and the grid in cells, whose top left is the
-/// display's.
+/// character cell in pixels, and the grid in cells. The renderer centers
+/// the grid on the display, with the odd spare pixel after it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Geometry {
     pub display: (u32, u32),
@@ -160,9 +160,12 @@ pub fn make(form: &Form, geometry: &Geometry, size: (u32, u32), source: &[u32]) 
     let (dw, dh) = geometry.display;
     let display = (dw.max(grid_px.0), dh.max(grid_px.1));
     let scaled = fitted(form.fit, size, display)?;
-    // the scaled picture is centered on the display; the output is the
-    // part that falls on the grid, whose top left is the display's
-    let offset = (centered(display.0, scaled.0), centered(display.1, scaled.1));
+    // the scaled picture and the grid are both centered on the display;
+    // the output is the part of the picture that falls on the grid
+    let offset = (
+        centered(display.0, scaled.0).saturating_sub(centered(display.0, grid_px.0)),
+        centered(display.1, scaled.1).saturating_sub(centered(display.1, grid_px.1)),
+    );
     let pixels = resample(source, size, scaled, offset, grid_px)?;
     let opaque = pixels.iter().all(|p| p >> 24 == 0xff);
     Some(Made {
@@ -491,8 +494,9 @@ mod tests {
 
     #[test]
     fn a_background_keeps_the_part_that_falls_on_the_grid() {
-        // a display of 84x50 with a grid of 80x48 at its top left: the
-        // picture of 84x50 at one to one, cut to the grid
+        // a display of 84x50 with a grid of 80x48 centered on it, 2 pixel
+        // columns and 1 pixel row before it: the picture of 84x50 at one to
+        // one, cut to the grid
         let src = picture(84, 50);
         let geo = Geometry {
             display: (84, 50),
@@ -502,7 +506,7 @@ mod tests {
         assert_eq!((made.width, made.height), (80, 48));
         for y in 0..48 {
             for x in 0..80 {
-                assert_eq!(made.pixels[y * 80 + x], src[y * 84 + x]);
+                assert_eq!(made.pixels[y * 80 + x], src[(y + 1) * 84 + x + 2]);
             }
         }
     }

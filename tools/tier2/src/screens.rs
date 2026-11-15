@@ -3533,9 +3533,9 @@ const LOGIN_COVER_DESC: &str = concat!(
 );
 
 const LOGIN_CONTAIN_DESC: &str = concat!(
-    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The grid sits at the display's top left, with 10 spare pixel columns at the right and 5 spare pixel rows at the bottom. ",
+    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid on the display, with 5 spare pixel columns on each side, 2 spare pixel rows above it and 3 below. ",
     "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
-    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the top, left and right; its last 5 pixel rows, with most of its bottom frame, fall in the strip below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
+    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the left and right; its first 2 and last 3 pixel rows, part of its top and bottom frame, fall in the strips above and below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
 );
 
 const LOGIN_ROTATED_DESC: &str = concat!(
