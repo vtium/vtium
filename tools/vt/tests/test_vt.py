@@ -283,6 +283,11 @@ for f in /proc/$PPID/fd/*; do
 	case $(readlink "$f") in "$VTIUM_VT_STANDINS"/tty[0-9]*) h=held ;; esac
 done
 echo "$h" >"${BIN_HOLD:-/dev/null}"
+# Whether a holder's socket was there when it started: "there" or "gone" in
+# $BIN_HOLDER_SEEN.
+if [ -n "${BIN_HOLDER_SEEN:-}" ]; then
+	if [ -S "$BIN_HOLDER_SOCK" ]; then echo there; else echo gone; fi >"$BIN_HOLDER_SEEN"
+fi
 printf '%s\\n' "$@" >"$BIN_ARGS"
 # The stage is gone when the run ends; a test that wants to read it names a directory for a copy.
 [ -z "${BIN_STAGE_COPY:-}" ] || cp -r "$VTIUM_VT_STANDINS/run-vtium-vt/." "$BIN_STAGE_COPY"
@@ -297,6 +302,16 @@ wait)
 linger)
 	sleep infinity &
 	exit 0 ;;
+holder)
+	# vtium as root with no systemd store: it starts its holder, which keeps
+	# vtium's output open as the holder of a vtium built before the holder
+	# got /dev/null did, and leads a session of its own, then waits for
+	# SIGTERM.
+	python3 -I "$VTIUM_VT_STANDINS/holder.py" "$BIN_HOLDER_SOCK" "$BIN_HOLDER_PID" &
+	while [ ! -s "$BIN_HOLDER_PID" ]; do sleep 0.05; done
+	trap 'echo TERM >>"$BIN_SIGNALS"; exit 0' TERM
+	: >"${BIN_READY:-/dev/null}"
+	while :; do sleep 0.05; done ;;
 session)
 	while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
 	shift
@@ -311,6 +326,24 @@ session)
 	done
 	exec "${argv[@]}" <"$BIN_STDIN" ;;
 esac
+"""
+
+
+# A stand-in for vtium hold: it listens on the socket its first argument
+# names, as its standard input, leads a session of its own, writes its PID
+# into the file its second argument names, and runs until it is killed.
+HOLDER = """import os, socket, sys, time
+s = socket.socket(socket.AF_UNIX, socket.SOCK_SEQPACKET)
+s.bind(sys.argv[1])
+s.listen()
+os.dup2(s.fileno(), 0)
+s.close()
+os.setsid()
+with open(sys.argv[2] + ".new", "w") as f:
+    f.write(str(os.getpid()))
+os.rename(sys.argv[2] + ".new", sys.argv[2])
+while True:
+    time.sleep(3600)
 """
 
 
@@ -400,6 +433,11 @@ class Stage:
                            ("readelf", READELF),
                            ("chvt", FORBIDDEN), ("fgconsole", FORBIDDEN)):
             write(os.path.join(self.standins, name), text)
+        write(os.path.join(self.standins, "holder.py"), HOLDER, 0o644)
+        # The VT's run directory, where vtium's holder listens.
+        self.holder_sock = os.path.join(self.standins, "run-vtium", "tty5", "hold")
+        os.makedirs(os.path.dirname(self.holder_sock))
+        self.holder_pid = os.path.join(tmp, "holder-pid")
         write(os.path.join(self.standins, "active"), "tty7\n", 0o644)
         self.home = os.path.join(tmp, "home")
         os.mkdir(self.home)
@@ -456,6 +494,8 @@ class Stage:
             BIN_READY=self.bin_ready,
             BIN_PID=os.path.join(self.tmp, "bin-pid"),
             HOLDS=self.holds,
+            BIN_HOLDER_SOCK=self.holder_sock,
+            BIN_HOLDER_PID=self.holder_pid,
             BIN_HOLD=self.bin_hold,
             ACTIVE_UNITS="kmsconvt@tty8.service",
             REAL_SYSTEMCTL=REAL_SYSTEMCTL or "/nonexistent/systemctl",
@@ -513,6 +553,13 @@ class Case(unittest.TestCase):
         # A vtium left running by a failed restore is stopped here, so it
         # outlives no test.
         pid = read(os.path.join(self.s.tmp, "bin-pid")).strip()
+        if pid:
+            try:
+                os.kill(int(pid), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        # So is a stand-in holder a failed run left behind.
+        pid = read(self.s.holder_pid).strip()
         if pid:
             try:
                 os.kill(int(pid), signal.SIGKILL)
@@ -1114,6 +1161,18 @@ class RunVt(Case):
         copy = os.path.join(seen, "config", "vtium.conf")
         self.assertEqual(read(copy), read(conf))
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        # A private file's copy stays private, while the review's own file
+        # is copied readable by everyone, as the acceptance pass reads it.
+        os.chmod(conf, 0o600)
+        p = self.run_vt("--shell", f"--config={conf}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0600 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+        shutil.rmtree(seen)
+        os.mkdir(seen)
+        p = self.run_vt("--shell", f"--config={conf}", "8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o600)
+        os.chmod(conf, 0o644)
         # The acceptance pass keeps the review's file.
         self.refused(self.run_vt(f"--config={conf}", "--dry-run", "8"), "--config goes with --login, --shell or --guide")
         # The given file is held to the review file's rules, a symlink
@@ -1676,6 +1735,12 @@ class VtSh(Case):
         p = self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="t.conf", VTIUM_VT_DRY_RUN="1")
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn(f" --config={conf} ", p.stdout)
+        # A symlink reaches run-vt.sh as it was named, and run-vt.sh refuses
+        # it, as it refuses a symlink named with --config.
+        link = os.path.join(self.s.tmp, "link.conf")
+        os.symlink(conf, link)
+        self.refused(self.vt_sh(VTIUM_VT_SESSION="login", VTIUM_VT_CONF="link.conf", VTIUM_VT_DRY_RUN="1"),
+                     f"{link} is a symlink")
 
     def test_the_log_directory_must_be_the_users_own(self):
         os.symlink(self.s.tmp, self.s.dir)
@@ -1711,6 +1776,53 @@ class VtSh(Case):
         self.assertIn("vt: interrupted", err)
         self.assertIn("vtium log: ", out)
         self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def holder_alive(self):
+        pid = int(read(self.s.holder_pid))
+        try:
+            with open(f"/proc/{pid}/stat") as f:
+                return f.read().split(") ")[1][0] != "Z"
+        except FileNotFoundError:
+            return False
+
+    def test_the_run_ends_the_holder_its_vtium_started(self):
+        # vtium hands its sessions to its holder as it exits, and the holder
+        # outlives it. The run ends the holder before it restarts the units,
+        # so no session of the run lives on, and a holder that holds vtium's
+        # output open no longer keeps the run waiting on its log (#419).
+        proc = subprocess.Popen(["bash", VT_SH], env=self.s.env(VTIUM_VT_BIN=self.s.bin, BIN_MODE="holder",
+                                                                ACTIVE_UNITS="kmsconvt@tty5.service"),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=self.s.tmp,
+                                start_new_session=True)
+        self.wait_ready()
+        self.assertTrue(self.holder_alive())
+        os.killpg(proc.pid, signal.SIGINT)
+        out, err = proc.communicate(timeout=30)
+        self.assertEqual(proc.returncode, 130, out + err)
+        pid = read(self.s.holder_pid).strip()
+        self.assertIn(f"run-vt: ending vtium hold (PID {pid}), which keeps sessions of vtium on VT 5; they hang up",
+                      out)
+        self.assertFalse(self.holder_alive())
+        self.assertFalse(os.path.exists(self.s.holder_sock))
+        self.assertEqual(self.s.changes(), ["stop kmsconvt@tty5.service", "start kmsconvt@tty5.service"])
+
+    def test_a_holder_an_earlier_run_left_is_ended_before_vtium_starts(self):
+        # Its sessions would otherwise become the new vtium's consoles. The
+        # stand-in holder is started in the background and left, so that it
+        # is nobody's child here, as a holder whose vtium has gone is not.
+        subprocess.run(["bash", "-c", 'python3 -I "$0" "$1" "$2" </dev/null >/dev/null 2>&1 &',
+                        os.path.join(self.s.standins, "holder.py"), self.s.holder_sock, self.s.holder_pid],
+                       check=True, timeout=WAIT_BOUND)
+        end = time.monotonic() + WAIT_BOUND
+        while not read(self.s.holder_pid) and time.monotonic() < end:
+            time.sleep(0.02)
+        self.assertTrue(self.holder_alive())
+        seen = os.path.join(self.s.tmp, "holder-seen")
+        p = self.vt_sh(ACTIVE_UNITS="kmsconvt@tty5.service", BIN_HOLDER_SEEN=seen)
+        self.assertEqual(read(seen), "gone\n", p.stdout + p.stderr)
+        pid = read(self.s.holder_pid).strip()
+        self.assertIn(f"run-vt: ending vtium hold (PID {pid})", p.stdout)
+        self.assertFalse(self.holder_alive())
 
     def test_a_home_directory_with_a_space_keeps_the_acceptance_passes(self):
         # With no ACCEPT_DIR and no XDG_STATE_HOME, vt.sh keeps the passes under $HOME/.local/state.
@@ -1973,11 +2085,24 @@ class Make(Case):
         p = self.make("vt-accept", "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}")
         self.assertNotIn("--debug", p.stdout)
 
+    def test_conf_is_never_taken_from_the_environment(self):
+        # The file decides what vtium, as root, runs: its login line is a
+        # command. CONF is a common name, so one exported for another tool
+        # is refused, as VTIUM_BIN is.
+        conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
+        for target, extra in (("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
+            with self.subTest(target=target):
+                p = self.make(target, "DRY_RUN=1", f"VTIUM_BIN={self.s.bin}", *extra, CONF=conf)
+                self.assertNotEqual(p.returncode, 0)
+                self.assertIn("CONF is set in the environment", p.stderr)
+                self.assertNotIn("--config=", p.stdout)
+        self.assertEqual(self.s.calls_of("sudo") + self.s.calls_of("loginctl"), [])
+
     def test_conf_reaches_only_vt_login_vt_shell_and_vt_check(self):
         # CONF names the run's vtium.conf, such as the confs beside
-        # pointer-file.guide; CONF or VTIUM_VT_CONF exported in the shell
-        # does not reach make vt-accept, whose pages expect the review's
-        # file.
+        # pointer-file.guide, on make's command line. VTIUM_VT_CONF exported
+        # in the shell does not reach make vt-accept, whose pages expect the
+        # review's file, and CONF exported in the shell does not stop it.
         conf = os.path.join(ROOT, "tools", "vt", "config", "login-picture.conf")
         for target, extra in (("vt-login", ()), ("vt-shell", ()), ("vt-check", ("GUIDE=start",))):
             with self.subTest(target=target):
@@ -4246,8 +4371,11 @@ class GuideWait(unittest.TestCase):
 
     WAIT = os.path.join(VT, "checks", "guide-wait")
 
-    def start(self, *args):
-        g = Pty(["/bin/bash", self.WAIT, *args], {"PATH": os.environ["PATH"], "TERM": "linux"})
+    def start(self, *args, before="", then=""):
+        """guide-wait with ARGS, run by a shell that runs BEFORE first and
+        THEN after it, as a run: step's command does."""
+        argv = ["/bin/bash", "-c", f'{before}\n/bin/bash "$0" "$@"\n{then}', self.WAIT, *args]
+        g = Pty(argv, {"PATH": os.environ["PATH"], "TERM": "linux"})
         g.wait_for(b"\x1b[?1000h\x1b[?1006h")
         return g
 
@@ -4275,20 +4403,65 @@ class GuideWait(unittest.TestCase):
                 self.ended(g)
 
     def test_a_mouse_press_ends_the_wait_and_its_release_is_dropped(self):
+        # It waits for the release that follows the press, however late it
+        # comes, and reads it, so the release never reaches what reads the
+        # terminal next: here a read of one byte after it, which gets the z
+        # typed after the wait.
+        then = "IFS= read -r -s -n 1 x; printf '[%s]' \"$x\""
         for button in (b"0", b"1", b"2"):
             with self.subTest(button=button):
-                g = self.start("")
+                g = self.start("", then=then)
                 self.assertNotIn(b"Press a key", g.seen)
                 g.send(b"\x1b[<" + button + b";10;5M")
+                self.still_waiting(g)
                 g.send(b"\x1b[<" + button + b";10;5m")
-                self.ended(g)
+                g.wait_for(b"\x1b[?1006l\x1b[?1000l")
+                g.send(b"z")
+                g.wait_for(b"[z]")
+                self.assertEqual(g.finish(), 0)
 
     def test_a_wheel_turn_and_a_release_do_not_end_it(self):
         g = self.start("look")
         g.send(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<0;10;5m")
         self.still_waiting(g)
-        g.send(b"\x1b[<0;3;3M")
+        g.send(b"\x1b[<0;3;3M\x1b[<0;3;3m")
         self.ended(g)
+
+    def test_ctrl_c_and_ctrl_backslash_end_the_wait_and_turn_the_reports_off(self):
+        # Ctrl-C stops the step's command, so what the command runs after
+        # the wait does not run, and Ctrl-\ ends the wait alone, so it does.
+        # Either way the terminal's mouse reports go off and its modes come
+        # back.
+        then = "printf 'after %s\\n' $?; stty -a"
+        for key, status, after in ((b"\x03", -signal.SIGINT, False), (b"\x1c", 0, True)):
+            with self.subTest(key=key):
+                g = self.start(then=then)
+                g.send(key)
+                self.assertEqual(g.finish(timeout=10), status)
+                self.assertIn(b"\x1b[?1006l\x1b[?1000l", g.seen)
+                self.assertEqual(b"after 131\r\n" in g.seen, after)
+                self.assertNotIn(b"after 0", g.seen)
+                if after:
+                    self.assertRegex(g.seen, rb"[^-]icanon [^\r\n]*[^-]echo ")
+                    self.assertRegex(g.seen, rb"intr = \^C; quit = \^\\;")
+
+    def test_a_key_typed_before_it_starts_does_not_end_it(self):
+        # A run: step's command may run a while before guide-wait, and keys
+        # typed meanwhile wait in the terminal.
+        go = os.path.join(tempfile.mkdtemp(), "go")
+        try:
+            before = f"stty -echo; printf 'ready\\n'; while [ ! -e '{go}' ]; do sleep 0.02; done"
+            argv = ["/bin/bash", "-c", f'{before}\n/bin/bash "$0"', self.WAIT]
+            g = Pty(argv, {"PATH": os.environ["PATH"], "TERM": "linux"})
+            g.wait_for(b"ready")
+            g.send(b"x")
+            open(go, "w").close()
+            g.wait_for(b"\x1b[?1000h\x1b[?1006h")
+            self.still_waiting(g)
+            g.send(b"y")
+            self.ended(g)
+        finally:
+            shutil.rmtree(os.path.dirname(go))
 
     def test_with_keys_only_a_key_ends_it_and_the_mouse_reports_stay_off(self):
         g = Pty(["/bin/bash", self.WAIT, "--keys", "keys only"], {"PATH": os.environ["PATH"], "TERM": "linux"})
@@ -4296,10 +4469,6 @@ class GuideWait(unittest.TestCase):
         g.send(b"x")
         self.assertEqual(g.finish(), 0)
         self.assertNotIn(b"\x1b[?1000h", g.seen)
-
-    def test_a_guide_step_finds_it_on_its_path(self):
-        p = subprocess.run(["bash", "-c", "grep -q 'PATH=$here:$PATH' \"$1\"", "-", GUIDE_SH])
-        self.assertEqual(p.returncode, 0)
 
     def test_no_guide_holds_a_picture_with_a_fixed_sleep_at_the_end(self):
         # A run: command that ends in a sleep only keeps its picture on screen
@@ -4723,6 +4892,38 @@ class Guide(Case):
                                      "  command exited with status 131", "  answer: no  note: cut short"])
         self.assertRegex(log[16], r"^=== done ")
 
+
+    def test_a_run_step_waits_with_guide_wait_and_resets_the_mouse_after_its_command(self):
+        # A step's command finds guide-wait on its PATH. A command that ends
+        # with the mouse reports on, here one killed before it could turn
+        # them off, leaves them on no longer than the command runs.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Wait guide\n"
+                     "step: Held\nrun: guide-wait 'look now'\nexpect: a held picture\n"
+                     "step: Killed\nrun: printf '\\033[?1000h\\033[?1006h'; kill -KILL $$\nexpect: e\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env())
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"look now\x1b[?1000h\x1b[?1006h")
+        g.send(b"x")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"y")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to run it (")
+        g.send(b"\r")
+        g.wait_for(b"\x1b[?1000h\x1b[?1006h")
+        g.wait_for(b"\x1b[?1006l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b]22;\x1b\\")
+        g.wait_for(b"The command exited with status 137.")
+        g.wait_for(b"[y]es [n]o [s]kip: ")
+        g.send(b"n")
+        g.wait_for(b"Note (Enter for none): ")
+        g.send(b"\r")
+        g.wait_for(b"Press Enter to end the run.")
+        g.send(b"\r")
+        self.assertEqual(g.finish(), 0)
 
     def test_a_run_step_hands_its_command_the_steps_text(self):
         # A command that clears the screen, such as the typing pad, can show

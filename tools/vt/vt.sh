@@ -110,11 +110,14 @@ elif [ -n "${VTIUM_VT_GUIDE:-}${VTIUM_VT_STEPS:-}" ]; then
 	die "GUIDE and GUIDE_STEPS go with make vt-check"
 fi
 # The run's own vtium.conf, by its absolute path, as sudo's run-vt.sh reads it.
+# The path is made absolute and not resolved, so run-vt.sh sees a symlink and
+# refuses it.
 conf_arg=()
 if [ -n "${VTIUM_VT_CONF:-}" ]; then
 	[ "$mode" = login ] || [ "$mode" = shell ] || [ "$mode" = guide ] ||
 		die "CONF goes with make vt-login, make vt-shell and make vt-check"
-	conf=$(readlink -m -- "$VTIUM_VT_CONF")
+	conf=$VTIUM_VT_CONF
+	[[ $conf == /* ]] || conf=$PWD/$conf
 	[ -f "$conf" ] || die "CONF=$VTIUM_VT_CONF: no file $conf"
 	conf_arg=(--config="$conf")
 fi

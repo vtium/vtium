@@ -98,6 +98,20 @@ pub(crate) struct Login {
     settled: Option<Instant>,
 }
 
+/// The fit the key table names as `login-image-fit`'s default. The
+/// configuration already gives that default when nothing sets the key, and
+/// it keeps only the words the key lists, each of which [`Fit::parse`]
+/// reads, so vtium needs this only if the two lists ever disagreed. A test
+/// checks that they agree, and the last fit here is only there because a
+/// match needs one.
+fn table_fit() -> Fit {
+    match keys::LOGIN_IMAGE_FIT.default {
+        keys::Default::Text(word) => Fit::parse(word),
+        _ => None,
+    }
+    .unwrap_or(Fit::Contain)
+}
+
 impl Login {
     /// The login picture `config`'s keys name, a look's or the top
     /// level's, with `largest` the decoded picture's bound each side.
@@ -107,7 +121,7 @@ impl Login {
             fit: config
                 .text(&keys::LOGIN_IMAGE_FIT)
                 .and_then(Fit::parse)
-                .unwrap_or(Fit::Contain),
+                .unwrap_or_else(table_fit),
             rows: config
                 .number(&keys::LOGIN_IMAGE_ROWS)
                 .and_then(|n| u32::try_from(n).ok()),
@@ -523,6 +537,27 @@ mod tests {
     }
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nnot really a png";
+
+    // Every word the key table lists for `login-image-fit`, its default
+    // included, is a fit vtium knows, so no fit vtium reads falls back to
+    // one of its own.
+    #[test]
+    fn every_word_of_the_fit_key_is_a_fit() {
+        let words = match keys::LOGIN_IMAGE_FIT.kind {
+            keys::Kind::Choice(words) => words,
+            _ => &[],
+        };
+        assert!(!words.is_empty(), "login-image-fit is a choice");
+        for word in words {
+            assert!(Fit::parse(word).is_some(), "{word}");
+        }
+        let default = match keys::LOGIN_IMAGE_FIT.default {
+            keys::Default::Text(word) => word,
+            _ => "",
+        };
+        assert!(words.contains(&default), "{default:?}");
+        assert_eq!(Fit::parse(default), Some(table_fit()));
+    }
 
     // A vtium.conf that names a picture and no fit fits it inside the
     // display, keeping its shape, with bands of the default background.
