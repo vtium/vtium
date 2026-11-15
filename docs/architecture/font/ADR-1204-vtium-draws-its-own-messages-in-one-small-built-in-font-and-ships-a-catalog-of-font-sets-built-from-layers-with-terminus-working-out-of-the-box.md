@@ -123,6 +123,9 @@ considered:
   - operator: aaronsb
     said: "It's just hard to track a bunch of specific commands for distros"
     via: the steering session, 2026-11-15
+  - operator: aaronsb
+    said: "Add the four arrows [U+2190 to U+2193 join the built-in font's list]"
+    via: the steering session, 2026-11-15, the question tool, after the built-in font card found notices naming chord keys with arrows
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -182,6 +185,9 @@ The built-in font is small, and it holds just enough: the characters of vtium's 
 - Latin-1, U+00A0 to U+00FF, which holds the middle dot of the on-screen display's line;
 - box drawing and blocks, U+2500 to U+259F, for a head whose `glyph-source` asks for font glyphs instead of vtium's sprites;
 - the ellipsis U+2026, which vtium uses to shorten a long name, and the circles U+25CF and U+25CB, the focus marks.
+- the arrows U+2190 to U+2193, which vtium's notices use to name chord keys, such as Ctrl+Super+↑.
+
+> Edited 2026-11-15: the list gains the four arrows. The scan of 2026-11-14 missed them, because the code writes them as `\u{}` escapes. Terminus lacks ten characters of the list, not eight: the ranges this decision names hold ten.
 
 A scan of the string and character literals in `crates/vtium/src`, `crates/vtium-render/src/notice.rs` and `crates/vtium-settings/src` on 2026-11-14 found only these characters beyond Latin-1, apart from one in a test.
 
@@ -193,7 +199,7 @@ The built-in font has three strikes. A cell larger than a strike draws it at the
 | 8×16 | from 16 to 31 pixels high | Terminus 4.49.1, `ter-u16n.bdf` | OFL-1.1 with the Reserved Font Name "Terminus Font", as upstream's `OFL.TXT` says | 5,520 bytes, 1,429 deflated |
 | 16×32 | from 32 pixels high | Terminus 4.49.1, `ter-u32n.bdf` | the same | 22,080 bytes, 2,539 deflated |
 
-The 8×8 strike keeps the size that minspec's 320×240 panel reads at, 40 columns of 8-pixel characters, which the notices are written for (`TEXT_BESIDE_MIN` in `crates/vtium-render/src/notice.rs`). The two Terminus strikes give the larger heads a font drawn for reading on a console, and the 16×32 strike gives a 4K head a sharp font at twice the size. Terminus holds every character of the list apart from four dashed box lines, two dashed heavy lines and two block characters, U+2504 to U+2507, U+254C to U+254F, U+2594 and U+2595; vtium's sprites draw those.
+The 8×8 strike keeps the size that minspec's 320×240 panel reads at, 40 columns of 8-pixel characters, which the notices are written for (`TEXT_BESIDE_MIN` in `crates/vtium-render/src/notice.rs`). The two Terminus strikes give the larger heads a font drawn for reading on a console, and the 16×32 strike gives a 4K head a sharp font at twice the size. Terminus holds every character of the list apart from ten box and block characters, U+2504 to U+2507, U+254C to U+254F, U+2594 and U+2595; vtium's sprites draw those.
 
 The strikes come from upstream files. Every font in the Linux kernel's `lib/fonts/`, its copy of Terminus `font_ter16x32.c` included, carries `SPDX-License-Identifier: GPL-2.0`, and vtium is MIT. Upstream Terminus carries the OFL, which lets a font be bundled with software when each copy carries the font's copyright notice and the license. A subset is a modified version, and "Terminus Font" is a reserved name, so vtium names its strikes "vtium built-in". COPYING carries Terminus's copyright line, and the package carries the OFL text that `crates/vtium-font/data/OFL-1.1.txt` already holds.
 

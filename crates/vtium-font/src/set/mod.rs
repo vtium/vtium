@@ -13,6 +13,9 @@
 //! - [`builtin`] gives the built-in sets, `unifont` and `unscii-8`, and
 //!   [`builtin_name`] the one ADR-1200 D7 draws for a cell height and
 //!   locale.
+//! - [`own`] gives vtium's built-in font, "vtium built-in", which draws
+//!   vtium's own messages: its three strikes and the list of characters
+//!   they hold.
 //! - [`layer`] reads the layers a font set (a frit) adds by name, and puts
 //!   their sources in place of the set's `layer=` lines.
 //!
@@ -21,9 +24,14 @@
 
 mod builder;
 mod builtin;
+// the build script reads the sources with it and the tests read them
+// again, so each build of the crate leaves part of it unused
+#[allow(dead_code)]
+pub(crate) mod cut;
 mod face;
 pub(crate) mod format;
 pub mod layer;
+pub mod own;
 #[cfg(feature = "deflate")]
 mod pack;
 mod read;

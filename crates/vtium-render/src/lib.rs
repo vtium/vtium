@@ -80,6 +80,7 @@ mod notice;
 mod picture;
 mod reach;
 mod renderer;
+mod sprite;
 mod stored;
 #[cfg(feature = "bidi")]
 pub mod syllable;

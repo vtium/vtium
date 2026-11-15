@@ -84,6 +84,15 @@
 #                    frame and lets the card go again; then makes the
 #                    marker /tmp/t3-hand-over.done that the session waits
 #                    for, and answers the probe's lines and the VT shown
+#   bare             takes from vtium what a machine with nothing installed
+#                    lacks (t3_builtin.py): stops vtium's unit on tty2,
+#                    removes /etc/vtium, which holds vtium.conf, the font
+#                    sets and their built glyphs, the font files tier 3
+#                    installs for vtium, and the font helper
+#                    /usr/bin/vtium-config, then starts the unit again and
+#                    waits until it is active; answers the PID of vtium
+#                    before, "gone PATH" or "kept PATH" for each path, the
+#                    unit's state, and the new vtium's PID and age
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -108,6 +117,13 @@ second=/dev/input/by-path/pci-0000:15:00.0-usb-0:3.3:1.0-event-kbd
 keys=/run/t3-agent/second.keys
 # The file the seat-hold client writes once seatd enables it.
 held=/run/t3-agent/seat.held
+# What `bare` removes: vtium's configuration directory, with vtium.conf, the
+# font sets and their built glyphs in it; the folders where guest/setup
+# installs font files for vtium; and the font helper. T3_AGENT_ROOT puts
+# them below another directory, for the self-test.
+bare_root=${T3_AGENT_ROOT:-}
+bare_paths=(/etc/vtium /usr/local/share/tier3-fonts /usr/local/share/fonts/vtium-tier3
+            /usr/local/share/fonts/vtium-showcase /usr/bin/vtium-config)
 
 # The PID of vtium on tty2, its unit's main process, and its age in seconds,
 # from its start time in clock ticks against the guest's uptime; none when
@@ -257,6 +273,27 @@ print("%dx%d" % (cols, rows))
     done
 }
 
+# The request `bare`. vtium's unit is stopped, not restarted: a restart
+# keeps each session's pty in systemd's file-descriptor store, so the login
+# prompt would outlive it and never be drawn again, while a stop closes the
+# store, and the vtium that starts next starts a new login.
+bare() {
+    local p
+    echo "before $(systemctl show -P MainPID "${units[0]}")"
+    systemctl stop "${units[0]}" && echo "stopped ${units[0]}"
+    for p in "${bare_paths[@]}"; do
+        rm -rf -- "$bare_root$p"
+        if [ -e "$bare_root$p" ] || [ -L "$bare_root$p" ]; then
+            echo "kept $p"
+        else
+            echo "gone $p"
+        fi
+    done
+    systemctl start "${units[0]}" && echo "started ${units[0]}"
+    echo "unit ${units[0]} $(systemctl show -P ActiveState "${units[0]}")"
+    vtium_age
+}
+
 # The images variants' pictures before login (ADR-1101 D2, D10): the
 # quarters PNG read from a file (t=f) at row 12, column 5, which vtium must
 # refuse while the pty's owner is root, and the same PNG sent inline at
@@ -337,6 +374,7 @@ answer() {
             ;;
         limit) limit ;;
         prelogin) prelogin ;;
+        bare) bare ;;
         panic) echo "crashing the kernel" ;;
         logins)
             echo "vtium $(systemctl show -P MainPID "${units[0]}")"

@@ -605,6 +605,29 @@ fn builtin_in(name: Option<&'static str>, cell: Cell, locale: &str) -> Option<Di
     .face(height, locale)
 }
 
+/// The face vtium draws its own messages in for a grid of `cell`: the
+/// notices, the on-screen display's line and dot, and the panic screen.
+/// It is the built-in font, "vtium built-in", whose strike the cell's
+/// height chooses at the largest whole multiple that fits, centred in the
+/// cell where the two differ. It draws with no font file and no font
+/// helper, whatever font the head draws its terminal in.
+///
+/// References:
+/// - ADR-1204 D1: vtium's own messages always draw in the built-in font,
+///   and which strike draws which cell.
+pub fn own_face(cell: Cell) -> Option<DisplayFace> {
+    let face = vtium_font::set::own::face(cell)?;
+    if face.cell() == cell {
+        return Some(Box::new(face));
+    }
+    Some(Box::new(DeferredFace::new(
+        Box::new(face),
+        cell,
+        cell.height,
+        Shared::default(),
+    )))
+}
+
 /// Where vtium finds frits: the frits' directory, the helper that
 /// generates a frit's glyphs, and the files that name the font when the
 /// configuration does not.
@@ -1274,6 +1297,63 @@ mod tests {
     use super::*;
     use crate::scratch::Scratch;
     use vtium_font::Width;
+
+    /// With nothing installed, no vtium.conf, no font sets, no font files
+    /// and no font helper, vtium draws its terminal in the built-in fonts
+    /// it has always drawn, and its notices in its built-in font, "vtium
+    /// built-in", in the terminal's cell. At 16 pixels the notice's letters
+    /// differ from the terminal's Unifont, so the notice draws from neither
+    /// the terminal's font nor Unifont.
+    ///
+    /// References:
+    /// - ADR-1204 D1: vtium's own messages always draw in the built-in
+    ///   font, and the acceptance check's unit test.
+    #[test]
+    fn with_nothing_installed_a_notice_draws_in_the_built_in_font() {
+        use crate::term::{Overlay, OverlayColors};
+        use vtium_render::{
+            Canvas, Config as RenderConfig, Notice, Orientation, Renderer, Surface,
+        };
+        // an empty vtium.conf, an empty vconsole.conf and an empty kernel
+        // command line name no font, so vtium draws its built-in fonts
+        let config = crate::config::load(&[], &mut |_: &Path| Ok(None)).config;
+        assert!(wanted(&config, "", "").is_none());
+        let text = "Keyboard /dev/input/event0 was not found.";
+        let overlay = Overlay::new(None, &[text], None, OverlayColors::default());
+        for (height, grid) in [(8, (40, 30)), (16, (40, 15))] {
+            let face = Chosen::BUILTINS.face(height, "C").expect("a built-in face");
+            let cell = face.cell();
+            let renderer = Renderer::new(
+                vtium_font::Font::new(face),
+                320,
+                240,
+                RenderConfig::default(),
+            );
+            let mut drawn = Canvas::new(320, 240, 0);
+            overlay.draw(&renderer, grid, Orientation::Normal, &mut drawn);
+            let surface = Surface {
+                width: 320,
+                height: 240,
+                orientation: Orientation::Normal,
+                depth: renderer.depth(),
+            };
+            let colors = OverlayColors::default().notice;
+            let in_font = |font: &vtium_font::Font<DisplayFace>| {
+                let mut c = Canvas::new(320, 240, 0);
+                Notice::new(text).draw(font, surface, colors, None, &mut c);
+                c
+            };
+            let own = vtium_font::Font::new(own_face(cell).expect("the built-in font"));
+            assert!(
+                drawn.pixels() == in_font(&own).pixels(),
+                "{height}: vtium built-in"
+            );
+            if height == 16 {
+                let terminal = vtium_font::Font::new(Chosen::BUILTINS.face(16, "C").unwrap());
+                assert!(drawn.pixels() != in_font(&terminal).pixels(), "not Unifont");
+            }
+        }
+    }
 
     // ADR-1302 D14: a glyph is squeezed when it is exactly twice its
     // cells' width, or wider than them and 2 pixels more; the built-in

@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_builtin
 import t3_devices
 import t3_handover
 import t3_heads
@@ -269,6 +270,7 @@ CHECKS = {
     **t3_seat.CHECKS,
     **t3_handover.CHECKS,
     **t3_seat.CAPTIONS,
+    **t3_builtin.CAPTIONS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
