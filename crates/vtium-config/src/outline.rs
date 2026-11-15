@@ -20,10 +20,11 @@
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
 //!          0), hinting u8 (0 light, 1 full, 2 full and then 1-bit),
-//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
-//!          cluster width u8 (0 double, 1 single: the console's
-//!          `cluster-width`, ADR-1006 D8), double width u8 (1 for a line
-//!          of double width, whose glyphs are drawn twice as wide, else 0)
+//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0
+//!          normal, 1 superscript, 2 subscript), cluster width u8 (0
+//!          double, 1 single: the console's `cluster-width`, ADR-1006
+//!          D8), double width u8 (1 for a line of double width, whose
+//!          glyphs are drawn twice as wide, else 0)
 //! answer   magic "VTVOUTL4", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
@@ -166,7 +167,12 @@ pub struct OutlineRequest {
     pub reaches: Vec<(u32, u32)>,
     /// How the outline glyphs are fitted to the pixel grid: the frit's
     /// `hinting=`, or [`Hinting::Bitmap`] for a source whose glyphs draw
-    /// 1-bit, as a bitmap font's glyphs draw (ADR-1200 D1).
+    /// 1-bit, with each pixel fully on or fully off, as a bitmap font's
+    /// glyphs draw.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: which sources draw 1-bit, and the
+    ///   full hinting they draw with whatever `hinting=` says.
     pub hinting: Hinting,
     /// Whether a glyph whose ink would pass its cells is drawn smaller
     /// until it fits, as a fallback source's glyph is (ADR-1200 D17): set
