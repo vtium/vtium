@@ -110,14 +110,30 @@ impl Pointer {
     /// names, with `renderer`, and keeps `arrow`, the copy of the
     /// renderer's image that the cursor plane takes, the same. A new shape
     /// goes to the plane at this draw, through [`Pointer::reset`].
+    ///
+    /// It also hands the renderer the pointer file's pictures when they
+    /// changed since ([`crate::pointer_file::current`]), so that a picture
+    /// the font helper drew replaces vtium's own from this draw on, and
+    /// asks for an SVG pointer file to be drawn at the renderer's cell
+    /// height.
     pub fn follow<F: Face>(
         &mut self,
         renderer: &mut Renderer<F>,
         arrow: &mut Arrow,
         shape: PointerShape,
     ) {
-        if renderer.pointer_shape() == shape {
+        crate::pointer_file::want(renderer.pointer_cell_height());
+        let pictures = crate::pointer_file::current();
+        let same = match (renderer.pointer_pictures(), &pictures) {
+            (None, None) => true,
+            (Some(held), Some(new)) => std::sync::Arc::ptr_eq(held, new),
+            _ => false,
+        };
+        if renderer.pointer_shape() == shape && same {
             return;
+        }
+        if !same {
+            renderer.set_pointer_pictures(pictures);
         }
         renderer.set_pointer_shape(shape);
         arrow.clone_from(renderer.arrow());

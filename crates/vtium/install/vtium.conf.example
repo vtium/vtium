@@ -358,20 +358,18 @@
 # -- Mouse pointer -----------------------------------------------------------
 
 ## mouse: Use mice, touchpads and touchscreens.
-#
 ## natural-scrolling: Reverse the mouse wheel.
-##
-## The wheel then scrolls the other way, both in vtium's scrollback and for
-## programs.
 #
 ## soft-cursor: Draw the mouse pointer in software on every display, never
 ## with the display's hardware cursor.
 #
 ## pointer-char: Show the mouse pointer as this character, drawn with the
 ## console's font.
-##
-## When unset, or when the font cannot display the character, the pointer is
-## an arrow.
+#
+## pointer-theme: The SVG file or cursor theme folder whose pictures the
+## pointer takes.
+#
+## pointer-size: The size of a cursor theme's pointer.
 #
 ## pointer-hide-timeout: Hide the mouse pointer after this long without mouse
 ## activity, until it moves again. 0 never hides it.
@@ -384,6 +382,8 @@
 #no-natural-scrolling
 #no-soft-cursor
 #pointer-char=
+#pointer-theme=
+#pointer-size=
 #pointer-hide-timeout=20
 #no-pointer-hide-while-typing
 

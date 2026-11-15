@@ -246,6 +246,7 @@ install-tree: minspec config-release clipboard-release $(if $(IMAGES),image-rele
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)/usr/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)/usr/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)/usr/share/licenses/vtium $(LICENSE_FILES)
 ifneq ($(IMAGES),)
 	install -Dm755 $(IMAGE_RELEASE) $(DESTDIR)/usr/bin/vtium-image
@@ -297,8 +298,9 @@ PKGNAME := vtium
 # license texts COPYING points to, the SIL Open Font License of the Unifont
 # font and the license of X.Org's color names. make install-terminfo stages
 # LICENSE and COPYING alone, because the terminfo entry holds neither the
-# font nor the color names.
-LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt
+# font nor the color names. tiny-skia's BSD-3-Clause notice goes with the
+# font helper, which draws SVG pointer files with it (ADR-1309).
+LICENSE_FILES := LICENSE COPYING crates/vtium-font/data/OFL-1.1.txt crates/vtium-term/gen-color-names/src/rgb-license.txt crates/vtium-config/licenses/tiny-skia-LICENSE
 INSTALL_TARGET_DIR := $(or $(CARGO_TARGET_DIR),target)/install
 CARGO_BUILD_FLAGS :=
 UNITDIR := $(PREFIX)/lib/systemd/system
@@ -388,6 +390,7 @@ endif
 	install -Dm644 $(VTIUM_INSTALL)/vtium.conf.example $(DESTDIR)/etc/vtium/vtium.conf.example
 	$(if $(strip $(FRITS)),install -Dm644 -t $(DESTDIR)/etc/vtium/fonts $(frit_files))
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/doc/vtium/examples $(VTIUM_INSTALL)/examples/71-vtium-local.rules $(VTIUM_INSTALL)/examples/vtium.hwdb
+	install -Dm644 $(VTIUM_INSTALL)/pointers.svg $(DESTDIR)$(PREFIX)/share/vtium/pointers.svg
 	install -Dm644 -t $(DESTDIR)$(PREFIX)/share/licenses/$(PKGNAME) $(LICENSE_FILES)
 
 .PHONY: install-fonts
@@ -648,7 +651,8 @@ endif
 vt-check: export VTIUM_VT_SESSION = guide
 vt-check: export VTIUM_VT_GUIDE = $(value GUIDE)
 vt-check: export VTIUM_VT_STEPS = $(value GUIDE_STEPS)
-vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', FEATURES='...', VT_DEBUG=1)
+vt-check: export VTIUM_VT_CONF = $(value CONF)
+vt-check: $(vt_build) $(vt_helper_build) $(vt_image_build) ## Run a guide's checks on the development VT or a free VT, with the image helper when FEATURES has images and CONF in place of the review's vtium.conf when named; the operator answers (GUIDE=NAME, GUIDE_STEPS='2 3', CONF=PATH, FEATURES='...', VT_DEBUG=1)
 	tools/vt/vt.sh
 
 # A development build of vtium as the console of one VT, across reboots,
@@ -720,14 +724,15 @@ tier2 arm-test test-tools gates: export MESA_SHADER_CACHE_DIR = $(MESA_CACHES)/$
 
 # Tier 2 against its goldens in tools/tier2/goldens. The report names this checkout's commit, as tier 3's
 # does (T3_REV). tier2 runs tier2-fonts first, which fetches the outline fonts the outline screens draw
-# with into $XDG_CACHE_HOME/vtium/tier2/fonts and checks each against its SHA-256; once they are cached,
-# it fetches nothing.
+# with into $XDG_CACHE_HOME/vtium/tier2/fonts, and Adwaita's default cursor file the pointer-file-adwaita
+# screen draws into $XDG_CACHE_HOME/vtium/tier2/pointers, and checks each against its SHA-256; once they
+# are cached, it fetches nothing.
 .PHONY: tier2 tier2-fonts
 tier2: tier2-fonts ## Draw tier 2's screens and judge them against their goldens
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	T2_VTIUM_REV=$(T3_REV) $(or $(CARGO_TARGET_DIR),target)/release/tier2 run
 
-tier2-fonts: ## Fetch tier 2's pinned outline fonts into the cache, checking each SHA-256
+tier2-fonts: ## Fetch tier 2's pinned outline fonts and its pinned Adwaita cursor file into the cache, checking each SHA-256
 	cargo build --release -p vtium-tier2 --features gpu --bins
 	$(or $(CARGO_TARGET_DIR),target)/release/tier2 fetch-fonts
 

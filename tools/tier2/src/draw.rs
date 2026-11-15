@@ -27,6 +27,7 @@ use vtium_render::{
 use vtium_term::images::{Kitty, Sixel, Switches};
 use vtium_term::{Age, Glyph as Text, ImageString, Rgb, Terminal, WidthMethod};
 
+use crate::pointers::PointerFile;
 use crate::ppm::Image;
 
 /// The font a screen is drawn with.
@@ -597,6 +598,10 @@ pub struct Screen {
     /// the pointer in the shape the terminal names, OSC 22's, as a display
     /// without a cursor plane draws it. `None` draws no pointer.
     pub arrow: Option<(u32, u32)>,
+    /// The pointer file whose pictures the pointer takes, as the console
+    /// hands the font helper's checked pictures to each renderer. `None`
+    /// draws vtium's compiled-in pictures.
+    pub pointer_file: Option<PointerFile>,
     /// Link hints on, set after the bytes and the pointer.
     pub link_hints: Option<LinkHints>,
     /// The pictures, fed with the terminal's sixel and kitty handlers on
@@ -657,6 +662,7 @@ impl Screen {
             pointer: None,
             ctrl: false,
             arrow: None,
+            pointer_file: None,
             link_hints: None,
             pictures: None,
             made_cell: None,
@@ -1244,6 +1250,23 @@ pub(crate) fn console_overlay(screen: &Screen) -> Result<Option<vtium::term::Ove
     }
 }
 
+/// A renderer for `screen` that draws `font` on a display of `w` by `h`
+/// with `config`, holding the pictures of the screen's pointer file, as
+/// the console's renderer holds them once the font helper answers.
+pub(crate) fn renderer<F: Face>(
+    screen: &Screen,
+    font: Font<F>,
+    (w, h): (u32, u32),
+    config: Config,
+) -> Result<Renderer<F>, String> {
+    let mut r = Renderer::new(font, w, h, config);
+    if let Some(file) = screen.pointer_file {
+        let pictures = crate::pointers::pictures(file, r.pointer_cell_height())?;
+        r.set_pointer_pictures(Some(pictures));
+    }
+    Ok(r)
+}
+
 fn draw_config<F: Face>(
     screen: &Screen,
     make_font: &impl Fn() -> Font<F>,
@@ -1254,7 +1277,7 @@ fn draw_config<F: Face>(
     let made = picture_cell(screen, font.cell());
     let (mut term, w, h) = prepare(screen, &font)?;
     let mut display = Display::new(w, h);
-    let mut r = Renderer::new(font, w, h, config);
+    let mut r = renderer(screen, font, (w, h), config)?;
     let mut since = Age::NEVER;
     display.frame(&mut r, (&mut term, screen.phase, screen.arrow), &mut since);
     if let Some(next) = screen.next {
@@ -1269,7 +1292,7 @@ fn draw_config<F: Face>(
             return Err("the two buffers differ after the last frame".to_owned());
         }
         let mut fresh = Display::new(w, h);
-        let mut r2 = Renderer::new(make_font(), w, h, config);
+        let mut r2 = renderer(screen, make_font(), (w, h), config)?;
         let mut never = Age::NEVER;
         fresh.frame(&mut r2, (&mut term, screen.phase, screen.arrow), &mut never);
         if fresh.front().pixels() != display.front().pixels() {

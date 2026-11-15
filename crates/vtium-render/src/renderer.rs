@@ -8,6 +8,8 @@ use vtium_term::{
     Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, LineSize, Palette, Rgb, Width, dim,
 };
 
+use std::sync::Arc;
+
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
@@ -19,6 +21,7 @@ use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
+use crate::pointer_file::PointerPictures;
 use crate::reach::{Bound, Reach};
 #[cfg(feature = "bidi")]
 use crate::syllable::Syllable;
@@ -661,6 +664,9 @@ pub struct Renderer<F> {
     /// The shape a program asked the pointer to take with OSC 22, which
     /// the pointer's image shows ([`Renderer::set_pointer_shape`]).
     shape: vtium_term::PointerShape,
+    /// A pointer file's pictures, which come before vtium's own
+    /// ([`Renderer::set_pointer_pictures`]).
+    pictures: Option<Arc<PointerPictures>>,
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
@@ -706,24 +712,36 @@ pub struct Renderer<F> {
 /// arrow stands in for a character the font lacks, which would draw as a
 /// fallback (the missing box, U+FFFD or `?`), and for a blank one, whose
 /// glyph covers no pixel.
+///
+/// With a pointer file's pictures, the file's picture of the shape comes
+/// before vtium's own. `pointer-char` names one shape and the file names
+/// all ten, so the narrower key wins where they overlap: the glyph draws
+/// the default shape, and the file's picture draws it only when the font
+/// cannot draw the character. A shape the file lacks, and a height an SVG
+/// file was not drawn at yet, draw vtium's own picture.
+///
+/// References:
+/// - ADR-1309 D1: `pointer-char` keeps the default shape, then the file's picture, then vtium's arrow.
 fn pointer_image<F: Face>(
     font: &Font<F>,
     cell_height: u32,
     config: Config,
     shape: vtium_term::PointerShape,
+    pictures: Option<&PointerPictures>,
 ) -> Arrow {
-    if shape != vtium_term::PointerShape::Default {
-        return Arrow::upright_shape(shape, cell_height);
-    }
-    match config.pointer {
-        PointerShape::Glyph(c) if font.has_glyph(c) => {
+    let glyph = match config.pointer {
+        PointerShape::Glyph(c)
+            if shape == vtium_term::PointerShape::Default && font.has_glyph(c) =>
+        {
             font.glyph(&[c], FontWidth::Narrow, Style::default())
         }
         _ => None,
     }
     .map(|g| Arrow::upright_glyph(&g))
-    .filter(Arrow::covers)
-    .unwrap_or_else(|| Arrow::upright(cell_height))
+    .filter(Arrow::covers);
+    glyph
+        .or_else(|| pictures.and_then(|p| p.pick(shape, cell_height)).cloned())
+        .unwrap_or_else(|| Arrow::upright_shape(shape, cell_height))
 }
 
 /// The font's lines in each of [`SCRIPTS`] in turn: the normal lines, and
@@ -892,7 +910,7 @@ impl<F: Face> Renderer<F> {
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
         let lines = line_sets(&font);
         let shape = vtium_term::PointerShape::Default;
-        let upright_arrow = pointer_image(&font, ch, config, shape);
+        let upright_arrow = pointer_image(&font, ch, config, shape, None);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
         let gpu = gpu::State::new(
@@ -934,6 +952,7 @@ impl<F: Face> Renderer<F> {
             arrow,
             upright_arrow,
             shape,
+            pictures: None,
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
@@ -1137,8 +1156,38 @@ impl<F: Face> Renderer<F> {
             return;
         }
         self.shape = shape;
-        let ch = u32::try_from(self.layout.ch).unwrap_or(0);
-        self.upright_arrow = pointer_image(&self.font, ch, self.config, shape);
+        self.redraw_pointer_image();
+    }
+
+    /// Takes `pictures`, a pointer file's, in place of those it held, and
+    /// shows the pointer with them from the next frame on. `None` goes back
+    /// to vtium's own pictures.
+    pub fn set_pointer_pictures(&mut self, pictures: Option<Arc<PointerPictures>>) {
+        self.pictures = pictures;
+        self.redraw_pointer_image();
+    }
+
+    /// The pointer file's pictures this renderer draws with, if any.
+    pub fn pointer_pictures(&self) -> Option<&Arc<PointerPictures>> {
+        self.pictures.as_ref()
+    }
+
+    /// The cell height the pointer's pictures are picked at: the height an
+    /// SVG pointer file is drawn for.
+    pub fn pointer_cell_height(&self) -> u32 {
+        u32::try_from(self.layout.ch).unwrap_or(0)
+    }
+
+    /// The pointer's image again, for the shape and the pictures held.
+    fn redraw_pointer_image(&mut self) {
+        let ch = self.pointer_cell_height();
+        self.upright_arrow = pointer_image(
+            &self.font,
+            ch,
+            self.config,
+            self.shape,
+            self.pictures.as_deref(),
+        );
         self.arrow = self.upright_arrow.clone().turned(self.config.orientation);
     }
 

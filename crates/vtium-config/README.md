@@ -44,6 +44,8 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `src/cover.rs`, `src/cover.rs.sha256` | The named `cover=` sets as range tables, and their SHA-256. `tools/cover-tables` generates them, and nobody edits them by hand. |
 | `src/outline.rs` | Outline fonts: the request, and the bounded answer that the parent checks. Also the rasteriser that the parser runs, where swash places each glyph in its cell as R8 or premultiplied RGBA. |
 | `src/shaping/` | Clusters (vtium/vtium#144). Each cluster is judged by what it holds, shaped with HarfRust, and drawn whole by swash. `data.rs` holds the Unicode tables that `gen-shaping/` generates, and nobody edits it by hand. |
+| `src/xcursor.rs` | The reader of a desktop cursor theme's files, the Xcursor format, which the helper runs for the console's pointer (ADR-1309 D6). It keeps the first frame of each size, at most 64 pixels a side, within a budget of pixels. |
+| `src/pointer_svg.rs` | The drawing of an SVG pointer file's symbols with resvg, a cell tall, which the helper runs for the console's pointer (ADR-1309 D4). |
 | `src/made.rs` | How the glyph helper made each superscript and subscript glyph, which the font preview's caption names (ADR-1202 D14). Also the frame that carries that record. |
 | `src/resample.rs` | Scaling a color bitmap down to its cells, by the method chosen when the tool is built. |
 | `src/glyphs.rs` | The bounded glyph form that the parser answers with, and its check. |
@@ -539,6 +541,8 @@ Each decoder is pure Rust, compiles no C and has no build script, and only this 
 | TrueType, OpenType, COLR, CBDT | `swash` 0.2.10, default features | MIT or Apache-2.0; under it `skrifa` 0.44, `read-fonts` 0.41 and `font-types` 0.12 (MIT or Apache-2.0, Rust 1.85), `zeno` 0.3 and `yazi` 0.2 (Apache-2.0 or MIT), and `bytemuck` 1.25 (Zlib, MIT or Apache-2.0) | ADR-1200 D14's decided rasteriser. It is the only pure-Rust one with hinting, embedded bitmaps and color, with `build = false`. ab_glyph has no hinting, bitmaps or color. fontdue holds every glyph at load. |
 | Outline hinting | `skrifa` 0.44.0, its `std` feature alone | MIT or Apache-2.0; the version and features swash already builds, so it adds no code to the build | swash's scaler hints in one fixed mode, and `hinting=` (ADR-1200 D1) needs light and full. The rasteriser calls skrifa's hinters itself. |
 
+| SVG pointer files | `resvg` 0.50.0 and `usvg` 0.50.0, default features off; `roxmltree` 0.21.1 | resvg and usvg Apache-2.0 or MIT; under them `tiny-skia` and `tiny-skia-path` 0.12 (BSD-3-Clause), `arrayref` 0.3 (BSD-2-Clause), and the rest MIT, Apache-2.0 or Zlib; roxmltree MIT or Apache-2.0 | ADR-1309 D4: the maintainer asked for SVG files from any editor, which write gradients, transforms, `<use>` and CSS. With its default features off, resvg builds no text, no fonts and no raster images. The maintainer allowed the two BSD licenses, and the package ships tiny-skia's notice. |
+
 The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency. The bzip2 and zstd fixtures use the encoders that the decoding crates carry.
 
 ## The parser
@@ -603,6 +607,8 @@ The console checks the drop that it makes itself. When the console runs as root,
 The frit's first source sets the cell. That is the first source in the frit's order that the helper can draw from. As for glyphs, the helper leaves out a source that this machine does not have or cannot read. It also leaves out a source that has failed as it drew, including a source whose W rule fails. The next source then sets the cell instead. ADR-1200 D17 says only that the first source sets the cell. Which source counts as first is the helper's own behaviour.
 
 A bitmap first source answers its own cell, once every later bitmap source's cell fits in it. The console takes that cell at whole multiples. An outline first source answers the cell that the W rule gives it, at the height that the query names. The console takes that cell as it is. A query that names no height gets no cell for an outline first source. Later sources of either kind draw into that cell. The helper reads no `cell=` line to answer a query, since the console reads `cell=` itself, and asks only where D17 has it ask. The console takes either answer to any query, its own cell (frame 6) or the W rule's (frame 10), whatever the frit's text names first. So when an outline first source is missing on this machine, a bitmap source after it answers, and the reverse.
+
+**Pointer pictures.** A pointer ask, kind 9, carries a pointer file that the console read, one of the ten pointer shapes, and the cell heights the displays draw at (ADR-1309 D5). The helper never opens a pointer file itself. For an SVG file, it draws the shape's symbol a cell tall at each height (`src/pointer_svg.rs`). For a cursor theme's file, it answers every size it keeps, or the size nearest `pointer-size` (`src/xcursor.rs`). Each picture goes in a frame of kind 16, premultiplied RGBA with its hotspot. A shape the helper draws nothing for gets one frame of kind 17, which says whether the file lacks the shape or why the helper cannot draw it. The ask ends with the done frame, in its turn among the glyph asks. resvg loads no image that a file names, so a file cannot make the helper read another file.
 
 **Ask, fill and stop.** The other three requests are these:
 

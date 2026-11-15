@@ -54,7 +54,8 @@
 //! ```text
 //! request  magic "VTVSREQA", kind u32 (1 ask, 2 fill, 3 stop, 4 cell
 //!          query, 5 sources query, 6 ask that takes parts, 7 ask that
-//!          says how its glyphs were made, 8 coverage query), frit name length u32, the name (ADR-1200 D1's
+//!          says how its glyphs were made, 8 coverage query; 9, the pointer
+//!          ask, has a layout of its own, below), frit name length u32, the name (ADR-1200 D1's
 //!          characters), frit text length u32, the text (UTF-8), cell width
 //!          u32 (0 for a query), cell height u32 (for a sources or
 //!          coverage query 0, for a cell query
@@ -112,9 +113,39 @@
 //!          query's answer, the count u32 and each codepoint u32 of the
 //!          letters asked that the frit covers, then the family of an
 //!          installed font that covers the most of the rest (UTF-8, empty
-//!          when none does); kind 3 a failure (UTF-8
+//!          when none does); kind 16 a pointer picture and 17 a pointer
+//!          shape the helper draws nothing for, both answers to a pointer
+//!          ask (below); kind 3 a failure (UTF-8
 //!          reason), the helper's own, as when it fails as it starts
+//! pointer  magic "VTVSREQA", kind u32 9, file kind u32 (1 SVG, 2 a cursor
+//!   ask    theme's Xcursor file), shape u32 (its place in vtium-term's
+//!          PointerShape::ALL), pointer-size u32 (0 unset, else 8 to 64; 0
+//!          for SVG), height count u32 (1 to 16 for SVG, 0 for Xcursor),
+//!          each cell height u32 (1 to CELL_SIDE_MAX), file length u32 (at
+//!          most POINTER_SVG_BYTES_MAX for SVG, XCURSOR_FILE_MAX for
+//!          Xcursor), the file's bytes
+//! pointer  kind 16, one for each picture drawn: shape u32, size u32 (the
+//!  answer  cell height asked for SVG, the nominal size for Xcursor), width
+//!          u32, height u32, hotspot x u32 and y u32, then width × height
+//!          premultiplied RGBA pixels; or kind 17, once: shape u32, why
+//!          u32 (0 the file has no picture of the shape, 1 the helper
+//!          cannot draw it), then the reason (UTF-8, empty for 0); then
+//!          kind 2, done, as every ask ends
 //! ```
+//!
+//! The console reads each pointer file itself, under the ownership check a
+//! frit passes, and sends its bytes in a pointer ask, so the helper opens
+//! no pointer file. A pointer ask is answered in its turn among the asks:
+//! for an SVG file, the shape's symbol drawn a cell tall at each height
+//! asked ([`crate::pointer_svg`]); for a cursor theme's file, every size
+//! the reader keeps, or the size nearest `pointer-size`
+//! ([`crate::xcursor`]). The console checks each picture before it trusts
+//! it: its shape and size among those asked, its sides from 1 to
+//! [`POINTER_SIDE_MAX`], its pixels exactly that many, its hotspot inside
+//! it, and no color above its alpha.
+//!
+//! References:
+//! - ADR-1309 D5: the pointer ask, its answer frames and the console's checks of them.
 //!
 //! Little-endian throughout. The console checks every frame before it
 //! trusts it: the length against [`FRAME_BYTES_MAX`] before it allocates,
@@ -207,7 +238,8 @@ pub use crate::made::Made;
 use crate::outline::{OutlineRequest, Placed, family_key, rasterise};
 use crate::shaping::ZWJ;
 use crate::sources::{Consoles, FONT_DIRS, Host, Input, KBD_DIRS, SourceError, resolve};
-use vtium_term::ClusterWidth;
+use vtium_render::{POINTER_SIDE_MAX, POINTER_SVG_BYTES_MAX, XCURSOR_FILE_MAX};
+use vtium_term::{ClusterWidth, PointerShape};
 
 /// The command that makes the binary the helper.
 pub const SERVE_ARG: &str = "serve";
@@ -272,6 +304,28 @@ pub const FRAME_SANDBOX: u32 = 14;
 /// most of the rest, UTF-8, empty when none does
 /// ([`crate::sources::font_covering`]).
 pub const FRAME_COVERAGE: u32 = 15;
+/// A pointer picture, an answer to a [`POINTER`] ask
+/// ([`PointerPicture::payload`]).
+pub const FRAME_POINTER: u32 = 16;
+/// A pointer shape the helper draws nothing for, an answer to a
+/// [`POINTER`] ask: the shape u32, [`NO_POINTER_MISSING`] or
+/// [`NO_POINTER_REFUSED`] u32, and the reason in UTF-8.
+pub const FRAME_NO_POINTER: u32 = 17;
+/// [`FRAME_NO_POINTER`]'s why: the file has no picture of the shape.
+pub const NO_POINTER_MISSING: u32 = 0;
+/// [`FRAME_NO_POINTER`]'s why: the helper cannot draw the file's picture.
+pub const NO_POINTER_REFUSED: u32 = 1;
+/// A pointer ask (ADR-1309 D5): a pointer file's bytes, one shape, and
+/// the heights to draw it at, read with a layout of its own
+/// ([`PointerAsk`]).
+pub const POINTER: u32 = 9;
+/// A pointer ask's file kind: an SVG pointer file.
+pub const POINTER_SVG: u32 = 1;
+/// A pointer ask's file kind: a cursor theme's Xcursor file.
+pub const POINTER_XCURSOR: u32 = 2;
+/// The most cell heights one pointer ask names: the displays of one head
+/// draw at few cell heights.
+pub const POINTER_HEIGHTS_MAX: usize = 16;
 /// An ask: the codepoints named, answered whole.
 pub const ASK: u32 = 1;
 /// An ask from a console that also takes the part of a cluster the font
@@ -494,26 +548,16 @@ impl ServeRequest {
     /// kernel's font inside the kernel's own bounds with its data exactly
     /// as long as its shape.
     pub fn read(r: &mut impl Read) -> Result<Option<ServeRequest>, String> {
-        let mut magic = [0u8; 8];
-        let (head, rest) = magic.split_at_mut(1);
-        match r.read(head) {
-            Ok(0) => return Ok(None),
-            Ok(_) => {}
-            Err(e) => return Err(format!("cannot read a request: {e}")),
-        }
-        r.read_exact(rest)
-            .map_err(|_| "a request cut short".to_owned())?;
-        if &magic != REQUEST_MAGIC {
-            // a request of another layout of this format comes from a
-            // console of another build
-            return Err(if magic.starts_with(b"VTVSREQ") {
-                OTHER_BUILD.to_owned()
-            } else {
-                "not a serve request".to_owned()
-            });
+        if !read_magic(r)? {
+            return Ok(None);
         }
         let mut f = Fields(r);
         let kind = f.u32()?;
+        ServeRequest::read_body(kind, &mut f).map(Some)
+    }
+
+    /// Reads the fields of a request of `kind` that follow its kind.
+    fn read_body<R: Read>(kind: u32, f: &mut Fields<'_, R>) -> Result<ServeRequest, String> {
         if !matches!(
             kind,
             ASK | ASK_PARTS | ASK_MADE | FILL | STOP | OWN_CELL | SOURCES | COVERAGE
@@ -666,7 +710,7 @@ impl ServeRequest {
             }
             _ => return Err("an unknown console font flag".to_owned()),
         };
-        Ok(Some(ServeRequest {
+        Ok(ServeRequest {
             kind,
             frit: FritText { name, text },
             cell,
@@ -679,7 +723,268 @@ impl ServeRequest {
             clusters,
             held,
             console,
-        }))
+        })
+    }
+}
+
+/// Reads the magic of the next request from `r`: `false` at the end of the
+/// input between requests.
+fn read_magic(r: &mut impl Read) -> Result<bool, String> {
+    let mut magic = [0u8; 8];
+    let (head, rest) = magic.split_at_mut(1);
+    match r.read(head) {
+        Ok(0) => return Ok(false),
+        Ok(_) => {}
+        Err(e) => return Err(format!("cannot read a request: {e}")),
+    }
+    r.read_exact(rest)
+        .map_err(|_| "a request cut short".to_owned())?;
+    if &magic != REQUEST_MAGIC {
+        // a request of another layout of this format comes from a
+        // console of another build
+        return Err(if magic.starts_with(b"VTVSREQ") {
+            OTHER_BUILD.to_owned()
+        } else {
+            "not a serve request".to_owned()
+        });
+    }
+    Ok(true)
+}
+
+/// Any request the helper reads: one of the glyph requests, or a pointer
+/// ask.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Request {
+    Serve(ServeRequest),
+    Pointer(PointerAsk),
+}
+
+/// Reads one request of any kind from `r`, as [`ServeRequest::read`] and
+/// [`PointerAsk::read`] check them: `None` at the end of the input between
+/// requests.
+pub fn read_request(r: &mut impl Read) -> Result<Option<Request>, String> {
+    if !read_magic(r)? {
+        return Ok(None);
+    }
+    let mut f = Fields(r);
+    let kind = f.u32()?;
+    if kind == POINTER {
+        PointerAsk::read_body(&mut f).map(|a| Some(Request::Pointer(a)))
+    } else {
+        ServeRequest::read_body(kind, &mut f).map(|r| Some(Request::Serve(r)))
+    }
+}
+
+/// The kind of pointer file a pointer ask carries.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PointerFile {
+    /// An SVG pointer file, whose symbols the helper draws a cell tall.
+    Svg,
+    /// One cursor theme file, in the Xcursor format.
+    Xcursor,
+}
+
+/// A pointer ask (ADR-1309 D5): a pointer file's bytes, which the console
+/// read, and one shape to draw from it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerAsk {
+    pub file: PointerFile,
+    pub shape: PointerShape,
+    /// `pointer-size`, the nominal size a cursor theme's picture is kept
+    /// at; `None` keeps every size within the budget. Always `None` for an
+    /// SVG file.
+    pub size: Option<u32>,
+    /// The cell heights the displays draw at, each of which an SVG file's
+    /// symbol is drawn for; none for a cursor theme's file, which answers
+    /// with the sizes it keeps.
+    pub heights: Vec<u32>,
+    pub bytes: Vec<u8>,
+}
+
+/// A shape's place in [`PointerShape::ALL`], as a pointer ask and its
+/// answers carry it.
+pub fn shape_code(shape: PointerShape) -> u32 {
+    PointerShape::ALL
+        .iter()
+        .position(|&s| s == shape)
+        .and_then(|i| u32::try_from(i).ok())
+        .unwrap_or(0)
+}
+
+/// The shape at `code` in [`PointerShape::ALL`].
+pub fn shape_of(code: u32) -> Option<PointerShape> {
+    PointerShape::ALL.get(usize::try_from(code).ok()?).copied()
+}
+
+impl PointerAsk {
+    pub fn encode(&self) -> Vec<u8> {
+        let mut out = REQUEST_MAGIC.to_vec();
+        put32(&mut out, POINTER);
+        put32(
+            &mut out,
+            match self.file {
+                PointerFile::Svg => POINTER_SVG,
+                PointerFile::Xcursor => POINTER_XCURSOR,
+            },
+        );
+        put32(&mut out, shape_code(self.shape));
+        put32(&mut out, self.size.unwrap_or(0));
+        put32(&mut out, len32(self.heights.len()));
+        for &h in &self.heights {
+            put32(&mut out, h);
+        }
+        put32(&mut out, len32(self.bytes.len()));
+        out.extend_from_slice(&self.bytes);
+        out
+    }
+
+    /// Reads one pointer ask from `r`, as [`read_request`] does, refusing
+    /// any other request.
+    pub fn read(r: &mut impl Read) -> Result<Option<PointerAsk>, String> {
+        match read_request(r)? {
+            None => Ok(None),
+            Some(Request::Pointer(a)) => Ok(Some(a)),
+            Some(Request::Serve(_)) => {
+                Err("a glyph request where a pointer ask was expected".to_owned())
+            }
+        }
+    }
+
+    /// Reads the fields of a pointer ask that follow its kind, each checked
+    /// before anything is allocated for it: the file kind one of two, the
+    /// shape one of the ten, `pointer-size` 0 or 8 to 64 and 0 for SVG,
+    /// the heights 1 to [`POINTER_HEIGHTS_MAX`] of them for SVG and none
+    /// for Xcursor, each 1 to [`CELL_SIDE_MAX`], and the file within its
+    /// kind's bound.
+    fn read_body<R: Read>(f: &mut Fields<'_, R>) -> Result<PointerAsk, String> {
+        let file = match f.u32()? {
+            POINTER_SVG => PointerFile::Svg,
+            POINTER_XCURSOR => PointerFile::Xcursor,
+            _ => return Err("a pointer ask of an unknown file kind".to_owned()),
+        };
+        let shape = shape_of(f.u32()?).ok_or("a pointer ask for an unknown shape")?;
+        let size = match f.u32()? {
+            0 => None,
+            s if file == PointerFile::Xcursor && (8..=POINTER_SIDE_MAX).contains(&s) => Some(s),
+            _ => {
+                return Err(
+                    "a pointer ask whose pointer-size is not 8 to 64, or set for an SVG file"
+                        .to_owned(),
+                );
+            }
+        };
+        let most = match file {
+            PointerFile::Svg => POINTER_HEIGHTS_MAX,
+            PointerFile::Xcursor => 0,
+        };
+        let n = f.count(most, "a pointer ask's heights")?;
+        if file == PointerFile::Svg && n == 0 {
+            return Err("a pointer ask for an SVG file with no height".to_owned());
+        }
+        let mut heights = Vec::with_capacity(n);
+        for _ in 0..n {
+            let h = f.u32()?;
+            if !(1..=CELL_SIDE_MAX).contains(&h) {
+                return Err(format!(
+                    "a pointer ask's height of 0 or of more than {CELL_SIDE_MAX} pixels"
+                ));
+            }
+            heights.push(h);
+        }
+        let n = f.count(
+            match file {
+                PointerFile::Svg => POINTER_SVG_BYTES_MAX,
+                PointerFile::Xcursor => XCURSOR_FILE_MAX,
+            },
+            "a pointer file's bytes",
+        )?;
+        let bytes = f.bytes(n)?;
+        Ok(PointerAsk {
+            file,
+            shape,
+            size,
+            heights,
+            bytes,
+        })
+    }
+
+    /// Draws the ask's pictures and writes the answer: a [`FRAME_POINTER`]
+    /// for each picture, or one [`FRAME_NO_POINTER`], then
+    /// [`FRAME_DONE`].
+    fn answer(&self, out: &mut dyn Write) -> io::Result<()> {
+        let code = shape_code(self.shape);
+        let none = |out: &mut dyn Write, why: u32, reason: &str| {
+            let mut payload = Vec::new();
+            put32(&mut payload, code);
+            put32(&mut payload, why);
+            let mut reason = reason.to_owned();
+            while reason.len() > REASON_BYTES_MAX {
+                reason.pop();
+            }
+            payload.extend_from_slice(reason.as_bytes());
+            write_frame(out, FRAME_NO_POINTER, &payload)
+        };
+        match self.file {
+            PointerFile::Svg => {
+                let mut heights = self.heights.clone();
+                heights.sort_unstable();
+                heights.dedup();
+                for h in heights {
+                    match crate::pointer_svg::draw(&self.bytes, self.shape.name(), h) {
+                        Ok(p) => write_frame(out, FRAME_POINTER, &p.payload(self.shape))?,
+                        Err(crate::pointer_svg::NoPicture::Missing) => {
+                            none(out, NO_POINTER_MISSING, "")?;
+                            break;
+                        }
+                        Err(crate::pointer_svg::NoPicture::Refused(why)) => {
+                            none(out, NO_POINTER_REFUSED, &why)?;
+                            break;
+                        }
+                    }
+                }
+            }
+            PointerFile::Xcursor => match crate::xcursor::read(&self.bytes, self.size) {
+                Ok(pictures) => {
+                    for p in pictures {
+                        write_frame(out, FRAME_POINTER, &p.payload(self.shape))?;
+                    }
+                }
+                Err(why) => none(out, NO_POINTER_REFUSED, &why)?,
+            },
+        }
+        write_frame(out, FRAME_DONE, &[])
+    }
+}
+
+/// One pointer picture the helper drew: premultiplied RGBA rows, `width`
+/// pixels a row, with the pixel the pointer names at `hot`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PointerPicture {
+    /// The cell height it was drawn for, from an SVG file, or its nominal
+    /// size, from a cursor theme's file.
+    pub size: u32,
+    pub width: u32,
+    pub height: u32,
+    pub hot: (u32, u32),
+    pub rgba: Vec<u8>,
+}
+
+impl PointerPicture {
+    /// The picture as [`FRAME_POINTER`]'s payload, for `shape`.
+    pub fn payload(&self, shape: PointerShape) -> Vec<u8> {
+        let mut out = Vec::with_capacity(self.rgba.len().saturating_add(24));
+        for v in [
+            shape_code(shape),
+            self.size,
+            self.width,
+            self.height,
+            self.hot.0,
+            self.hot.1,
+        ] {
+            put32(&mut out, v);
+        }
+        out.extend_from_slice(&self.rgba);
+        out
     }
 }
 
@@ -3246,14 +3551,14 @@ fn reason(out: &mut dyn Write, kind: u32, why: &str) -> io::Result<()> {
 /// The requests read from `input` on a thread of their own, so the wait for
 /// the next one has a deadline; the thread ends with the input, or at the
 /// first malformed request.
-type Requests = mpsc::Receiver<Result<Option<ServeRequest>, String>>;
+type Requests = mpsc::Receiver<Result<Option<Request>, String>>;
 
 fn read_requests(input: impl Read + Send + 'static) -> Requests {
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut input = input;
         loop {
-            let r = ServeRequest::read(&mut input);
+            let r = read_request(&mut input);
             let end = !matches!(r, Ok(Some(_)));
             if tx.send(r).is_err() || end {
                 break;
@@ -3328,8 +3633,16 @@ struct Work<'p> {
     /// changes is read again.
     engines: BTreeMap<FritText, Result<Engine, String>>,
     console: Option<ConsoleFont>,
-    asks: VecDeque<ServeRequest>,
+    asks: VecDeque<Queued>,
     fills: VecDeque<Fill>,
+}
+
+/// An ask waiting its turn: a glyph ask, or a pointer ask, which is
+/// answered in the same order so that each done frame answers the oldest
+/// ask.
+enum Queued {
+    Glyphs(ServeRequest),
+    Pointer(PointerAsk),
 }
 
 impl Work<'_> {
@@ -3367,7 +3680,7 @@ impl Work<'_> {
         let same =
             |f: &Fill| f.frit == request.frit && f.cell == request.cell && f.band == request.band;
         match request.kind {
-            ASK | ASK_PARTS | ASK_MADE => self.asks.push_back(request),
+            ASK | ASK_PARTS | ASK_MADE => self.asks.push_back(Queued::Glyphs(request)),
             FILL => {
                 self.fills.retain(|f| !same(f));
                 let fill = match self.engine(&request.frit) {
@@ -3564,7 +3877,14 @@ fn answer_requests(
                     {
                         return 1;
                     }
-                    if work.take(r, out).is_err() {
+                    let taken = match r {
+                        Request::Serve(r) => work.take(r, out),
+                        Request::Pointer(a) => {
+                            work.asks.push_back(Queued::Pointer(a));
+                            Ok(())
+                        }
+                    };
+                    if taken.is_err() {
                         return 1;
                     }
                 }
@@ -3578,7 +3898,8 @@ fn answer_requests(
             }
         }
         let wrote = match work.asks.pop_front() {
-            Some(ask) => work.ask(&ask, out),
+            Some(Queued::Glyphs(ask)) => work.ask(&ask, out),
+            Some(Queued::Pointer(ask)) => ask.answer(out),
             None if !work.fills.is_empty() => work.fill(out),
             None => return 0,
         };
@@ -5865,6 +6186,155 @@ mod tests {
         let frames = frames(&out);
         assert_eq!(frames.len(), 1);
         assert_eq!(frames[0].0, FRAME_FAILED);
+    }
+
+    /// An SVG pointer file with a white 8 × 16 `default` symbol, its
+    /// hotspot at its corner.
+    fn pointer_svg() -> Vec<u8> {
+        b"<svg xmlns=\"http://www.w3.org/2000/svg\"><symbol id=\"default\" viewBox=\"0 0 8 16\" data-hotspot=\"0 0\"><rect width=\"8\" height=\"16\" fill=\"#fff\"/></symbol></svg>".to_vec()
+    }
+
+    fn svg_ask(shape: PointerShape, heights: Vec<u32>) -> PointerAsk {
+        PointerAsk {
+            file: PointerFile::Svg,
+            shape,
+            size: None,
+            heights,
+            bytes: pointer_svg(),
+        }
+    }
+
+    // A pointer ask reads back as it was encoded, and the glyph requests'
+    // reader refuses it as a kind it does not know.
+    #[test]
+    fn a_pointer_ask_reads_back_and_glyph_reading_refuses_it() {
+        let ask = svg_ask(PointerShape::Text, vec![16, 32]);
+        let bytes = ask.encode();
+        assert_eq!(
+            read_request(&mut &bytes[..]),
+            Ok(Some(Request::Pointer(ask.clone())))
+        );
+        assert_eq!(PointerAsk::read(&mut &bytes[..]), Ok(Some(ask)));
+        assert!(ServeRequest::read(&mut &bytes[..]).is_err());
+        let x = PointerAsk {
+            file: PointerFile::Xcursor,
+            shape: PointerShape::NsResize,
+            size: Some(24),
+            heights: Vec::new(),
+            bytes: b"Xcur".to_vec(),
+        };
+        assert_eq!(
+            read_request(&mut &x.encode()[..]),
+            Ok(Some(Request::Pointer(x)))
+        );
+    }
+
+    // Each field of a pointer ask is checked before it is trusted.
+    #[test]
+    fn a_pointer_ask_refuses_each_field_out_of_bounds() {
+        let good = svg_ask(PointerShape::Default, vec![16]);
+        let svg_sized = PointerAsk {
+            size: Some(24),
+            ..good.clone()
+        };
+        let no_height = svg_ask(PointerShape::Default, Vec::new());
+        let many = svg_ask(PointerShape::Default, vec![16; POINTER_HEIGHTS_MAX + 1]);
+        let zero = svg_ask(PointerShape::Default, vec![0]);
+        let tall = svg_ask(PointerShape::Default, vec![CELL_SIDE_MAX + 1]);
+        let xcursor_height = PointerAsk {
+            file: PointerFile::Xcursor,
+            ..good.clone()
+        };
+        let small = PointerAsk {
+            file: PointerFile::Xcursor,
+            heights: Vec::new(),
+            size: Some(7),
+            ..good.clone()
+        };
+        let large_svg = PointerAsk {
+            bytes: vec![b' '; POINTER_SVG_BYTES_MAX + 1],
+            ..good.clone()
+        };
+        for (what, ask) in [
+            ("size on SVG", svg_sized),
+            ("no height", no_height),
+            ("too many heights", many),
+            ("height 0", zero),
+            ("height too tall", tall),
+            ("height on Xcursor", xcursor_height),
+            ("size under 8", small),
+            ("SVG too large", large_svg),
+        ] {
+            assert!(read_request(&mut &ask.encode()[..]).is_err(), "{what}");
+        }
+        let mut file_kind = good.encode();
+        file_kind[12] = 3;
+        assert!(read_request(&mut &file_kind[..]).is_err());
+        let mut shape = good.encode();
+        shape[16] = 10;
+        assert!(read_request(&mut &shape[..]).is_err());
+        let bytes = good.encode();
+        assert!(read_request(&mut &bytes[..bytes.len() - 1]).is_err());
+    }
+
+    // The helper answers a pointer ask with a picture at each height
+    // asked, then done; a shape the file lacks with a frame that says so;
+    // and a cursor file it cannot read with the reason.
+    #[test]
+    fn the_helper_answers_a_pointer_ask_with_its_pictures() {
+        let mut input = svg_ask(PointerShape::Default, vec![20, 16, 16]).encode();
+        input.extend(svg_ask(PointerShape::Wait, vec![16]).encode());
+        input.extend(
+            PointerAsk {
+                file: PointerFile::Xcursor,
+                shape: PointerShape::Text,
+                size: None,
+                heights: Vec::new(),
+                bytes: b"not a cursor".to_vec(),
+            }
+            .encode(),
+        );
+        let mut out = Vec::new();
+        let status = serve(
+            std::io::Cursor::new(input),
+            &mut out,
+            &Paths::default(),
+            Duration::from_secs(5),
+        );
+        assert_eq!(status, 0);
+        let frames = raw_frames(&out);
+        let kinds: Vec<u32> = frames.iter().map(|f| f.0).collect();
+        assert_eq!(
+            kinds,
+            [
+                FRAME_POINTER,
+                FRAME_POINTER,
+                FRAME_DONE,
+                FRAME_NO_POINTER,
+                FRAME_DONE,
+                FRAME_NO_POINTER,
+                FRAME_DONE
+            ]
+        );
+        let word = |b: &[u8], i: usize| u32::from_le_bytes(b[i * 4..i * 4 + 4].try_into().unwrap());
+        let first = &frames[0].1;
+        // shape 0, drawn for 16, 8 × 16, hotspot at 0, 0
+        assert_eq!(
+            (0..6).map(|i| word(first, i)).collect::<Vec<_>>(),
+            [0, 16, 8, 16, 0, 0]
+        );
+        assert_eq!(first.len(), 24 + 8 * 16 * 4);
+        assert_eq!(word(&frames[1].1, 1), 20);
+        assert_eq!(
+            (word(&frames[3].1, 0), word(&frames[3].1, 1)),
+            (shape_code(PointerShape::Wait), NO_POINTER_MISSING)
+        );
+        let why = &frames[5].1;
+        assert_eq!(
+            (word(why, 0), word(why, 1)),
+            (shape_code(PointerShape::Text), NO_POINTER_REFUSED)
+        );
+        assert!(String::from_utf8_lossy(&why[8..]).contains("Xcur"));
     }
 
     /// Input that never ends and never gives a byte.

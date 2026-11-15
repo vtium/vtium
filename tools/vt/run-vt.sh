@@ -69,10 +69,12 @@
 # --configdir naming that directory. vtium reads a vtium.conf only when root
 # owns it and no one else can write it or a directory above it (ADR-1403
 # D3), which a file in the checkout never is, so the run reads the copy and
-# never the system's /etc/vtium/vtium.conf. With --login or --shell,
-# --config=FILE names a vtium.conf that takes the place of the review's for
-# this run, under the same rules, such as config/login-picture.conf, which
-# names a login picture.
+# never the system's /etc/vtium/vtium.conf. With --login, --shell or
+# --guide, --config=FILE names a vtium.conf that takes the place of the
+# review's for this run, under the same rules, such as
+# config/login-picture.conf, which names a login picture, or a conf beside a
+# guide, such as checks/pointer-file-svg.conf. The acceptance pass always
+# reads the review's file, since its pages expect the review's settings.
 # /run/vtium-vt/ is removed when the run ends.
 # --dry-run asks what it would ask (the VT on screen, the sessions, the active
 # units) and prints every command that would change anything without running
@@ -295,7 +297,7 @@ esac
 [ -z "$login" ] || [ -z "$guide" ] || die "--guide runs the guided checks, with no login"
 [ -z "$shell" ] || [ -z "$login$guide" ] || die "--shell runs your shell, with no login and no guide"
 [ -z "$transcript" ] || [ -n "$shell" ] || die "--transcript goes with --shell"
-[ -z "$config" ] || [ -n "$login$shell" ] || die "--config goes with --login or --shell"
+[ -z "$config" ] || [ -n "$login$shell$guide" ] || die "--config goes with --login, --shell or --guide"
 # Absolute, and not resolved: a symlink is refused below.
 [ -z "$config" ] || [[ $config == /* ]] || config=$PWD/$config
 if [ -n "$guide" ]; then

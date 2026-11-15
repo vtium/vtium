@@ -9,8 +9,10 @@
 //! ```
 //!
 //! `fetch-fonts` fetches the outline fonts the outline screens draw with
-//! into their cache and checks each against its SHA-256 (`fonts`); it exits
-//! 0 when every font is in place and 1 when one is not.
+//! into their cache and checks each against its SHA-256 (`fonts`). It also
+//! fetches the pinned cursor file that a pointer file screen draws
+//! (`pointers`). It exits 0 when every file is in place and 1 when one is
+//! not.
 //!
 //! `run` exits 0 when every case passes, 1 when one does not and 2 when it
 //! refuses to run; `compare` exits 0 on pass or near, 1 on fail and 2 on
@@ -258,9 +260,16 @@ fn fetch_fonts() -> ExitCode {
         .chain(&vtium_tier2::fonts::SHIPPED_FONTS)
         .copied()
         .collect::<Vec<_>>();
-    match vtium_tier2::fonts::fetch(&dir, &fonts) {
+    let pointers = vtium_tier2::pointers::cache_dir();
+    let fetched = vtium_tier2::fonts::fetch(&dir, &fonts)
+        .and_then(|()| vtium_tier2::pointers::fetch(&pointers));
+    match fetched {
         Ok(()) => {
             println!("tier2: the outline fonts are in {}", dir.display());
+            println!(
+                "tier2: the pinned pointer file is in {}",
+                pointers.display()
+            );
             ExitCode::SUCCESS
         }
         Err(e) => {

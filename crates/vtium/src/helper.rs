@@ -361,6 +361,29 @@ impl Launcher {
         holds_account(&status, account)
     }
 
+    /// Starts a helper with its input and output piped, as the glyph
+    /// helper starts, and checks the account it dropped to. The pointer
+    /// file's client starts one this way for its pointer asks
+    /// ([`crate::pointer_file`]), apart from the glyph helper, so that its
+    /// answers never reach the glyph asks' queue.
+    pub(crate) fn spawn_piped(&self) -> Result<Child, String> {
+        vtium_platform::cloexec_above_stdio()
+            .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
+        let mut child = self
+            .process()
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| self.failed(&e))?;
+        if let Err(why) = self.dropped(child.id()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(why);
+        }
+        Ok(child)
+    }
+
     /// Why a start failed with `e`. vtium starts the helper from the file it
     /// opened, through `/proc/self/fd`, so the message says `/proc` must be
     /// mounted: with `/proc` unmounted the start fails there, not at the
@@ -3660,6 +3683,39 @@ mod tests {
         assert!(helper.running.is_none());
         assert!(!helper.busy());
         drop(woke);
+    }
+
+    // The pointer file's helper starts through the same account check: a
+    // helper still holding the console's supplementary groups is refused,
+    // and no child comes back to talk to. One that holds the account asked
+    // for starts.
+    #[test]
+    fn spawn_piped_refuses_a_helper_that_keeps_supplementary_groups() {
+        let own = std::fs::read_to_string("/proc/self/status").unwrap();
+        let groups = status_ids(&own, "Groups:").unwrap();
+        let me = rustix::process::geteuid().as_raw();
+        if me == 0 || groups.is_empty() {
+            // as root the drop works, and with no group there is none to keep
+            return;
+        }
+        let gid = rustix::process::getegid().as_raw();
+        let command = |account| Command {
+            program: stand_in_shell().to_path_buf(),
+            args: vec!["-c".into(), "cat >/dev/null".into()],
+            account,
+        };
+        let why = Launcher::open(command(Some((me, gid))))
+            .unwrap()
+            .spawn_piped()
+            .unwrap_err();
+        assert!(why.contains("supplementary groups"), "{why}");
+        let mut child = Launcher::open(command(None))
+            .unwrap()
+            .spawn_piped()
+            .unwrap();
+        assert!(child.stdin.is_some() && child.stdout.is_some());
+        drop(child.stdin.take());
+        let _ = child.wait();
     }
 
     #[test]
