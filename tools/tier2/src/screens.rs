@@ -17,8 +17,8 @@ use vtium_term::WidthMethod;
 use vtium::config::keys::{self, Scheme};
 
 use crate::draw::{
-    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, Overlay, Screen, Spacing, Take,
-    TestFont, Words,
+    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, LinkHints, Overlay, Screen, Spacing,
+    Take, TestFont, Words,
 };
 use crate::notices;
 use crate::pictures;
@@ -244,6 +244,42 @@ bytes on a row of 40 columns. In unifont. Correct: the overlay on the top row, s
 pointer is on the bottom one: the address's first 39 bytes, `https://example.com/a/very/long/path/to`, \
 then `…` in the last column, all in the default colors inverted, over the bold text the \
 program wrote there; the link on the bottom row under a dashed line.";
+
+/// Link hints on a listing with three links, one of them on two rows
+/// (ADR-1002, section 7).
+const LINK_HINTS: &[u8] = concat!(
+    "drwxr-xr-x 2 \x1b]8;;file://pixie/docs\x1b\\docs\x1b]8;;\x1b\\\r\n",
+    "-rw-r--r-- 1 \x1b[1m\x1b]8;;file://pixie/README.md\x1b\\README.md\x1b]8;;\x1b\\\x1b[0m\r\n",
+    "-rw-r--r-- 1 \x1b[32m\x1b]8;;file://pixie/Cargo.toml\x1b\\Cargo.toml\x1b]8;;\x1b\\\x1b[0m\r\n",
+    "plain text, and \x1b]8;;file://pixie/docs\x1b\\docs\x1b]8;;\x1b\\ again",
+)
+.as_bytes();
+
+const LINK_HINTS_DESC: &str = "Link hints (ADR-1002, section 7) on a listing whose names are \
+links (OSC 8): docs, README.md in bold, Cargo.toml in green, and docs again on the fourth row. \
+In unifont. Correct: the letter a on the d of the first docs, s on the R of README.md and d on \
+the C of Cargo.toml, each in the default colors inverted, dark on light; every cell of the \
+three links, the second docs included, under a dashed line in the text's color; no label on \
+the second docs, which is the first link again; the bottom row reads `Type a link's label to \
+copy its address. Press Escape to stop.` from its first column, inverted; the rest as written.";
+
+/// Link hints with 31 links, so each label has two letters, after the
+/// letter s is typed (ADR-1002, section 7).
+const LINK_HINTS_TYPED: &[u8] = concat!(
+    "\x1b]8;;x:00\x1b\\w00\x1b]8;;\x1b\\ \x1b]8;;x:01\x1b\\w01\x1b]8;;\x1b\\ \x1b]8;;x:02\x1b\\w02\x1b]8;;\x1b\\ \x1b]8;;x:03\x1b\\w03\x1b]8;;\x1b\\ \x1b]8;;x:04\x1b\\w04\x1b]8;;\x1b\\ \x1b]8;;x:05\x1b\\w05\x1b]8;;\x1b\\ \x1b]8;;x:06\x1b\\w06\x1b]8;;\x1b\\ \x1b]8;;x:07\x1b\\w07\x1b]8;;\x1b\\ \x1b]8;;x:08\x1b\\w08\x1b]8;;\x1b\\ \x1b]8;;x:09\x1b\\w09\x1b]8;;\x1b\\\r\n",
+    "\x1b]8;;x:10\x1b\\w10\x1b]8;;\x1b\\ \x1b]8;;x:11\x1b\\w11\x1b]8;;\x1b\\ \x1b]8;;x:12\x1b\\w12\x1b]8;;\x1b\\ \x1b]8;;x:13\x1b\\w13\x1b]8;;\x1b\\ \x1b]8;;x:14\x1b\\w14\x1b]8;;\x1b\\ \x1b]8;;x:15\x1b\\w15\x1b]8;;\x1b\\ \x1b]8;;x:16\x1b\\w16\x1b]8;;\x1b\\ \x1b]8;;x:17\x1b\\w17\x1b]8;;\x1b\\ \x1b]8;;x:18\x1b\\w18\x1b]8;;\x1b\\ \x1b]8;;x:19\x1b\\w19\x1b]8;;\x1b\\\r\n",
+    "\x1b]8;;x:20\x1b\\w20\x1b]8;;\x1b\\ \x1b]8;;x:21\x1b\\w21\x1b]8;;\x1b\\ \x1b]8;;x:22\x1b\\w22\x1b]8;;\x1b\\ \x1b]8;;x:23\x1b\\w23\x1b]8;;\x1b\\ \x1b]8;;x:24\x1b\\w24\x1b]8;;\x1b\\ \x1b]8;;x:25\x1b\\w25\x1b]8;;\x1b\\ \x1b]8;;x:26\x1b\\w26\x1b]8;;\x1b\\ \x1b]8;;x:27\x1b\\w27\x1b]8;;\x1b\\ \x1b]8;;x:28\x1b\\w28\x1b]8;;\x1b\\ \x1b]8;;x:29\x1b\\w29\x1b]8;;\x1b\\\r\n",
+    "\x1b[4;64H\x1b]8;;x:30\x1b\\z\x1b]8;;\x1b\\",
+)
+.as_bytes();
+
+const LINK_HINTS_TYPED_DESC: &str = "Link hints (ADR-1002, section 7) on 31 links (OSC 8), \
+w00 to w29 in three rows of ten and z in the last column of the fourth row, after the letter s \
+is typed. In unifont. Correct: only the labels that begin with s draw, each of two letters in \
+the default colors inverted: sa over the w2 of w26, ss over w27, sd over w28, sf over w29, \
+and sg in the last two columns of the fourth row, moved left so that it ends at the row's \
+end; no label on w00 to w25; every link, labelled or not, under a dashed line; the bottom row \
+reads `Type a link's label to copy its address. Press Escape to stop.`, inverted.";
 
 const LINK_HOVER_DESC: &str = "Links (OSC 8) with the pointer over the first, whose pieces on \
 every row share its id: plain, underlined, under a green SGR 58 curl, red on white, reversed, \
@@ -1877,6 +1913,37 @@ const BASE: &[Case] = &[
                 LINK_OVERLAY_CUT_DESC,
                 LINK_OVERLAY_CUT,
                 40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "" }),
+            ..Screen::new("link-hints-unifont", LINK_HINTS_DESC, LINK_HINTS, 64, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "" }),
+            depth: Depth::One,
+            ..Screen::new(
+                "link-hints-unifont-1bit",
+                "link-hints-unifont on a 1-bit display. Correct: each label lit behind an unlit letter, the dashes under the links lit like their text, and the bottom row's line lit behind unlit letters.",
+                LINK_HINTS,
+                64,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "s" }),
+            ..Screen::new(
+                "link-hints-typed-unifont",
+                LINK_HINTS_TYPED_DESC,
+                LINK_HINTS_TYPED,
+                64,
                 6,
             )
         },

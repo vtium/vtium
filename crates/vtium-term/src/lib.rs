@@ -92,7 +92,7 @@ pub use bounds::{
 };
 pub use cell::{Cell, ClusterOffset, Content, LinkIndex, StyleIndex, Width};
 pub use damage::{Age, Damage};
-pub use frame::{Cursor, CursorExtent, CursorShape, Frame, FrameCell, Overlay, dim};
+pub use frame::{Cursor, CursorExtent, CursorShape, Frame, FrameCell, LinkHint, Overlay, dim};
 pub use line::{Glyph, Line, LineFlags, LineId, LineSize, LinkId};
 #[cfg(feature = "bidi")]
 pub use order::{Joins, Order};

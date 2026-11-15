@@ -1942,6 +1942,20 @@ pub const KEY_PROMPT_DOWN: Key = Key {
     cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
 };
 
+pub const KEY_LINK_HINTS: Key = Key {
+    name: "key-link-hints",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>O"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Label each link on the screen with letters, and copy the address of the link whose label you type.\n\n\
+           When empty, no key labels the links.\n\n\
+           [docs] Paste the address with the middle button or Shift+Insert. Escape, or this key again, stops without a copy. Only links that a program marks with OSC 8 get a label, on the main screen and on the alternate screen.",
+    cite: "[the keyboard link mode issue](https://github.com/vtium/vtium/issues/106)",
+};
+
 pub const KEY_ZOOM_IN: Key = Key {
     name: "key-zoom-in",
     short: None,
@@ -2183,7 +2197,7 @@ pub const KITTY_GRAPHICS: Key = Key {
 
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 130] = [
+pub static KEYS: [Key; 131] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2269,6 +2283,7 @@ pub static KEYS: [Key; 130] = [
     KEY_PAGE_DOWN,
     KEY_PROMPT_UP,
     KEY_PROMPT_DOWN,
+    KEY_LINK_HINTS,
     KEY_ZOOM_IN,
     KEY_ZOOM_OUT,
     KEY_ROTATE_CW,
@@ -2483,6 +2498,10 @@ pub const SECTIONS: [Section; 11] = [
                     &KEY_PROMPT_UP,
                     &KEY_PROMPT_DOWN,
                 ],
+            },
+            Group {
+                title: "Links",
+                keys: &[&KEY_LINK_HINTS],
             },
             Group {
                 title: "Zoom, rotation and reset",
@@ -2726,11 +2745,17 @@ mod tests {
         }
     }
 
-    // ADR-1005 D10: the seventeen keys vtium takes for itself, apart from
-    // the VT keys and the rescue key, are key bindings of vtium.conf's top
-    // level, each with the combination vtium took before the keys were
-    // configurable as its built-in default, so vtium with no vtium.conf
-    // takes the same keys.
+    // The eighteen keys vtium takes for itself, apart from the VT keys and
+    // the rescue key, are key bindings of vtium.conf's top level, each
+    // with the combination vtium took before the keys were configurable as
+    // its built-in default, so vtium with no vtium.conf takes the same
+    // keys. The link hints key came later, with its default from its
+    // record.
+    //
+    // References:
+    // - ADR-1005 D10: vtium's own keys as key bindings with built-in
+    //   defaults.
+    // - ADR-1002, section 7: `key-link-hints` and its default.
     #[test]
     fn vtiums_own_keys_are_key_bindings_with_their_built_in_defaults() {
         let want = [
@@ -2740,6 +2765,7 @@ mod tests {
             ("key-page-down", "<Shift>Next"),
             ("key-prompt-up", "<Ctrl><Shift>Up"),
             ("key-prompt-down", "<Ctrl><Shift>Down"),
+            ("key-link-hints", "<Ctrl><Shift>O"),
             ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
             ("key-zoom-out", "<Ctrl>minus"),
             ("key-rotate-cw", "<Logo>plus,<Logo>equal"),

@@ -21,3 +21,6 @@ pointer-move	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewe
 pointer-ew-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
 pointer-ns-resize	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
 pointer-change	vtium draws the OSC 22 pointer shapes (vtium/vtium#59); not reviewed yet
+link-hints-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
+link-hints-unifont-1bit	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet
+link-hints-typed-unifont	keyboard link hints (ADR-1002, section 7), drawn on 2026-11-14 from feat/link-hints at c777316b: labels in the inverted default colors over the first cells of each link, every labelled link under the hover's dashed line, and the hint line on the overlay row; not reviewed yet

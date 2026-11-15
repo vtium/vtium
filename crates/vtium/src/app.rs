@@ -3679,6 +3679,32 @@ impl App {
         // no key, console chord or grab: only the roaming chord, which
         // moves the roaming inputs to a head that draws (ADR-1401 D16).
         let paused = h.is_some_and(|h| self.wholly_paused(h));
+        // The link hints key starts or ends link hints on the head the key's
+        // device delivers to. While they are on, that head takes every key
+        // after the power keys, one action a press, and none reaches the
+        // program. Otherwise a key press ends vtium's note on the overlay
+        // row and goes on as usual.
+        //
+        // References:
+        // - ADR-1002, section 7: the keys read while link hints are on.
+        if let Some(head) = h.filter(|_| !paused).and_then(|h| self.heads.get_mut(h)) {
+            if action == Some(grab::Action::LinkHints) {
+                if !key.repeat {
+                    head.link_hints_key();
+                }
+                return;
+            }
+            if head.hints.is_some() {
+                if !key.repeat {
+                    let command = [InputMods::CTRL, InputMods::ALT, InputMods::LOGO]
+                        .into_iter()
+                        .any(|m| key.mods.contains(m));
+                    head.hint_key(&key.keysyms, command, &mut self.selection);
+                }
+                return;
+            }
+            head.end_note();
+        }
         if let Some(grab::Action::Head(chord)) = action
             && (from.roaming || chord.is_console())
             && !(paused && chord.is_console())
@@ -7152,6 +7178,40 @@ mod tests {
         app.turn(t);
         settle_frames(&mut lp, &mut app, t);
         assert_eq!(box_text(&app), None, "the key's frame draws no box");
+    }
+
+    // ADR-1002, section 7: Ctrl+Shift+O starts link hints, every key
+    // while they are on stays with vtium, the label's letter copies the
+    // link's address, and the next key ends the line that shows the copy
+    // and goes on to the program.
+    #[test]
+    fn link_hints_take_the_keys_and_a_label_copies_its_link() {
+        let (_lp, mut app, _queued, t) = kernel_seat();
+        app.focus = Some(0);
+        let head = app.heads.first_mut().unwrap();
+        head.console
+            .term
+            .terminal
+            .input(b"\x1b]8;;x:there\x1b\\link\x1b]8;;\x1b\\");
+        let mut chord = press(u32::from('O'));
+        if let InputEvent::Key(k) = &mut chord {
+            k.mods = InputMods::CTRL.union(InputMods::SHIFT);
+        }
+        app.input_event(chord, t);
+        assert!(app.heads.first().unwrap().hints.is_some());
+        assert!(!key_sent(&app), "the hints key stays with vtium");
+        app.input_event(press(u32::from('q')), t);
+        assert!(!key_sent(&app), "a letter no label begins stays too");
+        assert!(app.heads.first().unwrap().hints.is_some());
+        app.input_event(press(u32::from('a')), t);
+        assert!(!key_sent(&app), "the label's letter stays with vtium");
+        assert!(app.heads.first().unwrap().hints.is_none());
+        assert_eq!(app.selection.as_deref(), Some(&b"x:there"[..]));
+        let head = app.heads.first().unwrap();
+        assert_eq!(head.link_overlay().as_deref(), Some("Copied: x:there"));
+        app.input_event(press(u32::from('x')), t);
+        assert!(key_sent(&app), "the next key reaches the program");
+        assert_eq!(app.heads.first().unwrap().link_overlay(), None);
     }
 
     // ADR-1401 D5: under `render-timer=osd` the console measures each

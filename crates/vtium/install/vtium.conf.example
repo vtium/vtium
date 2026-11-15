@@ -432,6 +432,15 @@
 #key-prompt-up=<Ctrl><Shift>Up
 #key-prompt-down=<Ctrl><Shift>Down
 
+# -- Links -------------------------------------------------------------------
+
+## Label each link on the screen with letters, and copy the address of the
+## link whose label you type.
+##
+## When empty, no key labels the links.
+
+#key-link-hints=<Ctrl><Shift>O
+
 # -- Zoom, rotation and reset ------------------------------------------------
 
 ## key-zoom-in: Make the font of the console on screen larger.
