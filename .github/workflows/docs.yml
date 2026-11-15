@@ -38,6 +38,24 @@ jobs:
           target/site-venv/bin/python docs/scripts/adr index -y
           git diff --exit-code -- docs/architecture/INDEX.md
       - run: target/site-venv/bin/zensical build --strict --clean
+      # The crates' interfaces under /api/ (ADR-1508 D1): rustdoc for each
+      # crate with a library, with every rustdoc warning an error, so a
+      # broken intra-doc link fails the job. cargo doc runs the build
+      # scripts, which find libudev and libxkbcommon, and with every feature
+      # libsystemd and libseat, through pkg-config.
+      - run: sudo apt-get update && sudo apt-get install -y libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev
+      # The toolchain rust-toolchain.toml pins.
+      - id: toolchain
+        run: echo "channel=$(sed -n 's/^channel = "\(.*\)"$/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.toolchain.outputs.channel }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      # make site-api builds the reference with make api and copies it into
+      # target/site/api, beside the pages Zensical built from docs/api/.
+      - run: make site-api
       - if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-pages-artifact@v4
         with:
