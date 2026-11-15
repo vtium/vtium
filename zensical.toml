@@ -90,12 +90,10 @@ nav = [
 # is made. The patterns are read as a .gitignore's are.
 #
 # The pages under api/ link each crate's reference, which rustdoc builds
-# under /api/. The docs workflow does not build that reference yet, because
-# make api still fails on rustdoc warnings in several crates, so the site
-# leaves the pages out until it does. The work that fixes those warnings
-# adds make site-api to the docs workflow, gives the index a place in the
-# menu under "For contributors", and lists the other two pages in
-# not_in_nav.
+# under /api/. The docs workflow does not build that reference yet, so the
+# site leaves the pages out until it does. The site work adds make site-api
+# to the docs workflow, gives the index a place in the menu under "For
+# contributors", and lists the other two pages in not_in_nav.
 exclude_docs = """
 /api/
 /scripts/

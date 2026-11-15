@@ -848,9 +848,9 @@ showcase: ## Make the showcase screens in docs/showcase (tier 3, QEMU/KVM)
 # cargo doc left there. make site-api copies the reference into the built
 # site under /api/, and make site builds the whole site that way.
 #
-# make api still fails on rustdoc warnings in several crates. Until it
-# passes, it is not a gate, the docs workflow does not run make site-api,
-# and zensical.toml leaves the pages in docs/api/ out of the site.
+# make api is a gate of the gate line. The docs workflow does not run make
+# site-api yet, and zensical.toml leaves the pages in docs/api/ out of the
+# site; the site work changes both.
 API_DOC_DIR = $(or $(CARGO_TARGET_DIR),target)/doc
 API_PACKAGES = $(foreach c,$(patsubst crates/%/src/lib.rs,%,$(wildcard crates/*/src/lib.rs)),-p $(c))
 API_RUSTDOCFLAGS = -D warnings -D rustdoc::broken_intra_doc_links
@@ -995,6 +995,7 @@ docs/scripts/fork-refs
 docs/scripts/claims
 docs/scripts/prose --check
 docs/scripts/coverage
+make api
 make test-tools
 make conformance
 make conformance-probes
