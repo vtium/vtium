@@ -2198,15 +2198,17 @@ impl Engine {
 
     /// The frit's bold face, which the W rule measures beside the regular
     /// face (ADR-1200 D17), so a bold face wider than the regular one
-    /// still fits the cell: the first outline source the frit gave
-    /// `style=bold` that has not failed, its bytes and its family.
-    /// `None` when the frit names none.
+    /// still fits the cell: the first outline source of the frit's own,
+    /// never a layer's, that it gave `style=bold` and that has not failed,
+    /// its bytes and its family. `None` when the frit names none.
     fn bold_face(&self) -> Option<(&[u8], &str)> {
         let failed = self.failed.borrow();
         self.sources
             .iter()
             .enumerate()
-            .filter(|(i, (source, _))| source.style == BOLD && !failed.contains_key(i))
+            .filter(|(i, (source, _))| {
+                source.style == BOLD && source.layer.is_none() && !failed.contains_key(i)
+            })
             .find_map(|(_, (_, loaded))| match loaded {
                 Loaded::Outline { font, family, .. } => Some((&font[..], family.as_str())),
                 Loaded::Bitmap(_) => None,
@@ -2216,13 +2218,14 @@ impl Engine {
     /// The size, in pixels to the em, source `i` draws at in a cell
     /// `height` pixels high when it is an outline source after an outline
     /// first source: the first source's size (ADR-1200 D17). The first
-    /// source is the frit's first regular one, the one whose metrics every
-    /// strike reports ([`Engine::metrics_at`]). `None` draws the source at
+    /// source is the text font ([`Engine::text_font`]), the frit's own
+    /// first regular source and never a layer's, whose metrics every strike
+    /// reports ([`Engine::metrics_at`]). `None` draws the source at
     /// its own size, so its ascent and descent span the height, as the
     /// first source itself and every source behind a bitmap first source
     /// do.
     fn size(&self, i: usize, height: u32) -> Option<f32> {
-        let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
+        let first = self.text_font()?;
         if i == first {
             return None;
         }
@@ -2250,8 +2253,7 @@ impl Engine {
             return None;
         };
         if self.size(i, height).is_some() {
-            let first = self.sources.iter().position(|(s, _)| s.style == REGULAR)?;
-            return self.baseline(first, height);
+            return self.baseline(self.text_font()?, height);
         }
         let b = crate::outline::baseline(font, family, height, None, self.hinting_for(i)).ok()?;
         self.baselines.borrow_mut().insert((i, height), b);
@@ -5571,6 +5573,112 @@ mod tests {
             "role=symbols\nsource=builtin:unscii-8\n",
         );
         assert_eq!(drawn_chars(&present, cell, &chars), chars);
+    }
+
+    // The text font, the frit's own first regular source, sets the baseline
+    // that the sources drawing at its size stand on, even where a layer's
+    // regular source comes first in the frit. Test Mono stands on row 13 of
+    // a 16-pixel cell; Test Low, the layer's font, with its ascent and
+    // descent at 500 units each, stands on row 8.
+    //
+    // References:
+    // - ADR-1204 D5: a layer's font never sets the cell or its baseline.
+    // - ADR-1200 D17: the sources at the text font's size stand on its
+    //   baseline.
+    #[test]
+    fn a_layers_regular_source_never_sets_the_baseline() {
+        let dir = scratch("layer-baseline");
+        let mono = dir.join("mono.ttf");
+        std::fs::write(&mono, super::ttf::test_mono().build()).unwrap();
+        let mut low = super::ttf::test_mono();
+        low.family = "Test Low".to_owned();
+        (low.ascent, low.descent) = (500, -500);
+        let low_path = dir.join("low.ttf");
+        std::fs::write(&low_path, low.build()).unwrap();
+        let cell = Cell {
+            width: 8,
+            height: 16,
+        };
+        let alone = frit(&format!("source=outline:{}\n", mono.display()));
+        let alone = Engine::load(&alone, &Paths::default(), None).unwrap();
+        let own = alone.metrics_at(cell).0;
+        let low_alone = frit(&format!("source=outline:{}\n", low_path.display()));
+        let low_alone = Engine::load(&low_alone, &Paths::default(), None).unwrap();
+        assert_ne!(
+            low_alone.metrics_at(cell).0,
+            own,
+            "the two fonts stand apart"
+        );
+        let text = layered(
+            &format!("layer=low\nsource=outline:{}\n", mono.display()),
+            "low",
+            &format!("role=symbols\nsource=outline:{}\n", low_path.display()),
+        );
+        let engine = Engine::load(&text, &Paths::default(), None).unwrap();
+        assert!(
+            engine
+                .sources
+                .first()
+                .is_some_and(|(s, _)| s.layer.is_some()),
+            "the layer's source comes first"
+        );
+        assert_eq!(engine.metrics_at(cell).0, own);
+        let at = engine
+            .sources
+            .iter()
+            .position(|(s, _)| own_regular(s))
+            .unwrap();
+        assert_eq!(engine.baseline(at, cell.height), Some(own));
+        assert_eq!(engine.own_baseline(at, cell.height), Some(own));
+    }
+
+    // A layer's bold source is never the frit's bold face, so it never
+    // joins the W rule that sets the cell's width. Test Wide, the layer's
+    // bold font, has advances of 900 units where Test Mono's are 600.
+    //
+    // References:
+    // - ADR-1204 D5: a layer's font never sets the cell.
+    // - ADR-1200 D17: the W rule measures the frit's bold face beside its
+    //   regular one.
+    #[test]
+    fn a_layers_bold_source_never_widens_the_cell() {
+        let dir = scratch("layer-bold-width");
+        let mono = dir.join("mono.ttf");
+        std::fs::write(&mono, super::ttf::test_mono().build()).unwrap();
+        let mut wide = super::ttf::test_mono();
+        wide.family = "Test Wide".to_owned();
+        for glyph in &mut wide.glyphs {
+            glyph.advance = 900;
+        }
+        let wide_path = dir.join("wide.ttf");
+        std::fs::write(&wide_path, wide.build()).unwrap();
+        let own_cell = |text: &FritText| {
+            Engine::load(text, &Paths::default(), None)
+                .unwrap()
+                .own_cell(16)
+        };
+        let alone = own_cell(&frit(&format!("source=outline:{}\n", mono.display())));
+        let own_bold = own_cell(&frit(&format!(
+            "source=outline:{}\nsource=outline:{}\nstyle=bold\n",
+            mono.display(),
+            wide_path.display()
+        )));
+        assert!(
+            matches!(
+                (&own_bold, &alone),
+                (Ok(OwnCell::Outline(bold)), Ok(OwnCell::Outline(plain))) if bold.width > plain.width
+            ),
+            "the frit's own bold face widens the cell: {own_bold:?} against {alone:?}"
+        );
+        let text = layered(
+            &format!("source=outline:{}\nlayer=wide\n", mono.display()),
+            "wide",
+            &format!(
+                "role=script\nsource=outline:{}\nstyle=bold\n",
+                wide_path.display()
+            ),
+        );
+        assert_eq!(own_cell(&text), alone);
     }
 
     // In a zh, ja or ko locale the console draws Unifont as its built-in
