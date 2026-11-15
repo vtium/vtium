@@ -4610,12 +4610,18 @@ impl App {
                 head.draw_now |= head.console.term.blink.fired(Timer::Text, awake);
                 head.text_due = Some(after(due, crate::blink::TEXT_PERIOD));
             }
-            // A program that set another cursor blink interval with
-            // `CSI 16 ; n ]` gets it from the next phase, which starts now.
+            // The cursor's interval can differ from the one its timer was
+            // armed with: a program set another with `CSI 16 ; n ]`, or
+            // another console of the head is shown now. The phase that is
+            // running keeps its end, so a program that keeps changing the
+            // interval never stops the blink, and a longer interval never
+            // stretches that phase. A shorter interval ends the phase
+            // within the new interval. Each later phase lasts the new
+            // interval.
             let every = crate::blink::cursor_period(&head.console.term.terminal);
             if let Some((due, armed)) = head.cursor_due {
-                if armed != every {
-                    head.cursor_due = Some((after(now, every), every));
+                if armed != every && due > now {
+                    head.cursor_due = Some((due.min(after(now, every)), every));
                 } else if due <= now {
                     head.draw_now |= head.console.term.blink.fired(Timer::Cursor, awake);
                     head.cursor_due = Some((after(due, every), every));
