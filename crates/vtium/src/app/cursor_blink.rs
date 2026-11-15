@@ -8,9 +8,10 @@
     reason = "a test's clock is the host's, and a test fails by panicking"
 )]
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use vtium_platform::display::Event;
 use vtium_platform::event_loop::Loop;
 
 use super::App;
@@ -71,6 +72,30 @@ fn the_cursor_blinks_at_the_interval_a_program_set_without_a_key() {
     assert_eq!(step(app.heads.first().unwrap().text_due), step(text_due));
     output(&mut app, b"\x1b[16]", ms(700));
     assert_eq!(cursor(&app), Some((ms(1200), ms_long(500))));
+}
+
+// A console shown again keeps the interval its program set: the cursor
+// timer is armed at 250 ms from the turn the VT comes back, with no key.
+// covers: ctl.linux-blink-interval
+#[test]
+fn the_cursor_takes_the_interval_again_when_the_vt_comes_back() {
+    let t = Instant::now();
+    let ms = |n: u64| t + Duration::from_millis(n);
+    let (_lp, mut app) = seat_at(&[], t);
+    output(&mut app, b"\x1b[16;250]", ms(100));
+    // the VT goes, and the display reports itself asleep
+    app.vt.leave().unwrap();
+    app.turn(ms(150));
+    let still = app.videos.get_mut(Path::new("/dev/mem0")).unwrap();
+    let still = still.as_any().downcast_mut::<Still>().unwrap();
+    still.events.push(Event::Asleep);
+    app.turn(ms(150));
+    assert!(!app.awake, "the VT is let go");
+    assert_eq!(cursor(&app), None, "no blink while away");
+    app.vt.activate().unwrap();
+    app.turn(ms(1000));
+    assert!(app.awake);
+    assert_eq!(cursor(&app), Some((ms(1250), Duration::from_millis(250))));
 }
 
 // With `blink` off the cursor does not blink, whatever a program sets.
