@@ -665,4 +665,54 @@ mod tests {
         let fit = fitted(&fitting, &pic).map_err(|f| f.reason);
         assert_eq!(fit, Ok((80, 48, [0x10, 0x20, 0x30, 0xff].repeat(80 * 48))));
     }
+
+    // ADR-1100 D17: a request that carries a fit, through the job's entry
+    // point as the serve loop calls it, comes back fitted: a PNG of 160×96
+    // under cover on a grid of 80×48 pixels is answered with 80×48 pixels,
+    // never with the picture at its decoded size
+    #[test]
+    fn a_request_with_a_fit_is_answered_with_the_fitted_picture() {
+        use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
+        let mut png = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png, 160, 96);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer
+                .write_image_data(&[0x10, 0x20, 0x30, 0xff].repeat(160 * 96))
+                .unwrap();
+        }
+        let mut r = raw(Medium::Direct(Vec::new()), Layout::Rgba, 1, 1);
+        r.pixels = None;
+        r.min = 0;
+        r.any_image = true;
+        r.largest = (8192, 8192);
+        r.largest_bytes = 1 << 24;
+        r.fit = Some(Fitting {
+            form: Form {
+                fit: Fit::Cover,
+                rows: None,
+                position: Position::Left,
+            },
+            geometry: Geometry {
+                display: (80, 48),
+                cell: (8, 16),
+                grid: (10, 3),
+            },
+        });
+        let reply = ReplyFile::Fresh(memory_file("r").unwrap());
+        let source = open(&r, Some(inline(&png)), None).unwrap();
+        let o = finish(&r, source, Some(&reply), &Locked::unsandboxed());
+        assert_eq!(
+            (o.status, o.width, o.height),
+            (Status::Ok, 80, 48),
+            "{}",
+            o.reason
+        );
+        let ReplyFile::Fresh(fd) = &reply else {
+            unreachable!()
+        };
+        assert_eq!(sealed_bytes(fd), [0x10, 0x20, 0x30, 0xff].repeat(80 * 48));
+    }
 }
