@@ -135,6 +135,7 @@ impl World {
             font_dirs: vec![self.path("fonts")],
             vconsole_conf: self.path("vconsole.conf"),
             kernel_cmdline: self.path("cmdline"),
+            ..Paths::default()
         }
     }
 

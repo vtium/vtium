@@ -22,6 +22,7 @@ struct Options {
     udev_data: Option<PathBuf>,
     helper: Option<PathBuf>,
     root: Option<PathBuf>,
+    locale: Option<String>,
     words: Vec<String>,
 }
 
@@ -41,6 +42,7 @@ impl Options {
             "--udev-data" => self.udev_data = Some(value.into()),
             "--helper" => self.helper = Some(value.into()),
             "--root" => self.root = Some(value.into()),
+            "--locale" => self.locale = Some(value),
             // the table's test reads every name, so none lands here
             _ => {}
         }
@@ -128,7 +130,7 @@ pub struct ValueOption {
 /// by the refusal. Run as root, vtium-config takes none of the flagged
 /// ones, so `sudo vtium-config` reads and writes only the system's
 /// directories and runs only the console it was built with.
-pub const VALUE_OPTIONS: [ValueOption; 12] = [
+pub const VALUE_OPTIONS: [ValueOption; 13] = [
     ValueOption {
         name: "--configdir",
         path: true,
@@ -176,6 +178,10 @@ pub const VALUE_OPTIONS: [ValueOption; 12] = [
     ValueOption {
         name: "--root",
         path: true,
+    },
+    ValueOption {
+        name: "--locale",
+        path: false,
     },
 ];
 
@@ -432,6 +438,7 @@ impl Cli<'_> {
             },
             vconsole_conf: o.vconsole_conf.clone().unwrap_or(system.vconsole_conf),
             kernel_cmdline: o.kernel_cmdline.clone().unwrap_or(system.kernel_cmdline),
+            locale: o.locale.clone().unwrap_or(system.locale),
         };
         crate::serve::command(&paths)
     }

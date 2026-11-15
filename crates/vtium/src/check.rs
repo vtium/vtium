@@ -480,7 +480,7 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
     let ask = |frit: &helper::FritText, letters: &[u32]| {
-        let launcher = helper::Launcher::configured(&loaded.config)?;
+        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
         let mut helper = helper::Helper::new(
             launcher,
             std::sync::Arc::new(|| {}),

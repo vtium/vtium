@@ -614,7 +614,8 @@ impl App {
             font_sources: font::Sources::configured(&config),
             gpu_source: None,
             reread: None,
-            launcher: helper::Launcher::configured(&config),
+            launcher: helper::Launcher::configured(&config)
+                .map(|l| l.with_locale(&locale(&inherited))),
             pointer_file_started: false,
             frits: BTreeMap::new(),
             console_font: None,
@@ -817,7 +818,8 @@ impl App {
     /// again at its next display.
     pub fn set_font_sources(&mut self, sources: font::Sources) {
         if let Some(command) = &sources.helper {
-            self.launcher = helper::Launcher::open(command.clone());
+            self.launcher =
+                helper::Launcher::open(command.clone()).map(|l| l.with_locale(&self.locale));
         }
         self.font_sources = sources;
         for head in &mut self.heads {

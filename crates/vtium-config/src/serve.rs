@@ -1099,6 +1099,11 @@ pub struct Paths {
     pub font_dirs: Vec<PathBuf>,
     pub vconsole_conf: PathBuf,
     pub kernel_cmdline: PathBuf,
+    /// The console's locale, in `LANG`'s form, which the console passes
+    /// with `--locale` when it starts the helper. It picks the built-in
+    /// font that draws the text of a set whose text font is missing, as
+    /// the console picks its own ([`vtium_font::set::builtin_name`]).
+    pub locale: String,
 }
 
 impl Default for Paths {
@@ -1109,6 +1114,7 @@ impl Default for Paths {
             font_dirs: FONT_DIRS.iter().map(PathBuf::from).collect(),
             vconsole_conf: PathBuf::from("/etc/vconsole.conf"),
             kernel_cmdline: PathBuf::from("/proc/cmdline"),
+            locale: "C".to_owned(),
         }
     }
 }
@@ -1324,6 +1330,9 @@ pub struct Engine {
     /// layers. Then the built-in font draws the text in the text font's
     /// place ([`Engine::built_in_at`]), and the frit has no own cell.
     text_left_out: Option<TextOut>,
+    /// The console's locale ([`Paths::locale`]), which picks the built-in
+    /// font that stands in for a missing text font.
+    locale: String,
     /// The frit's `render=` lines, by the line of the source each is for
     /// ([`Engine::draws_as_bitmap`]).
     render: Vec<(usize, Render)>,
@@ -1937,6 +1946,7 @@ impl Engine {
             strikes,
             cell: frit.cell,
             text_left_out,
+            locale: paths.locale.clone(),
             render: frit.render,
         })
     }
@@ -1986,16 +1996,16 @@ impl Engine {
 
     /// The built-in font that the console draws in a cell `cell` high, when
     /// it draws the text in place of the frit's missing text font; else
-    /// `None`. The console picks it by the cell's height
-    /// ([`vtium_font::set::builtin_name`]). The helper is not told the
-    /// console's locale, so it picks as for a locale outside zh, ja and ko.
+    /// `None`. It is the one the console picks, by the cell's height and
+    /// the console's locale ([`vtium_font::set::builtin_name`]), which the
+    /// console passes the helper as it starts it.
     ///
     /// References:
     /// - ADR-1204 D5 and D7: the built-in font draws the text when the
     ///   set's text font is missing.
     fn built_in_at(&self, cell: Cell) -> Option<vtium_font::set::SetFace> {
         self.text_left_out.as_ref()?;
-        let name = vtium_font::set::builtin_name(cell.height, "");
+        let name = vtium_font::set::builtin_name(cell.height, &self.locale);
         vtium_font::set::SetFace::new(vtium_font::set::builtin(name)?, cell.height)
     }
 
@@ -5354,6 +5364,53 @@ mod tests {
             "role=symbols\nsource=builtin:unscii-8\n",
         );
         assert_eq!(drawn_chars(&present, cell, &chars), chars);
+    }
+
+    // In a zh, ja or ko locale the console draws Unifont as its built-in
+    // font at every height, so a set whose text font is missing leaves Han
+    // to the console even in an 8-pixel cell, where Unscii-8, which holds
+    // no Han, would otherwise be the built-in font. The helper picks the
+    // built-in font from the locale the console passes it.
+    //
+    // References:
+    // - ADR-1200 D7: the built-in font for a cell height and locale.
+    // - ADR-1204 D5: the built-in font draws the text when the set's text
+    //   font is missing.
+    #[test]
+    fn the_built_in_font_follows_the_consoles_locale() {
+        let dir = scratch("built-in-locale");
+        let ttf = dir.join("mono.ttf");
+        std::fs::write(&ttf, super::ttf::test_mono().build()).unwrap();
+        let symbols = format!("role=symbols\nsource=outline:{}\n", ttf.display());
+        let missing = layered("source=font:Nonesuch Mono\nlayer=sym\n", "sym", &symbols);
+        let cell = Cell {
+            width: 8,
+            height: 8,
+        };
+        let chars = ['A', '\u{4e00}'];
+        let drawn = |locale: &str| {
+            let paths = Paths {
+                locale: locale.to_owned(),
+                ..Paths::default()
+            };
+            let engine = Engine::load(&missing, &paths, None).unwrap();
+            let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+            let Some(bytes) = engine.draw(cell, &want).unwrap() else {
+                return Vec::new();
+            };
+            let face =
+                SetFace::new(Arc::new(Set::from_bytes(bytes).unwrap()), cell.height).unwrap();
+            chars
+                .iter()
+                .copied()
+                .filter(|&c| face.has_glyph(c))
+                .collect::<Vec<char>>()
+        };
+        assert_eq!(drawn("C"), ['\u{4e00}']);
+        assert_eq!(drawn("en_US.UTF-8"), ['\u{4e00}']);
+        for cjk in ["ja_JP.UTF-8", "zh_CN.UTF-8", "ko_KR.UTF-8"] {
+            assert!(drawn(cjk).is_empty(), "{cjk}");
+        }
     }
 
     // The helper is handed a frit with its layers in place, and each of its

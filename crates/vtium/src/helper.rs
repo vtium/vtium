@@ -323,6 +323,21 @@ impl Launcher {
         Launcher::open(command)
     }
 
+    /// This launcher, starting each helper with the console's `locale`
+    /// (`--locale`), so that the helper picks the built-in font the console
+    /// draws, which in a zh, ja or ko locale is Unifont at every height.
+    ///
+    /// References:
+    /// - ADR-1200 D7: the built-in font for a cell height and locale.
+    /// - ADR-1204 D5: the built-in font draws the text of a set whose text
+    ///   font is missing.
+    pub fn with_locale(mut self, locale: &str) -> Launcher {
+        self.command
+            .args
+            .extend([OsString::from("--locale"), OsString::from(locale)]);
+        self
+    }
+
     /// The process that starts a helper: the opened program, through
     /// `/proc/self/fd`, which the kernel lets a process read as any
     /// account, with the program's path as its name.
@@ -4853,6 +4868,10 @@ mod tests {
         let opened = Launcher::configured(&sh).unwrap();
         assert_eq!(opened.command.program, shell);
         assert_eq!(opened.command.args, ["serve"]);
+        // the console's locale goes with it, for the built-in font the
+        // helper leaves characters to
+        let localized = opened.with_locale("ja_JP.UTF-8");
+        assert_eq!(localized.command.args, ["serve", "--locale", "ja_JP.UTF-8"]);
         let why = Launcher::configured(&config(&["--font-helper=sh"])).unwrap_err();
         assert!(why.contains("is not absolute"), "{why}");
     }
