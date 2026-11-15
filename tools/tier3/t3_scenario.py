@@ -468,10 +468,13 @@ VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,
 # before login, so the driver never logs in ("login": False).
 VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_account="nobody",
                                          login=False, screens=[], rpc_pipefs=False)
-# The login picture (ADR-1100 D17): the images machine and tree, whose
-# configuration names the test disc picture as the login picture under
-# cover. The login prompt is captured as the case "login-image"
-# ("login_shot"), and the driver never logs in.
+# The login picture: the images machine and tree, whose configuration
+# names the test disc picture as the login picture under cover. The login
+# prompt is captured as the case "login-image" ("login_shot"), and the
+# driver never logs in.
+#
+# References:
+# - ADR-1100 D17: the login picture this variant shows.
 VARIANTS["images-login-640x480"] = dict(VARIANTS["images-640x480"],
                                         conf="vtium-login-image.conf",
                                         login_shot="login-image", login=False,

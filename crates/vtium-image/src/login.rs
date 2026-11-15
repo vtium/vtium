@@ -1106,9 +1106,9 @@ mod tests {
             let made = fit(&fitting, size, Source::Argb(&src));
             assert_eq!(made.is_some(), room(&fitting), "case {case}: {fitting:?}");
             if let Some((w, h, pixels)) = made {
-                let spot = place(&fitting, (w, h))
-                    .unwrap_or_else(|| panic!("case {case}: {fitting:?} refuses {w}×{h}"));
-                let made = spot.made((w, h), pixels, true);
+                let spot = place(&fitting, (w, h));
+                assert!(spot.is_some(), "case {case}: {fitting:?} refuses {w}×{h}");
+                let made = spot.and_then(|spot| spot.made((w, h), pixels, true));
                 assert!(made.is_some(), "case {case}: {fitting:?}");
             }
             let other = (dice.roll(0, 300), dice.roll(0, 300));
@@ -1231,11 +1231,15 @@ mod tests {
         grid: (12, 5),
     };
 
-    // ADR-1100 D17, "Where the picture sits": a picture of 15×30 under
-    // contain on the display of 100×60 scales twice over to 30×60, which
-    // copies each source pixel to 2×2. It is 10 pixels taller than the
-    // grid, so the anchor's row chooses which 50 rows show, and it leaves
-    // 54 pixels of room across, which the anchor's column places it in.
+    // A picture of 15×30 under contain on the display of 100×60 scales
+    // twice over to 30×60, which copies each source pixel to 2×2. It is 10
+    // pixels taller than the grid, so the anchor's row chooses which 50
+    // rows show, and it leaves 54 pixels of room across, which the
+    // anchor's column places it in.
+    //
+    // References:
+    // - ADR-1100 D17, "Where the picture sits": how each anchor places a
+    //   background.
     #[test]
     fn each_anchor_places_a_contained_picture_at_the_offset_worked_out_by_hand() {
         let src = coordinates(15, 30);
@@ -1321,9 +1325,12 @@ mod tests {
         assert_eq!(on_grid(&center, ROOMY.cell, (0, 0)), Some(0xff00_00ff));
     }
 
-    // ADR-1100 D17, "A background at a share of its size": the record's
-    // example, a logo of 1000×1000 on a display of 1920×1080 with 8×16
-    // cells, contained at 1080×1080 and scaled to 30%, at `bottom-right`.
+    // A logo of 1000×1000 on a display of 1920×1080 with 8×16 cells,
+    // contained at 1080×1080 and scaled to 30%, at `bottom-right`.
+    //
+    // References:
+    // - ADR-1100 D17, "A background at a share of its size": this example,
+    //   with its size and its box.
     #[test]
     fn a_scaled_logo_in_a_corner_has_the_size_and_box_worked_out_by_hand() {
         let hd = Geometry {
@@ -1441,9 +1448,12 @@ mod tests {
         (made.place, made.prompt_row)
     }
 
-    // ADR-1100 D17, "A banner at the bottom": a bottom anchor puts the
-    // banner's box in the grid's last rows, and the login prompt starts on
-    // the first row.
+    // A bottom anchor puts the banner's box in the grid's last rows, and
+    // the login prompt starts on the first row.
+    //
+    // References:
+    // - ADR-1100 D17, "A banner at the bottom": where the banner and the
+    //   prompt go.
     #[test]
     fn a_bottom_banner_takes_the_last_rows_and_the_prompt_starts_at_the_top() {
         // 20 pixels of 16-pixel rows: 2 rows, rows 4 and 5 of 6; 3 columns
@@ -1478,10 +1488,14 @@ mod tests {
         }
     }
 
-    // ADR-1100 D17: on a display turned a quarter turn, the geometry is the
-    // screen as the text reads on it, so `bottom-right` puts the box at the
-    // end of the grid's last row, wherever that falls on the panel. A panel
-    // of 96×80 turned a quarter reads as 80×96, a grid of 10×6 cells.
+    // On a display turned a quarter turn, the geometry is the screen as
+    // the text reads on it, so `bottom-right` puts the box at the end of
+    // the grid's last row, wherever that falls on the panel. A panel of
+    // 96×80 turned a quarter reads as 80×96, a grid of 10×6 cells.
+    //
+    // References:
+    // - ADR-1100 D17, "Where the picture sits": the anchors on a rotated
+    //   display.
     #[test]
     fn on_a_turned_display_bottom_right_ends_the_last_row() {
         let turned = Geometry {

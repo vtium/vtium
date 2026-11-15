@@ -3901,10 +3901,13 @@ const LINES_POWERLINE: &[u8] = concat!(
 .as_bytes();
 
 const LINES_POWERLINE_DESC: &str = "Powerline separators on lines of double size, 32 by 4 cells, in the merged font set, DejaVu Sans Mono with the symbol test font behind it for the Private Use Area, drawn at 16 and at 32 pixels and stacked. Each line is a prompt of two colored segments, vt and src, each closed by a solid separator, then a thin separator. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: the font helper fits each separator to its doubled cell, so on every line a separator runs from the cell's top to its bottom and its point meets the next segment's color with no gap. The separators are twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
-// The login picture's screens (ADR-1100 D17): the picture made by
-// vtium-image's login module, as the console makes it, and placed as the
-// console places it, a kitty placement with no id at the lowest z, before
-// or below a login prompt's text.
+// The login picture's screens: the picture made by vtium-image's login
+// module, as the console makes it, and placed as the console places it, a
+// kitty placement with no id at the lowest z, before or below a login
+// prompt's text.
+//
+// References:
+// - ADR-1100 D17: the login picture's forms and its placement.
 
 /// The text of a login prompt over a background: a cell with a background
 /// color of its own, which covers the picture, and reverse video.

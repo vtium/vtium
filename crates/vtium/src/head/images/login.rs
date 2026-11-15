@@ -647,11 +647,14 @@ mod tests {
         );
     }
 
-    // ADR-1100 D17: `login-image-position` reads the nine anchors and is
-    // unset by default, and `login-image-scale` reads 1 to 100, 100 by
-    // default. A word that is not an anchor, or a scale outside its bounds
-    // or with a `%` sign, is reported, and vtium uses the default or the
-    // bound instead.
+    // `login-image-position` reads the nine anchors and is unset by
+    // default, and `login-image-scale` reads 1 to 100, 100 by default. A
+    // word that is not an anchor, or a scale outside its bounds or with a
+    // `%` sign, is reported, and vtium uses the default or the bound
+    // instead.
+    //
+    // References:
+    // - ADR-1100 D17, "The keys": the anchors, the scale and their defaults.
     #[test]
     fn the_anchor_and_the_scale_are_read_and_bad_values_reported() {
         let read = |conf: String| {
@@ -753,9 +756,12 @@ mod tests {
         term.terminal.screen().images().placement_count()
     }
 
-    // ADR-1100 D17: a file vtium cannot use starts the login prompt
-    // without the picture, and vtium logs one line naming the file and
-    // the reason
+    // A file vtium cannot use starts the login prompt without the
+    // picture, and vtium logs one line naming the file and the reason.
+    //
+    // References:
+    // - ADR-1100 D17, "A file vtium cannot use": the log line and its
+    //   words.
     #[test]
     fn a_missing_a_foreign_and_a_corrupt_file_each_log_one_line_and_place_nothing() {
         let missing = std::env::temp_dir().join("vtium-login-no-such-file.png");
@@ -810,7 +816,10 @@ mod tests {
         assert!(said()[0].contains("the file is larger than 64 MiB"));
     }
 
-    // ADR-1101 D8: the first login prompt waits at most 2 seconds
+    // The first login prompt waits at most 2 seconds for the image helper.
+    //
+    // References:
+    // - ADR-1101 D8: the reply timer of 2 seconds.
     #[test]
     fn the_first_login_prompt_waits_for_the_helper_at_most_2_seconds() {
         let path = file("slow", PNG);
@@ -842,9 +851,13 @@ mod tests {
         assert_eq!(said().len(), 1);
     }
 
-    // ADR-1100 D17: an ordinary kitty placement with no id, at the lowest
-    // z, that no program can name, that ED 2 and a delete by z remove and
-    // that the other erases leave
+    // A background is an ordinary kitty placement with no id, at the
+    // lowest z, that no program can name. ED 2 and a delete by z remove
+    // it, and the other erases leave it.
+    //
+    // References:
+    // - ADR-1100 D17, "What both forms share": what removes the picture
+    //   and what programs cannot do.
     // covers: image.login
     #[test]
     fn a_background_is_a_placement_no_program_can_name() {
@@ -938,10 +951,14 @@ mod tests {
         assert_eq!(term.terminal.screen().cursor(), (0, 2), "column 0, row 2");
     }
 
-    // ADR-1100 D17, "A banner at the bottom": the banner's box takes the
-    // grid's last rows, the login prompt starts on the first row, two rows
-    // stay free above it, and text that reaches the banner prints over it
-    // until line feeds scroll it away, since vtium sets no scroll margins
+    // A banner at the bottom takes the grid's last rows, the login prompt
+    // starts on the first row, and two rows stay free above it. Text that
+    // reaches the banner prints over it until line feeds scroll it away,
+    // since vtium sets no scroll margins.
+    //
+    // References:
+    // - ADR-1100 D17, "A banner at the bottom": its rows, the prompt's row
+    //   and why vtium sets no margins.
     #[test]
     fn a_bottom_banner_starts_the_prompt_at_the_top_and_scrolls_away() {
         let path = file("bottom", PNG);
@@ -994,9 +1011,13 @@ mod tests {
     /// frees each image left with no placement, with no answer.
     const CLEAR_LINE: &[u8] = b"\x1b_Ga=d,d=Z,z=-2147483648,q=2\x1b\\";
 
-    // ADR-1100 D17, "Clearing the picture at login": a console holding the
-    // login picture takes the documented line's bytes, and its store then
-    // holds no placement and no image, and it answers nothing
+    // A console holding the login picture takes the documented line's
+    // bytes, and its store then holds no placement and no image, and it
+    // answers nothing.
+    //
+    // References:
+    // - ADR-1100 D17, "Clearing the picture at login": the line and what
+    //   it sends.
     // covers: image.login
     #[test]
     fn the_documented_clear_line_leaves_no_placement_and_no_image() {
@@ -1064,9 +1085,13 @@ mod tests {
         Some(out.stdout)
     }
 
-    // ADR-1100 D17: each line `docs/configure.md` gives, run in its shell
-    // where that shell is installed, sends the bytes the console test
-    // feeds, inside a vtium session and nothing outside one
+    // Each line `docs/configure.md` gives, run in its shell where that
+    // shell is installed, sends the bytes the console test feeds inside a
+    // vtium session, and nothing outside one.
+    //
+    // References:
+    // - ADR-1100 D17, "Clearing the picture at login": the lines for bash,
+    //   zsh and fish, and why each tests `TERM_PROGRAM`.
     #[test]
     fn each_documented_clear_line_sends_the_bytes_in_its_shell() {
         let blocks = documented_lines();
@@ -1116,8 +1141,12 @@ mod tests {
         assert!(lines[0].contains("the console's image memory cannot hold it"));
     }
 
-    // ADR-1100 D17: the helper hands back only the fitted pixels, and the
-    // consoles of a head share one copy of them
+    // The image helper hands back only the fitted pixels, and the consoles
+    // of a head share one copy of them.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it" and "Its
+    //   budget": the fitted answer and the shared copy.
     #[test]
     fn a_4k_picture_comes_back_fitted_and_two_consoles_share_one_copy() {
         let path = file("4k", PNG);
@@ -1256,10 +1285,10 @@ mod tests {
         let mut login = login(path, Fit::Cover);
         login.step(Some(SCREEN), now(), Some(&make));
         assert_eq!(sent.borrow()[0].medium, Medium::Direct(PNG.to_vec()));
-        let State::Asking { answer, .. } = &login.state else {
-            panic!("the request is out");
-        };
-        assert_eq!(answer.medium, Medium::Direct(Vec::new()));
+        assert!(matches!(
+            &login.state,
+            State::Asking { answer, .. } if answer.medium == Medium::Direct(Vec::new())
+        ));
     }
 
     // A FIFO, a directory and a device are refused at once with one log
@@ -1289,9 +1318,9 @@ mod tests {
             let (tx, rx) = std::sync::mpsc::channel();
             let opened = path.clone();
             std::thread::spawn(move || tx.send(read(&opened).err()));
-            let why = rx
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap_or_else(|_| panic!("{}: the open blocks", path.display()));
+            let why = rx.recv_timeout(Duration::from_secs(5));
+            assert!(why.is_ok(), "{}: the open blocks", path.display());
+            let why = why.expect("the open answered");
             assert_eq!(
                 why.as_deref(),
                 Some("the file is not a regular file"),

@@ -970,7 +970,12 @@ mod tests {
         assert!(decode_hello(&packet).is_err());
     }
 
-    // ADR-1100 D17: the login picture's fitting travels with its request
+    // The login picture's fitting travels with its request, and a fit
+    // beside anything but one inline picture is refused.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   fits the picture it decodes.
     #[test]
     fn a_login_pictures_fitting_round_trips_and_an_unknown_fit_is_refused() {
         use crate::login::{Fit, Fitting, Form, Geometry, Position};
@@ -1057,9 +1062,13 @@ mod tests {
         }
     }
 
-    // ADR-1100 D17: the position byte carries the nine anchors and unset,
-    // and a reserved byte carries the scale, so the request keeps its
-    // length; a scale of 0 or past 100, or a tenth anchor, is malformed
+    // The position byte carries the nine anchors and unset, and a
+    // reserved byte carries the scale, so the request keeps its length. A
+    // scale of 0 or past 100, or a tenth anchor, is malformed.
+    //
+    // References:
+    // - ADR-1100 D17, "The keys": the nine anchors and the scale from 1 to
+    //   100.
     #[test]
     fn each_anchor_and_scale_crosses_the_wire_and_a_bad_scale_is_refused() {
         use crate::login::{Fit, Fitting, Form, Geometry, Position};
