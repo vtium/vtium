@@ -648,7 +648,8 @@ mod tests {
             form: Form {
                 fit: Fit::Cover,
                 rows: None,
-                position: Position::Left,
+                position: Some(Position::Left),
+                scale: 100,
             },
             geometry: Geometry {
                 display: (80, 48),
@@ -693,7 +694,8 @@ mod tests {
             form: Form {
                 fit: Fit::Cover,
                 rows: None,
-                position: Position::Left,
+                position: Some(Position::Left),
+                scale: 100,
             },
             geometry: Geometry {
                 display: (80, 48),
