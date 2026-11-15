@@ -1,14 +1,15 @@
 # category: text and fonts
-# vtium draws any font a frit names, bitmap or outline. These four bands are
-# four captures of the same screen, each in one font and starting with its
-# name and kind: Iosevka Term and JetBrains Mono are outline fonts, which
-# vtium scales to the cell and antialiases; Terminus is a PSF console font,
-# and GNU Unifont, which vtium carries, is drawn at twice its size, both as
-# bitmaps of whole pixels. Each band's styles line shows italic, which vtium
-# slants itself where a font has no italic face, in whole pixels in the two
-# bitmap fonts; strike, a curly underline, raised and lowered text at two
-# thirds of the size, and dim. [Choose a font](../fonts.md) shows how
-# to choose your own.
+# vtium draws any bitmap or outline font that a font set file (a frit)
+# names. These four bands are four captures of the same screen, each in one
+# font and starting with its name and kind. Iosevka Term and JetBrains Mono
+# are outline fonts, which vtium scales to the cell and antialiases.
+# Terminus is a PSF console font, and vtium draws it as a bitmap of whole
+# pixels. GNU Unifont, which vtium carries, is a bitmap font too, drawn at
+# twice its size. Each band's styles line shows italic, strike, a curly
+# underline, raised and lowered text at two thirds of the size, and dim.
+# Where a font has no italic face, vtium slants the letters itself, in whole
+# pixels in the two bitmap fonts. [Choose a font](../fonts.md) shows how to
+# choose your own.
 # alt: Four horizontal bands on a black background, each naming its font,
 # alt: Iosevka Term, Terminus, GNU Unifont and JetBrains Mono, then showing
 # alt: in that font the same pangrams, digits and symbols, accented, Greek

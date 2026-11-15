@@ -1,0 +1,14 @@
+# Claims of concepts-vt-handover.svg in docs/concepts/start-up.md, which the showcase also shows on its page displays and VTs.
+element	file	symbol
+the user switches away: the kernel asks for the VT with SIGUSR2	crates/vtium-platform/src/vt/kernel.rs	KernelVt::release_signal
+vtium stops reading input	crates/vtium-platform/src/input.rs	Input::sleep
+vtium finishes its frame and gives up the display	crates/vtium/src/video.rs	Video::sleep
+vtium gives up DRM master	crates/vtium-platform/src/display/drm2d.rs	Drm2d::sleep
+vtium lets the VT go once every device sleeps	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acknowledge_release
+test: a release waits for the frame being composed	crates/vtium/tests/boot.rs	a_release_waits_for_the_frame_composing
+test: a release waits for every device to sleep	crates/vtium/tests/boot.rs	a_release_waits_for_every_device_to_sleep
+the user switches back: the kernel gives the VT back with SIGUSR1	crates/vtium-platform/src/vt/kernel.rs	KernelVt::acquire_signal
+vtium takes the display and sets its modes	crates/vtium-platform/src/display/drm2d.rs	Drm2d::wake_up
+vtium redraws the whole screen of each display set up again	crates/vtium/src/app.rs	App::add_display
+keys and the pointer reach vtium again	crates/vtium-platform/src/input.rs	Input::wake_up
+the switch away and back, in one place	crates/vtium/src/app.rs	App::vt_event

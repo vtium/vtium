@@ -1,9 +1,9 @@
 #!/bin/bash
 # category: lines and blocks
 # hero: yes
-# vtium draws box drawing, block elements, Braille and sextants itself,
-# edge to edge in every cell, so lines join and bars stack without gaps
-# whatever the font: here a dashboard a script draws.
+# vtium draws box drawing, block elements, Braille and sextants itself, edge
+# to edge in every cell. So lines join and bars stack without gaps, whatever
+# the font. Here a script draws a dashboard with them.
 # alt: A console dashboard of five framed panels with rounded and double
 # alt: borders: a bar chart of block elements, a sine wave plotted in
 # alt: Braille dots, disk gauges, a table of services with colored status

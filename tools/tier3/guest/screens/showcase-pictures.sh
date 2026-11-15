@@ -1,10 +1,10 @@
 #!/bin/bash
 # category: pictures
 # hero: yes
-# vtium shows pictures in the console as desktop terminals do: on the left
-# a sixel picture of the Mandelbrot set in 201 colors, on the right a kitty
-# graphics picture of a lit sphere in 24-bit color.
-# tools/tier3/t3_showcase.py computes both from a few lines of arithmetic.
+# vtium shows pictures in the console. On the left is a sixel picture of
+# the Mandelbrot set in 201 colors, and on the right a kitty graphics
+# picture of a lit sphere in 24-bit color. tools/tier3/t3_showcase.py
+# computes both from a few lines of arithmetic.
 # alt: A console screen with two pictures side by side under short
 # alt: captions: the Mandelbrot set, black, edged in white, gold and sky
 # alt: blue on deep blue, and an orange sphere lit from the upper left over

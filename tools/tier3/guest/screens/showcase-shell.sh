@@ -1,16 +1,18 @@
 #!/bin/bash
 # category: front page
-# vtium draws a shell session on a 1920x1080 display in Iosevka Term, 28
-# rows of 128 columns: prompts in powerline segments with an icon from
-# Symbols Nerd Font Mono, a colored directory listing, a git history with its
-# branch graph, a gallery of six pictures in kitty graphics with their file
-# names, greetings in several scripts with emoji, and a line of text styles:
-# straight, double, curly, dotted and dashed underlines, a curly underline in
-# a color of its own, strike, inverse and dim. vtium's own gallery tool,
-# tools/gallery/gallery, draws the gallery: four pictures computed from a few
-# lines of arithmetic, and two photographs NASA's astronauts took, Earthrise
-# and the Blue Marble. The scene writes the rest of the session byte for
-# byte, and the last prompt is the shell's own, with its cursor.
+# vtium draws a shell session on a 1920×1080 display in Iosevka Term, 28
+# rows of 128 columns. The prompts are powerline segments with an icon from
+# Symbols Nerd Font Mono. Below them are a colored directory listing, a git
+# history with its branch graph, and a gallery of six pictures in kitty
+# graphics with their file names. Then come greetings in several scripts
+# with emoji, and a line of text styles. The styles are straight, double,
+# curly, dotted and dashed underlines, a curly underline in a color of its
+# own, strike, inverse and dim. vtium's own gallery tool,
+# tools/gallery/gallery, draws the gallery. It shows four pictures computed
+# from a few lines of arithmetic, and two photographs NASA's astronauts
+# took, Earthrise and the Blue Marble. The scene writes the rest of the
+# session byte for byte, and the last prompt is the shell's own, with its
+# cursor.
 # alt: A console screen showing a shell session in a smooth monospaced font:
 # alt: prompts in blue, gray and green segments, a colored listing of the
 # alt: vtium source tree, a git log with a branch graph and yellow commit

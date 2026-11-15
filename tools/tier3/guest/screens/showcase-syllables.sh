@@ -2,15 +2,17 @@
 # category: scripts and emoji
 # hero: yes
 # vtium draws the syllables of South Asian scripts whole. The upper rows
-# show how many character cells a syllable takes: each sits on a colored
-# tile as wide as its cells, and a syllable with a spacing vowel sign, such
-# as Tamil கொ or Hindi का, takes two, as the shell's line editor counts it.
-# In the lower rows each Kannada and Tamil conjunct is several clusters,
-# each on a shade of its own, as Unicode cuts it. vtium keeps those cells
-# and shapes the syllable once, so the joined form stretches across them:
-# ra under ka, the reph over ka, and five consonants stacked in one
-# syllable. Under them, the first sentence of the Universal Declaration of
-# Human Rights in Tamil and in Kannada.
+# show how many character cells each syllable takes, on a colored tile as
+# wide as its cells. A syllable with a vowel sign that takes space of its
+# own, such as Tamil கொ or Hindi का, takes two cells, as the shell's line
+# editor counts it. Unicode splits text into clusters, the units a terminal
+# normally gives one cell each. In the lower rows, each Kannada and Tamil
+# conjunct, consonants joined into one shape, spans several clusters, each
+# on a shade of its own. vtium keeps those cells and shapes the syllable
+# once, so the joined form stretches across them. The examples include ra
+# written under ka, ra written as a mark after ka, and five consonants
+# stacked in one syllable. Under them is the first sentence of the Universal
+# Declaration of Human Rights, in Tamil and in Kannada.
 # alt: A console screen with three rows of syllables on colored tiles, in
 # alt: Tamil, Hindi and Kannada, the tiles one or two cells wide; two rows
 # alt: of Kannada and Tamil conjuncts, each drawn as one joined shape across

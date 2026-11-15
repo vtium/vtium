@@ -1,11 +1,11 @@
 #!/bin/bash
 # category: text and fonts
 # vtium merges a symbol font behind the text font and fits its symbols to
-# the text font's character cell: Symbols Nerd Font Mono's Powerline
+# the text font's character cell. Symbols Nerd Font Mono's Powerline
 # separators run from the top of each row to its bottom, so the colored
-# segments of a prompt join them, and its icons stand in the middle of
-# their cells beside Iosevka Term's letters. Letters with combining marks
-# and a box of lines that vtium draws itself share the rows.
+# segments of a prompt join them. Its icons stand in the middle of their
+# cells beside Iosevka Term's letters. Letters with combining marks and a
+# box of lines that vtium draws itself share the rows.
 # alt: A console screen of shell prompts made of colored segments, blue,
 # alt: gray and green, each ending in a solid arrow exactly as tall as the
 # alt: segment, with a house, folder and branch icon inside the segments.
