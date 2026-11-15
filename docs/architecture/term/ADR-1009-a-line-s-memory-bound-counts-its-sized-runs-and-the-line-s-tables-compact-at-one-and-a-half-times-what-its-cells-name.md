@@ -40,6 +40,9 @@ considered:
     said: "Accept 650"
     via: the steering session's question tool, 2026-11-15
     covers: [fewer worst rows]
+  - operator: aaronsb
+    said: "Carry to perf card [the remaining 1.5 to 3% on plain text with no runs]"
+    via: the steering session's question tool, 2026-11-15
 status: accepted
 date: 2026-11-14
 deciders:
@@ -172,6 +175,7 @@ The maintainer refused to pay memory for runs on lines that hold none, and the s
 
 - **What the measurement found.** Each print calls `skip_lower_rows`, which looks for a run under the cursor. Checking first whether the cursor's line holds any run took back 2 to 3% of the loss: `cat` went from 51.4 to 50.0 ms a MiB, and `tui` from 0.529 to 0.518 ms a frame. The profiles also show damage marking on `cat` rising from 0.5% to 6%, and the property lookup's share rising from 49% to 68%. That last rise fits a larger print function that the compiler lays out differently, but the measurement does not prove it. The rest of the loss is not yet pinned to one line of code.
 - **The rule.** Every run check on the print and edit paths first asks whether the line holds a run. That question is one test of the line's tables, an empty run table or no tables at all, before any work on the line's cells or runs. A line without runs marks no more damage than it did before the sized-run work.
+- **Where the build stands** (amended 2026-11-15). The line-repack build moves each run check into a cold function behind an inline guard, and a screen that never held a run skips them all. That recovers most of the sized-run work's 10 to 15% loss. Plain text with no runs stays 1.5 to 3% slower than integration on `scroll`, `clusters` and `cat`. Of that, 0.3 to 2.2 points is D3's compaction cost, and the rest is spread across the remaining guards. The maintainer chose to merge the build and carry the remainder to the performance work that follows. That work brings plain text with no runs to integration's speed or faster, and D9 holds once it does.
 - **The test.** `make bench` gives `tui`, `scroll`, `clusters` and `cat` within their spread of the figures for integration in D8. A build that misses that bound fails the memory build card.
 
 ## Verification
