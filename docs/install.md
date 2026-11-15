@@ -181,7 +181,7 @@ A VT runs one mode at a time. To ask which mode fits your machine, run `vtium co
 - when `/etc/pam.d/vtium` is missing;
 - on a machine where logind manages no seat0.
 
-VT 6 is logind's reserved VT. While vtium runs on VT 6 in one mode, `vtium console enable` does not move VT 6 to the other mode. The next switch to VT 6 would end its sessions. Instead, it tells you how to go ahead. See [the libseat issue](https://github.com/vtium/vtium/issues/34) for the work on seat mode.
+VT 6 is logind's reserved VT. While vtium runs on VT 6 in one mode, `vtium console enable` does not move VT 6 to the other mode. The next switch to VT 6 would end its sessions. Instead, it tells you how to go ahead.
 
 ### When vtium fails on a VT
 
