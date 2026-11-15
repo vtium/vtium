@@ -1,6 +1,6 @@
 <!-- category: input and pointer -->
 <!-- caption: A program copies text with OSC 52, even over SSH or inside tmux, where it shares no clipboard with you. vtium decodes the text and keeps it as its selection, the one a paste sends. -->
-<!-- caption: Shift+Insert or the middle button pastes it into the console you are using. A program that asks to read the selection back gets no reply, so no program can read what you copied. -->
+<!-- caption: Shift+Insert or the middle button pastes it into the console you are using. A program that asks to read the selection back gets no reply, so no program can ask vtium for what you copied. -->
 <!-- alt: Four numbered panels. 1: a program on a remote host sends OSC 52 with the word hello in base64. 2: vtium holds hello as its selection. 3: Shift+Insert or the middle button pastes hello into the shell. -->
 <!-- alt: 4: a program sends OSC 52 with a question mark to read the selection, and vtium sends nothing back. -->
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" font-family="DejaVu Sans Mono, monospace">
@@ -62,6 +62,7 @@
 <text x="836" y="159" font-size="13" text-anchor="middle" fill="#1f2933">no reply</text>
 <line x1="836" y1="114" x2="836" y2="134" stroke="#1f2933" stroke-width="1.5" marker-end="url(#arrow)"/>
 <text x="740" y="200" font-size="12" fill="#1f2933">vtium answers nothing,</text>
-<text x="740" y="216" font-size="12" fill="#1f2933">so no program can read</text>
-<text x="740" y="232" font-size="12" fill="#1f2933">what you copied.</text>
+<text x="740" y="216" font-size="12" fill="#1f2933">so no program can ask</text>
+<text x="740" y="232" font-size="12" fill="#1f2933">vtium for what you</text>
+<text x="740" y="248" font-size="12" fill="#1f2933">copied.</text>
 </svg>
