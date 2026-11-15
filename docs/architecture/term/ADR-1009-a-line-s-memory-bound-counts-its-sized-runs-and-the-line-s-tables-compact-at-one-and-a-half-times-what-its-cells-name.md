@@ -115,7 +115,7 @@ The "before" columns leave the run table out, so they understate what a row with
 
 ### D7: the memory tests run on armv7
 
-`make arm-memory` runs vtium-term's tests for armv7-unknown-linux-gnueabihf under qemu-user, through the wrappers and sysroot that `make arm` uses, once without images and once with all features. It joins the gate line right after `make arm`, and CI's arm-cross job runs it after `make arm`. aarch64 keeps its native run in the arm-native job. The tests pin the 32-bit figures beside the 64-bit ones, so a change that moves either fails on its own target.
+`make arm-memory` runs vtium-term's library tests and `tests/memory.rs` for armv7-unknown-linux-gnueabihf under qemu-user, in a release build, through the wrappers and sysroot that `make arm` uses. It runs them once without images and once with all features. Those two binaries ran in about 12 seconds in the measurement, where vtium-term's whole debug suite under qemu-user took more than ten minutes without finishing. It joins the gate line right after `make arm`, and CI's arm-cross job runs it after `make arm`. aarch64 keeps its native run in the arm-native job. The tests pin the 32-bit figures beside the 64-bit ones, so a change that moves either fails on its own target.
 
 ## Verification
 
@@ -156,4 +156,4 @@ The "before" columns leave the run table out, so they understate what a row with
 - **Compact at twice and save elsewhere.** Not taken: 16-bit link numbers, boxed style and link tables, and a boxed cell array save 680, 8 and 8 bytes a row, less than the run table's 1,044.
 - **Keep the 10-byte entry.** Not taken: with images on x86-64, the default at 80 by 30 would then hold fewer than 1,000 of the worst rows.
 - **Keep today's trigger, room for the longest cluster.** Not taken: at one and a half times it compacts on every write of a narrow row that names its full budget.
-- **Run the whole workspace's tests on armv7.** Not taken as a gate: the figures that differ by pointer width live in vtium-term, and qemu-user makes a full run slow. `make arm-test ARM_TEST_TARGETS=armv7-unknown-linux-gnueabihf` still runs it on request.
+- **Run the whole workspace's tests on armv7.** Not taken as a gate: the figures that differ by pointer width live in vtium-term's library and memory tests, and vtium-term's debug suite alone ran past ten minutes under qemu-user. `make arm-test ARM_TEST_TARGETS=armv7-unknown-linux-gnueabihf` still runs it on request.
