@@ -1,0 +1,16 @@
+# In insert mode (IRM) on a double-width line, each printed character
+# moves the text from the cursor to the line's last column, column 5 of
+# 10, one place right. A character moved past that column is lost and
+# does not move to the next row, so a later DCH brings it back as a
+# blank. A character printed at the last column waits there with a
+# pending wrap, and the next one starts the next row, where it is
+# inserted too.
+# spec: the VT100 User Guide, DECDWL: "The use of double-width characters reduces the number of characters per line by half"; the VT510 manual, IRM: "If IRM mode is set, then new characters move characters in page memory to the right. Characters moved past the page's right border are lost"; DCH: "The terminal adds blank spaces with no visual character attributes at the right margin"; DECAWM: "If the DECAWM function is set, then graphic characters received when the cursor is at the right border of the page appear at the beginning of the next line"
+# covers: ANSI-4
+size 10 3
+send "\e[2;1H12345\e[1;1H\e#6abcde\e[1;3H\e[4hXY"
+dump
+send "\e[1;3H\e[2P"
+dump
+send "\e[1;5HZW"
+dump

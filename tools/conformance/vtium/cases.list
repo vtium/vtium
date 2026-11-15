@@ -65,6 +65,7 @@ erase-bce 6 7
 edit-ich-dch 8 3
 edit-il-dl 4 6
 edit-irm 8 3
+edit-irm-wrap 6 3
 print-rep 10 4
 tabs-cht-cbt-tbc 30 3
 tabs-hts 30 3
@@ -188,3 +189,5 @@ cursor-dhl-alone 10 4
 cursor-dwl-wide 10 4
 line-size-select 10 4
 line-size-reverse-wrap 10 4
+line-size-irm-wide 10 3
+line-size-irm-tall 10 3
