@@ -37,7 +37,8 @@ use vtium_term::{Age, Attrs, Terminal};
 use crate::config::Config;
 use crate::config::keys::{BLINK, BLINK_DECORATIONS, BLINK_TEXT};
 
-/// The text timer's period, and the cursor timer's until the first key.
+/// The text timer's period, and the cursor timer's while no program has
+/// set an interval with the Linux console's `CSI 16 ; n ]`.
 pub const TEXT_PERIOD: Duration = Duration::from_millis(500);
 
 /// The rapid timer's period: each phase of SGR 6's blink, 150 blinks a

@@ -14,8 +14,9 @@
 //!   one DPMS step, which `CSI 9` times.
 //! - `CSI 16 ; n ]`: the cursor blinks with phases of n milliseconds, n
 //!   from 50 to 65535. Any other n, or none, returns the interval to the
-//!   default, as the Linux console does. vtium's default is the `blink`
-//!   key's interval, which blinking text keeps whatever the sequence says.
+//!   default, as the Linux console does. vtium's default is 500 ms, the
+//!   pace of the `blink` key, and blinking text keeps that pace whatever
+//!   the sequence says.
 //!
 //! RIS returns the timeout to the host's configured one and the cursor's
 //! interval to the default, as the Linux console's reset does. DECSTR keeps
