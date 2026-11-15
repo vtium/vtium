@@ -367,7 +367,7 @@ pub fn clusters_shown(profiles: &[&Profile]) -> Result<Vec<StyleClusters>, Strin
         for page in 0..layout.pages {
             let term = terminal(&layout, &card::page(profile, &layout, page))?;
             let frame = term.screen().frame(term.palette(), Age::NEVER);
-            vtium::deferred::read_shown(&frame, &mut shown);
+            vtium::deferred::read_shown(&frame, &mut shown, false);
         }
     }
     vtium::deferred::settle(&mut shown);

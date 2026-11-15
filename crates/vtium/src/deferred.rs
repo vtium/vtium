@@ -142,12 +142,13 @@ pub struct Shown {
 /// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
 /// too, piece by piece, in the variant of its first cell
 /// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
-/// cells' colors, which only decide whether it draws joined. A variant
+/// cells' colors, which only decide whether it draws joined; with
+/// `ligatures`, each run of ASCII symbols too (ADR-1308 D8). A variant
 /// `all` lacks is added after the others.
 /// A build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
 #[cfg(feature = "bidi")]
-pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
+pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
     use vtium_render::syllable::Syllable;
     use vtium_term::Glyph;
@@ -157,7 +158,7 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>) {
     for row in 0..frame.rows() {
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell) {
+            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell, ligatures) {
                 let i = shown_in(all, s.variant());
                 if let Some(shown) = all.get_mut(i) {
                     for index in 0..s.len() {
@@ -4500,7 +4501,7 @@ mod tests {
             t.input(bytes.as_bytes());
             let frame = t.screen().frame(t.palette(), vtium_term::Age::NEVER);
             let mut all = vec![Shown::default()];
-            read_shown(&frame, &mut all);
+            read_shown(&frame, &mut all, false);
             settle(&mut all);
             let bold = all.iter().find(|s| s.variant.style.bold).unwrap();
             let text = ['\u{c95}', '\u{ccd}', '\u{cb0}'];
@@ -4546,7 +4547,7 @@ mod tests {
             "one cluster"
         );
         let mut all = vec![Shown::default()];
-        read_shown(&frame, &mut all);
+        read_shown(&frame, &mut all, false);
         settle(&mut all);
         let asked: Vec<&Text> = all.iter().flat_map(|s| &s.clusters).collect();
         assert!(asked.contains(&&cluster.to_vec()), "{asked:?}");
