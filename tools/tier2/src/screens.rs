@@ -3528,7 +3528,7 @@ const fn ligatures(
     }
 }
 
-const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16x40 cell draws ->, =>, !=, <= and >= as its ligatures, each across the cells of its characters, so every character keeps its column, and it draws ===, &&, || and /* as their own characters, as the font designs them. The runs ,- and >, which the font does not join, draw each character alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
+const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16×40 cell draws ->, =>, !=, ===, <=, >=, ||, /* and */ as its ligatures, each across the cells of its characters, so every character keeps its column. The font does not join &&, ,- or >,, so each of their characters draws alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
 
 const LIGATURES_OFF_DESC: &str = "The ligatures screen's text with font-ligatures off, vtium's default: Iosevka Term at 40 pixels draws every character on its own, so ->, !=, === and the other operators show as their separate characters (ADR-1308 D8).";
 
