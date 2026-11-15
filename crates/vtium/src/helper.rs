@@ -357,8 +357,9 @@ impl Launcher {
         let Some(account) = self.command.account else {
             return Ok(());
         };
-        let status = std::fs::read_to_string(format!("/proc/{pid}/status"))
-            .map_err(|e| format!("cannot read the helper's ids from /proc/{pid}/status: {e}"))?;
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).map_err(|e| {
+            format!("vtium cannot read the font helper's ids from /proc/{pid}/status: {e}")
+        })?;
         holds_account(&status, account)
     }
 
@@ -368,7 +369,7 @@ impl Launcher {
     /// program's path.
     fn failed(&self, e: &std::io::Error) -> String {
         format!(
-            "cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
+            "vtium cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
             self.command.program.display(),
         )
     }
@@ -1725,8 +1726,9 @@ impl Helper {
     fn start(&self) -> Result<Running, String> {
         // a descriptor the console holds, the VT's and the display's among
         // them, would otherwise reach the helper
-        vtium_platform::cloexec_above_stdio()
-            .map_err(|e| format!("cannot keep the console's descriptors from it: {e}"))?;
+        vtium_platform::cloexec_above_stdio().map_err(|e| {
+            format!("vtium cannot keep its own descriptors from the font helper: {e}")
+        })?;
         let mut child = self
             .launcher
             .process()
@@ -1758,7 +1760,9 @@ impl Helper {
         }) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err(format!("cannot start its reaper: {e}"));
+            return Err(format!(
+                "vtium cannot start the font helper's reaper thread: {e}"
+            ));
         }
         let _ = give.send(child);
         // a thread that cannot start ends the child, which its reaper reaps
@@ -1766,7 +1770,7 @@ impl Helper {
             if let Some(fd) = &pidfd {
                 let _ = pidfd_send_signal(fd, Signal::KILL);
             }
-            format!("cannot start its {what}: {e}")
+            format!("vtium cannot start the font helper's {what} thread: {e}")
         };
         let (requests, to_write) = mpsc::channel::<Vec<u8>>();
         if let Some(mut stdin) = stdin {
@@ -5035,7 +5039,7 @@ mod tests {
             helper.failed(),
             Some(
                 format!(
-                    "cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
+                    "vtium cannot start the font helper {}: {e}. vtium starts it through /proc/self/fd, so /proc must be mounted.",
                     program.display()
                 )
                 .as_str()
