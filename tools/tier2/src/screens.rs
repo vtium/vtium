@@ -2955,7 +2955,46 @@ const BASE: &[Case] = &[
             "cover=U+1FB00-U+1FBFF\nfit=natural\n",
         ),
     },
+    Case {
+        screen: bitmap_outline("bitmap-outline", BITMAP_OUTLINE_DESC, false),
+    },
+    Case {
+        screen: bitmap_outline("bitmap-outline-smooth", BITMAP_OUTLINE_SMOOTH_DESC, true),
+    },
 ];
+
+/// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a
+/// bitmap font, and around it characters that only the outline fonts
+/// behind it hold: accented Latin and symbols from DejaVu Sans Mono,
+/// Hebrew, CJK and color emoji, in bold and in reverse too, and the box
+/// drawing and blocks that vtium draws itself.
+const BITMAP_OUTLINE: &[u8] = concat!(
+    "ASCII, Unifont: Hamburg 0123 gjpqy\r\n",
+    "DejaVu: \u{e9} \u{f1} \u{fc} \u{df} \u{2605} \u{2200} \u{2211} \u{2260} \u{21d2} \u{2713} \u{266a} \u{222b}\r\n",
+    "Noto: \u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{4e2d}\u{6587}\u{5b57} \u{1f600} \u{1f680}\r\n",
+    "\x1b[1mbold \u{2605}\u{2200} \u{4e2d}\x1b[0m \x1b[7m rev \u{2605} \u{4e2d} \x1b[0m\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2591}\u{2592}\u{2593}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2584}\u{2580}\u{2588} \u{2591}\u{2592}\u{2593}",
+)
+.as_bytes();
+
+const BITMAP_OUTLINE_DESC: &str = "A font set whose first source is the built-in GNU Unifont, limited to ASCII, with outline fonts behind it: DejaVu Sans Mono, Noto Sans Hebrew, Noto Sans Arabic, Noto Sans CJK SC and Noto Color Emoji. No source has a render= line, so each outline source draws 1-bit, as a bitmap font's glyphs draw (ADR-1200 D1). 40 by 6 cells at 16 and 32 pixels. The first row is ASCII from Unifont. The second row has accented Latin letters and symbols from DejaVu Sans Mono, the third Hebrew, Chinese and two color emoji, the fourth bold and reversed text, and the last two rows box drawing and blocks, which vtium draws itself. Correct: every pixel of every glyph from an outline font is fully lit or fully dark, with no grey edge, so the outline glyphs look like Unifont's own. Each glyph keeps its strokes and dots, none broken away. The emoji keep their color. The box lines and blocks fill their cells and join.";
+
+const BITMAP_OUTLINE_SMOOTH_DESC: &str = "The bitmap-outline screen with a render=smooth line under each outline source of the font set, which overrides the 1-bit default (ADR-1200 D1). Correct: Unifont's ASCII stays 1-bit, and the glyphs from the outline fonts are antialiased, with grey pixels along their edges, as an outline font draws behind an outline first source. The emoji keep their color, and the box lines and blocks are as in bitmap-outline.";
+
+/// A screen of [`BITMAP_OUTLINE`], 40 by 6 cells at 16 and 32 pixels, in
+/// the bitmap-first font set ([`InkFonts::Bitmap`]), with `render=smooth`
+/// under each outline source when `smooth` is set.
+const fn bitmap_outline(name: &'static str, desc: &'static str, smooth: bool) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_16_AND_32,
+            spacing: None,
+            fonts: InkFonts::Bitmap { smooth },
+        },
+        ..Screen::new(name, desc, BITMAP_OUTLINE, 40, 6)
+    }
+}
 
 /// The `glyph-fit` screens: a Powerline prompt and two icons from the
 /// merged symbol font, Latin letters with combining marks, and the box
