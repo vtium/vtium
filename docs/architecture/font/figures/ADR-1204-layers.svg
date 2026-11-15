@@ -47,7 +47,7 @@
   <rect x="40" y="332" width="820" height="40" rx="6" fill="#475569"/>
   <text x="450" y="357" text-anchor="middle" class="lblw">vtium's sprites: box drawing, blocks, Braille, legacy computing</text>
   <rect x="40" y="382" width="820" height="40" rx="6" fill="#2d8e5e"/>
-  <text x="450" y="407" text-anchor="middle" class="lblw">vtium's built-in font: every other character</text>
+  <text x="450" y="407" text-anchor="middle" class="lblw">layer unifont (fallback): every other character; the built-in font if files are missing</text>
 
   <text x="450" y="450" text-anchor="middle" class="sub">A layer that spans several columns is one shared file, named by a layer= line in each set.</text>
 </svg>

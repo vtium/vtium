@@ -109,9 +109,9 @@ The console binary carries two built-in fonts today, all of GNU Unifont and Unsc
 
 ## Decision
 
-The figure shows how three catalog sets share their layers, and how the built-in font and vtium's sprites complete each one.
+The figure shows how three catalog sets share their layers, and how the `unifont` layer and vtium's sprites complete each one.
 
-![Three catalog font sets built from shared layers. Each column is one font set, with its fonts from top to bottom in the order vtium consults them. The code-friendly set fira-code starts with its text font, Fira Code, then the layer nerd-symbols, then the layer noto-emoji. The script set noto-arabic starts with Noto Sans Mono, then the layer arabic, then the same nerd-symbols and noto-emoji layers. The Nerd Fonts set caskaydia-cove starts with CaskaydiaCove Nerd Font Mono, which holds the symbols itself, then the layer noto-emoji. Under every column, vtium's sprites draw box drawing and blocks, and the built-in font draws every other character.](figures/ADR-1204-layers.svg)
+![Three catalog font sets built from shared layers. Each column is one font set, with its fonts from top to bottom in the order vtium consults them. The code-friendly set fira-code starts with its text font, Fira Code, then the layer nerd-symbols, then the layer noto-emoji. The script set noto-arabic starts with Noto Sans Mono, then the layer arabic, then the same nerd-symbols and noto-emoji layers. The Nerd Fonts set caskaydia-cove starts with CaskaydiaCove Nerd Font Mono, which holds the symbols itself, then the layer noto-emoji. Under every column, vtium's sprites draw box drawing and blocks, and the layer unifont, a fallback layer, draws every other character. The built-in font draws in place of any of these fonts whose file is missing.](figures/ADR-1204-layers.svg)
 
 ### D1: the built-in font
 
