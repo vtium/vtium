@@ -2,9 +2,12 @@
 # fails on a broken link or anchor, but builds a page that its menu leaves
 # out without a word, so this crate's test reads zensical.toml and fails on
 # such a page, and on a menu entry that names a missing file.
+# It also checks the index pages of the crates' interfaces and of the
+# releases, and its release-notes command writes a release's GitHub notes
+# from the release's page (ADR-1508).
 [package]
 name = "vtium-site"
-description = "Checks the documentation site's menu against the pages under docs/"
+description = "Checks the documentation site's menu and index pages against the tree, and writes a release's GitHub notes from its page"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
