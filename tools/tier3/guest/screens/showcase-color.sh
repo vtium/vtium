@@ -1,4 +1,6 @@
 #!/bin/bash
+# category: color
+# hero: yes
 # vtium draws every color a program can ask for: the 256 colors of xterm's
 # palette, the 16 colors of the console's palette, and 24-bit color, here as
 # smooth gradients. Below, vtium's named palettes, each drawn as its 16

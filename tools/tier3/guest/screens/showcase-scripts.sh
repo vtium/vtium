@@ -1,4 +1,6 @@
 #!/bin/bash
+# category: scripts and emoji
+# hero: yes
 # vtium draws the world's scripts. Each line is the first sentence of the
 # Universal Declaration of Human Rights, beside the name of its language.
 # Chinese, Japanese and Korean are two cells wide. Thai stacks its vowel and

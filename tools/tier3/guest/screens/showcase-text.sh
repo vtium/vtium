@@ -1,4 +1,6 @@
 #!/bin/bash
+# category: styles and modes
+# hero: yes
 # vtium draws outline fonts smoothly at any size: Iosevka Term at 30 points
 # on a 1920x1080 display, prose, a code listing in 24-bit color, every
 # underline style a program can ask for, the other text styles, and the

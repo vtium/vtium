@@ -5967,10 +5967,26 @@ class ShowcaseTest(unittest.TestCase):
     its pictures, and the page it composes from a run."""
 
     VARIANT = "showcase-1920x1080"
-    SCREENS = ["showcase-text", "showcase-emoji", "showcase-scripts", "showcase-color",
-               "showcase-boxes", "showcase-pictures", "showcase-shell",
+    SCREENS = ["showcase-shell", "showcase-double-size",
                "showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
-               "showcase-fonts-jetbrains"]
+               "showcase-fonts-jetbrains", "showcase-glyph-fit",
+               "showcase-scripts", "showcase-emoji",
+               "showcase-text", "showcase-color", "showcase-boxes", "showcase-pictures"]
+    # Each scene's category and whether it is the category's hero, as
+    # ADR-1502 D6 and its hero rule place them.
+    PLACES = {"showcase-shell.sh": ("front page", False),
+              "showcase-double-size.sh": ("text and fonts", True),
+              "showcase-fonts.inc": ("text and fonts", False),
+              "showcase-glyph-fit.sh": ("text and fonts", False),
+              "showcase-emoji.sh": ("scripts and emoji", False),
+              "showcase-scripts.sh": ("scripts and emoji", True),
+              "showcase-text.sh": ("styles and modes", True),
+              "showcase-color.sh": ("color", True),
+              "showcase-boxes.sh": ("lines and blocks", True),
+              "showcase-pictures.sh": ("pictures", True)}
+    FIGURES = {"showcase-osc52-copy.svg": "input and pointer",
+               "showcase-rtl-paragraphs.svg": "scripts and emoji",
+               "showcase-synchronized-output.svg": "styles and modes"}
 
     def setUp(self):
         self.dir = tempfile.TemporaryDirectory()
@@ -6019,24 +6035,163 @@ class ShowcaseTest(unittest.TestCase):
         self.assertEqual(e["status"], "missing")
 
     def test_scenes(self):
-        # Every screen is a script in guest/screens, and every image of the
-        # page takes its caption and alt text from a script's header, each
-        # screen in exactly one image, the hero first.
+        # Every screen is a script in guest/screens. The showcase finds its
+        # scenes by their header lines, each in its category, the shell
+        # session first, and each scene's image named for its script. Every
+        # scene takes a caption and alt text from its header, with the lines
+        # that sort it left out, and switches the console to its own font
+        # set, so the order the variant draws them in changes nothing.
         for screen in self.SCREENS:
             with self.subTest(screen):
                 path = os.path.join(t3_common.GUEST, "screens", screen + ".sh")
                 self.assertTrue(os.access(path, os.X_OK), path)
-        used = [case for _, _, _, cases in t3_showcase.IMAGES for case in cases]
-        self.assertEqual(sorted(used), sorted(self.SCREENS))
-        self.assertEqual(t3_showcase.IMAGES[0][1:3], ("hero.png", "showcase-shell.sh"))
-        for title, name, script, _ in t3_showcase.IMAGES:
-            with self.subTest(name):
-                text, alt = t3_showcase.caption(script)
-                self.assertTrue(text and alt, script)
-                self.assertNotIn("alt:", text)
-                self.assertNotIn("shellcheck", text)
+        found = t3_showcase.SCENES
+        self.assertEqual({s.script: (s.category, s.hero) for s in found}, self.PLACES)
+        self.assertEqual((found[0].script, found[0].image), ("showcase-shell.sh", "hero.png"))
+        self.assertEqual([s.image for s in found],
+                         ["hero.png", "double-size.png", "fonts.png", "glyph-fit.png",
+                          "scripts.png", "emoji.png", "text.png", "color.png",
+                          "boxes.png", "pictures.png"])
+        self.assertEqual(t3_showcase.header_faults(), [])
+        for scene in found:
+            with self.subTest(scene.script):
+                text, alt = t3_showcase.caption(scene.script)
+                self.assertTrue(text and alt, scene.script)
+                for word in ("alt:", "shellcheck", "category:", "hero:", "front page"):
+                    self.assertNotIn(word, text + alt)
+                with open(os.path.join(t3_common.GUEST, "screens", scene.script)) as f:
+                    self.assertRegex(f.read(), r"\n\s*switch_font \S+\n")
         text, _ = t3_showcase.caption("showcase-fonts.inc")
         self.assertIn("(../fonts.md)", text)
+
+    def test_header_keeps_the_sorting_lines_out_of_the_caption(self):
+        # t3_evaluate.header puts a scene's category and hero lines in
+        # fields of their own, so neither reaches the caption or the alt
+        # text of the page, or the caption of a tier 3 report.
+        script = os.path.join(self.dir.name, "showcase-x.sh")
+        with open(script, "w") as f:
+            f.write("#!/bin/bash\n# category: color\n# hero: yes\n# Colors.\n"
+                    "# alt: Swatches.\n\nprintf x\n")
+        head = t3_evaluate.header(None, script)
+        self.assertEqual((head[""], head["alt"], head["category"], head["hero"]),
+                         (["Colors."], ["Swatches."], ["color"], ["yes"]))
+
+    def screens(self, scripts, figures=None):
+        """A screens directory and a figures directory in the temporary
+        directory, holding `scripts`, {name: header lines}, and `figures`,
+        {name: (comment lines, whether its claim file exists)}."""
+        screens = os.path.join(self.dir.name, "screens")
+        figs = os.path.join(self.dir.name, "figures")
+        os.makedirs(screens, exist_ok=True)
+        os.makedirs(figs, exist_ok=True)
+        for name, lines in scripts.items():
+            with open(os.path.join(screens, name), "w") as f:
+                f.write("#!/bin/bash\n" + "".join("# %s\n" % line for line in lines) +
+                        "\nprintf x\n")
+        for name, (lines, claims) in (figures or {}).items():
+            with open(os.path.join(figs, name), "w") as f:
+                f.write("".join("<!-- %s -->\n" % line for line in lines) + "<svg/>\n")
+            if claims:
+                open(os.path.join(figs, name[:-4] + ".claims.tsv"), "w").close()
+        return screens, figs
+
+    def test_scenes_are_found_by_their_header(self):
+        # A script showcase-NAME.sh is a scene when its header names a
+        # category, and its image is NAME.png; the shell session's is
+        # hero.png. The fonts scene's bands are no scenes of their own, nor
+        # is a script with no category, or one that is not showcase-*.sh. The order is the
+        # front page, then the categories in D6's order, the hero first and
+        # the others by name.
+        screens, _ = self.screens({
+            "showcase-shell.sh": ["category: front page", "The shell."],
+            "showcase-zebra.sh": ["category: color", "Stripes.", "alt: Stripes."],
+            "showcase-blue.sh": ["category: color", "hero: yes", "Blue.", "alt: Blue."],
+            "showcase-apple.sh": ["category: color", "Red.", "alt: Red."],
+            "showcase-words.sh": ["category: text and fonts", "hero: yes", "Words."],
+            "showcase-fonts-iosevka.sh": ["A band."],
+            "showcase-draft.sh": ["A scene with no category yet."],
+            "showcase-fonts.inc": ["category: text and fonts", "Fonts."],
+            "sgr.sh": ["category: color", "Not a scene."]})
+        found = t3_showcase.scenes(screens)
+        self.assertEqual([(s.script, s.image, s.cases) for s in found], [
+            ("showcase-shell.sh", "hero.png", ["showcase-shell"]),
+            ("showcase-words.sh", "words.png", ["showcase-words"]),
+            ("showcase-fonts.inc", "fonts.png", t3_showcase.FONT_BANDS),
+            ("showcase-blue.sh", "blue.png", ["showcase-blue"]),
+            ("showcase-apple.sh", "apple.png", ["showcase-apple"]),
+            ("showcase-zebra.sh", "zebra.png", ["showcase-zebra"])])
+        self.assertEqual(t3_showcase.caption("showcase-blue.sh", screens), ("Blue.", "Blue."))
+
+    def test_header_faults(self):
+        # Each wrong header line is named: a scene with no category, one no
+        # list names, a second category line, the front page named by
+        # another scene, a band with a category, a hero line that is not
+        # yes, a category with no hero and one with two; and a figure with
+        # no category or an unknown one, no caption, no alt text or no
+        # claim file. Right headers give none, and compose refuses to write
+        # while there is one.
+        good = {"showcase-shell.sh": ["category: front page", "The shell."],
+                "showcase-a.sh": ["category: color", "hero: yes", "A."]}
+        screens, figs = self.screens(good, {
+            "showcase-right.svg": (["category: pictures", "caption: It moves.",
+                                    "alt: Two panels."], True)})
+        self.assertEqual(t3_showcase.header_faults(screens, figs), [])
+        cases = [
+            ({"showcase-b.sh": ["The color b."]}, {}, "showcase-b.sh names no category"),
+            ({"showcase-b.sh": ["category: colour"]}, {},
+             "showcase-b.sh names the category 'colour', which is not one of"),
+            ({"showcase-b.sh": ["category: pictures", "category: color", "hero: yes"]}, {},
+             "showcase-b.sh names 2 categories"),
+            ({"showcase-b.sh": ["category: front page"]}, {},
+             "showcase-b.sh names the front page, which only showcase-shell.sh may name"),
+            ({"showcase-fonts-unifont.sh": ["category: text and fonts"]}, {},
+             "showcase-fonts-unifont.sh is a band of the fonts scene"),
+            ({"showcase-b.sh": ["category: color", "hero: no"]}, {},
+             "showcase-b.sh has the hero line `# hero: no`"),
+            ({"showcase-b.sh": ["category: pictures"]}, {},
+             "the category pictures has scenes and no hero"),
+            ({"showcase-b.sh": ["category: color", "hero: yes"]}, {},
+             "the category color has 2 heroes, showcase-a.sh, showcase-b.sh"),
+            ({}, {"showcase-x.svg": (["caption: C.", "alt: A."], True)},
+             "showcase-x.svg names no category"),
+            ({}, {"showcase-x.svg": (["category: motion", "caption: C.", "alt: A."], True)},
+             "showcase-x.svg names the category 'motion'"),
+            ({}, {"showcase-x.svg": (["category: color", "alt: A."], True)},
+             "showcase-x.svg has no caption"),
+            ({}, {"showcase-x.svg": (["category: color", "caption: C."], True)},
+             "showcase-x.svg has no alt text"),
+            ({}, {"showcase-x.svg": (["category: color", "caption: C.", "alt: A."], False)},
+             "showcase-x.svg has no claim file beside it, showcase-x.claims.tsv"),
+        ]
+        for scripts, figures, fault in cases:
+            with self.subTest(fault):
+                shutil.rmtree(self.dir.name)
+                os.makedirs(self.dir.name)
+                screens, figs = self.screens({**good, **scripts}, figures)
+                faults = t3_showcase.header_faults(screens, figs)
+                self.assertEqual(len(faults), 1, faults)
+                self.assertIn(fault, faults[0])
+                with self.assertRaisesRegex(RuntimeError, "header lines are wrong"):
+                    t3_showcase.compose(os.path.join(self.dir.name, "run"),
+                                        os.path.join(self.dir.name, "report.json"),
+                                        os.path.join(self.dir.name, "out"), screens, figs)
+
+    def test_figures(self):
+        # The showcase's figures in docs/figures, each in its category with
+        # a caption, alt text and a claim file whose rows include a test that
+        # drives the behaviour.
+        figs = t3_showcase.figures()
+        self.assertEqual({f.file: f.category for f in figs}, self.FIGURES)
+        for fig in figs:
+            with self.subTest(fig.file):
+                self.assertTrue(fig.caption and fig.alt and fig.claims)
+                for word in ("caption:", "alt:", "category:"):
+                    self.assertNotIn(word, fig.caption + fig.alt)
+                with open(os.path.join(t3_showcase.FIGURES,
+                                       fig.file[:-4] + ".claims.tsv")) as f:
+                    rows = [line.split("\t") for line in f if not line.startswith("#")]
+                self.assertTrue(any("/tests/" in row[1] or "test" in row[2]
+                                    for row in rows[1:]), fig.file)
 
     def scene_bytes(self, screen, screens=None, env=None):
         """What scene `screen` writes on the host, in a session of its own
@@ -6090,6 +6245,23 @@ class ShowcaseTest(unittest.TestCase):
                 self.assertLessEqual({"3", "9", "2", "4:3", "73", "74"}, styles)
         self.assertLessEqual({"53", "73;4", "74;9"}, set(re.findall(
             r"\x1b\[([0-9;:]*)m", self.scene_bytes("showcase-text").decode())))
+
+    def test_double_size_scene_pairs_its_tall_lines(self):
+        # The double-size scene draws each line twice as tall as a top half
+        # (ESC # 3) followed at once by its bottom half (ESC # 4) with the
+        # same text, draws lines twice as wide (ESC # 6), and keeps each
+        # doubled line within half of the 120 columns, so none wraps.
+        lines = self.scene_bytes("showcase-double-size").split(b"\n")
+        sizes = [line[:3] for line in lines]
+        self.assertIn(b"\x1b#6", sizes)
+        tops = [n for n, size in enumerate(sizes) if size == b"\x1b#3"]
+        self.assertEqual(len(tops), 2)
+        for n in tops:
+            self.assertEqual(lines[n + 1], b"\x1b#4" + lines[n][3:])
+        for line in lines:
+            if line[:3] in (b"\x1b#3", b"\x1b#4", b"\x1b#6"):
+                text = re.sub(rb"\x1b\[[0-9;:]*m", b"", line[3:]).decode()
+                self.assertLessEqual(len(text), 60, text)
 
     def test_scripts_scene_runs_right_to_left_lines_from_the_right(self):
         # The scripts scene writes Devanagari, Bengali, Georgian and
@@ -6543,27 +6715,73 @@ class ShowcaseTest(unittest.TestCase):
     def test_compose(self):
         # Each scene's capture as it is, the fonts' bands cropped to the
         # rows they reported and stacked in order, the small-machine goldens
-        # copied, and the page with every image, its alt text and caption,
-        # the commit and each font.
+        # copied, and the pages: the showcase page with the front page's
+        # hero, a section for each category that shows something in D6's
+        # order, with its hero or, with no scenes, its first figure, and a
+        # page for each of those categories with every scene, the hero
+        # first, then its figures under "How it behaves"; and the commit and
+        # each font.
         run, report = self.run_dir()
         out = os.path.join(self.dir.name, "out")
         wrote = t3_showcase.compose(run, report, out)
-        self.assertEqual(len(wrote), len(t3_showcase.IMAGES) + len(t3_showcase.SMALL) + 1)
+        pages = ["README.md", "text-and-fonts.md", "scripts-and-emoji.md", "styles-and-modes.md",
+                 "color.md", "lines-and-blocks.md", "pictures.md", "input-and-pointer.md",
+                 "small-machines.md"]
+        self.assertEqual(sorted(os.path.relpath(p, out) for p in wrote),
+                         sorted([s.image for s in t3_showcase.SCENES] +
+                                [name for _, name, _, _ in t3_showcase.SMALL] + pages))
         hero = t3img.read(os.path.join(out, "hero.png"))
-        self.assertEqual(hero.data[:3], bytes([7] * 3))
+        self.assertEqual(hero.data[:3], bytes([1] * 3))
         fonts = t3img.read(os.path.join(out, "fonts.png"))
         self.assertEqual((fonts.width, fonts.height), (32, 8 + 3 + 6 + 5))
         self.assertEqual([fonts.data[y * 32 * 3] for y in (0, 7, 8, 10, 11, 16, 17, 21)],
-                         [8, 8, 9, 9, 10, 10, 11, 11])
+                         [3, 3, 4, 4, 5, 5, 6, 6])
         for src, name, _, _ in t3_showcase.SMALL:
             with open(os.path.join(t3_common.ROOT, src), "rb") as a, \
                     open(os.path.join(out, name), "rb") as b:
                 self.assertEqual(a.read(), b.read())
-        with open(os.path.join(out, "README.md")) as f:
-            page = f.read()
-        for title, name, script, _ in t3_showcase.IMAGES:
+
+        def read(name):
+            with open(os.path.join(out, name)) as f:
+                return f.read()
+
+        def shows(script):
             text, alt = t3_showcase.caption(script)
-            self.assertIn("## %s\n\n![%s](%s)\n\n%s\n" % (title, alt, name, text), page)
+            image = {s.script: s.image for s in t3_showcase.SCENES}[script]
+            return "![%s](%s)\n\n%s\n" % (alt, image, text)
+
+        def figure(name):
+            fig = {f.file: f for f in t3_showcase.figures()}[name]
+            return "![%s](../figures/%s)\n\n%s\n" % (fig.alt, name, fig.caption)
+
+        page = read("README.md")
+        headings = re.findall(r"^## (.*)$", page, re.M)
+        self.assertEqual(headings, ["Text and fonts", "Scripts and emoji", "Styles and modes",
+                                    "Color", "Lines and blocks", "Pictures", "Input and pointer",
+                                    "Small machines", "How these screens are made"])
+        self.assertLess(page.index(shows("showcase-shell.sh")), page.index("## Text and fonts"))
+        for script in ("showcase-double-size.sh", "showcase-scripts.sh", "showcase-text.sh"):
+            self.assertIn(shows(script), page)
+        self.assertNotIn(shows("showcase-glyph-fit.sh"), page)
+        self.assertIn("## Input and pointer\n\n" + figure("showcase-osc52-copy.svg") +
+                      "\n[Every screen of input and pointer](input-and-pointer.md)\n", page)
+        self.assertIn("[Every screen of text and fonts](text-and-fonts.md)", page)
+        small = read("small-machines.md")
+        self.assertLess(small.index("(small/small-console.png)"), small.index("(small/sgr.png)"))
+        self.assertIn("(small/small-console.png)", page)
+        self.assertNotIn("(small/sgr.png)", page)
+        text = read("text-and-fonts.md")
+        order = [text.index(shows(s)) for s in
+                 ("showcase-double-size.sh", "showcase-fonts.inc", "showcase-glyph-fit.sh")]
+        self.assertEqual(order, sorted(order))
+        self.assertNotIn("How it behaves", text)
+        scripts = read("scripts-and-emoji.md")
+        self.assertLess(scripts.index(shows("showcase-scripts.sh")),
+                        scripts.index("## How it behaves\n\n" +
+                                      figure("showcase-rtl-paragraphs.svg")))
+        self.assertIn("## How it behaves\n\n" + figure("showcase-osc52-copy.svg"),
+                      read("input-and-pointer.md"))
+        self.assertFalse(os.path.exists(os.path.join(out, "displays-and-vts.md")))
         self.assertIn("at commit `abc1234`", page)
         self.assertIn("starts in a cell of 16x40 pixels, and the shell scene, the hero, switches "
                       "to its own frit, `showcase-shell`, in a cell of 15x38 pixels", page)
@@ -6576,9 +6794,9 @@ class ShowcaseTest(unittest.TestCase):
             self.assertIn("SHA-256 `%s`" % photo.sha256, page)
             self.assertIn("(%s)" % photo.url, page)
             self.assertIn("`%s` |" % photo.file_sha256, page)
-        # a second run with the same pixels rewrites no image, only the page
-        self.assertEqual(t3_showcase.compose(run, report, out),
-                         [os.path.join(out, "README.md")])
+        # a second run with the same pixels rewrites no image, only the pages
+        self.assertEqual(sorted(os.path.relpath(p, out)
+                                for p in t3_showcase.compose(run, report, out)), sorted(pages))
 
     def test_compose_refuses_a_run_that_did_not_capture(self):
         run, report = self.run_dir({"showcase-emoji": "fail"})
