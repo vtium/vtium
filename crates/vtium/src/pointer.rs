@@ -12,7 +12,9 @@
 //! without a cursor plane, fbdev's or a card's on the legacy calls, or
 //! whose plane refused the arrow, failed a commit or went with a move to a
 //! CRTC that has none, has the renderer draw the same arrow over the
-//! cells. The arrow goes to the plane at a draw,
+//! cells. A plane that refuses a new arrow is hidden, so the arrow it
+//! showed before does not stay on screen beside the one the renderer
+//! draws. The arrow goes to the plane at a draw,
 //! when the display is lent for one and so awake and online: a display that
 //! is not yet tries again at the next draw, and draws the pointer in
 //! software until then. Each decision is logged with the display's
@@ -183,6 +185,11 @@ impl Pointer {
                 Err(e) if e.kind() == io::ErrorKind::NotConnected && e.raw_os_error().is_none() => {
                 }
                 Err(e) => {
+                    // The plane may still hold the picture of an earlier
+                    // shape, which after_draw no longer moves or hides once
+                    // the renderer draws the pointer: hide it, or it stays
+                    // frozen beside the pointer the renderer draws.
+                    plane.hide(id);
                     self.take(
                         &*plane,
                         id,
@@ -659,6 +666,28 @@ mod tests {
         p.follow(&mut r, &mut arrow, PointerShape::Default);
         assert_eq!(arrow, Arrow::new(16, Orientation::Normal));
         assert_eq!(p.route(), Route::Unset);
+    }
+
+    // A new shape whose picture the plane refuses, as a picture larger than
+    // the plane would be, goes to the renderer, and the plane hides the
+    // earlier shape's picture instead of leaving it frozen on screen.
+    #[test]
+    fn a_new_shape_the_plane_refuses_hides_the_plane() {
+        let mut r = renderer(Orientation::Normal);
+        let (mut p, mut plane) = (Pointer::default(), Fake::default());
+        let mut arrow = r.arrow().clone();
+        p.before_draw(&mut plane, ID, &arrow, Some((5, 6)));
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert!(plane.shown.is_some());
+        p.follow(&mut r, &mut arrow, PointerShape::Wait);
+        plane.refuse.push(io::ErrorKind::Unsupported.into());
+        assert_eq!(
+            p.before_draw(&mut plane, ID, &arrow, Some((5, 6))),
+            Some((5, 6))
+        );
+        assert_eq!(p.route(), Route::Software);
+        after(&mut p, &mut plane, &r, Some((5, 6)));
+        assert_eq!(plane.shown, None);
     }
 
     // The renderer turned with the display draws the shape turned too, and

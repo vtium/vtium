@@ -7,13 +7,15 @@
 //!
 //! - `=` or no prefix sets the shape. The first name vtium has a shape for
 //!   wins, as a CSS `cursor` list falls back from name to name. When vtium
-//!   has none of them, or Pt is empty, the pointer takes the default shape,
-//!   as ctlseqs says xterm does for a name it does not know. A set replaces
-//!   the shape on top of the screen's stack, or starts the stack when it
-//!   is empty.
+//!   has none of them, or Pt is empty, the pointer takes vtium's default
+//!   shape, the arrow. xterm likewise falls back to its own default shape,
+//!   which is an I-beam. A set replaces the shape on top of the screen's
+//!   stack, or starts the stack when it is empty.
 //! - `>` pushes each name in turn, so the last one is on top and shows. A
-//!   name vtium has no shape for pushes the default shape. A push onto a
-//!   full stack drops the entry at the bottom.
+//!   name vtium has no shape for pushes the default shape. An empty name,
+//!   as in `>` alone or between two commas, pushes nothing, so a program
+//!   that pops once for each name it pushed empties what it pushed. A push
+//!   onto a full stack drops the entry at the bottom.
 //! - `<` pops the top entry, and an empty stack stays empty. Names after
 //!   `<` are ignored.
 //! - `?` asks about each name in turn, and the reply is
@@ -22,7 +24,10 @@
 //!   stack, or `0` when the stack is empty. `__default__` and
 //!   `__grabbed__` answer `default`, because vtium shows the default shape
 //!   whether or not a program tracks the mouse. Any other name answers `1`
-//!   when vtium has a shape for it and `0` when it does not.
+//!   when vtium has a shape for it and `0` when it does not. An empty name
+//!   is a name vtium has no shape for, so it answers `0`: the reply keeps
+//!   one answer in each place the query has a name, and `?` alone answers
+//!   `0`.
 //!
 //! The main screen and the alternate screen keep a stack each, and RIS
 //! empties both. The host reads the shape to draw with
@@ -177,7 +182,7 @@ impl State {
             Some((b'?', names)) => self.reply_pointer(names, slot, end),
             Some((b'>', names)) => {
                 if let Some(stack) = self.pointer.at(slot) {
-                    for name in names.split(|&b| b == b',') {
+                    for name in names.split(|&b| b == b',').filter(|n| !n.is_empty()) {
                         push(stack, PointerShape::from_name(name).unwrap_or_default());
                     }
                 }
