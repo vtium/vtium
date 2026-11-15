@@ -297,7 +297,8 @@ This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 - `cover=` (`ascii`, `latin-1`, `gb2312`, `gbk`, `big5`, `jis-x-0208`, `ks-x-1001`, `U+XXXX` and `U+XXXX-U+YYYY`);
 - `cp-size=`;
 - `style=`, which is `regular`, `bold`, `italic` or `bold-italic`, for the source above it. The style is regular when no line names one. Any other value refuses the frit, naming its line.
-- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`.
+- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`;
+- `strike=`, for an outline source, and `layer=`, which ADR-1204 D2 and D5 add. See [Layers](#layers) and [Strikes](#strikes).
 
 The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
 
@@ -332,6 +333,54 @@ The glyph is placed whole, against the top of the row for a superscript and agai
 source=kbd:ter-116n
 script-source=kbd:ter-112n
 ```
+
+### Layers
+
+A layer is a part that several frits share, such as the icons of a symbol font or color emoji. It is a file `NAME.vtlayer` in the `layers/` folder of the frits' directory, so `/etc/vtium/fonts/layers/` by default. Its first key, `role=`, says what it brings: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each followed by the keys that describe a source: `cover=`, `fit=`, `render=`, `style=` and `strike=`. A layer holds sources alone, so a frit's own keys, such as `cell=`, `size=` and `line-spacing=`, refuse it, and so does a `layer=` line.
+
+```ini
+# /etc/vtium/fonts/layers/nerd-symbols.vtlayer
+role=symbols
+source=font:Symbols Nerd Font Mono
+cover=U+E000-U+F8FF
+cover=U+F0001-U+F1AF0
+```
+
+A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too:
+
+```ini
+source=font:Fira Code
+layer=nerd-symbols
+layer=noto-emoji
+```
+
+The console reads each layer under the ownership check it gives the frit. It hands the helper the frit with every layer in place, so the helper reads one list of sources. A `layer=` line adds nothing, and vtium logs one line for it once a boot, in these cases:
+
+- the layer's file is missing, or the ownership check refuses it;
+- its `role=` is not one of the four roles, or the file holds a key that a layer does not take;
+- an earlier line of the frit adds the same layer;
+- the frit already holds a layer of the same role, and the role is `symbols`, `emoji` or `fallback`, which a frit holds once. The first such layer is the one the frit keeps.
+
+The frit draws without that layer. `vtium check-config` reports each such line for the frit that `font-name` and each look name. `vtium-config check` reads each layer strictly, as it reads a frit, and names the layer's file and line for an error in it. It reports a missing layer as a warning. The console does not check a layer's values. So when the helper refuses a value in a layer, such as a `cover=` it cannot read, it refuses the whole frit. A bad value in the frit's own lines does the same.
+
+`vtium-config new-frit FONT --layer NAME`, once for each layer, writes the layers after the fonts in the order of their roles: script layers, then symbols, then emoji, then the fallback (ADR-1204 D6).
+
+### Strikes
+
+`strike=` names a bitmap file of the same design as the outline `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. A cell up to the tallest strike's height draws the tallest strike that fits it, placed as a bitmap source is placed. Its baseline and lines are the strike's. Above the tallest strike's height, and in a cell that no strike fits, the outline draws. The outline also draws, at every height, each character that the strikes lack, such as a Nerd Fonts icon. Each strike file states its own height, so the frit needs no other number for the switch. A strike this machine lacks is left out quietly, and one the helper refuses is left out with a warning naming its line.
+
+```ini
+source=outline:/usr/share/fonts/terminus/TerminusTTF-4.49.3.ttf
+strike=bdf:/usr/share/fonts/terminus/ter-u12n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u14n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+```
+
+Here a 14-pixel cell draws `ter-u14n`, a 15-pixel cell draws it too, a 16-pixel cell draws `ter-u16n`, and a 17-pixel cell draws the outline.
+
+### The cell, line spacing, cover sets and families
+
+The frit's own cell comes from its first source, its text font (ADR-1200 D17). When that font is missing, the built-in font takes its place, and the helper gives no own cell. The console then uses the frit's `cell=`, or else the cell for the configured size, so a layer's font never sets the cell (ADR-1204 D5).
 
 `line-spacing=`, given once, is a whole percentage from 0 to 100 of the text's height, which the console adds to each row (ADR-1302 D13). The console reads it as text, as it reads `cell=`. vtium.conf's `font-line-spacing` overrides it. `fit=` says how the set on the `source=` or `cover=` line above it uses the taller row. It is `fill`, `natural` or `room`, once for each set. Under `natural`, glyphs that must meet their neighbours, such as Powerline separators and box-drawing lines, keep the text's height too. So they stop short of the row's added space and leave gaps between rows. A set that holds such glyphs uses `fill` for them when they must join. A `cover=` line's `fit=` wins over its source's. A character in no set with a `fit=` takes its default. Line and block characters fill. Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks have room. The rest is natural.
 
