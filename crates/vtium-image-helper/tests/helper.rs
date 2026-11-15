@@ -87,6 +87,7 @@ fn base(medium: Medium) -> Request {
         pixels: None,
         largest: (1000, 1000),
         largest_bytes: 16 << 20,
+        fit: None,
     }
 }
 

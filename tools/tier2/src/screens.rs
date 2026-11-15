@@ -3450,8 +3450,8 @@ fn login_place(
     let made = make(&form, &geometry, size, &source).ok_or("the login picture has no room")?;
     // every pixel is opaque or wholly transparent, so straight RGBA carries
     // the premultiplied pixels exactly
-    let mut rgba = Vec::with_capacity(made.pixels.len() * 4);
-    for p in &made.pixels {
+    let mut rgba = Vec::with_capacity(made.pixels.as_slice().len() * 4);
+    for p in made.pixels.as_slice() {
         let a = p >> 24;
         if a != 0 && a != 0xff {
             return Err(format!("a login picture pixel of alpha {a}"));

@@ -50,6 +50,7 @@ fn request(medium: Medium) -> Request {
         pixels: None,
         largest: (100, 100),
         largest_bytes: 1 << 20,
+        fit: None,
     }
 }
 
