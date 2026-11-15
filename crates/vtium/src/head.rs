@@ -3090,4 +3090,19 @@ mod tests {
         assert!(labels(&head).iter().all(|(_, s)| *s));
         assert_eq!(selection, None);
     }
+
+    // ADR-1002, section 7: hints end when the shown console's session
+    // ends, under oneshot as well as at a restart.
+    #[test]
+    fn the_sessions_end_ends_hints() {
+        for oneshot in [false, true] {
+            let mut head = linked_head();
+            head.link_hints_key();
+            let id = head.console.id;
+            head.exited(id, Duration::from_secs(60), oneshot);
+            assert!(head.hints.is_none(), "oneshot {oneshot}");
+            assert!(labels(&head).is_empty(), "oneshot {oneshot}");
+            assert_eq!(head.link_overlay(), None, "oneshot {oneshot}");
+        }
+    }
 }
