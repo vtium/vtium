@@ -162,7 +162,7 @@ The install still succeeds. Its message then says that vtium took no VT, and giv
 # vtium console enable --direct --all
 ```
 
-On a machine where `kmscon` holds the template link, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) first.
+On a machine where `kmscon` holds the template link, read [Moving from another KMS/DRM VT](#moving-from-another-kmsdrm-vt) first.
 
 ### Direct mode and seat mode
 
@@ -278,7 +278,7 @@ Nothing frees a VT. For example, a display manager's greeter may run on VT 2. VT
 
 If vtium fails on a VT, its fallback starts that VT's getty again, so that you have a login. The fallback never does this when the getty's start would stop another program. For example, starting `getty@tty1` would stop a display manager whose unit conflicts with it. Then the VT is left without a console, and `journalctl -b -u vtium-getty@tty1.service` says why. To find out why vtium failed, log in on another VT or over ssh. See [A VT that shows a getty](troubleshooting.md#a-vt-that-shows-a-getty) for details.
 
-On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another DRM/KMS VT](#moving-from-another-drmkms-vt) before you run `enable --all`.
+On a machine where another terminal, such as `kmscon`, holds the template link or runs on your VTs, read [Moving from another KMS/DRM VT](#moving-from-another-kmsdrm-vt) before you run `enable --all`.
 
 Before `enable` changes anything, it records what each VT had, in `/var/lib/vtium/console/`. `disable` puts back exactly that:
 
@@ -291,9 +291,9 @@ Before `enable` changes anything, it records what each VT had, in `/var/lib/vtiu
 
 [crates/vtium/README.md](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#setting-it-up) gives the full rules. On a machine that was not booted with systemd, `vtium console` changes nothing, and says so. There you replace a VT's getty entry with one that runs `vtium --vt=ttyN --no-switchvt`, in the way your init system runs the getty. [Giving vtium a VT without systemd](systemd.md#giving-vtium-a-vt-without-systemd) shows how for sysvinit, OpenRC, and runit.
 
-## Moving from another DRM/KMS VT
+## Moving from another KMS/DRM VT
 
-Other terminals also render on a VT through [DRM/KMS](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. `kmscon` is one of them. Such a terminal starts on a VT in one of two ways:
+Other terminals also render on a VT through [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. `kmscon` is one of them. Such a terminal starts on a VT in one of two ways:
 
 - from a unit enabled at boot for that VT;
 - from the template link `/etc/systemd/system/autovt@.service`, which logind follows when you switch to a VT that nothing runs on.

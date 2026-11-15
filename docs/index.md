@@ -15,7 +15,7 @@ This is alpha software, at version 0.1.0-alpha.8. Installing the package gives v
 ## If something goes wrong
 
 - **Get off the VT.** Ctrl+Alt and a function key switch to another VT or to your desktop. If vtium has stopped answering keys, that switch fails too, and you work from another machine over ssh instead.
-- **Fall back to a login prompt.** When vtium fails under systemd, a getty starts on its VT, so you get a plain login prompt rather than a dead screen. This holds under the default configuration.
+- **Fall back to a login prompt.** When vtium fails under systemd, a getty starts on its VT, so you get a plain login prompt rather than a dead screen. [Security and the system](home/security-and-system.md#with-systemd-and-logind-and-without-them) names the two setups where no getty starts.
 - **Give a VT back.** From another VT or over ssh, `vtium console disable 3` returns VT 3 to its getty from the VT's next start, and `systemctl start getty@tty3.service` does it at once. `vtium console disable --all` returns every VT.
 - **Boot once without vtium.** Add `vtium.enable=0` to the kernel command line in your boot loader.
 - **Uninstall.** Stop vtium on each VT where it runs, for example with `systemctl stop vtium@tty3.service`, then run `pacman -R vtium`, or `pacman -R vtium-git`. The package's removal script gives every VT back what it had.
@@ -24,13 +24,13 @@ The full steps are in [Find out what went wrong](troubleshooting.md) and [Upgrad
 
 ## What vtium does
 
-- [Text in any script](home/text.md): grapheme clusters lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
+- [Text in any script](home/text.md): characters as a reader sees them (grapheme clusters) lined up in character cells, shaping for complex scripts, right-to-left text, and the fonts vtium reads.
 - [A terminal on each display](home/displays.md): one vtium drives several displays at once, each with its own independent terminal, keyboard, and mouse, for several people working at one machine.
 - [Images](home/images.md): sixel, the kitty graphics protocol, and iTerm2's inline images.
 - [Keyboards and mice](home/input.md): how vtium reads your devices, the key and mouse encodings programs receive, and the keys that act on the machine.
 - [The terminal's language](home/language.md): the specifications vtium follows, and how it settles a conflict between two of them.
 - [Where vtium runs](home/where-it-runs.md): processors, graphics, init systems, and the smallest build.
-- [Security and the system](home/security-and-system.md): sandboxed helpers for fonts and images, a reply rule that keeps output from typing into your shell, and how vtium works with systemd and logind.
+- [Security and the system](home/security-and-system.md): sandboxed font and image helpers, replies to queries that never let output type into your shell, and how vtium works with systemd and logind.
 - [What vtium leaves to other tools](home/leaves-to-other-tools.md): opening links, split panes, window management, and other jobs that belong to other programs.
 
 ## Where to start
@@ -46,7 +46,7 @@ $ makepkg -si
 
 Because that key comes from the same clone it verifies, you can fetch it from a keyserver instead with `gpg --recv-keys 33F9B54FD2A4B6A4110749B3BA464FC9847A832A`. [The releases](https://github.com/vtium/vtium/releases) list what changed in each version. This site describes vtium's `main` branch, which may be ahead of the latest release.
 
-vtium-config, vtium's setup tool, runs in a terminal. Its Flow view draws your vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. A head is vtium's name for a terminal that spans one or more displays. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts view previews each font on the live console as you move through the list. Two things are still missing: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
+Once vtium is installed, it reads its settings from `/etc/vtium/vtium.conf`. Rules in that file place each display, keyboard, and mouse in a head, vtium's name for a terminal that spans one or more displays. vtium-config, vtium's setup tool, edits the file from a terminal, and `vtium config tui` opens it. Its Flow view draws vtium.conf as a diagram, from the displays through the rules and heads to the keyboards and mice. Your edits go into a draft of your own until a single `sudo` step installs the file. Its Fonts view previews each font on the live console as you move through the list. Three things are still missing: identifying a device from a keypress on it, `vtium config status`, and trying a whole configuration on the console before installing it. [The vtium-config issue](https://github.com/vtium/vtium/issues/367) lists the rest.
 
 | If you want to | Start here |
 |---|---|

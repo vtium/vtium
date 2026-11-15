@@ -10,13 +10,13 @@ Terminals have been central to Unix, and later Linux, from the beginning. You en
 
 What a terminal can display depends on its design. A teletype struck metal type against paper, so it could print only the characters built into its mechanism. Later terminals, such as DEC’s [VT102](https://en.wikipedia.org/wiki/VT100#Variants), displayed text on a screen using a fixed set of character shapes stored in a chip. That set included letters, digits, and line-drawing symbols, but it was still limited.
 
-Modern desktop terminal emulators are much more flexible. They draw text in a window and support a wide range of fonts, millions of colors, and emoji. Underneath the desktop, Linux still provides several virtual terminals, or VTs. The desktop itself runs on one of them; others usually provide a text login prompt.
+A terminal emulator draws a terminal in software, so it can show many fonts, millions of colors, and emoji. On a desktop, it draws in a window. Underneath the desktop, Linux also provides several virtual terminals, or VTs. The desktop itself runs on one of them; others usually provide a text login prompt.
 
 You can switch between VTs with Ctrl+Alt and a function key. Ctrl+Alt+F3 usually takes you to a text login prompt. The key that returns you to the desktop depends on your distribution; F1, F2, and F7 are common choices.
 
-The kernel’s built-in text console has remained simple by design. It serves as a fallback when other parts of the system fail. A terminal connected through a serial port provides an even more basic way to access the machine.
+On a VT with a text login prompt, the kernel draws the text itself, with its built-in console. A machine also falls back to that console when other parts of the system fail.
 
-vtium is a terminal that runs on the Linux console as an ordinary program. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium cannot start, getty and the kernel console take over.
+vtium is a terminal that runs on the Linux console as an ordinary program. It takes the place of getty, the program that normally displays the login prompt on a VT, and adds full Unicode support, color emoji, and 24-bit color. It also supports the escape sequences that programs use to control terminal output, a convention dating back to terminals such as the VT100. If vtium fails under systemd, a getty takes its VT back. [Security and the system](home/security-and-system.md#with-systemd-and-logind-and-without-them) names the two setups where no getty starts.
 
 vtium is written in Rust. Its code began as a port of two programs written in C, a history that [Provenance](#provenance) tells in full.
 
@@ -24,7 +24,7 @@ vtium is written in Rust. Its code began as a port of two programs written in C,
 
 vtium renders directly to the display using one of two Linux interfaces. One is [KMS/DRM](https://en.wikipedia.org/wiki/Direct_Rendering_Manager), the modern graphics interface. The other is the older [fbdev framebuffer](https://en.wikipedia.org/wiki/Linux_framebuffer), which remains useful on some older or smaller machines.
 
-vtium does its own rendering, so it works on a machine with no desktop installed. It can render entirely on the CPU, so a GPU is optional, and a build with the `gpu` feature can also render on the GPU.
+vtium renders the screen itself, straight to the display. It can render entirely on the CPU, so a GPU is optional, and a build with the `gpu` feature can also render on the GPU.
 
 Programs running in vtium get these features:
 

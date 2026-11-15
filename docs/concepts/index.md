@@ -9,7 +9,7 @@ Each page explains one concept, so you can read them one at a time. Each page li
 - [The suite](suite.md): the console and the programs and files around it, who runs each, and what runs as root and what as the user.
 - [Deployment and start-up](start-up.md): how a package installs vtium, and how vtium takes the place of getty. It also explains what happens when vtium takes a VT, and when the user switches away.
 - [Seats and sessions](seats-and-sessions.md): which program opens the screen and the keyboards, which program holds your login session, and what that session can do. The page covers each build of vtium, each init system and seat manager, and both of vtium's modes, direct mode and seat mode.
-- [Heads](heads.md): a terminal for each display, the rules of vtium.conf, its two policies, open and closed, and the operator's way back in.
+- [Heads](heads.md): a terminal for each display, the rules of vtium.conf, and its two policies, open and closed. It also covers how you, as the person who runs the machine, get back in when a closed setup leaves no keyboard that reaches a session.
 - [The on-screen display and notices](osd-and-notices.md): the status vtium draws on each head, the notices that report a problem, and the four levels of `osd`.
 - [From keyboards to displays](flows.md): how vtium.conf joins displays, heads and keyboards into paths, pictured as vtium-config draws them.
 - [Security](security.md): which parts of vtium run as root and which run with fewer rights, and what a program in your session can make vtium do. It also covers who may change vtium.conf, which keyboard can reach whose session, and where the protection ends.
