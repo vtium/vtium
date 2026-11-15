@@ -647,6 +647,7 @@ mod tests {
     // covers: window.pointer-shape
     #[test]
     fn a_new_shape_goes_to_the_renderer_and_the_plane() {
+        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         let mut arrow = r.arrow().clone();
@@ -673,6 +674,7 @@ mod tests {
     // earlier shape's picture instead of leaving it frozen on screen.
     #[test]
     fn a_new_shape_the_plane_refuses_hides_the_plane() {
+        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Normal);
         let (mut p, mut plane) = (Pointer::default(), Fake::default());
         let mut arrow = r.arrow().clone();
@@ -695,6 +697,7 @@ mod tests {
     // covers: window.pointer-shape
     #[test]
     fn a_new_shape_on_a_turned_display_is_turned() {
+        let _held = crate::pointer_file::tests::loading();
         let mut r = renderer(Orientation::Right);
         let (mut p, mut arrow) = (Pointer::default(), r.arrow().clone());
         p.follow(&mut r, &mut arrow, PointerShape::Text);

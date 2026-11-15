@@ -773,4 +773,4 @@ pub fn want(cell_height: u32) {
     clippy::arithmetic_side_effects,
     reason = "a test fails by panicking"
 )]
-mod tests;
+pub(crate) mod tests;

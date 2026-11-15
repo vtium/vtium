@@ -1741,6 +1741,10 @@ mod tests {
     }
 
     fn draw(term: &mut Term, view: &mut View, video: &mut dyn Video, pointer: Option<(u32, u32)>) {
+        // a frame with the pointer asks the pointer file for its height and
+        // takes its pictures, which the pointer file's tests fill: hold
+        // them off, and start from an empty table
+        let _held = crate::pointer_file::tests::loading();
         let state = DrawState {
             pointer,
             ..DrawState::default()

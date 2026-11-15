@@ -5,11 +5,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 /// Holds the tests that load a pointer file one at a time, since every
-/// loader shares the one table and the one queue of heights.
+/// loader shares the one table and the one queue of heights. A test that
+/// calls [`crate::pointer::Pointer::follow`] holds it too, because each
+/// call asks for the renderer's cell height, which would join the queue of
+/// an SVG file another test is loading.
 static LOADING: Mutex<()> = Mutex::new(());
 
 /// Takes [`LOADING`] and empties the table and the queue of heights.
-fn loading() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn loading() -> std::sync::MutexGuard<'static, ()> {
     let held = LOADING
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
