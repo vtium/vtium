@@ -3414,7 +3414,10 @@ fn login_base64(bytes: &[u8]) -> String {
     const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::new();
     for c in bytes.chunks(3) {
-        let n = c.iter().enumerate().fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
         for i in 0..4 {
             if i <= c.len() {
                 out.push(char::from(A[((n >> (18 - 6 * i)) & 63) as usize]));
