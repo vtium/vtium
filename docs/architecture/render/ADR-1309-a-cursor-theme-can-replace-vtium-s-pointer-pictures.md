@@ -26,6 +26,10 @@ considered:
     said: "First frame only [vtium shows the first frame of an animated wait or progress cursor]"
     via: the steering session, 2026-11-15, the question tool
     covers: [animation]
+  - operator: aaronsb
+    said: "pointer-char wins [when both are set, the character draws the default shape and the theme draws the other nine]"
+    via: the steering session, 2026-11-15, the question tool
+    covers: ['`pointer-char` and a theme together']
 status: proposed
 date: 2026-11-15
 deciders:
