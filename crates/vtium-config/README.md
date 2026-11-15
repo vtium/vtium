@@ -348,7 +348,7 @@ cover=U+E000-U+F8FF
 cover=U+F0001-U+F1AF0
 ```
 
-A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too:
+A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too. A key that describes a source, such as `cover=` or `fit=`, cannot follow a `layer=` line. It would describe the layer's last source, so vtium-config and the helper both refuse it.
 
 ```ini
 source=font:Fira Code
@@ -356,14 +356,16 @@ layer=nerd-symbols
 layer=noto-emoji
 ```
 
-The console reads each layer under the ownership check it gives the frit. It hands the helper the frit with every layer in place, so the helper reads one list of sources. A `layer=` line adds nothing, and vtium logs one line for it once a boot, in these cases:
+The console reads each layer from the `layers/` folder of the frits' directory, under the ownership check it gives the frit. It hands the helper the frit with every layer in place, so the helper reads one list of sources. Each layer's lines sit between the frit's `layer=NAME` line and a closing `layer=` line. So the helper knows which sources are a layer's, and its messages name a layer's file and line. A `layer=` line adds nothing, and vtium logs one line for it once a boot, in these cases:
 
 - the layer's file is missing, or the ownership check refuses it;
 - its `role=` is not one of the four roles, or the file holds a key that a layer does not take;
 - an earlier line of the frit adds the same layer;
-- the frit already holds a layer of the same role, and the role is `symbols`, `emoji` or `fallback`, which a frit holds once. The first such layer is the one the frit keeps.
+- the frit already holds a layer of the same role, and the role is `symbols`, `emoji` or `fallback`, which a frit holds once. The first such layer is the one the frit keeps;
+- the layer would give the frit more than 16 sources, or make its text larger than 64 KiB;
+- the frit already has 16 `layer=` lines above it. vtium reads no layer past them.
 
-The frit draws without that layer. `vtium check-config` reports each such line for the frit that `font-name` and each look name. `vtium-config check` reads each layer strictly, as it reads a frit, and names the layer's file and line for an error in it. It reports a missing layer as a warning. The console does not check a layer's values. So when the helper refuses a value in a layer, such as a `cover=` it cannot read, it refuses the whole frit. A bad value in the frit's own lines does the same.
+The frit draws without that layer. `vtium check-config` reports each such line for the frit that `font-name` and each look name, and `vtium-config check` reports it as a warning. The console does not check a layer's values. So when the helper refuses a value in a layer, such as a `cover=` it cannot read, it refuses the whole frit. A bad value in the frit's own lines does the same. Its message names the layer's file and line, and `vtium-config check` refuses the frit with the same message. `vtium-config new-frit` refuses a frit that would leave out any layer it names, apart from a layer this machine lacks or cannot read.
 
 `vtium-config new-frit FONT --layer NAME`, once for each layer, writes the layers after the fonts in the order of their roles: script layers, then symbols, then emoji, then the fallback (ADR-1204 D6).
 
@@ -382,7 +384,7 @@ Here a 14-pixel cell draws `ter-u14n`, a 15-pixel cell draws it too, a 16-pixel 
 
 ### The cell, line spacing, cover sets and families
 
-The frit's own cell comes from its first source, its text font (ADR-1200 D17). When that font is missing, the built-in font takes its place, and the helper gives no own cell. The console then uses the frit's `cell=`, or else the cell for the configured size, so a layer's font never sets the cell (ADR-1204 D5).
+The frit's own cell comes from its own first source, its text font (ADR-1200 D17). When that font is missing, or the frit holds only layers, the built-in font draws the text in its place. The helper leaves each character that the built-in font holds to the console, which draws it. The later sources draw only what the built-in font lacks. The helper gives no own cell, so the console uses the frit's `cell=`, or else the cell for the configured size. A layer's font never sets the cell (ADR-1204 D5). A text font that fails as it draws leaves the cell to the frit's next own source.
 
 `line-spacing=`, given once, is a whole percentage from 0 to 100 of the text's height, which the console adds to each row (ADR-1302 D13). The console reads it as text, as it reads `cell=`. vtium.conf's `font-line-spacing` overrides it. `fit=` says how the set on the `source=` or `cover=` line above it uses the taller row. It is `fill`, `natural` or `room`, once for each set. Under `natural`, glyphs that must meet their neighbours, such as Powerline separators and box-drawing lines, keep the text's height too. So they stop short of the row's added space and leave gaps between rows. A set that holds such glyphs uses `fill` for them when they must join. A `cover=` line's `fit=` wins over its source's. A character in no set with a `fit=` takes its default. Line and block characters fill. Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks have room. The rest is natural.
 
