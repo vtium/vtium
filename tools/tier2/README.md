@@ -117,6 +117,8 @@ vtium's own screens are drawn in unifont:
 | `vs16-unifont`, `vs16-wcwidth` | The `vs16` screen by the Unicode width method and by wcwidth |
 | `wide-deco-unifont` | The `wide-deco` screen, its caption saying the last-column character wraps |
 | `redraw-unifont` | Four frames into two buffers, which must end equal to each other and to a fresh draw |
+| `pointer-default`, `pointer-text`, `pointer-pointer`, `pointer-crosshair`, `pointer-wait`, `pointer-progress`, `pointer-not-allowed`, `pointer-move`, `pointer-ew-resize`, `pointer-ns-resize` | Each pointer shape a program can set with OSC 22, drawn by the renderer over a dark row and a light row of text, as a display without a cursor plane draws the pointer |
+| `pointer-change` | The wait shape, then the pointer shape set between frames: the hand alone, with nothing of the hourglass left, in both buffers and in a fresh draw |
 | `small-320x240` | minspec's display floor, a 320x240 display in an 8x8 PSF2 font as 40 by 30 cells: a shell session with a line that wraps, sprites, colors, decorations plain and in color, characters the font lacks, and text in the last column and row (vtium/vtium#75, #119) |
 | `small-640x480` | A 640x480 display in an 8x16 PSF1 font as 80 by 30 cells, where everything vtium supports is usable: the same parts at 80 columns, with more styles and color ramps (vtium/vtium#75, #119) |
 | `small-320x240-1bit`, `small-640x480-1bit`, `palette-unifont-1bit`, `underline-unifont-1bit` | The same screens on a 1-bit display, each cell lit or unlit by its colors and every pixel black or white (vtium/vtium#135) |
