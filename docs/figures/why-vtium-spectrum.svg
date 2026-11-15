@@ -43,7 +43,7 @@
 <rect x="384" y="344" width="464" height="28" fill="#2f6fb0"/>
 <text x="616" y="363" font-size="13" text-anchor="middle" fill="#ffffff">a frit of outline and color fonts</text>
 <rect x="24" y="380" width="824" height="28" fill="#ffffff" stroke="#1f2933" stroke-width="1.5"/>
-<text x="436" y="399" font-size="13" text-anchor="middle" fill="#1f2933">the same build at every size: drawn on the CPU, with no display server</text>
-<rect x="384" y="416" width="464" height="28" fill="#ffffff" stroke="#9aa5b1" stroke-width="1.5" stroke-dasharray="6 4"/>
-<text x="616" y="435" font-size="13" text-anchor="middle" fill="#1f2933">landing: pictures, a GPU renderer</text>
+<text x="436" y="399" font-size="13" text-anchor="middle" fill="#1f2933">the same build at every size: rendered on the CPU through KMS/DRM</text>
+<rect x="384" y="416" width="464" height="28" fill="#ffffff" stroke="#1f2933" stroke-width="1.5"/>
+<text x="616" y="435" font-size="13" text-anchor="middle" fill="#1f2933">a larger build adds images and GPU rendering</text>
 </svg>
