@@ -25,7 +25,7 @@
 //!          double, 1 single: the console's `cluster-width`, ADR-1006
 //!          D8), double width u8 (1 for a line of double width, whose
 //!          glyphs are drawn twice as wide, else 0)
-//! answer   magic "VTVOUTL4", family length u32, the family, format length
+//! answer   magic "VTVOUTL5", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
@@ -34,7 +34,9 @@
 //!          top i32, width u32, height u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
-//!          sorted
+//!          sorted; after the strikes, color count u32 and each codepoint
+//!          u32, sorted: the color glyphs a request for a line of double
+//!          width leaves out (0 for any other request)
 //! ```
 //!
 //! Little-endian throughout.
