@@ -1083,6 +1083,44 @@ class RunVt(Case):
         self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
         self.assertFalse(os.path.exists(stage))
 
+    def test_a_guide_with_a_config_beside_it_runs_vtium_with_that_config(self):
+        # A guide NAME.guide with NAME.conf beside it, as login.guide brings
+        # its login picture, runs vtium with that file in place of the
+        # review's, copied as the review's is. A guide with none, and a run
+        # with no guide, keep the review's.
+        review = os.path.join(VT, "config", "vtium.conf")
+        stage = os.path.join(self.s.standins, "run-vtium-vt")
+        guide = os.path.join(self.s.tmp, "t.guide")
+        conf = os.path.join(self.s.tmp, "t.conf")
+        write(guide, "title: T\nstep: S\ndo: d\nexpect: e\n", 0o644)
+        p = self.run_vt(f"--guide={guide}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {review} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertNotIn("the guide's own configuration", p.stdout)
+        write(conf, "login-image=/usr/share/pixmaps/t.png\nlogin-image-fit=cover\n", 0o644)
+        p = self.run_vt(f"--guide={guide}", "--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {conf} {stage}/config/vtium.conf\n", p.stdout)
+        self.assertIn(f"vtium reads the guide's own configuration, {conf}", p.stdout)
+        p = self.run_vt("--dry-run", "8")
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertIn(f"+ install -m 0644 -- {review} {stage}/config/vtium.conf\n", p.stdout)
+        # A real run: the copy holds the guide's file, mode 0644.
+        seen = os.path.join(self.s.tmp, "stage-copy")
+        os.mkdir(seen)
+        p = self.run_vt(f"--guide={guide}", "8", BIN_STAGE_COPY=seen)
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        copy = os.path.join(seen, "config", "vtium.conf")
+        self.assertEqual(read(copy), read(conf))
+        self.assertEqual(stat.S_IMODE(os.stat(copy).st_mode), 0o644)
+        # The guide's file is held to the review file's rules, a dangling
+        # link included.
+        os.chmod(conf, 0o664)
+        self.refused(self.run_vt(f"--guide={guide}", "--dry-run", "8"), "is writable by group or others")
+        os.remove(conf)
+        os.symlink(os.path.join(self.s.tmp, "nowhere.conf"), conf)
+        self.refused(self.run_vt(f"--guide={guide}", "--dry-run", "8"), "t.conf is a symlink")
+
     def test_an_image_helper_another_user_could_have_written_is_refused(self):
         for mode in (0o775, 0o757):
             with self.subTest(mode=oct(mode)):
@@ -1950,7 +1988,9 @@ class Make(Case):
                               "FEATURES=images", "HWACCEL=on", "DISPLAY_BUFFERS=2")
                 self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
                 calls = self.s.calls_of("cargo")
-                want = builds if target == "vt-accept" else builds - {"build --release -p vtium-image-helper"}
+                # vt-accept and vt-check, whose guides may judge pictures,
+                # build the image helper too.
+                want = builds if target in ("vt-accept", "vt-check") else builds - {"build --release -p vtium-image-helper"}
                 self.assertEqual({c for c in want if any(f" {c} " in f" {call} " for call in calls)}, want, calls)
                 for call in calls:
                     self.assertTrue(call.startswith("VTIUM_HWACCEL=on VTIUM_DISPLAY_BUFFERS=2 "), call)
@@ -4164,6 +4204,58 @@ class Pty:
         raise AssertionError("did not exit")
 
 
+class LoginConsole(unittest.TestCase):
+    """login-console: the shell of each console past the first under
+    login.guide, which lists the commands the steps ask for."""
+
+    SCRIPT = os.path.join(VT, "checks", "login-console")
+    GUIDE = os.path.join(VT, "checks", "login.guide")
+
+    def start(self):
+        g = Pty(["/bin/bash", self.SCRIPT], {"PATH": os.environ["PATH"], "TERM": "linux", "VTIUM_CONSOLE": "3"})
+        g.wait_for(b"Type one of these commands at the prompt, then press Enter:")
+        g.wait_for(b"console-3$ ")
+        return g
+
+    def test_each_command_sends_what_the_guide_says_it_does(self):
+        g = self.start()
+        # The login picture has no image id, and sits at the lowest depth;
+        # q=2 asks for no reply, so none lands at the prompt.
+        g.send(b"delete-id\r")
+        g.wait_for(b"\x1b_Ga=d,d=i,i=1,q=2\x1b\\")
+        g.wait_for(b"console-3$ ")
+        g.send(b"delete-depth\r")
+        g.wait_for(b"\x1b_Ga=d,d=z,z=-2147483648,q=2\x1b\\")
+        g.wait_for(b"console-3$ ")
+        # On 24 rows and 80 columns the three lines start at row 11, column
+        # 26, between a saved and a restored cursor.
+        g.send(b"cells\r")
+        g.wait_for(b"\x1b7\x1b[11;26H\x1b[41m" + b" red cells".ljust(30) + b"\x1b[0m"
+                   b"\x1b[12;26H" + b" plain text over the picture".ljust(30) +
+                   b"\x1b[13;26H\x1b[7m" + b" reversed cells".ljust(30) + b"\x1b[0m\x1b8")
+        g.wait_for(b"console-3$ ")
+        g.send(b"exit\r")
+        self.assertEqual(g.finish(), 0)
+        # Nothing the script prints itself clears the screen, which would
+        # remove the picture before the operator sees it.
+        self.assertNotIn(b"\x1b[2J", g.seen)
+        self.assertNotIn(b"\x1b[3J", g.seen)
+
+    def test_every_command_the_guide_asks_for_is_listed(self):
+        g = self.start()
+        listed = set(re.findall(rb"^  ([a-z-]+) ", g.seen, re.M))
+        g.send(b"exit\r")
+        self.assertEqual(g.finish(), 0)
+        guide = read(self.GUIDE)
+        self.assertIn("\nconsole: login-console\n", guide)
+        asked = set()
+        for line in guide.splitlines():
+            if line.startswith("do:"):
+                asked.update(re.findall(r"type ([a-z-]+) and press Enter", line))
+        self.assertEqual(asked, {"cells", "clear", "delete-id", "delete-depth"})
+        self.assertLessEqual({a.encode() for a in asked}, listed)
+
+
 class GuideWait(unittest.TestCase):
     """guide-wait: a run: command's hold, ended by a key or a mouse press."""
 
@@ -4699,6 +4791,56 @@ class Guide(Case):
                 g.send(b"q\r")
                 self.assertEqual(g.finish(), 0)
                 self.assertNotIn(b"This is console", g.seen)
+
+    def test_a_console_line_is_checked(self):
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for text, why in ((ok + "console: true\n", "console: goes before the first step"),
+                          ("title: T\nconsole: true\nconsole: true\n" + ok[9:], "one console: line"),
+                          ("title: T\nconsole:\n" + ok[9:], "console: needs the command"),
+                          ("title: T\nconsole: no-such-command --x\n" + ok[9:],
+                           "console: runs no-such-command, which is neither in")):
+            with self.subTest(why=why):
+                self.refused(self.check(text), why)
+        # A script in the guides' folder needs no path, as for a run: step.
+        p = self.check("title: T\nconsole: login-console\n" + ok[9:])
+        self.assertEqual(p.returncode, 0, p.stderr)
+        self.assertEqual(p.stdout, "T: 1 steps\n   1  (no probe)   S\n  in a console past the first: login-console\n")
+
+    def test_a_chord_named_by_its_name_is_refused(self):
+        # "The open chord" left the operator without the keys at a guided
+        # pass; a guide names the keys. A command's words are not prose.
+        ok = "title: T\nstep: S\ndo: d\nexpect: e\n"
+        for line in ("do: open a console with the open chord", "expect: The close chord closes it",
+                     "intro: press the switch chord"):
+            with self.subTest(line=line):
+                text = line + "\n" + ok if line.startswith("intro") else ok.replace("do: d", line) \
+                    if line.startswith("do") else ok.replace("expect: e", line)
+                self.refused(self.check(text), "name the chord's keys, such as Ctrl+Super+Enter")
+        p = self.check(ok.replace("do: d", "do: press Ctrl+Super+Enter, a console chord") + "run: echo the open chord\n")
+        self.assertEqual(p.returncode, 0, p.stderr)
+
+    def test_a_console_after_the_first_runs_the_guides_console_command(self):
+        # A guide's console: command takes the shell's place in a console
+        # past the first, with the guides' folder on its PATH and the guide
+        # in GUIDE_FILE, so the operator reads there what to type.
+        guide = os.path.join(self.s.tmp, "t.guide")
+        write(guide, "title: Console guide\nconsole: echo \"first on path: ${PATH%%:*}\"; echo \"guide: $GUIDE_FILE\"\n"
+              "step: Look\ndo: look\nexpect: it is there\n", 0o644)
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE="2"))
+        g.wait_for(b"This is console 2 of the head desk. The guide runs in console 1.")
+        g.wait_for(b"first on path: " + os.path.join(VT, "checks").encode())
+        g.wait_for(b"guide: " + guide.encode())
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"console-2$ ", g.seen)
+        self.assertNotIn(b"Console guide", g.seen)
+        # The first console runs the guide, not the console: command.
+        g = Pty(["/bin/bash", GUIDE_SH, guide], self.guide_env(VTIUM_HEAD="desk", VTIUM_CONSOLE="1"))
+        g.wait_for(b"Press Enter to begin.")
+        g.send(b"q\r")
+        g.wait_for(b"Step 1 of 1: Look")
+        g.send(b"q\r")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"first on path", g.seen)
 
     def test_the_closing_lines_fit_a_run_in_vtium_and_one_by_hand(self):
         # In vtium (VTIUM_CONSOLE set) the run ends with vtium; by hand in a

@@ -18,7 +18,8 @@
 # {vt} is GUIDE_VT and {desktop} GUIDE_DESKTOP, the VT of the run and the
 # desktop's, as run-vt.sh sets them. The steps run with the system's locale
 # when no LANG is set. In a console that vtium opens after the first
-# (VTIUM_CONSOLE past 1), guide.sh runs a shell in place of the guide.
+# (VTIUM_CONSOLE past 1), guide.sh runs a shell in place of the guide, or the
+# guide's console: command when it has one.
 #
 # --check reads the guide, checks it and the step list, prints the steps and
 # exits, without a terminal.
@@ -43,7 +44,14 @@
 # the last step, at q, when the terminal closes, or when a signal ends the
 # run. A guide that changes the machine for a few steps puts the change back
 # there, so a run that stops halfway leaves nothing behind; the command does
-# nothing when there is nothing to put back.
+# nothing when there is nothing to put back. An optional "console: COMMAND",
+# once and before the first step, is what guide.sh runs in place of the shell
+# in a console past the first, with this folder on its PATH. A guide whose
+# steps ask for commands typed in another console names there a script that
+# lists those commands on that console, so the operator reads them rather
+# than remembering them. A guide names each chord by its keys, such as
+# Ctrl+Super+Enter, never as "the open chord", which the operator may not
+# know by name.
 set -euo pipefail
 
 here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
@@ -67,6 +75,7 @@ desktop=${GUIDE_DESKTOP:-N}
 title=
 intro=()
 cleanup=
+console=
 titles=()
 probes=()
 runs=()
@@ -95,6 +104,9 @@ while IFS= read -r line || [ -n "$line" ]; do
 	# the key as the operator's keyboard does. A command's words are not prose.
 	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])logo([^[:alnum:]]|$) ]] ||
 		die "$guide:$n: name the Super (Windows) key, not Logo"
+	# "The open chord" left the operator without the keys at a guided pass.
+	[ "$key" = run ] || [[ ! ${text,,} =~ (^|[^[:alnum:]])the\ (open|close|switch)\ chord ]] ||
+		die "$guide:$n: name the chord's keys, such as Ctrl+Super+Enter, not the chord's name"
 	s=$((${#titles[@]} - 1))
 	case $key in
 	title | step) [[ $text != *\** ]] || die "$guide:$n: a $key: line has no asterisk" ;;
@@ -117,6 +129,14 @@ while IFS= read -r line || [ -n "$line" ]; do
 		[ -z "$cleanup" ] || die "$guide:$n: one cleanup: line"
 		[ -n "$text" ] || die "$guide:$n: cleanup: needs the command"
 		cleanup=$text
+		;;
+	console)
+		[ "$s" -lt 0 ] || die "$guide:$n: console: goes before the first step"
+		[ -z "$console" ] || die "$guide:$n: one console: line"
+		[ -n "$text" ] || die "$guide:$n: console: needs the command"
+		PATH=$here:$PATH command -v -- "${text%%[[:space:]]*}" >/dev/null ||
+			die "$guide:$n: console: runs ${text%%[[:space:]]*}, which is neither in $here nor on PATH"
+		console=$text
 		;;
 	step)
 		[ -n "$text" ] || die "$guide:$n: a step needs a title"
@@ -169,6 +189,7 @@ if [ -n "$check" ]; then
 		printf '  %2d  %-12s %s\n' "$((s + 1))" "$mode" "${titles[s]}"
 	done
 	[ -z "$cleanup" ] || printf '  cleanup when the checks end: %s\n' "$cleanup"
+	[ -z "$console" ] || printf '  in a console past the first: %s\n' "$console"
 	exit 0
 fi
 
@@ -176,11 +197,15 @@ fi
 # the head's command again, which is this guide (ADR-1401 D5). The guide
 # runs in the head's first console alone, so that one run asks each step
 # once and writes one set of answers; any later console gets a shell
-# instead, which says so.
+# instead, which says so, or the guide's console: command. That command
+# runs through a shell with no rc files, with this folder on its PATH and
+# the guide's path in GUIDE_FILE, as a run: step's command does.
 if [[ ${VTIUM_CONSOLE:-} =~ ^[0-9]+$ ]] && [ "$VTIUM_CONSOLE" != 1 ]; then
 	printf 'This is console %s of the head %s. The guide runs in console 1.\n' \
 		"$VTIUM_CONSOLE" "${VTIUM_HEAD:-}"
 	printf 'Ctrl+Super+Left and Ctrl+Super+Right switch between the consoles.\n\n'
+	[ -z "$console" ] ||
+		PATH=$here:$PATH GUIDE_FILE=$guide exec /bin/bash --noprofile --norc -c "$console"
 	PS1="console-$VTIUM_CONSOLE\$ " exec /bin/bash --noprofile --norc -i
 fi
 

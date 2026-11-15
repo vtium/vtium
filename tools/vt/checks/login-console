@@ -1,0 +1,54 @@
+#!/bin/bash
+# The shell of each console past the first under login.guide, which names it
+# on its console: line. The guide's steps ask the operator to type commands in
+# such a console, over the login picture that vtium placed there before this
+# script started. This script lists those commands on the console, so the
+# operator reads each one there and never has to remember an escape
+# sequence, and then starts an interactive shell in which each command is a
+# function.
+#
+#   login-console
+#
+# Run, it prints the list and starts bash with this file as its rc file.
+# Sourced as that rc file, it defines the functions and the prompt
+# console-N$, N being VTIUM_CONSOLE. It prints nothing that clears the
+# screen, so the picture stays until a command the operator types removes it.
+#
+# delete-id and delete-depth send kitty graphics delete commands with q=2,
+# which asks the terminal for no reply, so no reply lands at the prompt.
+#
+# References:
+# - ADR-1100 D17: the login picture has no image id and sits at depth
+#   -2147483648, so a delete by id 1 leaves it and a delete by that depth
+#   removes it; ED 2, which clear sends, removes it too.
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+	cat <<'EOF'
+Type one of these commands at the prompt, then press Enter:
+  cells          prints red cells, plain text and reversed cells
+  clear          clears the screen
+  delete-id      sends a kitty graphics delete for image id 1
+  delete-depth   sends a kitty graphics delete for depth -2147483648
+Ctrl+Super+Backspace closes this console.
+
+EOF
+	exec /bin/bash --noprofile --rcfile "$0" -i
+fi
+
+# Prints three lines 30 columns wide in the middle of the screen, where any
+# picture that fills the screen is likely to be opaque: red cells, plain text
+# and reversed cells. It saves the cursor before and restores it after
+# (DECSC, DECRC), so the prompt stays where it was.
+cells() {
+	local rows cols row col
+	read -r rows cols < <(stty size)
+	row=$((rows / 2 - 1)) col=$(((cols - 30) / 2 + 1))
+	printf '\0337'
+	printf '\033[%d;%dH\033[41m%-30s\033[0m' "$row" "$col" ' red cells'
+	printf '\033[%d;%dH%-30s' "$((row + 1))" "$col" ' plain text over the picture'
+	printf '\033[%d;%dH\033[7m%-30s\033[0m' "$((row + 2))" "$col" ' reversed cells'
+	printf '\0338'
+}
+delete-id() { printf '\033_Ga=d,d=i,i=1,q=2\033\\'; }
+delete-depth() { printf '\033_Ga=d,d=z,z=-2147483648,q=2\033\\'; }
+PS1="console-${VTIUM_CONSOLE:-N}\$ "
