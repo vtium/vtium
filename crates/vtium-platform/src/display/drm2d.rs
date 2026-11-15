@@ -765,7 +765,7 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             o.damage.clear();
             o.fresh = false;
         }
-        o.cursor_set = o.cursor_shown();
+        o.cursor_committed();
         self.settle();
         Ok(swapped)
     }
@@ -946,14 +946,25 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             }
             return Ok(());
         };
-        // The plane shows the held buffer: the new image goes into the
-        // spare, made the first time, and the two swap places. Otherwise
-        // the held buffer is not on screen and takes the new image itself.
-        let (target, swap) = match (shown == Some(held.fb), held.spare) {
-            (false, _) => ((held.dumb, held.fb), false),
-            (true, Some(spare)) => (spare, true),
-            (true, None) => match cursor_buffer(&self.card, cw, ch) {
-                Ok(made) => (made, true),
+        // The new image goes into the buffer the plane does not show: the
+        // spare, made the first time, when the plane shows the held
+        // buffer, and the held buffer itself otherwise. A buffer that the
+        // commit still in flight takes off the plane may be on screen
+        // until that flip completes, so the image goes into a new buffer
+        // instead, and the busy one is freed: the kernel keeps it for the
+        // flip, and no plane's committed state names it.
+        let busy = |fb: u32| o.flipping && held.retiring == Some((fb, o.flips));
+        let swap = shown == Some(held.fb);
+        let into = if swap {
+            held.spare
+        } else {
+            Some((held.dumb, held.fb))
+        };
+        let reuse = into.filter(|&(_, fb)| !busy(fb));
+        let target = match reuse {
+            Some(target) => target,
+            None => match cursor_buffer(&self.card, cw, ch) {
+                Ok(made) => made,
                 Err(e) => {
                     self.destroy_cursor(id);
                     return Err(e);
@@ -961,18 +972,24 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
             },
         };
         if let Err(e) = paint_cursor(&self.card, &target.0, &image) {
-            if swap && held.spare.is_none() {
+            if reuse.is_none() {
                 let _ = self.card.rm_fb(target.1);
                 let _ = self.card.destroy_dumb(target.0.handle);
             }
             self.destroy_cursor(id);
             return Err(e);
         }
+        if reuse.is_none()
+            && let Some((dumb, fb)) = into
+        {
+            let _ = self.card.rm_fb(fb);
+            let _ = self.card.destroy_dumb(dumb.handle);
+        }
         if let Some(c) = self.output_mut(id).and_then(|o| o.cursor.as_mut()) {
             if swap {
                 c.spare = Some((c.dumb, c.fb));
-                (c.dumb, c.fb) = target;
             }
+            (c.dumb, c.fb) = target;
             c.hot = hot;
             c.visible = false;
         }
@@ -3288,8 +3305,8 @@ impl<K: Kms, S: Source<K>> Drm2d<K, S> {
                 self.install(o, made);
                 o.online = true;
                 o.returning = false;
-                o.cursor_set = o.cursor_shown();
                 o.start_flip();
+                o.cursor_committed();
                 o.modeset_flip = true;
                 o.modeset_flip_no = Some(o.flips);
                 o.damage.set_whole();

@@ -233,6 +233,10 @@ pub(super) struct Cursor {
     /// shown before the last new one. A new image goes into it while the
     /// plane still shows `fb`.
     pub(super) spare: Option<(Dumb, u32)>,
+    /// The framebuffer the last commit took off the plane, and the number
+    /// of that commit's flip: until the flip completes, the plane may
+    /// still show it.
+    pub(super) retiring: Option<(u32, u64)>,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) hot: (i32, i32),
@@ -485,6 +489,22 @@ impl<M: AsMut<[u8]>> Output<M> {
         self.planes.as_ref()?.cursor.as_ref()?;
         let c = self.cursor.as_ref().filter(|c| c.visible)?;
         Some((c.fb, c.corner(), c.hot))
+    }
+
+    /// After a commit that took and started its flip: records what the
+    /// cursor plane shows from it, and the framebuffer the commit took off
+    /// the plane, if any, which the plane may show until the flip
+    /// completes.
+    pub(super) fn cursor_committed(&mut self) {
+        let was = self.cursor_set.map(|(fb, _, _)| fb);
+        self.cursor_set = self.cursor_shown();
+        let now = self.cursor_set.map(|(fb, _, _)| fb);
+        let flips = self.flips;
+        if let Some(c) = self.cursor.as_mut()
+            && let Some(was) = was.filter(|&was| Some(was) != now)
+        {
+            c.retiring = Some((was, flips));
+        }
     }
 
     /// Whether the cursor plane is to show something other than what the

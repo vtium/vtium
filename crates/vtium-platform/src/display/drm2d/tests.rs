@@ -623,6 +623,57 @@ fn a_new_cursor_image_keeps_the_plane_until_the_commit_that_shows_it() {
     assert!(!s.fbs.contains_key(&fb1) && !s.fbs.contains_key(&fb2));
 }
 
+// A new image while the flip of the commit that took the plane's earlier
+// image off is still in flight: the plane may show that image until the
+// flip completes, so the new one goes into a buffer of its own, and the
+// earlier image's buffer, which no committed state names, is freed.
+#[test]
+fn a_new_cursor_image_never_goes_into_a_buffer_a_flip_in_flight_may_show() {
+    let mut v = awake(one());
+    let cp = cursor_plane(&v, A);
+    v.setup_cursor(DisplayId(A), &[0xff00_0001; 4], 2, 2, (0, 0))
+        .unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    flip(&mut v);
+    let fb1 = v.outputs[0].cursor.as_ref().unwrap().fb;
+    let dumb1 = v.outputs[0].cursor.as_ref().unwrap().dumb.handle;
+    v.setup_cursor(DisplayId(A), &[0xff00_0002; 4], 2, 2, (0, 0))
+        .unwrap();
+    v.show_cursor(DisplayId(A), 1, 1).unwrap();
+    v.commit(DisplayId(A)).unwrap();
+    let fb2 = v.outputs[0].cursor.as_ref().unwrap().fb;
+    // the flip that takes fb1 off the plane is in flight
+    let calls = v.card().state().buffer_calls.len();
+    v.setup_cursor(DisplayId(A), &[0xff00_0003; 4], 2, 2, (0, 0))
+        .unwrap();
+    let c = v.outputs[0].cursor.as_ref().unwrap();
+    let fb3 = c.fb;
+    assert!(fb3 != fb1 && fb3 != fb2);
+    assert_eq!(c.spare.map(|(_, fb)| fb), Some(fb2));
+    let s = v.card().state();
+    assert!(!s.fbs.contains_key(&fb1), "the busy buffer is freed");
+    assert!(
+        !s.buffer_calls[calls..].contains(&BufferCall::MapDumb(dumb1)),
+        "the busy buffer is never written"
+    );
+    assert_eq!(s.plane_fb.get(&cp), Some(&fb2));
+    drop(s);
+    flip(&mut v);
+    // the plane still shows fb2, so the next image goes into fb3 again,
+    // which no plane shows
+    let calls = v.card().state().buffer_calls.len();
+    v.setup_cursor(DisplayId(A), &[0xff00_0004; 4], 2, 2, (0, 0))
+        .unwrap();
+    assert_eq!(v.outputs[0].cursor.as_ref().unwrap().fb, fb3);
+    let s = v.card().state();
+    assert!(
+        s.buffer_calls[calls..]
+            .iter()
+            .all(|c| matches!(c, BufferCall::MapDumb(_)))
+    );
+}
+
 // A new image on a display whose plane shows nothing writes into the
 // buffer it holds, whose framebuffer no plane shows.
 #[test]
