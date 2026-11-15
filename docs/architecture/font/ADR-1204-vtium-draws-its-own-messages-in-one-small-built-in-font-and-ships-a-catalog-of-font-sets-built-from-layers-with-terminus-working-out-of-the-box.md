@@ -67,7 +67,6 @@ basis:
   - standard: "UTS #51, Unicode Emoji, version 18.0: the Emoji property and the emoji components in emoji-data.txt"
   - standard: "UAX #24, Unicode Script Property, Unicode 18.0: Script and Script_Extensions, with Common and Inherited"
   - standard: "UAX #11, East Asian Width, Unicode 18.0: the East_Asian_Width values W and F"
-  - standard: "os-release(5), systemd 262: ID and ID_LIKE name the distribution"
   - precedent: ADR-1200
   - precedent: ADR-1500
   - precedent: ADR-1503
@@ -118,6 +117,9 @@ considered:
     said: "Accept all leans"
     via: the steering session, 2026-11-14, answering every remaining choice of D15
     covers: [exact sources, renames]
+  - operator: aaronsb
+    said: "I don't think it needs to know the distro command to install fonts as much as the help docs for it could advise more generally"
+    via: the steering session, 2026-11-15
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -219,7 +221,7 @@ The switch rests on a 1:1 drawing of both forms at each strike height, through v
 | Box drawing, blocks, Braille and legacy computing | vtium's sprites | built in |
 | Color emoji | Noto Color Emoji, through `noto-emoji` | the recipe depends on the distribution's package that provides Noto Color Emoji, where one exists |
 | Every other character, such as Han, kana and Hangul | GNU Unifont 17.0.03, through `unifont`, in 1 bit | vtium installs the file, about 1.7 MB under gzip |
-| The Font Logos icons, U+F300 to U+F385 | Symbols Nerd Font Mono, through `nerd-symbols`, once the system has it installed; a hollow box until then | the distribution's package, which the person installs; vtium-config names it |
+| The Font Logos icons, U+F300 to U+F385 | Symbols Nerd Font Mono, through `nerd-symbols`, once the system has it installed; a hollow box until then | a Nerd Fonts build, which the person installs; vtium-config names the font and its page |
 
 vtium installs its files in `/usr/share/vtium/fonts/`, which is in the build's list of font folders (ADR-1200 D25). The set names each file by path with its `sha256=` line (D7), and `make install` writes the package's prefix into the paths. The set also names the `nerd-symbols` layer after Cullet Mono, so that it finds Symbols Nerd Font Mono once the system has it installed, and draws the Font Logos icons from it. The full package grows by about 7.0 MB of font files. Where a distribution packages no Noto Color Emoji, the full package still works, and emoji draw as hollow boxes until the person installs the font.
 
@@ -344,19 +346,20 @@ The fonts are chosen by these rules. A text font is monospaced, holds every prin
 
 ### D7: a set names each font precisely
 
-Five keys follow a `source=` line, in a set or in a layer, and describe the font that the source needs:
+Four keys follow a `source=` line, in a set or in a layer, and describe the font that the source needs:
 
 | Key | What it states | What vtium does with it |
 |---|---|---|
 | `version=` | the lowest version that the set was written against, as the font's own version string gives it | A font of a lower version still draws, and vtium-config reports its version and the version the set asks for. |
 | `check=` | characters that the right font holds, as code points or ranges | A font that lacks any of them counts as missing. For example, `check=U+E0B0` tells a Nerd Fonts build from the plain font of a similar name. |
 | `sha256=` | for a source named by its path, the file's SHA-256 | A file with another hash still draws, and vtium-config reports the difference. |
-| `package=` | `DISTRO:NAME`, once for each distribution, where DISTRO is the distribution's ID in os-release(5) | vtium-config names the package for this machine's ID, else for the first of its ID_LIKE entries that a line names. |
-| `url=` | the font's upstream page, with the version | vtium-config names it when no `package=` line matches this machine. |
+| `url=` | the font's upstream page, with the version | vtium-config names it beside the font's name. |
 
-vtium draws a set with every named font that it finds and that passes its `check=`. Each other font is missing, and its characters draw from the next source that has them, as for any missing source (ADR-1200 D1). When the text font is missing, the built-in font draws the text (D5). The console logs one line for each missing font, once a boot. The line names the set, the font, its version and the package for this distribution.
+vtium draws a set with every named font that it finds and that passes its `check=`. Each other font is missing, and its characters draw from the next source that has them, as for any missing source (ADR-1200 D1). When the text font is missing, the built-in font draws the text (D5). The console logs one line for each missing font, once a boot. The line names the set, the font and its version.
 
-vtium-config tells the person before they meet a gap. `vtium config fonts` lists each set's missing fonts with the package or the page that provides each one. The TUI's Fonts and Looks views mark a set with a missing font, and they show the install command for this distribution when the person chooses that set. `vtium check-config` prints the same lines for each set that vtium.conf names.
+vtium-config tells the person before they meet a gap. `vtium config fonts` lists each set's missing fonts, each by its name, its version and its upstream page. The TUI's Fonts and Looks views mark a set with a missing font, and name the missing fonts when the person chooses that set. `vtium check-config` prints the same lines for each set that vtium.conf names.
+
+vtium-config names fonts and leaves installing them to the person (amended 2026-11-15). The maintainer chose general advice over a command for each distribution. vtium's help page on fonts says how to install a font: search the distribution's packages for the font's name, or download it from its upstream page into a fonts folder. Each report of a missing font points to that page.
 
 ### D8: how each font reaches the machine
 
@@ -364,7 +367,7 @@ vtium ships every catalog set and layer as a text file. A font reaches the machi
 
 - **Installed by vtium.** The vtium packages install the Terminus files, and the full package also installs Unifont's file (D2).
 - **Brought by vtium-fonts.** vtium-fonts is an optional package of its own, apart from vtium. Once it is installed, every catalog set works. It provides each font in the way that suits that font. Each recipe of vtium-fonts depends on its distribution's package that provides a font, where that distribution packages it. Where it does not, the recipe carries a pinned copy of the upstream file with its license text, when the license allows redistribution. So a font may be brought when the common distribution families package it, or when a recipe may carry it under its license.
-- **Required.** A font that neither vtium nor vtium-fonts provides is one the person installs. The set names it with D7's keys, and vtium-config names where to get it.
+- **Required.** A font that neither vtium nor vtium-fonts provides is one the person installs. The set names it with D7's keys, and vtium-config names the font and its upstream page.
 
 vtium-fonts carries no Nerd Fonts file. Every Nerd Fonts build, Symbols Nerd Font Mono included, holds the Font Logos icons, which Nerd Fonts' `license-audit.md` lists as "Unlicensed". So a recipe names its distribution's Nerd Fonts packages as optional dependencies, and carries none of them. Noto Sans CJK, 299 MiB on Arch, is an optional dependency too, because only the four CJK sets use it. A set works without such a font, degraded: its text draws from the next source it names, its Nerd Fonts icons as hollow boxes, and its Han, kana and Hangul from Unifont. vtium-config names the package that completes the set.
 
@@ -408,7 +411,7 @@ A recipe's metadata then holds:
 - `source=`, the fonts the recipe carries, each pinned by its upstream URL and SHA-256;
 - `license=`, the licenses of what the package itself carries: MIT for the font sets, and OFL-1.1, CC-BY-SA-4.0, Unlicense and the public domain for the carried fonts. The licenses of the fonts it depends on stay with their own packages, and the notices file names them.
 
-One font set file serves every distribution, because its `package=` lines name a package for each distribution's os-release ID, and vtium-config takes the ID, then each ID_LIKE entry (D7).
+One font set file serves every distribution, because it names each font by its upstream name, version and page, and names no distribution's package (D7). Only the recipes name distribution packages.
 
 **The notices.** vtium-fonts carries one notices file. For each font that a catalog set names, it gives the font's source, its version, its copyright line, its license, and its Reserved Font Name or the attribution its license asks for, such as Px437's and the CC-BY-4.0 icon sets' in the Nerd Fonts builds. It says that vtium-fonts carries no Nerd Fonts file because of Font Logos. Beside it, vtium-fonts carries the full text of each license. vtium itself carries only the notices of its own fonts: the built-in font's Unscii-8 and Terminus lines, the OFL text, and the notices of the Terminus and Unifont files it installs. vtium names vtium-fonts as an optional dependency.
 
@@ -459,8 +462,8 @@ Whether the built-in font's glyphs sit in the same place when the built-in font 
 The build cards, in order:
 
 1. **Layers.** The `strike=` key, by which one source draws bitmap strikes at their heights and its outline between them. The frit reader takes `layer=` and reads `.vtlayer` files with `role=`. The console puts each layer's sources in place and checks each layer's ownership. The cell rule for a missing text font. `new-frit --layer` and the TUI's choice. ADR-1200 D1@@ D9 and D19 gain dated notes.
-2. **Font requirements.** The keys `version=`, `check=`, `sha256=`, `package=` and `url=`. The helper's match against them, the console's log line, and vtium-config's report, with the os-release lookup.
-3. **The catalog.** `docs/concepts/fonts.md` and `docs/fonts-for-scripts.md` say plainly that installing the distribution's Nerd Fonts package gives the Font Logos icons and full Nerd Fonts coverage. The kernel-font sets, each checked glyph by glyph against the kernel's font it names. The category folders and layers, every member of D3, the renames, the fold of `proof`, the Makefile's lists, and the docs. Specimens that move go in a golden commit of their own.
+2. **Font requirements.** The keys `version=`, `check=`, `sha256=` and `url=`. The helper's match against them, the console's log line, vtium-config's report, and the help page on installing fonts that each report points to.
+3. **The catalog.** `docs/concepts/fonts.md` and `docs/fonts-for-scripts.md` say plainly that installing a Nerd Fonts build gives the Font Logos icons and full Nerd Fonts coverage. The kernel-font sets, each checked glyph by glyph against the kernel's font it names. The category folders and layers, every member of D3, the renames, the fold of `proof`, the Makefile's lists, and the docs. Specimens that move go in a golden commit of their own.
 4. **The catalog check** of D12, and the TSV beside this record.
 5. **The built-in font.** The list file, the build step that cuts the three strikes, the hollow box for every other character, the English message for a translation beyond the list, and the acceptance check of D1, as a unit test and a tier 3 case.
 6. **The default set in two tiers.** The full package installs the Terminus and Unifont files in `/usr/share/vtium/fonts/` and depends on the icon and emoji packages; the minspec builds install the Terminus files alone. `terminus` becomes the font with none named, and the tier 3 case of D2 runs with each install tree on a guest with no other font package.
@@ -473,7 +476,7 @@ The maintainer decided every choice this record put to them on 2026-11-14, each 
 
 - the six categories and the full starting list of members (D3);
 - `layer=` lines and `.vtlayer` files (D5);
-- a missing required font draws what is there, logs one line, and vtium-config names the package (D7);
+- a missing required font draws what is there, logs one line, and vtium-config names the font and its page (D7);
 - a font that differs from its pin draws and is reported (D7);
 - the renames happen now, without aliases (D13);
 - the built-in 8×16 strike is cut from Terminus (D1);
