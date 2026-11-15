@@ -670,6 +670,19 @@ mod tests {
             .collect()
     }
 
+    // A picture from the font helper keeps the hotspot the helper sent,
+    // on either axis and at either edge, so the plane and the renderer put
+    // the pointer's tip where the pointer file says it is.
+    #[test]
+    fn a_picture_from_the_helper_keeps_its_hotspot() {
+        for hot in [(0, 0), (1, 0), (0, 1), (4, 2), (2, 4), (4, 4)] {
+            let a = Arrow::from_rgba(5, 5, hot, &[0; 5 * 5 * 4]).expect("a valid picture");
+            assert_eq!(a.hot(), hot);
+        }
+        let a = Arrow::from_rgba(3, 7, (2, 6), &[0; 3 * 7 * 4]).expect("a valid picture");
+        assert_eq!((a.width(), a.height(), a.hot()), (3, 7, (2, 6)));
+    }
+
     #[test]
     fn the_arrow_is_a_cell_tall_with_its_tip_at_the_hotspot() {
         let a = Arrow::new(16, Orientation::Normal);
