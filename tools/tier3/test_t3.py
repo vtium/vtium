@@ -1164,10 +1164,10 @@ class VtiumGoldenTest(unittest.TestCase):
         # kernel-message golden on 2026-11-11, and the four panic goldens of
         # the maintainer's drawing of Tux (ADR-1401 D7) and the img-delete
         # golden of kitty 0.50.0's replies (ADR-1100 D15) on 2026-11-13. The
-        # list in the tree is empty; a golden it names must be one a case
-        # draws.
+        # list in the tree names the login picture's capture (ADR-1100 D17)
+        # alone; a golden it names must be one a case draws.
         prov = t3_evaluate.read_provisional()
-        self.assertEqual(sorted(prov), [])
+        self.assertEqual(sorted(prov), ["images-login-640x480/login-image"])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),
                                                    t3_evaluate.GOLDEN, prov), [])
         with open(os.path.join(t3_common.HERE, "goldens", "README.md")) as f:
