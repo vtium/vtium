@@ -38,8 +38,10 @@
 //!   size through the font helper, and the VT100's dot stretching stays
 //!   out of the text renderer.
 
-use vtium_font::{Doubled, Face, Font, Glyph, Script, Variant, Width, sprite};
+use vtium_font::{Doubled, Face, Font, Format, Glyph, Script, Variant, Width, sprite};
 use vtium_term::LineSize;
+
+use crate::mono::Fallback;
 
 /// Which piece of a glyph or decoration a display cell draws: the glyph
 /// itself, or one cell of it doubled. A doubled piece holds the line's
@@ -252,19 +254,32 @@ fn cut_drawn(
 /// keys the piece on its text, variant, width and piece, and forgets it
 /// when a glyph for its text arrives, so the piece is cut again from the
 /// helper's glyph once that glyph is there.
+///
+/// On a display that is not full color, `fallback` stands in for the
+/// glyph at the double size as it stands in for `whole` at the normal
+/// size, so a line of double size shows what a line of the normal size
+/// shows. A sprite that a 1-bit display would show as gray is drawn as its
+/// 1-bit shape at the double size, such as a shade's ordered pattern. A
+/// color glyph that unifont has is not drawn at the double size at all:
+/// `whole` is already unifont's bitmap, and the piece is cut from it with
+/// each pixel doubled.
 pub(crate) fn piece_glyph<F: Face>(
     font: &Font<F>,
     (text, width, variant): (&[char], Width, Variant),
     (whole, scale): (&Glyph, u32),
-    piece: Piece,
+    (piece, fallback): (Piece, Option<&Fallback>),
 ) -> Option<(Glyph, u32)> {
     let drawn = piece.doubled().and_then(|d| {
         let sprite = (variant.script == Script::Baseline)
             .then(|| sprite::doubled(font, text, (width, variant.style), d))
             .flatten();
-        sprite
-            .or_else(|| font.face().doubled(text, variant, d))
-            .and_then(|glyph| cut_drawn(&glyph, (font.cell(), width), piece))
+        let glyph = sprite.or_else(|| font.face().doubled(text, variant, d))?;
+        let glyph = match fallback.and_then(|f| f.glyph(&glyph, 1, text, width, variant)) {
+            Some(_) if glyph.format() == Format::Rgba => return None,
+            Some(stand_in) => stand_in.with_cells(glyph.cells()),
+            None => glyph,
+        };
+        cut_drawn(&glyph, (font.cell(), width), piece)
     });
     match drawn {
         Some(glyph) => Some((glyph, 1)),
@@ -280,7 +295,6 @@ pub(crate) fn piece_glyph<F: Face>(
 )]
 mod tests {
     use super::*;
-    use vtium_font::Format;
 
     /// A 2 by 4 mask whose pixel at column x, row y is 10 * y + x + 1.
     fn ramp() -> Vec<u8> {
@@ -391,7 +405,7 @@ mod tests {
         let font = Font::new(vtium_font::Unifont::new(16));
         let key = (&[c][..], Width::Narrow, Variant::default());
         let whole = font.glyph(&[c], Width::Narrow, Default::default()).unwrap();
-        piece_glyph(&font, key, (&whole, 1), piece).unwrap()
+        piece_glyph(&font, key, (&whole, 1), (piece, None)).unwrap()
     }
 
     // A box drawing line on a line of double width is drawn again in the
@@ -446,7 +460,7 @@ mod tests {
             .unwrap();
         let key = (&['a'][..], Width::Narrow, Variant::default());
         let piece = Piece::of(LineSize::DoubleWidth, 0);
-        let (glyph, _) = piece_glyph(&font, key, (&whole, 1), piece).unwrap();
+        let (glyph, _) = piece_glyph(&font, key, (&whole, 1), (piece, None)).unwrap();
         assert_eq!(Some(glyph), doubled(&whole, piece));
     }
 

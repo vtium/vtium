@@ -501,7 +501,12 @@ impl<T: Held> GlyphCache<T> {
         let (glyph, scale) = if piece.is_whole() {
             (glyph, scale)
         } else {
-            double::piece_glyph(font, (text, width, variant), (&glyph, scale), piece)?
+            double::piece_glyph(
+                font,
+                (text, width, variant),
+                (&glyph, scale),
+                (piece, self.fallback.as_ref()),
+            )?
         };
         let stored = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
         Some((stored, missing))
@@ -1137,6 +1142,131 @@ mod tests {
             }
         }
         assert!(c.live <= 37);
+    }
+
+    /// The coverage of each pixel of the piece `piece` of `text` that the
+    /// cache `c` draws in `f`, row by row.
+    fn piece_pixels<F: Face>(
+        c: &mut GlyphCache,
+        f: &Font<F>,
+        text: &[char],
+        piece: Piece,
+    ) -> Vec<u8> {
+        let cell = f.cell();
+        let g = c
+            .get_piece(f, (text, Width::Narrow, Variant::default()), piece)
+            .unwrap();
+        assert!(!g.is_rgba(), "the piece is a color glyph");
+        let mut out = vec![0u8; cell.width as usize * cell.height as usize];
+        for (y, row) in out.chunks_mut(cell.width as usize).enumerate() {
+            g.mask_line(0, i64::try_from(y).unwrap(), row);
+        }
+        out
+    }
+
+    // On a 1-bit display a light shade is its 1-bit ordered pattern, one
+    // pixel in four lit, on a line of double size as on a line of the
+    // normal size: the sprite drawn at the doubled cell takes its pattern
+    // too, so no pixel is a gray that the cut at half would light or blank
+    // whole. The operator decided the pattern on 2026-10-28.
+    // covers: text.line-size
+    #[test]
+    fn a_shade_on_a_line_of_double_size_keeps_its_1_bit_pattern() {
+        use crate::mono::{Depth, Fallback};
+        use vtium_term::LineSize;
+        let f = font();
+        let shade = ['\u{2591}'];
+        assert!(!f.face().has_glyph(shade[0]), "the shade is a sprite");
+        let mut c = GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal)
+            .with_fallback(Fallback::new(Depth::One, f.cell()));
+        for size in [
+            LineSize::Single,
+            LineSize::DoubleWidth,
+            LineSize::DoubleHeightTop,
+            LineSize::DoubleHeightBottom,
+        ] {
+            for column in [0, 1] {
+                let px = piece_pixels(&mut c, &f, &shade, Piece::of(size, column));
+                assert!(
+                    px.iter().all(|&p| p == 0 || p == 0xff),
+                    "{size:?} {column}: {px:?}"
+                );
+                let lit = px.iter().filter(|&&p| p == 0xff).count();
+                assert_eq!(lit, px.len() / 4, "{size:?} {column}");
+            }
+        }
+    }
+
+    /// A face of unifont's 8×16 cell that draws ☺ as a color glyph, at the
+    /// normal size and at each double size, as the font helper renders a
+    /// color font's glyphs.
+    struct Smiley;
+
+    impl Face for Smiley {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == '\u{263a}'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['\u{263a}'])
+                .then(|| vtium_font::Glyph::rgba(8, 16))
+                .flatten()
+        }
+        fn doubled(
+            &self,
+            cluster: &[char],
+            _: Variant,
+            doubled: vtium_font::Doubled,
+        ) -> Option<vtium_font::Glyph> {
+            let cell = doubled.cell(self.cell())?;
+            (cluster == ['\u{263a}'])
+                .then(|| vtium_font::Glyph::rgba(cell.width, cell.height))
+                .flatten()
+        }
+    }
+
+    // On a gray display a color glyph is unifont's bitmap of the same
+    // character, the operator's decision on vtium/vtium#135, on a line of
+    // double size as on a line of the normal size: the color glyph the
+    // face holds at the double size is not drawn, and each piece is
+    // unifont's bitmap with each pixel doubled.
+    // covers: text.line-size
+    #[test]
+    fn a_color_glyph_on_a_line_of_double_size_takes_unifonts_bitmap_off_color() {
+        use crate::mono::{Depth, Fallback};
+        use vtium_term::LineSize;
+        let f = Font::new(Smiley);
+        let smiley = ['\u{263a}'];
+        let unifont = Font::new(vtium_font::Unifont::new(16));
+        let mut want =
+            GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal);
+        for depth in [Depth::Gray(4), Depth::One] {
+            let mut c =
+                GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal)
+                    .with_fallback(Fallback::new(depth, f.cell()));
+            for size in [
+                LineSize::DoubleWidth,
+                LineSize::DoubleHeightTop,
+                LineSize::DoubleHeightBottom,
+            ] {
+                for column in [0, 1] {
+                    let piece = Piece::of(size, column);
+                    assert_eq!(
+                        piece_pixels(&mut c, &f, &smiley, piece),
+                        piece_pixels(&mut want, &unifont, &smiley, piece),
+                        "{depth:?} {size:?} {column}"
+                    );
+                }
+            }
+        }
     }
 
     /// A face that draws nothing at all.
