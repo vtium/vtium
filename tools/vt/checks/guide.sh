@@ -295,7 +295,9 @@ shell() {
 # keeps them from ending the checks, and the command, which gets the default
 # actions, ends with its status. The command gets the step's heading, do:
 # lines and expect: lines, the arguments after the command, in its
-# environment.
+# environment, and this folder on its PATH, so a command that holds its
+# picture for the operator ends with guide-wait, which returns at a key or a
+# click, never with a sleep of a fixed time.
 run() {
 	local status=0 saved
 	note "  run: $1"
@@ -303,7 +305,7 @@ run() {
 	trap : INT QUIT
 	saved=$(stty -g)
 	stty -echo
-	GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
+	PATH=$here:$PATH GUIDE_STEP_HEADING=$2 GUIDE_STEP_DO=$3 GUIDE_STEP_EXPECT=$4 GUIDE_FILE=$guide \
 		/bin/bash --noprofile --norc -c "$1" || status=$?
 	while read -r -s -n 1 -t 0.05 _; do :; done
 	stty "$saved"

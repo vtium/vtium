@@ -15,7 +15,7 @@ expect: about half a minute later with no key pressed, this screen drawn
 expect: whole, then the question.
 
 step: RIS returns the blank to dpms-timeout
-run: printf '\033c'; sleep 90
+run: printf '\033c'; sleep 90 # timed
 do: after Enter, touch nothing until the question comes back, a minute and
 do: a half later.
 expect: RIS clears the screen at once, and it *stays lit* until the question:

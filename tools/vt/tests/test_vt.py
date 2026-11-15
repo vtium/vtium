@@ -4164,6 +4164,79 @@ class Pty:
         raise AssertionError("did not exit")
 
 
+class GuideWait(unittest.TestCase):
+    """guide-wait: a run: command's hold, ended by a key or a mouse press."""
+
+    WAIT = os.path.join(VT, "checks", "guide-wait")
+
+    def start(self, *args):
+        g = Pty(["/bin/bash", self.WAIT, *args], {"PATH": os.environ["PATH"], "TERM": "linux"})
+        g.wait_for(b"\x1b[?1000h\x1b[?1006h")
+        return g
+
+    def ended(self, g):
+        self.assertEqual(g.finish(), 0)
+        # The mouse reports go off before it returns.
+        self.assertIn(b"\x1b[?1006l\x1b[?1000l", g.seen)
+
+    def still_waiting(self, g):
+        # Its drain after an ending event takes about a quarter of a second,
+        # so a second's watch sees it end if it was going to.
+        end = time.monotonic() + 1.0
+        while time.monotonic() < end:
+            g.pump(end - time.monotonic())
+        self.assertNotIn(b"\x1b[?1000l", g.seen)
+        self.assertEqual(os.waitpid(g.pid, os.WNOHANG), (0, 0))
+
+    def test_a_key_ends_the_wait(self):
+        for key in (b"x", b"\r", b" ", b"\x1b", b"\x1b[A"):
+            with self.subTest(key=key):
+                g = self.start()
+                self.assertIn(b"Press a key or click to go on.", g.seen)
+                self.still_waiting(g)
+                g.send(key)
+                self.ended(g)
+
+    def test_a_mouse_press_ends_the_wait_and_its_release_is_dropped(self):
+        for button in (b"0", b"1", b"2"):
+            with self.subTest(button=button):
+                g = self.start("")
+                self.assertNotIn(b"Press a key", g.seen)
+                g.send(b"\x1b[<" + button + b";10;5M")
+                g.send(b"\x1b[<" + button + b";10;5m")
+                self.ended(g)
+
+    def test_a_wheel_turn_and_a_release_do_not_end_it(self):
+        g = self.start("look")
+        g.send(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<0;10;5m")
+        self.still_waiting(g)
+        g.send(b"\x1b[<0;3;3M")
+        self.ended(g)
+
+    def test_with_keys_only_a_key_ends_it_and_the_mouse_reports_stay_off(self):
+        g = Pty(["/bin/bash", self.WAIT, "--keys", "keys only"], {"PATH": os.environ["PATH"], "TERM": "linux"})
+        g.wait_for(b"keys only")
+        g.send(b"x")
+        self.assertEqual(g.finish(), 0)
+        self.assertNotIn(b"\x1b[?1000h", g.seen)
+
+    def test_a_guide_step_finds_it_on_its_path(self):
+        p = subprocess.run(["bash", "-c", "grep -q 'PATH=$here:$PATH' \"$1\"", "-", GUIDE_SH])
+        self.assertEqual(p.returncode, 0)
+
+    def test_no_guide_holds_a_picture_with_a_fixed_sleep_at_the_end(self):
+        # A run: command that ends in a sleep only keeps its picture on screen
+        # for a fixed time; it ends with guide-wait instead. A sleep inside
+        # the command, which times the behaviour the step shows, stays, and
+        # a hold that is itself the behaviour ends in "# timed".
+        checks = os.path.join(VT, "checks")
+        for g in sorted(f for f in os.listdir(checks) if f.endswith(".guide")):
+            for line in open(os.path.join(checks, g), encoding="utf-8"):
+                if line.startswith("run:") and not line.rstrip().endswith("# timed"):
+                    with self.subTest(guide=g, line=line.strip()):
+                        self.assertNotRegex(line.rstrip(), r"sleep [0-9.]+;?\s*(clear)?;?\s*$")
+
+
 class Guide(Case):
     """guide.sh: the check of a guide, and a run on a pseudo-terminal."""
 

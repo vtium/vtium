@@ -1,0 +1,64 @@
+#!/bin/bash
+# Holds a guide step's picture until the operator presses a key or clicks a
+# mouse button, so the operator looks for as long as they need and then goes
+# on. A run: command calls it where it would otherwise sleep for a fixed time
+# only to keep the picture on screen. guide.sh puts this folder on the
+# command's PATH.
+#
+#   guide-wait [--keys] [TEXT]
+#
+# It prints TEXT where the cursor is, or "Press a key or click to go on."
+# without TEXT, and nothing when TEXT is empty, for a picture that a line of
+# text would spoil. With --keys, only a key ends the wait, and the mouse
+# keeps working as usual, for a step that asks the operator to click or
+# select. Otherwise it turns on the terminal's mouse reports, DECSET 1000
+# (press and release) with DECSET 1006 (SGR form), for the time it waits, and
+# turns them off again before it returns. Any key ends the wait, and so does a
+# press of a mouse button. A wheel turn, which the terminal reports as a
+# press of button 64 or above, does not, and neither does a release. After a
+# press it reads the release that follows, and it drops every other byte
+# still waiting, so neither reaches the step's answer.
+set -u
+
+mouse=1
+[ "${1-}" != --keys ] || { mouse=; shift; }
+text=${1-Press a key or click to go on.}
+[ -z "$text" ] || printf '%s' "$text"
+
+saved=$(stty -g)
+stty -echo -icanon min 1 time 0
+[ -z "$mouse" ] || printf '\033[?1000h\033[?1006h'
+
+# A mouse report is CSI < Pb ; Px ; Py M for a press and m for a release.
+# report reads one after its CSI <, and answers whether it was a press of a
+# button, not a wheel.
+report() {
+	local r='' c
+	while IFS= read -r -s -n 1 -t 1 c; do
+		case $c in
+		M | m) break ;;
+		*) r+=$c ;;
+		esac
+	done
+	[ "$c" = M ] || return 1
+	local b=${r%%;*}
+	[[ $b =~ ^[0-9]+$ ]] && ((b < 64))
+}
+
+while IFS= read -r -s -n 1 c; do
+	[ -n "$mouse" ] && [ "$c" = $'\033' ] || break
+	IFS= read -r -s -n 1 -t 0.05 c || break
+	[ "$c" = '[' ] || break
+	IFS= read -r -s -n 1 -t 0.05 c || break
+	[ "$c" = '<' ] || break
+	report && break
+done
+
+# The release of the press that ended the wait, and any other byte still
+# waiting, are dropped while the reports are still on, then the reports go
+# off and what arrived in between is dropped too.
+while IFS= read -r -s -n 1 -t 0.2 _; do :; done
+[ -z "$mouse" ] || printf '\033[?1006l\033[?1000l'
+while IFS= read -r -s -n 1 -t 0.05 _; do :; done
+stty "$saved"
+[ -z "$text" ] || printf '\n'
