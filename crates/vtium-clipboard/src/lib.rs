@@ -7,7 +7,7 @@
 //! takes that sequence into its one selection, so the copy also works over
 //! ssh and through a multiplexer that passes OSC 52 on. After the sequence
 //! the program asks the terminal who it is, and its exit status says
-//! whether vtium answered.
+//! whether vtium answered. In a background job it cannot ask, and says so.
 //!
 //! The program never reads the clipboard back. `paste` prints that paste is
 //! not available and exits 2.
@@ -34,6 +34,12 @@ pub use vtium_term::CLIPBOARD_MAX;
 /// References:
 /// - ADR-1007 D2: the one-second wait.
 pub const REPLY_WAIT: Duration = Duration::from_secs(1);
+
+/// How long the program waits for the terminal to take another byte of
+/// what it writes. A terminal that takes nothing for this long, as over a
+/// stalled ssh connection or after Ctrl+S stopped its output, does not get
+/// the copy, and the program gives up rather than hang.
+pub const WRITE_STALL: Duration = Duration::from_secs(5);
 
 /// The most reply bytes the program keeps while it waits. vtium's two
 /// replies take under 40 bytes, so a terminal that sends more than this
@@ -87,24 +93,58 @@ fn base64(data: &[u8], out: &mut Vec<u8>) {
 /// The text to copy, as the program read it.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Text {
-    /// The text, at most [`CLIPBOARD_MAX`] bytes.
+    /// The text, which vtium keeps whole: at most [`CLIPBOARD_MAX`] bytes
+    /// once vtium has replaced the bytes that are not valid UTF-8.
     Fits(Vec<u8>),
     /// The text is larger than [`CLIPBOARD_MAX`] bytes. vtium would drop
     /// it whole, so the program copies nothing.
     TooLarge,
+    /// The text fits [`CLIPBOARD_MAX`] as it is, but not once vtium has
+    /// replaced the bytes that are not valid UTF-8, when it takes `kept`
+    /// bytes. vtium would drop it whole, so the program copies nothing.
+    TooLargeReplaced {
+        /// The text's length with the replacements, as [`kept_len`] counts
+        /// it.
+        kept: usize,
+    },
 }
 
 /// Reads the text from `input` to its end, but never more than
 /// [`CLIPBOARD_MAX`] bytes and one more, which is enough to tell that the
-/// text is too large without reading all of it.
+/// text is too large without reading all of it. Text that fits as it is
+/// can still be too large once vtium has replaced its bytes that are not
+/// valid UTF-8, so the program checks [`kept_len`] too.
 pub fn read_text(input: impl Read) -> io::Result<Text> {
     let limit = u64::try_from(CLIPBOARD_MAX).map_or(u64::MAX, |m| m.saturating_add(1));
     let mut text = Vec::new();
     input.take(limit).read_to_end(&mut text)?;
-    Ok(if text.len() > CLIPBOARD_MAX {
-        Text::TooLarge
+    if text.len() > CLIPBOARD_MAX {
+        return Ok(Text::TooLarge);
+    }
+    let kept = kept_len(&text);
+    Ok(if kept > CLIPBOARD_MAX {
+        Text::TooLargeReplaced { kept }
     } else {
         Text::Fits(text)
+    })
+}
+
+/// The length of `text` as vtium keeps it in its clipboard. vtium reads
+/// the copy as UTF-8 and puts the replacement character U+FFFD, which
+/// takes 3 bytes in UTF-8, in place of each maximal subpart that is not
+/// valid UTF-8, as Unicode's "U+FFFD Substitution of Maximal Subparts"
+/// says. It drops a copy whose text then passes [`CLIPBOARD_MAX`]. Valid
+/// UTF-8 keeps its length, and a byte that is not valid UTF-8 can become 3
+/// bytes, so text that fits as it is may not fit once replaced.
+///
+/// `str::Utf8Chunks` splits the bytes at the same maximal subparts that
+/// vtium-term replaces, and a test feeds the bytes at the bound to
+/// vtium-term to check that the two agree.
+pub fn kept_len(text: &[u8]) -> usize {
+    text.utf8_chunks().fold(0, |len, chunk| {
+        let replaced = if chunk.invalid().is_empty() { 0 } else { 3 };
+        len.saturating_add(chunk.valid().len())
+            .saturating_add(replaced)
     })
 }
 
@@ -166,14 +206,16 @@ pub fn names_vtium(version: &[u8]) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Exit {
-    /// The copy was written, and the terminal answered as vtium.
-    Copied = 0,
-    /// Nothing was written: the text was too large, the file could not be
-    /// read, or there was no terminal.
+    /// The program did what it was asked: it wrote the copy and the
+    /// terminal answered as vtium, or it printed its help or its version.
+    Done = 0,
+    /// Nothing was copied: the text was too large, the file could not be
+    /// read, there was no terminal, or the terminal did not take the copy.
     NothingCopied = 1,
     /// The command line was wrong, or the command was `paste`.
     Usage = 2,
-    /// The copy was written, but the terminal did not answer as vtium.
+    /// The copy was written, but the terminal did not answer as vtium, or
+    /// the program ran in a background job and could not ask.
     Unconfirmed = 3,
 }
 
@@ -208,11 +250,11 @@ pub fn run(
     match command.to_str() {
         Some("--help" | "-h") if args.len() == 1 => {
             let _ = stdout.write_all(messages::help(&name, CLIPBOARD_MAX).as_bytes());
-            Exit::Copied
+            Exit::Done
         }
         Some("--version") if args.len() == 1 => {
             let _ = writeln!(stdout, "{name} {}", env!("CARGO_PKG_VERSION"));
-            Exit::Copied
+            Exit::Done
         }
         Some("paste") => {
             say(stderr, messages::paste());
@@ -241,7 +283,8 @@ pub fn run(
 }
 
 /// `copy [FILE]`: reads the text, checks its size, writes the sequence and
-/// the two questions to the terminal, and reads who answered.
+/// the two questions to the terminal, and reads who answered. In a
+/// background job it writes the sequence alone.
 ///
 /// References:
 /// - ADR-1007 D2: the steps of a copy and their order.
@@ -261,15 +304,17 @@ fn copy(name: &str, file: Option<&OsString>, stdin: impl Read, stderr: &mut dyn 
             say(stderr, messages::too_large(CLIPBOARD_MAX));
             return Exit::NothingCopied;
         }
+        Ok(Text::TooLargeReplaced { kept }) => {
+            say(stderr, messages::too_large_replaced(kept, CLIPBOARD_MAX));
+            return Exit::NothingCopied;
+        }
         Err(message) => {
             say(stderr, message);
             return Exit::NothingCopied;
         }
     };
-    let mut bytes = sequence(&text);
-    bytes.extend_from_slice(QUERIES);
-    let replies = match tty::exchange(&bytes, REPLY_WAIT) {
-        Ok(replies) => replies,
+    let sent = match tty::exchange(&sequence(&text), QUERIES, REPLY_WAIT, WRITE_STALL) {
+        Ok(sent) => sent,
         Err(tty::Failed::Open(e)) => {
             say(stderr, messages::no_terminal(name, &e.to_string()));
             return Exit::NothingCopied;
@@ -278,14 +323,27 @@ fn copy(name: &str, file: Option<&OsString>, stdin: impl Read, stderr: &mut dyn 
             say(stderr, messages::write_failed(name, &e.to_string()));
             return Exit::NothingCopied;
         }
+        Err(tty::Failed::Stalled) => {
+            say(stderr, messages::stalled(name, WRITE_STALL.as_secs()));
+            return Exit::NothingCopied;
+        }
     };
     if std::str::from_utf8(&text).is_err() {
         say(stderr, messages::not_utf8());
     }
-    if answers(&replies).version.is_some_and(|v| names_vtium(&v)) {
-        Exit::Copied
-    } else {
-        say(stderr, messages::unconfirmed());
-        Exit::Unconfirmed
+    match sent {
+        tty::Sent::Replies(replies)
+            if answers(&replies).version.is_some_and(|v| names_vtium(&v)) =>
+        {
+            Exit::Done
+        }
+        tty::Sent::Replies(_) => {
+            say(stderr, messages::unconfirmed());
+            Exit::Unconfirmed
+        }
+        tty::Sent::Background => {
+            say(stderr, messages::background(name));
+            Exit::Unconfirmed
+        }
     }
 }
