@@ -290,6 +290,13 @@ jobs:
         with:
           path: ~/.cache/vtium/tier2/fonts
           key: tier2-fonts-${{ hashFiles('vtium/tools/tier2/src/fonts.rs') }}
+      # Adwaita's default cursor file, which the pointer-file-adwaita screen
+      # draws and tools/tier2/src/pointers.rs names by URL and SHA-256. `make
+      # tier2-fonts` fetches it with the fonts, into a cache of its own.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/vtium/tier2/pointers
+          key: tier2-pointers-${{ hashFiles('vtium/tools/tier2/src/pointers.rs') }}
       - run: make tier2
         working-directory: vtium
       - uses: actions/upload-artifact@v4
