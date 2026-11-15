@@ -23,7 +23,7 @@
 //! arrival empties the table. A glyph refused
 //! for room is not remembered: the next frame may have the room.
 
-use vtium_font::{Drawn, Face, Font, Script, Variant, Width};
+use vtium_font::{Doubled, Drawn, Face, Font, Glyph, Script, Variant, Width};
 
 use crate::bounds::{FAILED_GLYPHS, POOL_BYTES_PERFORMANCE};
 use crate::mono::Fallback;
@@ -251,6 +251,18 @@ pub struct CacheCounts {
     pub uncached: u32,
 }
 
+/// The glyph a line of double size last drew at its double size, for its
+/// text, width, variant and size, or `None` where the line doubles the
+/// pixels of the glyph at the normal size.
+#[derive(Debug)]
+struct LastDoubled {
+    text: Text,
+    width: Width,
+    variant: Variant,
+    size: Doubled,
+    glyph: Option<Glyph>,
+}
+
 /// A glyph the font drew nothing for: its text, variant, width and piece.
 #[derive(Debug)]
 struct Failed {
@@ -288,6 +300,11 @@ pub(crate) struct GlyphCache<T = Stored> {
     missing: Vec<char>,
     /// A color glyph's bitmap stand-in on a 1-bit or gray display.
     fallback: Option<Fallback>,
+    /// The glyph last drawn at a double size, which each piece of it is
+    /// cut from. A line of double size draws the pieces of one cell one
+    /// after the other, so the font draws the glyph once for them, not
+    /// once for each piece. An arrival forgets it.
+    last_doubled: Option<LastDoubled>,
     /// The font has drawn a glyph whose ink passes its cells.
     reaching: bool,
     /// How far the glyph of each ASCII character in each variant reaches,
@@ -348,6 +365,7 @@ impl<T: Held> GlyphCache<T> {
             counts: CacheCounts::default(),
             missing: Vec::new(),
             fallback: None,
+            last_doubled: None,
             reaching: false,
             reaches: Vec::new(),
         }
@@ -370,6 +388,7 @@ impl<T: Held> GlyphCache<T> {
         }
         self.failed.clear();
         self.reaches.clear();
+        self.last_doubled = None;
         // eviction frees an entry in place, so the indices ahead stand
         for i in 0..self.entries.len() {
             let Ok(i) = u32::try_from(i) else { break };
@@ -498,18 +517,45 @@ impl<T: Held> GlyphCache<T> {
             Some(bitmap) => (bitmap, 1),
             None => (glyph, scale),
         };
-        let (glyph, scale) = if piece.is_whole() {
-            (glyph, scale)
-        } else {
-            double::piece_glyph(
-                font,
-                (text, width, variant),
-                (&glyph, scale),
-                (piece, self.fallback.as_ref()),
-            )?
+        let (glyph, scale) = match piece.doubled() {
+            None => (glyph, scale),
+            Some(size) => {
+                let drawn = self.doubled_glyph(font, (text, width, variant), size);
+                double::piece_glyph(drawn, (&glyph, scale), (font.cell(), width), piece)?
+            }
         };
         let stored = Stored::new(&glyph, scale, self.orientation, self.storage.bits);
         Some((stored, missing))
+    }
+
+    /// The glyph for `text` drawn at the double size `size`
+    /// ([`double::doubled_glyph`]): the one last drawn when it is for the
+    /// same text, width, variant and size, else drawn now and kept in its
+    /// place.
+    fn doubled_glyph<F: Face>(
+        &mut self,
+        font: &Font<F>,
+        (text, width, variant): (&[char], Width, Variant),
+        size: Doubled,
+    ) -> Option<&Glyph> {
+        let same = self.last_doubled.as_ref().is_some_and(|d| {
+            d.text.chars() == text && d.width == width && d.variant == variant && d.size == size
+        });
+        if !same {
+            self.last_doubled = Some(LastDoubled {
+                text: Text::of(text),
+                width,
+                variant,
+                size,
+                glyph: double::doubled_glyph(
+                    font,
+                    (text, width, variant),
+                    size,
+                    self.fallback.as_ref(),
+                ),
+            });
+        }
+        self.last_doubled.as_ref().and_then(|d| d.glyph.as_ref())
     }
 
     /// Whether the font has drawn a glyph whose ink passes its cells: until
@@ -1268,6 +1314,72 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A face of an 8×16 cell that holds `A` rendered at each double size,
+    /// as the font helper renders an outline font's glyphs, and counts how
+    /// often the cache asks it for one.
+    struct Counted(std::rc::Rc<core::cell::Cell<u32>>);
+
+    impl Face for Counted {
+        fn cell(&self) -> vtium_font::Cell {
+            vtium_font::Cell {
+                width: 8,
+                height: 16,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, c: char) -> bool {
+            c == 'A'
+        }
+        fn draw(&self, cluster: &[char], _: Style) -> Option<vtium_font::Glyph> {
+            (cluster == ['A'])
+                .then(|| vtium_font::Glyph::mask(8, 16))
+                .flatten()
+        }
+        fn doubled(
+            &self,
+            cluster: &[char],
+            _: Variant,
+            doubled: vtium_font::Doubled,
+        ) -> Option<vtium_font::Glyph> {
+            self.0.set(self.0.get().saturating_add(1));
+            let cell = doubled.cell(self.cell())?;
+            (cluster == ['A'])
+                .then(|| vtium_font::Glyph::mask(cell.width, cell.height))
+                .flatten()
+        }
+    }
+
+    // The pieces of one cell on a line of double size are cut from one
+    // glyph drawn at the double size, which the face renders once for all
+    // of them: once for the two pieces of a line of double width, and once
+    // for the four pieces of a double-height pair, whose top and bottom
+    // pieces cut one glyph. An arrival makes the face render it again.
+    // covers: text.line-size
+    #[test]
+    fn the_pieces_of_a_cell_of_double_size_are_cut_from_one_drawn_glyph() {
+        use vtium_term::LineSize;
+        let asked = std::rc::Rc::new(core::cell::Cell::new(0));
+        let f = Font::new(Counted(asked.clone()));
+        let mut c = GlyphCache::new(Budgets::glyphs(16), Storage::default(), Orientation::Normal);
+        let key = (&['A'][..], Width::Narrow, Variant::default());
+        let mut pieces = |sizes: &[LineSize]| {
+            asked.set(0);
+            for &size in sizes {
+                for column in [0, 1] {
+                    assert!(c.get_piece(&f, key, Piece::of(size, column)).is_some());
+                }
+            }
+            c.forget(&['A']);
+            asked.get()
+        };
+        assert_eq!(pieces(&[LineSize::DoubleWidth]), 1);
+        let pair = [LineSize::DoubleHeightTop, LineSize::DoubleHeightBottom];
+        assert_eq!(pieces(&pair), 1);
+        assert_eq!(pieces(&pair), 1, "drawn again after an arrival");
     }
 
     /// A face that draws nothing at all.

@@ -29,8 +29,8 @@
 //! size with each of its pixels doubled, which is how the DEC terminals
 //! drew double-size text from their character ROM. That is the look of a
 //! bitmap font, and of any other glyph until the helper's double-size
-//! glyph arrives. [`piece_glyph`] is the one place that chooses among the
-//! three.
+//! glyph arrives. [`doubled_glyph`] and [`piece_glyph`] are the one place
+//! that chooses among the three.
 //!
 //! References:
 //! - The maintainer's direction on the double-size lines work, 2026-11-14:
@@ -88,7 +88,7 @@ impl Piece {
     /// The double size the piece's glyph is drawn at: `None` for the whole
     /// glyph, and the same size for the top and the bottom pieces, which
     /// cut the two halves of one glyph.
-    fn doubled(self) -> Option<Doubled> {
+    pub(crate) fn doubled(self) -> Option<Doubled> {
         match self.kind() {
             WIDTH => Some(Doubled::Width),
             TOP | BOTTOM => Some(Doubled::Height),
@@ -238,50 +238,58 @@ fn cut_drawn(
     Some(piece.with_cells(Width::Narrow))
 }
 
-/// The glyph that a display cell of a line of double size draws for
-/// `text` in `variant`, `width` cells wide: its piece `piece`. Gives the
-/// piece and the scale of its pixels.
+/// The glyph that a line of double size draws for `text` in `variant`,
+/// `width` cells wide, at the double size `size`, which each of its pieces
+/// is cut from ([`piece_glyph`]). `None` where the line doubles the pixels
+/// of the glyph at the normal size instead.
 ///
 /// A character that `font` draws as a built-in sprite, such as a box
-/// drawing line or a block, is drawn again at the piece's double size
+/// drawing line or a block, is drawn again at the double size
 /// ([`sprite::doubled`]), so its lines keep their weight and join the next
-/// cell. Where `font`'s face holds the glyph rendered at the piece's double
-/// size ([`Face::doubled`]), as the font helper renders an outline font's,
-/// a color glyph's and a cluster's, the piece is cut from that glyph. In
-/// both cases the piece is at scale 1. Otherwise the piece is cut from
-/// `whole`, the glyph the font drew at the normal size, each of
-/// its pixels `scale` pixels square, with each pixel doubled. The cache
-/// keys the piece on its text, variant, width and piece, and forgets it
-/// when a glyph for its text arrives, so the piece is cut again from the
-/// helper's glyph once that glyph is there.
+/// cell. Otherwise it is the glyph that `font`'s face holds rendered at the
+/// double size ([`Face::doubled`]), as the font helper renders an outline
+/// font's, a color glyph's and a cluster's.
 ///
 /// On a display that is not full color, `fallback` stands in for the
-/// glyph at the double size as it stands in for `whole` at the normal
+/// glyph at the double size as it stands in for the glyph at the normal
 /// size, so a line of double size shows what a line of the normal size
 /// shows. A sprite that a 1-bit display would show as gray is drawn as its
 /// 1-bit shape at the double size, such as a shade's ordered pattern. A
-/// color glyph that unifont has is not drawn at the double size at all:
-/// `whole` is already unifont's bitmap, and the piece is cut from it with
-/// each pixel doubled.
-pub(crate) fn piece_glyph<F: Face>(
+/// color glyph that unifont has gives `None`: the glyph at the normal size
+/// is already unifont's bitmap, and the line doubles its pixels.
+pub(crate) fn doubled_glyph<F: Face>(
     font: &Font<F>,
     (text, width, variant): (&[char], Width, Variant),
+    size: Doubled,
+    fallback: Option<&Fallback>,
+) -> Option<Glyph> {
+    let sprite = (variant.script == Script::Baseline)
+        .then(|| sprite::doubled(font, text, (width, variant.style), size))
+        .flatten();
+    let glyph = sprite.or_else(|| font.face().doubled(text, variant, size))?;
+    match fallback.and_then(|f| f.glyph(&glyph, 1, text, width, variant)) {
+        Some(_) if glyph.format() == Format::Rgba => None,
+        Some(stand_in) => Some(stand_in.with_cells(glyph.cells())),
+        None => Some(glyph),
+    }
+}
+
+/// The piece `piece` of a glyph `width` cells wide on a line of double
+/// size, in a font of cell `cell`, and the scale of its pixels. The piece
+/// is cut at scale 1 from `drawn`, the glyph drawn at the double size that
+/// [`doubled_glyph`] gives. Without it, the piece is cut from `whole`, the
+/// glyph drawn at the normal size, each of its pixels `scale` pixels
+/// square, with each pixel doubled. The glyph cache keys the piece on its
+/// text, variant, width and piece, and forgets it when a glyph for its text
+/// arrives, so the piece is cut again from the helper's glyph once that
+/// glyph is there.
+pub(crate) fn piece_glyph(
+    drawn: Option<&Glyph>,
     (whole, scale): (&Glyph, u32),
-    (piece, fallback): (Piece, Option<&Fallback>),
+    (cell, width): (vtium_font::Cell, Width),
+    piece: Piece,
 ) -> Option<(Glyph, u32)> {
-    let drawn = piece.doubled().and_then(|d| {
-        let sprite = (variant.script == Script::Baseline)
-            .then(|| sprite::doubled(font, text, (width, variant.style), d))
-            .flatten();
-        let glyph = sprite.or_else(|| font.face().doubled(text, variant, d))?;
-        let glyph = match fallback.and_then(|f| f.glyph(&glyph, 1, text, width, variant)) {
-            Some(_) if glyph.format() == Format::Rgba => return None,
-            Some(stand_in) => stand_in.with_cells(glyph.cells()),
-            None => glyph,
-        };
-        cut_drawn(&glyph, (font.cell(), width), piece)
-    });
-    match drawn {
+    match drawn.and_then(|glyph| cut_drawn(glyph, (cell, width), piece)) {
         Some(glyph) => Some((glyph, 1)),
         None => Some((doubled(whole, piece)?, scale)),
     }
@@ -405,7 +413,14 @@ mod tests {
         let font = Font::new(vtium_font::Unifont::new(16));
         let key = (&[c][..], Width::Narrow, Variant::default());
         let whole = font.glyph(&[c], Width::Narrow, Default::default()).unwrap();
-        piece_glyph(&font, key, (&whole, 1), (piece, None)).unwrap()
+        let drawn = doubled_glyph(&font, key, piece.doubled().unwrap(), None);
+        piece_glyph(
+            drawn.as_ref(),
+            (&whole, 1),
+            (font.cell(), Width::Narrow),
+            piece,
+        )
+        .unwrap()
     }
 
     // A box drawing line on a line of double width is drawn again in the
@@ -460,7 +475,18 @@ mod tests {
             .unwrap();
         let key = (&['a'][..], Width::Narrow, Variant::default());
         let piece = Piece::of(LineSize::DoubleWidth, 0);
-        let (glyph, _) = piece_glyph(&font, key, (&whole, 1), (piece, None)).unwrap();
+        let drawn = doubled_glyph(&font, key, Doubled::Width, None);
+        assert_eq!(
+            drawn, None,
+            "a letter of a bitmap font is drawn at its normal size"
+        );
+        let (glyph, _) = piece_glyph(
+            drawn.as_ref(),
+            (&whole, 1),
+            (font.cell(), Width::Narrow),
+            piece,
+        )
+        .unwrap();
         assert_eq!(Some(glyph), doubled(&whole, piece));
     }
 
