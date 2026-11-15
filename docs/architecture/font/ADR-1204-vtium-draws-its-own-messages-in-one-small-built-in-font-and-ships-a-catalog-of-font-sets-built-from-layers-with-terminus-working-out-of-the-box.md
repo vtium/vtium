@@ -113,6 +113,10 @@ considered:
   - operator: aaronsb
     said: "Ooh I love 'Cullet Mono'"
     via: the steering session, 2026-11-14
+  - operator: aaronsb
+    said: "Accept all leans"
+    via: the steering session, 2026-11-14, answering every remaining choice of D15
+    covers: [exact sources, renames]
 observable:
   - "Every catalog frit passes the catalog check: its text font first, then its layers in the order script, symbols, emoji, each source supplying only characters of its role, each font named with its packages, and its license line naming every source's license"
   - "On a machine with every font of a catalog frit installed, its specimen draws Latin text from its text font, box drawing from vtium's sprites, a Powerline separator and a Nerd Fonts icon from its symbols source, and an emoji in color"
@@ -120,7 +124,7 @@ observable:
   - "The frit that vtium makes for font-name=DejaVu Sans Mono holds that one source"
   - "With no vtium.conf, no font sets, no font files and no font helper, vtium reaches a login prompt drawn in the built-in font, and its notices draw in the built-in font"
   - "On a tier 3 guest with the full package and no other font installed, terminus draws a letter from Terminus, a Nerd Fonts icon from Cullet Mono, an emoji from Noto Color Emoji and a Han character from Unifont; with the minspec build, the icon, the emoji and the Han character draw as hollow boxes"
-status: proposed
+status: accepted
 date: 2026-11-14
 deciders:
   - aaronsb
@@ -464,15 +468,15 @@ The build cards, in order:
 
 ### D15: the maintainer's choices
 
-Each choice gives the options, what each trades away, and the record's lean. The decisions above follow the leans.
+The maintainer decided every choice this record put to them on 2026-11-14, each as the record leaned (`considered`). The decisions above follow those answers:
 
-1. **The categories.** (a) Six: console, classic, code, Nerd Fonts, scripts and regions, and small panels. (b) Five, with each code font's Nerd build in `code/` beside it. That keeps a font's two sets together, and it makes `code/` twice as long. **Lean: (a),** because the maintainer named Nerd Fonts as a family of their own.
-2. **How many members each category starts with.** (a) The list in D3: two console sets, three classic, eight code, six Nerd, nine scripts and three small. (b) One or two in each category, with more added as people ask. That keeps the first card small, and it leaves categories that look empty. **Lean: (a).**
-3. **The layering form.** (a) `layer=NAME` lines and `.vtlayer` files with a `role=`, in `layers/`. (b) `include=NAME` of a whole frit. The included frit's own keys, such as `cell=`, would then need rules for which one wins. (c) Named sections inside one file. That changes vtium.conf's line syntax that frits share. **Lean: (a).**
-4. **A missing required font at run time.** (a) vtium draws with the fonts it has, the built-in font draws the text when the text font is missing, the console logs one line, and vtium-config names the package. (b) vtium draws the whole set in the built-in fonts until every required font is there. The screen then looks the same before and after a partial install, and it loses the fonts that are there. (c) As (a), plus a one-time notice on the console. The notice reaches someone who never reads the log, and it writes into the session's screen. **Lean: (a).**
-5. **A font that differs from its pin.** (a) A lower version or another hash still draws, and vtium-config reports it; only a failed `check=` counts the font as missing. (b) Any difference counts the font as missing. A distribution's newer or rebuilt font would then fall back on every update. **Lean: (a).**
-6. **The renames.** (a) `desktop`, `minspec-16`, `minspec-8` and the nine script sets take the catalog's names now. (b) The old names stay as sets that hold one `layer=`-style alias each. Two names then mean one set. **Lean: (a),** while few installs exist.
-7. **The built-in 8×16 strike.** (a) Terminus, as D1 decides. (b) A Unifont subset. It holds the same list, its data is about the same size, 1,594 bytes deflated, its focus marks are larger, and it keeps today's look. Terminus is drawn for reading on a console, and it matches the `terminus` set. **Lean: (a).**
+- the six categories and the full starting list of members (D3);
+- `layer=` lines and `.vtlayer` files (D5);
+- a missing required font draws what is there, logs one line, and vtium-config names the package (D7);
+- a font that differs from its pin draws and is reported (D7);
+- the renames happen now, without aliases (D13);
+- the built-in 8×16 strike is cut from Terminus (D1);
+- vtium-fonts provides each font in the way that suits it (D8), Unifont ships in the full package (D2), Font Logos come from a Nerd font the system installed (D8), and vtium's own outline Terminus is named Cullet Mono (D2).
 
 ## Consequences
 
