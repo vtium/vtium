@@ -579,10 +579,15 @@ fn issues() -> Result<bool, String> {
         failures = failures.saturating_add(1);
         println!("FAIL {message}");
     }
+    let to_close = issues::to_close(&rows, &state);
+    for message in &to_close {
+        println!("CLOSE {message}");
+    }
     println!(
-        "issues: {} named by capabilities.list, {} ADR-1000 rows read, {failures} failed",
+        "issues: {} named by capabilities.list, {} ADR-1000 rows read, {failures} failed, {} for the next stage to close",
         owed.len(),
-        rows.len()
+        rows.len(),
+        to_close.len()
     );
     Ok(failures == 0)
 }
