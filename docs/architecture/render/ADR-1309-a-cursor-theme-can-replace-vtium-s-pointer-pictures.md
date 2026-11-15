@@ -21,6 +21,11 @@ basis:
 agent:
   name: Claude
   model: claude-opus-5-5
+considered:
+  - operator: aaronsb
+    said: "First frame only [vtium shows the first frame of an animated wait or progress cursor]"
+    via: the steering session, 2026-11-15, the question tool
+    covers: [animation]
 status: proposed
 date: 2026-11-15
 deciders:
