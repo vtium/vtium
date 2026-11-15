@@ -6,7 +6,6 @@ This page lists what vtium renders and does, and what is still to come. [Concept
 
 This page describes vtium's `main` branch, which may be ahead of [the latest release](https://github.com/vtium/vtium/releases). A checkout of `main` builds and runs everything on this page. These parts are not built yet, and each has an issue that tracks it:
 
-- Programming ligatures, and shaping across character cells. See [the ligatures issue](https://github.com/vtium/vtium/issues/23).
 - An input method for composing Chinese, Japanese, or Korean text. See [the input method issue](https://github.com/vtium/vtium/issues/45).
 - Two parts of vtium-config, vtium's setup tool: identifying a device from a keypress on it, and trying a whole configuration on the console before installing it. See [the vtium-config issue](https://github.com/vtium/vtium/issues/367).
 - Reading a changed vtium.conf without a restart. See [the reload issue](https://github.com/vtium/vtium/issues/86).
@@ -76,6 +75,7 @@ vtium's main process never parses a font file. A frit is a font set file, `/etc/
 
 - When vtium runs as root, the helper runs as `nobody`. vtium restarts a crashed helper at most 3 times per boot. Until the helper is back, vtium draws with its built-in fonts.
 - The helper reads PSF and raw console fonts, kbd font names, BDF fonts, and the kernel's own VT font. It also reads outline fonts, by family or by file, including color emoji (COLR version 0, CBDT, and sbix). It rasterizes outlines with swash. It shapes each grapheme cluster, a character as a reader sees it, with HarfRust.
+- With `font-ligatures` on, vtium draws a programming font's ligatures, such as `->` and `!=`, across the cells of their characters. Each character keeps its own cell, so the cursor and what programs count do not change. A ligature splits into its characters while the cursor is on one of them. Bitmap fonts show no ligatures.
 - Unifont and Unscii-8 are built into the vtium binary. They draw the first frame and every character a frit lacks.
 - `vtium config use-frit` switches the running console's font through OSC 50. Ctrl+= and Ctrl+- zoom the font. A switch or a zoom lasts until the session ends. Then vtium returns the head to the font and size that vtium.conf names.
 - `vtium config tui`, run at a terminal, opens vtium-config's full-screen tool. The tool opens on its Flow view, which draws the configuration as six columns. The columns run from the displays, through the rules, heads and looks, to the input devices. The view places the devices that are plugged in now. Every change goes into a draft of your own. Only Install writes `/etc/vtium/vtium.conf`. Install runs one `sudo vtium-config apply DIR`, the only step that runs as root. For scripts, every change the view makes is also a `vtium config` command with fixed exit statuses. The tool needs a terminal of at least 80 by 25 cells.

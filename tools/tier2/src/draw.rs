@@ -626,7 +626,10 @@ pub struct Screen {
     pub phase: Phase,
     /// `font-ligatures` on: the console asks the helper for each run of
     /// ASCII symbols, and the renderer draws the font's ligature across
-    /// its cells (ADR-1308 D8).
+    /// its cells.
+    ///
+    /// References:
+    /// - ADR-1308 D8: the programming ligatures.
     pub ligatures: bool,
 }
 

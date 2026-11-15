@@ -113,10 +113,13 @@ pub(crate) fn shape_all(data: &[u8], index: u32, font: FontRef<'_>, asks: &[Ask]
         let piece = vtium_font::syllable::piece_of(&ask.key);
         let text = piece.map_or(ask.key.as_slice(), |(text, _)| text);
         let mut shaped = shape(&shaper, text);
-        // a run of ASCII symbols that the font draws as each character's
+        // A run of ASCII symbols that the font draws as each character's
         // own glyph in its own place forms no ligature, so the helper
-        // leaves it out and the console draws its cells on their own
-        // (ADR-1308 D8)
+        // leaves it out and the console draws its cells on their own.
+        //
+        // References:
+        // - ADR-1308 D8: a run the font does not join draws its cells
+        //   alone.
         if piece.is_some() && vtium_font::syllable::is_ligature_run(text) {
             let mut single = |c: u32| *singles.entry(c).or_insert_with(|| own(&shaper, c));
             if !ligates(&shaped.glyphs, text, &mut single) {

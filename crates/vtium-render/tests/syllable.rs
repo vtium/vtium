@@ -108,8 +108,13 @@ fn state(t: &Terminal) -> DrawState {
 /// The clusters the renderer asked `face` for when it drew `frame` whole,
 /// each once, sorted.
 fn asked_in(t: &Terminal, frame: &Frame<'_>, face: Pieces) -> Vec<Vec<char>> {
+    asked_with(t, frame, face, Config::default())
+}
+
+/// [`asked_in`], with the renderer set up by `config`.
+fn asked_with(t: &Terminal, frame: &Frame<'_>, face: Pieces, config: Config) -> Vec<Vec<char>> {
     let drawn = Rc::clone(&face.drawn);
-    let mut r = Renderer::new(Font::new(face), 48, 16, Config::default());
+    let mut r = Renderer::new(Font::new(face), 48, 16, config);
     let mut c = Canvas::new(48, 16, 0);
     r.draw(frame, &mut c, 0, &state(t));
     let mut out = drawn.take();
@@ -347,4 +352,41 @@ fn a_wide_cluster_draws_its_piece_across_its_two_cells() {
     for x in [8, 15, 16, 23] {
         assert_eq!(c.pixel(x, 2).unwrap() & 0xff_ffff, fg, "column {x}");
     }
+}
+
+// ADR-1308 D8: with font-ligatures on, the renderer draws each cell of
+// `->` by its piece of the run; with it off, each cell draws its own
+// character. A selection over part of the arrow draws it apart, even when
+// the selected cell keeps the text's color, as it does when a program sets
+// the selection's background color (OSC 17) alone
+// covers: text.ligatures
+#[test]
+fn with_ligatures_on_a_run_of_symbols_draws_by_its_pieces() {
+    let t = term("->\x1b[1;6H");
+    let arrow = ['-', '>'];
+    let on = Config {
+        ligatures: true,
+        ..Config::default()
+    };
+    let pieces = |got: &[Vec<char>]| {
+        let both = got.contains(&key(&arrow, 0, 2)) && got.contains(&key(&arrow, 1, 2));
+        let own = got.contains(&vec!['-']) || got.contains(&vec!['>']);
+        assert!(both != own, "both or neither: {got:?}");
+        both
+    };
+    let frame = t.screen().frame(t.palette(), Age::NEVER);
+    assert!(pieces(&asked_with(&t, &frame, Pieces::new(), on)), "on");
+    assert!(!pieces(&asked_in(&t, &frame, Pieces::new())), "off");
+    let mut t = t;
+    t.input(b"\x1b]17;#323c46\x1b\\");
+    let dash = 0..1;
+    let frame = t
+        .screen()
+        .frame(t.palette(), Age::NEVER)
+        .with_selection(vec![dash]);
+    assert_eq!(frame.cell(0, 0).unwrap().fg, frame.cell(0, 1).unwrap().fg);
+    assert!(
+        !pieces(&asked_with(&t, &frame, Pieces::new(), on)),
+        "the dash selected"
+    );
 }

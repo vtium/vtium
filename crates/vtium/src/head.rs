@@ -241,7 +241,10 @@ pub struct Head {
     /// neither sets it.
     pub(crate) line_spacing: Option<u32>,
     /// `font-ligatures`, vtium.conf's or the head's look's: whether a run
-    /// of ASCII symbols draws as the font's ligature (ADR-1308 D8).
+    /// of ASCII symbols draws as the font's ligature.
+    ///
+    /// References:
+    /// - ADR-1308 D8: the programming ligatures and their setting.
     ligatures: bool,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
@@ -2333,6 +2336,73 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // ADR-1308 D8: `font-ligatures` in vtium.conf reaches the console. With
+    // it on, the head's renderer draws ligatures and the glyphs the head
+    // asks the helper for hold both pieces of `->`. Off, by default or
+    // under a look that turns it off, the head asks for no piece
+    // covers: text.ligatures
+    #[test]
+    #[cfg(feature = "bidi")]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn font_ligatures_reaches_the_renderer_and_the_glyphs_asked_for() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let text = "version = 1\nfont-ligatures = on\n[look plain]\nfont-ligatures = off\n\
+                    [head a]\nlook = plain\n[head b]\n";
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let under = |name: &str| {
+            let settings: Vec<vtium_settings::Setting> = rules
+                .head(name)
+                .map(|h| {
+                    rules
+                        .settings(h)
+                        .into_iter()
+                        .map(|(_, s)| s.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            top.for_head(path, &settings).0
+        };
+        let none = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let arrow = ['-', '>'];
+        let pieces: Vec<Vec<char>> = (0..2u8)
+            .filter_map(|start| {
+                let mut key = Vec::new();
+                vtium_font::syllable::Piece::new(start, 1, 2)?.key(&arrow, &mut key);
+                Some(key)
+            })
+            .collect();
+        assert_eq!(pieces.len(), 2);
+        for (config, on, what) in [
+            (under("b"), true, "on in vtium.conf"),
+            (under("a"), false, "off in the head's look"),
+            (none, false, "unset"),
+        ] {
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            head.console.term.terminal.input(b"a -> b");
+            assert_eq!(head.render_config(&config).ligatures, on, "{what}");
+            let shown = head.visible();
+            let asked = shown
+                .first()
+                .map(|s| s.clusters.clone())
+                .unwrap_or_default();
+            for key in &pieces {
+                assert_eq!(asked.contains(key), on, "{what}: {key:?} in {asked:?}");
+            }
+        }
     }
 
     // ADR-1006 D8: what a head shows carries its terminal's cluster width,

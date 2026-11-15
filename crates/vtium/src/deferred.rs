@@ -132,28 +132,35 @@ pub struct Shown {
 }
 
 /// Adds to `all` what `frame` shows, as the console reads it to ask the
-/// helper for the glyphs a display draws, in each variant a cell draws its
-/// glyph in, bold, italic, both or neither, and normal, superscript or
-/// subscript (ADR-1200 D21, ADR-1202 D11): each character,
-/// every character of a cluster among them, and each cluster whole, and
-/// what a right-to-left row draws ([`vtium_render::joined`]): each joined
+/// helper for the glyphs a display draws. It reads each variant a cell
+/// draws its glyph in: bold, italic, both or neither, and normal,
+/// superscript or subscript. It adds each character, every character of a
+/// cluster among them, and each cluster whole. It adds what a
+/// right-to-left row draws ([`vtium_render::joined`]): each joined
 /// letter's key, each lam-alef ligature's, a mirrored cluster as it draws,
 /// and the presentation form each key draws where no font holds the joined
-/// form (ADR-1004 D6, D7). Each syllable whose clusters join is asked for
-/// too, piece by piece, in the variant of its first cell
-/// ([`vtium_render::syllable`], ADR-1203 D3), whatever the cursor and the
-/// cells' colors, which only decide whether it draws joined; with
-/// `ligatures`, each run of ASCII symbols too (ADR-1308 D8). A variant
-/// `all` lacks is added after the others.
-/// A build without the bidi feature reads the frame in `Head::visible`
+/// form. It asks for each syllable whose clusters join too, piece by
+/// piece, in the variant of its first cell ([`vtium_render::syllable`]),
+/// whatever the cursor and the cells' colors, which only decide whether it
+/// draws joined. With `ligatures`, it asks for each run of ASCII symbols
+/// in the same way. A variant `all` lacks is added after the others. A
+/// build without the bidi feature reads the frame in `Head::visible`
 /// alone, so the minspec build carries none of this.
+///
+/// References:
+/// - ADR-1200 D21 and ADR-1202 D11: the variants the helper is asked for.
+/// - ADR-1004 D6 and D7: the joined letters, the lam-alef ligature and
+///   mirroring.
+/// - ADR-1203 D3: a syllable's pieces.
+/// - ADR-1308 D8: the programming ligatures.
 #[cfg(feature = "bidi")]
 pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures: bool) {
     use vtium_render::joined;
-    use vtium_render::syllable::Syllable;
+    use vtium_render::syllable::Runs;
     use vtium_term::Glyph;
     let shown_in = |all: &mut Vec<Shown>, variant: Variant| shown_index(all, variant, None);
     let mut drawn = Vec::new();
+    let mut runs = Runs::default();
     read_doubled(frame, all);
     for row in 0..frame.rows() {
         // a line of double size asks for what it draws at its size too
@@ -165,7 +172,9 @@ pub fn read_shown(frame: &vtium_term::Frame<'_>, all: &mut Vec<Shown>, ligatures
         };
         for (col, cell) in frame.cells(row).enumerate() {
             // a syllable's pieces, once, from its first cell
-            if let Some((s, 0)) = Syllable::find(frame, (col, row), &cell, ligatures) {
+            if let Some((run, 0)) = runs.find(frame, (col, row), &cell, ligatures)
+                && let Some(s) = runs.get(run)
+            {
                 let mut keys = Vec::new();
                 for index in 0..s.len() {
                     let mut key = Vec::new();
