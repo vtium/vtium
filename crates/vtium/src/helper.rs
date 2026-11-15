@@ -338,6 +338,12 @@ impl Launcher {
         self
     }
 
+    /// The arguments each helper starts with, for a test.
+    #[cfg(test)]
+    pub(crate) fn args(&self) -> &[OsString] {
+        &self.command.args
+    }
+
     /// The process that starts a helper: the opened program, through
     /// `/proc/self/fd`, which the kernel lets a process read as any
     /// account, with the program's path as its name.

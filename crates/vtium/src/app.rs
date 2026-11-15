@@ -5736,6 +5736,44 @@ mod tests {
         (lp, app)
     }
 
+    // The console starts the font helper with its own locale, read from
+    // the environment it inherited, so that the helper picks the built-in
+    // font the console draws. A test's stand-in helper starts with it too.
+    //
+    // References:
+    // - ADR-1200 D7: the built-in font for a cell height and locale.
+    // - ADR-1204 D5: the built-in font draws the text of a set whose text
+    //   font is missing.
+    #[test]
+    fn the_font_helper_starts_with_the_consoles_locale() {
+        let shell = crate::helper::stand_in_shell();
+        let args: Vec<OsString> = [
+            format!("--font-helper={}", shell.display()).as_str(),
+            "--login",
+            "--",
+            "/bin/true",
+        ]
+        .iter()
+        .map(OsString::from)
+        .collect();
+        let loaded = crate::config::load(&args, &mut |_: &Path| Ok(None));
+        let lp: Loop<App> = Loop::new().unwrap();
+        let mut app = App::new(
+            loaded.config,
+            Box::new(FakeVt::new()),
+            lp.handle(),
+            Rc::new(Instant::now),
+            vec![("LANG".into(), "ja_JP.UTF-8".into())],
+        );
+        let started = |app: &App| app.launcher.as_ref().unwrap().args().to_vec();
+        assert_eq!(started(&app), ["serve", "--locale", "ja_JP.UTF-8"]);
+        app.set_font_sources(font::Sources {
+            helper: Some(crate::helper::Command::system(shell).unwrap()),
+            ..font::Sources::default()
+        });
+        assert_eq!(started(&app), ["serve", "--locale", "ja_JP.UTF-8"]);
+    }
+
     /// What the start runs for a trusted head file holding `text`.
     fn start(text: &str) -> Start {
         Start::trusted(Path::new("heads.conf"), text.as_bytes())
