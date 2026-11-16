@@ -555,18 +555,24 @@ fn outcome_with(
     let layers = named_frit(&loaded.config, settings.frits)
         .map(|(name, file)| frit_layers(&name, &file, settings.frits, &settings.trust))
         .unwrap_or_default();
-    let stderr: Vec<String> = stderr.into_iter().chain(refused).chain(layers).collect();
-    // the fonts the font-name frit needs and this machine lacks
+    // the fonts the font-name frit needs and this machine lacks: a missing
+    // font is a warning, and an older one a note
     let needs = named_frit(&loaded.config, settings.frits)
-        .map(|(name, file)| font_needs_notes(&name, &file, &settings))
+        .map(|(name, file)| font_needs(&name, &file, &settings))
         .unwrap_or_default();
+    let stderr: Vec<String> = stderr
+        .into_iter()
+        .chain(refused)
+        .chain(layers)
+        .chain(needs.warnings)
+        .collect();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
         stdout: renamed
             .chain(notes(&loaded.config))
             .chain(root_refuses)
-            .chain(needs)
+            .chain(needs.notes)
             .chain(heads.notes)
             .collect(),
         status,
@@ -911,7 +917,11 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
                 .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
             out.notes
                 .extend(said.map(|said| at(path, line, said).to_string()));
-            for said in font_needs_notes(&named.value, &file, settings) {
+            let needs = font_needs(&named.value, &file, settings);
+            for said in needs.warnings {
+                out.counted.push(at(path, line, said).to_string());
+            }
+            for said in needs.notes {
                 out.notes.push(at(path, line, said).to_string());
             }
         }
@@ -931,36 +941,50 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
     }
 }
 
-/// The notes on the fonts that the font set `name` at `file` needs and
-/// that this machine lacks or has in another form, as the glyph helper
-/// answers a sources query: a font that is not installed, an installed
-/// font of that name that lacks a character its `check=` names, an older
-/// version than `version=` asks for, and a file whose SHA-256 is not its
-/// `sha256=`. Each note names the font set, the font and the version the
-/// set asks for, then the font's page where the set gives `url=`, then the
-/// help page on installing fonts. A source the helper refused, and one
-/// that names the system's font rather than a font of its own, gets no
-/// note. When the helper gives no answer, as when it cannot start, stalls
-/// or cannot read the font set, one note says so and why, so the check
-/// never passes in silence. None when the check asks the helper nothing,
-/// or when the font set's file is refused, which the check reports on its
-/// own.
+/// What [`font_needs`] says of a font set's fonts: the warnings, which
+/// count against the file, and the notes, which do not.
+#[derive(Debug, Default)]
+struct Needs {
+    warnings: Vec<String>,
+    notes: Vec<String>,
+}
+
+/// What check-config says of the fonts that the font set `name` at `file`
+/// needs and that this machine lacks or has in another form, as the glyph
+/// helper answers a sources query. A font that is not installed, and an
+/// installed font of that name that lacks a character its `check=` names,
+/// is a warning, because vtium draws the set without it. An older version
+/// than `version=` asks for, and a file whose SHA-256 is not its
+/// `sha256=`, are notes, because vtium still uses the font. Each line
+/// names the font set, the font and the version the set asks for, then the
+/// font's page where the set gives `url=`, then the help page on
+/// installing fonts. A source the helper refused, and one that names the
+/// system's font rather than a font of its own, gets no line. When the
+/// helper gives no answer, as when it cannot start, stalls or cannot read
+/// the font set, one note says so and why, so the check never passes in
+/// silence. Nothing when the check asks the helper nothing, or when the
+/// font set's file is refused, which the check reports on its own.
 ///
 /// References:
 /// - ADR-1204 D7: `vtium check-config` names each missing font with its
 ///   version and page, as `vtium config fonts` does.
-fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String> {
+fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
     use check_config::font_needs;
     let Some(ask) = settings.sources else {
-        return Vec::new();
+        return Needs::default();
     };
     // the layers' sentences are frit_layers' to report, so none is logged
     let Ok((frit, _)) = helper::FritText::read_noting(file, settings.frits, &settings.trust) else {
-        return Vec::new();
+        return Needs::default();
     };
     let answer = match (ask.ask)(&frit) {
         Ok(answer) => answer,
-        Err(why) => return vec![font_needs::not_checked(name, &why)],
+        Err(why) => {
+            return Needs {
+                warnings: Vec::new(),
+                notes: vec![font_needs::not_checked(name, &why)],
+            };
+        }
     };
     let lines: Vec<[&str; 4]> = answer
         .lines()
@@ -969,7 +993,7 @@ fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String>
             Some([f.next()?, f.next()?, f.next()?, f.next()?])
         })
         .collect();
-    let mut out = Vec::new();
+    let mut out = Needs::default();
     for &[kind, line, spelling, value] in &lines {
         let Ok(line) = line.parse::<usize>() else {
             continue;
@@ -979,23 +1003,24 @@ fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String>
         };
         let (version, url) = needs_of(&frit.text, line, spelling);
         let version = version.as_deref();
-        let said = match kind {
+        let (said, missing) = match kind {
             "missing" => {
                 let lacks = lines.iter().find_map(|&[k, l, s, v]| {
                     (k == "lacks" && l.parse() == Ok(line) && s == spelling).then_some(v)
                 });
-                match (version, lacks) {
+                let said = match (version, lacks) {
                     (None, None) => font_needs::missing(name, font),
                     (Some(v), None) => font_needs::missing_version(name, font, v),
                     (None, Some(c)) => font_needs::lacks(name, font, c),
                     (Some(v), Some(c)) => font_needs::lacks_version(name, font, v, c),
-                }
+                };
+                (said, true)
             }
             "older" => match version {
-                Some(v) => font_needs::older(name, font, v, value),
+                Some(v) => (font_needs::older(name, font, v, value), false),
                 None => continue,
             },
-            "sha256" => font_needs::other_file(name, font),
+            "sha256" => (font_needs::other_file(name, font), false),
             _ => continue,
         };
         let page = url.as_deref().map(font_needs::page);
@@ -1004,7 +1029,11 @@ fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String>
             note.push(' ');
             note.push_str(&more);
         }
-        out.push(note);
+        if missing {
+            out.warnings.push(note);
+        } else {
+            out.notes.push(note);
+        }
     }
     out
 }
@@ -2384,11 +2413,13 @@ mod tests {
     }
 
     // A look's font set that needs a font this machine lacks, or has in an
-    // older version, is noted with the font, the version the set asks for,
-    // the font's page and the help page on installing fonts, as the glyph
-    // helper answers. The notes do not count against the file, because
-    // the set still draws. A source that names the system's font gets no
-    // note, and a helper that cannot answer gives one line that says so.
+    // older version, is reported with the font, the version the set asks
+    // for, the font's page and the help page on installing fonts, as the
+    // glyph helper answers. A missing font, and one that fails its check=,
+    // is a warning, which counts against the file. An older version and a
+    // file with another hash are notes, because vtium still uses the font.
+    // A source that names the system's font gets no line, and a helper
+    // that cannot answer gives one note that says so.
     //
     // References:
     // - ADR-1204 D7: check-config names each missing font as vtium config
@@ -2433,35 +2464,39 @@ mod tests {
             conf_file(&file, false, &trust, &machine(true), &settings)
         };
         let out = check(Some(FontSources { ask: &ask }));
-        assert!(out.counted.is_empty(), "{:?}", out.counted);
         let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
-        let want = [
+        let warned = [
             format!(
                 "{f}:3: Font set desk needs the font Gone Mono, version 2.304 or later, and no font of that name is installed. You can get the font from https://example.org/gone. {page}"
             ),
             format!(
                 "{f}:3: Font set desk needs the font Nerd. The installed font of that name lacks the character U+E0B0, so it is a different font, and vtium does not use it. {page}"
             ),
-            format!(
-                "{f}:3: Font set desk asks for the font Old Mono, version 3.1 or later, and the installed font is version 3.000. vtium still uses it. {page}"
-            ),
         ];
+        assert_eq!(out.counted, warned, "{out:#?}");
         let noted: Vec<&String> = out
             .notes
             .iter()
             .filter(|n| n.contains("Font set desk"))
             .collect();
-        assert_eq!(noted, want.iter().collect::<Vec<_>>(), "{:#?}", out.notes);
+        assert_eq!(
+            noted,
+            [&format!(
+                "{f}:3: Font set desk asks for the font Old Mono, version 3.1 or later, and the installed font is version 3.000. vtium still uses it. {page}"
+            )],
+            "{:#?}",
+            out.notes
+        );
         let none = check(None);
         assert!(!none.notes.iter().any(|n| n.contains("Font set desk")));
         // a helper that gives no answer is said, so the check never passes
         // in silence on fonts it could not ask about
         let failing = |_: &helper::FritText| Err("the helper did not start".to_owned());
         let failed = check(Some(FontSources { ask: &failing }));
+        assert!(failed.counted.is_empty(), "{:?}", failed.counted);
         let named: Vec<&String> = failed
             .notes
             .iter()
-            .chain(&failed.counted)
             .filter(|n| n.contains("Font set desk"))
             .collect();
         assert_eq!(
@@ -2572,13 +2607,8 @@ mod tests {
                 "{f}:3: Font set desk needs the font Nerd Gone Nowhere, version 1.2 or later, and no font of that name is installed. You can get the font from https://example.org/nerd. {page}"
             ),
         ];
-        let named: Vec<&String> = out
-            .notes
-            .iter()
-            .chain(&out.counted)
-            .filter(|n| n.contains("Font set desk"))
-            .collect();
-        assert_eq!(named, want.iter().collect::<Vec<_>>(), "{out:#?}");
+        assert_eq!(out.counted, want, "{out:#?}");
+        assert!(!out.notes.iter().any(|n| n.contains("Font set desk")));
     }
 
     // ADR-1401 D7, ADR-1403 D5: a look whose font-name names a frit not
@@ -3666,6 +3696,65 @@ mod tests {
         let squeezed = out.stdout.iter().filter(|l| l.contains("squeezed")).count();
         assert_eq!(squeezed, 2, "a note for each look: {:#?}", out.stdout);
         assert_eq!((covered.get(), lacked.get()), (1, 1));
+    }
+
+    // A font that font-name's set needs and this machine lacks is a
+    // warning: check-config prints it on standard error and exits 1. An
+    // older version of a font is a note, which leaves the status alone.
+    //
+    // References:
+    // - ADR-1204 D7: check-config names each missing font.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_missing_font_is_a_warning_and_an_older_one_a_note() {
+        let text = "font-name=desk\nversion = 1\n[head a]\n[rules]\ndisplay * -> a\n";
+        let (_dir, file, _) = heads_fixture("missing-warns", text, 0o644);
+        let frits = file.with_file_name("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::write(
+            frits.join("desk.vtfrit"),
+            "source=font:Gone Mono\nsource=font:Old Mono\nversion=3.1\nsource=builtin:unscii-8\n",
+        )
+        .unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("absent.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(file.parent().unwrap()),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let check = |answer: &'static str| {
+            let ask = move |_: &helper::FritText| Ok(answer.to_owned());
+            outcome_with(
+                &config::load(&args, &mut config::read_bytes),
+                &host,
+                None,
+                Some(FontSources { ask: &ask }),
+            )
+        };
+        let page = "To install a font that a font set needs, see https://vtium.github.io/vtium/fonts/#install-a-missing-font.";
+        let missing = check("missing\t1\tfont:Gone Mono\tno font of family Gone Mono");
+        assert_eq!(missing.status, 1);
+        assert_eq!(
+            missing.stderr,
+            [format!(
+                "Font set desk needs the font Gone Mono, and no font of that name is installed. {page}"
+            )]
+        );
+        let older = check("older\t2\tfont:Old Mono\t3.000");
+        assert_eq!((older.status, older.stderr), (0, Vec::<String>::new()));
+        assert!(
+            older.stdout.contains(&format!(
+                "Font set desk asks for the font Old Mono, version 3.1 or later, and the installed font is version 3.000. vtium still uses it. {page}"
+            )),
+            "{:#?}",
+            older.stdout
+        );
     }
 
     // heads.md: each file docs/heads holds checks with exit status 0, the
