@@ -817,8 +817,12 @@ fn a_full_installed_file_keeps_every_line_but_the_one_a_change_sets() {
 }
 
 /// The stand-in console of [`CHECKER`], which also warns, for each line of
-/// the file that holds `GONEFONT`, that the font set desk needs a font this
-/// machine lacks, in vtium-settings' own words, and exits 1.
+/// the file that holds `GONE`, that the font set desk needs a font this
+/// machine lacks, in vtium-settings' own words. It then exits as the real
+/// check does: with [`vtium_settings::CHECK_MISSING_FONTS`] when those are
+/// its only warnings, and 1 when a `BAD` line is there as well. A file that
+/// holds `WORDS` makes it exit 1 on the font warnings alone, the status of
+/// any other problem.
 fn missing_font_checker(f: &Fixture) {
     use vtium_settings::fonts_report::{self, Named};
     let message = format!(
@@ -827,19 +831,21 @@ fn missing_font_checker(f: &Fixture) {
         fonts_report::how_to_install()
     )
     .replace('\'', r"'\''");
+    let only = vtium_settings::CHECK_MISSING_FONTS;
     let script = CHECKER.replace(
         "if [ -n \"$bad\" ]; then",
         &format!(
-            "for n in $(grep -n GONEFONT \"$file\" | cut -d: -f1); do\n  printf '%s\\n' \"$file:$n: \"'{message}' >&2\n  gone=1\ndone\nif [ -n \"$gone\" ] && [ -z \"$bad\" ]; then exit 1; fi\nif [ -n \"$bad\" ]; then"
+            "for n in $(grep -n GONE \"$file\" | cut -d: -f1); do\n  printf '%s\\n' \"$file:$n: \"'{message}' >&2\n  gone=1\ndone\nif [ -n \"$gone\" ] && [ -z \"$bad\" ]; then\n  grep -q WORDS \"$file\" && exit 1\n  exit {only}\nfi\nif [ -n \"$bad\" ]; then"
         ),
     );
     script::executable(&f.path("vtium"), &script);
 }
 
-/// A missing font is a warning that check-config counts, for scripts and
-/// CI, but it does not stop an install: a draft whose only problems are
-/// missing fonts installs and shows each warning. A draft with any other
-/// problem is still refused.
+/// A missing font is a warning that check-config gives a status of its
+/// own, for scripts and CI, and it does not stop an install: a draft
+/// whose check ends with that status installs and shows each warning.
+/// vtium-config goes by the status alone, so the same warnings with
+/// status 1 refuse the draft, as does any other problem beside them.
 ///
 /// References:
 /// - ADR-1204 D7: check-config names each missing font.
@@ -863,7 +869,18 @@ fn install_shows_a_missing_font_and_installs_anyway_but_no_other_problem() {
         "{}",
         f.installed()
     );
+    // the same warnings with status 1 refuse the draft: vtium-config
+    // reads the status, never the warnings' words
+    assert_eq!(f.run(&["set", "font-name", "GONEWORDS"]).status, 0);
+    let words = f.run(&["install"]);
+    assert_eq!(words.status, 1, "{}{}", words.out, words.err);
+    assert!(
+        f.installed().contains("font-name=GONEFONT"),
+        "{}",
+        f.installed()
+    );
     // another problem beside the missing font still refuses the draft
+    assert_eq!(f.run(&["set", "font-name", "GONEFONT"]).status, 0);
     assert_eq!(f.run(&["set", "login", "BAD"]).status, 0);
     let refused = f.run(&["install"]);
     assert_eq!(refused.status, 1, "{}{}", refused.out, refused.err);

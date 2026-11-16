@@ -125,10 +125,37 @@ pub struct Session<'a> {
     pub paths: &'a Paths,
 }
 
+/// What `vtium check-config`'s exit status says of a draft.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Verdict {
+    /// Exit status 0: the check found no problem.
+    Passed,
+    /// Exit status [`vtium_settings::CHECK_MISSING_FONTS`]: the only
+    /// problems are fonts that a font set needs and this machine lacks.
+    MissingFonts,
+    /// Any other status, or none, as when the check was killed: the check
+    /// found a problem, or could not run.
+    #[default]
+    Failed,
+}
+
+impl Verdict {
+    /// The verdict that the exit `status` of `vtium check-config` gives.
+    pub fn of(status: std::process::ExitStatus) -> Verdict {
+        match status.code() {
+            Some(0) => Verdict::Passed,
+            Some(code) if code == i32::from(vtium_settings::CHECK_MISSING_FONTS) => {
+                Verdict::MissingFonts
+            }
+            _ => Verdict::Failed,
+        }
+    }
+}
+
 /// What `vtium check-config` found in a draft.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Checked {
-    pub passed: bool,
+    pub verdict: Verdict,
     /// What it counts against the file, its standard error, each line with
     /// the draft's path.
     pub problems: Vec<String>,
@@ -148,33 +175,20 @@ impl Checked {
     /// complete route (ADR-1403 D3). That is the one problem Install lets
     /// the person accept (D8).
     pub fn no_route_only(&self, shown: &str) -> bool {
-        !self.passed && only_no_route(&self.problems, shown)
+        self.verdict == Verdict::Failed && only_no_route(&self.problems, shown)
     }
 
-    /// Whether the check passed, or failed only on fonts that a font set
-    /// needs and this machine lacks. check-config counts a missing font,
-    /// for scripts and CI, but vtium-config installs and saves such a
-    /// draft, and shows the warnings, since vtium draws the set without
-    /// the font.
+    /// Whether the check passed, or found only fonts that a font set needs
+    /// and this machine lacks, which check-config says by its exit status.
+    /// check-config's status is not 0 then, for scripts and CI, but
+    /// vtium-config installs and saves such a draft, and shows the
+    /// warnings, because vtium draws the set without the font.
     ///
     /// References:
     /// - ADR-1204 D7: check-config names each missing font.
     pub fn clears(&self) -> bool {
-        self.passed || only_missing_fonts(&self.problems)
+        matches!(self.verdict, Verdict::Passed | Verdict::MissingFonts)
     }
-}
-
-/// Whether the problems `lines` that a failed check printed are all
-/// warnings on missing fonts, and there is at least one. A check that
-/// failed and printed nothing it counts is no pass.
-pub fn only_missing_fonts<S: AsRef<str>>(lines: &[S]) -> bool {
-    counted(lines).next().is_some() && blocking(lines).next().is_none()
-}
-
-/// The problem lines that stop an install: those [`counted`] counts, but
-/// a warning on a missing font, which never stops one.
-pub fn blocking<S: AsRef<str>>(lines: &[S]) -> impl Iterator<Item = &str> {
-    counted(lines).filter(|l| !vtium_settings::fonts_report::says_missing(l))
 }
 
 /// The problem lines the status line counts: every line but those that say
@@ -192,7 +206,7 @@ fn counted<S: AsRef<str>>(lines: &[S]) -> impl Iterator<Item = &str> {
 /// line names the file and no line of it (ADR-1403 D3). Any other problem,
 /// or a second one, makes this false.
 pub fn only_no_route<S: AsRef<str>>(lines: &[S], shown: &str) -> bool {
-    let mut problems = blocking(lines);
+    let mut problems = counted(lines);
     let (Some(line), None) = (problems.next(), problems.next()) else {
         return false;
     };
@@ -377,7 +391,7 @@ impl Session<'_> {
                 .collect()
         };
         Ok(Checked {
-            passed: ran.status.success(),
+            verdict: Verdict::of(ran.status),
             problems: lines(&ran.stderr),
             notes: lines(&ran.stdout),
         })
@@ -596,8 +610,8 @@ pub enum Unrouted<'a> {
     Refuse,
 }
 
-/// A draft the check passed, or whose only problem is that it wires no
-/// complete route, ready for the privileged step: the plan it installs and
+/// A draft the check passed, or found only missing fonts in, or whose only
+/// problem is that it wires no complete route, ready for the privileged step: the plan it installs and
 /// the installed file it replaces.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Ready {

@@ -1228,28 +1228,6 @@ pub mod fonts {
         )
     }
 
-    /// Whether `line`, a line `vtium check-config` printed, with or
-    /// without the file and line in front, is its warning on a font a set
-    /// needs and that this machine lacks: [`missing`], [`missing_version`],
-    /// [`lacks`] or [`lacks_version`], which check-config ends with
-    /// [`how_to_install`]. vtium-config installs a draft whose only
-    /// warnings are these, and shows them.
-    pub fn says_missing(line: &str) -> bool {
-        let Some(at) = line.find("Font set ") else {
-            return false;
-        };
-        let said = &line[at..];
-        let named = [Named::ByName, Named::ByPath];
-        let missing = named
-            .iter()
-            .any(|n| said.contains(&format!(", and {}.", absent(*n))));
-        let lacks = named.iter().any(|n| {
-            said.contains(&format!(". {} lacks the character ", found(*n)))
-                && said.contains(", so it is a different font, and vtium does not use it.")
-        });
-        said.contains(" needs the font ") && (missing || lacks) && said.ends_with(&how_to_install())
-    }
-
     /// `vtium check-config`'s note on a font that the font set `set` names
     /// and that this machine has but vtium cannot read, with why, so that
     /// font's characters come from the next font that has them.
@@ -1273,35 +1251,6 @@ pub mod fonts {
 
 #[cfg(test)]
 mod tests {
-
-    // vtium-config tells a missing-font warning from every other line of
-    // check-config's by the catalog's own sentences, with the file and line
-    // in front or not; an older font, which is a note, and a sentence cut
-    // before its install page are not one.
-    #[test]
-    fn a_missing_font_warning_is_known_by_its_sentences() {
-        use super::fonts::{self, Named};
-        let page = fonts::how_to_install();
-        for said in [
-            fonts::missing("desk", "Gone Mono", Named::ByName),
-            fonts::missing_version("desk", "Gone Mono", "2.304", Named::ByName),
-            fonts::missing("desk", "/x/gone.bdf", Named::ByPath),
-            fonts::lacks("desk", "Nerd", "U+E0B0", Named::ByName),
-            fonts::lacks_version("desk", "/x/n.bdf", "3.1", "U+E0B0", Named::ByPath),
-        ] {
-            assert!(fonts::says_missing(&format!("{said} {page}")), "{said}");
-            assert!(
-                fonts::says_missing(&format!("/etc/vtium/vtium.conf:3: {said} {page}")),
-                "{said}"
-            );
-            assert!(!fonts::says_missing(&said), "{said}");
-        }
-        let older = fonts::older("desk", "Old Mono", "3.1", "3.000");
-        assert!(!fonts::says_missing(&format!("{older} {page}")));
-        assert!(!fonts::says_missing(
-            "vtium.conf:2: font-size=\"x\" is not a number"
-        ));
-    }
 
     use std::path::Path;
 
