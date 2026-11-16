@@ -67,13 +67,13 @@ ops-off any.question.leave +pending	Ctrl-C	ops-off flow(doc display) +pending
 ops-off any.question.leave +pending	Ctrl-C	ops-off fonts(marked) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off help(help) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off looks +pending	
-ops-off any.question.leave +pending	Ctrl-C	ops-off looks.new-frit +pending	
+ops-off any.question.leave +pending	Ctrl-C	ops-off looks.new-frit(row 6) +pending	
 ops-off any.question.leave +pending	Ctrl-C	ops-off settings(value) +pending	
 ops-off any.question.leave +pending	Esc	ops-off flow(doc display) +pending	
 ops-off any.question.leave +pending	Esc	ops-off fonts(marked) +pending	
 ops-off any.question.leave +pending	Esc	ops-off help(help) +pending	
 ops-off any.question.leave +pending	Esc	ops-off looks +pending	
-ops-off any.question.leave +pending	Esc	ops-off looks.new-frit +pending	
+ops-off any.question.leave +pending	Esc	ops-off looks.new-frit(row 6) +pending	
 ops-off any.question.leave +pending	Esc	ops-off settings(value) +pending	
 ops-off any.question.leave +pending	Shrink	ops-off any.question.leave below 80×25 +pending	
 ops-off any.question.leave +pending	n	ops-off left	exit 0
@@ -84,13 +84,13 @@ ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off flow(doc display) +u
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off fonts(marked) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off help(help) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks.new-frit +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Ctrl-C	ops-off settings(value) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off help(help) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off looks +unsaved +pending	
-ops-off any.question.leave +unsaved +pending	Esc	ops-off looks.new-frit +unsaved +pending	
+ops-off any.question.leave +unsaved +pending	Esc	ops-off looks.new-frit(row 6) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Esc	ops-off settings(value) +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	Shrink	ops-off any.question.leave below 80×25 +unsaved +pending	
 ops-off any.question.leave +unsaved +pending	n	ops-off left	save, exit 0
@@ -99,7 +99,7 @@ ops-off any.question.leave +unsaved +pending	y	ops-off flow(doc display) +pendin
 ops-off any.question.leave +unsaved +pending	y	ops-off fonts(marked) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off help(help) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off looks +pending	save, prepare
-ops-off any.question.leave +unsaved +pending	y	ops-off looks.new-frit +pending	save, prepare
+ops-off any.question.leave +unsaved +pending	y	ops-off looks.new-frit(row 6) +pending	save, prepare
 ops-off any.question.leave +unsaved +pending	y	ops-off settings(value) +pending	save, prepare
 ops-off any.question.leave below 80×25 +pending	Ctrl-C	ops-off any.too-small +pending	
 ops-off any.question.leave below 80×25 +pending	Esc	ops-off any.too-small +pending	
@@ -115,13 +115,13 @@ ops-off any.question.quit +unsaved	Ctrl-C	ops-off flow(doc display) +unsaved
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off fonts(builtin) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off help(help) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks +unsaved	
-ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.new-frit +unsaved	
+ops-off any.question.quit +unsaved	Ctrl-C	ops-off looks.new-frit(row 6) +unsaved	
 ops-off any.question.quit +unsaved	Ctrl-C	ops-off settings(value) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off flow(doc display) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off fonts(builtin) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off help(help) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off looks +unsaved	
-ops-off any.question.quit +unsaved	Esc	ops-off looks.new-frit +unsaved	
+ops-off any.question.quit +unsaved	Esc	ops-off looks.new-frit(row 6) +unsaved	
 ops-off any.question.quit +unsaved	Esc	ops-off settings(value) +unsaved	
 ops-off any.question.quit +unsaved	Shrink	ops-off any.question.quit below 80×25 +unsaved	
 ops-off any.question.quit +unsaved	n	ops-off left	exit 0
@@ -145,6 +145,8 @@ ops-off any.too-small +unsaved	q	ops-off any.question.quit below 80×25 +unsaved
 ops-off any.too-small +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
 ops-off any.too-small +unsaved +pending	Grow	ops-off fonts(marked) +unsaved +pending	
 ops-off any.too-small +unsaved +pending	q	ops-off any.question.leave below 80×25 +unsaved +pending	
+ops-off flow(doc display)	Click box	ops-off flow(doc terminal)	
+ops-off flow(doc display)	Click tab	ops-off looks	mouse off
 ops-off flow(doc display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display)	Down	ops-off flow(doc terminal)	
 ops-off flow(doc display)	End	ops-off flow(parts font)	
@@ -154,6 +156,7 @@ ops-off flow(doc display)	Right	ops-off flow(doc terminal)
 ops-off flow(doc display)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(doc display)	Shrink	ops-off any.too-small	
 ops-off flow(doc display)	Tab	ops-off looks	mouse off
+ops-off flow(doc display)	Wheel down	ops-off flow(doc terminal)	
 ops-off flow(doc display)	d	ops-off flow(doc display)	devices
 ops-off flow(doc display)	e	ops-off flow(new terminal)	
 ops-off flow(doc display)	i	ops-off flow(doc display)	prepare
@@ -162,6 +165,8 @@ ops-off flow(doc display)	o	ops-off flow.restore	history
 ops-off flow(doc display)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc display)	r	ops-off any.question.confirm	
 ops-off flow(doc display)	v	ops-off flow.file	
+ops-off flow(doc display) +pending	Click box	ops-off flow(doc terminal) +pending	
+ops-off flow(doc display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(doc display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc display) +pending	Down	ops-off flow(doc terminal) +pending	
 ops-off flow(doc display) +pending	End	ops-off flow(parts font) +pending	
@@ -171,6 +176,7 @@ ops-off flow(doc display) +pending	Right	ops-off flow(doc terminal) +pending
 ops-off flow(doc display) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
 ops-off flow(doc display) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(doc display) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(doc display) +pending	Wheel down	ops-off flow(doc terminal) +pending	
 ops-off flow(doc display) +pending	d	ops-off flow(doc display) +pending	devices
 ops-off flow(doc display) +pending	e	ops-off flow(new terminal) +pending	
 ops-off flow(doc display) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -179,6 +185,8 @@ ops-off flow(doc display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(doc display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(doc display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc display) +pending	v	ops-off flow.file +pending	
+ops-off flow(doc display) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
+ops-off flow(doc display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved	Down	ops-off flow(doc terminal) +unsaved	
 ops-off flow(doc display) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -188,6 +196,7 @@ ops-off flow(doc display) +unsaved	Right	ops-off flow(doc terminal) +unsaved
 ops-off flow(doc display) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc display) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(doc display) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(doc display) +unsaved	Wheel down	ops-off flow(doc terminal) +unsaved	
 ops-off flow(doc display) +unsaved	d	ops-off flow(doc display) +unsaved	devices
 ops-off flow(doc display) +unsaved	e	ops-off flow(new terminal) +unsaved	
 ops-off flow(doc display) +unsaved	i	ops-off flow(doc display)	save, prepare
@@ -197,6 +206,8 @@ ops-off flow(doc display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(doc display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(doc display) +unsaved	s	ops-off flow(doc display)	save
 ops-off flow(doc display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(doc display) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(doc display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc display) +unsaved +pending	Down	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -206,6 +217,7 @@ ops-off flow(doc display) +unsaved +pending	Right	ops-off flow(doc terminal) +un
 ops-off flow(doc display) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(doc display) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(doc display) +unsaved +pending	Wheel down	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	d	ops-off flow(doc display) +unsaved +pending	devices
 ops-off flow(doc display) +unsaved +pending	e	ops-off flow(new terminal) +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	i	ops-off flow(doc display) +pending	save, prepare
@@ -215,6 +227,7 @@ ops-off flow(doc display) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(doc display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(doc display) +unsaved +pending	s	ops-off flow(doc display) +pending	save
 ops-off flow(doc display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(doc terminal)	Click tab	ops-off looks	mouse off
 ops-off flow(doc terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal)	Down	ops-off flow(new empty)	
 ops-off flow(doc terminal)	End	ops-off flow(parts font)	
@@ -225,6 +238,7 @@ ops-off flow(doc terminal)	Right	ops-off flow(new empty)
 ops-off flow(doc terminal)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(doc terminal)	Shrink	ops-off any.too-small	
 ops-off flow(doc terminal)	Tab	ops-off looks	mouse off
+ops-off flow(doc terminal)	Wheel down	ops-off flow(new empty)	
 ops-off flow(doc terminal)	d	ops-off flow(doc terminal)	devices
 ops-off flow(doc terminal)	e	ops-off flow(new terminal)	
 ops-off flow(doc terminal)	i	ops-off flow(doc terminal)	prepare
@@ -233,6 +247,7 @@ ops-off flow(doc terminal)	o	ops-off flow.restore	history
 ops-off flow(doc terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(doc terminal)	r	ops-off any.question.confirm	
 ops-off flow(doc terminal)	v	ops-off flow.file	
+ops-off flow(doc terminal) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(doc terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(doc terminal) +pending	Down	ops-off flow(new empty) +pending	
 ops-off flow(doc terminal) +pending	End	ops-off flow(parts font) +pending	
@@ -243,6 +258,7 @@ ops-off flow(doc terminal) +pending	Right	ops-off flow(new empty) +pending
 ops-off flow(doc terminal) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
 ops-off flow(doc terminal) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(doc terminal) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(doc terminal) +pending	Wheel down	ops-off flow(new empty) +pending	
 ops-off flow(doc terminal) +pending	d	ops-off flow(doc terminal) +pending	devices
 ops-off flow(doc terminal) +pending	e	ops-off flow(new terminal) +pending	
 ops-off flow(doc terminal) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -251,6 +267,7 @@ ops-off flow(doc terminal) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(doc terminal) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(doc terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(doc terminal) +pending	v	ops-off flow.file +pending	
+ops-off flow(doc terminal) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved	Down	ops-off flow(new empty) +unsaved	
 ops-off flow(doc terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -261,6 +278,7 @@ ops-off flow(doc terminal) +unsaved	Right	ops-off flow(new empty) +unsaved
 ops-off flow(doc terminal) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
 ops-off flow(doc terminal) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(doc terminal) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(doc terminal) +unsaved	Wheel down	ops-off flow(new empty) +unsaved	
 ops-off flow(doc terminal) +unsaved	d	ops-off flow(doc terminal) +unsaved	devices
 ops-off flow(doc terminal) +unsaved	e	ops-off flow(new terminal) +unsaved	
 ops-off flow(doc terminal) +unsaved	i	ops-off flow(doc terminal)	save, prepare
@@ -270,6 +288,7 @@ ops-off flow(doc terminal) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(doc terminal) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(doc terminal) +unsaved	s	ops-off flow(doc terminal)	save
 ops-off flow(doc terminal) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(doc terminal) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(doc terminal) +unsaved +pending	Down	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -280,6 +299,7 @@ ops-off flow(doc terminal) +unsaved +pending	Right	ops-off flow(new empty) +unsa
 ops-off flow(doc terminal) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(doc terminal) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(doc terminal) +unsaved +pending	Wheel down	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	d	ops-off flow(doc terminal) +unsaved +pending	devices
 ops-off flow(doc terminal) +unsaved +pending	e	ops-off flow(new terminal) +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	i	ops-off flow(doc terminal) +pending	save, prepare
@@ -289,10 +309,12 @@ ops-off flow(doc terminal) +unsaved +pending	q	ops-off any.question.leave +unsav
 ops-off flow(doc terminal) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(doc terminal) +unsaved +pending	s	ops-off flow(doc terminal) +pending	save
 ops-off flow(doc terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new display)	Click box	ops-off flow(new terminal)	
+ops-off flow(new display)	Click tab	ops-off looks	mouse off
 ops-off flow(new display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display)	Down	ops-off flow(parts template)	
 ops-off flow(new display)	End	ops-off flow(parts font)	
-ops-off flow(new display)	Enter	ops-off flow.detail[choices]	
+ops-off flow(new display)	Enter	ops-off flow.detail.choices	
 ops-off flow(new display)	Esc	ops-off flow(doc terminal) +unsaved	check
 ops-off flow(new display)	Home	ops-off flow(doc terminal)	
 ops-off flow(new display)	Left	ops-off flow(doc terminal)	
@@ -303,6 +325,8 @@ ops-off flow(new display)	Shrink	ops-off any.too-small
 ops-off flow(new display)	Space	ops-off flow(new empty)	
 ops-off flow(new display)	Tab	ops-off looks	mouse off
 ops-off flow(new display)	Up	ops-off flow(doc terminal)	
+ops-off flow(new display)	Wheel down	ops-off flow(parts template)	
+ops-off flow(new display)	Wheel up	ops-off flow(doc terminal)	
 ops-off flow(new display)	a	ops-off flow(doc terminal)	
 ops-off flow(new display)	d	ops-off flow(new display)	devices
 ops-off flow(new display)	i	ops-off flow(new display)	prepare
@@ -311,10 +335,12 @@ ops-off flow(new display)	o	ops-off flow.restore	history
 ops-off flow(new display)	q	ops-off left	mouse off, exit 0
 ops-off flow(new display)	r	ops-off any.question.confirm	
 ops-off flow(new display)	v	ops-off flow.file	
+ops-off flow(new display) +pending	Click box	ops-off flow(new terminal) +pending	
+ops-off flow(new display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new display) +pending	Down	ops-off flow(parts template) +pending	
 ops-off flow(new display) +pending	End	ops-off flow(parts font) +pending	
-ops-off flow(new display) +pending	Enter	ops-off flow.detail[choices] +pending	
+ops-off flow(new display) +pending	Enter	ops-off flow.detail.choices +pending	
 ops-off flow(new display) +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
 ops-off flow(new display) +pending	Home	ops-off flow(doc terminal) +pending	
 ops-off flow(new display) +pending	Left	ops-off flow(doc terminal) +pending	
@@ -325,6 +351,8 @@ ops-off flow(new display) +pending	Shrink	ops-off any.too-small +pending
 ops-off flow(new display) +pending	Space	ops-off flow(new empty) +pending	
 ops-off flow(new display) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(new display) +pending	Up	ops-off flow(doc terminal) +pending	
+ops-off flow(new display) +pending	Wheel down	ops-off flow(parts template) +pending	
+ops-off flow(new display) +pending	Wheel up	ops-off flow(doc terminal) +pending	
 ops-off flow(new display) +pending	a	ops-off flow(doc terminal) +pending	
 ops-off flow(new display) +pending	d	ops-off flow(new display) +pending	devices
 ops-off flow(new display) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -333,10 +361,12 @@ ops-off flow(new display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new display) +pending	v	ops-off flow.file +pending	
+ops-off flow(new display) +unsaved	Click box	ops-off flow(new terminal) +unsaved	
+ops-off flow(new display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new display) +unsaved	Down	ops-off flow(parts template) +unsaved	
 ops-off flow(new display) +unsaved	End	ops-off flow(parts font) +unsaved	
-ops-off flow(new display) +unsaved	Enter	ops-off flow.detail[choices] +unsaved	
+ops-off flow(new display) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
 ops-off flow(new display) +unsaved	Esc	ops-off flow(doc terminal) +unsaved	check
 ops-off flow(new display) +unsaved	Home	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new display) +unsaved	Left	ops-off flow(doc terminal) +unsaved	
@@ -347,6 +377,8 @@ ops-off flow(new display) +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off flow(new display) +unsaved	Space	ops-off flow(new empty) +unsaved	
 ops-off flow(new display) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(new display) +unsaved	Up	ops-off flow(doc terminal) +unsaved	
+ops-off flow(new display) +unsaved	Wheel down	ops-off flow(parts template) +unsaved	
+ops-off flow(new display) +unsaved	Wheel up	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new display) +unsaved	a	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new display) +unsaved	d	ops-off flow(new display) +unsaved	devices
 ops-off flow(new display) +unsaved	i	ops-off flow(new display)	save, prepare
@@ -356,10 +388,12 @@ ops-off flow(new display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new display) +unsaved	s	ops-off flow(new display)	save
 ops-off flow(new display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new display) +unsaved +pending	Click box	ops-off flow(new terminal) +unsaved +pending	
+ops-off flow(new display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(new display) +unsaved +pending	Enter	ops-off flow.detail[choices] +unsaved +pending	
+ops-off flow(new display) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	Esc	ops-off flow(doc terminal) +unsaved +pending	check
 ops-off flow(new display) +unsaved +pending	Home	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	Left	ops-off flow(doc terminal) +unsaved +pending	
@@ -370,6 +404,8 @@ ops-off flow(new display) +unsaved +pending	Shrink	ops-off any.too-small +unsave
 ops-off flow(new display) +unsaved +pending	Space	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new display) +unsaved +pending	Up	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(new display) +unsaved +pending	Wheel down	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(new display) +unsaved +pending	Wheel up	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	a	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	d	ops-off flow(new display) +unsaved +pending	devices
 ops-off flow(new display) +unsaved +pending	i	ops-off flow(new display) +pending	save, prepare
@@ -379,6 +415,8 @@ ops-off flow(new display) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(new display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new display) +unsaved +pending	s	ops-off flow(new display) +pending	save
 ops-off flow(new display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new empty)	Click box	ops-off flow(doc terminal)	
+ops-off flow(new empty)	Click tab	ops-off looks	mouse off
 ops-off flow(new empty)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty)	Down	ops-off flow(parts display)	
 ops-off flow(new empty)	End	ops-off flow(parts font)	
@@ -389,6 +427,8 @@ ops-off flow(new empty)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(new empty)	Shrink	ops-off any.too-small	
 ops-off flow(new empty)	Tab	ops-off looks	mouse off
 ops-off flow(new empty)	Up	ops-off flow(doc terminal)	
+ops-off flow(new empty)	Wheel down	ops-off flow(parts display)	
+ops-off flow(new empty)	Wheel up	ops-off flow(doc terminal)	
 ops-off flow(new empty)	d	ops-off flow(new empty)	devices
 ops-off flow(new empty)	i	ops-off flow(new empty)	prepare
 ops-off flow(new empty)	n	ops-off any.question.confirm	
@@ -396,6 +436,8 @@ ops-off flow(new empty)	o	ops-off flow.restore	history
 ops-off flow(new empty)	q	ops-off left	mouse off, exit 0
 ops-off flow(new empty)	r	ops-off any.question.confirm	
 ops-off flow(new empty)	v	ops-off flow.file	
+ops-off flow(new empty) +pending	Click box	ops-off flow(doc terminal) +pending	
+ops-off flow(new empty) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new empty) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new empty) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(new empty) +pending	End	ops-off flow(parts font) +pending	
@@ -406,6 +448,8 @@ ops-off flow(new empty) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
 ops-off flow(new empty) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(new empty) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(new empty) +pending	Up	ops-off flow(doc terminal) +pending	
+ops-off flow(new empty) +pending	Wheel down	ops-off flow(parts display) +pending	
+ops-off flow(new empty) +pending	Wheel up	ops-off flow(doc terminal) +pending	
 ops-off flow(new empty) +pending	d	ops-off flow(new empty) +pending	devices
 ops-off flow(new empty) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow(new empty) +pending	n	ops-off any.question.confirm +pending	
@@ -413,6 +457,8 @@ ops-off flow(new empty) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new empty) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new empty) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new empty) +pending	v	ops-off flow.file +pending	
+ops-off flow(new empty) +unsaved	Click box	ops-off flow(doc terminal) +unsaved	
+ops-off flow(new empty) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(new empty) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -423,6 +469,8 @@ ops-off flow(new empty) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(new empty) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(new empty) +unsaved	Up	ops-off flow(doc terminal) +unsaved	
+ops-off flow(new empty) +unsaved	Wheel down	ops-off flow(parts display) +unsaved	
+ops-off flow(new empty) +unsaved	Wheel up	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new empty) +unsaved	d	ops-off flow(new empty) +unsaved	devices
 ops-off flow(new empty) +unsaved	i	ops-off flow(new empty)	save, prepare
 ops-off flow(new empty) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -431,6 +479,8 @@ ops-off flow(new empty) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new empty) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new empty) +unsaved	s	ops-off flow(new empty)	save
 ops-off flow(new empty) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new empty) +unsaved +pending	Click box	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(new empty) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new empty) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -441,6 +491,8 @@ ops-off flow(new empty) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved 
 ops-off flow(new empty) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new empty) +unsaved +pending	Up	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(new empty) +unsaved +pending	Wheel down	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(new empty) +unsaved +pending	Wheel up	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	d	ops-off flow(new empty) +unsaved +pending	devices
 ops-off flow(new empty) +unsaved +pending	i	ops-off flow(new empty) +pending	save, prepare
 ops-off flow(new empty) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -449,6 +501,8 @@ ops-off flow(new empty) +unsaved +pending	q	ops-off any.question.leave +unsaved 
 ops-off flow(new empty) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new empty) +unsaved +pending	s	ops-off flow(new empty) +pending	save
 ops-off flow(new empty) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(new terminal)	Click box	ops-off flow.card	
+ops-off flow(new terminal)	Click tab	ops-off looks	mouse off
 ops-off flow(new terminal)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal)	Down	ops-off flow(parts display)	
 ops-off flow(new terminal)	End	ops-off flow(parts font)	
@@ -462,6 +516,8 @@ ops-off flow(new terminal)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(new terminal)	Shrink	ops-off any.too-small	
 ops-off flow(new terminal)	Tab	ops-off looks	mouse off
 ops-off flow(new terminal)	Up	ops-off flow(doc terminal)	
+ops-off flow(new terminal)	Wheel down	ops-off flow(parts display)	
+ops-off flow(new terminal)	Wheel up	ops-off flow(doc terminal)	
 ops-off flow(new terminal)	a	ops-off flow(doc terminal)	
 ops-off flow(new terminal)	d	ops-off flow(new terminal)	devices
 ops-off flow(new terminal)	i	ops-off flow(new terminal)	prepare
@@ -470,6 +526,8 @@ ops-off flow(new terminal)	o	ops-off flow.restore	history
 ops-off flow(new terminal)	q	ops-off left	mouse off, exit 0
 ops-off flow(new terminal)	r	ops-off any.question.confirm	
 ops-off flow(new terminal)	v	ops-off flow.file	
+ops-off flow(new terminal) +pending	Click box	ops-off flow.card +pending	
+ops-off flow(new terminal) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(new terminal) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(new terminal) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(new terminal) +pending	End	ops-off flow(parts font) +pending	
@@ -483,6 +541,8 @@ ops-off flow(new terminal) +pending	Shift-Tab	ops-off help(help) +pending	mouse 
 ops-off flow(new terminal) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(new terminal) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(new terminal) +pending	Up	ops-off flow(doc terminal) +pending	
+ops-off flow(new terminal) +pending	Wheel down	ops-off flow(parts display) +pending	
+ops-off flow(new terminal) +pending	Wheel up	ops-off flow(doc terminal) +pending	
 ops-off flow(new terminal) +pending	a	ops-off flow(doc terminal) +pending	
 ops-off flow(new terminal) +pending	d	ops-off flow(new terminal) +pending	devices
 ops-off flow(new terminal) +pending	i	ops-off any.question.confirm +pending	prepare
@@ -491,6 +551,8 @@ ops-off flow(new terminal) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(new terminal) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(new terminal) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(new terminal) +pending	v	ops-off flow.file +pending	
+ops-off flow(new terminal) +unsaved	Click box	ops-off flow.card +unsaved	
+ops-off flow(new terminal) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(new terminal) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -504,6 +566,8 @@ ops-off flow(new terminal) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse 
 ops-off flow(new terminal) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(new terminal) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(new terminal) +unsaved	Up	ops-off flow(doc terminal) +unsaved	
+ops-off flow(new terminal) +unsaved	Wheel down	ops-off flow(parts display) +unsaved	
+ops-off flow(new terminal) +unsaved	Wheel up	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new terminal) +unsaved	a	ops-off flow(doc terminal) +unsaved	
 ops-off flow(new terminal) +unsaved	d	ops-off flow(new terminal) +unsaved	devices
 ops-off flow(new terminal) +unsaved	i	ops-off flow(new terminal)	save, prepare
@@ -513,6 +577,8 @@ ops-off flow(new terminal) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(new terminal) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(new terminal) +unsaved	s	ops-off flow(new terminal)	save
 ops-off flow(new terminal) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(new terminal) +unsaved +pending	Click box	ops-off flow.card +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(new terminal) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -526,6 +592,8 @@ ops-off flow(new terminal) +unsaved +pending	Shift-Tab	ops-off help(help) +unsav
 ops-off flow(new terminal) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(new terminal) +unsaved +pending	Up	ops-off flow(doc terminal) +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	Wheel down	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(new terminal) +unsaved +pending	Wheel up	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	a	ops-off flow(doc terminal) +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	d	ops-off flow(new terminal) +unsaved +pending	devices
 ops-off flow(new terminal) +unsaved +pending	i	ops-off flow(new terminal) +pending	save, prepare
@@ -535,10 +603,199 @@ ops-off flow(new terminal) +unsaved +pending	q	ops-off any.question.leave +unsav
 ops-off flow(new terminal) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(new terminal) +unsaved +pending	s	ops-off flow(new terminal) +pending	save
 ops-off flow(new terminal) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(others)	Click box	ops-off flow(parts special)	
+ops-off flow(others)	Click tab	ops-off looks	mouse off
+ops-off flow(others)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(others)	Down	ops-off flow(parts font)	
+ops-off flow(others)	End	ops-off flow(parts font)	
+ops-off flow(others)	Enter	ops-off flow.others	
+ops-off flow(others)	Home	ops-off flow(doc display)	
+ops-off flow(others)	Left	ops-off flow(parts pointer)	
+ops-off flow(others)	PgUp	ops-off flow(parts display)	
+ops-off flow(others)	Right	ops-off flow(parts template)	
+ops-off flow(others)	Shift-Tab	ops-off help(help)	mouse off
+ops-off flow(others)	Shrink	ops-off any.too-small	
+ops-off flow(others)	Tab	ops-off looks	mouse off
+ops-off flow(others)	Up	ops-off flow(parts any input)	
+ops-off flow(others)	Wheel down	ops-off flow(parts font)	
+ops-off flow(others)	Wheel up	ops-off flow(parts any input)	
+ops-off flow(others)	d	ops-off flow(others)	devices
+ops-off flow(others)	i	ops-off flow(others)	prepare
+ops-off flow(others)	n	ops-off any.question.confirm	
+ops-off flow(others)	o	ops-off flow.restore	history
+ops-off flow(others)	q	ops-off left	mouse off, exit 0
+ops-off flow(others)	r	ops-off any.question.confirm	
+ops-off flow(others)	v	ops-off flow.file	
+ops-off flow(others) +pending	Click box	ops-off flow(parts special) +pending	
+ops-off flow(others) +pending	Click tab	ops-off looks +pending	mouse off
+ops-off flow(others) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(others) +pending	Down	ops-off flow(parts font) +pending	
+ops-off flow(others) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(others) +pending	Enter	ops-off flow.others +pending	
+ops-off flow(others) +pending	Home	ops-off flow(doc display) +pending	
+ops-off flow(others) +pending	Left	ops-off flow(parts pointer) +pending	
+ops-off flow(others) +pending	PgUp	ops-off flow(parts display) +pending	
+ops-off flow(others) +pending	Right	ops-off flow(parts template) +pending	
+ops-off flow(others) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
+ops-off flow(others) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow(others) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(others) +pending	Up	ops-off flow(parts any input) +pending	
+ops-off flow(others) +pending	Wheel down	ops-off flow(parts font) +pending	
+ops-off flow(others) +pending	Wheel up	ops-off flow(parts any input) +pending	
+ops-off flow(others) +pending	d	ops-off flow(others) +pending	devices
+ops-off flow(others) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off flow(others) +pending	n	ops-off any.question.confirm +pending	
+ops-off flow(others) +pending	o	ops-off flow.restore +pending	history
+ops-off flow(others) +pending	q	ops-off any.question.leave +pending	
+ops-off flow(others) +pending	r	ops-off any.question.confirm +pending	
+ops-off flow(others) +pending	v	ops-off flow.file +pending	
+ops-off flow(others) +unsaved	Click box	ops-off flow(parts special) +unsaved	
+ops-off flow(others) +unsaved	Click tab	ops-off looks +unsaved	mouse off
+ops-off flow(others) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(others) +unsaved	Down	ops-off flow(parts font) +unsaved	
+ops-off flow(others) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(others) +unsaved	Enter	ops-off flow.others +unsaved	
+ops-off flow(others) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(others) +unsaved	Left	ops-off flow(parts pointer) +unsaved	
+ops-off flow(others) +unsaved	PgUp	ops-off flow(parts display) +unsaved	
+ops-off flow(others) +unsaved	Right	ops-off flow(parts template) +unsaved	
+ops-off flow(others) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
+ops-off flow(others) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow(others) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(others) +unsaved	Up	ops-off flow(parts any input) +unsaved	
+ops-off flow(others) +unsaved	Wheel down	ops-off flow(parts font) +unsaved	
+ops-off flow(others) +unsaved	Wheel up	ops-off flow(parts any input) +unsaved	
+ops-off flow(others) +unsaved	d	ops-off flow(others) +unsaved	devices
+ops-off flow(others) +unsaved	i	ops-off flow(others)	save, prepare
+ops-off flow(others) +unsaved	n	ops-off any.question.confirm +unsaved	
+ops-off flow(others) +unsaved	o	ops-off flow.restore +unsaved	history
+ops-off flow(others) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow(others) +unsaved	r	ops-off any.question.confirm +unsaved	
+ops-off flow(others) +unsaved	s	ops-off flow(others)	save
+ops-off flow(others) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(others) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(others) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Enter	ops-off flow.others +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Left	ops-off flow(parts pointer) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	PgUp	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Right	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(others) +unsaved +pending	Up	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Wheel down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	Wheel up	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(others) +unsaved +pending	d	ops-off flow(others) +unsaved +pending	devices
+ops-off flow(others) +unsaved +pending	i	ops-off flow(others) +pending	save, prepare
+ops-off flow(others) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(others) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
+ops-off flow(others) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow(others) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(others) +unsaved +pending	s	ops-off flow(others) +pending	save
+ops-off flow(others) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts any input)	Click box	ops-off flow(parts template)	
+ops-off flow(parts any input)	Click tab	ops-off looks	mouse off
+ops-off flow(parts any input)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts any input)	Down	ops-off flow(parts pointer)	
+ops-off flow(parts any input)	End	ops-off flow(parts font)	
+ops-off flow(parts any input)	Enter	ops-off flow.detail.choices	
+ops-off flow(parts any input)	Home	ops-off flow(doc display)	
+ops-off flow(parts any input)	Left	ops-off flow(parts keyboard)	
+ops-off flow(parts any input)	PgUp	ops-off flow(parts display)	
+ops-off flow(parts any input)	Right	ops-off flow(parts keyboard)	
+ops-off flow(parts any input)	Shift-Tab	ops-off help(help)	mouse off
+ops-off flow(parts any input)	Shrink	ops-off any.too-small	
+ops-off flow(parts any input)	Tab	ops-off looks	mouse off
+ops-off flow(parts any input)	Up	ops-off flow(parts input)	
+ops-off flow(parts any input)	Wheel down	ops-off flow(parts pointer)	
+ops-off flow(parts any input)	Wheel up	ops-off flow(parts input)	
+ops-off flow(parts any input)	d	ops-off flow(parts any input)	devices
+ops-off flow(parts any input)	i	ops-off flow(parts any input)	prepare
+ops-off flow(parts any input)	n	ops-off any.question.confirm	
+ops-off flow(parts any input)	o	ops-off flow.restore	history
+ops-off flow(parts any input)	q	ops-off left	mouse off, exit 0
+ops-off flow(parts any input)	r	ops-off any.question.confirm	
+ops-off flow(parts any input)	v	ops-off flow.file	
+ops-off flow(parts any input) +pending	Click box	ops-off flow(parts template) +pending	
+ops-off flow(parts any input) +pending	Click tab	ops-off looks +pending	mouse off
+ops-off flow(parts any input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts any input) +pending	Down	ops-off flow(parts pointer) +pending	
+ops-off flow(parts any input) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts any input) +pending	Enter	ops-off flow.detail.choices +pending	
+ops-off flow(parts any input) +pending	Home	ops-off flow(doc display) +pending	
+ops-off flow(parts any input) +pending	Left	ops-off flow(parts keyboard) +pending	
+ops-off flow(parts any input) +pending	PgUp	ops-off flow(parts display) +pending	
+ops-off flow(parts any input) +pending	Right	ops-off flow(parts keyboard) +pending	
+ops-off flow(parts any input) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
+ops-off flow(parts any input) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow(parts any input) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(parts any input) +pending	Up	ops-off flow(parts input) +pending	
+ops-off flow(parts any input) +pending	Wheel down	ops-off flow(parts pointer) +pending	
+ops-off flow(parts any input) +pending	Wheel up	ops-off flow(parts input) +pending	
+ops-off flow(parts any input) +pending	d	ops-off flow(parts any input) +pending	devices
+ops-off flow(parts any input) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off flow(parts any input) +pending	n	ops-off any.question.confirm +pending	
+ops-off flow(parts any input) +pending	o	ops-off flow.restore +pending	history
+ops-off flow(parts any input) +pending	q	ops-off any.question.leave +pending	
+ops-off flow(parts any input) +pending	r	ops-off any.question.confirm +pending	
+ops-off flow(parts any input) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts any input) +unsaved	Click box	ops-off flow(parts template) +unsaved	
+ops-off flow(parts any input) +unsaved	Click tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts any input) +unsaved	Down	ops-off flow(parts pointer) +unsaved	
+ops-off flow(parts any input) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts any input) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
+ops-off flow(parts any input) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(parts any input) +unsaved	Left	ops-off flow(parts keyboard) +unsaved	
+ops-off flow(parts any input) +unsaved	PgUp	ops-off flow(parts display) +unsaved	
+ops-off flow(parts any input) +unsaved	Right	ops-off flow(parts keyboard) +unsaved	
+ops-off flow(parts any input) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow(parts any input) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts any input) +unsaved	Up	ops-off flow(parts input) +unsaved	
+ops-off flow(parts any input) +unsaved	Wheel down	ops-off flow(parts pointer) +unsaved	
+ops-off flow(parts any input) +unsaved	Wheel up	ops-off flow(parts input) +unsaved	
+ops-off flow(parts any input) +unsaved	d	ops-off flow(parts any input) +unsaved	devices
+ops-off flow(parts any input) +unsaved	i	ops-off flow(parts any input)	save, prepare
+ops-off flow(parts any input) +unsaved	n	ops-off any.question.confirm +unsaved	
+ops-off flow(parts any input) +unsaved	o	ops-off flow.restore +unsaved	history
+ops-off flow(parts any input) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow(parts any input) +unsaved	r	ops-off any.question.confirm +unsaved	
+ops-off flow(parts any input) +unsaved	s	ops-off flow(parts any input)	save
+ops-off flow(parts any input) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts any input) +unsaved +pending	Click box	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts any input) +unsaved +pending	Down	ops-off flow(parts pointer) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Left	ops-off flow(parts keyboard) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	PgUp	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Right	ops-off flow(parts keyboard) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts any input) +unsaved +pending	Up	ops-off flow(parts input) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Wheel down	ops-off flow(parts pointer) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	Wheel up	ops-off flow(parts input) +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	d	ops-off flow(parts any input) +unsaved +pending	devices
+ops-off flow(parts any input) +unsaved +pending	i	ops-off flow(parts any input) +pending	save, prepare
+ops-off flow(parts any input) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
+ops-off flow(parts any input) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts any input) +unsaved +pending	s	ops-off flow(parts any input) +pending	save
+ops-off flow(parts any input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts display)	Click tab	ops-off looks	mouse off
 ops-off flow(parts display)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display)	Down	ops-off flow(parts template)	
 ops-off flow(parts display)	End	ops-off flow(parts font)	
-ops-off flow(parts display)	Enter	ops-off flow.detail[choices]	
+ops-off flow(parts display)	Enter	ops-off flow.detail.choices	
 ops-off flow(parts display)	Home	ops-off flow(doc display)	
 ops-off flow(parts display)	PgDn	ops-off flow(parts template)	
 ops-off flow(parts display)	PgUp	ops-off flow(new empty)	
@@ -547,6 +804,8 @@ ops-off flow(parts display)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(parts display)	Shrink	ops-off any.too-small	
 ops-off flow(parts display)	Tab	ops-off looks	mouse off
 ops-off flow(parts display)	Up	ops-off flow(parts template)	
+ops-off flow(parts display)	Wheel down	ops-off flow(parts template)	
+ops-off flow(parts display)	Wheel up	ops-off flow(parts template)	
 ops-off flow(parts display)	d	ops-off flow(parts display)	devices
 ops-off flow(parts display)	i	ops-off flow(parts display)	prepare
 ops-off flow(parts display)	n	ops-off any.question.confirm	
@@ -554,10 +813,11 @@ ops-off flow(parts display)	o	ops-off flow.restore	history
 ops-off flow(parts display)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts display)	r	ops-off any.question.confirm	
 ops-off flow(parts display)	v	ops-off flow.file	
+ops-off flow(parts display) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts display) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts display) +pending	Down	ops-off flow(parts template) +pending	
 ops-off flow(parts display) +pending	End	ops-off flow(parts font) +pending	
-ops-off flow(parts display) +pending	Enter	ops-off flow.detail[choices] +pending	
+ops-off flow(parts display) +pending	Enter	ops-off flow.detail.choices +pending	
 ops-off flow(parts display) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts display) +pending	PgDn	ops-off flow(parts template) +pending	
 ops-off flow(parts display) +pending	PgUp	ops-off flow(new empty) +pending	
@@ -566,6 +826,8 @@ ops-off flow(parts display) +pending	Shift-Tab	ops-off help(help) +pending	mouse
 ops-off flow(parts display) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(parts display) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(parts display) +pending	Up	ops-off flow(parts template) +pending	
+ops-off flow(parts display) +pending	Wheel down	ops-off flow(parts template) +pending	
+ops-off flow(parts display) +pending	Wheel up	ops-off flow(parts template) +pending	
 ops-off flow(parts display) +pending	d	ops-off flow(parts display) +pending	devices
 ops-off flow(parts display) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow(parts display) +pending	n	ops-off any.question.confirm +pending	
@@ -573,10 +835,11 @@ ops-off flow(parts display) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts display) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts display) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts display) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts display) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved	Down	ops-off flow(parts template) +unsaved	
 ops-off flow(parts display) +unsaved	End	ops-off flow(parts font) +unsaved	
-ops-off flow(parts display) +unsaved	Enter	ops-off flow.detail[choices] +unsaved	
+ops-off flow(parts display) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
 ops-off flow(parts display) +unsaved	Home	ops-off flow(doc display) +unsaved	
 ops-off flow(parts display) +unsaved	PgDn	ops-off flow(parts template) +unsaved	
 ops-off flow(parts display) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
@@ -585,6 +848,8 @@ ops-off flow(parts display) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse
 ops-off flow(parts display) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts display) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts display) +unsaved	Up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts display) +unsaved	Wheel down	ops-off flow(parts template) +unsaved	
+ops-off flow(parts display) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
 ops-off flow(parts display) +unsaved	d	ops-off flow(parts display) +unsaved	devices
 ops-off flow(parts display) +unsaved	i	ops-off flow(parts display)	save, prepare
 ops-off flow(parts display) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -593,10 +858,11 @@ ops-off flow(parts display) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts display) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts display) +unsaved	s	ops-off flow(parts display)	save
 ops-off flow(parts display) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts display) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts display) +unsaved +pending	Down	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(parts display) +unsaved +pending	Enter	ops-off flow.detail[choices] +unsaved +pending	
+ops-off flow(parts display) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	PgDn	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	PgUp	ops-off flow(new empty) +unsaved +pending	
@@ -605,6 +871,8 @@ ops-off flow(parts display) +unsaved +pending	Shift-Tab	ops-off help(help) +unsa
 ops-off flow(parts display) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts display) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts display) +unsaved +pending	Wheel down	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts display) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	d	ops-off flow(parts display) +unsaved +pending	devices
 ops-off flow(parts display) +unsaved +pending	i	ops-off flow(parts display) +pending	save, prepare
 ops-off flow(parts display) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -613,6 +881,7 @@ ops-off flow(parts display) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts display) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts display) +unsaved +pending	s	ops-off flow(parts display) +pending	save
 ops-off flow(parts display) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts font)	Click tab	ops-off looks	mouse off
 ops-off flow(parts font)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font)	Home	ops-off flow(doc display)	
 ops-off flow(parts font)	PgUp	ops-off flow(parts special)	
@@ -626,6 +895,7 @@ ops-off flow(parts font)	o	ops-off flow.restore	history
 ops-off flow(parts font)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts font)	r	ops-off any.question.confirm	
 ops-off flow(parts font)	v	ops-off flow.file	
+ops-off flow(parts font) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts font) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts font) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts font) +pending	PgUp	ops-off flow(parts special) +pending	
@@ -639,6 +909,7 @@ ops-off flow(parts font) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts font) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts font) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts font) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts font) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts font) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved	Home	ops-off flow(doc display) +unsaved	
 ops-off flow(parts font) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
@@ -653,6 +924,7 @@ ops-off flow(parts font) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts font) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts font) +unsaved	s	ops-off flow(parts font)	save
 ops-off flow(parts font) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts font) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts font) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts font) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
@@ -667,16 +939,21 @@ ops-off flow(parts font) +unsaved +pending	q	ops-off any.question.leave +unsaved
 ops-off flow(parts font) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts font) +unsaved +pending	s	ops-off flow(parts font) +pending	save
 ops-off flow(parts font) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts input)	Click tab	ops-off looks	mouse off
 ops-off flow(parts input)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts input)	Down	ops-off flow(parts any input)	
 ops-off flow(parts input)	End	ops-off flow(parts font)	
-ops-off flow(parts input)	Enter	ops-off flow.detail[choices]	
+ops-off flow(parts input)	Enter	ops-off flow.detail.choices	
 ops-off flow(parts input)	Home	ops-off flow(doc display)	
 ops-off flow(parts input)	Left	ops-off flow(parts template)	
+ops-off flow(parts input)	PgDn	ops-off flow(parts keyboard)	
 ops-off flow(parts input)	PgUp	ops-off flow(new empty)	
 ops-off flow(parts input)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(parts input)	Shrink	ops-off any.too-small	
 ops-off flow(parts input)	Tab	ops-off looks	mouse off
 ops-off flow(parts input)	Up	ops-off flow(parts special)	
+ops-off flow(parts input)	Wheel down	ops-off flow(parts any input)	
+ops-off flow(parts input)	Wheel up	ops-off flow(parts special)	
 ops-off flow(parts input)	d	ops-off flow(parts input)	devices
 ops-off flow(parts input)	i	ops-off flow(parts input)	prepare
 ops-off flow(parts input)	n	ops-off any.question.confirm	
@@ -684,16 +961,21 @@ ops-off flow(parts input)	o	ops-off flow.restore	history
 ops-off flow(parts input)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts input)	r	ops-off any.question.confirm	
 ops-off flow(parts input)	v	ops-off flow.file	
+ops-off flow(parts input) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts input) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts input) +pending	Down	ops-off flow(parts any input) +pending	
 ops-off flow(parts input) +pending	End	ops-off flow(parts font) +pending	
-ops-off flow(parts input) +pending	Enter	ops-off flow.detail[choices] +pending	
+ops-off flow(parts input) +pending	Enter	ops-off flow.detail.choices +pending	
 ops-off flow(parts input) +pending	Home	ops-off flow(doc display) +pending	
 ops-off flow(parts input) +pending	Left	ops-off flow(parts template) +pending	
+ops-off flow(parts input) +pending	PgDn	ops-off flow(parts keyboard) +pending	
 ops-off flow(parts input) +pending	PgUp	ops-off flow(new empty) +pending	
 ops-off flow(parts input) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
 ops-off flow(parts input) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(parts input) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(parts input) +pending	Up	ops-off flow(parts special) +pending	
+ops-off flow(parts input) +pending	Wheel down	ops-off flow(parts any input) +pending	
+ops-off flow(parts input) +pending	Wheel up	ops-off flow(parts special) +pending	
 ops-off flow(parts input) +pending	d	ops-off flow(parts input) +pending	devices
 ops-off flow(parts input) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow(parts input) +pending	n	ops-off any.question.confirm +pending	
@@ -701,16 +983,21 @@ ops-off flow(parts input) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts input) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts input) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts input) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts input) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts input) +unsaved	Down	ops-off flow(parts any input) +unsaved	
 ops-off flow(parts input) +unsaved	End	ops-off flow(parts font) +unsaved	
-ops-off flow(parts input) +unsaved	Enter	ops-off flow.detail[choices] +unsaved	
+ops-off flow(parts input) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
 ops-off flow(parts input) +unsaved	Home	ops-off flow(doc display) +unsaved	
 ops-off flow(parts input) +unsaved	Left	ops-off flow(parts template) +unsaved	
+ops-off flow(parts input) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
 ops-off flow(parts input) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
 ops-off flow(parts input) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts input) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts input) +unsaved	Up	ops-off flow(parts special) +unsaved	
+ops-off flow(parts input) +unsaved	Wheel down	ops-off flow(parts any input) +unsaved	
+ops-off flow(parts input) +unsaved	Wheel up	ops-off flow(parts special) +unsaved	
 ops-off flow(parts input) +unsaved	d	ops-off flow(parts input) +unsaved	devices
 ops-off flow(parts input) +unsaved	i	ops-off flow(parts input)	save, prepare
 ops-off flow(parts input) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -719,16 +1006,21 @@ ops-off flow(parts input) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts input) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts input) +unsaved	s	ops-off flow(parts input)	save
 ops-off flow(parts input) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts input) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts input) +unsaved +pending	Down	ops-off flow(parts any input) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
-ops-off flow(parts input) +unsaved +pending	Enter	ops-off flow.detail[choices] +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Left	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	PgUp	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts input) +unsaved +pending	Up	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	Wheel down	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(parts input) +unsaved +pending	Wheel up	ops-off flow(parts special) +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	d	ops-off flow(parts input) +unsaved +pending	devices
 ops-off flow(parts input) +unsaved +pending	i	ops-off flow(parts input) +pending	save, prepare
 ops-off flow(parts input) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -737,17 +1029,196 @@ ops-off flow(parts input) +unsaved +pending	q	ops-off any.question.leave +unsave
 ops-off flow(parts input) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts input) +unsaved +pending	s	ops-off flow(parts input) +pending	save
 ops-off flow(parts input) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts keyboard)	Click tab	ops-off looks	mouse off
+ops-off flow(parts keyboard)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts keyboard)	End	ops-off flow(parts font)	
+ops-off flow(parts keyboard)	Enter	ops-off flow.detail.choices	
+ops-off flow(parts keyboard)	Home	ops-off flow(doc display)	
+ops-off flow(parts keyboard)	Left	ops-off flow(parts input)	
+ops-off flow(parts keyboard)	PgUp	ops-off flow(parts special)	
+ops-off flow(parts keyboard)	Right	ops-off flow(parts any input)	
+ops-off flow(parts keyboard)	Shift-Tab	ops-off help(help)	mouse off
+ops-off flow(parts keyboard)	Shrink	ops-off any.too-small	
+ops-off flow(parts keyboard)	Tab	ops-off looks	mouse off
+ops-off flow(parts keyboard)	Up	ops-off flow(parts template)	
+ops-off flow(parts keyboard)	Wheel up	ops-off flow(parts template)	
+ops-off flow(parts keyboard)	d	ops-off flow(parts keyboard)	devices
+ops-off flow(parts keyboard)	i	ops-off flow(parts keyboard)	prepare
+ops-off flow(parts keyboard)	n	ops-off any.question.confirm	
+ops-off flow(parts keyboard)	o	ops-off flow.restore	history
+ops-off flow(parts keyboard)	q	ops-off left	mouse off, exit 0
+ops-off flow(parts keyboard)	r	ops-off any.question.confirm	
+ops-off flow(parts keyboard)	v	ops-off flow.file	
+ops-off flow(parts keyboard) +pending	Click tab	ops-off looks +pending	mouse off
+ops-off flow(parts keyboard) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts keyboard) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts keyboard) +pending	Enter	ops-off flow.detail.choices +pending	
+ops-off flow(parts keyboard) +pending	Home	ops-off flow(doc display) +pending	
+ops-off flow(parts keyboard) +pending	Left	ops-off flow(parts input) +pending	
+ops-off flow(parts keyboard) +pending	PgUp	ops-off flow(parts special) +pending	
+ops-off flow(parts keyboard) +pending	Right	ops-off flow(parts any input) +pending	
+ops-off flow(parts keyboard) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
+ops-off flow(parts keyboard) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow(parts keyboard) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(parts keyboard) +pending	Up	ops-off flow(parts template) +pending	
+ops-off flow(parts keyboard) +pending	Wheel up	ops-off flow(parts template) +pending	
+ops-off flow(parts keyboard) +pending	d	ops-off flow(parts keyboard) +pending	devices
+ops-off flow(parts keyboard) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off flow(parts keyboard) +pending	n	ops-off any.question.confirm +pending	
+ops-off flow(parts keyboard) +pending	o	ops-off flow.restore +pending	history
+ops-off flow(parts keyboard) +pending	q	ops-off any.question.leave +pending	
+ops-off flow(parts keyboard) +pending	r	ops-off any.question.confirm +pending	
+ops-off flow(parts keyboard) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts keyboard) +unsaved	Click tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts keyboard) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts keyboard) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
+ops-off flow(parts keyboard) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(parts keyboard) +unsaved	Left	ops-off flow(parts input) +unsaved	
+ops-off flow(parts keyboard) +unsaved	PgUp	ops-off flow(parts special) +unsaved	
+ops-off flow(parts keyboard) +unsaved	Right	ops-off flow(parts any input) +unsaved	
+ops-off flow(parts keyboard) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow(parts keyboard) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts keyboard) +unsaved	Up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts keyboard) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts keyboard) +unsaved	d	ops-off flow(parts keyboard) +unsaved	devices
+ops-off flow(parts keyboard) +unsaved	i	ops-off flow(parts keyboard)	save, prepare
+ops-off flow(parts keyboard) +unsaved	n	ops-off any.question.confirm +unsaved	
+ops-off flow(parts keyboard) +unsaved	o	ops-off flow.restore +unsaved	history
+ops-off flow(parts keyboard) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow(parts keyboard) +unsaved	r	ops-off any.question.confirm +unsaved	
+ops-off flow(parts keyboard) +unsaved	s	ops-off flow(parts keyboard)	save
+ops-off flow(parts keyboard) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts keyboard) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts keyboard) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Left	ops-off flow(parts input) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	PgUp	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Right	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts keyboard) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	d	ops-off flow(parts keyboard) +unsaved +pending	devices
+ops-off flow(parts keyboard) +unsaved +pending	i	ops-off flow(parts keyboard) +pending	save, prepare
+ops-off flow(parts keyboard) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
+ops-off flow(parts keyboard) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts keyboard) +unsaved +pending	s	ops-off flow(parts keyboard) +pending	save
+ops-off flow(parts keyboard) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts pointer)	Click box	ops-off flow(parts special)	
+ops-off flow(parts pointer)	Click tab	ops-off looks	mouse off
+ops-off flow(parts pointer)	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts pointer)	Down	ops-off flow(parts font)	
+ops-off flow(parts pointer)	End	ops-off flow(parts font)	
+ops-off flow(parts pointer)	Enter	ops-off flow.detail.choices	
+ops-off flow(parts pointer)	Home	ops-off flow(doc display)	
+ops-off flow(parts pointer)	Left	ops-off flow(parts keyboard)	
+ops-off flow(parts pointer)	PgUp	ops-off flow(parts display)	
+ops-off flow(parts pointer)	Right	ops-off flow(others)	
+ops-off flow(parts pointer)	Shift-Tab	ops-off help(help)	mouse off
+ops-off flow(parts pointer)	Shrink	ops-off any.too-small	
+ops-off flow(parts pointer)	Tab	ops-off looks	mouse off
+ops-off flow(parts pointer)	Up	ops-off flow(parts any input)	
+ops-off flow(parts pointer)	Wheel down	ops-off flow(parts font)	
+ops-off flow(parts pointer)	Wheel up	ops-off flow(parts any input)	
+ops-off flow(parts pointer)	d	ops-off flow(parts pointer)	devices
+ops-off flow(parts pointer)	i	ops-off flow(parts pointer)	prepare
+ops-off flow(parts pointer)	n	ops-off any.question.confirm	
+ops-off flow(parts pointer)	o	ops-off flow.restore	history
+ops-off flow(parts pointer)	q	ops-off left	mouse off, exit 0
+ops-off flow(parts pointer)	r	ops-off any.question.confirm	
+ops-off flow(parts pointer)	v	ops-off flow.file	
+ops-off flow(parts pointer) +pending	Click box	ops-off flow(parts special) +pending	
+ops-off flow(parts pointer) +pending	Click tab	ops-off looks +pending	mouse off
+ops-off flow(parts pointer) +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow(parts pointer) +pending	Down	ops-off flow(parts font) +pending	
+ops-off flow(parts pointer) +pending	End	ops-off flow(parts font) +pending	
+ops-off flow(parts pointer) +pending	Enter	ops-off flow.detail.choices +pending	
+ops-off flow(parts pointer) +pending	Home	ops-off flow(doc display) +pending	
+ops-off flow(parts pointer) +pending	Left	ops-off flow(parts keyboard) +pending	
+ops-off flow(parts pointer) +pending	PgUp	ops-off flow(parts display) +pending	
+ops-off flow(parts pointer) +pending	Right	ops-off flow(others) +pending	
+ops-off flow(parts pointer) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
+ops-off flow(parts pointer) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow(parts pointer) +pending	Tab	ops-off looks +pending	mouse off
+ops-off flow(parts pointer) +pending	Up	ops-off flow(parts any input) +pending	
+ops-off flow(parts pointer) +pending	Wheel down	ops-off flow(parts font) +pending	
+ops-off flow(parts pointer) +pending	Wheel up	ops-off flow(parts any input) +pending	
+ops-off flow(parts pointer) +pending	d	ops-off flow(parts pointer) +pending	devices
+ops-off flow(parts pointer) +pending	i	ops-off any.question.confirm +pending	prepare
+ops-off flow(parts pointer) +pending	n	ops-off any.question.confirm +pending	
+ops-off flow(parts pointer) +pending	o	ops-off flow.restore +pending	history
+ops-off flow(parts pointer) +pending	q	ops-off any.question.leave +pending	
+ops-off flow(parts pointer) +pending	r	ops-off any.question.confirm +pending	
+ops-off flow(parts pointer) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts pointer) +unsaved	Click box	ops-off flow(parts special) +unsaved	
+ops-off flow(parts pointer) +unsaved	Click tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts pointer) +unsaved	Down	ops-off flow(parts font) +unsaved	
+ops-off flow(parts pointer) +unsaved	End	ops-off flow(parts font) +unsaved	
+ops-off flow(parts pointer) +unsaved	Enter	ops-off flow.detail.choices +unsaved	
+ops-off flow(parts pointer) +unsaved	Home	ops-off flow(doc display) +unsaved	
+ops-off flow(parts pointer) +unsaved	Left	ops-off flow(parts keyboard) +unsaved	
+ops-off flow(parts pointer) +unsaved	PgUp	ops-off flow(parts display) +unsaved	
+ops-off flow(parts pointer) +unsaved	Right	ops-off flow(others) +unsaved	
+ops-off flow(parts pointer) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow(parts pointer) +unsaved	Tab	ops-off looks +unsaved	mouse off
+ops-off flow(parts pointer) +unsaved	Up	ops-off flow(parts any input) +unsaved	
+ops-off flow(parts pointer) +unsaved	Wheel down	ops-off flow(parts font) +unsaved	
+ops-off flow(parts pointer) +unsaved	Wheel up	ops-off flow(parts any input) +unsaved	
+ops-off flow(parts pointer) +unsaved	d	ops-off flow(parts pointer) +unsaved	devices
+ops-off flow(parts pointer) +unsaved	i	ops-off flow(parts pointer)	save, prepare
+ops-off flow(parts pointer) +unsaved	n	ops-off any.question.confirm +unsaved	
+ops-off flow(parts pointer) +unsaved	o	ops-off flow.restore +unsaved	history
+ops-off flow(parts pointer) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow(parts pointer) +unsaved	r	ops-off any.question.confirm +unsaved	
+ops-off flow(parts pointer) +unsaved	s	ops-off flow(parts pointer)	save
+ops-off flow(parts pointer) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts pointer) +unsaved +pending	Click box	ops-off flow(parts special) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow(parts pointer) +unsaved +pending	Down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Left	ops-off flow(parts keyboard) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	PgUp	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Right	ops-off flow(others) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
+ops-off flow(parts pointer) +unsaved +pending	Up	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Wheel down	ops-off flow(parts font) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	Wheel up	ops-off flow(parts any input) +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	d	ops-off flow(parts pointer) +unsaved +pending	devices
+ops-off flow(parts pointer) +unsaved +pending	i	ops-off flow(parts pointer) +pending	save, prepare
+ops-off flow(parts pointer) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	o	ops-off flow.restore +unsaved +pending	history
+ops-off flow(parts pointer) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
+ops-off flow(parts pointer) +unsaved +pending	s	ops-off flow(parts pointer) +pending	save
+ops-off flow(parts pointer) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts special)	Click tab	ops-off looks	mouse off
 ops-off flow(parts special)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special)	Down	ops-off flow(parts input)	
 ops-off flow(parts special)	End	ops-off flow(parts font)	
 ops-off flow(parts special)	Home	ops-off flow(doc display)	
-ops-off flow(parts special)	PgDn	ops-off flow(parts input)	
+ops-off flow(parts special)	PgDn	ops-off flow(parts keyboard)	
 ops-off flow(parts special)	PgUp	ops-off flow(new empty)	
 ops-off flow(parts special)	Right	ops-off flow(parts template)	
 ops-off flow(parts special)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(parts special)	Shrink	ops-off any.too-small	
 ops-off flow(parts special)	Tab	ops-off looks	mouse off
 ops-off flow(parts special)	Up	ops-off flow(parts template)	
+ops-off flow(parts special)	Wheel down	ops-off flow(parts input)	
+ops-off flow(parts special)	Wheel up	ops-off flow(parts template)	
 ops-off flow(parts special)	d	ops-off flow(parts special)	devices
 ops-off flow(parts special)	i	ops-off flow(parts special)	prepare
 ops-off flow(parts special)	n	ops-off any.question.confirm	
@@ -755,17 +1226,20 @@ ops-off flow(parts special)	o	ops-off flow.restore	history
 ops-off flow(parts special)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts special)	r	ops-off any.question.confirm	
 ops-off flow(parts special)	v	ops-off flow.file	
+ops-off flow(parts special) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts special) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts special) +pending	Down	ops-off flow(parts input) +pending	
 ops-off flow(parts special) +pending	End	ops-off flow(parts font) +pending	
 ops-off flow(parts special) +pending	Home	ops-off flow(doc display) +pending	
-ops-off flow(parts special) +pending	PgDn	ops-off flow(parts input) +pending	
+ops-off flow(parts special) +pending	PgDn	ops-off flow(parts keyboard) +pending	
 ops-off flow(parts special) +pending	PgUp	ops-off flow(new empty) +pending	
 ops-off flow(parts special) +pending	Right	ops-off flow(parts template) +pending	
 ops-off flow(parts special) +pending	Shift-Tab	ops-off help(help) +pending	mouse off
 ops-off flow(parts special) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(parts special) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(parts special) +pending	Up	ops-off flow(parts template) +pending	
+ops-off flow(parts special) +pending	Wheel down	ops-off flow(parts input) +pending	
+ops-off flow(parts special) +pending	Wheel up	ops-off flow(parts template) +pending	
 ops-off flow(parts special) +pending	d	ops-off flow(parts special) +pending	devices
 ops-off flow(parts special) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow(parts special) +pending	n	ops-off any.question.confirm +pending	
@@ -773,17 +1247,20 @@ ops-off flow(parts special) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts special) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts special) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts special) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts special) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved	Down	ops-off flow(parts input) +unsaved	
 ops-off flow(parts special) +unsaved	End	ops-off flow(parts font) +unsaved	
 ops-off flow(parts special) +unsaved	Home	ops-off flow(doc display) +unsaved	
-ops-off flow(parts special) +unsaved	PgDn	ops-off flow(parts input) +unsaved	
+ops-off flow(parts special) +unsaved	PgDn	ops-off flow(parts keyboard) +unsaved	
 ops-off flow(parts special) +unsaved	PgUp	ops-off flow(new empty) +unsaved	
 ops-off flow(parts special) +unsaved	Right	ops-off flow(parts template) +unsaved	
 ops-off flow(parts special) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts special) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts special) +unsaved	Up	ops-off flow(parts template) +unsaved	
+ops-off flow(parts special) +unsaved	Wheel down	ops-off flow(parts input) +unsaved	
+ops-off flow(parts special) +unsaved	Wheel up	ops-off flow(parts template) +unsaved	
 ops-off flow(parts special) +unsaved	d	ops-off flow(parts special) +unsaved	devices
 ops-off flow(parts special) +unsaved	i	ops-off flow(parts special)	save, prepare
 ops-off flow(parts special) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -792,17 +1269,20 @@ ops-off flow(parts special) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts special) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts special) +unsaved	s	ops-off flow(parts special)	save
 ops-off flow(parts special) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts special) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts special) +unsaved +pending	Down	ops-off flow(parts input) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Home	ops-off flow(doc display) +unsaved +pending	
-ops-off flow(parts special) +unsaved +pending	PgDn	ops-off flow(parts input) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	PgDn	ops-off flow(parts keyboard) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	PgUp	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Right	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Shift-Tab	ops-off help(help) +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts special) +unsaved +pending	Up	ops-off flow(parts template) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	Wheel down	ops-off flow(parts input) +unsaved +pending	
+ops-off flow(parts special) +unsaved +pending	Wheel up	ops-off flow(parts template) +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	d	ops-off flow(parts special) +unsaved +pending	devices
 ops-off flow(parts special) +unsaved +pending	i	ops-off flow(parts special) +pending	save, prepare
 ops-off flow(parts special) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -811,6 +1291,8 @@ ops-off flow(parts special) +unsaved +pending	q	ops-off any.question.leave +unsa
 ops-off flow(parts special) +unsaved +pending	r	ops-off any.question.confirm +unsaved +pending	
 ops-off flow(parts special) +unsaved +pending	s	ops-off flow(parts special) +pending	save
 ops-off flow(parts special) +unsaved +pending	v	ops-off flow.file +unsaved +pending	
+ops-off flow(parts template)	Click box	ops-off flow(parts display)	
+ops-off flow(parts template)	Click tab	ops-off looks	mouse off
 ops-off flow(parts template)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template)	Down	ops-off flow(parts display)	
 ops-off flow(parts template)	End	ops-off flow(parts font)	
@@ -823,6 +1305,8 @@ ops-off flow(parts template)	Shift-Tab	ops-off help(help)	mouse off
 ops-off flow(parts template)	Shrink	ops-off any.too-small	
 ops-off flow(parts template)	Tab	ops-off looks	mouse off
 ops-off flow(parts template)	Up	ops-off flow(new empty)	
+ops-off flow(parts template)	Wheel down	ops-off flow(parts display)	
+ops-off flow(parts template)	Wheel up	ops-off flow(new empty)	
 ops-off flow(parts template)	d	ops-off flow(parts template)	devices
 ops-off flow(parts template)	i	ops-off flow(parts template)	prepare
 ops-off flow(parts template)	n	ops-off any.question.confirm	
@@ -830,6 +1314,8 @@ ops-off flow(parts template)	o	ops-off flow.restore	history
 ops-off flow(parts template)	q	ops-off left	mouse off, exit 0
 ops-off flow(parts template)	r	ops-off any.question.confirm	
 ops-off flow(parts template)	v	ops-off flow.file	
+ops-off flow(parts template) +pending	Click box	ops-off flow(parts display) +pending	
+ops-off flow(parts template) +pending	Click tab	ops-off looks +pending	mouse off
 ops-off flow(parts template) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow(parts template) +pending	Down	ops-off flow(parts display) +pending	
 ops-off flow(parts template) +pending	End	ops-off flow(parts font) +pending	
@@ -842,6 +1328,8 @@ ops-off flow(parts template) +pending	Shift-Tab	ops-off help(help) +pending	mous
 ops-off flow(parts template) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow(parts template) +pending	Tab	ops-off looks +pending	mouse off
 ops-off flow(parts template) +pending	Up	ops-off flow(new empty) +pending	
+ops-off flow(parts template) +pending	Wheel down	ops-off flow(parts display) +pending	
+ops-off flow(parts template) +pending	Wheel up	ops-off flow(new empty) +pending	
 ops-off flow(parts template) +pending	d	ops-off flow(parts template) +pending	devices
 ops-off flow(parts template) +pending	i	ops-off any.question.confirm +pending	prepare
 ops-off flow(parts template) +pending	n	ops-off any.question.confirm +pending	
@@ -849,6 +1337,8 @@ ops-off flow(parts template) +pending	o	ops-off flow.restore +pending	history
 ops-off flow(parts template) +pending	q	ops-off any.question.leave +pending	
 ops-off flow(parts template) +pending	r	ops-off any.question.confirm +pending	
 ops-off flow(parts template) +pending	v	ops-off flow.file +pending	
+ops-off flow(parts template) +unsaved	Click box	ops-off flow(parts display) +unsaved	
+ops-off flow(parts template) +unsaved	Click tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved	Down	ops-off flow(parts display) +unsaved	
 ops-off flow(parts template) +unsaved	End	ops-off flow(parts font) +unsaved	
@@ -861,6 +1351,8 @@ ops-off flow(parts template) +unsaved	Shift-Tab	ops-off help(help) +unsaved	mous
 ops-off flow(parts template) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow(parts template) +unsaved	Tab	ops-off looks +unsaved	mouse off
 ops-off flow(parts template) +unsaved	Up	ops-off flow(new empty) +unsaved	
+ops-off flow(parts template) +unsaved	Wheel down	ops-off flow(parts display) +unsaved	
+ops-off flow(parts template) +unsaved	Wheel up	ops-off flow(new empty) +unsaved	
 ops-off flow(parts template) +unsaved	d	ops-off flow(parts template) +unsaved	devices
 ops-off flow(parts template) +unsaved	i	ops-off flow(parts template)	save, prepare
 ops-off flow(parts template) +unsaved	n	ops-off any.question.confirm +unsaved	
@@ -869,6 +1361,8 @@ ops-off flow(parts template) +unsaved	q	ops-off any.question.quit +unsaved
 ops-off flow(parts template) +unsaved	r	ops-off any.question.confirm +unsaved	
 ops-off flow(parts template) +unsaved	s	ops-off flow(parts template)	save
 ops-off flow(parts template) +unsaved	v	ops-off flow.file +unsaved	
+ops-off flow(parts template) +unsaved +pending	Click box	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(parts template) +unsaved +pending	Click tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow(parts template) +unsaved +pending	Down	ops-off flow(parts display) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	End	ops-off flow(parts font) +unsaved +pending	
@@ -881,6 +1375,8 @@ ops-off flow(parts template) +unsaved +pending	Shift-Tab	ops-off help(help) +uns
 ops-off flow(parts template) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	Tab	ops-off looks +unsaved +pending	mouse off
 ops-off flow(parts template) +unsaved +pending	Up	ops-off flow(new empty) +unsaved +pending	
+ops-off flow(parts template) +unsaved +pending	Wheel down	ops-off flow(parts display) +unsaved +pending	
+ops-off flow(parts template) +unsaved +pending	Wheel up	ops-off flow(new empty) +unsaved +pending	
 ops-off flow(parts template) +unsaved +pending	d	ops-off flow(parts template) +unsaved +pending	devices
 ops-off flow(parts template) +unsaved +pending	i	ops-off flow(parts template) +pending	save, prepare
 ops-off flow(parts template) +unsaved +pending	n	ops-off any.question.confirm +unsaved +pending	
@@ -949,42 +1445,42 @@ ops-off flow.detail +unsaved +pending	Esc	ops-off flow(doc display) +unsaved +pe
 ops-off flow.detail +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.detail +unsaved +pending	e	ops-off flow(new terminal) +unsaved +pending	
 ops-off flow.detail +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off flow.detail.choices	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow.detail.choices	Enter	ops-off flow.detail.typing	
+ops-off flow.detail.choices	Esc	ops-off flow(parts display)	
+ops-off flow.detail.choices	Shrink	ops-off any.too-small	
+ops-off flow.detail.choices	q	ops-off left	mouse off, exit 0
+ops-off flow.detail.choices +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow.detail.choices +pending	Enter	ops-off flow.detail.typing +pending	
+ops-off flow.detail.choices +pending	Esc	ops-off flow(parts display) +pending	
+ops-off flow.detail.choices +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow.detail.choices +pending	q	ops-off any.question.leave +pending	
+ops-off flow.detail.choices +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow.detail.choices +unsaved	Enter	ops-off flow.detail.typing +unsaved	
+ops-off flow.detail.choices +unsaved	Esc	ops-off flow(parts display) +unsaved	
+ops-off flow.detail.choices +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow.detail.choices +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow.detail.choices +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow.detail.choices +unsaved +pending	Enter	ops-off flow.detail.typing +unsaved +pending	
+ops-off flow.detail.choices +unsaved +pending	Esc	ops-off flow(parts display) +unsaved +pending	
+ops-off flow.detail.choices +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow.detail.choices +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.detail.typing	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow.detail.typing	Enter	ops-off flow.detail[choices]	
-ops-off flow.detail.typing	Esc	ops-off flow.detail[choices]	
+ops-off flow.detail.typing	Enter	ops-off flow.detail.choices	
+ops-off flow.detail.typing	Esc	ops-off flow.detail.choices	
 ops-off flow.detail.typing	Shrink	ops-off any.too-small	
 ops-off flow.detail.typing +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow.detail.typing +pending	Enter	ops-off flow.detail[choices] +pending	
-ops-off flow.detail.typing +pending	Esc	ops-off flow.detail[choices] +pending	
+ops-off flow.detail.typing +pending	Enter	ops-off flow.detail.choices +pending	
+ops-off flow.detail.typing +pending	Esc	ops-off flow.detail.choices +pending	
 ops-off flow.detail.typing +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.detail.typing +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail.typing +unsaved	Enter	ops-off flow.detail[choices] +unsaved	
-ops-off flow.detail.typing +unsaved	Esc	ops-off flow.detail[choices] +unsaved	
+ops-off flow.detail.typing +unsaved	Enter	ops-off flow.detail.choices +unsaved	
+ops-off flow.detail.typing +unsaved	Esc	ops-off flow.detail.choices +unsaved	
 ops-off flow.detail.typing +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.detail.typing +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail.typing +unsaved +pending	Enter	ops-off flow.detail[choices] +unsaved +pending	
-ops-off flow.detail.typing +unsaved +pending	Esc	ops-off flow.detail[choices] +unsaved +pending	
+ops-off flow.detail.typing +unsaved +pending	Enter	ops-off flow.detail.choices +unsaved +pending	
+ops-off flow.detail.typing +unsaved +pending	Esc	ops-off flow.detail.choices +unsaved +pending	
 ops-off flow.detail.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.detail[choices]	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow.detail[choices]	Enter	ops-off flow.detail.typing	
-ops-off flow.detail[choices]	Esc	ops-off flow(parts display)	
-ops-off flow.detail[choices]	Shrink	ops-off any.too-small	
-ops-off flow.detail[choices]	q	ops-off left	mouse off, exit 0
-ops-off flow.detail[choices] +pending	Ctrl-C	ops-off left	mouse off, exit 130
-ops-off flow.detail[choices] +pending	Enter	ops-off flow.detail.typing +pending	
-ops-off flow.detail[choices] +pending	Esc	ops-off flow(parts display) +pending	
-ops-off flow.detail[choices] +pending	Shrink	ops-off any.too-small +pending	
-ops-off flow.detail[choices] +pending	q	ops-off any.question.leave +pending	
-ops-off flow.detail[choices] +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail[choices] +unsaved	Enter	ops-off flow.detail.typing +unsaved	
-ops-off flow.detail[choices] +unsaved	Esc	ops-off flow(parts display) +unsaved	
-ops-off flow.detail[choices] +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off flow.detail[choices] +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off flow.detail[choices] +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
-ops-off flow.detail[choices] +unsaved +pending	Enter	ops-off flow.detail.typing +unsaved +pending	
-ops-off flow.detail[choices] +unsaved +pending	Esc	ops-off flow(parts display) +unsaved +pending	
-ops-off flow.detail[choices] +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off flow.detail[choices] +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.file	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.file	Esc	ops-off flow(doc display)	
 ops-off flow.file	Shrink	ops-off any.too-small	
@@ -1014,6 +1510,7 @@ ops-off flow.maker(line 0)	Enter	ops-off flow(parts display)
 ops-off flow.maker(line 0)	Esc	ops-off flow(parts template)	
 ops-off flow.maker(line 0)	PgDn	ops-off flow.maker(line 4)	
 ops-off flow.maker(line 0)	Shrink	ops-off any.too-small	
+ops-off flow.maker(line 0)	Wheel down	ops-off flow.maker(line 1)	
 ops-off flow.maker(line 0)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker(line 0) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 0) +pending	Down	ops-off flow.maker(line 1) +pending	
@@ -1022,6 +1519,7 @@ ops-off flow.maker(line 0) +pending	Enter	ops-off flow(parts display) +pending
 ops-off flow.maker(line 0) +pending	Esc	ops-off flow(parts template) +pending	
 ops-off flow.maker(line 0) +pending	PgDn	ops-off flow.maker(line 4) +pending	
 ops-off flow.maker(line 0) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow.maker(line 0) +pending	Wheel down	ops-off flow.maker(line 1) +pending	
 ops-off flow.maker(line 0) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 0) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 0) +unsaved	Down	ops-off flow.maker(line 1) +unsaved	
@@ -1030,6 +1528,7 @@ ops-off flow.maker(line 0) +unsaved	Enter	ops-off flow(parts display) +unsaved
 ops-off flow.maker(line 0) +unsaved	Esc	ops-off flow(parts template) +unsaved	
 ops-off flow.maker(line 0) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved	
 ops-off flow.maker(line 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow.maker(line 0) +unsaved	Wheel down	ops-off flow.maker(line 1) +unsaved	
 ops-off flow.maker(line 0) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 0) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 0) +unsaved +pending	Down	ops-off flow.maker(line 1) +unsaved +pending	
@@ -1038,6 +1537,7 @@ ops-off flow.maker(line 0) +unsaved +pending	Enter	ops-off flow(parts display) +
 ops-off flow.maker(line 0) +unsaved +pending	Esc	ops-off flow(parts template) +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow.maker(line 0) +unsaved +pending	Wheel down	ops-off flow.maker(line 1) +unsaved +pending	
 ops-off flow.maker(line 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 1)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 1)	Down	ops-off flow.maker(line 2)	
@@ -1049,6 +1549,8 @@ ops-off flow.maker(line 1)	PgDn	ops-off flow.maker(line 4)
 ops-off flow.maker(line 1)	PgUp	ops-off flow.maker(line 0)	
 ops-off flow.maker(line 1)	Shrink	ops-off any.too-small	
 ops-off flow.maker(line 1)	Up	ops-off flow.maker(line 0)	
+ops-off flow.maker(line 1)	Wheel down	ops-off flow.maker(line 2)	
+ops-off flow.maker(line 1)	Wheel up	ops-off flow.maker(line 0)	
 ops-off flow.maker(line 1)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker(line 1) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 1) +pending	Down	ops-off flow.maker(line 2) +pending	
@@ -1060,6 +1562,8 @@ ops-off flow.maker(line 1) +pending	PgDn	ops-off flow.maker(line 4) +pending
 ops-off flow.maker(line 1) +pending	PgUp	ops-off flow.maker(line 0) +pending	
 ops-off flow.maker(line 1) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker(line 1) +pending	Up	ops-off flow.maker(line 0) +pending	
+ops-off flow.maker(line 1) +pending	Wheel down	ops-off flow.maker(line 2) +pending	
+ops-off flow.maker(line 1) +pending	Wheel up	ops-off flow.maker(line 0) +pending	
 ops-off flow.maker(line 1) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 1) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 1) +unsaved	Down	ops-off flow.maker(line 2) +unsaved	
@@ -1071,6 +1575,8 @@ ops-off flow.maker(line 1) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved
 ops-off flow.maker(line 1) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 1) +unsaved	Up	ops-off flow.maker(line 0) +unsaved	
+ops-off flow.maker(line 1) +unsaved	Wheel down	ops-off flow.maker(line 2) +unsaved	
+ops-off flow.maker(line 1) +unsaved	Wheel up	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 1) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 1) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 1) +unsaved +pending	Down	ops-off flow.maker(line 2) +unsaved +pending	
@@ -1082,6 +1588,8 @@ ops-off flow.maker(line 1) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +un
 ops-off flow.maker(line 1) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	Up	ops-off flow.maker(line 0) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	Wheel down	ops-off flow.maker(line 2) +unsaved +pending	
+ops-off flow.maker(line 1) +unsaved +pending	Wheel up	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 1) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 2)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 2)	Down	ops-off flow.maker(line 3)	
@@ -1093,6 +1601,8 @@ ops-off flow.maker(line 2)	PgDn	ops-off flow.maker(line 4)
 ops-off flow.maker(line 2)	PgUp	ops-off flow.maker(line 0)	
 ops-off flow.maker(line 2)	Shrink	ops-off any.too-small	
 ops-off flow.maker(line 2)	Up	ops-off flow.maker(line 1)	
+ops-off flow.maker(line 2)	Wheel down	ops-off flow.maker(line 3)	
+ops-off flow.maker(line 2)	Wheel up	ops-off flow.maker(line 1)	
 ops-off flow.maker(line 2)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker(line 2) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 2) +pending	Down	ops-off flow.maker(line 3) +pending	
@@ -1104,6 +1614,8 @@ ops-off flow.maker(line 2) +pending	PgDn	ops-off flow.maker(line 4) +pending
 ops-off flow.maker(line 2) +pending	PgUp	ops-off flow.maker(line 0) +pending	
 ops-off flow.maker(line 2) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker(line 2) +pending	Up	ops-off flow.maker(line 1) +pending	
+ops-off flow.maker(line 2) +pending	Wheel down	ops-off flow.maker(line 3) +pending	
+ops-off flow.maker(line 2) +pending	Wheel up	ops-off flow.maker(line 1) +pending	
 ops-off flow.maker(line 2) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 2) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 2) +unsaved	Down	ops-off flow.maker(line 3) +unsaved	
@@ -1115,6 +1627,8 @@ ops-off flow.maker(line 2) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved
 ops-off flow.maker(line 2) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 2) +unsaved	Up	ops-off flow.maker(line 1) +unsaved	
+ops-off flow.maker(line 2) +unsaved	Wheel down	ops-off flow.maker(line 3) +unsaved	
+ops-off flow.maker(line 2) +unsaved	Wheel up	ops-off flow.maker(line 1) +unsaved	
 ops-off flow.maker(line 2) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 2) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 2) +unsaved +pending	Down	ops-off flow.maker(line 3) +unsaved +pending	
@@ -1126,6 +1640,8 @@ ops-off flow.maker(line 2) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +un
 ops-off flow.maker(line 2) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	Up	ops-off flow.maker(line 1) +unsaved +pending	
+ops-off flow.maker(line 2) +unsaved +pending	Wheel down	ops-off flow.maker(line 3) +unsaved +pending	
+ops-off flow.maker(line 2) +unsaved +pending	Wheel up	ops-off flow.maker(line 1) +unsaved +pending	
 ops-off flow.maker(line 2) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 3)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 3)	Down	ops-off flow.maker(line 4)	
@@ -1137,6 +1653,8 @@ ops-off flow.maker(line 3)	PgDn	ops-off flow.maker(line 4)
 ops-off flow.maker(line 3)	PgUp	ops-off flow.maker(line 0)	
 ops-off flow.maker(line 3)	Shrink	ops-off any.too-small	
 ops-off flow.maker(line 3)	Up	ops-off flow.maker(line 2)	
+ops-off flow.maker(line 3)	Wheel down	ops-off flow.maker(line 4)	
+ops-off flow.maker(line 3)	Wheel up	ops-off flow.maker(line 2)	
 ops-off flow.maker(line 3)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker(line 3) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 3) +pending	Down	ops-off flow.maker(line 4) +pending	
@@ -1148,6 +1666,8 @@ ops-off flow.maker(line 3) +pending	PgDn	ops-off flow.maker(line 4) +pending
 ops-off flow.maker(line 3) +pending	PgUp	ops-off flow.maker(line 0) +pending	
 ops-off flow.maker(line 3) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker(line 3) +pending	Up	ops-off flow.maker(line 2) +pending	
+ops-off flow.maker(line 3) +pending	Wheel down	ops-off flow.maker(line 4) +pending	
+ops-off flow.maker(line 3) +pending	Wheel up	ops-off flow.maker(line 2) +pending	
 ops-off flow.maker(line 3) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 3) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 3) +unsaved	Down	ops-off flow.maker(line 4) +unsaved	
@@ -1159,6 +1679,8 @@ ops-off flow.maker(line 3) +unsaved	PgDn	ops-off flow.maker(line 4) +unsaved
 ops-off flow.maker(line 3) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 3) +unsaved	Up	ops-off flow.maker(line 2) +unsaved	
+ops-off flow.maker(line 3) +unsaved	Wheel down	ops-off flow.maker(line 4) +unsaved	
+ops-off flow.maker(line 3) +unsaved	Wheel up	ops-off flow.maker(line 2) +unsaved	
 ops-off flow.maker(line 3) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 3) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 3) +unsaved +pending	Down	ops-off flow.maker(line 4) +unsaved +pending	
@@ -1170,6 +1692,8 @@ ops-off flow.maker(line 3) +unsaved +pending	PgDn	ops-off flow.maker(line 4) +un
 ops-off flow.maker(line 3) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 3) +unsaved +pending	Up	ops-off flow.maker(line 2) +unsaved +pending	
+ops-off flow.maker(line 3) +unsaved +pending	Wheel down	ops-off flow.maker(line 4) +unsaved +pending	
+ops-off flow.maker(line 3) +unsaved +pending	Wheel up	ops-off flow.maker(line 2) +unsaved +pending	
 ops-off flow.maker(line 3) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker(line 4)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 4)	Enter	ops-off flow.maker.picker(line 0)	
@@ -1178,6 +1702,7 @@ ops-off flow.maker(line 4)	Home	ops-off flow.maker(line 0)
 ops-off flow.maker(line 4)	PgUp	ops-off flow.maker(line 0)	
 ops-off flow.maker(line 4)	Shrink	ops-off any.too-small	
 ops-off flow.maker(line 4)	Up	ops-off flow.maker(line 3)	
+ops-off flow.maker(line 4)	Wheel up	ops-off flow.maker(line 3)	
 ops-off flow.maker(line 4)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker(line 4) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker(line 4) +pending	Enter	ops-off flow.maker.picker(line 0) +pending	
@@ -1186,6 +1711,7 @@ ops-off flow.maker(line 4) +pending	Home	ops-off flow.maker(line 0) +pending
 ops-off flow.maker(line 4) +pending	PgUp	ops-off flow.maker(line 0) +pending	
 ops-off flow.maker(line 4) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker(line 4) +pending	Up	ops-off flow.maker(line 3) +pending	
+ops-off flow.maker(line 4) +pending	Wheel up	ops-off flow.maker(line 3) +pending	
 ops-off flow.maker(line 4) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker(line 4) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 4) +unsaved	Enter	ops-off flow.maker.picker(line 0) +unsaved	
@@ -1194,6 +1720,7 @@ ops-off flow.maker(line 4) +unsaved	Home	ops-off flow.maker(line 0) +unsaved
 ops-off flow.maker(line 4) +unsaved	PgUp	ops-off flow.maker(line 0) +unsaved	
 ops-off flow.maker(line 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker(line 4) +unsaved	Up	ops-off flow.maker(line 3) +unsaved	
+ops-off flow.maker(line 4) +unsaved	Wheel up	ops-off flow.maker(line 3) +unsaved	
 ops-off flow.maker(line 4) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker(line 4) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker(line 4) +unsaved +pending	Enter	ops-off flow.maker.picker(line 0) +unsaved +pending	
@@ -1202,6 +1729,7 @@ ops-off flow.maker(line 4) +unsaved +pending	Home	ops-off flow.maker(line 0) +un
 ops-off flow.maker(line 4) +unsaved +pending	PgUp	ops-off flow.maker(line 0) +unsaved +pending	
 ops-off flow.maker(line 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker(line 4) +unsaved +pending	Up	ops-off flow.maker(line 3) +unsaved +pending	
+ops-off flow.maker(line 4) +unsaved +pending	Wheel up	ops-off flow.maker(line 3) +unsaved +pending	
 ops-off flow.maker(line 4) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker(line 0)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 0)	Down	ops-off flow.maker.picker(line 1)	
@@ -1210,6 +1738,7 @@ ops-off flow.maker.picker(line 0)	Enter	ops-off flow(parts display)
 ops-off flow.maker.picker(line 0)	Esc	ops-off flow.maker(line 1)	
 ops-off flow.maker.picker(line 0)	PgDn	ops-off flow.maker.picker(line 1)	
 ops-off flow.maker.picker(line 0)	Shrink	ops-off any.too-small	
+ops-off flow.maker.picker(line 0)	Wheel down	ops-off flow.maker.picker(line 1)	
 ops-off flow.maker.picker(line 0)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker.picker(line 0) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 0) +pending	Down	ops-off flow.maker.picker(line 1) +pending	
@@ -1218,6 +1747,7 @@ ops-off flow.maker.picker(line 0) +pending	Enter	ops-off flow(parts display) +pe
 ops-off flow.maker.picker(line 0) +pending	Esc	ops-off flow.maker(line 1) +pending	
 ops-off flow.maker.picker(line 0) +pending	PgDn	ops-off flow.maker.picker(line 1) +pending	
 ops-off flow.maker.picker(line 0) +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow.maker.picker(line 0) +pending	Wheel down	ops-off flow.maker.picker(line 1) +pending	
 ops-off flow.maker.picker(line 0) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker.picker(line 0) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker.picker(line 0) +unsaved	Down	ops-off flow.maker.picker(line 1) +unsaved	
@@ -1226,6 +1756,7 @@ ops-off flow.maker.picker(line 0) +unsaved	Enter	ops-off flow(parts display) +un
 ops-off flow.maker.picker(line 0) +unsaved	Esc	ops-off flow.maker(line 1) +unsaved	
 ops-off flow.maker.picker(line 0) +unsaved	PgDn	ops-off flow.maker.picker(line 1) +unsaved	
 ops-off flow.maker.picker(line 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow.maker.picker(line 0) +unsaved	Wheel down	ops-off flow.maker.picker(line 1) +unsaved	
 ops-off flow.maker.picker(line 0) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker.picker(line 0) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker.picker(line 0) +unsaved +pending	Down	ops-off flow.maker.picker(line 1) +unsaved +pending	
@@ -1234,6 +1765,7 @@ ops-off flow.maker.picker(line 0) +unsaved +pending	Enter	ops-off flow(parts dis
 ops-off flow.maker.picker(line 0) +unsaved +pending	Esc	ops-off flow.maker(line 1) +unsaved +pending	
 ops-off flow.maker.picker(line 0) +unsaved +pending	PgDn	ops-off flow.maker.picker(line 1) +unsaved +pending	
 ops-off flow.maker.picker(line 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow.maker.picker(line 0) +unsaved +pending	Wheel down	ops-off flow.maker.picker(line 1) +unsaved +pending	
 ops-off flow.maker.picker(line 0) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker(line 1)	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 1)	Enter	ops-off flow.maker.picker.typing	
@@ -1242,6 +1774,7 @@ ops-off flow.maker.picker(line 1)	Home	ops-off flow.maker.picker(line 0)
 ops-off flow.maker.picker(line 1)	PgUp	ops-off flow.maker.picker(line 0)	
 ops-off flow.maker.picker(line 1)	Shrink	ops-off any.too-small	
 ops-off flow.maker.picker(line 1)	Up	ops-off flow.maker.picker(line 0)	
+ops-off flow.maker.picker(line 1)	Wheel up	ops-off flow.maker.picker(line 0)	
 ops-off flow.maker.picker(line 1)	q	ops-off left	mouse off, exit 0
 ops-off flow.maker.picker(line 1) +pending	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker(line 1) +pending	Enter	ops-off flow.maker.picker.typing +pending	
@@ -1250,6 +1783,7 @@ ops-off flow.maker.picker(line 1) +pending	Home	ops-off flow.maker.picker(line 0
 ops-off flow.maker.picker(line 1) +pending	PgUp	ops-off flow.maker.picker(line 0) +pending	
 ops-off flow.maker.picker(line 1) +pending	Shrink	ops-off any.too-small +pending	
 ops-off flow.maker.picker(line 1) +pending	Up	ops-off flow.maker.picker(line 0) +pending	
+ops-off flow.maker.picker(line 1) +pending	Wheel up	ops-off flow.maker.picker(line 0) +pending	
 ops-off flow.maker.picker(line 1) +pending	q	ops-off any.question.leave +pending	
 ops-off flow.maker.picker(line 1) +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker.picker(line 1) +unsaved	Enter	ops-off flow.maker.picker.typing +unsaved	
@@ -1258,6 +1792,7 @@ ops-off flow.maker.picker(line 1) +unsaved	Home	ops-off flow.maker.picker(line 0
 ops-off flow.maker.picker(line 1) +unsaved	PgUp	ops-off flow.maker.picker(line 0) +unsaved	
 ops-off flow.maker.picker(line 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off flow.maker.picker(line 1) +unsaved	Up	ops-off flow.maker.picker(line 0) +unsaved	
+ops-off flow.maker.picker(line 1) +unsaved	Wheel up	ops-off flow.maker.picker(line 0) +unsaved	
 ops-off flow.maker.picker(line 1) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off flow.maker.picker(line 1) +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker.picker(line 1) +unsaved +pending	Enter	ops-off flow.maker.picker.typing +unsaved +pending	
@@ -1266,6 +1801,7 @@ ops-off flow.maker.picker(line 1) +unsaved +pending	Home	ops-off flow.maker.pick
 ops-off flow.maker.picker(line 1) +unsaved +pending	PgUp	ops-off flow.maker.picker(line 0) +unsaved +pending	
 ops-off flow.maker.picker(line 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off flow.maker.picker(line 1) +unsaved +pending	Up	ops-off flow.maker.picker(line 0) +unsaved +pending	
+ops-off flow.maker.picker(line 1) +unsaved +pending	Wheel up	ops-off flow.maker.picker(line 0) +unsaved +pending	
 ops-off flow.maker.picker(line 1) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.maker.picker.typing	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.maker.picker.typing	Esc	ops-off flow.maker.picker(line 1)	
@@ -1279,6 +1815,22 @@ ops-off flow.maker.picker.typing +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off flow.maker.picker.typing +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
 ops-off flow.maker.picker.typing +unsaved +pending	Esc	ops-off flow.maker.picker(line 1) +unsaved +pending	
 ops-off flow.maker.picker.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow.others	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow.others	Esc	ops-off flow(others)	
+ops-off flow.others	Shrink	ops-off any.too-small	
+ops-off flow.others	q	ops-off left	mouse off, exit 0
+ops-off flow.others +pending	Ctrl-C	ops-off left	mouse off, exit 130
+ops-off flow.others +pending	Esc	ops-off flow(others) +pending	
+ops-off flow.others +pending	Shrink	ops-off any.too-small +pending	
+ops-off flow.others +pending	q	ops-off any.question.leave +pending	
+ops-off flow.others +unsaved	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow.others +unsaved	Esc	ops-off flow(others) +unsaved	
+ops-off flow.others +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off flow.others +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off flow.others +unsaved +pending	Ctrl-C	ops-off left	save, mouse off, exit 130
+ops-off flow.others +unsaved +pending	Esc	ops-off flow(others) +unsaved +pending	
+ops-off flow.others +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off flow.others +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off flow.restore	Ctrl-C	ops-off left	mouse off, exit 130
 ops-off flow.restore	Enter	ops-off any.question.confirm	
 ops-off flow.restore	Esc	ops-off flow(doc display)	
@@ -1308,7 +1860,7 @@ ops-off fonts(builtin)	Shrink	ops-off any.too-small
 ops-off fonts(builtin)	Tab	ops-off settings(value)	
 ops-off fonts(builtin)	Up	ops-off fonts(frit)	
 ops-off fonts(builtin)	i	ops-off fonts(builtin)	prepare
-ops-off fonts(builtin)	n	ops-off looks.new-frit.typing	
+ops-off fonts(builtin)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(builtin)	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin)	q	ops-off left	exit 0
 ops-off fonts(builtin) +pending	Ctrl-C	ops-off left	exit 130
@@ -1320,7 +1872,7 @@ ops-off fonts(builtin) +pending	Shrink	ops-off any.too-small +pending
 ops-off fonts(builtin) +pending	Tab	ops-off settings(value) +pending	
 ops-off fonts(builtin) +pending	Up	ops-off fonts(marked) +pending	
 ops-off fonts(builtin) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off fonts(builtin) +pending	n	ops-off looks.new-frit.typing +pending	
+ops-off fonts(builtin) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(builtin) +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(builtin) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -1332,7 +1884,7 @@ ops-off fonts(builtin) +unsaved	Shrink	ops-off any.too-small +unsaved
 ops-off fonts(builtin) +unsaved	Tab	ops-off settings(value) +unsaved	
 ops-off fonts(builtin) +unsaved	Up	ops-off fonts(frit) +unsaved	
 ops-off fonts(builtin) +unsaved	i	ops-off fonts(builtin)	save, prepare
-ops-off fonts(builtin) +unsaved	n	ops-off looks.new-frit.typing +unsaved	
+ops-off fonts(builtin) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(builtin) +unsaved	o	ops-off fonts(builtin) +unsaved	check
 ops-off fonts(builtin) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off fonts(builtin) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
@@ -1344,7 +1896,7 @@ ops-off fonts(builtin) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +
 ops-off fonts(builtin) +unsaved +pending	Tab	ops-off settings(value) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	Up	ops-off fonts(marked) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off fonts(builtin) +unsaved +pending	n	ops-off looks.new-frit.typing +unsaved +pending	
+ops-off fonts(builtin) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(builtin) +unsaved +pending	o	ops-off fonts(builtin) +unsaved +pending	check
 ops-off fonts(builtin) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(frit)	Ctrl-C	ops-off left	exit 130
@@ -1358,7 +1910,7 @@ ops-off fonts(frit)	Shift-Tab	ops-off looks
 ops-off fonts(frit)	Shrink	ops-off any.too-small	
 ops-off fonts(frit)	Tab	ops-off settings(value)	
 ops-off fonts(frit)	i	ops-off fonts(frit)	prepare
-ops-off fonts(frit)	n	ops-off looks.new-frit.typing	
+ops-off fonts(frit)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(frit)	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit)	q	ops-off left	exit 0
 ops-off fonts(frit)	r	ops-off fonts(marked) +pending	
@@ -1373,7 +1925,7 @@ ops-off fonts(frit) +pending	Shift-Tab	ops-off looks +pending
 ops-off fonts(frit) +pending	Shrink	ops-off any.too-small +pending	
 ops-off fonts(frit) +pending	Tab	ops-off settings(value) +pending	
 ops-off fonts(frit) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off fonts(frit) +pending	n	ops-off looks.new-frit.typing +pending	
+ops-off fonts(frit) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(frit) +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(frit) +unsaved	Ctrl-C	ops-off left	save, exit 130
@@ -1387,7 +1939,7 @@ ops-off fonts(frit) +unsaved	Shift-Tab	ops-off looks +unsaved
 ops-off fonts(frit) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off fonts(frit) +unsaved	Tab	ops-off settings(value) +unsaved	
 ops-off fonts(frit) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off fonts(frit) +unsaved	n	ops-off looks.new-frit.typing +unsaved	
+ops-off fonts(frit) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(frit) +unsaved	o	ops-off fonts(frit) +unsaved	check
 ops-off fonts(frit) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off fonts(frit) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
@@ -1401,7 +1953,7 @@ ops-off fonts(frit) +unsaved +pending	Shift-Tab	ops-off looks +unsaved +pending
 ops-off fonts(frit) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	Tab	ops-off settings(value) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off fonts(frit) +unsaved +pending	n	ops-off looks.new-frit.typing +unsaved +pending	
+ops-off fonts(frit) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(frit) +unsaved +pending	o	ops-off fonts(frit) +unsaved +pending	check
 ops-off fonts(frit) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(marked) +pending	Ctrl-C	ops-off left	exit 130
@@ -1416,7 +1968,7 @@ ops-off fonts(marked) +pending	Shrink	ops-off any.too-small +pending
 ops-off fonts(marked) +pending	Tab	ops-off settings(value) +pending	
 ops-off fonts(marked) +pending	Up	ops-off fonts(frit) +pending	
 ops-off fonts(marked) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off fonts(marked) +pending	n	ops-off looks.new-frit.typing +pending	
+ops-off fonts(marked) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(marked) +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(marked) +pending	r	ops-off fonts(frit)	
@@ -1432,7 +1984,7 @@ ops-off fonts(marked) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +p
 ops-off fonts(marked) +unsaved +pending	Tab	ops-off settings(value) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	Up	ops-off fonts(frit) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	i	ops-off fonts(marked) +pending	save, prepare
-ops-off fonts(marked) +unsaved +pending	n	ops-off looks.new-frit.typing +unsaved +pending	
+ops-off fonts(marked) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	o	ops-off fonts(marked) +unsaved +pending	check
 ops-off fonts(marked) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(marked) +unsaved +pending	r	ops-off fonts(frit) +unsaved	
@@ -1444,7 +1996,7 @@ ops-off fonts(refused)	Shift-Tab	ops-off looks
 ops-off fonts(refused)	Shrink	ops-off any.too-small	
 ops-off fonts(refused)	Tab	ops-off settings(value)	
 ops-off fonts(refused)	i	ops-off fonts(refused)	prepare
-ops-off fonts(refused)	n	ops-off looks.new-frit.typing	
+ops-off fonts(refused)	n	ops-off looks.new-frit.typing(row 0)	
 ops-off fonts(refused)	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused)	q	ops-off left	exit 0
 ops-off fonts(refused)	r	ops-off fonts(marked) +pending	
@@ -1456,7 +2008,7 @@ ops-off fonts(refused) +pending	Shift-Tab	ops-off looks +pending
 ops-off fonts(refused) +pending	Shrink	ops-off any.too-small +pending	
 ops-off fonts(refused) +pending	Tab	ops-off settings(value) +pending	
 ops-off fonts(refused) +pending	i	ops-off any.question.confirm +pending	prepare
-ops-off fonts(refused) +pending	n	ops-off looks.new-frit.typing +pending	
+ops-off fonts(refused) +pending	n	ops-off looks.new-frit.typing(row 0) +pending	
 ops-off fonts(refused) +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +pending	q	ops-off any.question.leave +pending	
 ops-off fonts(refused) +pending	r	ops-off fonts(marked) +pending	
@@ -1468,7 +2020,7 @@ ops-off fonts(refused) +unsaved	Shift-Tab	ops-off looks +unsaved
 ops-off fonts(refused) +unsaved	Shrink	ops-off any.too-small +unsaved	
 ops-off fonts(refused) +unsaved	Tab	ops-off settings(value) +unsaved	
 ops-off fonts(refused) +unsaved	i	ops-off any.question.confirm	save, prepare
-ops-off fonts(refused) +unsaved	n	ops-off looks.new-frit.typing +unsaved	
+ops-off fonts(refused) +unsaved	n	ops-off looks.new-frit.typing(row 0) +unsaved	
 ops-off fonts(refused) +unsaved	o	ops-off fonts(refused) +unsaved	check
 ops-off fonts(refused) +unsaved	q	ops-off any.question.quit +unsaved	
 ops-off fonts(refused) +unsaved	r	ops-off fonts(marked) +unsaved +pending	
@@ -1480,7 +2032,7 @@ ops-off fonts(refused) +unsaved +pending	Shift-Tab	ops-off looks +unsaved +pendi
 ops-off fonts(refused) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	Tab	ops-off settings(value) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	i	ops-off any.question.confirm +pending	save, prepare
-ops-off fonts(refused) +unsaved +pending	n	ops-off looks.new-frit.typing +unsaved +pending	
+ops-off fonts(refused) +unsaved +pending	n	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	o	ops-off fonts(refused) +unsaved +pending	check
 ops-off fonts(refused) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off fonts(refused) +unsaved +pending	r	ops-off fonts(marked) +unsaved +pending	
@@ -1582,54 +2134,130 @@ ops-off looks +unsaved +pending	i	ops-off looks +pending	save, prepare
 ops-off looks +unsaved +pending	o	ops-off looks +unsaved +pending	check
 ops-off looks +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
 ops-off looks +unsaved +pending	s	ops-off looks +pending	save
-ops-off looks.new-frit	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit	Esc	ops-off fonts(builtin)	
-ops-off looks.new-frit	Home	ops-off looks.new-frit.typing	
-ops-off looks.new-frit	PgUp	ops-off looks.new-frit.typing	
-ops-off looks.new-frit	Shrink	ops-off any.too-small	
-ops-off looks.new-frit	Up	ops-off looks.new-frit.typing	
-ops-off looks.new-frit	q	ops-off left	exit 0
-ops-off looks.new-frit +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit +pending	Esc	ops-off fonts(marked) +pending	
-ops-off looks.new-frit +pending	Home	ops-off looks.new-frit.typing +pending	
-ops-off looks.new-frit +pending	PgUp	ops-off looks.new-frit.typing +pending	
-ops-off looks.new-frit +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit +pending	Up	ops-off looks.new-frit.typing +pending	
-ops-off looks.new-frit +pending	q	ops-off any.question.leave +pending	
-ops-off looks.new-frit +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit +unsaved	Esc	ops-off fonts(builtin) +unsaved	
-ops-off looks.new-frit +unsaved	Home	ops-off looks.new-frit.typing +unsaved	
-ops-off looks.new-frit +unsaved	PgUp	ops-off looks.new-frit.typing +unsaved	
-ops-off looks.new-frit +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit +unsaved	Up	ops-off looks.new-frit.typing +unsaved	
-ops-off looks.new-frit +unsaved	q	ops-off any.question.quit +unsaved	
-ops-off looks.new-frit +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
-ops-off looks.new-frit +unsaved +pending	Home	ops-off looks.new-frit.typing +unsaved +pending	
-ops-off looks.new-frit +unsaved +pending	PgUp	ops-off looks.new-frit.typing +unsaved +pending	
-ops-off looks.new-frit +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
-ops-off looks.new-frit +unsaved +pending	Up	ops-off looks.new-frit.typing +unsaved +pending	
-ops-off looks.new-frit +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
-ops-off looks.new-frit.typing	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing	End	ops-off looks.new-frit	
-ops-off looks.new-frit.typing	Esc	ops-off fonts(builtin)	
-ops-off looks.new-frit.typing	PgDn	ops-off looks.new-frit	
-ops-off looks.new-frit.typing	Shrink	ops-off any.too-small	
-ops-off looks.new-frit.typing +pending	Ctrl-C	ops-off left	exit 130
-ops-off looks.new-frit.typing +pending	End	ops-off looks.new-frit +pending	
-ops-off looks.new-frit.typing +pending	Esc	ops-off fonts(marked) +pending	
-ops-off looks.new-frit.typing +pending	PgDn	ops-off looks.new-frit +pending	
-ops-off looks.new-frit.typing +pending	Shrink	ops-off any.too-small +pending	
-ops-off looks.new-frit.typing +unsaved	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing +unsaved	End	ops-off looks.new-frit +unsaved	
-ops-off looks.new-frit.typing +unsaved	Esc	ops-off fonts(builtin) +unsaved	
-ops-off looks.new-frit.typing +unsaved	PgDn	ops-off looks.new-frit +unsaved	
-ops-off looks.new-frit.typing +unsaved	Shrink	ops-off any.too-small +unsaved	
-ops-off looks.new-frit.typing +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
-ops-off looks.new-frit.typing +unsaved +pending	End	ops-off looks.new-frit +unsaved +pending	
-ops-off looks.new-frit.typing +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
-ops-off looks.new-frit.typing +unsaved +pending	PgDn	ops-off looks.new-frit +unsaved +pending	
-ops-off looks.new-frit.typing +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 6)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 6)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit(row 6)	Home	ops-off looks.new-frit.typing(row 0)	
+ops-off looks.new-frit(row 6)	PgUp	ops-off looks.new-frit.typing(row 0)	
+ops-off looks.new-frit(row 6)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit(row 6)	Up	ops-off looks.new-frit.typing(row 5)	
+ops-off looks.new-frit(row 6)	q	ops-off left	exit 0
+ops-off looks.new-frit(row 6) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit(row 6) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit(row 6) +pending	Home	ops-off looks.new-frit.typing(row 0) +pending	
+ops-off looks.new-frit(row 6) +pending	PgUp	ops-off looks.new-frit.typing(row 0) +pending	
+ops-off looks.new-frit(row 6) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit(row 6) +pending	Up	ops-off looks.new-frit.typing(row 5) +pending	
+ops-off looks.new-frit(row 6) +pending	q	ops-off any.question.leave +pending	
+ops-off looks.new-frit(row 6) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 6) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Home	ops-off looks.new-frit.typing(row 0) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	PgUp	ops-off looks.new-frit.typing(row 0) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	Up	ops-off looks.new-frit.typing(row 5) +unsaved	
+ops-off looks.new-frit(row 6) +unsaved	q	ops-off any.question.quit +unsaved	
+ops-off looks.new-frit(row 6) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit(row 6) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Home	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	PgUp	ops-off looks.new-frit.typing(row 0) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	Up	ops-off looks.new-frit.typing(row 5) +unsaved +pending	
+ops-off looks.new-frit(row 6) +unsaved +pending	q	ops-off any.question.leave +unsaved +pending	
+ops-off looks.new-frit.typing(row 0)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 0)	Enter	ops-off looks.new-frit.typing(row 1)	
+ops-off looks.new-frit.typing(row 0)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 0)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 0) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 0) +pending	Enter	ops-off looks.new-frit.typing(row 1) +pending	
+ops-off looks.new-frit.typing(row 0) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 0) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 0) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 0) +unsaved	Enter	ops-off looks.new-frit.typing(row 1) +unsaved	
+ops-off looks.new-frit.typing(row 0) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 0) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 0) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 0) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 1) +unsaved +pending	
+ops-off looks.new-frit.typing(row 0) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 0) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.typing(row 1)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 1)	Enter	ops-off looks.new-frit.typing(row 2)	
+ops-off looks.new-frit.typing(row 1)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 1)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 1) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 1) +pending	Enter	ops-off looks.new-frit.typing(row 2) +pending	
+ops-off looks.new-frit.typing(row 1) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 1) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 1) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 1) +unsaved	Enter	ops-off looks.new-frit.typing(row 2) +unsaved	
+ops-off looks.new-frit.typing(row 1) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 1) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 1) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 1) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 2) +unsaved +pending	
+ops-off looks.new-frit.typing(row 1) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 1) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.typing(row 2)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 2)	Enter	ops-off looks.new-frit.typing(row 3)	
+ops-off looks.new-frit.typing(row 2)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 2)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 2) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 2) +pending	Enter	ops-off looks.new-frit.typing(row 3) +pending	
+ops-off looks.new-frit.typing(row 2) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 2) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 2) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 2) +unsaved	Enter	ops-off looks.new-frit.typing(row 3) +unsaved	
+ops-off looks.new-frit.typing(row 2) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 2) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 2) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 2) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 3) +unsaved +pending	
+ops-off looks.new-frit.typing(row 2) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 2) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.typing(row 3)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 3)	Enter	ops-off looks.new-frit.typing(row 4)	
+ops-off looks.new-frit.typing(row 3)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 3)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 3) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 3) +pending	Enter	ops-off looks.new-frit.typing(row 4) +pending	
+ops-off looks.new-frit.typing(row 3) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 3) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 3) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 3) +unsaved	Enter	ops-off looks.new-frit.typing(row 4) +unsaved	
+ops-off looks.new-frit.typing(row 3) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 3) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 3) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 3) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 4) +unsaved +pending	
+ops-off looks.new-frit.typing(row 3) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 3) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.typing(row 4)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 4)	Enter	ops-off looks.new-frit.typing(row 5)	
+ops-off looks.new-frit.typing(row 4)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 4)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 4) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 4) +pending	Enter	ops-off looks.new-frit.typing(row 5) +pending	
+ops-off looks.new-frit.typing(row 4) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 4) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 4) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 4) +unsaved	Enter	ops-off looks.new-frit.typing(row 5) +unsaved	
+ops-off looks.new-frit.typing(row 4) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 4) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 4) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 4) +unsaved +pending	Enter	ops-off looks.new-frit.typing(row 5) +unsaved +pending	
+ops-off looks.new-frit.typing(row 4) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 4) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
+ops-off looks.new-frit.typing(row 5)	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 5)	Enter	ops-off looks.new-frit(row 6)	
+ops-off looks.new-frit.typing(row 5)	Esc	ops-off fonts(builtin)	
+ops-off looks.new-frit.typing(row 5)	Shrink	ops-off any.too-small	
+ops-off looks.new-frit.typing(row 5) +pending	Ctrl-C	ops-off left	exit 130
+ops-off looks.new-frit.typing(row 5) +pending	Enter	ops-off looks.new-frit(row 6) +pending	
+ops-off looks.new-frit.typing(row 5) +pending	Esc	ops-off fonts(marked) +pending	
+ops-off looks.new-frit.typing(row 5) +pending	Shrink	ops-off any.too-small +pending	
+ops-off looks.new-frit.typing(row 5) +unsaved	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 5) +unsaved	Enter	ops-off looks.new-frit(row 6) +unsaved	
+ops-off looks.new-frit.typing(row 5) +unsaved	Esc	ops-off fonts(builtin) +unsaved	
+ops-off looks.new-frit.typing(row 5) +unsaved	Shrink	ops-off any.too-small +unsaved	
+ops-off looks.new-frit.typing(row 5) +unsaved +pending	Ctrl-C	ops-off left	save, exit 130
+ops-off looks.new-frit.typing(row 5) +unsaved +pending	Enter	ops-off looks.new-frit(row 6) +unsaved +pending	
+ops-off looks.new-frit.typing(row 5) +unsaved +pending	Esc	ops-off fonts(marked) +unsaved +pending	
+ops-off looks.new-frit.typing(row 5) +unsaved +pending	Shrink	ops-off any.too-small +unsaved +pending	
 ops-off settings(choice)	Ctrl-C	ops-off left	exit 130
 ops-off settings(choice)	End	ops-off settings(value)	
 ops-off settings(choice)	Enter	ops-off settings(choice) +unsaved	check
