@@ -389,9 +389,9 @@ A draft that was made before such an edit shows `made before the installed file 
 
 ## Keep your own cursor style
 
-A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` a steady block. So after you quit vim, the cursor stays a steady block until something sets it again.
+A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` return to the cursor vtium.conf sets. So after you quit vim, the cursor is the one the session started with.
 
-To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. With `blink` off, no style blinks.
+To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. 7 returns to the cursor vtium.conf sets. A style you choose blinks or stays steady as its number says, whatever `blink` says.
 
 For bash, this line in `~/.bashrc` asks for a blinking bar at each prompt:
 
