@@ -301,8 +301,9 @@ This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 - `style=`, which is `regular`, `bold`, `italic` or `bold-italic`, for the source above it. The style is regular when no line names one. Any other value refuses the frit, naming its line.
 - `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`;
 - `strike=`, for an outline source, and `layer=`, which ADR-1204 D2 and D5 add. See [Layers](#layers) and [Strikes](#strikes).
+- `version=`, `check=`, `sha256=` and `url=`, which say which font the source above them needs, as ADR-1204 D7 adds them. See [What a source needs](#what-a-source-needs).
 
-The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
+The store's `package=` is an unknown key. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
 
 `cell=WIDTHxHEIGHT` states the cell that the console draws the frit in, and that the helper generates for (#145). Each side is 6 to 96 pixels. The console reads `cell=` as text before its first frame.
 
@@ -382,6 +383,28 @@ strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
 
 Here a 14-pixel cell draws `ter-u14n`, a 15-pixel cell draws it too, a 16-pixel cell draws `ter-u16n`, and a 17-pixel cell draws the outline.
 
+### What a source needs
+
+Four keys under a `source=` line say which font the source needs. The helper matches the font it finds against them, and `vtium-config fonts` names the font with them when the font is missing or differs.
+
+- `version=` is the lowest version of the font that the frit was written against, as numbers separated by dots, such as `2.304`, eight numbers at most. The helper reads a font's version from an outline font's name table (name ID 5) or a BDF font's `FONT_VERSION` property, and takes the first run of numbers in it. It compares versions number by number, so `2.10` is later than `2.9`, and `3.4` is the same version as `3.4.0`. A font of a lower version still draws, and `vtium-config fonts` reports it. A font that states no version, such as a PSF font, is not compared.
+- `check=` names a character that the right font holds, as `U+XXXX`, or a range of characters as `U+XXXX-U+YYYY`. The line can repeat, and its ranges join. A font that lacks any of them counts as missing, so the next source gives its characters. For example, `check=U+E0B0` tells a Nerd Fonts build from the plain font of a similar name.
+- `sha256=` is the SHA-256 of the file that a `file:`, `bdf:` or `outline:` source names, as 64 hexadecimal digits, in either case. The hash is of the file as it is stored, compressed or not. A file with another hash still draws, and `vtium-config fonts` reports it. Under a source that names no file, `sha256=` refuses the frit.
+- `url=` is the font's upstream page, with the version, as an address that starts with `https://` or `http://`. `vtium-config fonts` names it beside the font. A `#` starts a comment in a frit, so the address cannot hold one.
+
+Each key but `check=` comes once for each source. A malformed value, a second line of a key, and a key above the first `source=` line each refuse the frit, naming the line.
+
+```ini
+source=font:JetBrainsMono Nerd Font Mono
+version=3.4.0
+check=U+E0B0
+url=https://github.com/ryanoasis/nerd-fonts/releases/tag/v3.4.0
+```
+
+When a font is missing, or fails its `check=`, the helper sends the console a warning that names the frit, the font and the version the frit asks for. The console logs the warning once a boot. The helper's answer to a sources query lists the font as `missing`. Further lines name a font that lacks a `check=` character (`lacks`), a font of a lower version (`older`) and a file with another hash (`sha256`). A reader that knows only the `missing` and `refused` lines skips them.
+
+`vtium-config fonts` prints its list of frits first, then a report in sentences. The report names each font that a frit needs and this machine lacks, with the version the frit asks for. It also names an installed font of that name that lacks a `check=` character, a font of a lower version, and a file with another hash. The font's page follows each of these where the frit gives `url=`. A last line points to the help page on installing fonts, [Install a missing font](https://vtium.github.io/vtium/fonts/#install-a-missing-font). The report gives no command to install a font, because a list of commands for each distribution is hard to keep current. No line of the report holds a tab, so none reads as a frit's line.
+
 ### The cell, line spacing, cover sets and families
 
 The frit's own cell comes from its own first source, its text font (ADR-1200 D17). When that font is missing, or the frit holds only layers, the built-in font draws the text in its place. The helper leaves each character that the built-in font holds to the console, which draws it. The later sources draw only what the built-in font lacks. The helper picks the built-in font the console draws, by the cell's height and the console's locale, which the console passes with `--locale` when it starts the helper. The helper gives no own cell, so the console uses the frit's `cell=`, or else the cell for the configured size. A layer's font never sets the cell (ADR-1204 D5). A text font that fails as it draws leaves the cell to the frit's next own source.
@@ -420,7 +443,7 @@ Reading a name table costs a file open, so the search takes two passes:
 
 A family's name counts in every language that the table holds. The search reads each file's table directory and `name` table alone. It reads them through `names::faces` and read-fonts, the table reader under swash. It opens at most `FAMILY_FILES_MAX` files. A search that would open more fails, naming the family and the cap. When it found a file of another style, it names that file too. The engine chooses the face that it draws with the same reader and the same test, `names::matches`. So the engine takes every face that the search finds. In a collection, it takes the family's first Regular face, and else its first face. `outline:PATH` names an outline file by its absolute path, and `bdf:PATH` names a BDF font.
 
-A source that is missing on this machine, or that cannot be read, is left out. The next source in the frit's order then gives its glyphs. A source that is on this machine and is refused, such as a BDF file that the reader refuses, is also a warning. The warning names the frit's line and why, and the helper sends it to the console to log. A missing source is left out quietly, since a frit names fonts that a machine may not install. With every source left out, the frit fails, naming each source and why.
+A source that is missing on this machine, or that cannot be read, is left out. The next source in the frit's order then gives its glyphs. A source that is on this machine and is refused, such as a BDF file that the reader refuses, is also a warning. The warning names the frit's line and why, and the helper sends it to the console to log. A missing font is a warning too, which names the frit, the font and the version the frit asks for (see [What a source needs](#what-a-source-needs)). With every source left out, the frit fails, naming each source and why.
 
 Each later source fills only the codepoints that the earlier ones lack. A bitmap font is scaled by the largest whole factor at which its cell fits the cell asked for. It is centred across, and placed on the cell's bottom row. A bitmap font whose cell does not fit at factor 1 fills nothing. The cell holds one strike for each pixel format. Bitmap fonts give 1-bit glyphs, outline fonts give R8 coverage, and color glyphs give premultiplied RGBA. Each strike is stored raw, and the strikes' codepoints do not overlap.
 
