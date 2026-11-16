@@ -15,7 +15,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             default: Some("0"),
         }],
         does: &[
-            "A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. `CSI 7 SP q` returns to the configured style, as ctlseqs gives it. vtium ignores a value past 7 and keeps the style it has.",
+            "A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on and stays steady while it is off. A style that DECSCUSR selects blinks or stays steady as its number says, whatever `blink` says. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. `CSI 7 SP q` returns to the configured style, as ctlseqs gives it. vtium ignores a value past 7 and keeps the style it has.",
             "DECSTR and RIS return the cursor to the configured style.",
             "DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style the console shows. It reports the configured style as `1 q` while it blinks and `2 q` while it is steady.",
         ],

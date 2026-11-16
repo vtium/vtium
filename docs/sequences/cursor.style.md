@@ -12,7 +12,7 @@
 
 ## What vtium does
 
-A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. `CSI 7 SP q` returns to the configured style, as ctlseqs gives it. vtium ignores a value past 7 and keeps the style it has.
+A session starts with the cursor style that vtium's configuration gives: a block that blinks while the `blink` key is on and stays steady while it is off. A style that DECSCUSR selects blinks or stays steady as its number says, whatever `blink` says. DECSCUSR changes the style as the VT510 manual decides, so `CSI 0 SP q` and `CSI SP q` select a blinking block. `CSI 7 SP q` returns to the configured style, as ctlseqs gives it. vtium ignores a value past 7 and keeps the style it has.
 
 DECSTR and RIS return the cursor to the configured style.
 
@@ -36,6 +36,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_cursor_shape_change_at_rest_redraws_its_cell` in [crates/vtium-render/tests/damage.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/damage.rs)
 - `a_bar_cursor_keeps_its_letter_on_the_gpu_path` in [crates/vtium-render/tests/gpu_line_size.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/gpu_line_size.rs)
 - `decscusr_sets_the_cursor_style` in [crates/vtium-term/tests/replies.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/replies.rs)
+- `a_style_a_program_chose_blinks_as_it_says` in [crates/vtium/src/app/cursor_blink.rs](https://github.com/vtium/vtium/blob/main/crates/vtium/src/app/cursor_blink.rs)
 
 ## Where to read more
 

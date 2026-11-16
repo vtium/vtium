@@ -29,7 +29,7 @@ use vtium_platform::pty::{Pty, Size};
 use vtium_render::{
     Config as RenderConfig, DecorationColors, DrawState, Orientation, PointerShape, Profile,
 };
-use vtium_term::{Content, CursorStyle, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
+use vtium_term::{Content, Mods, MouseButton, MouseEvent, MouseTracking, Terminal};
 
 use crate::blink::Blink;
 use crate::config::{Config, keys};
@@ -1351,23 +1351,13 @@ impl Head {
     }
 
     /// What the next frame draws beyond the terminal's state. A cursor
-    /// whose style blinks follows the blink timer's phase, and a steady
-    /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
-    /// phase. The style a session starts with, `CursorStyle::Default`,
-    /// blinks, since vtium leaves the host's cursor blink on and lets the
-    /// `blink` key decide whether the timer runs.
+    /// that blinks follows the blink timer's phase, and a steady one
+    /// (DECSCUSR 2, 4 and 6, mode 12 reset, or the starting block with
+    /// `blink` off) is drawn in every phase.
     pub(crate) fn draw_state(&self) -> DrawState {
         let terminal = &self.console.term.terminal;
         let palette = terminal.palette();
-        let blinks = match terminal.cursor_style() {
-            CursorStyle::Default
-            | CursorStyle::BlockBlink
-            | CursorStyle::UnderlineBlink
-            | CursorStyle::BarBlink => true,
-            CursorStyle::BlockSteady | CursorStyle::UnderlineSteady | CursorStyle::BarSteady => {
-                false
-            }
-        };
+        let blinks = terminal.cursor_blinks();
         DrawState {
             cursor_on: !blinks || self.console.term.blink.cursor_shown(),
             blink_hidden: !self.console.term.blink.text_shown(),

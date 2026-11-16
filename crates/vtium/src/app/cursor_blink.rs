@@ -111,7 +111,8 @@ fn the_cursor_takes_the_interval_again_when_the_vt_comes_back() {
     }
 }
 
-// With `blink` off the cursor does not blink, whatever a program sets.
+// With `blink` off the starting cursor is a steady block, and an interval
+// a program sets does not make it blink.
 // covers: ctl.linux-blink-interval
 #[test]
 fn with_blink_off_the_interval_blinks_nothing() {
@@ -124,6 +125,49 @@ fn with_blink_off_the_interval_blinks_nothing() {
         assert_eq!(cursor(&app), None, "at {n} ms");
         assert!(app.term().unwrap().blink.cursor_shown(), "at {n} ms");
     }
+}
+
+// The `blink` key sets only the cursor a session starts with, and a style
+// a program chooses with DECSCUSR blinks as that style says. With `blink`
+// off the starting block is steady and no cursor timer runs. A blinking
+// bar starts the timer in the turn the sequence arrives, and the phase
+// flips every 500 ms. A steady style stops the timer with the cursor
+// shown, with `blink` on as well. The text timer follows `blink` alone.
+// covers: cursor.style
+#[test]
+fn a_style_a_program_chose_blinks_as_it_says() {
+    let t = Instant::now();
+    let ms = |n: u64| t + Duration::from_millis(n);
+    let every = Duration::from_millis(500);
+    let shown = |app: &App| app.term().unwrap().blink.cursor_shown();
+    let (_lp, mut app) = seat_at(&["--no-blink"], t);
+    assert_eq!(cursor(&app), None, "a steady block at the start");
+    output(&mut app, b"\x1b[5 q", ms(100));
+    assert_eq!(cursor(&app), Some((ms(600), every)));
+    app.turn(ms(600));
+    assert!(!shown(&app), "the off phase");
+    assert_eq!(cursor(&app), Some((ms(1100), every)));
+    assert_eq!(app.heads.first().unwrap().text_due, None, "no text timer");
+    output(&mut app, b"\x1b[6 q", ms(700));
+    assert_eq!(cursor(&app), None, "a steady bar");
+    assert!(shown(&app));
+    // `CSI 7 SP q` returns to the steady block the configuration gives
+    output(&mut app, b"\x1b[1 q", ms(800));
+    assert!(cursor(&app).is_some());
+    output(&mut app, b"\x1b[7 q", ms(900));
+    assert_eq!(cursor(&app), None);
+
+    let (_lp, mut app) = seat_at(&[], t);
+    assert!(cursor(&app).is_some(), "a blinking block at the start");
+    app.turn(ms(500));
+    assert!(!shown(&app), "the off phase");
+    output(&mut app, b"\x1b[2 q", ms(600));
+    assert_eq!(cursor(&app), None, "a steady block");
+    assert!(shown(&app));
+    assert!(
+        app.heads.first().unwrap().text_due.is_some(),
+        "the text timer"
+    );
 }
 
 // A new interval never restarts the phase that is running. A program that
