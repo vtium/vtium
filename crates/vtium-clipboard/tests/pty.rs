@@ -448,8 +448,11 @@ fn a_copy_in_a_background_job_writes_the_copy_and_exits_3() {
     let (master, slave) = pair();
     let player = play(master, Other::Vtium);
     // The shell kills the program if a stop leaves it behind, so that the
-    // test ends either way.
-    let script = "set -m; \"$0\" copy \"$1\" & pid=$!; wait $pid; status=$?; kill -KILL $pid 2>/dev/null; exit $status";
+    // test ends either way. The program's standard error goes to the pipe
+    // through descriptor 3, and the shell's own goes to /dev/null: with job
+    // control on, some versions of bash report the job's end there
+    // ("[1]+  Exit 3"), and that line is the shell's, not the program's.
+    let script = "exec 3>&2 2>/dev/null; set -m; \"$0\" copy \"$1\" 2>&3 & pid=$!; wait $pid; status=$?; kill -KILL $pid; exit $status";
     let child = Command::new("setsid")
         .args(["--ctty", "bash", "-c", script, BIN])
         .arg(&file)
