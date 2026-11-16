@@ -68,7 +68,10 @@ pgup.layer.list	PgUp	layer:list	Moves the highlight up by a page.	supported	the 
 pgdn.layer.list	PgDn	layer:list	Moves the highlight down by a page.	supported	the Flow view's picker does this today	ADR-1403 D7	
 enter.layer.list	Enter	layer:list	Picks the highlighted item and closes the list. On Other…, opens the value for typing.	supported	the Flow view's picker does this today	ADR-1403 D7	
 esc.layer.list	Esc	layer:list	Closes the list without picking.	supported	the Flow view's picker does this today	ADR-1403 D7	
-list.settings-values	Enter	view:settings	Opens a key's allowed values in the shared list.	planned	today the Settings view shows the allowed values as one joined line	ADR-1403 D7	#412
+list.settings-values	Enter	layer:settings-section	Opens a key's allowed values in the shared list.	planned	today the Settings view shows the allowed values as one joined line	ADR-1403 D7	#412
+enter.view.settings	Enter	view:settings	Opens the highlighted section, which shows its groups as headed blocks with their keys beneath.	planned	today the Settings view is one flat list of every key, font keys first	ADR-1201 D3	#412
+enter.layer.settings-section	Enter	layer:settings-section	Starts typing the highlighted key's value, or opens its allowed values in the shared list.	planned	today Enter does this in the flat list	ADR-1201 D3	#412
+esc.layer.settings-section	Esc	layer:settings-section	Goes back to the list of sections, with the same section highlighted.	planned	today there are no sections	ADR-1201 D3	#412
 list.flow-card	Enter	layer:flow-card	Opens a card's set of items, such as a terminal's or a display's displays, devices and VTs, in the shared list, as a list box inside the card.	planned	today a card joins them with commas across rows	ADR-1403 D7	#412
 list.filter-picker	Enter	layer:picker	Shows the devices each value matches in the shared list.	planned	today the filter picker joins each value's devices with commas	ADR-1403 D7	#412
 list.font-set-files	Enter	layer:flow-card	Opens the font set files to choose from in the shared list.	planned		ADR-1403 D7	#412

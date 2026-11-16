@@ -474,6 +474,9 @@ considered:
   - operator: aaronsb
     said: "for certain elements we need to stop providing long serialized lists that end up taking a whole row or two, and offer a consistent list box or pop up list dialog"
     via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
+  - operator: aaronsb
+    said: "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise"
+    via: relayed by the steering session, 2026-11-16, with the maintainer's answers on the keys of vtium-config's TUI
 status: accepted
 date: 2026-11-04
 deciders:
@@ -917,6 +920,72 @@ The kinds of state:
 A name after a colon narrows a state to one view, layer or question, as in `view:flow`, `layer:file-view` or `question:leave`. Where several rows match, the row with the narrowest state decides.
 
 A change to what a key means edits this record and the table in one commit. The scenarios that drive the TUI by script read the table and check every key against it. They check a planned row in reverse: they expect what vtium-config does today, so the check fails once the work lands and the row still says `planned`.
+
+#### The interface tree
+
+> Edited 2026-11-16: the maintainer asked for the TUI's keys to be mapped to its interface tree before the build starts (`considered`, 2026-11-16), and this subsection and the tree were added.
+
+The maintainer asked for the tree to be built by hand as well as walked from the code (2026-11-16): "before we begin building, I'd like to make sure we have keypresses mapped to the application interface tree. I think this is the thing we earlier said would be derived from walking the code, but I also think that 'hand building' this allows the walk and the hand build to meet in the middle and compromise".
+
+The interface tree, `ADR-1403-tree.tsv` beside this record, lists every place the person can be in the TUI as decided: the views, what opens over them, the typing fields, the questions, the live trial and the screen below the minimum size. Each row is one node:
+
+| Column | What it holds |
+|---|---|
+| `id` | the node's id, dotted by its parent, such as `flow.card.list`. The views use the views table's ids, and an id does not change once it is committed. |
+| `parent` | the node it opens from |
+| `node` | what the node is, in plain words |
+| `reach` | the keys that open it from its parent |
+| `leave` | the keys that leave it, and where each one goes |
+| `keys` | the ids of the key table's rows that apply there |
+| `status` | `supported` where the code has the node now, and `planned` where it will |
+| `issue` | the issue that carries a planned node |
+| `now` | on a planned node, what the code does today |
+
+Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions.
+
+The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> flow
+    flow --> looks: Tab
+    looks --> settings: Tab
+    settings --> help: Tab
+    help --> flow: Tab
+    state flow {
+        [*] --> overview
+        overview --> detail: Enter on a box
+        detail --> detail_typing: Enter on the label
+        overview --> card: Enter on a terminal
+        card --> card_list: Enter on a set
+        card --> card_typing: Enter on the name
+        overview --> maker: Enter on a template
+        maker --> picker: Enter on a filter
+        picker --> picker_typing: Enter on Other…
+        overview --> others: Enter on other inputs
+        overview --> file: v
+        overview --> restore: o
+    }
+    state looks {
+        [*] --> looks_view
+        looks_view --> looks_list: Enter on font set or size
+        looks_view --> new_frit: n
+    }
+    state settings {
+        [*] --> sections
+        sections --> section: Enter
+        section --> section_typing: Enter on a key
+        section --> section_list: Enter on a key with fixed values
+    }
+    state any {
+        question
+        trial
+        too_small
+    }
+```
+
+The tree is the hand-built half of the map. The scenarios that drive the TUI by script explore the code from its start states and name each state they reach with a tree id. A test checks both directions. Every state the explorer reaches is a node of the tree. Every supported node is reached by the keys its `reach` column gives. A planned node is checked in reverse, against its `now` column. A difference is either a defect in the code or a change to the tree, and the maintainer decides which.
 
 #### `v` views the file
 
