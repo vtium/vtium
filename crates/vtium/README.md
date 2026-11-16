@@ -673,7 +673,7 @@ vtium draws two kinds of font. It draws frits, which are font set files (ADR-120
 - **The console bounds what one answer brings** (ADR-1309 D6). A cursor theme's shape keeps at most `POINTER_THEME_PIXELS_MAX` pixels, and a picture past it refuses the file. An answer with more picture frames than the ask can bring is refused whole: more than one with `pointer-size` set, or more than the heights asked of an SVG file. The client then ends the helper and gives it up for the boot. Tests: `the_console_bounds_the_pictures_of_one_answer`, `a_helper_that_sends_more_pictures_than_asked_is_given_up`.
 - **A helper that fails ends the file** (ADR-1309 D9). When the helper fails, ends or gives no answer during an ask, the loader logs one line and keeps the pictures it has. It asks for nothing more, so a file that crashes the helper costs one helper. Test: `a_failed_helper_gives_the_file_up`.
 
-The pictures go into one table that every display's pointer reads before each draw. vtium draws its compiled-in pictures for every shape and height that the table lacks, and until the helper answers.
+The pictures go into a table that each console owns, and every display's pointer on that console reads the table before each draw. The console hands the table to its loader and to each display it creates, so no other console, and no other test, reads or adds to it. vtium draws its compiled-in pictures for every shape and height that the table lacks, and until the helper answers.
 
 ## Bounds
 
