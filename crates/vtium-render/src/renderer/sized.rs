@@ -281,15 +281,14 @@ pub(crate) fn place(size: RunSize, cell: Cell, natural: u32, baseline: u32) -> O
     if w == 0 || h == 0 {
         return None;
     }
-    // text drawn smaller to fit keeps at least one pixel on each side
+    // text drawn smaller to fit keeps at least one pixel on each side.
+    // Only the width can pass the block: the text is at most s cells
+    // tall, as tall as the block, since a fraction is below 1.
     if w > bw {
         h = ratio(h, bw, w).max(1);
         w = bw;
     }
-    if h > bh {
-        w = ratio(w, bh, h).max(1);
-        h = bh;
-    }
+    let h = h.min(bh);
     let (spare_w, spare_h) = (bw.saturating_sub(w), bh.saturating_sub(h));
     let x = match (size.fraction(), size.horizontal) {
         (true, 0) => 0,
@@ -702,7 +701,8 @@ mod tests {
     }
 
     // Every size a program can ask for places its text inside its block,
-    // for text from one column to far wider than any block
+    // at least one pixel wide and tall, for text from one column to far
+    // wider than any block
     #[test]
     fn every_size_places_its_text_inside_its_block() {
         for scale in 1..=7u8 {
@@ -718,6 +718,7 @@ mod tests {
                                 assert_eq!((n, d != 0), (0, true), "{size:?} draws at no size");
                                 continue;
                             };
+                            assert!(a.w >= 1 && a.h >= 1, "{size:?} {natural}: {a:?}");
                             assert!(
                                 a.x + a.w <= u32::from(cols) * 8,
                                 "{size:?} {natural}: {a:?}"
