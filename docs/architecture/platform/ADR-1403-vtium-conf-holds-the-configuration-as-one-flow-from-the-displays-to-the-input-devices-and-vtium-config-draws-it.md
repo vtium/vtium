@@ -487,6 +487,10 @@ considered:
     said: "The tree and its diagram go into vtium-config's ongoing docs, not only the record: the site's reference page on vtium-config's screens and keys is generated from the tree and the key table, with a test that fails when it is stale, and docs/configure.md links to it."
     via: relayed by the steering session, 2026-11-16; the wording is the steering session's
     paraphrase: true
+  - operator: aaronsb
+    said: "From the review of the walk against the hand-built tree: Home, End, PgUp and PgDn move in the part maker and the new-font-set form; the form's typed fields follow the Settings typing rule, where only Enter and Esc act; a part's narrowing choices are a node of their own under its detail; mouse clicks and the wheel join the contract wherever the TUI reads them; and the leave question is met by the code."
+    via: relayed by the steering session, 2026-11-16; the wording is the steering session's
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -882,7 +886,9 @@ These rules hold in every view of the TUI (the maintainer, 2026-11-16):
   > Edited 2026-11-16: the maintainer answered the three points the second amendment left open and added a rule for lists (`considered`, 2026-11-16). The leave question's sentences read: "The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does, and the font set changes it names are then lost. `i` and `l` no longer answer it."
 - **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it. `o` has the one meaning, Restore, and does nothing in the other views. While a card, a detail, a part maker, a picker or a form is open, the action keys do nothing. The file view is the one exception, where `s` and `i` act.
 - **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
-- **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing.
+- **While a Settings value is typed,** Enter keeps the value and Esc drops it. Up and Down do nothing. A field of the new-frit form follows the same rule: Enter keeps the value and goes to the next field, Esc closes the form, and the keys that move do nothing.
+
+  > Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). The new-frit form's fields were added to this rule. Until then Up and Down moved to another field while a value was typed.
 
 Ctrl-C and the signals keep the meaning that **What carries over** gives them: they save the changes that are not saved and leave, without a question. At a question, Ctrl-C cancels the question instead, as Esc does. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3). There `q` asks the quit question on one row while changes are not saved, and `u` puts back both the start font and the start grid.
 
@@ -911,7 +917,7 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 | Column | What it holds |
 |---|---|
 | `id` | the key and the state, such as `q.layer.file-view`. An id does not change once it is committed. |
-| `key` | the key, or `key line` for a row about the key line |
+| `key` | the key or the mouse action, or `key line` for a row about the key line |
 | `state` | the kind of state, below |
 | `means` | what the key does in that state |
 | `status` | `supported` where vtium-config does this now; `planned` where it will, and the issue says how; `weighed` where the issue decides what the key does |
@@ -954,7 +960,9 @@ The interface tree, `ADR-1403-tree.tsv` beside this record, lists every place th
 | `issue` | the issue that carries a planned node |
 | `now` | on a planned node, what the code does today |
 
-Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions.
+Every row of the key table applies to at least one node, and every key a node names is a row of the key table. A script checks both directions. The contract covers the mouse as well as the keys: a click and the wheel have rows in each node where the TUI reads them. The TUI reads the mouse only while the Flow view is in front, where mouse reporting is on.
+
+> Edited 2026-11-16: the maintainer reviewed the differences between the walk of the code and the hand-built tree (`considered`, 2026-11-16). A part's narrowing choices became a node of their own under a part's detail, and the mouse joined the contract. The paragraph ended at "A script checks both directions."
 
 The diagram shows the tree's top levels, with the Flow, Looks and Settings views opened one level or more:
 

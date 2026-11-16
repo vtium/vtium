@@ -153,9 +153,38 @@ up.layer.new-frit	Up	layer:new-frit	Moves to the field above.	supported		ADR-120
 down.layer.new-frit	Down	layer:new-frit	Moves to the field below.	supported		ADR-1201 D3		move
 enter.layer.new-frit	Enter	layer:new-frit	On the last row, adds the new font set to the draft.	supported		ADR-1201 D3		add
 enter.typing	Enter	typing	Keeps the value you typed.	supported		ADR-1403 D7		keep
-enter.typing.new-frit	Enter	typing:new-frit	Goes to the next field.	supported		ADR-1201 D3		next field
+enter.typing.new-frit	Enter	typing:new-frit	Keeps the value and goes to the next field.	supported		ADR-1201 D3		next field
 backspace.typing	Backspace	typing	Deletes the character before the cursor.	supported		ADR-1403 D7		delete
 char.typing	any letter	typing	Types the letter.	supported		ADR-1403 D7		type
+home.layer.flow-maker	Home	layer:flow-maker	Goes to the first line.	supported		ADR-1403 D7		first
+end.layer.flow-maker	End	layer:flow-maker	Goes to the last line.	supported		ADR-1403 D7		last
+pgup.layer.flow-maker	PgUp	layer:flow-maker	Moves up by a page.	supported		ADR-1403 D7		page up
+pgdn.layer.flow-maker	PgDn	layer:flow-maker	Moves down by a page.	supported		ADR-1403 D7		page down
+home.layer.new-frit	Home	layer:new-frit	Goes to the first row.	supported		ADR-1201 D3		first
+end.layer.new-frit	End	layer:new-frit	Goes to the last row.	supported		ADR-1201 D3		last
+pgup.layer.new-frit	PgUp	layer:new-frit	Moves up by a page.	supported		ADR-1201 D3		page up
+pgdn.layer.new-frit	PgDn	layer:new-frit	Moves down by a page.	supported		ADR-1201 D3		page down
+move.typing.new-frit	Up, Down, Home, End, PgUp, PgDn	typing:new-frit	Do nothing while you type. Enter keeps the value and goes to the next field, and Esc closes the form.	planned	today these keys move to another field and keep what you typed	ADR-1403 D7; ADR-1201 D3	#412	-
+list.system-fonts	Enter	layer:new-frit	On a font field, shows the fonts and font sets found on this system as a list to pick from. You can still type a font that the list lacks.	planned	today each font field takes typed text only	ADR-1201 D3	#375	choose
+up.layer.flow-choices	Up	layer:flow-choices	Moves to the choice above, and from the first choice back to the label line.	supported		ADR-1403 D7		move
+down.layer.flow-choices	Down	layer:flow-choices	Moves to the choice below.	supported		ADR-1403 D7		move
+home.layer.flow-choices	Home	layer:flow-choices	Goes to the first choice.	supported		ADR-1403 D7		first
+end.layer.flow-choices	End	layer:flow-choices	Goes to the last choice.	supported		ADR-1403 D7		last
+pgup.layer.flow-choices	PgUp	layer:flow-choices	Moves up by a page.	supported		ADR-1403 D7		page up
+pgdn.layer.flow-choices	PgDn	layer:flow-choices	Moves down by a page.	supported		ADR-1403 D7		page down
+enter.layer.flow-choices	Enter	layer:flow-choices	Picks the part narrowed to the highlighted choice into NEW PATH, and closes the detail.	supported		ADR-1403 D7		pick
+click-tab.view.flow	Click on a view's name	view:flow	Switches to that view.	supported	mouse reporting is on only while the Flow view is in front	ADR-1403 D7		-
+click-box.view.flow	Click on a box	view:flow	Highlights the box. A second click on the highlighted box opens it.	supported		ADR-1403 D7		-
+wheel-up.view.flow	Wheel up	view:flow	Moves to the box above, as Up does.	supported		ADR-1403 D7		-
+wheel-down.view.flow	Wheel down	view:flow	Moves to the box below, as Down does.	supported		ADR-1403 D7		-
+click.layer	Click	layer	Does nothing until you close what is open with Esc.	supported	a click on a view's name or on a box changes nothing while something is open over the Flow view	ADR-1403 D7		-
+wheel-up.layer	Wheel up	layer	Acts as Up does in what is open.	supported		ADR-1403 D7		-
+wheel-down.layer	Wheel down	layer	Acts as Down does in what is open.	supported		ADR-1403 D7		-
+click.typing	Click	typing	Does nothing while you type.	supported		ADR-1403 D7		-
+wheel.typing	Wheel up, Wheel down	typing	Do nothing while you type.	supported	the wheel reaches typing as Up and Down, which do nothing there	ADR-1403 D7		-
+click.question	Click	question	Does nothing. The question stays until you answer it or cancel it.	planned	today a click on a box moves the highlight under the question, and the question stays	ADR-1403 D7	#412	-
+wheel.question	Wheel up, Wheel down	question	Do nothing. The question stays until you answer it or cancel it.	planned	today the wheel reaches a question as Up or Down, which answer no	ADR-1403 D7	#412	-
+mouse.trial	Click or wheel	trial	Puts back the console's font or size, and does nothing else.	supported		ADR-1201 D4		-
 key-line.any	key line	any	Shows every key it lists, and wraps onto a second row before it drops one.	supported		ADR-1403 D7		-
 key-line.view.flow	key line	view:flow	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it ends with v view file and q quit, and leaves out Esc clear, i install, o restore and n new	ADR-1403 D7	#412	-
 key-line.layer.file-view	key line	layer:file-view	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it leaves out ^D ^U half page	ADR-1403 D7	#412	-
