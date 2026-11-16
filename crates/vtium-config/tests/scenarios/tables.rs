@@ -37,6 +37,8 @@ pub struct KeyRow {
     /// `any other key` and for the key line.
     pub keys: Vec<&'static str>,
     pub other: bool,
+    /// The row is about any letter typed, as `any letter` says.
+    pub letters: bool,
     pub key_line: bool,
     pub status: String,
 }
@@ -56,9 +58,10 @@ pub fn keys() -> Vec<KeyRow> {
             let col = |c: &str| r.get(c).cloned().unwrap_or_default();
             let key = col("key");
             let other = key == "any other key";
+            let letters = key == "any letter";
             // rows about what the screen shows, not about a key
             let key_line = matches!(key.as_str(), "key line" | "Help and key line");
-            let keys = if other || key_line {
+            let keys = if other || letters || key_line {
                 Vec::new()
             } else {
                 key.split([' ', ','])
@@ -77,6 +80,7 @@ pub fn keys() -> Vec<KeyRow> {
                 id: col("id"),
                 keys,
                 other,
+                letters,
                 key_line,
                 status: col("status"),
             }
@@ -94,10 +98,14 @@ pub fn rows_for<'a>(rows: &'a [KeyRow], node: &TreeNode, key: &str) -> Vec<&'a K
             .filter(|r| !r.key_line && node.keys.contains(&r.id))
     };
     let named: Vec<&KeyRow> = listed().filter(|r| r.keys.contains(&key)).collect();
-    if named.is_empty() {
-        listed().filter(|r| r.other).collect()
-    } else {
+    let letter = key.len() == 1 && key.chars().all(|c| c.is_ascii_alphabetic());
+    let letters: Vec<&KeyRow> = listed().filter(|r| r.letters && letter).collect();
+    if !named.is_empty() {
         named
+    } else if !letters.is_empty() {
+        letters
+    } else {
+        listed().filter(|r| r.other).collect()
     }
 }
 

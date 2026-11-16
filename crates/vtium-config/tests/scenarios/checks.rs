@@ -406,6 +406,23 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("enter.layer.list", (leaves_list, None));
+    // the new-frit form's Up and Down move between its rows, onto a field
+    // whose text is typed or onto the row that adds the font set
+    for id in ["up.layer.new-frit", "down.layer.new-frit"] {
+        m.insert(
+            id,
+            (
+                |s| {
+                    if s.exited() || !s.kept() || !s.step.to.node().starts_with("looks.new-frit") {
+                        Err("the key left the form or changed something".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                None,
+            ),
+        );
+    }
     m.insert("esc.layer.list", (leaves_list, None));
     // rows of what is not built yet, whose nodes the walk reaches in
     // another shape today: what the key does there today is not pinned
@@ -639,9 +656,25 @@ impl Checks {
                 .cloned()
                 .collect()
         };
+        // every key that acts in a node has a row there: a key that
+        // changes the state or causes something, and that no row the node
+        // lists names, is a key the records do not describe
+        if !resize && rows.is_empty() && !step.idle() {
+            self.fail(
+                step,
+                format!(
+                    "{} acts in {node_id}, and no row of the node names it",
+                    step.key
+                ),
+            );
+        }
         for row in rows {
             self.found.reached.insert(row.id.clone());
-            let check = self.checks.get(row.id.as_str()).copied();
+            let check = self
+                .checks
+                .get(row.id.as_str())
+                .copied()
+                .or_else(|| generic(&row));
             let verdict = match (check, row.status.as_str()) {
                 (None, _) => Err(format!("the key table's row {} has no check", row.id)),
                 (Some((means, _)), "supported") => means(&seen),
@@ -952,4 +985,50 @@ pub fn walk_against_tree(
         }
     }
     out
+}
+
+/// The keys that move inside a list, a view or the file view.
+const MOVES: &[&str] = &[
+    "Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDn", "j", "k", "h", "l", "g", "G",
+    "Ctrl-D", "Ctrl-U",
+];
+
+/// A check for a row that the table in `row_checks` does not name, by
+/// what kind of key the row is about: a key that moves stays in its node
+/// and changes nothing the person made; a letter or Backspace typed into a
+/// value stays in the typing; any other key acts without leaving the TUI.
+/// A planned row of this kind records only that the walk reached it.
+fn generic(row: &KeyRow) -> Option<(Check, Option<Check>)> {
+    let moves: Check = |s| {
+        if s.exited() || s.step.from.node() != s.step.to.node() || !s.kept() {
+            Err("the key left its node, quit, or changed what the person made".into())
+        } else {
+            Ok(())
+        }
+    };
+    let types: Check = |s| {
+        if s.exited()
+            || s.step.to.kind != StateKind::Typing
+            || Seen::draft(s.before) != Seen::draft(s.after)
+        {
+            Err("the key left the typing or changed the draft".into())
+        } else {
+            Ok(())
+        }
+    };
+    let stays: Check = |s| {
+        if s.exited() {
+            Err("the key quit".into())
+        } else {
+            Ok(())
+        }
+    };
+    let means = if row.letters || row.keys == ["Backspace"] {
+        types
+    } else if !row.keys.is_empty() && row.keys.iter().all(|k| MOVES.contains(k)) {
+        moves
+    } else {
+        stays
+    };
+    Some((means, None))
 }
