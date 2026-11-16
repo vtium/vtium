@@ -1,6 +1,6 @@
 //! The catalog of what vtium shows a person on its own screen: every
-//! notice (ADR-1401 D7, D8, D9) and the on-screen display's full line
-//! (D5), in one place, so they can be reviewed and reworded together, and
+//! notice (ADR-1401 D7, D8, D9), the on-screen display's full line (D5)
+//! and the overlay row's lines for link hints, in one place, so they can be reviewed and reworded together, and
 //! tier 2 and the specimens draw the same words the console shows. The head
 //! file's own errors come from vtium-settings's catalog, `messages`.
 //!
@@ -263,8 +263,9 @@ pub fn osd_line(active: bool, head: &str, console: usize, of: usize) -> String {
 
 /// The overlay row's line while link hints are on: the link hints key,
 /// Ctrl+Shift+O by default, has put a label of letters on each link on the
-/// screen, and typing a label copies that link's address. Escape is the key
-/// that ends hints, whatever vtium.conf binds.
+/// screen, and typing a label copies that link's address. Escape always ends
+/// hints, whatever vtium.conf binds, so the line names Escape itself instead
+/// of a key built from a binding.
 ///
 /// References:
 /// - ADR-1002, section 7: the hint line, the keys read while hints are on,
