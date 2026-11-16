@@ -15,7 +15,7 @@ pub(super) const XTERM_VTIUM: &[(&str, Option<&[u8]>)] = &[
     ("PE", Some(b"\x1b[201~")),
     ("PS", Some(b"\x1b[200~")),
     ("RV", Some(b"\x1b[>c")),
-    ("Se", Some(b"\x1b[0 q")),
+    ("Se", Some(b"\x1b[2 q")),
     ("Setulc", Some(b"\x1b[58:2::%p1%{65536}%/%d:%p1%{256}%/%{255}%&%d:%p1%{255}%&%dm")),
     ("Smulx", Some(b"\x1b[4:%p1%dm")),
     ("Ss", Some(b"\x1b[%p1%d q")),

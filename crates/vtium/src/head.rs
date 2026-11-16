@@ -1350,9 +1350,9 @@ impl Head {
     /// What the next frame draws beyond the terminal's state. A cursor
     /// whose style blinks follows the blink timer's phase, and a steady
     /// one (DECSCUSR 2, 4 and 6, or mode 12 reset) is drawn in every
-    /// phase. The default style blinks, since vtium leaves the host's
-    /// cursor blink on and lets the `blink` key decide whether the timer
-    /// runs.
+    /// phase. The style a session starts with, `CursorStyle::Default`,
+    /// blinks, since vtium leaves the host's cursor blink on and lets the
+    /// `blink` key decide whether the timer runs.
     pub(crate) fn draw_state(&self) -> DrawState {
         let terminal = &self.console.term.terminal;
         let palette = terminal.palette();
@@ -2989,7 +2989,7 @@ mod tests {
             (b"\x1b[3 q\x1b[?12l", true),
             (b"\x1b[4 q\x1b[?12h", false),
             (b"\x1b[5 q\x1b[?12l", true),
-            (b"\x1b[0 q\x1b[?12l", false),
+            (b"\x1b[0 q\x1b[?12l", true),
         ];
         for (bytes, on) in cases {
             head.console.term.terminal.input(bytes);
