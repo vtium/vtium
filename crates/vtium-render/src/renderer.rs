@@ -8,6 +8,8 @@ use vtium_term::{
     Attrs, Cursor, CursorShape, Frame, FrameCell, Glyph, LineSize, Palette, Rgb, Width, dim,
 };
 
+use std::sync::Arc;
+
 use crate::arrow::{Arrow, Over};
 use crate::blend::pixel;
 use crate::bounds::{MISSING_CHARS, ROW_SCRATCH_MAX};
@@ -19,9 +21,10 @@ use crate::link_row::LinkRow;
 use crate::mono::{self, Depth, Fallback, Ink, Threshold};
 #[cfg(feature = "images")]
 use crate::picture::{Mark, PictureCounts, Under};
+use crate::pointer_file::PointerPictures;
 use crate::reach::{Bound, Reach};
 #[cfg(feature = "bidi")]
-use crate::syllable::Syllable;
+use crate::syllable::{Runs, Syllable};
 use crate::target::{Orientation, Rect, Target};
 #[cfg(feature = "bidi")]
 use vtium_font::syllable::Piece;
@@ -125,6 +128,9 @@ pub struct Config {
     /// The display's depth: at [`Depth::One`] it is drawn in black and
     /// white (`src/mono.rs`).
     pub depth: Depth,
+    /// `font-ligatures`: whether a run of ASCII symbols draws as the font's
+    /// ligature across its cells ([`crate::syllable`]).
+    pub ligatures: bool,
 }
 
 impl Default for Config {
@@ -139,6 +145,7 @@ impl Default for Config {
             blink: TextBlink::default(),
             pointer: PointerShape::default(),
             depth: Depth::default(),
+            ligatures: false,
         }
     }
 }
@@ -387,6 +394,15 @@ struct Pass<'p, 'f> {
     /// The overlay row showing the hovered link's address (ADR-1002,
     /// "Drawing"), whose cells take the place of the screen's.
     link_row: Option<LinkRow<'f>>,
+    /// [`Config::ligatures`]. Only a build with the bidi feature joins
+    /// cells into syllables and ligatures, so only that build reads it.
+    #[cfg(feature = "bidi")]
+    ligatures: bool,
+    /// The syllables and ligature runs found on the row read last, so that
+    /// the scan and the drawing of a row walk each run once and decide once
+    /// whether it draws joined.
+    #[cfg(feature = "bidi")]
+    runs: core::cell::RefCell<Runs>,
 }
 
 impl<'f> Pass<'_, 'f> {
@@ -493,6 +509,9 @@ struct Pointer {
     cells: (usize, usize, usize, usize),
     /// It reaches past the grid into the border.
     outside: bool,
+    /// The shape its image shows, so that a new shape in the same place
+    /// draws the cells again.
+    shape: vtium_term::PointerShape,
 }
 
 /// What a frame draws, decided before anything is drawn.
@@ -636,6 +655,10 @@ pub struct Renderer<F> {
     /// The text of the cell being pushed, as it draws (ADR-1004 D6).
     #[cfg(feature = "bidi")]
     drawn: Vec<char>,
+    /// The syllables and ligature runs of the row being drawn, which each
+    /// frame's [`Pass`] borrows, kept here so that their memory is reused.
+    #[cfg(feature = "bidi")]
+    runs: Runs,
     /// The blocks of cells the reach of the row being scanned stamped.
     reached: Vec<crate::reach::Block>,
     /// The size each row of the grid last drew at (DECDWL, DECDHL and
@@ -647,6 +670,12 @@ pub struct Renderer<F> {
     arrow: Arrow,
     /// The pointer's image upright, which the GPU path draws.
     upright_arrow: Arrow,
+    /// The shape a program asked the pointer to take with OSC 22, which
+    /// the pointer's image shows ([`Renderer::set_pointer_shape`]).
+    shape: vtium_term::PointerShape,
+    /// A pointer file's pictures, which come before vtium's own
+    /// ([`Renderer::set_pointer_pictures`]).
+    pictures: Option<Arc<PointerPictures>>,
     pointer: Option<Pointer>,
     /// The line a run under the pointer is blended in.
     pointer_line: Vec<u32>,
@@ -686,20 +715,42 @@ pub struct Renderer<F> {
     gpu: gpu::State,
 }
 
-/// The pointer's image for cells `cell_height` tall, upright: the arrow,
-/// or the glyph `config.pointer` names. The arrow stands in for a character
-/// the font lacks, which would draw as a fallback (the missing box, U+FFFD
-/// or `?`), and for a blank one, whose glyph covers no pixel.
-fn pointer_image<F: Face>(font: &Font<F>, cell_height: u32, config: Config) -> Arrow {
-    match config.pointer {
-        PointerShape::Glyph(c) if font.has_glyph(c) => {
+/// The pointer's image for cells `cell_height` tall, upright. A shape a
+/// program asked for with OSC 22 draws as its own picture. The default
+/// shape draws as the arrow, or as the glyph `config.pointer` names. The
+/// arrow stands in for a character the font lacks, which would draw as a
+/// fallback (the missing box, U+FFFD or `?`), and for a blank one, whose
+/// glyph covers no pixel.
+///
+/// With a pointer file's pictures, the file's picture of the shape comes
+/// before vtium's own. `pointer-char` names one shape and the file names
+/// all ten, so the narrower key wins where they overlap: the glyph draws
+/// the default shape, and the file's picture draws it only when the font
+/// cannot draw the character. A shape the file lacks, and a height an SVG
+/// file was not drawn at yet, draw vtium's own picture.
+///
+/// References:
+/// - ADR-1309 D1: `pointer-char` keeps the default shape, then the file's picture, then vtium's arrow.
+fn pointer_image<F: Face>(
+    font: &Font<F>,
+    cell_height: u32,
+    config: Config,
+    shape: vtium_term::PointerShape,
+    pictures: Option<&PointerPictures>,
+) -> Arrow {
+    let glyph = match config.pointer {
+        PointerShape::Glyph(c)
+            if shape == vtium_term::PointerShape::Default && font.has_glyph(c) =>
+        {
             font.glyph(&[c], FontWidth::Narrow, Style::default())
         }
         _ => None,
     }
     .map(|g| Arrow::upright_glyph(&g))
-    .filter(Arrow::covers)
-    .unwrap_or_else(|| Arrow::upright(cell_height))
+    .filter(Arrow::covers);
+    glyph
+        .or_else(|| pictures.and_then(|p| p.pick(shape, cell_height)).cloned())
+        .unwrap_or_else(|| Arrow::upright_shape(shape, cell_height))
 }
 
 /// The font's lines in each of [`SCRIPTS`] in turn: the normal lines, and
@@ -761,11 +812,15 @@ fn paired(p: &Pass<'_, '_>, at: (usize, usize), fc: &FrameCell<'_>) -> Option<us
     }
 }
 
-/// The syllable `fc` at `col`, `row` belongs to when it draws joined
-/// (ADR-1203 D4), and the piece the cell draws: not while the cursor
-/// stands on any of its cells, while its cells differ in color, style or
-/// script, or while the link overlay covers one of them, and only while
-/// `font` holds every piece. `out` is scratch.
+/// The syllable `fc` at `col`, `row` belongs to when it draws joined, and
+/// the piece the cell draws. A syllable draws joined only while the rules
+/// of [`Syllable::joined`] allow it and `font` holds every piece. The
+/// pass's [`Runs`] finds the syllable and remembers whether it draws
+/// joined, so each run is walked and judged once for its row. `out` is
+/// scratch.
+///
+/// References:
+/// - ADR-1203 D4: when a syllable draws split.
 #[cfg(feature = "bidi")]
 fn joined_syllable<F: Face>(
     font: &Font<F>,
@@ -774,24 +829,26 @@ fn joined_syllable<F: Face>(
     fc: &FrameCell<'_>,
     out: &mut Vec<char>,
 ) -> Option<(Syllable, Piece)> {
-    let (s, index) = Syllable::find(p.frame, (col, row), fc)?;
+    // a cell under the link overlay draws the overlay's text, so it joins
+    // nothing, and its text stays out of the row's runs
     let covered = |c: usize| p.link_row.is_some_and(|o| o.covers(c, row));
-    if !s.joined(row, p.held, covered) {
+    if covered(col) {
         return None;
     }
-    let variant = s.variant();
-    let mut own = None;
-    for i in 0..s.len() {
-        out.clear();
-        let piece = s.key(i, out)?;
-        if !font.holds(out, variant) {
-            return None;
-        }
-        if i == index {
-            own = Some(piece);
-        }
+    let mut runs = p.runs.borrow_mut();
+    let (run, index) = runs.find(p.frame, (col, row), fc, p.ligatures)?;
+    let joined = runs.verdict(run, |s| {
+        s.joined(row, p.held, covered)
+            && (0..s.len()).all(|i| {
+                out.clear();
+                s.key(i, out).is_some() && font.holds(out, s.variant())
+            })
+    });
+    if !joined {
+        return None;
     }
-    own.map(|piece| (s, piece))
+    let s = runs.get(run)?;
+    Some((s.clone(), s.piece(index)?))
 }
 
 /// Appends to `out` the text the cell `fc` at `col`, `row` draws: its
@@ -867,7 +924,8 @@ impl<F: Face> Renderer<F> {
             .budgets
             .unwrap_or_else(|| Budgets::for_profile(config.profile, cells, width, height));
         let lines = line_sets(&font);
-        let upright_arrow = pointer_image(&font, ch, config);
+        let shape = vtium_term::PointerShape::Default;
+        let upright_arrow = pointer_image(&font, ch, config, shape, None);
         let arrow = upright_arrow.clone().turned(config.orientation);
         #[cfg(feature = "gpu")]
         let gpu = gpu::State::new(
@@ -903,11 +961,15 @@ impl<F: Face> Renderer<F> {
             chars: Vec::new(),
             #[cfg(feature = "bidi")]
             drawn: Vec::new(),
+            #[cfg(feature = "bidi")]
+            runs: Runs::default(),
             reached: Vec::new(),
             sizes: Vec::new(),
             doubled: Vec::new(),
             arrow,
             upright_arrow,
+            shape,
+            pictures: None,
             pointer: None,
             pointer_line: Vec::new(),
             mono_line: Vec::new(),
@@ -960,7 +1022,7 @@ impl<F: Face> Renderer<F> {
     ///
     /// When the font's underline and strike-through lines changed too, as
     /// an outline font's do once the glyph helper has measured them, the
-    /// renderer takes the new lines ([`Renderer::lines_changed`]).
+    /// renderer takes the new lines (`Renderer::lines_changed`).
     pub fn glyphs_changed(&mut self, chars: &[char]) {
         self.lines_changed();
         let arrived = sorted(chars);
@@ -1100,6 +1162,56 @@ impl<F: Face> Renderer<F> {
     /// GPU path draws into the upright frame (ADR-1303 D3).
     pub fn upright_arrow(&self) -> &Arrow {
         &self.upright_arrow
+    }
+
+    /// Shows `shape`, which a program asked for with OSC 22, as the
+    /// pointer's image from the next frame on. That frame draws again the
+    /// cells the old image covered and the cells the new one covers,
+    /// because the pointer's placement names its shape.
+    pub fn set_pointer_shape(&mut self, shape: vtium_term::PointerShape) {
+        if shape == self.shape {
+            return;
+        }
+        self.shape = shape;
+        self.redraw_pointer_image();
+    }
+
+    /// Takes `pictures`, a pointer file's, in place of those it held, and
+    /// shows the pointer with them from the next frame on. `None` goes back
+    /// to vtium's own pictures.
+    pub fn set_pointer_pictures(&mut self, pictures: Option<Arc<PointerPictures>>) {
+        self.pictures = pictures;
+        self.redraw_pointer_image();
+    }
+
+    /// The pointer file's pictures this renderer draws with, if any.
+    pub fn pointer_pictures(&self) -> Option<&Arc<PointerPictures>> {
+        self.pictures.as_ref()
+    }
+
+    /// The cell height the pointer's pictures are picked at: the height an
+    /// SVG pointer file is drawn for.
+    pub fn pointer_cell_height(&self) -> u32 {
+        u32::try_from(self.layout.ch).unwrap_or(0)
+    }
+
+    /// The pointer's image again, for the shape and the pictures held.
+    fn redraw_pointer_image(&mut self) {
+        let ch = self.pointer_cell_height();
+        self.upright_arrow = pointer_image(
+            &self.font,
+            ch,
+            self.config,
+            self.shape,
+            self.pictures.as_deref(),
+        );
+        self.arrow = self.upright_arrow.clone().turned(self.config.orientation);
+    }
+
+    /// The shape the pointer's image shows: the default shape until
+    /// [`Renderer::set_pointer_shape`] names another.
+    pub fn pointer_shape(&self) -> vtium_term::PointerShape {
+        self.shape
     }
 
     /// Where on the display the arrow's hotspot goes for the pointer's tip
@@ -1393,6 +1505,10 @@ impl<F: Face> Renderer<F> {
             held,
             plain: core::cell::OnceCell::new(),
             link_row,
+            #[cfg(feature = "bidi")]
+            ligatures: self.config.ligatures,
+            #[cfg(feature = "bidi")]
+            runs: core::cell::RefCell::new(core::mem::take(&mut self.runs)),
         };
         pass.at_pair = pass.pair_cells(at);
         // the rows that draw the cursor, or drew it last frame, as the
@@ -1418,6 +1534,11 @@ impl<F: Face> Renderer<F> {
                 scanned = scanned.saturating_add(1);
                 drawn = drawn.saturating_add(self.draw_row(&pass, row, back));
             }
+        }
+        #[cfg(feature = "bidi")]
+        {
+            self.runs = pass.runs.into_inner();
+            self.runs.clear();
         }
         (drawn, scanned)
     }
@@ -2411,10 +2532,14 @@ impl<F: Face> Renderer<F> {
             int(y).min(last(g.rows, l.ch)),
         );
         let corner = |p: i64, side: i64| p.saturating_sub(p.checked_rem(side).unwrap_or(0));
-        Some(match self.config.pointer {
-            PointerShape::Arrow => (px, py),
-            PointerShape::Glyph(_) => (corner(px, l.cw), corner(py, l.ch)),
-        })
+        let glyph = matches!(self.config.pointer, PointerShape::Glyph(_));
+        Some(
+            if glyph && self.shape == vtium_term::PointerShape::Default {
+                (corner(px, l.cw), corner(py, l.ch))
+            } else {
+                (px, py)
+            },
+        )
     }
 
     /// Where the arrow draws for the pointer's tip at `x`, `y` in the
@@ -2455,7 +2580,12 @@ impl<F: Face> Renderer<F> {
             past(b.bottom(), l.ch, g.rows),
         );
         let outside = b.x < 0 || b.y < 0 || b.x.saturating_add(b.w) > gw || b.bottom() > gh;
-        Some(Pointer { at, cells, outside })
+        Some(Pointer {
+            at,
+            cells,
+            outside,
+            shape: self.shape,
+        })
     }
 
     /// The cells `area` touches changed on this frame, and the border

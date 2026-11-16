@@ -1,8 +1,10 @@
 #!/bin/bash
+# category: scripts and emoji
 # vtium draws color emoji from Noto Color Emoji beside the text, two cells
-# wide, with the sequences that join several emoji into one picture: people
-# and families joined by zero-width joiners, flags, keycaps and skin tones.
-# An underline, a strike or an overline reaches across the whole emoji.
+# wide. It draws the sequences that join several emoji into one picture:
+# people and families joined by zero-width joiners, flags, keycaps and skin
+# tones. An underline, a strike or an overline reaches across the whole
+# emoji.
 # alt: A console screen with lines of text mixing words and color emoji,
 # alt: a family, a flag, a raised fist, scales and a dove each under a
 # alt: single, struck, red curly, over or double line, then rows of faces, animals, food and objects, people and families

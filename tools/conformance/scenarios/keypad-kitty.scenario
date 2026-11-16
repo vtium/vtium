@@ -1,8 +1,9 @@
 # The keypad under the kitty keyboard protocol's flag 1: a keypad key that
 # makes text sends it, alone or with Shift, and is CSI number ; modifiers u
 # with its own number under any other modifier; a keypad key that makes no
-# text is always CSI number u, with NumLock among its modifiers; DECKPAM
-# changes nothing.
+# text is CSI number u, with NumLock among its modifiers, apart from Begin,
+# which is the table's first form, CSI E, or CSI 1 ; modifiers E with a
+# modifier (ADR-1005 D15); DECKPAM changes nothing.
 # spec: kitty's Comprehensive keyboard handling in terminals: Disambiguate escape codes, Functional key definitions
 # covers: input.kitty-keyboard
 size 20 2

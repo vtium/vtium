@@ -129,14 +129,16 @@
 <line x1="620" y1="546" x2="620" y2="610" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <text x="612" y="584" font-size="12" text-anchor="end" fill="#1f2933">pipes: requests,</text>
 <text x="612" y="600" font-size="12" text-anchor="end" fill="#1f2933">glyph sets back</text>
-<rect x="530" y="612" width="184" height="148" fill="#e5f1e8" stroke="#9aa5b1" stroke-width="1"/>
+<rect x="530" y="612" width="184" height="184" fill="#e5f1e8" stroke="#9aa5b1" stroke-width="1"/>
 <text x="622" y="634" font-size="14" text-anchor="middle" fill="#1f2933">vtium-config serve</text>
 <text x="622" y="654" font-size="13" text-anchor="middle" fill="#1f2933">the font helper</text>
 <text x="622" y="672" font-size="13" text-anchor="middle" fill="#1f2933">as nobody,</text>
 <text x="622" y="690" font-size="13" text-anchor="middle" fill="#1f2933">in a sandbox;</text>
-<text x="622" y="708" font-size="13" text-anchor="middle" fill="#1f2933">one per font set</text>
-<text x="622" y="732" font-size="12" text-anchor="middle" fill="#2f6fb0">vtium-config,</text>
-<text x="622" y="748" font-size="12" text-anchor="middle" fill="#2f6fb0">vtium-font</text>
+<text x="622" y="708" font-size="13" text-anchor="middle" fill="#1f2933">one per font set,</text>
+<text x="622" y="726" font-size="13" text-anchor="middle" fill="#1f2933">and one for a</text>
+<text x="622" y="744" font-size="13" text-anchor="middle" fill="#1f2933">pointer file</text>
+<text x="622" y="768" font-size="12" text-anchor="middle" fill="#2f6fb0">vtium-config,</text>
+<text x="622" y="784" font-size="12" text-anchor="middle" fill="#2f6fb0">vtium-font</text>
 <!-- the image helper -->
 <path d="M 702 530 L 862 530 L 862 610" fill="none" stroke="#1f2933" stroke-width="1.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
 <text x="854" y="566" font-size="12" text-anchor="end" fill="#1f2933">socket pair:</text>

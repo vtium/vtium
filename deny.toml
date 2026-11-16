@@ -10,12 +10,14 @@ all-features = true
 # The licenses the crates of vtium's lock files use, each of them permissive. A crate whose license expression offers a choice, such as "MIT OR Apache-2.0", passes when one of the choices is here. A new license joins the list only after someone has read it and found it permissive.
 #
 # - Apache-2.0 and MIT: most crates, and vtium's own.
+# - BSD-2-Clause: arrayref, which tiny-skia uses.
+# - BSD-3-Clause: tiny-skia and tiny-skia-path, the rasterizer resvg draws an SVG pointer file with, whose notice vtium's package ships.
 # - ISC: libloading.
 # - NCSA: libfuzzer-sys, which the fuzz targets use, together with MIT or Apache-2.0.
 # - Unicode-3.0: the Unicode data that unicode-ident carries.
 # - Zlib: slotmap.
 # - bzip2-1.0.6: libbz2-rs-sys.
-allow = ["Apache-2.0", "ISC", "MIT", "NCSA", "Unicode-3.0", "Zlib", "bzip2-1.0.6"]
+allow = ["Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "MIT", "NCSA", "Unicode-3.0", "Zlib", "bzip2-1.0.6"]
 # Each lock file uses only some of the licenses, so a license that one lock file does not use is not an error.
 unused-allowed-license = "allow"
 

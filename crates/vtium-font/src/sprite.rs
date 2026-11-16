@@ -68,7 +68,7 @@ pub(crate) mod spans;
 use core::fmt;
 
 use crate::bounds::CELL_SIDE_MAX;
-use crate::face::Decorations;
+use crate::face::{Decorations, Doubled, Face, Font, Style, Width};
 use crate::glyph::Glyph;
 
 /// A range of characters vtium draws as sprites, each of which a font may
@@ -147,7 +147,7 @@ impl fmt::Display for Range {
     }
 }
 
-/// Whether vtium can draw `c` as a sprite; a [`Font`](crate::Font)'s
+/// Whether vtium can draw `c` as a sprite; a [`Font`]'s
 /// policy decides whether it does.
 pub fn has(c: char) -> bool {
     Range::of(c).is_some()
@@ -240,6 +240,33 @@ pub fn draw(c: char, width: u32, height: u32, thickness: u32) -> Option<Glyph> {
         Range::BoxDrawing => box_drawing(&mut buf, cp, t),
     }
     Some(buf)
+}
+
+/// The sprite that a line of double size draws for `cluster`, `width`
+/// cells wide in `style`, at the double size `size`, or `None` when
+/// `font` draws the cluster from its face. vtium draws the sprite at the
+/// size of the doubled cell, which [`Doubled::cell`] gives for the face's
+/// cell, instead of doubling the pixels of the sprite at the normal size.
+/// A light line keeps the weight that [`light_line`] gives the doubled
+/// cell's height, so on a line of double width a vertical line stays as
+/// thin as on a line of the normal size, and on a line of double height
+/// both kinds of line follow the taller cell. Each edge of the sprite
+/// still meets the edge of the cell, so a line joins the sprite in the
+/// next cell, as at the normal size.
+///
+/// The font chooses between sprite and face, and fits the sprite to line
+/// spacing, as it does at the normal size ([`Font::drawn`]), with the
+/// doubled cell and the doubled rows that line spacing adds
+/// ([`Doubled::band`]).
+pub fn doubled<F: Face>(
+    font: &Font<F>,
+    cluster: &[char],
+    (width, style): (Width, Style),
+    size: Doubled,
+) -> Option<Glyph> {
+    let face = font.face();
+    let cell = size.cell(face.cell())?;
+    font.sprite_in(cluster, (cell, size.band(face.band())), (width, style))
 }
 
 // Line styles, two bits per edge.
@@ -891,3 +918,88 @@ const OCTANTS: [u8; 0xe6] = [
     0xed, 0xee, 0xef, 0xf1, 0xf2, 0xf3, 0xf4, 0xf6,
     0xf7, 0xf8, 0xf9, 0xfb, 0xfd, 0xfe,
 ];
+
+#[cfg(test)]
+#[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+mod tests {
+    use super::*;
+    use crate::face::Cell;
+    use crate::spacing::{Band, Fit};
+
+    /// A face whose text is 8×16 in a cell that line spacing makes 8×20,
+    /// 2 rows above the text and 2 below. It draws nothing itself, so the
+    /// font draws the full block as a sprite, and it fits the block as
+    /// `fit`, as a font set's `fit=` can.
+    struct Spaced {
+        fit: Fit,
+    }
+
+    impl Face for Spaced {
+        fn cell(&self) -> Cell {
+            Cell {
+                width: 8,
+                height: 20,
+            }
+        }
+        fn size_step(&self) -> u32 {
+            16
+        }
+        fn has_glyph(&self, _: char) -> bool {
+            false
+        }
+        fn draw(&self, _: &[char], _: Style) -> Option<Glyph> {
+            None
+        }
+        fn band(&self) -> Band {
+            Band { above: 2, below: 2 }
+        }
+        fn fit(&self, _: char, _: Style) -> Fit {
+            self.fit
+        }
+    }
+
+    /// The rows of `g` that hold ink, counted from the top.
+    fn inked(g: &Glyph) -> Vec<u32> {
+        (0..g.height())
+            .filter(|&y| {
+                (0..g.width()).any(|x| g.pixel(x, y).is_some_and(|p| p.iter().any(|&b| b != 0)))
+            })
+            .collect()
+    }
+
+    // A full block that keeps to the text band stays in the doubled band on
+    // a line of double size, as it stays in the band at the normal size. At
+    // the normal size the block fills rows 2 to 17 of its 8×20 cell. A pair
+    // of double-height lines draws a cell of 16×40, with 4 rows of spacing
+    // above the text and 4 below, so the block fills rows 4 to 35 and
+    // leaves the spacing clear. A line of double width keeps the cell's 2
+    // rows above and below. A block that fills the cell fills every row at
+    // every size.
+    // covers: text.line-size
+    #[test]
+    fn a_sprite_keeps_to_the_text_band_at_the_normal_and_each_double_size() {
+        let block = ['\u{2588}'];
+        let at = |fit, size| {
+            let font = Font::new(Spaced { fit });
+            doubled(&font, &block, (Width::Narrow, Style::default()), size).unwrap()
+        };
+        let normal = |fit| {
+            let font = Font::new(Spaced { fit });
+            font.glyph(&block, Width::Narrow, Style::default()).unwrap()
+        };
+        for fit in [Fit::Natural, Fit::Room] {
+            assert_eq!(inked(&normal(fit)), (2..18).collect::<Vec<_>>(), "{fit:?}");
+            let tall = at(fit, Doubled::Height);
+            assert_eq!((tall.width(), tall.height()), (16, 40), "{fit:?}");
+            assert_eq!(inked(&tall), (4..36).collect::<Vec<_>>(), "{fit:?}");
+            let wide = at(fit, Doubled::Width);
+            assert_eq!((wide.width(), wide.height()), (16, 20), "{fit:?}");
+            assert_eq!(inked(&wide), (2..18).collect::<Vec<_>>(), "{fit:?}");
+        }
+        assert_eq!(inked(&normal(Fit::Fill)), (0..20).collect::<Vec<_>>());
+        let tall = at(Fit::Fill, Doubled::Height);
+        assert_eq!(inked(&tall), (0..40).collect::<Vec<_>>());
+        let wide = at(Fit::Fill, Doubled::Width);
+        assert_eq!(inked(&wide), (0..20).collect::<Vec<_>>());
+    }
+}

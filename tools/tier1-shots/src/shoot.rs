@@ -143,7 +143,7 @@ fn typeface_of(frame: &Frame<'_>) -> Typeface {
 /// each joined Arabic letter.
 fn shown(frame: &Frame<'_>) -> Vec<Shown> {
     let mut all = vec![Shown::default()];
-    read_shown(frame, &mut all);
+    read_shown(frame, &mut all, false);
     settle(&mut all);
     all
 }

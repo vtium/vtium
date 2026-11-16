@@ -1,0 +1,24 @@
+# OSC 22 with > pushes each name, so the last one is on top and shows.
+# The main and the alternate screen keep a stack each, and RIS empties
+# both, so __current__ then answers 0.
+# spec: kitty's pointer-shapes specification: push, the separate stacks of the main and alternate screens, and a reset that empties both; ADR-1000 window.pointer-shape
+# covers: window.pointer-shape
+size 10 2
+send "\e]22;>text,pointer\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;pointer\e\\"
+send "\e[?1049h\e]22;?__current__\e\\"
+check
+reply "\e]22;0\e\\"
+send "\e]22;>wait\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;wait\e\\"
+send "\e[?1049l\e]22;?__current__\e\\"
+check
+reply "\e]22;pointer\e\\"
+send "\ec\e]22;?__current__\e\\"
+check
+reply "\e]22;0\e\\"
+send "\e[?1049h\e]22;?__current__\e\\"
+check
+reply "\e]22;0\e\\"

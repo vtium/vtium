@@ -27,6 +27,7 @@ _Escape protocols and the screen model - parser, modes, cells, scrollback_
 | [ADR-1006](./term/ADR-1006-a-grapheme-cluster-with-a-spacing-mark-or-a-virama-conjunct-takes-two-cells-by-python-wcwidth-s-rule.md) | A grapheme cluster with a spacing mark or a virama conjunct takes two cells, by Python wcwidth's rule | accepted |
 | [ADR-1007](./term/ADR-1007-vtium-clipboard-copies-text-to-the-console-s-clipboard-through-osc-52-and-its-short-name-is-vticlip.md) | vtium-clipboard copies text to the console's clipboard through OSC 52, and its short name is vticlip | accepted |
 | [ADR-1008](./term/ADR-1008-which-programs-may-read-the-console-s-clipboard-and-how-vtium-guards-it.md) | Which programs may read the console's clipboard, and how vtium guards it | proposed |
+| [ADR-1009](./term/ADR-1009-a-line-s-memory-bound-counts-its-sized-runs-and-the-line-s-tables-compact-at-one-and-a-half-times-what-its-cells-name.md) | A line's memory bound counts its sized runs, and the line's tables compact at one and a half times what its cells name | accepted |
 
 ## Image
 _Inline images - sixel and the kitty graphics protocol, storage and placement_
@@ -47,6 +48,7 @@ _Font loading, glyph rasterisation, color glyphs and fallback_
 | [ADR-1201](./font/ADR-1201-vtium-config-manages-the-console-s-fonts-and-settings-trying-each-choice-on-the-live-console.md) | vtium config manages the console's fonts and settings, trying each choice on the live console | accepted |
 | [ADR-1202](./font/ADR-1202-superscript-and-subscript-glyphs-are-drawn-at-a-smaller-size-by-the-source-they-come-from-and-a-bitmap-glyph-stays-one-bit.md) | Superscript and subscript glyphs are drawn at a smaller size by the source they come from, and a bitmap glyph stays one bit | accepted |
 | [ADR-1203](./font/ADR-1203-a-syllable-that-the-grapheme-rules-cut-into-several-clusters-is-shaped-once-and-drawn-across-their-cells.md) | A syllable that the grapheme rules cut into several clusters is shaped once and drawn across their cells | accepted |
+| [ADR-1204](./font/ADR-1204-vtium-draws-its-own-messages-in-one-small-built-in-font-and-ships-a-catalog-of-font-sets-built-from-layers-with-terminus-working-out-of-the-box.md) | vtium draws its own messages in one small built-in font and ships a catalog of font sets built from layers, with Terminus working out of the box | accepted |
 
 ## Render
 _Cells and images to pixels - the renderer and its display interface_
@@ -62,6 +64,7 @@ _Cells and images to pixels - the renderer and its display interface_
 | [ADR-1306](./render/ADR-1306-glyph-ink-reaches-one-row-past-its-own-up-and-down-and-each-row-is-composed-from-the-glyphs-of-three-rows.md) | Glyph ink reaches one row past its own, up and down, and each row is composed from the glyphs of three rows | accepted |
 | [ADR-1307](./render/ADR-1307-an-indic-cluster-wider-than-its-cell-is-squeezed-sideways-to-it-at-full-height.md) | An Indic cluster wider than its cell is squeezed sideways to it at full height | accepted |
 | [ADR-1308](./render/ADR-1308-a-run-of-cells-that-draws-one-scaled-glyph-is-one-unit-for-every-edit-and-a-ligature-is-drawn-across-its-cells-under-an-option-that-is-off-by-default.md) | A run of cells that draws one scaled glyph is one unit for every edit, and a ligature is drawn across its cells under an option that is off by default | accepted |
+| [ADR-1309](./render/ADR-1309-an-svg-file-or-a-cursor-theme-can-replace-vtium-s-pointer-pictures-and-the-font-helper-draws-them.md) | An SVG file or a cursor theme can replace vtium's pointer pictures, and the font helper draws them | accepted |
 
 ## Platform
 _The Linux VT - DRM/KMS, input, ptys, seats and the unsafe boundary_

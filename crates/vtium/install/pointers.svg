@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  vtium's own pointer pictures: one symbol for each pointer shape that a
+  program can ask for. Each symbol's id is the shape's name, its viewBox
+  sets its proportions, and data-hotspot is the point the pointer names, in
+  the viewBox's units.
+
+  The format is described in the pointer file reference:
+  https://vtium.github.io/vtium/reference/pointer-file/
+
+  To draw your own pointer, copy this file, change its symbols in an SVG
+  editor, and point pointer-theme in vtium.conf at the copy. vtium writes
+  this file from the pictures built into it, so a change to the installed
+  file is lost at the next upgrade.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges">
+  <symbol id="default" viewBox="-0.9 -0.9 12.8 19.8" data-hotspot="0 0">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="2.25" stroke-linejoin="round"><polygon points="0,0 0,16 4,12 7,18 9,17 6,11 11,11"/></g>
+    <g fill="#fff" fill-rule="evenodd"><polygon points="0,0 0,16 4,12 7,18 9,17 6,11 11,11"/></g>
+  </symbol>
+  <symbol id="text" viewBox="-1.8 -1.8 17.6 39.6" data-hotspot="7 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="5" y="0" width="4" height="36"/><rect x="0" y="0" width="14" height="4"/><rect x="0" y="32" width="14" height="4"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="5" y="0" width="4" height="36"/><rect x="0" y="0" width="14" height="4"/><rect x="0" y="32" width="14" height="4"/></g>
+  </symbol>
+  <symbol id="pointer" viewBox="-1.8 -1.8 29.6 39.6" data-hotspot="10 0">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><circle cx="10" cy="3" r="3"/><rect x="7" y="3" width="6" height="15"/><circle cx="15" cy="14" r="3"/><circle cx="20" cy="15" r="3"/><circle cx="24" cy="17" r="2"/><rect x="7" y="15" width="19" height="15"/><polygon points="7,20 2,16 0,19 7,30"/><rect x="9" y="29" width="15" height="7"/></g>
+    <g fill="#fff" fill-rule="evenodd"><circle cx="10" cy="3" r="3"/><rect x="7" y="3" width="6" height="15"/><circle cx="15" cy="14" r="3"/><circle cx="20" cy="15" r="3"/><circle cx="24" cy="17" r="2"/><rect x="7" y="15" width="19" height="15"/><polygon points="7,20 2,16 0,19 7,30"/><rect x="9" y="29" width="15" height="7"/></g>
+  </symbol>
+  <symbol id="crosshair" viewBox="-1.8 -1.8 37.6 39.6" data-hotspot="17 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="0" y="16" width="34" height="4"/><rect x="15" y="1" width="4" height="34"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="0" y="16" width="34" height="4"/><rect x="15" y="1" width="4" height="34"/></g>
+  </symbol>
+  <symbol id="wait" viewBox="-1.8 -1.8 27.6 39.6" data-hotspot="12 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="0" y="0" width="24" height="4"/><rect x="0" y="32" width="24" height="4"/><polygon points="2,4 22,4 14,18 22,32 2,32 10,18"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="0" y="0" width="24" height="4"/><rect x="0" y="32" width="24" height="4"/><polygon points="2,4 22,4 14,18 22,32 2,32 10,18"/></g>
+  </symbol>
+  <symbol id="progress" viewBox="-1.8 -1.8 37.6 39.6" data-hotspot="0 0">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><polygon points="0,0 0,32 8,24 14,36 18,34 12,22 22,22"/><rect x="20" y="16" width="14" height="3"/><rect x="20" y="33" width="14" height="3"/><polygon points="21,19 33,19 28,26 33,33 21,33 26,26"/></g>
+    <g fill="#fff" fill-rule="evenodd"><polygon points="0,0 0,32 8,24 14,36 18,34 12,22 22,22"/><rect x="20" y="16" width="14" height="3"/><rect x="20" y="33" width="14" height="3"/><polygon points="21,19 33,19 28,26 33,33 21,33 26,26"/></g>
+  </symbol>
+  <symbol id="not-allowed" viewBox="-1.8 -1.8 37.6 39.6" data-hotspot="17 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><path d="M0 18a17 17 0 1 0 34 0a17 17 0 1 0 -34 0ZM5 18a12 12 0 1 0 24 0a12 12 0 1 0 -24 0Z"/><polygon points="9,7 28,26 25,29 6,10"/></g>
+    <g fill="#fff" fill-rule="evenodd"><path d="M0 18a17 17 0 1 0 34 0a17 17 0 1 0 -34 0ZM5 18a12 12 0 1 0 24 0a12 12 0 1 0 -24 0Z"/><polygon points="9,7 28,26 25,29 6,10"/></g>
+  </symbol>
+  <symbol id="move" viewBox="-1.8 -1.8 39.6 39.6" data-hotspot="18 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="6" y="16" width="24" height="4"/><rect x="16" y="6" width="4" height="24"/><polygon points="0,18 8,10 8,26"/><polygon points="36,18 28,10 28,26"/><polygon points="18,0 10,8 26,8"/><polygon points="18,36 10,28 26,28"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="6" y="16" width="24" height="4"/><rect x="16" y="6" width="4" height="24"/><polygon points="0,18 8,10 8,26"/><polygon points="36,18 28,10 28,26"/><polygon points="18,0 10,8 26,8"/><polygon points="18,36 10,28 26,28"/></g>
+  </symbol>
+  <symbol id="ew-resize" viewBox="-1.8 -1.8 39.6 39.6" data-hotspot="18 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="8" y="16" width="20" height="4"/><polygon points="0,18 9,9 9,27"/><polygon points="36,18 27,9 27,27"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="8" y="16" width="20" height="4"/><polygon points="0,18 9,9 9,27"/><polygon points="36,18 27,9 27,27"/></g>
+  </symbol>
+  <symbol id="ns-resize" viewBox="-1.8 -1.8 21.6 39.6" data-hotspot="9 18">
+    <g opacity="0.8627" fill="none" stroke="#000" stroke-width="4.5" stroke-linejoin="round"><rect x="7" y="8" width="4" height="20"/><polygon points="9,0 0,9 18,9"/><polygon points="9,36 0,27 18,27"/></g>
+    <g fill="#fff" fill-rule="evenodd"><rect x="7" y="8" width="4" height="20"/><polygon points="9,0 0,9 18,9"/><polygon points="9,36 0,27 18,27"/></g>
+  </symbol>
+</svg>

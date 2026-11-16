@@ -499,7 +499,7 @@ fn digest(path: &Path) -> Result<String, String> {
 
 /// Why `file` in `dir` is not the pinned bytes `sha256`, absent included;
 /// `None` when it is.
-fn fault(dir: &Path, file: &str, sha256: &str) -> Option<String> {
+pub(crate) fn fault(dir: &Path, file: &str, sha256: &str) -> Option<String> {
     match digest(&dir.join(file)) {
         Err(e) => Some(format!("{file} is not in {}: {e}", dir.display())),
         Ok(got) if got != sha256 => Some(format!("{file} has SHA-256 {got}, not {sha256}")),
@@ -564,7 +564,7 @@ pub fn scripts_frit_text(dir: &Path) -> String {
 
 /// Downloads `url` into `dir` as `file` with curl, through a `.part` file,
 /// so a download that stops leaves no file of that name.
-fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
+pub(crate) fn download(dir: &Path, file: &str, url: &str) -> Result<(), String> {
     let part = dir.join(format!("{file}.part"));
     let status = Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])
@@ -670,6 +670,34 @@ pub fn frit_text(dir: &Path, color: bool, spacing: u32) -> String {
     text
 }
 
+/// The bitmap-first frit's text, its outline sources the fonts in `dir`.
+/// The built-in GNU Unifont comes first, limited to ASCII by its `cover=`
+/// line, so it is a bitmap first source that sets the 8x16 cell. Each
+/// regular font of the test frit follows with its `cover=` lines, the
+/// color emoji font included, and with a `render=smooth` line under it
+/// when `smooth` is set. Without that line, each outline source draws
+/// 1-bit, because the first source is a bitmap font.
+///
+/// References:
+/// - ADR-1200 D1, the `render=` row: the default behind a bitmap first
+///   source and its override.
+pub fn bitmap_frit_text(dir: &Path, smooth: bool) -> String {
+    let mut text = String::from("source=builtin:unifont\ncover=ascii\n");
+    for font in FONTS.iter().filter(|f| f.style.line().is_none()) {
+        text.push_str(&format!(
+            "source=outline:{}\n",
+            dir.join(font.file).display()
+        ));
+        for cover in font.cover {
+            text.push_str(&format!("cover={cover}\n"));
+        }
+        if smooth {
+            text.push_str("render=smooth\n");
+        }
+    }
+    text
+}
+
 /// The test frit's name: `tier2-outline`, or `tier2-outline-mono` without
 /// the color emoji font.
 fn frit_name(color: bool) -> &'static str {
@@ -744,14 +772,12 @@ pub fn chosen_frit(
             .collect();
         return Err(format!("the frit {name} left out {}", why.join("; ")));
     }
-    let cell = match engine.own_cell(height)? {
-        EngineCell::Outline(cell) => cell,
-        EngineCell::Bitmap(cell) => {
-            return Err(format!(
-                "the frit {name}'s first source is a bitmap font of cell {}x{}",
-                cell.width, cell.height
-            ));
-        }
+    // the cell the frit's first source gives, as the helper answers the
+    // console's cell query: a bitmap font's own cell, or an outline font's
+    // at `height`
+    let own = match engine.own_cell(height)? {
+        EngineCell::Outline(cell) => OwnCell::Outline(cell),
+        EngineCell::Bitmap(cell) => OwnCell::Bitmap(cell),
     };
     let mut chosen = Chosen::frit(
         FritText {
@@ -766,7 +792,7 @@ pub fn chosen_frit(
             "the frit {name} asks for no cell at {height} pixels"
         ));
     }
-    chosen.set_own_cell(OwnCell::Outline(cell), false);
+    chosen.set_own_cell(own, false);
     // the cell and the rows its spacing adds, as the console reads them
     // from a display's face to ask the helper at
     let at = {
@@ -781,16 +807,21 @@ pub fn chosen_frit(
     };
     for one in &shown(at.cell)? {
         let want: Vec<u32> = one.chars.iter().map(|&c| u32::from(c)).collect();
-        if let Some(doubled) = one.doubled {
-            add_doubled(&engine, generated, (at, one.variant, doubled), &one.chars)
-                .map_err(|why| format!("the frit {name}: {why}"))?;
-            continue;
-        }
         let clusters: Vec<Vec<u32>> = one
             .clusters
             .iter()
             .map(|t| t.iter().map(|&c| u32::from(c)).collect())
             .collect();
+        if let Some(doubled) = one.doubled {
+            add_doubled(
+                &engine,
+                generated,
+                (at, one.variant, doubled),
+                (&one.chars, &clusters),
+            )
+            .map_err(|why| format!("the frit {name}: {why}"))?;
+            continue;
+        }
         let Some(bytes) = engine.draw_variant(at, one.variant, &want, (&clusters, true))? else {
             continue;
         };
@@ -815,10 +846,10 @@ pub fn chosen_frit(
     Ok(chosen)
 }
 
-/// Adds to the console's store `generated` the glyphs of `chars` that the
-/// engine draws at the double size `doubled` for the cell `at` in
-/// `variant`, as the helper answers a double ask and the console takes
-/// the answer. The engine refuses a superscript or subscript and a cell
+/// Adds to the console's store `generated` the glyphs of `chars` and of
+/// `clusters` that the engine draws at the double size `doubled` for the
+/// cell `at` in `variant`, as the helper answers a double ask and the
+/// console takes the answer. The engine refuses a superscript or subscript and a cell
 /// whose double passes the largest cell, as the helper does, and the set
 /// must hold one cell, the one the double size gives `at`, as the console
 /// checks.
@@ -830,10 +861,12 @@ fn add_doubled(
         vtium_font::Variant,
         vtium_font::Doubled,
     ),
-    chars: &[char],
+    (chars, clusters): (&[char], &[Vec<u32>]),
 ) -> Result<(), String> {
-    let want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
-    let Some(bytes) = engine.draw_doubled(at, (variant, doubled), &want)? else {
+    let mut want: Vec<u32> = chars.iter().map(|&c| u32::from(c)).collect();
+    want.sort_unstable();
+    want.dedup();
+    let Some(bytes) = engine.draw_doubled_clusters(at, (variant, doubled), &want, clusters)? else {
         return Ok(());
     };
     let len = u64::try_from(bytes.len()).unwrap_or(u64::MAX);

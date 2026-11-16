@@ -1,0 +1,141 @@
+#!/bin/bash
+# Holds a guide step's picture until the operator presses a key or clicks a
+# mouse button, so the operator looks for as long as they need and then goes
+# on. A run: command calls it where it would otherwise sleep for a fixed time
+# only to keep the picture on screen. guide.sh puts this folder on the
+# command's PATH.
+#
+#   guide-wait [--keys] [TEXT]
+#
+# It prints TEXT where the cursor is, or "Press a key or click to go on."
+# without TEXT, and nothing when TEXT is empty, for a picture that a line of
+# text would spoil. With --keys, only a key ends the wait, and the mouse
+# keeps working as usual, for a step that asks the operator to click or
+# select. Otherwise it turns on the terminal's mouse reports, DECSET 1000
+# (press and release) with DECSET 1006 (SGR form), for the time it waits, and
+# turns them off again before it returns. Any key ends the wait, and so does a
+# press of a mouse button. A wheel turn, which the terminal reports as a
+# press of button 64 or above, does not, and neither does a release.
+#
+# A key typed before the wait starts, while the step's command was still
+# running, waits in the terminal's input, and it drops such keys before it
+# prints TEXT, so only a key typed during the wait ends it. After a press it
+# reads input until the press's release arrives, and once the wait ends it
+# drops whatever else the terminal has sent, such as the rest of a key's
+# escape sequence, so none of it reaches the step's answer.
+#
+# Ctrl-C stops the step's command, as at a prompt: the mouse reports go off,
+# the terminal's modes come back, and guide-wait sends SIGINT to its process
+# group, which ends it and the command's shell. Ctrl-\ ends the wait alone,
+# with status 131, and the command goes on, as Ctrl-\ ends the program a
+# command runs at that moment. While it waits, the two keys are no signal
+# keys of the terminal's, so the terminal sends them as bytes, which it reads
+# like any other key. A signal that arrived just before bash's read began
+# would wait until the read returned, so the wait would go on. SIGTERM and
+# SIGHUP from elsewhere end it as Ctrl-C does, with the mouse reports off.
+set -u
+
+mouse=1
+[ "${1-}" != --keys ] || { mouse=; shift; }
+text=${1-Press a key or click to go on.}
+
+saved=$(stty -g)
+# Puts the terminal back as the wait found it.
+restore() {
+	[ -z "$mouse" ] || printf '\033[?1006l\033[?1000l'
+	stty "$saved"
+}
+for sig in INT TERM HUP; do
+	# shellcheck disable=SC2064 # $sig is expanded now, for each trap
+	trap "restore; trap - $sig; kill -$sig \$\$" "$sig"
+done
+
+# Acts on Ctrl-C (byte 3) and Ctrl-\ (byte 28), the keys a VT's terminal
+# settings name for SIGINT and SIGQUIT, and returns for any other byte.
+signal_key() {
+	case $1 in
+	$'\003')
+		restore
+		trap - INT
+		kill -INT 0
+		;;
+	$'\034')
+		restore
+		exit 131
+		;;
+	esac
+}
+
+# bash's read -n turns the terminal's signal keys on again while it reads, so
+# the wait takes the two keys away from them, and gets them back with the
+# rest of the terminal's settings when it ends.
+stty -echo -icanon min 1 time 0 intr undef quit undef
+
+# Drops every byte the terminal has already sent and nobody has read. It
+# reads only what is there, and waits for nothing.
+drop() {
+	while IFS= read -r -s -t 0; do
+		IFS= read -r -s -n 1 _ || break
+	done
+}
+
+# Reads a mouse report after its ESC, when the bytes that follow are the
+# rest of one, and sets kind to press, wheel or release. A report is
+# CSI < Pb ; Px ; Py M for a press and m for a release, and the terminal sends
+# each report whole, so its bytes are all there once its ESC is. An ESC with
+# nothing after it is the Escape key, and any other sequence is a key too:
+# kind is then key.
+report() {
+	local c r='' b
+	kind=key
+	IFS= read -r -s -t 0 || return 0
+	IFS= read -r -s -n 1 c && [ "$c" = '[' ] || return 0
+	IFS= read -r -s -t 0 || return 0
+	IFS= read -r -s -n 1 c && [ "$c" = '<' ] || return 0
+	# The bound only keeps a broken report from hanging the wait.
+	while IFS= read -r -s -n 1 -t 1 c; do
+		case $c in
+		M | m) break ;;
+		*) r+=$c ;;
+		esac
+	done
+	b=${r%%;*}
+	[[ $b =~ ^[0-9]+$ ]] || return 0
+	if [ "$c" = m ]; then
+		kind=release
+	elif [ "$c" = M ] && ((b >= 64)); then
+		kind=wheel
+	elif [ "$c" = M ]; then
+		kind=press
+	fi
+}
+
+drop
+[ -z "$text" ] || printf '%s' "$text"
+[ -z "$mouse" ] || printf '\033[?1000h\033[?1006h'
+
+kind=
+while IFS= read -r -s -n 1 c; do
+	signal_key "$c"
+	if [ -z "$mouse" ] || [ "$c" != $'\033' ]; then
+		break
+	fi
+	report
+	case $kind in
+	key) break ;;
+	press)
+		# The bound only keeps a release that never comes from holding
+		# the wait for ever.
+		while IFS= read -r -s -n 1 -t 60 c; do
+			signal_key "$c"
+			[ "$c" != $'\033' ] || { report; [ "$kind" != release ] || break; }
+		done
+		break
+		;;
+	esac
+done
+
+drop
+restore
+trap - INT TERM HUP
+[ -z "$text" ] || printf '\n'

@@ -64,6 +64,63 @@ A kbd console font from `/usr/share/kbd/consolefonts` needs no frit. When no fri
 font-name=eurlatgr
 ```
 
+## Layers that frits share
+
+Several frits often want the same extra fonts, such as a symbol font for the icons in prompts and color emoji. A layer holds those fonts once, so each frit can add them by name. A layer is a file `/etc/vtium/fonts/layers/NAME.vtlayer`. Its first line says the layer's role: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each with the lines that describe that source, such as `cover=`. Save this layer as `/etc/vtium/fonts/layers/noto-emoji.vtlayer`:
+
+```
+role=emoji
+source=font:Noto Color Emoji
+```
+
+A frit adds the layer with a `layer=` line. The layer's sources take the place of that line, so this frit tries Monoid first and then Noto Color Emoji:
+
+```
+source=font:Monoid Nerd Font Mono
+layer=noto-emoji
+```
+
+A layer holds sources alone. A frit's own lines, such as `cell=` and `size=`, apply to the layer's sources too, and a layer cannot hold them. A frit holds one `symbols`, one `emoji` and one `fallback` layer at most, and as many `script` layers as you need. vtium reads a layer under the same ownership check as a frit. When a layer is missing or vtium does not read it, vtium draws the frit without that layer and logs why. `vtium check-config` reports it too.
+
+`vtium-config new-frit` adds layers with `--layer`. It writes them in the order of their roles, whatever order you give them in: scripts, then symbols, then emoji, then the fallback.
+
+```
+$ vtium-config new-frit "Iosevka Term" --layer noto-emoji --layer nerd-symbols
+```
+
+## A bitmap font with an outline for larger cells
+
+Some fonts come both as bitmap files, drawn pixel by pixel for a few sizes, and as an outline font of the same design. A `strike=` line under the outline font's `source=` line names one bitmap file. The bitmap files draw the small cells, and the outline draws the larger ones:
+
+```
+source=outline:/usr/share/fonts/terminus/TerminusTTF-4.49.3.ttf
+strike=bdf:/usr/share/fonts/terminus/ter-u14n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+```
+
+A cell up to 16 pixels high, the tallest bitmap file's height, draws the tallest bitmap file that fits it. So a 15-pixel cell draws the 14-pixel file, and a 16-pixel cell draws the 16-pixel file. A cell of 17 pixels or more draws the outline. A character that the bitmap files lack, such as a Nerd Fonts icon, comes from the outline at every size.
+
+## Outline fonts behind a bitmap font
+
+A bitmap font often lacks characters you need, such as Chinese characters or icons. You can list an outline font after it to supply them. This frit uses Terminus, and takes the characters Terminus lacks from Noto Sans CJK:
+
+```
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+```
+
+When a frit's first source is a bitmap font, vtium renders the outline fonts after it the way it renders the bitmap font. It fits each character to the pixel grid, and each pixel is either fully on or fully off. The added characters then have the same sharp edges as the bitmap font's own. Color emoji keep their color.
+
+A `render=` line under an outline font's `source=` line chooses how vtium renders that font. With `render=smooth`, vtium renders it antialiased, with soft edges, as it renders outline fonts elsewhere:
+
+```
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+render=smooth
+```
+
+With `render=bitmap`, vtium renders an outline font with sharp edges even when it comes first in the frit. A bitmap font always has sharp edges, so vtium refuses a frit with a `render=` line under a bitmap font's `source=` line. See [the issue about outline fonts behind a bitmap font](https://github.com/vtium/vtium/issues/311).
+
 ## Superscripts and subscripts in a bitmap font
 
 A program can ask for superscript and subscript text. For example, it can write x2 or H2O with ordinary digits and ask for the digit to be raised or lowered, as in x² or H₂O. vtium renders each superscript and subscript character smaller, against the top or the bottom of its row.

@@ -102,6 +102,15 @@ pub struct Request {
     /// `max-graphic-size`, and its most bytes, from the budget.
     pub largest: (u32, u32),
     pub largest_bytes: u64,
+    /// For the login picture, what the helper makes of the decoded picture
+    /// before it answers: fitted to the form and the screen, so the reply
+    /// holds only the pixels the screen shows; `None` for every other
+    /// request.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the helper scales the login picture and returns
+    ///   only that.
+    pub fit: Option<crate::login::Fitting>,
 }
 
 /// The bounds a request sets on an animated GIF's frames (ADR-1101 D7,
@@ -516,6 +525,7 @@ mod tests {
             pixels: None,
             largest: (2, 2),
             largest_bytes: 16,
+            fit: None,
         }
     }
 

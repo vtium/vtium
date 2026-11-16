@@ -208,7 +208,9 @@ fn an_outline_script_stands_on_the_first_sources_own_box() {
     let dir = Scratch::new("own-box");
     let bitmap = dir.file("f.psf", &psf(&[('H', bar(0b1100_0110))]));
     let path = dejavu();
-    let e = engine(&format!("source=file:{bitmap}\nsource=outline:{path}\n"));
+    let e = engine(&format!(
+        "source=file:{bitmap}\nsource=outline:{path}\nrender=smooth\n"
+    ));
     let tall = Cell {
         width: 8,
         height: 24,
@@ -244,6 +246,59 @@ fn an_outline_script_stands_on_the_first_sources_own_box() {
         "on the own box's script baseline"
     );
     assert_ne!(got.pixels(), &want(15)[..], "not the band's");
+}
+
+// The same frit with no render= line: DejaVu Sans Mono sits behind a
+// bitmap first source, so its superscript draws 1-bit. The helper asks for
+// it hinted fully and then 1-bit, every pixel fully lit or dark, on the own
+// box's script baseline as before.
+//
+// References:
+// - ADR-1200 D1, the render= row: outline glyphs behind a bitmap first
+//   source draw 1-bit unless render=smooth says otherwise.
+// - ADR-1202 D1, D2: the superscript's place by the first source's box.
+#[test]
+fn an_outline_script_behind_a_bitmap_first_source_draws_one_bit() {
+    let dir = Scratch::new("own-box-one-bit");
+    let bitmap = dir.file("f.psf", &psf(&[('H', bar(0b1100_0110))]));
+    let path = dejavu();
+    let e = engine(&format!("source=file:{bitmap}\nsource=outline:{path}\n"));
+    let tall = Cell {
+        width: 8,
+        height: 24,
+    };
+    let font: Arc<[u8]> = std::fs::read(&path).expect("the fixture").into();
+    let full = size(&font, "", tall.height).expect("a size");
+    let (num, den) = SCRIPT_SCALE;
+    let want = |hinting| {
+        let o = rasterise(&OutlineRequest {
+            double_width: false,
+            cluster_width: Default::default(),
+            font: Arc::clone(&font),
+            family: String::new(),
+            cells: vec![(tall.width, tall.height)],
+            cover: vec![(0x78, 0x78)],
+            clusters: Vec::new(),
+            baselines: vec![10],
+            sizes: vec![(full * num as f32 / den as f32).to_bits()],
+            reaches: vec![(0, 0)],
+            hinting,
+            fit: true,
+            synth: Style::default(),
+            script: Script::Super,
+        })
+        .expect("rasterised");
+        let (_, g) = o.strikes[0].map[0];
+        o.strikes[0].glyphs[g as usize].pixels.clone()
+    };
+    let got = drawn(&e, tall, variant(Script::Super), 'x');
+    assert!(got.pixels().contains(&255), "the superscript has ink");
+    assert!(
+        got.pixels().iter().all(|&p| p == 0 || p == 255),
+        "every pixel fully lit or dark"
+    );
+    assert_eq!(got.pixels(), &want(Hinting::Bitmap)[..]);
+    assert_ne!(got.pixels(), &want(Hinting::Light)[..], "not antialiased");
 }
 
 // ADR-1202 D5: a color glyph is scaled from its source once, fitted to

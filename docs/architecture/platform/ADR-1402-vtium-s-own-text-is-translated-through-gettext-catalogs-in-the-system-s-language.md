@@ -92,6 +92,8 @@ related: []
   - *Confident (rewording a message):* A person who changes a notice edits its English where the code shows it, and until each translator updates their file, that notice shows in English in their language. Confirmed by the maintainer (2026-11-06, `considered`): acceptable.
 - **Inversion:** Between a catalog module that holds every message apart from the code that shows it, the earlier draft of this record, and a translation library that owns the lookup, the formatting and the C locale, as `gettext-rs` and `tr` do. vtium writes each message where it is used, inside a marker it defines, and reads gettext's own files with a reader of its own.
 
+> Note 2026-11-14: ADR-1204, accepted the same day, makes vtium's built-in font small: printable ASCII, Latin-1, box drawing, blocks and the characters of vtium's English messages. vtium's notices, on-screen display and panic screen always draw in it, so vtium shows a translated message when the built-in font holds every character of it, and the English message otherwise.
+
 ## Context
 
 vtium shows people text of its own: the notices of ADR-1401 D5, D7, D8 and D9, the on-screen display's full line (the OSD, ADR-1401 D5), the panic screen of a broken closed head file (ADR-1401 D7), and the report `vtium check-config` prints. The maintainer wants that text translated, so a person reads vtium in their own language.

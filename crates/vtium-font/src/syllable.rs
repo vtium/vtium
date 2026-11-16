@@ -174,6 +174,31 @@ pub fn may_follow(c: char) -> bool {
         .is_some_and(|(cat, _)| matches!(cat, Category::Consonant | Category::VowelIndependent))
 }
 
+/// Whether `c` is an ASCII symbol, one of the characters a programming
+/// font's ligatures are made of, such as `->`, `!=` and `/*`: U+0021 to
+/// U+002F, U+003A to U+0040, U+005B to U+0060 and U+007B to U+007E. With
+/// ligatures on, the console draws a run of such cells across its cells as
+/// one piece of text, the way it draws a syllable, and letters, digits and
+/// spaces never join one.
+///
+/// References:
+/// - ADR-1308 D8: which cells can join into a ligature.
+pub fn is_ligature_symbol(c: impl Into<u32>) -> bool {
+    matches!(c.into(), 0x21..=0x2f | 0x3a..=0x40 | 0x5b..=0x60 | 0x7b..=0x7e)
+}
+
+/// Whether `text` is a run of ASCII symbols that may draw as a ligature:
+/// 2 to [`SYLLABLE_SCALARS_MAX`] of them ([`is_ligature_symbol`]). A
+/// longer run draws each cell on its own, since a piece's key holds no
+/// more text than that.
+///
+/// References:
+/// - ADR-1308 D8: a run of two to fourteen ASCII symbols, the bound a
+///   piece's key sets.
+pub fn is_ligature_run<T: Copy + Into<u32>>(text: &[T]) -> bool {
+    (2..=SYLLABLE_SCALARS_MAX).contains(&text.len()) && text.iter().all(|&c| is_ligature_symbol(c))
+}
+
 /// Where one cluster's cells lie among its syllable's: from cell `start`
 /// of the syllable's `total` cells, `cells` wide, 1 or 2.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -361,6 +386,27 @@ mod tests {
 
     // A piece's mark names its place, and only a place inside a syllable
     // of 2 to 28 cells is a piece
+    // ADR-1308 D8: the four ranges of ASCII symbols join, and letters,
+    // digits, the space and DEL do not; a run is two to fourteen of them
+    #[test]
+    fn a_ligature_run_is_two_to_fourteen_ascii_symbols() {
+        for c in "!/:@[`{~->=".chars() {
+            assert!(is_ligature_symbol(c), "{c:?}");
+        }
+        for c in "aZ09 \u{7f}\u{a1}\u{2192}".chars() {
+            assert!(!is_ligature_symbol(c), "{c:?}");
+        }
+        assert!(is_ligature_run(&chars("->")));
+        assert!(is_ligature_run(&chars("<!--")));
+        assert!(is_ligature_run(&chars(&"=".repeat(14))));
+        assert!(!is_ligature_run(&chars(&"=".repeat(15))));
+        assert!(!is_ligature_run(&chars("=")));
+        assert!(!is_ligature_run(&chars("a->")));
+        assert!(!is_ligature_run(&chars("- >")));
+        let key: Vec<u32> = "!=".chars().map(u32::from).collect();
+        assert!(is_ligature_run(&key));
+    }
+
     #[test]
     fn a_pieces_mark_names_its_place() {
         for (start, cells, total) in [(0, 1, 2), (1, 1, 2), (2, 2, 4), (26, 2, 28)] {

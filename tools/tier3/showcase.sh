@@ -3,8 +3,9 @@
 # fetches the fonts t3_showcase.py pins, runs tier 3's variant
 # showcase-1920x1080 in the QEMU/KVM guest, and writes docs/showcase/: each
 # scene's capture, the fonts scene's four bands cropped and stacked, the two
-# small-machine goldens, and the page. An image whose pixels did not change
-# is left as it is. `make showcase` runs it; tools/tier3/README.md (The
+# small-machine goldens, the showcase page, and a page for each category
+# that shows a scene or a figure. An image whose pixels did not change is
+# left as it is. `make showcase` runs it; tools/tier3/README.md (The
 # showcase) describes the variant.
 #
 #   tools/tier3/showcase.sh            fetch the fonts, run the variant, write the showcase

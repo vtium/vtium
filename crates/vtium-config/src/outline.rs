@@ -19,12 +19,13 @@
 //!          reach count u32 (0, or the cell count), each reach above and
 //!          below the cell u32 and u32, fit u8 (1 for a fallback source,
 //!          whose glyphs too big for their cells are drawn smaller, else
-//!          0), hinting u8 (0 light, 1 full), synthesis u8 (bit 1 bold, bit
-//!          2 italic), script u8 (0 normal, 1 superscript, 2 subscript),
-//!          cluster width u8 (0 double, 1 single: the console's
-//!          `cluster-width`, ADR-1006 D8), double width u8 (1 for a line
-//!          of double width, whose glyphs are drawn twice as wide, else 0)
-//! answer   magic "VTVOUTL4", family length u32, the family, format length
+//!          0), hinting u8 (0 light, 1 full, 2 full and then 1-bit),
+//!          synthesis u8 (bit 1 bold, bit 2 italic), script u8 (0
+//!          normal, 1 superscript, 2 subscript), cluster width u8 (0
+//!          double, 1 single: the console's `cluster-width`, ADR-1006
+//!          D8), double width u8 (1 for a line of double width, whose
+//!          glyphs are drawn twice as wide, else 0)
+//! answer   magic "VTVOUTL5", family length u32, the family, format length
 //!          u32, the format, licence length u32, the licence, strike count
 //!          u32, then each strike: cell width u32, cell height u32, baseline
 //!          u32, glyph count u32, map length u32, cluster count u32, each
@@ -33,7 +34,9 @@
 //!          top i32, width u32, height u32 and R8 rows, then
 //!          the map: each (codepoint u32, glyph u32), sorted, then the
 //!          clusters: each length u8, scalar values u32 and glyph u32,
-//!          sorted
+//!          sorted; after the strikes, color count u32 and each codepoint
+//!          u32, sorted: the color glyphs a request for a line of double
+//!          width leaves out (0 for any other request)
 //! ```
 //!
 //! Little-endian throughout.
@@ -58,7 +61,10 @@
 //! the size that fits them, centred across them and kept inside the
 //! cell's height. Outlines are hinted as the request says ([`Hinting`],
 //! ADR-1200 D1): lightly by default, which moves a glyph's rows only, as
-//! FreeType's light hinting does, or fully. Color glyphs are not hinted,
+//! FreeType's light hinting does, or fully. A request may also ask for
+//! a source's glyphs as a bitmap font draws them ([`Hinting::Bitmap`]):
+//! hinted fully and then 1-bit, each pixel the glyph covers at least half
+//! of fully on and every other pixel off. Color glyphs are not hinted,
 //! and a COLR glyph's layers are laid over each other here, premultiplied
 //! with the renderer's rounding.
 //!
@@ -115,12 +121,13 @@ const LICENSE_MAX: usize = 1024;
 const MAP_MAX: usize = 0x11_0000;
 /// The most glyphs a strike holds: a font's glyph ids are 16 bits.
 const GLYPHS_MAX: usize = 65536;
-/// The most clusters one request asks for: every cluster
-/// [`crate::shaping::asks`] lists is under half of it.
+/// The most clusters one request asks for. The console asks for at most
+/// 4096 clusters at a time (`CLUSTERS_WAITING_MAX` in the vtium crate), so
+/// its requests stay well under this bound.
 pub const CLUSTERS_MAX: usize = 1 << 14;
 
 pub(crate) const REQUEST_MAGIC: &[u8; 8] = b"VTVOUTA\0";
-const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL4";
+const ANSWER_MAGIC: &[u8; 8] = b"VTVOUTL5";
 
 const GLYPH_WIDE: u8 = 1;
 const GLYPH_COLOR: u8 = 2;
@@ -161,8 +168,14 @@ pub struct OutlineRequest {
     /// the added rows and then a row of the whole cell (ADR-1306 D8);
     /// empty, [`REACH_ROWS`] rows of each cell each way (ADR-1306 D1).
     pub reaches: Vec<(u32, u32)>,
-    /// How the outline glyphs are fitted to the pixel grid, the frit's
-    /// `hinting=` (ADR-1200 D1).
+    /// How the outline glyphs are fitted to the pixel grid: the frit's
+    /// `hinting=`, or [`Hinting::Bitmap`] for a source whose glyphs draw
+    /// 1-bit, with each pixel fully on or fully off, as a bitmap font's
+    /// glyphs draw.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: which sources draw 1-bit, and the
+    ///   full hinting they draw with whatever `hinting=` says.
     pub hinting: Hinting,
     /// Whether a glyph whose ink would pass its cells is drawn smaller
     /// until it fits, as a fallback source's glyph is (ADR-1200 D17): set
@@ -187,7 +200,9 @@ pub struct OutlineRequest {
     /// the request names, hinted and styled as at that size, and then
     /// stretched sideways to twice its width before it is rasterised, so
     /// its edges stay sharp. Each advance counts twice, so a glyph sits in
-    /// a cell twice as wide as it would. A color glyph is drawn as it is.
+    /// a cell twice as wide as it would. A color glyph, a bitmap or layers
+    /// of color, cannot be stretched that way, so the rasteriser leaves it
+    /// out and names its codepoint in [`Outline::color`] instead.
     pub double_width: bool,
 }
 
@@ -260,6 +275,10 @@ pub struct Outline {
     /// together into single spaces; empty when it gives none.
     pub license: String,
     pub strikes: Vec<Strike>,
+    /// The codepoints a request for a line of double width leaves out
+    /// because the font draws them in color, sorted
+    /// ([`OutlineRequest::double_width`]); empty for any other request.
+    pub color: Vec<u32>,
 }
 
 fn put32(out: &mut Vec<u8>, v: u32) {
@@ -386,6 +405,7 @@ impl OutlineRequest {
         out.push(match self.hinting {
             Hinting::Light => 0,
             Hinting::Full => 1,
+            Hinting::Bitmap => 2,
         });
         out.push(u8::from(self.synth.bold) | u8::from(self.synth.italic) << 1);
         out.push(match self.script {
@@ -481,6 +501,7 @@ impl OutlineRequest {
         let hinting = match r.u8()? {
             0 => Hinting::Light,
             1 => Hinting::Full,
+            2 => Hinting::Bitmap,
             _ => return Err("an unknown hinting"),
         };
         let synth = match r.u8()? {
@@ -594,6 +615,10 @@ impl Outline {
                 put_key(&mut out, key);
                 put32(&mut out, *g);
             }
+        }
+        put32(&mut out, len32(self.color.len()));
+        for &c in &self.color {
+            put32(&mut out, c);
         }
         out
     }
@@ -763,14 +788,32 @@ impl Outline {
                 clusters,
             });
         }
+        // the codepoints left out in color: only for a line of double
+        // width, each one the request covers, in order
+        let count = r.count(MAP_MAX)?;
+        if count > 0 && !request.double_width {
+            return Err("color glyphs left out of a request that leaves none out");
+        }
+        let mut color: Vec<u32> = Vec::with_capacity(count);
+        for _ in 0..count {
+            let c = r.u32()?;
+            if char::from_u32(c).is_none() || !request.covers(c) {
+                return Err("a color codepoint the request does not cover");
+            }
+            if color.last().is_some_and(|&last| last >= c) {
+                return Err("the color codepoints are not sorted, or name one twice");
+            }
+            color.push(c);
+        }
         if !r.0.is_empty() {
-            return Err("bytes after the last strike");
+            return Err("bytes after the last strike and the color codepoints");
         }
         Ok(Outline {
             family,
             format,
             license,
             strikes,
+            color,
         })
     }
 }
@@ -804,6 +847,19 @@ pub(crate) mod raster {
     use swash::zeno::{Command, Mask, Origin, Placement, Point, Transform};
 
     use crate::resample::{self, METHOD};
+
+    #[cfg(test)]
+    thread_local! {
+        /// How many color glyphs [`Drawer::draw_transformed`] has drawn on
+        /// this thread, which a test counts.
+        pub(crate) static COLOR_DRAWS: core::cell::Cell<u32> = const { core::cell::Cell::new(0) };
+    }
+
+    /// Counts a color glyph drawn, for a test.
+    fn drew_color() {
+        #[cfg(test)]
+        COLOR_DRAWS.with(|n| n.set(n.get().saturating_add(1)));
+    }
     use swash::{FontDataRef, FontRef, StringId};
 
     /// The face `family` names in `data`, its Regular face first, or its
@@ -1169,6 +1225,20 @@ pub(crate) mod raster {
             self.draw_transformed(g, ppem, fit, stretch)
         }
 
+        /// Whether [`Drawer::draw_transformed`] draws glyph `g` at `ppem` in
+        /// color: from layers of color, or from a color bitmap strike that
+        /// holds it. It reads the font's tables and draws nothing.
+        pub(crate) fn is_color(&mut self, g: u16, ppem: f32) -> bool {
+            let mut scaler = self.context.builder(self.font).size(ppem).build();
+            (scaler.has_color_outlines() && scaler.scale_color_outline(g).is_some())
+                || (scaler.has_color_bitmaps()
+                    && self
+                        .font
+                        .color_strikes()
+                        .find_by_largest_ppem(g)
+                        .is_some_and(|strike| strike.ppem() != 0))
+        }
+
         /// Glyph `g` drawn as [`Drawer::draw`] draws it, its outline moved
         /// through `transform` before it is rasterised; a color glyph is
         /// drawn as it stands.
@@ -1183,11 +1253,13 @@ pub(crate) mod raster {
             if scaler.has_color_outlines()
                 && let Some(layers) = scaler.scale_color_outline(g)
             {
+                drew_color();
                 return Some(self.compose(&layers));
             }
             if scaler.has_color_bitmaps()
                 && let Some(image) = self.bitmap(g, ppem, fit)
             {
+                drew_color();
                 return Some(image);
             }
             self.outline(g, ppem, transform)
@@ -1234,7 +1306,7 @@ pub(crate) mod raster {
                     engine: Engine::Interpreter,
                     target: SmoothMode::Light.into(),
                 },
-                Hinting::Full => HintingOptions {
+                Hinting::Full | Hinting::Bitmap => HintingOptions {
                     engine: Engine::AutoFallback,
                     target: SmoothMode::Normal.into(),
                 },
@@ -1286,7 +1358,10 @@ pub(crate) mod raster {
             let mut mask = Mask::new(&pen.path[..]);
             // the placement's top is right only once the mask knows its size
             mask.origin(Origin::BottomLeft).inspect(|_, _, _| {});
-            let (data, placement) = mask.render();
+            let (mut data, placement) = mask.render();
+            if self.hinting == Hinting::Bitmap {
+                one_bit(&mut data);
+            }
             Some(Image {
                 source: Source::Outline,
                 content: Content::Mask,
@@ -1389,6 +1464,34 @@ pub(crate) mod raster {
                 },
                 data,
             }
+        }
+    }
+
+    /// Turns a glyph's coverage into 1-bit coverage, as a bitmap font's
+    /// glyph is drawn. Each pixel the glyph covers at least half of, a
+    /// coverage of 128 or more out of 255, is fully on, and every other
+    /// pixel is off. A glyph that would then have no pixel on at all, such
+    /// as a small dot between two pixels, keeps the one pixel it covers
+    /// most, the first in row order where several tie, so that no glyph
+    /// vanishes. A glyph with no coverage at all, such as a space, stays
+    /// blank.
+    ///
+    /// References:
+    /// - ADR-1200 D1, the `render=` row: the half-coverage threshold and
+    ///   the pixel kept so that no glyph vanishes.
+    pub(crate) fn one_bit(coverage: &mut [u8]) {
+        let most = coverage
+            .iter()
+            .enumerate()
+            .rev()
+            .max_by_key(|&(_, &c)| c)
+            .filter(|&(_, &c)| c > 0 && c < 128)
+            .map(|(i, _)| i);
+        for c in coverage.iter_mut() {
+            *c = if *c >= 128 { 255 } else { 0 };
+        }
+        if let Some(p) = most.and_then(|i| coverage.get_mut(i)) {
+            *p = 255;
         }
     }
 
@@ -1690,6 +1793,7 @@ pub(crate) mod raster {
         // whatever style is drawn over it, so every style shares them
         let mut plain = Drawer::new(font, index, request.hinting);
         let mut strikes = Vec::new();
+        let mut color_left: Vec<u32> = Vec::new();
         for (i, &(want_w, h)) in request.cells.iter().enumerate() {
             let ppem = request
                 .sizes
@@ -1721,6 +1825,13 @@ pub(crate) mod raster {
                 let at = match index.iter().find(|(id, _)| *id == g) {
                     Some(&(_, i)) => i,
                     None => {
+                        // a line of double width stretches each outline
+                        // sideways, which a color glyph cannot take: the
+                        // glyph is left out and named, not drawn
+                        if request.double_width && drawer.is_color(g, ppem) {
+                            color_left.push(c);
+                            continue;
+                        }
                         let advance = advances.advance_width(g) * widen;
                         // a glyph larger than a set's chunk goes in a chunk of
                         // its own (ADR-1302 D6), so none is left out for its size
@@ -1755,7 +1866,10 @@ pub(crate) mod raster {
                 clusters,
             });
         }
-        let color = strikes.iter().flat_map(|s| &s.glyphs).any(|g| g.color);
+        color_left.sort_unstable();
+        color_left.dedup();
+        let color =
+            !color_left.is_empty() || strikes.iter().flat_map(|s| &s.glyphs).any(|g| g.color);
         let mut license = font
             .localized_strings()
             .find_by_id(StringId::License, Some("en"))
@@ -1774,6 +1888,7 @@ pub(crate) mod raster {
             format: if color { "outline+color" } else { "outline" }.to_owned(),
             license,
             strikes,
+            color: color_left,
         })
     }
 
@@ -2083,8 +2198,50 @@ pub(crate) mod raster {
     reason = "a test fails by panicking"
 )]
 mod tests {
-    use super::raster::{Cell, embolden_per_side, place_drawn, synthesise};
+    use super::raster::{Cell, embolden_per_side, one_bit, place_drawn, synthesise};
     use swash::zeno::{Command, Point};
+
+    // issue #61: a request for a line of double width leaves each color
+    // glyph out and names its codepoint, since the line stretches each
+    // outline sideways and a color glyph cannot be stretched. Test Mono's
+    // U+1F600 is a COLR glyph and `A` an outline one. The answer carries
+    // the name across the pipe, and the console's check refuses a name the
+    // request did not ask for or could not leave out
+    #[test]
+    fn a_line_of_double_width_names_the_color_glyphs_it_leaves_out() {
+        use super::{Outline, OutlineRequest, rasterise};
+        let request = |double_width| OutlineRequest {
+            font: vtium_testfont::ttf::test_mono().build().into(),
+            cells: vec![(16, 16)],
+            cover: vec![(0x41, 0x41), (0x1f600, 0x1f600)],
+            double_width,
+            ..OutlineRequest::default()
+        };
+        let wide = request(true);
+        let o = rasterise(&wide).expect("Test Mono rasterises");
+        assert_eq!(o.color, [0x1f600]);
+        let s = &o.strikes[0];
+        assert_eq!(s.map.iter().map(|&(c, _)| c).collect::<Vec<_>>(), [0x41]);
+        assert!(s.glyphs.iter().all(|g| !g.color), "a color glyph is drawn");
+        assert_eq!(o.format, "outline+color");
+        assert_eq!(Outline::decode(&o.encode(), &wide), Ok(o.clone()));
+        // a request at the normal size draws the color glyph and names none
+        let normal = rasterise(&request(false)).expect("Test Mono rasterises");
+        assert!(normal.color.is_empty());
+        assert!(normal.strikes[0].glyphs.iter().any(|g| g.color));
+        assert_eq!(
+            Outline::decode(&o.encode(), &request(false)),
+            Err("color glyphs left out of a request that leaves none out")
+        );
+        let uncovered = Outline {
+            color: vec![0x42],
+            ..o.clone()
+        };
+        assert_eq!(
+            Outline::decode(&uncovered.encode(), &wide),
+            Err("a color codepoint the request does not cover")
+        );
+    }
 
     /// The points of `path` that close each of its segments.
     fn ends(path: &[Command]) -> Vec<(f32, f32)> {
@@ -2121,6 +2278,113 @@ mod tests {
         for ((x, y), (wx, wy)) in ends(&square).into_iter().zip(want) {
             assert!((x - wx).abs() < 1e-4 && (y - wy).abs() < 1e-4, "{x},{y}");
         }
+    }
+
+    // A glyph drawn as a bitmap lights each pixel it covers at least half
+    // of, 128 of 255 and up, and darkens the rest. A glyph that would then
+    // light nothing keeps its most covered pixel, the first of a tie, and a
+    // glyph that covers nothing stays blank.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: the threshold and the kept pixel.
+    #[test]
+    fn one_bit_lights_each_pixel_covered_at_least_half() {
+        let mut edges = [0, 1, 126, 127, 128, 129, 200, 255];
+        one_bit(&mut edges);
+        assert_eq!(edges, [0, 0, 0, 0, 255, 255, 255, 255]);
+        let mut dot = [0, 40, 90, 60, 0, 90];
+        one_bit(&mut dot);
+        assert_eq!(dot, [0, 0, 255, 0, 0, 0], "the first most covered pixel");
+        let mut faint = [0, 1, 0];
+        one_bit(&mut faint);
+        assert_eq!(faint, [0, 255, 0]);
+        let mut blank = [0; 4];
+        one_bit(&mut blank);
+        assert_eq!(blank, [0; 4]);
+        let mut empty: [u8; 0] = [];
+        one_bit(&mut empty);
+    }
+
+    // An outline source drawn as a bitmap is hinted as hinting=full hints
+    // it and then drawn 1-bit: in DejaVu Sans Mono at 16 pixels, each pixel
+    // of each glyph, and of the ink past its cell, is fully on exactly
+    // where full hinting covers it at least half, and fully off elsewhere.
+    // Full hinting alone leaves partly covered pixels, so the request is
+    // what makes the difference.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: full hinting whatever hinting= says,
+    //   then each pixel covered at least half lit.
+    #[test]
+    fn a_bitmap_request_draws_its_glyphs_hinted_fully_at_one_bit() {
+        use super::{OutlineRequest, rasterise};
+        use crate::frit::Hinting;
+        let font: &[u8] = include_bytes!("../tests/fixtures/DejaVuSansMono-ascii.ttf");
+        let draw = |hinting| {
+            rasterise(&OutlineRequest {
+                font: font.into(),
+                cells: vec![(9, 16)],
+                cover: vec![(0x21, 0x7e)],
+                hinting,
+                ..OutlineRequest::default()
+            })
+            .expect("drawn")
+        };
+        let (full, bitmap) = (draw(Hinting::Full), draw(Hinting::Bitmap));
+        let (full, bitmap) = (&full.strikes[0], &bitmap.strikes[0]);
+        assert_eq!(full.map, bitmap.map);
+        assert_eq!(full.baseline, bitmap.baseline);
+        let pixels = |p: &super::Placed| {
+            let ink = p.ink.as_ref().map(|i| i.pixels.clone()).unwrap_or_default();
+            [p.pixels.clone(), ink].concat()
+        };
+        let partial = |v: &[u8]| v.iter().any(|&c| c != 0 && c != 255);
+        assert!(full.glyphs.iter().any(|g| partial(&pixels(g))));
+        for (&(c, at), (f, b)) in full.map.iter().zip(full.glyphs.iter().zip(&bitmap.glyphs)) {
+            let c = char::from_u32(c).unwrap_or_default();
+            let (f, b) = (pixels(f), pixels(b));
+            assert_eq!(f.len(), b.len(), "{c:?} at {at}");
+            assert!(!partial(&b), "{c:?}: {b:?}");
+            assert!(b.contains(&255), "{c:?} keeps its ink");
+            let lit: Vec<bool> = f.iter().map(|&p| p >= 128).collect();
+            if lit.contains(&true) {
+                assert_eq!(
+                    b.iter().map(|&p| p == 255).collect::<Vec<_>>(),
+                    lit,
+                    "{c:?}"
+                );
+            }
+        }
+    }
+
+    // The request carries a 1-bit request as hinting byte 2, the fifth byte
+    // from its end, and reads it back as full hinting then 1-bit; byte 2
+    // planted in a fully hinted request reads as that too.
+    //
+    // References:
+    // - ADR-1200 D1, the render= row: render=bitmap's full hinting and
+    //   1-bit coverage, which the helper asks the parser for.
+    #[test]
+    fn hinting_byte_2_reads_back_as_full_hinting_then_one_bit() {
+        use super::OutlineRequest;
+        use crate::frit::Hinting;
+        let bitmap = OutlineRequest {
+            font: vec![0u8; 4].into(),
+            cells: vec![(8, 16)],
+            hinting: Hinting::Bitmap,
+            ..OutlineRequest::default()
+        };
+        let bytes = bitmap.encode();
+        assert_eq!(bytes[bytes.len() - 5], 2);
+        assert_eq!(OutlineRequest::decode(&bytes), Ok(bitmap.clone()));
+        let mut full = OutlineRequest {
+            hinting: Hinting::Full,
+            ..bitmap.clone()
+        }
+        .encode();
+        let n = full.len();
+        full[n - 5] = 2;
+        assert_eq!(OutlineRequest::decode(&full), Ok(bitmap));
     }
 
     // the maintainer, 2026-11-04: synthetic bold grows by a whole pixel at

@@ -1,6 +1,6 @@
 //! The sixel handler, which takes DCS `q` strings (ADR-1100, D3 and D6).
 //!
-//! A string's data streams into the [decoder](crate::decode::sixel) as it
+//! A string's data streams into the decoder as it
 //! arrives, which reserves the picture's memory from the console's budget
 //! as it grows. When the string ends with its terminator, the picture is
 //! stored with that reservation and placed:
@@ -9,7 +9,7 @@
 //!   picture's top left is the cursor's cell, the scroll region scrolls
 //!   for a picture that would pass the bottom margin, and the cursor ends
 //!   on the row holding the picture's last pixel row, as
-//!   [`place_scrolling`] describes, in the column after the picture's
+//!   `place_scrolling` describes, in the column after the picture's
 //!   right edge with mode 8452 set.
 //! - **With mode 80 set,** the picture sits at the screen's top left, cut
 //!   to the screen, and the cursor stays where it is.

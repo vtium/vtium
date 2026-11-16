@@ -1,6 +1,6 @@
 //! The help text: the usage `--help` prints, and the help `--help TOPIC`
 //! prints for one command. Each command's text is written once, in
-//! [`TOPICS`], and both read it.
+//! `TOPICS`, and both read it.
 
 use crate::banner;
 
@@ -248,12 +248,12 @@ const TOPICS: &[Topic] = &[
                 "add a look",
             ),
             form(
-                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI]",
+                "look set NAME [--name NEW] [--frit F] [--size PT] [--cell WxH] [--engine E] [--hinting H] [--line-spacing PCT] [--display-depth D] [--display-dpi DPI] [--login-image FILE] [--login-image-fit FIT] [--login-image-rows N] [--login-image-position P] [--login-image-scale PCT]",
                 "change a look's settings",
             ),
             form("look rm NAME [--force]", "delete a look"),
         ],
-        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting and --line-spacing set font-engine, font-hinting and font-line-spacing; --display-depth and --display-dpi set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
+        detail: "Adds, changes or deletes a [look NAME] section in the draft. A look is a font and its size, which heads use. --frit sets its font-name, --size its font-size and --cell its character cell; --engine, --hinting, --line-spacing and --ligatures set font-engine, font-hinting, font-line-spacing and font-ligatures; --display-depth, --display-dpi, --login-image, --login-image-fit, --login-image-rows, --login-image-position and --login-image-scale set the keys of the same name. look add takes the same options as look set. A setting a look leaves out comes from the top of vtium.conf, and in one look a font-size other than 0 overrides cell. look rm does not delete a look a head uses, and names those heads, unless --force switches them to the default look. Each takes --dry-run and --install.",
         example: "vtium-config look add big --frit monoid --size 14",
     },
     Topic {
@@ -336,7 +336,7 @@ const TOPICS: &[Topic] = &[
         command: Command::NewFrit,
         forms: &[
             form(
-                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS]",
+                "new-frit FONT... [--name NAME] [--cell WxH] [--size POINTS] [--layer NAME]...",
                 "make a font set from fonts",
             ),
             form(
@@ -352,7 +352,7 @@ const TOPICS: &[Topic] = &[
                 "open the full-screen tool at its new font set page",
             ),
         ],
-        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
+        detail: "Makes a font set (frit) from the fonts, in order: each later font supplies characters the earlier ones lack. A FONT is a family name, or a source as a frit file writes it (kbd:ter-v16n, builtin:unifont). --name names the font set; without it, the name comes from the first font. --cell and --size set the character size. Each --layer adds a layer from the layers folder of the font sets' directory, such as nerd-symbols or noto-emoji. The layers follow the fonts in the order of their roles: scripts, then symbols, then emoji, then the fallback, whatever order you give them in. --from installs a frit file you wrote, and --template prints one to start from. vtium-config checks the font set before it saves anything. Run as a user, it writes a draft and prints the command that installs it.",
         example: "vtium-config new-frit unifont --name my-font --size 14",
     },
     Topic {
@@ -452,6 +452,7 @@ Options:
   --udev-data DIR       udev's database, instead of /run/udev/data
   --helper PROGRAM      the font helper to start, instead of this program's serve
   --root DIR            the root directory report reads the machine under, instead of /
+  --locale LOCALE       the console's locale, which serve picks the built-in font by, instead of C
   --help [TOPIC], --version
 ";
 

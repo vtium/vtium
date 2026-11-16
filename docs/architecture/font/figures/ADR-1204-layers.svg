@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="470" viewBox="0 0 900 470" font-family="DejaVu Sans, sans-serif" font-size="15">
+  <title>Three catalog font sets built from shared layers</title>
+  <rect width="900" height="470" fill="#ffffff"/>
+  <defs>
+    <style>
+      .head { font-size: 17px; font-weight: bold; fill: #1a1a1a; }
+      .sub { font-size: 13px; fill: #475569; }
+      .lbl { fill: #1a1a1a; }
+      .lblw { fill: #ffffff; }
+      .small { font-size: 12px; }
+    </style>
+  </defs>
+  <text x="450" y="28" text-anchor="middle" class="head">Each set's fonts, in the order vtium consults them, completed by vtium's own parts</text>
+
+  <!-- column headings -->
+  <text x="150" y="68" text-anchor="middle" class="head">fira-code</text>
+  <text x="150" y="86" text-anchor="middle" class="sub">code/</text>
+  <text x="450" y="68" text-anchor="middle" class="head">noto-arabic</text>
+  <text x="450" y="86" text-anchor="middle" class="sub">scripts/</text>
+  <text x="750" y="68" text-anchor="middle" class="head">caskaydia-cove</text>
+  <text x="750" y="86" text-anchor="middle" class="sub">nerd/</text>
+
+  <!-- text fonts, the set's own first source -->
+  <rect x="40" y="100" width="220" height="50" rx="6" fill="#7c3aed"/>
+  <text x="150" y="122" text-anchor="middle" class="lblw">text: Fira Code</text>
+  <text x="150" y="140" text-anchor="middle" class="lblw small">sets the character cell</text>
+  <rect x="340" y="100" width="220" height="50" rx="6" fill="#7c3aed"/>
+  <text x="450" y="122" text-anchor="middle" class="lblw">text: Noto Sans Mono</text>
+  <text x="450" y="140" text-anchor="middle" class="lblw small">sets the character cell</text>
+  <rect x="640" y="100" width="220" height="50" rx="6" fill="#7c3aed"/>
+  <text x="750" y="118" text-anchor="middle" class="lblw small">text and symbols:</text>
+  <text x="750" y="138" text-anchor="middle" class="lblw small">CaskaydiaCove Nerd Font Mono</text>
+
+  <!-- script layer -->
+  <rect x="340" y="160" width="220" height="44" rx="6" fill="#2d7d9a"/>
+  <text x="450" y="187" text-anchor="middle" class="lblw">layer arabic (script)</text>
+
+  <!-- shared symbols layer -->
+  <rect x="40" y="214" width="520" height="44" rx="6" fill="#fbbf24"/>
+  <text x="300" y="241" text-anchor="middle" class="lbl">layer nerd-symbols (symbols): Symbols Nerd Font Mono</text>
+
+  <!-- shared emoji layer -->
+  <rect x="40" y="268" width="820" height="44" rx="6" fill="#f6821f"/>
+  <text x="450" y="295" text-anchor="middle" class="lbl">layer noto-emoji (emoji): Noto Color Emoji</text>
+
+  <!-- built-in parts -->
+  <rect x="40" y="332" width="820" height="40" rx="6" fill="#475569"/>
+  <text x="450" y="357" text-anchor="middle" class="lblw">vtium's sprites: box drawing, blocks, Braille, legacy computing</text>
+  <rect x="40" y="382" width="820" height="40" rx="6" fill="#2d8e5e"/>
+  <text x="450" y="407" text-anchor="middle" class="lblw">layer unifont (fallback): every other character; the built-in font if files are missing</text>
+
+  <text x="450" y="450" text-anchor="middle" class="sub">A layer that spans several columns is one shared file, named by a layer= line in each set.</text>
+</svg>

@@ -25,10 +25,10 @@ expect: middle, missing or drawn twice, and the screen ends on the slow lines
 expect: in order, with "slow line 40 of 40" last.
 
 step: A full-screen redraw, then a blank screen
-run: ls -R /usr | head -5000; clear; sleep 5
-do: watch the screen until the question comes back.
+run: ls -R /usr | head -5000; clear; guide-wait ''
+do: watch the screen, and press a key or click once you have looked.
 expect: the listing rushes past, then the screen goes blank at once and
-expect: *stays blank for five seconds* while the cursor blinks at the top
+expect: *stays blank* while the cursor blinks at the top
 expect: left. *No line of the listing shows again*, not even for one blink.
 
 step: The scrollback, a page at a time

@@ -44,6 +44,8 @@ Every decoder lives here. The console reads only the helper's glyphs and its own
 | `src/cover.rs`, `src/cover.rs.sha256` | The named `cover=` sets as range tables, and their SHA-256. `tools/cover-tables` generates them, and nobody edits them by hand. |
 | `src/outline.rs` | Outline fonts: the request, and the bounded answer that the parent checks. Also the rasteriser that the parser runs, where swash places each glyph in its cell as R8 or premultiplied RGBA. |
 | `src/shaping/` | Clusters (vtium/vtium#144). Each cluster is judged by what it holds, shaped with HarfRust, and drawn whole by swash. `data.rs` holds the Unicode tables that `gen-shaping/` generates, and nobody edits it by hand. |
+| `src/xcursor.rs` | The reader of a desktop cursor theme's files, the Xcursor format, which the helper runs for the console's pointer (ADR-1309 D6). It keeps the first frame of each size, at most 64 pixels a side, within a budget of pixels. |
+| `src/pointer_svg.rs` | The drawing of an SVG pointer file's symbols with resvg, a cell tall, which the helper runs for the console's pointer (ADR-1309 D4). |
 | `src/made.rs` | How the glyph helper made each superscript and subscript glyph, which the font preview's caption names (ADR-1202 D14). Also the frame that carries that record. |
 | `src/resample.rs` | Scaling a color bitmap down to its cells, by the method chosen when the tool is built. |
 | `src/glyphs.rs` | The bounded glyph form that the parser answers with, and its check. |
@@ -297,7 +299,8 @@ This slice reads ADR-1200 D1's keys and ADR-1301 D4's `antialias=`:
 - `cover=` (`ascii`, `latin-1`, `gb2312`, `gbk`, `big5`, `jis-x-0208`, `ks-x-1001`, `U+XXXX` and `U+XXXX-U+YYYY`);
 - `cp-size=`;
 - `style=`, which is `regular`, `bold`, `italic` or `bold-italic`, for the source above it. The style is regular when no line names one. Any other value refuses the frit, naming its line.
-- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=` and `license=`.
+- `cell=`, `size=`, `glyph-source=` and `glyph-source-<range>=`, `antialias=`, `hinting=`, `render=` and `license=`;
+- `strike=`, for an outline source, and `layer=`, which ADR-1204 D2 and D5 add. See [Layers](#layers) and [Strikes](#strikes).
 
 The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a stored set was compressed. vtium-config accepts it with one warning, naming the file and line. Refusing it would leave the console on the built-in font, for a key that never changed what was drawn.
 
@@ -311,6 +314,15 @@ The store's `package=` and `sha256=` are unknown keys. `compress=` chose how a s
 
 `hinting=`, given once, is `light` or `full`. `light` is the default, and fits outline glyphs to the pixel grid up and down only. `full` also fits them sideways. See [Outline fonts](#outline-fonts) for how.
 
+`render=`, once for each outline source, says how the glyphs of the `source=` line above it draw. `bitmap` draws them as a bitmap font's glyphs draw. The helper hints each outline fully, as `hinting=full` does, whatever `hinting=` says. It then lights each pixel that the glyph covers at least half of, and turns every other pixel off. A glyph that would light no pixel at all, such as a small dot between two pixels, keeps the one pixel it covers most. `smooth` draws the glyphs as any outline glyph draws, under the console's own rules for antialiasing. A source with no `render=` line draws as `bitmap` when the frit's first source is a bitmap font, and as `smooth` otherwise. So the outline glyphs that fill a bitmap font's gaps look like the rest of that font. For example, Noto Sans CJK behind Terminus draws its ideographs 1-bit:
+
+```ini
+source=kbd:ter-v16n
+source=font:Noto Sans CJK SC
+```
+
+Color glyphs keep their color under both values, and vtium's own sprites draw as the sprite policy says. The line under a bitmap source refuses the frit, naming its line. The line under a `font:` source that turns out to be a console font is ignored, with a warning (ADR-1200 D1).
+
 `script-source=` names a smaller size of the same font as the bitmap `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`. The line can repeat (ADR-1202 D12). The source's superscripts and subscripts (SGR 73 and 74) come from one of its smaller sizes (ADR-1202 D3). It is the tallest smaller size whose characters are from one half to three quarters as high as the source's characters in the cell. Those smaller sizes are these, each at any whole multiple that fits the cell:
 
 - the source itself at a smaller whole multiple, when it is drawn at 2x or more;
@@ -323,6 +335,56 @@ The glyph is placed whole, against the top of the row for a superscript and agai
 source=kbd:ter-116n
 script-source=kbd:ter-112n
 ```
+
+### Layers
+
+A layer is a part that several frits share, such as the icons of a symbol font or color emoji. It is a file `NAME.vtlayer` in the `layers/` folder of the frits' directory, so `/etc/vtium/fonts/layers/` by default. Its first key, `role=`, says what it brings: `script`, `symbols`, `emoji` or `fallback`. Its other lines are `source=` lines, each followed by the keys that describe a source: `cover=`, `fit=`, `render=`, `style=` and `strike=`. A layer holds sources alone, so a frit's own keys, such as `cell=`, `size=` and `line-spacing=`, refuse it, and so does a `layer=` line.
+
+```ini
+# /etc/vtium/fonts/layers/nerd-symbols.vtlayer
+role=symbols
+source=font:Symbols Nerd Font Mono
+cover=U+E000-U+F8FF
+cover=U+F0001-U+F1AF0
+```
+
+A frit adds a layer with a `layer=NAME` line, and the layer's sources take the place of that line. So the sources keep the frit's order, and the frit's own keys apply to them too. A key that describes a source, such as `cover=` or `fit=`, cannot follow a `layer=` line. It would describe the layer's last source, so vtium-config and the helper both refuse it.
+
+```ini
+source=font:Fira Code
+layer=nerd-symbols
+layer=noto-emoji
+```
+
+The console reads each layer from the `layers/` folder of the frits' directory, under the ownership check it gives the frit. It hands the helper the frit with every layer in place, so the helper reads one list of sources. Each layer's lines sit between the frit's `layer=NAME` line and a closing `layer=` line. So the helper knows which sources are a layer's, and its messages name a layer's file and line. A `layer=` line adds nothing, and vtium logs one line for it once a boot, in these cases:
+
+- the layer's file is missing, or the ownership check refuses it;
+- its `role=` is not one of the four roles, or the file holds a key that a layer does not take;
+- an earlier line of the frit adds the same layer;
+- the frit already holds a layer of the same role, and the role is `symbols`, `emoji` or `fallback`, which a frit holds once. The first such layer is the one the frit keeps;
+- the layer would give the frit more than 16 sources, or make its text larger than 64 KiB;
+- the frit already has 16 `layer=` lines above it. vtium reads no layer past them.
+
+The frit draws without that layer. `vtium check-config` reports each such line for the frit that `font-name` and each look name, and `vtium-config check` reports it as a warning. The console does not check a layer's values. So when the helper refuses a value in a layer, such as a `cover=` it cannot read, it refuses the whole frit. A bad value in the frit's own lines does the same. Its message names the layer's file and line, and `vtium-config check` refuses the frit with the same message. `vtium-config new-frit` refuses a frit that would leave out any layer it names, apart from a layer this machine lacks or cannot read.
+
+`vtium-config new-frit FONT --layer NAME`, once for each layer, writes the layers after the fonts in the order of their roles: script layers, then symbols, then emoji, then the fallback (ADR-1204 D6).
+
+### Strikes
+
+`strike=` names a bitmap file of the same design as the outline `source=` line above it, as `kbd:NAME`, `file:PATH` or `bdf:PATH`, once for each file. A cell up to the tallest strike's height draws the tallest strike that fits it, placed as a bitmap source is placed. Its baseline and lines are the strike's. Above the tallest strike's height, and in a cell that no strike fits, the outline draws. The outline also draws, at every height, each character that the strikes lack, such as a Nerd Fonts icon. Each strike file states its own height, so the frit needs no other number for the switch. A strike this machine lacks is left out quietly, and one the helper refuses is left out with a warning naming its line.
+
+```ini
+source=outline:/usr/share/fonts/terminus/TerminusTTF-4.49.3.ttf
+strike=bdf:/usr/share/fonts/terminus/ter-u12n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u14n.bdf
+strike=bdf:/usr/share/fonts/terminus/ter-u16n.bdf
+```
+
+Here a 14-pixel cell draws `ter-u14n`, a 15-pixel cell draws it too, a 16-pixel cell draws `ter-u16n`, and a 17-pixel cell draws the outline.
+
+### The cell, line spacing, cover sets and families
+
+The frit's own cell comes from its own first source, its text font (ADR-1200 D17). When that font is missing, or the frit holds only layers, the built-in font draws the text in its place. The helper leaves each character that the built-in font holds to the console, which draws it. The later sources draw only what the built-in font lacks. The helper picks the built-in font the console draws, by the cell's height and the console's locale, which the console passes with `--locale` when it starts the helper. The helper gives no own cell, so the console uses the frit's `cell=`, or else the cell for the configured size. A layer's font never sets the cell (ADR-1204 D5). A text font that fails as it draws leaves the cell to the frit's next own source.
 
 `line-spacing=`, given once, is a whole percentage from 0 to 100 of the text's height, which the console adds to each row (ADR-1302 D13). The console reads it as text, as it reads `cell=`. vtium.conf's `font-line-spacing` overrides it. `fit=` says how the set on the `source=` or `cover=` line above it uses the taller row. It is `fill`, `natural` or `room`, once for each set. Under `natural`, glyphs that must meet their neighbours, such as Powerline separators and box-drawing lines, keep the text's height too. So they stop short of the row's added space and leave gaps between rows. A set that holds such glyphs uses `fill` for them when they must join. A `cover=` line's `fit=` wins over its source's. A character in no set with a `fit=` takes its default. Line and block characters fill. Arabic, Hebrew, Syriac, Thaana, N'Ko and combining marks have room. The rest is natural.
 
@@ -406,6 +468,8 @@ A joining form is a letter keyed with U+200D on the sides it joins. The font dra
 
 **Syllables across clusters** (ADR-1203). Unicode's grapheme cluster rules cut many syllables into several clusters, as they cut every Kannada conjunct. The console asks for each piece of such a syllable (`vtium_font::syllable`). A piece's key is the syllable's whole text, then U+001F INFORMATION SEPARATOR ONE, then a mark from Supplementary Private Use Area-B. The mark says which cells of the syllable the piece covers, and how many cells the syllable takes. No cluster that a program writes holds U+001F, so the helper takes a key for a piece only when the console asks for a piece. The helper shapes the whole text with HarfRust and judges it as a letter with its marks. It places the drawing across all the syllable's cells, as it places a cluster in its own. A syllable of any script wider than its cells is squeezed sideways to them (ADR-1307 D1, as ADR-1203 D5 amends it). A narrower one is centred across them (ADR-1302 D2). The helper then cuts the drawing at the edges of the piece's cells, and sends the piece under its key. The ink past the syllable's left side goes with the first piece, and the ink past its right side with the last. A syllable that the font cannot draw whole sends no piece, so the console draws its clusters on their own. Tests: `a_syllable_is_drawn_across_its_clusters_cells_and_cut`, `a_syllable_the_font_cannot_draw_whole_is_left_out` and `a_syllable_is_cut_into_its_pieces`.
 
+**Programming ligatures** (ADR-1308 D8). With `font-ligatures` on, the console also asks for the pieces of each run of 2 to 14 ASCII symbols, such as `->` or `!=`. Their keys are made as a syllable's are (`vtium_font::syllable::is_ligature_run`). The helper shapes the run whole, with the font's default features, and shapes each symbol alone. When every symbol keeps its own glyph in its own place, the font does not join the run. The helper then sends no piece, and the console draws each cell on its own (`shaping::shape::ligates`). Only the source that draws the run's first character decides. When that source is a bitmap font, or an outline font that does not join the run, no later source is asked. So another font's ligature never appears among the first font's characters (`serve.rs`). The console joins no run on a double-size line or in right-to-left text. Tests: `a_ligature_is_drawn_across_its_cells_and_cut` in `src/shaping/shape.rs`, and `a_ligature_font_alone_draws_the_pieces_of_its_run`, `a_later_source_never_draws_a_ligature_over_a_bitmap_first_font` and `a_later_source_never_joins_a_run_the_first_outline_font_leaves_apart` in `tests/engine.rs`.
+
 **Marks the font lacks.** Sometimes the font cannot draw a letter with marks, or a joining form, whole, because it has no glyph for some of the marks. For example, DejaVu Sans Mono has no glyph for the superscript alef. Then the cluster is shaped again without those marks. The part that the font draws is sent under its own key. So the console draws that part as the font shapes it, and lays the missing marks over it (ADR-1200 D22 step 3, `shaping::shape::shape_all`).
 
 Only a console built with right-to-left text takes parts. It asks for them with the request kind `ASK_PARTS`. A plain `ASK`, which the minspec build sends, gets no parts. So the minspec console carries no code for them. A part goes once in an answer, and never under the key of a cluster that the console asked for (`tests/serve.rs`).
@@ -481,6 +545,8 @@ Each decoder is pure Rust, compiles no C and has no build script, and only this 
 | TrueType, OpenType, COLR, CBDT | `swash` 0.2.10, default features | MIT or Apache-2.0; under it `skrifa` 0.44, `read-fonts` 0.41 and `font-types` 0.12 (MIT or Apache-2.0, Rust 1.85), `zeno` 0.3 and `yazi` 0.2 (Apache-2.0 or MIT), and `bytemuck` 1.25 (Zlib, MIT or Apache-2.0) | ADR-1200 D14's decided rasteriser. It is the only pure-Rust one with hinting, embedded bitmaps and color, with `build = false`. ab_glyph has no hinting, bitmaps or color. fontdue holds every glyph at load. |
 | Outline hinting | `skrifa` 0.44.0, its `std` feature alone | MIT or Apache-2.0; the version and features swash already builds, so it adds no code to the build | swash's scaler hints in one fixed mode, and `hinting=` (ADR-1200 D1) needs light and full. The rasteriser calls skrifa's hinters itself. |
 
+| SVG pointer files | `resvg` 0.50.0 and `usvg` 0.50.0, default features off; `roxmltree` 0.21.1 | resvg and usvg Apache-2.0 or MIT; under them `tiny-skia` and `tiny-skia-path` 0.12 (BSD-3-Clause), `arrayref` 0.3 (BSD-2-Clause), and the rest MIT, Apache-2.0 or Zlib; roxmltree MIT or Apache-2.0 | ADR-1309 D4: the maintainer asked for SVG files from any editor, which write gradients, transforms, `<use>` and CSS. With its default features off, resvg builds no text, no fonts and no raster images. The maintainer allowed the two BSD licenses, and the package ships tiny-skia's notice. |
+
 The tests' xz fixtures take `lzma-rust2`'s encoder as a dev-dependency. The bzip2 and zstd fixtures use the encoders that the decoding crates carry.
 
 ## The parser
@@ -546,6 +612,8 @@ The frit's first source sets the cell. That is the first source in the frit's or
 
 A bitmap first source answers its own cell, once every later bitmap source's cell fits in it. The console takes that cell at whole multiples. An outline first source answers the cell that the W rule gives it, at the height that the query names. The console takes that cell as it is. A query that names no height gets no cell for an outline first source. Later sources of either kind draw into that cell. The helper reads no `cell=` line to answer a query, since the console reads `cell=` itself, and asks only where D17 has it ask. The console takes either answer to any query, its own cell (frame 6) or the W rule's (frame 10), whatever the frit's text names first. So when an outline first source is missing on this machine, a bitmap source after it answers, and the reverse.
 
+**Pointer pictures.** A pointer ask, kind 9, carries a pointer file that the console read, one of the ten pointer shapes, and the cell heights the displays draw at (ADR-1309 D5). The helper never opens a pointer file itself. For an SVG file, it draws the shape's symbol a cell tall at each height (`src/pointer_svg.rs`). For a cursor theme's file, it answers every size it keeps, or the size nearest `pointer-size` (`src/xcursor.rs`). Each picture goes in a frame of kind 16, premultiplied RGBA with its hotspot. A shape the helper draws nothing for gets one frame of kind 17, which says whether the file lacks the shape or why the helper cannot draw it. The ask ends with the done frame, in its turn among the glyph asks. resvg loads no image that a file names, so a file cannot make the helper read another file.
+
 **Ask, fill and stop.** The other three requests are these:
 
 - An **ask** is answered whole, ahead of anything else, with the glyphs of the codepoints and the clusters that it names. Each cluster is shaped with HarfRust from the first outline source in the frit's order that covers its first scalar value other than U+200D. The cluster is drawn whole into the frame's cluster map (ADR-1200 D21).
@@ -566,7 +634,7 @@ The outline baseline and the color glyph's box come from the same module's `scri
 
 **The request's layout.** The style, the script, the cluster width, the line size, and the rows that line spacing adds above and below the cell are fields of the request. The cluster width is the console's `cluster-width` (ADR-1006 D8): 0 for `double`, 1 for `single`. The helper places each cluster of an ask in the cells that the rule gives it, and a request that is not an ask carries `double`. The line size is 0 for the normal size, 1 for a line of double width and 2 for a line of double height (Lines of double size, below). The first answer starts with the sandbox's report (kind 14), which an older console cannot read. So the request's magic is `VTVSREQA`, which also marks the line size, the coverage query and a color emoji's ink box. A request of an earlier layout, from `VTVSREQ9` back to `VTVSREQ3`, is refused whole. The refusal says that the console and the font helper come from different builds, and that reinstalling vtium mends it. The console says the same when an older helper refuses its request. Each glyph frame, each fill's end, and each stop taken names the band as well. So the console holds glyphs by the cell and its band (Line spacing, below).
 
-**Lines of double size.** A program can set a line to double width with `ESC # 6`, or to double height with `ESC # 3` and `ESC # 4`. The console asks for the characters such a line shows in an ask of their own, which names the line size. The helper draws an outline source's glyph at that size, from its outlines, hinted and antialiased as the frit's `hinting=` says. On a line of double width, the helper draws each outline at the normal size and stretches it to twice its width before it rasterises it. The glyph sits in a cell twice as wide, on the normal baseline. On a line of double height, the helper draws the glyph at twice the normal size and on twice the normal baseline. That glyph sits in a cell twice as wide and twice as tall. Bold and italic are drawn at the normal size before the stretch, so they keep their look. The helper leaves out three kinds of glyph, and the console doubles their pixels instead: what a bitmap source draws, a color glyph, and a cluster. A bitmap font's glyph keeps the look that the DEC terminals gave double-size text. The helper refuses a line size past 2, and a double size on a request that is not an ask. It also refuses a superscript or subscript at a double size, and a double size whose cell would pass `CELL_SIDE_MAX`. Tests: `a_double_ask_reads_back_and_its_bounds_are_checked`, `a_double_ask_renders_its_outline_glyphs_at_double_size` and `a_double_ask_leaves_a_bitmap_sources_glyphs_to_the_console`. The engine draws the 94 printable ASCII glyphs of DejaVu Sans Mono at 9×16 in about 0.5 ms at the normal size. It takes 0.6 ms at double width and 0.7 ms at double height. `cargo test --release -p vtium-config --test doubled_timing -- --ignored --nocapture` measures it.
+**Lines of double size.** A program can set a line to double width with `ESC # 6`, or to double height with `ESC # 3` and `ESC # 4`. The console asks for the characters such a line shows in an ask of their own, which names the line size. The helper draws an outline source's glyph at that size, from its outlines, hinted and antialiased as the frit's `hinting=` says. On a line of double width, the helper draws each outline at the normal size and stretches it to twice its width before it rasterises it. The glyph sits in a cell twice as wide, on the normal baseline. On a line of double height, the helper draws the glyph at twice the normal size and on twice the normal baseline. That glyph sits in a cell twice as wide and twice as tall. Bold and italic are drawn at the normal size before the stretch, so they keep their look. The helper draws color glyphs and clusters at the line's size too. On a line of double height, it draws them in the doubled cell. On a line of double width, the helper cannot stretch them before it rasterises them. A color glyph is a bitmap or layers of color, and the shaper places a cluster's glyphs. So the helper takes the glyph it draws for a line of double height and halves its height. Each pair of rows becomes one row, the mean of the two. The helper leaves out only what a bitmap source draws, and the console doubles those pixels instead. A bitmap font's glyph keeps the look that the DEC terminals gave double-size text. The helper refuses a line size past 2, and a double size on a request that is not an ask. It also refuses a superscript or subscript at a double size, and a double size whose cell would pass `CELL_SIDE_MAX`. Tests: `a_double_ask_reads_back_and_its_bounds_are_checked`, `a_double_ask_renders_its_outline_glyphs_at_double_size`, `a_double_ask_draws_a_color_glyph_at_its_size`, `a_double_ask_shapes_a_cluster_at_its_size`, `halving_a_glyph_averages_each_pair_of_rows` and `a_double_ask_leaves_a_bitmap_sources_glyphs_to_the_console`. The engine draws the 94 printable ASCII glyphs of DejaVu Sans Mono at 9×16 in about 0.5 ms at the normal size. It takes 0.6 ms at double width and 0.7 ms at double height. `cargo test --release -p vtium-config --test doubled_timing -- --ignored --nocapture` measures it.
 
 **vtium-config's own requests.** A fifth request, a sources query, is vtium-config's own, and the console never sends it. The helper answers it at once with each source of the frit that it left out. It marks each one `missing` when this machine does not have it, and `refused` when the machine has it and cannot read it. It gives the source's line, spelling and why, which `fonts` lists.
 
@@ -631,7 +699,7 @@ A color glyph always keeps its size, whatever `fit=` says. A stretched glyph's i
 - The density is the first measured display's, since the TUI cannot tell which display shows the terminal it runs in. The TUI reads the EDID's size in whole centimetres, where the console reads the connector's millimetres. So the two can differ by a dot per inch or two. vtium-platform's EDID reader is private to it. Once vtium-platform makes it public, `src/display.rs` takes it in place of its own.
 - A session's end returning its console to the configured font (ADR-1201 D11) is the console's work, in crates/vtium.
 - vtium.conf's `font-hinting`, and a look's, over the frit's `hinting=` (ADR-1200 D1). The helper hints as the frit says, since no request carries the console's setting yet.
-- ADR-1300's subpixel strikes, and shaping across cells for ligatures. The helper shapes each thing that the console asks for on its own. Those are the clusters that the terminal segments, the syllables that ADR-1203 joins, and the joined forms of right-to-left text (#144). A font may shape or position glyphs across clusters that are not one syllable. For example, one font kerns a Tamil virama against the superscript digit after it. The helper draws such clusters apart (`tests/harfbuzz/differs.tsv`).
+- ADR-1300's subpixel strikes, and shaping across cells beyond syllables and programming ligatures. The helper shapes each thing that the console asks for on its own. Those are the clusters that the terminal segments and the syllables that ADR-1203 joins. They are also the runs of ASCII symbols that ADR-1308 D8 joins into ligatures, and the joined forms of right-to-left text (#144). A font may shape or position glyphs across clusters that are not one syllable. For example, one font kerns a Tamil virama against the superscript digit after it. The helper draws such clusters apart (`tests/harfbuzz/differs.tsv`).
 - COLR version 1 glyphs, such as `Noto-COLRv1.ttf`'s, are not drawn in color, because swash reads version 0. A COLR layer in the text's color takes swash's mid gray, since a set cannot know the text's color.
 - The parser's account is `nobody`. ADR-1400's pre-login account takes its place once vtium/vtium#31 names it.
 - A root run is unverified on the maintainer's machine: the drop to `nobody`, `nobody` executing the binary from its install path, and the real `console:VT` ioctls. Tier 3's guest is where they run.

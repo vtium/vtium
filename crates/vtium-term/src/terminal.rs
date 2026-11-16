@@ -11,7 +11,8 @@
 //! through the screen, the in-band reports through
 //! `inband.rs`, the Linux console's blank sequences through `blank.rs`,
 //! the line size sequences (DECDWL, DECDHL, DECSWL) through `line_size.rs`,
-//! and the keys, the pointer, focus and pastes through `input.rs`.
+//! OSC 22's pointer shapes through `pointer.rs`, and the keys, the
+//! pointer, focus and pastes through `input.rs`.
 //!
 //! A control function is matched by its final byte, its private marker and
 //! its intermediates exactly, as `vtium-parse`'s README asks: `CSI ? 5 A`
@@ -32,9 +33,11 @@ mod input;
 mod kitty_keyboard;
 mod line_size;
 mod modes;
+mod pointer;
 mod rect;
 mod reply;
 mod sgr;
+mod text_size;
 mod window;
 
 use vtium_parse::{Chunk, Consumer, InputMode, Intermediates, Params, Parser, StringEnd};
@@ -50,6 +53,7 @@ pub use blank::{BlankRequest, BlankTimeout};
 pub use display::DisplayRequest;
 pub use input::{Key, KeyEvent, Mods, MouseButton, MouseEvent};
 pub use modes::MouseTracking;
+pub use pointer::{POINTER_QUERY_NAMES_MAX, POINTER_STACK_MAX, PointerShape};
 pub use reply::VersionError;
 pub use window::{Extent, GridRequest};
 
@@ -263,6 +267,9 @@ struct State {
     /// XTPUSHSGR's pens, and the palettes XTPUSHCOLORS and OSC 30001 keep.
     sgr_stack: sgr::Stack,
     color_stack: color::Stack,
+    /// OSC 22's shape stacks, the main screen's and the alternate
+    /// screen's (`terminal/pointer.rs`).
+    pointer: pointer::Stacks,
     /// The image protocols' router (ADR-1100).
     #[cfg(feature = "images")]
     images: images::Router,
@@ -320,6 +327,7 @@ impl Terminal {
             inband: Inband::new(cols, rows),
             sgr_stack: sgr::Stack::default(),
             color_stack: color::Stack::default(),
+            pointer: pointer::Stacks::default(),
             #[cfg(feature = "images")]
             images: images::Router::default(),
             #[cfg(test)]
@@ -518,8 +526,11 @@ impl Terminal {
         self.state.set_cursor_style(style);
     }
 
-    /// The cursor's blink interval the program asked for with the Linux
-    /// console's `CSI 16 ; Pn ]` (console_codes(4)), kept for the host.
+    /// The length of each phase of the cursor's blink, in milliseconds, as
+    /// a program set it with the Linux console's `CSI 16 ; Pn ]`
+    /// (console_codes(4)): 50 to 65535. `None` means the default, the
+    /// host's own interval, which RIS and an interval outside that range
+    /// return to (`terminal/blank.rs`).
     pub fn cursor_blink_ms(&self) -> Option<u32> {
         self.state.cursor_blink_ms
     }
@@ -806,8 +817,9 @@ impl State {
     /// cleared and XTSHIFTESCAPE 0, the open link ended, the screen and the
     /// scrollback erased, which gives every row the initial paragraph
     /// properties in a build with the bidi feature, the cursor home, the
-    /// blank timeout the host's again, and an OSC 50 or XTWINOPS 8 request
-    /// the host has not taken dropped.
+    /// blank timeout the host's again, the cursor's blink interval the
+    /// default again, OSC 22's shape stacks emptied, and an OSC 50 or
+    /// XTWINOPS 8 request the host has not taken dropped.
     fn hard_reset(&mut self) {
         self.soft_reset();
         self.screen.reset_tabs();
@@ -829,6 +841,8 @@ impl State {
         modes::reset(self, true);
         self.screen.move_to(0, 0);
         self.reset_blank_timeout();
+        self.reset_cursor_blink_interval();
+        self.reset_pointer();
         // A font set or a text area asked for and not yet taken goes with
         // the program that asked, so the host acts on neither after a reset.
         self.font_request = None;
@@ -977,12 +991,7 @@ impl State {
             b'n' => self.reply_dsr(params),
             b't' if params.get(0) == Some(8) => self.request_grid(params),
             b't' => self.reply_window(params),
-            b']' if params.get(0) == Some(16) => {
-                if let Some(ms) = params.get(1) {
-                    self.cursor_blink_ms = Some(ms);
-                }
-            }
-            b']' => self.console_blank(params),
+            b']' => self.console_private(params),
             // DECLL: a console's LEDs are the keyboard's, and stay as the
             // user set them (ADR-1000, ctl.decll).
             _ => {}
@@ -1192,8 +1201,12 @@ impl Consumer for State {
             self.screen.set_hyperlink(args);
         } else if let Some(args) = data.strip_prefix(b"133;") {
             self.screen.shell_mark(args);
+        } else if let Some(args) = data.strip_prefix(b"66;") {
+            self.text_size(args);
         } else if let Some(pt) = data.strip_prefix(b"50;") {
             self.osc_font(pt, end);
+        } else if let Some(pt) = data.strip_prefix(b"22;") {
+            self.osc_pointer(pt, end);
         } else if !self.osc_display(data) {
             #[cfg(feature = "images")]
             if self.image_osc(data) {

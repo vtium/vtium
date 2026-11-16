@@ -1,0 +1,11 @@
+# Claims of showcase-rtl-paragraphs.svg on the showcase's page scripts and emoji.
+element	file	symbol
+a build with right-to-left support: the bidi feature	crates/vtium-term/Cargo.toml	bidi =
+1: SCP 2 sets the paragraph right to left	crates/vtium-term/src/terminal/bidi.rs	State::select_path
+1: the direction is held on every row of the paragraph	crates/vtium-term/src/screen/paragraph.rs	Screen::set_paragraph
+1: test: SCP sets the direction at the paragraph's first position	crates/vtium-term/tests/bidi.rs	scp_sets_the_paragraph_direction_at_its_first_position
+2, 3: the letters are stored in the order the program wrote them, and drawn in the order the bidirectional algorithm gives	crates/vtium-term/src/order.rs	paragraph
+3: each letter's level by the bidirectional algorithm	crates/vtium-term/src/unicode/bidi/levels.rs	line_levels
+3: the cursor stays on its cell and is drawn where that cell is drawn	crates/vtium-term/src/order.rs	RowOrder::visual_at
+3: test: the cursor is drawn on its logical cell	crates/vtium-term/tests/bidi_frame.rs	the_cursor_is_drawn_on_its_logical_cell
+4: test: a mixed line draws from the right edge in a right-to-left paragraph	crates/vtium-term/tests/bidi_frame.rs	a_mixed_line_draws_from_the_right_edge_in_a_right_to_left_paragraph

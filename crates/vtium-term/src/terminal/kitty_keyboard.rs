@@ -316,7 +316,13 @@ fn kind(keysym: u32) -> Option<Kind> {
         sym::KP_END => f(U(57424)),
         sym::KP_INSERT => f(U(57425)),
         sym::KP_DELETE => f(U(57426)),
-        sym::KP_BEGIN => f(U(57427)),
+        // The table gives KP_BEGIN as "1 E or 57427 ~", and vtium sends
+        // its first form, `CSI E`, as it sends Home's `1 H`.
+        //
+        // References:
+        // - ADR-1005 D15: the table's entry for KP_BEGIN wins over the
+        //   disambiguate section's dedicated numbers.
+        sym::KP_BEGIN => f(Letter(b'E')),
         // The media keys xkbcommon names (`xkbcommon-keysyms.h`).
         0x1008_ff14 => f(U(57428)),
         0x1008_ff31 => f(U(57429)),

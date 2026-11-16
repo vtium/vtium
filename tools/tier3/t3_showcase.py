@@ -15,10 +15,15 @@ beyond the harness:
   the gallery tool, which t3_showcase_gallery.py puts on the disc;
 - vtium's named palettes, read from vtium-term's table for the color scene
   (`palettes`);
+- the scenes, which it finds by the category and hero lines in their
+  headers (`scenes`), and the figures of behaviours in docs/figures/
+  (`figures`), with the check of both sets of header lines
+  (`header_faults`);
 - the pages: each scene's capture copied into docs/showcase/, the fonts
   scene's four captures cropped to their bands and stacked, the two
-  small-machine goldens copied beside them, and the page that shows them,
-  with the source of each font and each photograph (`compose`).
+  small-machine goldens copied beside them, the showcase page with each
+  category's hero, and a page for each category with its scenes and
+  figures, with the source of each font and each photograph (`compose`).
 
     t3_showcase.py fetch-fonts          fetch the pinned fonts into the cache
     t3_showcase.py compose [--out DIR]  write the showcase from the last run
@@ -43,7 +48,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import t3_evaluate  # noqa: E402
 import t3_showcase_gallery as gallery  # noqa: E402
 import t3img  # noqa: E402
-from t3_common import REPORT, ROOT, RUNDIR, rel  # noqa: E402
+from t3_common import GUEST, REPORT, ROOT, RUNDIR, rel  # noqa: E402
 
 VARIANT = "showcase-1920x1080"
 SPECIMEN_FONTS = os.path.join(ROOT, "tools", "specimens", "src", "fonts.rs")
@@ -180,6 +185,10 @@ FONTS = [
           "d3e33254b09e7bb2c5cf0f17e554b80462056c5a107097f258d495168c3a9346"),
     _noto("Ethiopic", "2.102", "Amharic in the scripts scene, in the Ethiopic script",
           "f6f7fc379db9438959a2b0527e7a2cf36ea9c84626d56ec444fff37fc24c3c10"),
+    _tier2("Noto Sans Tamil", "2.004", "SIL Open Font License 1.1",
+           "Tamil in the syllables scene", "NotoSansTamil-Regular.ttf"),
+    _tier2("Noto Sans Kannada", "2.005", "SIL Open Font License 1.1",
+           "Kannada in the syllables scene", "NotoSansKannada-Regular.ttf"),
     _specimen("Symbols Nerd Font Mono", "3.4.0", "MIT", "the prompt's symbols",
               "SymbolsNerdFontMono-Regular.ttf"),
 ]
@@ -286,53 +295,309 @@ def disc_fonts(disc, directory=None):
         shutil.copyfile(os.path.join(directory, font.file), os.path.join(out, font.file))
 
 
-# The scenes, in the order the variant draws them. Each is a script,
-# guest/screens/NAME.sh. The fonts scene is four screens, one in each font,
-# whose captures compose crops and stacks into one image (FONT_BANDS).
-SCENES = ["showcase-text", "showcase-emoji", "showcase-scripts", "showcase-color",
-          "showcase-boxes", "showcase-pictures", "showcase-shell"]
+# The showcase's categories, in the order the page shows them, each named as
+# a scene's "# category:" line spells it. The shell session alone names the
+# front page, a value of its own: it is the front page's hero.
+CATEGORIES = ["text and fonts", "scripts and emoji", "styles and modes", "color",
+              "lines and blocks", "pictures", "input and pointer", "displays and VTs",
+              "small machines"]
+FRONT_PAGE = "front page"
+SHELL = "showcase-shell.sh"
+SMALL_MACHINES = "small machines"
+# Where the scenes and the figures are.
+SCREENS_DIR = os.path.join(GUEST, "screens")
+FIGURES = os.path.join(ROOT, "docs", "figures")
+# The fonts scene is four screens, one in each font, whose captures compose
+# crops and stacks into one image. Its caption, alt text and header lines
+# are those of showcase-fonts.inc, and the band scripts carry no category.
+FONTS_HEADER = "showcase-fonts.inc"
 FONT_BANDS = ["showcase-fonts-iosevka", "showcase-fonts-terminus", "showcase-fonts-unifont",
               "showcase-fonts-jetbrains"]
-SCREENS = SCENES + FONT_BANDS
-# Each image the page shows: its title on the page, its file in
-# docs/showcase, the script whose header gives its caption and alt text
-# (t3_evaluate.header), and the cases it is made of. The hero, the shell
-# scene, comes first.
-IMAGES = [
-    ("A shell session", "hero.png", "showcase-shell.sh", ["showcase-shell"]),
-    ("Outline text", "text.png", "showcase-text.sh", ["showcase-text"]),
-    ("Emoji", "emoji.png", "showcase-emoji.sh", ["showcase-emoji"]),
-    ("Scripts", "scripts.png", "showcase-scripts.sh", ["showcase-scripts"]),
-    ("Color", "color.png", "showcase-color.sh", ["showcase-color"]),
-    ("Box drawing", "boxes.png", "showcase-boxes.sh", ["showcase-boxes"]),
-    ("Pictures", "pictures.png", "showcase-pictures.sh", ["showcase-pictures"]),
-    ("Fonts", "fonts.png", "showcase-fonts.inc", FONT_BANDS),
-]
-# The two small-machine goldens the page shows below the scenes, copied into
+
+
+class Scene:
+    """One scene of the showcase: the script whose header gives its caption,
+    alt text, category and hero line; the cases it is made of, one screen
+    each; its image in docs/showcase; its category, as its header spells
+    it, or None; and whether it is its category's hero."""
+
+    def __init__(self, script, cases, image, category, hero):
+        self.script, self.cases, self.image = script, cases, image
+        self.category, self.hero = category, hero
+
+
+def fields(path):
+    """The header fields of the script at `path` (t3_evaluate.header).
+    t3_evaluate.header joins its argument to the guest's screens, and a
+    join with an absolute path gives that path, so `path` may lie in any
+    directory."""
+    return t3_evaluate.header(None, os.path.abspath(path))
+
+
+def scene_of(script, cases, image, screens):
+    head = fields(os.path.join(screens, script))
+    category = head["category"][0] if head["category"] else None
+    return Scene(script, cases, image, category, head["hero"] == ["yes"])
+
+
+def scenes(screens=SCREENS_DIR):
+    """The scenes in the directory `screens`: every script showcase-NAME.sh
+    whose header names a category, its image NAME.png, the shell session's
+    hero.png, and the fonts scene, whose header is FONTS_HEADER's and whose
+    cases are FONT_BANDS. So a card adds a scene by adding its script, and
+    edits no list here. The shell session comes first, then each category
+    in the order of CATEGORIES, the hero first and the other scenes by
+    name, and a category no list names last. The variant draws the scenes
+    in this order. Each scene switches the console to its own font set
+    first, so the order changes nothing on the screen.
+
+    References:
+    - ADR-1502 D6, "How the showcase finds its scenes": a scene is found by
+      its header, and the fonts scene's bands stay listed."""
+    found = []
+    for script in sorted(os.listdir(screens)):
+        name = script[:-len(".sh")]
+        if not (script.startswith("showcase-") and script.endswith(".sh")) or name in FONT_BANDS:
+            continue
+        scene = scene_of(script, [name], name[len("showcase-"):] + ".png", screens)
+        if scene.category:
+            if script == SHELL:
+                scene.image = "hero.png"
+            found.append(scene)
+    if os.path.exists(os.path.join(screens, FONTS_HEADER)):
+        fonts = scene_of(FONTS_HEADER, FONT_BANDS, "fonts.png", screens)
+        if fonts.category:
+            found.append(fonts)
+    order = [FRONT_PAGE] + CATEGORIES
+    return sorted(found, key=lambda s: (order.index(s.category) if s.category in order
+                                        else len(order), not s.hero, s.script))
+
+
+def figure_fields(path):
+    """The comment lines an SVG figure starts with, by field: its
+    "category:", "caption:" and "alt:" lines, read up to the first line
+    that is not such a comment. An XML declaration before them is
+    skipped."""
+    out = {"category": [], "caption": [], "alt": []}
+    with open(path) as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith("<?xml"):
+                continue
+            if not (line.startswith("<!--") and line.endswith("-->")):
+                break
+            key, sep, text = line[4:-3].strip().partition(": ")
+            if not sep or key not in out:
+                break
+            out[key].append(text.strip())
+    return out
+
+
+class Figure:
+    """One figure the showcase shows: its file's name in docs/figures, its
+    category, caption and alt text, whether its claim file, NAME.claims.tsv,
+    lies beside it, and, for a figure another page already shows, that
+    page (None for the showcase's own figures)."""
+
+    def __init__(self, file, category, caption, alt, claims, page=None):
+        self.file, self.category, self.caption, self.alt = file, category, caption, alt
+        self.claims, self.page = claims, page
+
+
+def claim_file(directory, file):
+    return os.path.exists(os.path.join(directory, file[:-len(".svg")] + ".claims.tsv"))
+
+
+def own_figure(directory, file):
+    """The showcase's own figure `file`, showcase-NAME.svg, whose first
+    comment lines give its category, caption and alt text."""
+    head = figure_fields(os.path.join(directory, file))
+    return Figure(file, head["category"][0] if head["category"] else None,
+                  " ".join(head["caption"]), " ".join(head["alt"]), claim_file(directory, file))
+
+
+# The file in the figures' directory that lists the figures the showcase
+# borrows from other pages, one a line: the figure's file, its category,
+# the page under docs/ that already shows it, and the caption the showcase
+# gives it. The alt text is the one that page gives the figure.
+BORROWED = "showcase-borrowed.tsv"
+
+
+def page_alt(path, file):
+    """The alt text the page at `path` gives the figure `file`, from its
+    image line `![ALT](../figures/FILE)`, or None when the page shows no
+    such figure or does not exist."""
+    if not os.path.isfile(path):
+        return None
+    with open(path) as f:
+        m = re.search(r"!\[((?:[^\]\\]|\\.|\[[^\]]*\])*)\]\((?:\.\./)*figures/%s\)"
+                      % re.escape(file), f.read())
+    return m.group(1) if m else None
+
+
+def borrowed(directory):
+    """(figures, faults): the figures the showcase borrows, as `directory`'s
+    BORROWED file lists them, and what is wrong with a line of it: too few
+    fields, a figure that is not in `directory`, or a page that does not
+    show the figure. A figure with a fault is left out."""
+    path = os.path.join(directory, BORROWED)
+    out, faults = [], []
+    if not os.path.exists(path):
+        return out, faults
+    with open(path) as f:
+        for n, line in enumerate(f, 1):
+            if not line.strip() or line.startswith("#"):
+                continue
+            row = line.rstrip("\n").split("\t")
+            where = "%s line %d" % (BORROWED, n)
+            if len(row) != 4 or not all(field.strip() for field in row):
+                faults.append("%s has %d fields; a line reads FIGURE, CATEGORY, PAGE and "
+                              "CAPTION, one tab between each" % (where, len(row)))
+                continue
+            file, category, page, text = row
+            if not os.path.isfile(os.path.join(directory, file)):
+                faults.append("%s names %s, which is not in the figures' directory"
+                              % (where, file))
+                continue
+            alt = page_alt(os.path.join(os.path.dirname(directory), page), file)
+            if alt is None:
+                faults.append("%s says %s shows %s, but that page has no image of it"
+                              % (where, page, file))
+                continue
+            out.append(Figure(file, category, text, alt, claim_file(directory, file), page))
+    return out, faults
+
+
+def figures(directory=FIGURES):
+    """The figures the showcase shows from `directory`: its own, every
+    showcase-NAME.svg by name, then the ones it borrows from other pages,
+    in the order its BORROWED file lists them.
+
+    References:
+    - ADR-1502 D6, "Behaviour figures": where a figure lives, the comment
+      lines it starts with, and that a figure another page already shows
+      is used as it is, with no copy."""
+    own = [own_figure(directory, f) for f in sorted(os.listdir(directory))
+           if f.startswith("showcase-") and f.endswith(".svg")]
+    return own + borrowed(directory)[0]
+
+
+def header_faults(screens=SCREENS_DIR, figure_dir=FIGURES):
+    """What is wrong with the header lines of the scenes in `screens` and
+    the figures in `figure_dir`, one sentence each: a scene script that
+    names no category, more than one, or one no list names; a band of the
+    fonts scene that carries a category or hero line; a scene other than
+    the shell session that names the front page, and a shell session that
+    names anything else; a hero line that is not `# hero: yes`; a category
+    with scenes and no hero, or with more than one; a figure that names no
+    category or an unknown one, or lacks a caption or alt text; a figure of
+    the showcase's own with no claim file; and a wrong line of the list of
+    borrowed figures (`borrowed`). compose refuses to write the showcase
+    while there is any, and ShowcaseTest fails on any.
+
+    References:
+    - ADR-1502 D6, "The header lines" and "Behaviour figures": the checks
+      ShowcaseTest makes."""
+    out = []
+    for script in sorted(os.listdir(screens)):
+        name = script[:-len(".sh")]
+        if not ((script.startswith("showcase-") and script.endswith(".sh"))
+                or script == FONTS_HEADER):
+            continue
+        head = fields(os.path.join(screens, script))
+        if name in FONT_BANDS:
+            if head["category"] or head["hero"]:
+                out.append("%s is a band of the fonts scene, so it carries no category or "
+                           "hero line; %s carries them" % (script, FONTS_HEADER))
+            continue
+        if not head["category"]:
+            out.append("%s names no category: add a line `# category: NAME`, NAME one of %s"
+                       % (script, ", ".join(CATEGORIES)))
+        elif len(head["category"]) > 1:
+            out.append("%s names %d categories, and a scene has one"
+                       % (script, len(head["category"])))
+        elif head["category"][0] == FRONT_PAGE and script != SHELL:
+            out.append("%s names the front page, which only %s may name" % (script, SHELL))
+        elif script == SHELL and head["category"][0] != FRONT_PAGE:
+            out.append("%s names the category %r; the shell session is the front page's "
+                       "hero, so its line reads `# category: %s`"
+                       % (script, head["category"][0], FRONT_PAGE))
+        elif head["category"][0] not in CATEGORIES + [FRONT_PAGE]:
+            out.append("%s names the category %r, which is not one of %s"
+                       % (script, head["category"][0], ", ".join(CATEGORIES)))
+        if head["hero"] and head["hero"] != ["yes"]:
+            out.append("%s has the hero line %s; a hero's line reads `# hero: yes`"
+                       % (script, ", ".join("`# hero: %s`" % h for h in head["hero"])))
+    heroes = {}
+    for scene in scenes(screens):
+        if scene.category in CATEGORIES:
+            named = heroes.setdefault(scene.category, [])
+            if scene.hero:
+                named.append(scene.script)
+    if SMALL_MACHINES in heroes:
+        # the small machines' hero is a golden, which carries no header
+        heroes[SMALL_MACHINES].append(SMALL_HERO)
+    for category, named in heroes.items():
+        if not named:
+            out.append("the category %s has scenes and no hero: give one of them the line "
+                       "`# hero: yes`" % category)
+        elif len(named) > 1:
+            out.append("the category %s has %d heroes, %s, and a category has one"
+                       % (category, len(named), ", ".join(named)))
+    for fig in figures(figure_dir):
+        if fig.category is None:
+            out.append("%s names no category: start it with `<!-- category: NAME -->`" % fig.file)
+        elif fig.category not in CATEGORIES:
+            out.append("%s names the category %r, which is not one of %s"
+                       % (fig.file, fig.category, ", ".join(CATEGORIES)))
+        if not fig.caption:
+            out.append("%s has no caption: add `<!-- caption: ... -->` lines" % fig.file)
+        if not fig.alt:
+            out.append("%s has no alt text: add `<!-- alt: ... -->` lines" % fig.file)
+        if fig.page is None and not fig.claims:
+            out.append("%s has no claim file beside it, %s.claims.tsv"
+                       % (fig.file, fig.file[:-len(".svg")]))
+    return out + borrowed(figure_dir)[1]
+
+
+# The scenes, the shell session first, and the cases the variant draws, one
+# for each screen of every scene, in that order.
+SCENES = scenes()
+SCREENS = [case for scene in SCENES for case in scene.cases]
+# The two small-machine goldens of the category small machines, copied into
 # docs/showcase/small/ so the README and the site share one copy: each its
-# golden, the copy's name, its alt text and its caption.
+# golden, the copy's name, its alt text and its caption. They are tier 3
+# goldens, not scenes of the variant, so they carry no header lines. The
+# category's hero is the 320x240 screen, the smallest display vtium
+# supports (SMALL_HERO), so each caption stands on its own: the page shows
+# either one without the other.
+SMALL_INTRO = ("The same console runs on a machine with 512 MB of memory and no GPU. These "
+               "screens come from vtium's smallest build, minspec. They are tier 3 goldens: "
+               "saved screens that vtium's tests in a virtual machine compare its output "
+               "against.")
 SMALL = [
     ("tools/tier3/goldens/2d-640x480-psf16/sgr.png", "small/sgr.png",
-     "vtium on a 640x480 display: the labels fg30 to fg97 in their own colors and bg40 to "
+     "vtium on a 640×480 display: the labels fg30 to fg97 in their own colors and bg40 to "
      "bg107 on their own backgrounds, each set wrapped over two rows, with fg30 and bg40 "
      "drawn black on black; the words bold, underline, reverse, bold-underline-red, faint "
      "and italic in their styles, the 256-color cube as six bands, a 24-bit ramp from green "
      "to red, and a shell prompt with a block cursor",
-     "vtium's minspec build draws this on a VT of tier 3's guest, which has 1 vCPU and "
-     "512 MB, on a virtio-vga display at 640x480, in vtium's 8x16 PSF test font made from "
-     "Unifont's glyphs, 80 by 30 cells. It is a tier 3 golden. The font has no italic "
-     "face, so vtium slants the word `italic` itself. It moves the upper rows of each "
-     "letter to the right in steps of one pixel, and the lowest rows stay where they are."),
+     "vtium's minspec build draws this on a 640×480 display, in a tier 3 virtual machine "
+     "with 1 vCPU and 512 MB of memory. The font is vtium's 8×16 PSF test font, made from "
+     "Unifont's glyphs, and the grid is 80 by 30 cells. The font has no italic face, so "
+     "vtium slants the word `italic` itself. It moves the upper rows of each letter to the "
+     "right in steps of one pixel, and the lowest rows stay where they are."),
     ("tools/tier3/goldens/2d-320x240-psf8/small-console.png", "small/small-console.png",
-     "vtium on a 320x240 display: a ruler of 40 columns, a colored directory listing, the 16 "
+     "vtium on a 320×240 display: a ruler of 40 columns, a colored directory listing, the 16 "
      "background colors, six color names, bold, faint, underlined, reversed and struck "
      "words, a box of sprite lines around cpu, mem and load figures, a line of Latin-1, "
      "four underline styles, a progress bar at 50%, and a prompt",
-     "The same build draws this in the same guest on a 320x240 display, the smallest "
-     "vtium supports, in vtium's 8x8 PSF test font made from Unifont's glyphs folded to "
-     "half height, 40 by 30 cells. It is also a tier 3 golden. The maintainer reviewed "
-     "and accepted it."),
+     "vtium's minspec build draws this on a 320×240 display, the smallest vtium supports, "
+     "in a tier 3 virtual machine with 1 vCPU and 512 MB of memory. The font is vtium's "
+     "8×8 PSF test font, made from Unifont's glyphs folded to half height, and the grid is "
+     "40 by 30 cells. The maintainer reviewed and accepted this screen."),
 ]
+SMALL_HERO = "small/small-console.png"
 
 
 # The pictures. Both are computed here and sent by showcase-pictures.sh:
@@ -563,15 +828,16 @@ def copy_if_changed(src, dst):
     return True
 
 
-def caption(script):
-    """(caption, alt text) from the header comment of `script` in the
-    screens' directory (t3_evaluate.header)."""
-    fields = t3_evaluate.header(None, script)
-    return " ".join(fields[""]), " ".join(fields["alt"])
+def caption(script, screens=SCREENS_DIR):
+    """(caption, alt text) from the header comment of `script` in
+    `screens`, the header lines that sort it left out
+    (t3_evaluate.header)."""
+    head = fields(os.path.join(screens, script))
+    return " ".join(head[""]), " ".join(head["alt"])
 
 
 def image_of(name, cases, run, events):
-    """The image `name` of IMAGES, made of the captures of `cases` in the run
+    """The image `name` of a scene, made of the captures of `cases` in the run
     directory `run`: a scene's capture as it is, or, for the fonts scene,
     each band's capture cropped to the rows its band reported and the bands
     stacked."""
@@ -609,51 +875,92 @@ def photo_rows():
              p.made, "`%s`" % p.file_sha256) for p in gallery.PHOTOS]
 
 
-def page(report, date):
-    """docs/showcase/README.md: each image with its title, alt text and
-    caption, the small-machine goldens, and how the screens were made: the
-    build's commit, the date, the machine, each font, each photograph and
-    each copied golden."""
+# The first line of each page compose writes. compose knows a page an
+# earlier run wrote by its start, GENERATED_START.
+GENERATED_START = "<!-- tools/tier3/showcase.sh writes this page"
+GENERATED = (GENERATED_START + " from tier 3's showcase run. "
+             "Change the scenes in tools/tier3/guest/screens/ or the figures in docs/figures/ "
+             "and run it again; an edit here is lost. -->")
+
+
+def slug(category):
+    """The name of `category`'s page in docs/showcase, without .md: the
+    category in lower case, each space a hyphen."""
+    return category.lower().replace(" ", "-")
+
+
+def title(category):
+    """`category` as a heading: its first letter a capital."""
+    return category[:1].upper() + category[1:]
+
+
+def entry(alt, image, text):
+    """The lines that show one image on a page: the image with its alt
+    text, then its caption."""
+    return ["![%s](%s)" % (alt, image), "", text, ""]
+
+
+def shown(screens, figure_dir):
+    """{category: ([(alt, image, caption)], [Figure])}: what each category
+    of CATEGORIES shows, its hero first and its other scenes in the order of
+    their names, then its figures in the order `figures` gives them. The
+    small machines show their goldens, the hero first. A category that
+    shows nothing is left out."""
+    out = {}
+    for scene in scenes(screens):
+        if scene.category in CATEGORIES:
+            text, alt = caption(scene.script, screens)
+            out.setdefault(scene.category, ([], []))[0].append((alt, scene.image, text))
+    small = out.setdefault(SMALL_MACHINES, ([], []))[0]
+    for _, name, alt, text in sorted(SMALL, key=lambda s: s[1] != SMALL_HERO):
+        small.append((alt, name, text))
+    for fig in figures(figure_dir):
+        if fig.category in CATEGORIES:
+            out.setdefault(fig.category, ([], []))[1].append(fig)
+    return {c: out[c] for c in CATEGORIES if c in out and (out[c][0] or out[c][1])}
+
+
+def figure_entry(fig):
+    """The lines that show figure `fig` on a page in docs/showcase."""
+    return entry(fig.alt, "../figures/%s" % fig.file, fig.caption)
+
+
+def kinds(images, figs):
+    """The kinds of picture a category's page holds, for the link to it and
+    its opening line: ["screen"], ["figure"] or both."""
+    return [kind for kind, has in (("screen", images), ("figure", figs)) if has]
+
+
+def made(report, date):
+    """The section "How these screens are made": the build's commit, the
+    date, the machine, each font, each photograph and each copied golden."""
     v = report["variants"][VARIANT]
-    lines = ["<!-- tools/tier3/showcase.sh writes this page from tier 3's showcase run. "
-             "Change the scenes in tools/tier3/guest/screens/ and run it again; "
-             "an edit here is lost. -->", "", "# Showcase", "",
-             "These screens are vtium's own drawing on a Linux VT at 1920x1080. Tier 3, "
-             "vtium's test harness in a virtual machine, ran vtium on a VT of its guest and "
-             "captured each screen from the guest's display, and nothing in them is mocked "
-             "up or edited. Each scene is a shell script that writes fixed bytes, so every "
-             "run draws the same screen. The screens are made again for each release, and "
-             "they judge nothing: [How vtium is judged](../concepts/how-vtium-is-judged.md) "
-             "explains how vtium's output is judged.", ""]
-    for title, name, script, _ in IMAGES:
-        text, alt = caption(script)
-        lines += ["## %s" % title, "", "![%s](%s)" % (alt, name), "", text, ""]
-    lines += ["## Small machines", "",
-              "The same console runs on a machine with 512 MB of memory and no GPU. These "
-              "two screens are tier 3 goldens of vtium's smallest build, minspec.", ""]
-    for _, name, alt, text in SMALL:
-        lines += ["![%s](%s)" % (alt, name), "", text, ""]
     commit = report["tools"]["vtium"]
     console = v.get("console") or {}
-    lines += ["## How these screens are made", "",
-              "`tools/tier3/showcase.sh` built vtium at commit `%s`, whose console logged "
-              "itself as vtium %s, ran tier 3's variant `%s` on %s, and wrote this page. "
-              "The variant's machine has %d virtual CPUs and %d MB of memory, a virtio-vga "
-              "display at 1920x1080 and Linux %s, and runs vtium built with the `images` "
-              "feature, drawing on its CPU renderer. The console starts in a cell of %s "
-              "pixels, and the shell scene, the hero, switches to its own frit, "
-              "`showcase-shell`, in a cell of %s pixels, so the hero holds 28 rows. "
-              "[tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/tools/tier3/"
-              "README.md#the-showcase) describes the variant."
-              % (commit, console.get("revision", "of no revision"), VARIANT, date,
-                 v["cpus"], v["memory_mb"], v["kernel"],
-                 "x".join(str(n) for n in v["cell"] or ()) or "unknown",
-                 "x".join(str(n) for n in gallery.CELL)), "",
-              "Every font may be redistributed. vtium carries no font file but GNU Unifont, "
-              "so `t3_showcase.py` pins each other font by its address and SHA-256 and "
-              "fetches it into a cache, and the run carries it into the guest.", "",
-              "| Font | Version | License | Used for | Source | SHA-256 of the file |",
-              "|---|---|---|---|---|---|"]
+    lines = ["## How these screens are made", "",
+             "`tools/tier3/showcase.sh` built vtium at commit `%s`, whose console logged "
+             "itself as vtium %s. It ran tier 3's variant `%s` on %s and wrote these pages. "
+             "The variant's machine has %d virtual CPUs, %d MB of memory, a virtio-vga "
+             "display at 1920×1080 and Linux %s. It runs vtium built with the `images` and "
+             "`bidi` features, drawing on its CPU renderer. The console starts in a "
+             "character cell of %s pixels. The shell scene, the hero, switches to a font "
+             "set of its own, `showcase-shell`, with a cell of %s pixels, so the hero holds "
+             "28 rows. [tools/tier3/README.md](https://github.com/vtium/vtium/blob/main/"
+             "tools/tier3/README.md#the-showcase) describes the variant."
+             % (commit, console.get("revision", "of no revision"), VARIANT, date,
+                v["cpus"], v["memory_mb"], v["kernel"],
+                "×".join(str(n) for n in v["cell"] or ()) or "unknown",
+                "×".join(str(n) for n in gallery.CELL)), "",
+             "Each figure under \"How it behaves\" is an SVG drawn by hand and kept in "
+             "`docs/figures/`. Where a claim file lies beside a figure, it names the code "
+             "that each step rests on, and `docs/scripts/claims` checks that the code is "
+             "still there.",
+             "",
+             "Every font may be redistributed. vtium carries no font file but GNU Unifont. "
+             "`t3_showcase.py` pins each other font by its address and SHA-256 and fetches "
+             "it into a cache, and the run carries it into the guest.", "",
+             "| Font | Version | License | Used for | Source | SHA-256 of the file |",
+             "|---|---|---|---|---|---|"]
     lines += ["| %s |" % " | ".join(row) for row in font_rows()]
     computed = [name for name, _, _ in gallery.COMPUTED]
     lines += ["", "In the hero, vtium's gallery tool, `tools/gallery/gallery`, shows six "
@@ -671,15 +978,79 @@ def page(report, date):
     for src, name, _, _ in SMALL:
         lines.append("| `%s` | [`%s`](https://github.com/vtium/vtium/blob/main/%s) | `%s` |"
                      % (name, src, src, sha256_file(os.path.join(ROOT, src))))
+    return lines
+
+
+def page(report, date, screens=SCREENS_DIR, figure_dir=FIGURES):
+    """docs/showcase/README.md: the front page's hero with its caption, then
+    a section for each category that shows something, in the order of
+    CATEGORIES, with the category's hero and caption, or its first figure
+    when it has no scenes, and a link to the category's own page; and last,
+    how the screens are made.
+
+    References:
+    - ADR-1502 D6, "The page": what the showcase page shows."""
+    lines = [GENERATED, "", "# Showcase", "",
+             "These screens are vtium's own drawing on a Linux VT at 1920×1080. Tier 3, "
+             "vtium's test harness in a virtual machine, ran vtium on a VT of its guest and "
+             "captured each screen from the guest's display. Nothing in them is mocked up "
+             "or edited. Each scene is a shell script that writes fixed bytes, so every "
+             "run draws the same screen. Some categories also show how vtium behaves over "
+             "time, in figures drawn by hand. The screens are made again once per wave of "
+             "work and before each release. They judge nothing, and "
+             "[How vtium is judged](../concepts/how-vtium-is-judged.md) explains how "
+             "vtium's output is judged.", ""]
+    front = [s for s in scenes(screens) if s.category == FRONT_PAGE]
+    for scene in front:
+        text, alt = caption(scene.script, screens)
+        lines += entry(alt, scene.image, text)
+    for category, (images, figs) in shown(screens, figure_dir).items():
+        lines += ["## %s" % title(category), ""]
+        if category == SMALL_MACHINES:
+            lines += [SMALL_INTRO, ""]
+        lines += list(entry(*images[0])) if images else figure_entry(figs[0])
+        lines += ["[Every %s of %s](%s.md)" % (" and ".join(kinds(images, figs)), category,
+                                              slug(category)),
+                  ""]
+    lines += made(report, date)
     return "\n".join(lines) + "\n"
 
 
-def compose(run=None, report=REPORT, out=OUT):
+def category_page(category, images, figs):
+    """docs/showcase/SLUG.md: every scene of `category`, the hero first, each
+    with its alt text and caption, then its figures under the heading "How
+    it behaves". It opens with a line that links the showcase page and
+    names what the page holds: screens, figures or both."""
+    lines = [GENERATED, "", "# %s" % title(category), ""]
+    part = "part of [vtium's showcase](README.md), which says how they are made."
+    if category == SMALL_MACHINES:
+        lines += [SMALL_INTRO + " They are " + part, ""]
+    else:
+        lines += ["These %s are %s" % (" and ".join(k + "s" for k in kinds(images, figs)),
+                                        part), ""]
+    for image in images:
+        lines += entry(*image)
+    if figs:
+        lines += ["## How it behaves", ""]
+        for fig in figs:
+            lines += figure_entry(fig)
+    return "\n".join(lines) + "\n"
+
+
+def compose(run=None, report=REPORT, out=OUT, screens=SCREENS_DIR, figure_dir=FIGURES):
     """Writes the showcase into `out` from the last run of the variant: each
-    image of IMAGES, the small-machine goldens in small/, and README.md.
-    Refuses a run in which any case of the variant is not a capture. Returns
-    the files it wrote; an image whose pixels did not change is left as it
-    is."""
+    scene's image, the small-machine goldens in small/, README.md and a page
+    for each category that shows something. Refuses while a scene's or a
+    figure's header lines are wrong (header_faults), and refuses a run in
+    which a case of the variant is not a capture. Returns (wrote, removed):
+    the files it wrote, where an image whose pixels did not change is left
+    as it is, and the pages it removed. It removes each page in `out` that
+    an earlier run wrote, as its GENERATED line shows, and that this run
+    does not write, such as the page of a category that no longer shows
+    anything, so that no stale page stays published."""
+    faults = header_faults(screens, figure_dir)
+    if faults:
+        raise RuntimeError("the showcase's header lines are wrong: %s" % "; ".join(faults))
     run = run or os.path.join(RUNDIR, VARIANT)
     with open(report) as f:
         rep = json.load(f)
@@ -687,16 +1058,17 @@ def compose(run=None, report=REPORT, out=OUT):
              if c["name"].startswith(VARIANT + "/")}
     wrong = ["%s is %s%s" % (case, c["status"], ": " + c["error"] if c.get("error") else "")
              for case, c in sorted(cases.items()) if c["status"] != "capture"]
-    missing = sorted(set(SCREENS) - set(cases))
+    found = scenes(screens)
+    missing = sorted({case for s in found for case in s.cases} - set(cases))
     if wrong or missing or VARIANT not in rep.get("variants", {}):
         raise RuntimeError("the last tier 3 run did not capture the showcase: %s"
                            % "; ".join(wrong + ["%s did not run" % m for m in missing]))
     with open(os.path.join(run, "events.log"), errors="replace") as f:
         events = f.read().splitlines()
     wrote = []
-    for _, name, _, image_cases in IMAGES:
-        path = os.path.join(out, name)
-        if write_if_changed(path, image_of(name, image_cases, run, events)):
+    for scene in found:
+        path = os.path.join(out, scene.image)
+        if write_if_changed(path, image_of(scene.image, scene.cases, run, events)):
             wrote.append(path)
     for src, name, _, _ in SMALL:
         path = os.path.join(out, name)
@@ -704,11 +1076,23 @@ def compose(run=None, report=REPORT, out=OUT):
             wrote.append(path)
     date = datetime.datetime.fromtimestamp(os.path.getmtime(report),
                                            datetime.timezone.utc).date().isoformat()
-    readme = os.path.join(out, "README.md")
-    with open(readme, "w") as f:
-        f.write(page(rep, date))
-    wrote.append(readme)
-    return wrote
+    pages = {"README.md": page(rep, date, screens, figure_dir)}
+    for category, (images, figs) in shown(screens, figure_dir).items():
+        pages[slug(category) + ".md"] = category_page(category, images, figs)
+    for name, text in pages.items():
+        path = os.path.join(out, name)
+        with open(path, "w") as f:
+            f.write(text)
+        wrote.append(path)
+    removed = []
+    for name in sorted(os.listdir(out)):
+        path = os.path.join(out, name)
+        if name.endswith(".md") and name not in pages and os.path.isfile(path):
+            with open(path, errors="replace") as f:
+                if f.readline().startswith(GENERATED_START):
+                    os.unlink(path)
+                    removed.append(path)
+    return wrote, removed
 
 
 def main(argv=None):
@@ -721,8 +1105,11 @@ def main(argv=None):
     if args.command == "fetch-fonts":
         print("the showcase's fonts are in %s" % fetch())
     else:
-        for path in compose(out=args.out):
+        wrote, removed = compose(out=args.out)
+        for path in wrote:
             print("wrote %s" % rel(path))
+        for path in removed:
+            print("removed %s, a page of no category that shows anything now" % rel(path))
     return 0
 
 

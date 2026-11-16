@@ -732,6 +732,36 @@ impl Store {
         reservation: Option<Reservation>,
         screens: Screens<'_>,
     ) -> Result<ImageKey, Refusal> {
+        self.add_image_from(new, None, indices, reservation, screens)
+    }
+
+    /// [`add_image`](Self::add_image) for a picture whose pixels are
+    /// `pixels`, already shared with another store, in place of
+    /// `new.pixels`, which stays empty. The store charges the picture's
+    /// whole cost, as for any image, and keeps no copy of its own.
+    ///
+    /// References:
+    /// - ADR-1100 D17: the consoles of a head share one copy of the login
+    ///   picture's pixels, and each console's store charges it.
+    pub fn add_shared_image(
+        &mut self,
+        new: NewImage,
+        pixels: Pixels,
+        screens: Screens<'_>,
+    ) -> Result<ImageKey, Refusal> {
+        self.add_image_from(new, Some(pixels), None, None, screens)
+    }
+
+    /// The one way an image is stored: from `new.pixels`, or from `shared`
+    /// when it is given.
+    fn add_image_from(
+        &mut self,
+        new: NewImage,
+        shared: Option<Pixels>,
+        indices: Option<Indices>,
+        reservation: Option<Reservation>,
+        screens: Screens<'_>,
+    ) -> Result<ImageKey, Refusal> {
         let b = self.active();
         // the image a reservation held for its replacement, when it is
         // still in the buffer in use with the id; it is held no more. A copy
@@ -773,7 +803,13 @@ impl Store {
             .and_then(|(b, k)| b.checked_add(k));
         let fits = side(new.width)
             && side(new.height)
-            && u64::try_from(new.pixels.len()).ok() == Some(n)
+            && u64::try_from(
+                shared
+                    .as_ref()
+                    .map_or(new.pixels.len(), |p| p.as_slice().len()),
+            )
+            .ok()
+                == Some(n)
             && indices.as_ref().is_none_or(|i| i.fits(n));
         let Some(bytes) = bytes.filter(|_| fits) else {
             return refuse(self, reserved, Refusal::Invalid);
@@ -814,14 +850,18 @@ impl Store {
             Some(opaque) => {
                 debug_assert_eq!(
                     opaque,
-                    all_opaque(&new.pixels),
+                    all_opaque(shared.as_ref().map_or(&new.pixels, |p| p.as_slice())),
                     "the handler's opacity disagrees with the pixels"
                 );
                 opaque
             }
             None => {
-                self.count(new.pixels.len());
-                all_opaque(&new.pixels)
+                self.count(
+                    shared
+                        .as_ref()
+                        .map_or(new.pixels.len(), |p| p.as_slice().len()),
+                );
+                all_opaque(shared.as_ref().map_or(&new.pixels, |p| p.as_slice()))
             }
         };
         if let Some(o) = old {
@@ -838,7 +878,7 @@ impl Store {
             number: new.number,
             width: new.width,
             height: new.height,
-            pixels: Pixels::new(new.pixels),
+            pixels: shared.unwrap_or_else(|| Pixels::new(new.pixels)),
             opaque,
             bytes,
             owed: 0,

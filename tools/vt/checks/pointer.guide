@@ -1,25 +1,63 @@
-# Whether the arrow pointer reads on every background (vtium/vtium#102).
+# Whether the arrow pointer reads on every background (vtium/vtium#102),
+# and the shapes a program sets with OSC 22 (vtium/vtium#59).
 # vtium draws the pointer as an arrow. #102 would draw it by inverting the
-# pixels under it instead, so it reads on any background. This guide shows
-# backgrounds where an arrow might be hard to see; the answers decide
-# whether #102 is needed.
+# pixels under it instead, so it reads on any background. The first steps
+# show backgrounds where an arrow might be hard to see; their answers
+# decide whether #102 is needed. The later steps have a program set each
+# of vtium's pointer shapes, push and pop them, and ask which shape shows.
 #
 #   make vt-check GUIDE=pointer
 
-title: the arrow pointer on every background
+title: the pointer on every background, and its shapes
 
 step: White, black and mid gray
-run: clear; for c in 107 40 100; do for i in $(seq 1 8); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; sleep 30
+run: clear; for c in 107 40 100; do for i in $(seq 1 8); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; guide-wait
 expect: three bands fill the screen: white, black and mid gray. Move the mouse
 expect: across all three. The arrow is *easy to see on each band*, and its tip
 expect: is clear enough to aim at a single character.
 
 step: Strong colors
-run: clear; for c in 41 42 43 44 45 46; do for i in $(seq 1 4); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; sleep 30
+run: clear; for c in 41 42 43 44 45 46; do for i in $(seq 1 4); do printf "\033[${c}m%*s\033[0m\n" "$(tput cols)" ""; done; done; guide-wait
 expect: six bands: red, green, yellow, blue, magenta and cyan. Move the mouse
 expect: across every band. The arrow is *easy to see on each one*.
 
 step: Busy text
-run: clear; for i in $(seq 1 24); do printf '\033[3%dm%s\033[0m\n' $((i % 8)) "$(head -c 400 /dev/urandom | base64 -w0 | cut -c1-$(tput cols))"; done; sleep 30
+run: clear; for i in $(seq 1 24); do printf '\033[3%dm%s\033[0m\n' $((i % 8)) "$(head -c 400 /dev/urandom | base64 -w0 | cut -c1-$(tput cols))"; done; guide-wait
 expect: the screen is full of dense colored characters. Move the mouse over
 expect: the text. You can *follow the arrow* without losing it.
+
+step: Each shape a program sets
+run: clear; for s in default text pointer crosshair wait progress not-allowed move ew-resize ns-resize; do clear; printf '\033]22;%s\033\\' "$s"; printf '\033[7m%*s\033[0m\n' "$(tput cols)" ""; echo "The pointer shows the shape: $s"; guide-wait "Press a key or click for the next shape."; done; printf '\033]22;\033\\'; clear
+do: move the mouse over the screen, then press a key or click for the next shape.
+expect: the pointer takes ten shapes in turn, each named on the screen: the
+expect: arrow, an *I-beam*, a *hand* with a raised finger, a thin cross, an
+expect: *hourglass*, the arrow with a small hourglass, a *circle with a slash*,
+expect: four arrows, a double arrow *left and right* and a double arrow
+expect: *up and down*. Each one is white with a dark outline, and reads on the black
+expect: screen and on the white bar.
+
+step: A shape's point is where the pointer is
+run: clear; printf '\033]22;crosshair\033\\'; for i in $(seq 1 6); do printf '%*s+\n\n' $((i * 8)) ""; done; guide-wait --keys "Press a key when you have tried each +."; printf '\033]22;\033\\'; clear
+do: put the centre of the crosshair on each + in turn and double-click.
+expect: the crosshair's centre is the point the pointer names: the + under the
+expect: centre is *the character that shows selected* after each double-click.
+
+step: Push, pop and the alternate screen
+run: clear; printf '\033]22;>text\033\\\033]22;>pointer\033\\'; guide-wait "the hand. Press a key or click to pop it."; printf '\033]22;<\033\\'; guide-wait "after a pop: the I-beam. Press a key or click for the alternate screen."; printf '\033[?1049h\033[H'; guide-wait "the alternate screen: the arrow. Press a key or click to go back."; printf '\033[?1049l'; guide-wait "back on the main screen: the I-beam again. Press a key or click to reset."; printf '\033c'; guide-wait "after a reset: the arrow. Press a key or click to go on."
+do: move the mouse over the screen at each line, then press a key or click for the next.
+expect: the pointer is *the hand*, then *the I-beam* after the pop. On the
+expect: alternate screen it is *the arrow*, and back on the main screen it is
+expect: *the I-beam* again. After the reset it is *the arrow*.
+
+step: An unknown name gives the arrow
+run: clear; printf '\033]22;pointer\033\\'; guide-wait "the hand. Press a key or click to name an unknown shape."; printf '\033]22;no-such-shape\033\\'; guide-wait "an unknown name: the arrow. Press a key or click to go on."; printf '\033]22;\033\\'
+do: move the mouse at each line, then press a key or click for the next.
+expect: the pointer is the hand, then *the arrow* once a program names a shape
+expect: vtium does not have.
+
+step: A query answers from vtium's own shapes
+run: clear; printf '\033]22;hand2\033\\'; stty -echo -icanon; printf '\033]22;?__current__,text,no-such-shape\033\\'; IFS= read -r -t 2 -d '\\' reply; stty sane; printf 'the reply: %q\n' "$reply"; printf '\033]22;\033\\'; guide-wait
+expect: the screen prints the reply as *$'\E]22;pointer,1,0\E'*: the shape set
+expect: by its X cursor name hand2 is named pointer, text is a shape vtium
+expect: has, and no-such-shape is not. The reply *never repeats* hand2 or
+expect: no-such-shape.

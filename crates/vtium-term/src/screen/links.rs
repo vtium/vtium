@@ -1,13 +1,15 @@
-//! OSC 8's links on the screen (ADR-1002, sections 1 to 4): the open link
-//! printed cells take, the link store's sweep and strip, and the hovered
-//! link and the overlay a frame carries.
+//! OSC 8's links on the screen (ADR-1002, sections 1 to 4 and 7): the open
+//! link printed cells take, the link store's sweep and strip, the hovered
+//! link, and the overlay row a frame carries. Where the labels of link
+//! hints and the hint line go is decided in `hints.rs`, which lists its
+//! rules.
 //!
 //! A sweep runs only when an open would pass [`LINKS_BYTES_MAX`], so the
 //! store follows the bytes (docs/architecture.md, "Determinism"), and at
 //! most once per quarter of the bound of links opened since the last; an
 //! open that comes sooner and does not fit is refused. It reads
-//! every line's link table on both screens and in the scrollback, and the
-//! hovered link, and frees each entry nothing names. When that leaves
+//! every line's link table on both screens and in the scrollback, the
+//! hovered link and the labelled links, and frees each entry nothing names. When that leaves
 //! less than a quarter of the bound free, the scrollback's oldest lines
 //! lose their links first until a quarter is. When the screens alone hold
 //! more than the bound, the open is refused and the text prints unlinked.
@@ -15,11 +17,13 @@
 
 use super::Screen;
 use crate::bounds::LINKS_BYTES_MAX;
+use crate::frame::LinkHint;
 use crate::line::{Line, LinkId};
 use crate::links::{self, LinkStore, Osc8};
 
-/// Where the pointer is, and what it hovers.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+/// Where the pointer is, and what it hovers; and the labels of link hints
+/// and the note on the overlay row, which vtium sets.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub(super) struct Hover {
     /// The view's cell under the pointer, a column and a row.
     pointer: Option<(usize, usize)>,
@@ -28,10 +32,20 @@ pub(super) struct Hover {
     pub(super) link: Option<LinkId>,
     /// The view row the overlay covers.
     pub(super) overlay: Option<usize>,
+    /// The labels of link hints, each placed where its link first appears
+    /// in the view, in the order they lie in the view: row by row from the
+    /// top, and in each row from left to right.
+    pub(super) hints: Vec<LinkHint>,
+    /// The links that have a label, sorted, so that drawing a cell finds
+    /// out quickly whether its link has one.
+    pub(super) labelled: Vec<LinkId>,
+    /// What vtium shows on the overlay row in place of a URI, such as the
+    /// line that tells how to pick a link hint.
+    note: Option<String>,
 }
 
 /// The index of `link` in a list by `LinkId`.
-fn slot(link: LinkId) -> usize {
+pub(super) fn slot(link: LinkId) -> usize {
     usize::try_from(link.get()).unwrap_or(usize::MAX)
 }
 
@@ -75,15 +89,17 @@ impl Screen {
         }
     }
 
-    /// How many lines name each link, by `LinkId`, the hovered link
-    /// counted once more.
+    /// How many lines name each link, by `LinkId`, the hovered link and
+    /// each labelled link counted once more, so a sweep never frees a link
+    /// while its label shows.
     fn count_refs(&self) -> Vec<u32> {
         let mut refs = vec![0u32; self.links.len()];
         let lines = self.main.iter().chain(&self.alt);
         let tables = lines
             .chain(self.scrollback.all_rows())
             .map(Line::link_table);
-        for &link in tables.flatten().chain(&self.hover.link) {
+        let hinted = self.hover.hints.iter().map(|h| h.link);
+        for link in tables.flatten().chain(self.hover.link).chain(hinted) {
             if let Some(r) = refs.get_mut(slot(link)) {
                 *r = r.saturating_add(1);
             }
@@ -107,7 +123,7 @@ impl Screen {
             if free(live) >= LINKS_BYTES_MAX / 4 {
                 return false;
             }
-            for &link in line.link_table() {
+            for link in line.link_table() {
                 if let Some(r) = refs.get_mut(slot(link)) {
                     *r = r.saturating_sub(1);
                     if *r == 0 {
@@ -122,7 +138,7 @@ impl Screen {
     }
 
     /// Keeps the links `refs` counts, renumbered, and renames them in
-    /// every line's table and in the hover.
+    /// every line's table, in the hover and in the labels of link hints.
     fn renumber(&mut self, refs: &[u32]) {
         let keep: Vec<bool> = refs.iter().map(|&r| r > 0).collect();
         let map = self.links.retain(&keep);
@@ -135,6 +151,20 @@ impl Screen {
             true
         });
         self.hover.link = self.hover.link.and_then(rename);
+        for hint in &mut self.hover.hints {
+            // the count named each labelled link, so the map keeps it
+            if let Some(link) = rename(hint.link) {
+                hint.link = link;
+            }
+        }
+        for link in &mut self.hover.labelled {
+            if let Some(renamed) = rename(*link) {
+                *link = renamed;
+            }
+        }
+        // the store keeps its entries in order, so the renamed ids stay
+        // sorted; sorting again costs little and keeps the lookup right
+        self.hover.labelled.sort_unstable();
     }
 
     /// Ends the open link, as RIS and a switch of screens do.
@@ -200,12 +230,21 @@ impl Screen {
     /// Finds the link under the pointer again, after the stream or the view
     /// changed what is there.
     pub(crate) fn refresh_hover(&mut self) {
+        // The labels are placed first, since where they lie decides the
+        // row of the hint line.
+        self.refresh_link_hints();
         let pointer = self.hover.pointer;
         let link = pointer.and_then(|(x, y)| self.link_at(x, y));
         let last = self.rows.saturating_sub(1);
-        let overlay = pointer
-            .filter(|_| self.hover.show_uri && link.is_some())
-            .map(|(_, y)| if y == last && last > 0 { 0 } else { last });
+        // vtium's note, while one is set, shows in place of a URI, so its
+        // own rule picks the row
+        let overlay = if self.hover.note.is_some() {
+            self.note_row()
+        } else {
+            pointer
+                .filter(|_| self.hover.show_uri && link.is_some())
+                .map(|(_, y)| if y == last && last > 0 { 0 } else { last })
+        };
         let changed = link != self.hover.link;
         if changed {
             self.mark_link_rows(self.hover.link);
@@ -231,10 +270,61 @@ impl Screen {
             .view()
             .iter()
             .enumerate()
-            .filter(|(_, line)| line.link_table().contains(&link))
+            .filter(|(_, line)| line.link_table().any(|l| l == link))
             .map(|(row, _)| row)
             .collect();
         for row in rows {
+            self.damage.mark_rows(row..row.saturating_add(1));
+        }
+    }
+
+    /// The text the overlay row shows: vtium's note while one is set, else
+    /// the hovered link's URI.
+    pub(super) fn overlay_text(&self) -> Option<&str> {
+        self.hover
+            .note
+            .as_deref()
+            .or_else(|| self.hover.link.and_then(|l| self.link_uri(l)))
+    }
+
+    /// The row vtium's note covers while one is set. While link hints are
+    /// on, the note is the hint line, and [`hint_line_row`] picks its row,
+    /// or none. While they are off, the note shows on the bottom row, or on
+    /// the top row while the pointer is on the bottom row, as the URI's
+    /// overlay row does.
+    ///
+    /// [`hint_line_row`]: super::hints::hint_line_row
+    ///
+    /// References:
+    /// - ADR-1002, section 4: the overlay row and the pointer.
+    fn note_row(&self) -> Option<usize> {
+        self.hover.note.as_ref()?;
+        let last = self.rows.saturating_sub(1);
+        if self.hover.hints.is_empty() {
+            let on_last = self.hover.pointer.is_some_and(|(_, y)| y == last);
+            return Some(if on_last && last > 0 { 0 } else { last });
+        }
+        let hints = &self.hover.hints;
+        super::hints::hint_line_row(self.rows, |row| hints.iter().any(|h| h.at.1 == row))
+    }
+
+    /// Shows `note` on the overlay row in place of a URI, or nothing of
+    /// vtium's own with `None`. vtium shows the line that tells how to pick
+    /// a link hint, and what a link hint copied. The note is printable
+    /// ASCII, as a URI is. The overlay's row is marked when the note
+    /// changes.
+    pub fn set_overlay_note(&mut self, note: Option<String>) {
+        if note == self.hover.note {
+            return;
+        }
+        if let Some(row) = self.hover.overlay {
+            self.damage.mark_rows(row..row.saturating_add(1));
+        }
+        self.hover.note = note;
+        // the overlay row moves to the note's, or back to the URI's
+        self.hover.overlay = None;
+        self.refresh_hover();
+        if let Some(row) = self.hover.overlay {
             self.damage.mark_rows(row..row.saturating_add(1));
         }
     }
@@ -268,5 +358,80 @@ mod tests {
             sweeps <= 1 + opened / (LINKS_BYTES_MAX / 4),
             "{sweeps} sweeps for {opened} bytes of opens"
         );
+    }
+
+    /// `OSC 8 ; ; uri ST`, then `text`, then the link closed.
+    fn linked(uri: &str, text: &str) -> String {
+        format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\")
+    }
+
+    /// The rows of `t`'s view marked since `age`.
+    fn marked(t: &crate::Terminal, age: crate::Age, rows: usize) -> Vec<usize> {
+        let palette = crate::Palette::default();
+        let frame = t.screen().frame(&palette, age);
+        (0..rows).filter(|&r| frame.row_changed(r)).collect()
+    }
+
+    // ADR-1002, section 7: a sweep counts each labelled link as named, as
+    // it counts the hovered link, and renames it with the links it keeps.
+    #[test]
+    fn a_sweep_counts_labelled_links_and_renames_them() {
+        let mut t = crate::Terminal::new(8, 2, 0);
+        let bytes = format!("{}\r\n{}", linked("x:gone", "g"), linked("x:kept", "k"));
+        t.input(bytes.as_bytes());
+        let s = t.screen_mut();
+        let links = s.view_links();
+        assert_eq!(links.len(), 2);
+        let &[gone, kept] = links.as_slice() else {
+            return;
+        };
+        s.set_link_hints(vec![(kept, "s".to_owned())]);
+        let refs = s.count_refs();
+        assert_eq!(refs.get(slot(kept)), Some(&2), "its line and its label");
+        assert_eq!(refs.get(slot(gone)), Some(&1));
+        // the first link's row scrolls away with no scrollback to keep it,
+        // so a sweep frees it
+        t.input(b"\r\n");
+        let s = t.screen_mut();
+        let refs = s.count_refs();
+        assert_eq!(refs.get(slot(gone)), Some(&0));
+        s.renumber(&refs);
+        assert_ne!(
+            s.link_hints().first().map(|h| h.link),
+            Some(kept),
+            "renumbered"
+        );
+        let labelled: Vec<LinkId> = s.link_hints().iter().map(|h| h.link).collect();
+        let uris: Vec<_> = labelled.iter().map(|&l| s.link_uri(l)).collect();
+        assert_eq!(uris, [Some("x:kept")]);
+        assert_eq!(s.view_links(), labelled);
+    }
+
+    // ADR-1002, section 7: vtium's note shows on the overlay row in place
+    // of a URI, and its row is marked as it appears, changes and goes.
+    #[test]
+    fn the_note_takes_the_overlay_row_and_marks_it() {
+        let mut t = crate::Terminal::new(8, 3, 0);
+        let palette = crate::Palette::default();
+        let age = t.screen_mut().checkpoint();
+        t.screen_mut().set_overlay_note(Some("pick".to_owned()));
+        let s = t.screen();
+        let overlay = s.frame(&palette, age).overlay();
+        assert_eq!(overlay.map(|o| (o.row, o.uri)), Some((2, "pick")));
+        assert_eq!(marked(&t, age, 3), [2]);
+        let age = t.screen_mut().checkpoint();
+        t.screen_mut().set_overlay_note(Some("done".to_owned()));
+        assert_eq!(marked(&t, age, 3), [2], "a new note on the same row");
+        t.screen_mut().set_pointer(Some((0, 2)), false);
+        let overlay = t.screen().frame(&palette, age).overlay();
+        assert_eq!(
+            overlay.map(|o| o.row),
+            Some(0),
+            "the top row, with the pointer at the bottom"
+        );
+        let age = t.screen_mut().checkpoint();
+        t.screen_mut().set_overlay_note(None);
+        assert_eq!(t.screen().frame(&palette, age).overlay(), None);
+        assert_eq!(marked(&t, age, 3), [0]);
     }
 }

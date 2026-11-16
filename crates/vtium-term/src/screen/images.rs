@@ -162,6 +162,20 @@ mod with {
             self.with_images(|store, screens, _| store.add_image(image, None, screens))
         }
 
+        /// Stores an image in the buffer in use whose pixels another store
+        /// already holds, sharing them.
+        ///
+        /// References:
+        /// - ADR-1100 D17, "Its budget": the consoles of a head share one
+        ///   copy of the login picture's pixels.
+        pub fn add_shared_image(
+            &mut self,
+            image: NewImage,
+            pixels: vtium_image::Pixels,
+        ) -> Result<ImageKey, Refusal> {
+            self.with_images(|store, screens, _| store.add_shared_image(image, pixels, screens))
+        }
+
         /// Places an image of the buffer in use on its screen.
         pub fn place_image(
             &mut self,

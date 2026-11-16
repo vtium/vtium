@@ -867,11 +867,11 @@ fn the_request_reads_back() {
     };
     assert_eq!(OutlineRequest::decode(&full.encode()), Ok(full.clone()));
     assert_ne!(full.encode(), r.encode());
-    // the hinting is the request's fifth byte from its end, 0 light and 1
-    // full
+    // the hinting is the request's fifth byte from its end, 0 light, 1
+    // full, 2 full and then 1-bit
     let mut other = full.encode();
     let n = other.len();
-    other[n - 5] = 2;
+    other[n - 5] = 3;
     assert_eq!(
         OutlineRequest::decode(&other),
         Err("an unknown hinting"),

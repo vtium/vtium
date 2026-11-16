@@ -1,0 +1,18 @@
+# ICH, DCH, IL and DL against blocks. ICH moves the one-row block CD whole
+# with the cells after it, and DCH from CD's second cell erases it. IL at
+# the top moves the block T of s=2 down whole, DL on T's lower row erases T,
+# and IL that would push V's lower row past the bottom margin erases V.
+# spec: kitty's text sizing protocol, ICH and DCH: "Any single line multicell character that is split by the cells at x and x + n - 1 must also be erased."; IL: "any multi-line characters are split at the bottom of the screen must be erased."; DL: "any multicell character that intersects the deleted lines must be erased."; ADR-1308 D5: an edit that moves all of a run's cells together keeps the run
+# covers: text.kitty-sizing
+size 10 4
+send "ab\e]66;w=2;CD\e\\ef"
+send "\e[1;1H\e[2@"
+dump
+send "\e[1;6H\e[P"
+dump
+send "\e[2;1H\e]66;s=2;T\e\\\e[1;1H\e[L"
+dump
+send "\e[4;1H\e[M"
+dump
+send "\e[3;1H\e]66;s=2;V\e\\\e[1;1H\e[L"
+dump

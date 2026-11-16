@@ -1,0 +1,29 @@
+# The characters of vtium's built-in font, "vtium built-in".
+#
+# The build cuts each of the font's three strikes from its source with this
+# list, so the font holds the characters below and no others. Each line is
+# one codepoint, U+XXXX, or a range, U+XXXX..U+YYYY with both ends included.
+# A '#' starts a comment.
+#
+# vtium's own messages use only these characters: a test in vtium-font
+# scans the string and character literals of the console's messages and
+# fails on any other.
+#
+# References:
+# - ADR-1204 D1: the list, and why each range is on it.
+
+# printable ASCII
+U+0020..U+007E
+# Latin-1, which holds the middle dot of the on-screen display's line
+U+00A0..U+00FF
+# the ellipsis, which shortens a long name
+U+2026
+# the arrows of a chord's arrow keys, as a notice names them, such as
+# Ctrl+Super+↑
+U+2190..U+2193
+# box drawing and blocks, for a head whose glyph-source asks for the font's
+# glyphs in place of vtium's sprites
+U+2500..U+259F
+# the circles of the focus mark, hollow and filled
+U+25CB
+U+25CF

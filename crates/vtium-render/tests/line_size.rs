@@ -446,10 +446,11 @@ fn lit_doubled(c: char, x: u32, y: u32) -> bool {
     (x * 5 + y * 3 + u32::from(c)) % 11 < 4
 }
 
-/// [`Dots`], whose face also holds the glyphs of `a` and `W` rendered at
-/// each double size, as the font helper renders an outline font's glyphs.
-/// As the console's face does, it holds none for another character, for
-/// a cluster, or for a superscript or subscript.
+/// [`Dots`], whose face also holds the glyphs of `a`, `W` and the cluster
+/// of `a` with U+0301 rendered at each double size, as the font helper
+/// renders an outline font's glyphs and shapes a cluster. The cluster's
+/// glyph has a pattern of its own, keyed on U+0301. As the console's face
+/// does, it holds none for a superscript or subscript.
 struct Rendered;
 
 impl Face for Rendered {
@@ -466,10 +467,12 @@ impl Face for Rendered {
         Dots { reaches: false }.draw(cluster, style)
     }
     fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
-        let &[c] = cluster else {
-            return None;
+        let c = match *cluster {
+            [c @ ('a' | 'W')] => c,
+            ['a', '\u{301}'] => '\u{301}',
+            _ => return None,
         };
-        if !matches!(c, 'a' | 'W') || variant.script != Script::Baseline {
+        if variant.script != Script::Baseline {
             return None;
         }
         let width = if c == 'W' {
@@ -505,16 +508,21 @@ fn doubled_px(c: char, x: u32, y: u32) -> u32 {
 // are. A double-width line draws each display cell from its column of
 // the glyph, a wide character's across four cells, and a double-height
 // pair draws the glyph's upper rows above and its lower rows below. A
-// character the face holds no such glyph for doubles its pixels, as a
-// bitmap font's does.
+// cluster's glyph, which the helper shapes at the double size, draws the
+// same way. A character the face holds no such glyph for doubles its
+// pixels, as a bitmap font's does.
 // covers: text.line-size
 #[test]
 fn a_glyph_rendered_at_double_size_draws_its_pieces_as_they_are() {
     let mut s = screen(8, 3);
     s.text(0, 0, "ab", plain());
     s.put(2, 0, 'W', true, plain());
-    s.text(0, 1, "ab", plain());
-    s.text(0, 2, "ab", plain());
+    for row in [1, 2] {
+        s.text(0, row, "ab", plain());
+        let cluster = vtium_term::Glyph::Cluster("a\u{301}");
+        s.lines[row].write(2, cluster, vtium_term::Width::Narrow, &plain(), None);
+        s.damage.mark_cell(row, 2);
+    }
     size(&mut s, 0, LineSize::DoubleWidth);
     size(&mut s, 1, LineSize::DoubleHeightTop);
     size(&mut s, 2, LineSize::DoubleHeightBottom);
@@ -529,6 +537,7 @@ fn a_glyph_rendered_at_double_size_draws_its_pieces_as_they_are() {
         move |x: u32, y: u32| match x / (2 * CW) {
             0 => doubled_px('a', x, y + half * CH),
             1 => glyph_px('b', (x % (2 * CW)) / 2, (y + half * CH) / 2),
+            2 => doubled_px('\u{301}', x - 4 * CW, y + half * CH),
             _ => px(BG),
         }
     };

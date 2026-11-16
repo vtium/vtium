@@ -1,0 +1,15 @@
+# ECH, EL and ED erase each block of s=2 that the erased cells touch, on
+# every row of the block. ECH on B's lower row erases B on both rows. EL
+# from C's right cell erases C. ED from A's lower right cell erases A on
+# the row above the erased region too.
+# spec: kitty's text sizing protocol, ECH: "any multicell character that intersects with the n cells starting at x must be erased."; EL: "Any multicell character intersecting with the erased cells in the line is erased."; ED: "Any multicell character intersecting with the erased region of the screen must be erased."; ADR-1308 D4: erasing a run clears every one of its cells on every row the screen holds
+# covers: text.kitty-sizing
+size 10 4
+send "\e]66;s=2;A\e\\\e]66;s=2;B\e\\\e]66;s=2;C\e\\"
+send "\e[3;1Hplain"
+send "\e[2;4H\e[X"
+dump
+send "\e[1;6H\e[K"
+dump
+send "\e[2;2H\e[J"
+dump

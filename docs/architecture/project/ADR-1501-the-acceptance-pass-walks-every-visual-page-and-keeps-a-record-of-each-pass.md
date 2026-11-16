@@ -134,8 +134,11 @@ These are the pages, and the ADR-1000 rows each one shows:
 | 40-boxdraw, 45-blocks, 47-mosaic | box drawing, block elements, Braille, sextants and octants, stacked across cells | `text.sprites` |
 | 50-cjk | double-width characters beside Latin | `text.grapheme` |
 | 51-double-size | double-width and double-height lines (ESC # 3 to 6) between normal ones, with a ruler and a row of E at half the columns, and the cursor at a double-size line's right margin | `text.line-size` |
+| 53-ligatures | programming ligatures with `font-ligatures` on: operators in lines of code drawn as the font's joined shapes across their cells, each line above a ruler, and spaced, two-colored, letter and long runs drawn each character on its own, walked in one font set (D6) | `text.ligatures` |
 | 55-wide-margin | wide characters placed and typed at the right margin | `text.vs-width` |
 | 56-glyph-fit | a symbol font merged behind the text font: Powerline separators, icons, box lines and blocks under the default fit and under fit=natural, walked in two font sets (D6) | `text.font-merge` |
+| 57-bitmap-outline | outline glyphs that fill the gaps of a bitmap font: symbols, Hebrew, Devanagari, CJK, bold, reverse and color emoji beside Terminus's Latin, 1-bit by default and antialiased under `render=smooth`, walked in two font sets (D6) | `text.outline` |
+| 58-double-size-scripts | color emoji with marks, Arabic with Hindi, DEC special graphics with blocks and box drawing, and a Powerline prompt, each on a normal line, a double-width line and a double-height pair, walked in three font sets (D6) | `text.line-size` |
 | 31-conceal | SGR 8 and 28: concealed text between brackets, its background kept | `sgr.conceal` |
 | 32-overline | SGR 53 and 55 with color, underline, strike, reverse and CJK | `sgr.overline` |
 | 33-script | SGR 73, 74 and 75: superscripts and subscripts with tails, accents, wide characters, styles and lines, walked in three font sets (D6) | `sgr.script` |
@@ -169,7 +172,7 @@ The picture pages that sixel and kitty's raw pixels serve need a build with pict
 These rows have a visible effect and no page yet. Each page comes with the change that makes it drawable or the change that adds it:
 
 - `text.line-size`: vtium-term keeps a line's size, and no sequence sets it yet.
-- `text.ligatures` and `text.kitty-sizing`: not built yet.
+- `text.kitty-sizing`: not built yet.
 - `text.font-merge`: partial. A frit's `cover=` line draws a range from a second font, and the page waits for those glyphs to fit the main font's cell.
 - The C reference's pages that need programs on the host (photos, photo-scroll, mpv-sixel and the tmux grids need chafa, mpv and tmux and the C reference's photograph), its sixel ramps, article and eviction pages, its kitty-files page, which needs a logind session of the program's own that a review run's session lacks, and its glyph cache pages, which judged the C reference's GPU renderer.
 
@@ -214,7 +217,7 @@ The walk also runs in any terminal by hand, `ACCEPT_LABEL='foot 1.21' tools/vt/a
 
 ### D6: font sets
 
-A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps six in `tools/vt/sections/frits/`:
+A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps nine in `tools/vt/sections/frits/`:
 
 - `acceptance-outline`: DejaVu Sans Mono, then Noto Sans Hebrew, Arabic, Devanagari and Thai, Noto Sans CJK and Noto Color Emoji, each by its file in Arch Linux's packages, then the built-in unifont.
 - `acceptance-bitmap`: Terminus at 8x16 (`ter-v16n`, from `terminus-font`) for Latin, Greek and Cyrillic, then the built-in GNU Unifont, which holds every other script on the pages. GNU Unifont is vtium's own built-in font, so no unifont file is needed.
@@ -222,8 +225,15 @@ A font set is a frit (a font set file, ADR-1200 D1). The acceptance pass keeps s
 - `acceptance-large`: Terminus at 16x32 (`ter-v32n`), then the built-in GNU Unifont. Its cells are twice as wide and twice as tall as the 8x16 fonts', so the reflow page switches the console to it to halve the grid's columns while the page shows.
 - `glyph-fit-default`: DejaVu Sans Mono with Monoid Nerd Font Mono merged behind it by `cover=` for the private-use ranges that hold Nerd Fonts' and Powerline's symbols, with 30 per cent of line spacing and every `fit=` left at its default. The glyph-fit page is walked in it.
 - `glyph-fit-natural`: the same font set with `fit=natural` for the merged source's symbols and for box drawing, U+2500 to U+257F, so those glyphs keep the text's height with gaps between rows. The glyph-fit page is walked in it beside `glyph-fit-default`.
+- `ligatures-jetbrains`: JetBrains Mono (`JetBrainsMono-Regular.ttf`, from `ttf-jetbrains-mono`), whose programming ligatures draw across their cells while the review's vtium.conf turns `font-ligatures` on, then the built-in GNU Unifont for anything JetBrains Mono lacks. The ligatures page is walked in it.
+- `bitmap-outline`: Terminus at 8×16 (`ter-v16n`), then DejaVu Sans Mono, Noto Sans Hebrew and Devanagari, Noto Sans CJK and Noto Color Emoji, each by its file in Arch Linux's packages, then the built-in GNU Unifont. No source has a `render=` line, so the outline sources draw 1-bit behind the bitmap first source (ADR-1200 D1). The bitmap-outline page is walked in it.
+- `bitmap-outline-smooth`: the same font set with `render=smooth` under each outline source, so those sources draw antialiased. The bitmap-outline page is walked in it beside `bitmap-outline`.
 
 > Edited 2026-11-14: the glyph-fit page brings two font sets, `glyph-fit-default` and `glyph-fit-natural`, so the list names six. The sentence read "The acceptance pass keeps four in `tools/vt/sections/frits/`:". D2's table gains the pages 51-double-size, 56-glyph-fit and 69-kitty-spec.
+
+> Edited 2026-11-14: the ligatures page brings the font set `ligatures-jetbrains`, so the list names seven. The sentence read "The acceptance pass keeps six in `tools/vt/sections/frits/`:". D2's table gains the pages 53-ligatures and 58-double-size-scripts, and the list of rows with no page drops `text.ligatures`, which 53-ligatures shows. That line read "`text.ligatures` and `text.kitty-sizing`: not built yet."
+
+> Edited 2026-11-15: the bitmap-outline page brings two font sets, `bitmap-outline` and `bitmap-outline-smooth`, so the list names nine. The sentence read "The acceptance pass keeps seven in `tools/vt/sections/frits/`:". D2's table gains the page 57-bitmap-outline.
 
 A page whose `# frits:` line names font sets is an entry of the walk for each, as `84-greek@acceptance-outline` and `84-greek@acceptance-bitmap`. Before such an entry the walk switches the console to the frit with OSC 50, makes a round trip to the terminal so the switch has been read, and asks OSC 50's query which font is in use; a page with no `# frits:` line switches the console back to the font the query named when the walk started, and asks the query again. When vtium does not switch back, that page is recorded as skip, with a comment that names the starting font and what the query answered, so that no page is judged in a font it was not meant for. vtium switches the live console among the frits in its frits directory, so one pass covers both font sets, and the review run gives vtium a frits directory holding the acceptance pass's frits (D5). The page prints which font set it is drawn in and, from the frit's `# checks:` lines, what that set checks: glyphs scaled to the cell with marks placed from the font's own data, or whole-multiple bitmaps with marks placed by vtium's rules.
 

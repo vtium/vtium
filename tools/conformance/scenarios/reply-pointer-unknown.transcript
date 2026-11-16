@@ -1,0 +1,7 @@
+> size 10 2
+> send "\e]22;pointer\e\\\e]22;no-such-shape\e\\\e]22;?__current__\e\\"
+< reply "\e]22;default\e\\"
+> send "\e]22;>text\e\\\e]22;>no-such-shape\e\\\e]22;?__current__,no-such-shape\e\\"
+< reply "\e]22;default,0\e\\"
+> send "\e]22;<\e\\\e]22;?__current__\e\\"
+< reply "\e]22;text\e\\"

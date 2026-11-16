@@ -1,0 +1,17 @@
+# OSC 66's fraction and alignment keys: each value inside its range writes
+# the text, and a value outside it discards the whole sequence, as does a
+# numerator that is not below its denominator. A fraction with s=1 and no
+# width still makes a block of the text's own width. A numerator with no
+# denominator sizes nothing, so H prints as it is.
+# spec: kitty's text sizing protocol: d, "The denominator for the fractional scale. Must be > n when non-zero."; v and h, "0 - top, 1 - bottom, 2 - centered" and "0 - left, 1 - right, 2 - centered"; ADR-1308 D2: "A known key whose value is not a whole number in its range makes vtium discard the whole sequence, text included. So does d not 0 with n not below d."
+# covers: text.kitty-sizing
+size 12 2
+send "\e]66;s=2:n=1:d=2:v=2:h=1;F\e\\"
+send "\e]66;n=2:d=2;X\e\\"
+send "\e]66;v=3:n=1:d=2;X\e\\"
+send "\e]66;h=3:n=1:d=2;X\e\\"
+send "\e]66;d=16:n=1;X\e\\"
+send "\e]66;n=14:d=15:v=1:h=2;G\e\\"
+send "\e]66;n=15;H\e\\"
+send "\e]66;s=1:v=0:h=0:n=0:d=0;I\e\\"
+dump

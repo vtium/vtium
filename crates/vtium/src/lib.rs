@@ -42,6 +42,7 @@ pub mod gpu;
 pub mod grab;
 pub mod head;
 pub mod helper;
+pub mod hints;
 pub mod hook;
 pub mod kernel;
 pub mod layout;
@@ -50,6 +51,7 @@ pub mod notice;
 pub mod osd;
 pub mod painter;
 pub mod pointer;
+pub mod pointer_file;
 pub mod power;
 pub mod respawn;
 #[cfg(test)]

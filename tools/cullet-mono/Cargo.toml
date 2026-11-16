@@ -1,0 +1,17 @@
+# Builds Cullet Mono, vtium's outline Terminus with Nerd Fonts' icons, from
+# pinned sources (README.md). It runs by hand through make cullet-mono,
+# because it needs FontForge and the network. It is its own workspace with
+# no dependencies, so the main workspace and CI do not build it.
+[package]
+name = "vtium-cullet-mono"
+description = "Builds Cullet Mono reproducibly from pinned sources, and checks each face"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[workspace]
+members = ["."]

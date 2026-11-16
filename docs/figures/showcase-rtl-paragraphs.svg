@@ -1,0 +1,153 @@
+<!-- category: scripts and emoji -->
+<!-- caption: In a build with right-to-left support, a program starts a right-to-left paragraph with SCP 2 and then writes its text in the order it is read. -->
+<!-- caption: vtium draws the paragraph from the right edge. Each letter lands to the left of the one before, and the cursor moves leftward with them. -->
+<!-- caption: A run of Latin letters and digits inside the paragraph still reads left to right. -->
+<!-- alt: Four numbered panels, each a row of sixteen cells. 1: after SCP 2 the cursor waits in the rightmost cell. 2: the Hebrew letter shin stands in the rightmost cell and the cursor is to its left. -->
+<!-- alt: 3: the word shalom fills the four rightmost cells, read from the right, and the cursor is to its left. 4: vtium 0.1 stands to the left of shalom, reading left to right, and the cursor is near the left edge. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="292" viewBox="0 0 960 292" font-family="DejaVu Sans Mono, monospace">
+<title>A right-to-left paragraph as the program writes it</title>
+<rect width="960" height="292" fill="#ffffff"/>
+<defs>
+<marker id="arrow" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L8,4 L0,8 z" fill="#1f2933"/></marker>
+</defs>
+<rect x="16" y="16" width="224" height="260" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="38" cy="38" r="11" fill="#2f6fb0"/>
+<text x="38" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">1</text>
+<text x="56" y="43" font-size="13" fill="#1f2933">SCP 2</text>
+<text x="32" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="32" y="68" width="192" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="40" y="85" font-size="12" fill="#1f2933">ESC [ 2 SP k</text>
+<text x="32" y="122" font-size="11" fill="#1f2933">the row vtium draws</text>
+<rect x="28" y="128" width="200" height="32" rx="3" fill="#1f2933"/>
+<rect x="32.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="44.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="56.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="68.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="80.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="92.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="104.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="116.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="128.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="140.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="152.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="164.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="176.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="188.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="200.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="212.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="212.5" y="132.5" width="11" height="23" fill="#d9dee3"/>
+<text x="32" y="190" font-size="12" fill="#1f2933">The paragraph now runs</text>
+<text x="32" y="206" font-size="12" fill="#1f2933">right to left. Its first</text>
+<text x="32" y="222" font-size="12" fill="#1f2933">cell is drawn at the</text>
+<text x="32" y="238" font-size="12" fill="#1f2933">right edge.</text>
+<rect x="252" y="16" width="224" height="260" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="274" cy="38" r="11" fill="#2f6fb0"/>
+<text x="274" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">2</text>
+<text x="292" y="43" font-size="13" fill="#1f2933">a letter</text>
+<text x="268" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="268" y="68" width="192" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="276" y="85" font-size="12" fill="#1f2933">ש</text>
+<text x="268" y="122" font-size="11" fill="#1f2933">the row vtium draws</text>
+<rect x="264" y="128" width="200" height="32" rx="3" fill="#1f2933"/>
+<rect x="268.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="280.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="292.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="304.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="316.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="328.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="340.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="352.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="364.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="376.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="388.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="400.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="412.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="424.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="436.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="448.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="436.5" y="132.5" width="11" height="23" fill="#d9dee3"/>
+<text x="454" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ש</text>
+<text x="268" y="190" font-size="12" fill="#1f2933">The program writes in</text>
+<text x="268" y="206" font-size="12" fill="#1f2933">reading order. shin</text>
+<text x="268" y="222" font-size="12" fill="#1f2933">lands at the right</text>
+<text x="268" y="238" font-size="12" fill="#1f2933">edge.</text>
+<rect x="488" y="16" width="224" height="260" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="510" cy="38" r="11" fill="#2f6fb0"/>
+<text x="510" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">3</text>
+<text x="528" y="43" font-size="13" fill="#1f2933">the word</text>
+<text x="504" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="504" y="68" width="192" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="512" y="85" font-size="12" fill="#1f2933">ל</text>
+<text x="528" y="85" font-size="12" fill="#1f2933">ו</text>
+<text x="544" y="85" font-size="12" fill="#1f2933">ם</text>
+<text x="568" y="85" font-size="11" fill="#1f2933">lamed, vav, mem</text>
+<text x="504" y="122" font-size="11" fill="#1f2933">the row vtium draws</text>
+<rect x="500" y="128" width="200" height="32" rx="3" fill="#1f2933"/>
+<rect x="504.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="516.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="528.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="540.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="552.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="564.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="576.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="588.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="600.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="612.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="624.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="636.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="648.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="660.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="672.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="684.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="636.5" y="132.5" width="11" height="23" fill="#d9dee3"/>
+<text x="690" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ש</text>
+<text x="678" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ל</text>
+<text x="666" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ו</text>
+<text x="654" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ם</text>
+<text x="504" y="190" font-size="12" fill="#1f2933">Each letter lands to the</text>
+<text x="504" y="206" font-size="12" fill="#1f2933">left of the one before,</text>
+<text x="504" y="222" font-size="12" fill="#1f2933">and the cursor moves</text>
+<text x="504" y="238" font-size="12" fill="#1f2933">leftward.</text>
+<rect x="724" y="16" width="224" height="260" rx="14" fill="#eef0f2" stroke="#9aa5b1" stroke-width="1"/>
+<circle cx="746" cy="38" r="11" fill="#2f6fb0"/>
+<text x="746" y="42.5" font-size="13" text-anchor="middle" fill="#ffffff">4</text>
+<text x="764" y="43" font-size="13" fill="#1f2933">Latin inside</text>
+<text x="740" y="62" font-size="11" fill="#1f2933">the program sends</text>
+<rect x="740" y="68" width="192" height="24" fill="#ffffff" stroke="#9aa5b1" stroke-width="1"/>
+<text x="748" y="85" font-size="12" fill="#1f2933">SP vtium 0.1</text>
+<text x="740" y="122" font-size="11" fill="#1f2933">the row vtium draws</text>
+<rect x="736" y="128" width="200" height="32" rx="3" fill="#1f2933"/>
+<rect x="740.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="752.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="764.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="776.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="788.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="800.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="812.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="824.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="836.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="848.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="860.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="872.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="884.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="896.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="908.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="920.5" y="132.5" width="11" height="23" fill="#3e4c59"/>
+<rect x="752.5" y="132.5" width="11" height="23" fill="#d9dee3"/>
+<text x="926" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ש</text>
+<text x="914" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ל</text>
+<text x="902" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ו</text>
+<text x="890" y="149" font-size="14" text-anchor="middle" fill="#ffffff">ם</text>
+<text x="770" y="149" font-size="14" text-anchor="middle" fill="#ffffff">v</text>
+<text x="782" y="149" font-size="14" text-anchor="middle" fill="#ffffff">t</text>
+<text x="794" y="149" font-size="14" text-anchor="middle" fill="#ffffff">i</text>
+<text x="806" y="149" font-size="14" text-anchor="middle" fill="#ffffff">u</text>
+<text x="818" y="149" font-size="14" text-anchor="middle" fill="#ffffff">m</text>
+<text x="842" y="149" font-size="14" text-anchor="middle" fill="#ffffff">0</text>
+<text x="854" y="149" font-size="14" text-anchor="middle" fill="#ffffff">.</text>
+<text x="866" y="149" font-size="14" text-anchor="middle" fill="#ffffff">1</text>
+<text x="740" y="190" font-size="12" fill="#1f2933">vtium 0.1 is a run that</text>
+<text x="740" y="206" font-size="12" fill="#1f2933">reads left to right,</text>
+<text x="740" y="222" font-size="12" fill="#1f2933">placed to the left of</text>
+<text x="740" y="238" font-size="12" fill="#1f2933">the Hebrew word.</text>
+</svg>

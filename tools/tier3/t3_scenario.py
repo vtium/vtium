@@ -9,6 +9,7 @@ import subprocess
 import time
 
 import t3_bench
+import t3_builtin
 import t3_devices
 import t3_handover
 import t3_heads
@@ -328,6 +329,14 @@ VARIANTS["hand-over"] = dict(SEAT, tree_features=[], checks=["hand-over"], agent
 SEAT_VARIANTS = ["seat-seatd", "seat-logind", "direct-logind", "seat-seatd-wait", "panic-sysrq",
                  "kmsg-notice"]
 
+# builtin-font checks vtium with nothing installed (ADR-1204 D1, t3_builtin)
+# on the minspec machine, in make tier3-minimal. vtium starts with the
+# minimal configuration; once it shows its login prompt, the agent stops it,
+# removes /etc/vtium, the font files tier 3 installs for vtium and the font
+# helper, and starts it again. Its cases are the new vtium's login prompt and
+# the notice of a kernel message, both judged by their goldens.
+VARIANTS["builtin-font"] = dict(POWER, conf="vtium-minimal.conf", builtin=True, agent=True)
+
 # boot-claim checks that vtium console enable --direct --all starts vtium at
 # boot on each VT it claims (ADR-1500 D7, "Each claimed VT starts at boot").
 # Its setup makes the claim, then starts the guest's userspace again with
@@ -459,7 +468,18 @@ VARIANTS["images-640x480"] = dict(DEVICES, device="virtio-vga,xres=640,yres=480,
 # before login, so the driver never logs in ("login": False).
 VARIANTS["images-640x480-nobody"] = dict(VARIANTS["images-640x480"], image_account="nobody",
                                          login=False, screens=[], rpc_pipefs=False)
-IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody"]
+# The login picture: the images machine and tree, whose configuration
+# names the test disc picture as the login picture under cover. The login
+# prompt is captured as the case "login-image" ("login_shot"), and the
+# driver never logs in.
+#
+# References:
+# - ADR-1100 D17: the login picture this variant shows.
+VARIANTS["images-login-640x480"] = dict(VARIANTS["images-640x480"],
+                                        conf="vtium-login-image.conf",
+                                        login_shot="login-image", login=False,
+                                        screens=[], prelogin=False, rpc_pipefs=False)
+IMAGE_VARIANTS = ["images-640x480", "images-640x480-nobody", "images-login-640x480"]
 
 # The showcase (ADR-1502 D6, t3_showcase): the default machine at 1920x1080,
 # its console built with images and bidi, so the scripts scene's Arabic and
@@ -714,8 +734,11 @@ def variant_cases(variant):
         return ["kernel-panic"]
     if v.get("kmsg"):
         return ["kernel-message"]
+    if v.get("builtin"):
+        return list(t3_builtin.CASES)
     first = ([v["first"]] if "first" in v else []) + (
-        [t3_images.CASE] if v.get("prelogin") else [])
+        [t3_images.CASE] if v.get("prelogin") else []) + (
+        [v["login_shot"]] if "login_shot" in v else [])
     if not v.get("login", True):
         return first + list(v.get("checks", []))
     out = first + (CASES if "screens" not in v else cases(screens_of(variant)))
@@ -1207,6 +1230,11 @@ def run_variant(variant, timing, impl, log):
         prompt = None
         if v["device"] is not None and v["renderer"] is not None:
             prompt = wait_stable(vm, tmp, settle=2.0, timeout=90, want=not_blank)
+        if "login_shot" in v and prompt is not None:
+            # the login prompt as it first settles, the login picture behind it
+            path = os.path.join(work, v["login_shot"] + ".ppm")
+            shutil.copyfile(tmp, path)
+            caps[v["login_shot"]] = path
         if "second" in v:
             wait_stable(vm, os.path.join(work, "two-heads-start.ppm"), settle=2.0, timeout=90,
                         want=not_blank, output=t3_heads.second_output(v))
@@ -1233,6 +1261,8 @@ def run_variant(variant, timing, impl, log):
         elif v.get("kmsg"):
             t3_seat.kernel_message(vm, work, caps, errors, log)
             phase("kernel-message")
+        elif v.get("builtin"):
+            t3_builtin.run(vm, work, caps, errors, log, phase)
         elif not v.get("login", True):
             run_checks(variant, vm, work, caps, errors, log, phase)
         else:

@@ -111,6 +111,24 @@ fn judge(file: &Path, trust: &Trust) -> Judged {
     }
 }
 
+/// What check-config says of the layers the frit `name` at `file` adds,
+/// read from the frits' directory `frits` under `trust` as the start reads
+/// them: a sentence for each
+/// `layer=` line that adds nothing, such as a missing layer, a layer the
+/// ownership check refuses or a layer whose `role=` is wrong. Each counts
+/// against the configuration, as a look's missing frit does, since the
+/// start draws the set without that layer. A frit the account cannot read
+/// says nothing here: [`judge`] reports it.
+///
+/// References:
+/// - ADR-1204 D5: `vtium check-config` reads a set's layers too.
+fn frit_layers(name: &str, file: &Path, frits: &Path, trust: &Trust) -> Vec<String> {
+    font::frit_text(file, trust).map_or_else(
+        |_| Vec::new(),
+        |text| font::with_layers(name, frits, &text, trust).1,
+    )
+}
+
 /// What check-config says of the frit `font-name` names in `frits`, read
 /// under `trust`: the refusal, which counts against the configuration, or
 /// the refusal of a start as root, which is a note.
@@ -236,8 +254,63 @@ pub fn notes(config: &Config) -> Vec<String> {
         .chain(helper_note(&helper::program(config), me))
         .chain(font_paths_notes(config));
     #[cfg(feature = "images")]
-    let notes = notes.chain(image_helper_note(&crate::head::images::program(config), me));
+    let notes = notes
+        .chain(image_helper_note(&crate::head::images::program(config), me))
+        .chain(
+            config
+                .text(&keys::LOGIN_IMAGE)
+                .and_then(|path| login_image_note(None, Path::new(path), me)),
+        );
     notes.collect()
+}
+
+/// What check-config notes of the login picture at `path`, which the top
+/// level names, or the look `look` names: why vtium could not use the
+/// file, in the words of the start's log line. check-config looks at the
+/// file as the account it runs as, `me`, and vtium reads it as root, so a
+/// file that account may not read is noted as one check-config cannot
+/// check. The note stands outside the exit status, because the file
+/// belongs to the machine and not to vtium.conf.
+///
+/// References:
+/// - ADR-1100 D17, "A file vtium cannot use": check-config reports a
+///   login picture's file it cannot open.
+#[cfg(feature = "images")]
+fn login_image_note(look: Option<&str>, path: &Path, me: u32) -> Option<String> {
+    let why = crate::head::images::login_image_unusable(path)?;
+    let path = crate::font::quoted(path);
+    let (what, its) = match look {
+        None => ("login-image".to_owned(), "the"),
+        Some(look) => (format!("Look {look:?}"), "its"),
+    };
+    Some(
+        if me != 0 && why == crate::head::images::LOGIN_IMAGE_DENIED {
+            format!(
+                "{what}: this account may not read {its} login picture {path}, so check-config cannot check it. vtium reads it as root."
+            )
+        } else {
+            format!(
+                "{what}: vtium cannot show {its} login picture {path}, because {why}. vtium would start the login prompt without it."
+            )
+        },
+    )
+}
+
+/// What check-config notes of each look's login picture, on the look's
+/// `login-image` line ([`login_image_note`]).
+#[cfg(feature = "images")]
+fn look_login_images(out: &mut HeadCheck, path: &Path, parsed: &Parsed, me: u32) {
+    for look in &parsed.config.looks {
+        let named = look
+            .settings
+            .iter()
+            .find(|s| s.key.name == keys::LOGIN_IMAGE.name);
+        if let Some(named) = named {
+            let said = login_image_note(Some(&look.name), Path::new(&named.value), me);
+            out.notes
+                .extend(said.map(|said| at(path, Some(named.line), said).to_string()));
+        }
+    }
 }
 
 /// What check-config notes of `font-paths` (ADR-1200 D25): each folder
@@ -438,7 +511,10 @@ fn outcome_with(loaded: &Loaded, host: &Host, squeeze: Option<Squeeze<'_>>) -> O
         .map(ToString::to_string);
     // the font-name frit, which at the start the font's own read reports
     let (refused, root_refuses) = font_name_frit(&loaded.config, settings.frits, &settings.trust);
-    let stderr: Vec<String> = stderr.into_iter().chain(refused).collect();
+    let layers = named_frit(&loaded.config, settings.frits)
+        .map(|(name, file)| frit_layers(&name, &file, settings.frits, &settings.trust))
+        .unwrap_or_default();
+    let stderr: Vec<String> = stderr.into_iter().chain(refused).chain(layers).collect();
     let status = u8::from(!stderr.is_empty() || !heads.counted.is_empty());
     Outcome {
         stderr: stderr.into_iter().chain(heads.counted).collect(),
@@ -459,7 +535,7 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
     let ask = |frit: &helper::FritText, letters: &[u32]| {
-        let launcher = helper::Launcher::configured(&loaded.config)?;
+        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
         let mut helper = helper::Helper::new(
             launcher,
             std::sync::Arc::new(|| {}),
@@ -716,8 +792,12 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
         };
         let line = Some(named.line);
         let judged = judge(&file, &settings.trust);
-        // a font set the account reads is checked for the locale's letters
+        // a font set the account reads is checked for its layers and for
+        // the locale's letters
         if matches!(judged, Judged::Read | Judged::RootRefuses(_)) {
+            for said in frit_layers(&named.value, &file, settings.frits, &settings.trust) {
+                out.counted.push(at(path, line, said).to_string());
+            }
             let said = settings
                 .squeeze
                 .and_then(|sq| squeeze_note(&look.name, &named.value, &file, settings, sq));
@@ -758,7 +838,8 @@ fn squeeze_note(
     sq: Squeeze<'_>,
 ) -> Option<String> {
     let script = vtium_font::letters::script_of(sq.locale)?;
-    let frit = helper::FritText::read(file, &settings.trust).ok()?;
+    // the layers' sentences are frit_layers' to report, so none is logged
+    let (frit, _) = helper::FritText::read_noting(file, settings.frits, &settings.trust).ok()?;
     let cell = font::frit_cell(&frit.text)
         .ok()
         .flatten()
@@ -806,6 +887,8 @@ fn findings(
         out.counted.push(at(path, Some(w.line()), w).to_string());
     }
     look_frits(out, path, parsed, settings);
+    #[cfg(feature = "images")]
+    look_login_images(out, path, parsed, rustix::process::geteuid().as_raw());
     if parsed.more_warnings > 0 {
         out.counted.push(
             at(
@@ -1268,6 +1351,91 @@ mod tests {
         );
     }
 
+    // check-config reads a set's layers as the start reads them, and
+    // reports a missing layer, a layer the ownership check refuses and a
+    // layer whose role= is wrong.
+    //
+    // References:
+    // - ADR-1204 D5: vtium check-config reads a set's layers too.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn check_config_reports_a_sets_layers() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = Scratch::new("check-layers");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).unwrap();
+        let write = |path: &Path, text: &str, mode: u32| {
+            std::fs::write(path, text).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+        };
+        for d in [dir.as_ref(), layers.as_path()] {
+            std::fs::set_permissions(d, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let set = dir.join("set.vtfrit");
+        write(
+            &set,
+            "source=builtin:unifont\nlayer=fine\nlayer=gone\nlayer=theirs\nlayer=icons\n",
+            0o644,
+        );
+        write(
+            &layers.join("fine.vtlayer"),
+            "role=emoji\nsource=font:E\n",
+            0o644,
+        );
+        write(
+            &layers.join("theirs.vtlayer"),
+            "role=script\nsource=font:T\n",
+            0o664,
+        );
+        write(
+            &layers.join("icons.vtlayer"),
+            "role=icons\nsource=font:I\n",
+            0o644,
+        );
+        let trust = font::trust().below(&dir);
+        let said = frit_layers("set", &set, &dir, &trust);
+        let file = |name: &str| font::quoted(&layers.join(format!("{name}.vtlayer")));
+        assert_eq!(
+            said,
+            [
+                format!(
+                    "font set set: line 3: the layer gone is missing, because there is no file {}. vtium draws the font set without that layer.",
+                    file("gone")
+                ),
+                format!(
+                    "font set set: line 4: vtium does not read the layer theirs from {}, because other users can change {} (mode 664). Run `chmod go-w {}` so that only its owner can change it. vtium draws the font set without that layer.",
+                    file("theirs"),
+                    file("theirs"),
+                    layers.join("theirs.vtlayer").display()
+                ),
+                format!(
+                    "font set set: line 5: the layer icons in {} has an error: line 1: role=icons is not a role: use script, symbols, emoji or fallback. vtium draws the font set without that layer.",
+                    file("icons")
+                ),
+            ]
+        );
+        // a look naming the set counts each sentence against the file
+        let text =
+            "version = 1\n[look l]\nfont-name = set\n[head a]\nlook = l\n[rules]\ndisplay * -> a\n";
+        let (_heads, conf, conf_trust) = heads_fixture("look-layers", text, 0o644);
+        let settings = Settings {
+            frits: &dir,
+            trust,
+            ..caps(4)
+        };
+        let out = conf_file(&conf, false, &conf_trust, &machine(true), &settings);
+        let counted: Vec<&String> = out.counted.iter().filter(|l| l.contains("layer")).collect();
+        let at = |line: &String| format!("{}:3: {line}", conf.display());
+        assert_eq!(
+            counted,
+            said.iter()
+                .map(at)
+                .collect::<Vec<_>>()
+                .iter()
+                .collect::<Vec<_>>()
+        );
+    }
+
     // ADR-1401 D10, ADR-1403 D3: check-config reads the frit font-name
     // names under the ownership check the start makes for the account it
     // runs as, and counts a frit the check refuses, with the path that
@@ -1448,6 +1616,69 @@ mod tests {
         assert_eq!(
             run_with(&["--image-helper=bin/vtium-image"], ""),
             (Vec::new(), 0)
+        );
+    }
+
+    // A login picture that vtium could not use, at the top level or in a
+    // look, is noted on standard output with the reason the start would
+    // log, outside the exit status; a PNG file draws no note.
+    #[cfg(feature = "images")]
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn a_login_picture_vtium_cannot_use_is_noted() {
+        let dir = Scratch::new("check-login-image");
+        let png = dir.join("login.png");
+        std::fs::write(&png, b"\x89PNG\r\n\x1a\nrest").unwrap();
+        let text = dir.join("login.txt");
+        std::fs::write(&text, b"no picture").unwrap();
+        let missing = dir.join("missing.png");
+        let note = |path: &Path| {
+            notes_but(
+                &["font-helper:", "image-helper:"],
+                &[&format!("--login-image={}", path.display())],
+            )
+        };
+        let density = check_config::MEASURED_DENSITY;
+        assert_eq!(note(&png), [density]);
+        assert_eq!(
+            note(&missing),
+            [
+                density.to_owned(),
+                format!(
+                    "login-image: vtium cannot show the login picture \"{}\", because the file does not exist. vtium would start the login prompt without it.",
+                    missing.display()
+                )
+            ]
+        );
+        assert_eq!(
+            note(&dir),
+            [
+                density.to_owned(),
+                format!(
+                    "login-image: vtium cannot show the login picture \"{}\", because the file is not a regular file. vtium would start the login prompt without it.",
+                    dir.display()
+                )
+            ]
+        );
+        let look = format!(
+            "version = 1\n[look big]\nlogin-image = {}\n[head a]\nlook = big\n[rules]\ndisplay * -> a\n",
+            text.display()
+        );
+        let (_heads, file, trust) = heads_fixture("login-image", &look, 0o644);
+        let out = conf_file(&file, false, &trust, &machine(true), &caps(4));
+        assert_eq!(out.counted, [] as [String; 0]);
+        let said: Vec<&String> = out
+            .notes
+            .iter()
+            .filter(|n| n.contains("login picture"))
+            .collect();
+        assert_eq!(
+            said,
+            [&format!(
+                "{}:3: Look \"big\": vtium cannot show its login picture \"{}\", because the file is not a PNG or JPEG picture. vtium would start the login prompt without it.",
+                file.display(),
+                text.display()
+            )]
         );
     }
 

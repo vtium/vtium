@@ -21,7 +21,7 @@
 //! whole too; a GL error in two of one display's frames in a row, or in
 //! three of its last 60, an out-of-memory error or a lost context ends the
 //! GPU path for the head until vtium restarts, since GL's state cannot be
-//! trusted after them ([`Window`]). A display's set-up counts the same way.
+//! trusted after them (`Window`). A display's set-up counts the same way.
 //! A display the GPU path cannot set up at its size for any other reason,
 //! such as a size past the GPU's limits or a shader that does not compile,
 //! holds the whole head on the CPU path while the display keeps that size:
@@ -31,7 +31,7 @@
 //! the GPU path sets up or leaves the head. The hold clears every display's
 //! window of frames.
 //! After three trips back in a run, the next hold ends the GPU path for the
-//! head until vtium restarts ([`TripsBack`]).
+//! head until vtium restarts (`TripsBack`).
 //!
 //! A display is past the GPU's limits when its buffer is wider or taller
 //! than the GPU's largest renderbuffer, `GL_MAX_RENDERBUFFER_SIZE`, or its
@@ -279,7 +279,7 @@ impl HeadGpu {
     /// ended. A display refused at one size is set up again at its next.
     /// A frame that fails may leave part of it in the buffer, when its read
     /// back fails partway. A lost context, an out-of-memory error, GL
-    /// errors in as many of the display's frames as its [`Window`] allows,
+    /// errors in as many of the display's frames as its `Window` allows,
     /// or a refusal once the head has taken its trips back ends the GPU
     /// path.
     #[expect(

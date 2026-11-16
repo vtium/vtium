@@ -367,23 +367,25 @@ def crash(vm, work, caps, errors, notes, log):
         log("kernel-panic: %s" % e)
 
 
-def kernel_message(vm, work, caps, errors, log):
+def kernel_message(vm, work, caps, errors, log, case="kernel-message"):
     """Make the guest's kernel log an error while vtium shows its VT, and
     capture the screen once it has changed from the login prompt and
-    settled, within the time vtium shows the message (CAPTIONS
-    "kernel-message")."""
-    before = os.path.join(work, "kernel-message-before.ppm")
-    path = os.path.join(work, "kernel-message.ppm")
+    settled, within the time vtium shows the message, as the case `case`
+    (CAPTIONS "kernel-message", t3_builtin.CAPTIONS "builtin-notice")."""
+    before = os.path.join(work, case + "-before.ppm")
+    path = os.path.join(work, case + ".ppm")
     try:
         shown = wait_stable(vm, before, settle=2.0, timeout=90, want=not_blank)
+        with open(vm.serial, "rb") as f:
+            since = len(f.read())
         answer = vm.ask("kmsg")
         log("kmsg: %s" % "; ".join(answer))
-        vm.wait_serial(KMSG_LINE, timeout=30)
+        vm.wait_serial(KMSG_LINE, timeout=30, since=since)
         first_count(vm, path, shown)
-        caps["kernel-message"] = path
+        caps[case] = path
     except (RuntimeError, OSError) as e:
-        errors["kernel-message"] = str(e)
-        log("kernel-message: %s" % e)
+        errors[case] = str(e)
+        log("%s: %s" % (case, e))
 
 
 def first_count(vm, path, shown):

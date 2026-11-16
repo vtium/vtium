@@ -461,7 +461,7 @@ fn find_outline_family_capped(
 
 /// The family of an installed outline font under `dirs` that covers the
 /// most of `letters`, which the font set leaves to the squeeze (ADR-1401
-/// D7): a face's first family name that prints as itself ([`printable`]),
+/// D7): a face's first family name that prints as itself (`printable`),
 /// among its Regular faces first; a face with no such name is left out. A face
 /// covers a letter its character map gives a glyph for. The search opens
 /// at most [`FAMILY_FILES_MAX`] files, in the order of
@@ -720,6 +720,7 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             let other = Source {
                 cp_size: Some(height),
                 script_sources: Vec::new(),
+                strikes: Vec::new(),
                 ..source.clone()
             };
             if let Ok(input) = resolve(&other, host) {
@@ -735,8 +736,10 @@ pub fn smaller(source: &Source, host: &Host<'_>) -> Vec<Smaller> {
             cover: Vec::new(),
             cp_size: None,
             script_sources: Vec::new(),
+            strikes: Vec::new(),
             style: source.style,
             fits: Vec::new(),
+            layer: source.layer.clone(),
             line: named.line,
         };
         out.push((
@@ -953,8 +956,10 @@ mod tests {
             cover: Vec::new(),
             cp_size: None,
             script_sources: Vec::new(),
+            strikes: Vec::new(),
             style: vtium_font::Style::default(),
             fits: Vec::new(),
+            layer: None,
             line: 1,
         }
     }

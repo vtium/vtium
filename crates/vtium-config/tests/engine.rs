@@ -135,6 +135,7 @@ impl World {
             font_dirs: vec![self.path("fonts")],
             vconsole_conf: self.path("vconsole.conf"),
             kernel_cmdline: self.path("cmdline"),
+            ..Paths::default()
         }
     }
 
@@ -283,21 +284,40 @@ fn a_cpi_font_draws_at_its_cp_size() {
     }
 }
 
+// A family names a kbd font with case and blanks ignored. A family this
+// machine lacks is the set's missing text font, so the built-in font draws
+// the text in its place: the frit has no own cell, and the helper leaves
+// every character the built-in font holds to the console, even where a
+// later source holds it. With every source missing, the frit fails.
+//
+// References:
+// - ADR-1204 D5 and D7: the built-in font draws the text when the set's
+//   text font is missing, and the cell comes from the configuration.
 #[test]
-fn a_font_named_by_family_resolves_and_a_missing_one_is_left_out() {
+fn a_family_resolves_and_a_missing_one_leaves_the_text_to_the_built_in_font() {
     let w = World::new("family");
     let font = fs::read(w.path("kbd/consolefonts/ter-v16n.psf.gz")).expect("the font");
     let psf = Psf::parse(&font).expect("the font parses");
-    // the family matches the kbd font with case and blanks ignored
     let set = w.drawn("source=font:Ter-V16N\n", cell(8, 16));
     draws_as(set, &psf, &chars());
-    // a family not on this machine is left out, and the next source gives
-    // the glyphs
-    let set = w.drawn(
-        "source=font:Nonesuch Mono\nsource=kbd:ter-v16n\n",
-        cell(8, 16),
+    let missing = w
+        .engine("source=font:Nonesuch Mono\nsource=kbd:ter-v16n\n")
+        .expect("the frit loads");
+    let why = missing.own_cell(16).expect_err("no own cell");
+    assert!(
+        why.contains("source=font:Nonesuch Mono is missing"),
+        "{why}"
     );
-    draws_as(set, &psf, &chars());
+    let want: Vec<u32> = chars().into_iter().map(u32::from).collect();
+    let held: Vec<char> = match missing.draw(cell(8, 16), &want).expect("draws") {
+        None => Vec::new(),
+        Some(bytes) => {
+            let set = Arc::new(Set::from_bytes(bytes).expect("the set reads"));
+            let face = SetFace::new(set, 16).expect("a strike");
+            chars().into_iter().filter(|&c| face.has_glyph(c)).collect()
+        }
+    };
+    assert!(held.is_empty(), "{held:?}");
     // with every source missing, the frit fails, naming each
     let why = w
         .engine("source=font:Nonesuch Mono\nsource=kbd:also-missing\n")
@@ -1345,7 +1365,9 @@ fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
     let w = World::new("outline-behind-bitmap");
     latin_and_cjk(&w);
     let engine = w
-        .engine("source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\n")
+        .engine(
+            "source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\nrender=smooth\n",
+        )
         .expect("the frit loads");
     let bytes = engine
         .draw(cell(8, 16), &[0x4e00])
@@ -1362,6 +1384,47 @@ fn outline_sources_behind_a_bitmap_first_source_keep_their_own_size() {
         .count();
     let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
     assert_eq!((columns, inked_rows), (11, 6));
+}
+
+// The same frit with no render= line: Test CJK sits behind a bitmap first
+// source, so its ideograph draws 1-bit, every pixel fully lit or dark, at
+// its own size. The edges that smooth rendering covers by less than half a
+// pixel go dark, so it inks 10 columns and 5 rows where it inks 11 and 6
+// antialiased.
+//
+// References:
+// - ADR-1200 D1, the render= row: outline glyphs behind a bitmap first
+//   source draw 1-bit unless render=smooth says otherwise.
+// - ADR-1200 D17: an outline source behind a bitmap first source keeps its
+//   own size.
+#[test]
+fn outline_sources_behind_a_bitmap_first_source_draw_one_bit_at_their_own_size() {
+    let w = World::new("outline-behind-bitmap-one-bit");
+    latin_and_cjk(&w);
+    let engine = w
+        .engine("source=kbd:ter-v16n\nsource=font:Test Latin\nsource=font:Test CJK\n")
+        .expect("the frit loads");
+    let bytes = engine
+        .draw(cell(8, 16), &[0x4e00])
+        .expect("draws")
+        .expect("a glyph");
+    let face =
+        SetFace::new(Arc::new(Set::from_bytes(bytes).expect("the set reads")), 16).expect("a face");
+    let g = face
+        .draw(&['\u{4e00}'], Style::default())
+        .expect("the ideograph");
+    let rows: Vec<&[u8]> = g.rows().collect();
+    assert!(
+        rows.iter()
+            .flat_map(|r| r.iter())
+            .all(|&p| p == 0 || p == 255),
+        "every pixel fully lit or dark"
+    );
+    let columns = (0..g.width() as usize)
+        .filter(|&x| rows.iter().any(|r| r.get(x).is_some_and(|&p| p != 0)))
+        .count();
+    let inked_rows = rows.iter().filter(|r| r.iter().any(|&p| p != 0)).count();
+    assert_eq!((columns, inked_rows), (10, 5));
 }
 
 // ADR-1200 D21, D22: when no source has a color glyph for the heart with
@@ -1393,4 +1456,86 @@ fn a_character_with_vs16_and_no_color_source_draws_as_its_character() {
         .draw(&['\u{2764}'], Style::default())
         .expect("the heart");
     assert_eq!(g.format(), Format::Mask);
+}
+
+/// Which of the two pieces of the run `->` the helper draws for `text`'s
+/// frit at an 8×16 cell.
+fn arrow_pieces(test: &str, text: impl Fn(&World) -> String) -> Vec<bool> {
+    let w = World::new(test);
+    let engine = w.engine(&text(&w)).expect("the frit loads");
+    let run: Vec<u32> = "->".chars().map(u32::from).collect();
+    let keys: Vec<Vec<u32>> = (0..2u8)
+        .map(|start| {
+            let mut key = Vec::new();
+            vtium_font::syllable::Piece::new(start, 1, 2)
+                .expect("a piece")
+                .key(&run, &mut key);
+            key
+        })
+        .collect();
+    // no glyph at all when the helper draws neither piece
+    let Some(set) = engine.draw_clusters(cell(8, 16), &keys).expect("draws") else {
+        return vec![false; keys.len()];
+    };
+    let face = SetFace::new(Arc::new(Set::from_bytes(set).expect("a set")), 16).expect("a face");
+    keys.iter()
+        .map(|k| {
+            let chars: Vec<char> = k.iter().filter_map(|&c| char::from_u32(c)).collect();
+            face.cluster(&chars, Style::default()).is_some()
+        })
+        .collect()
+}
+
+fn fixture(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name)
+}
+
+/// Iosevka Term joins `->`, so on its own the helper draws both pieces.
+// covers: text.ligatures
+#[test]
+fn a_ligature_font_alone_draws_the_pieces_of_its_run() {
+    let drawn = arrow_pieces("ligature-alone", |_| {
+        format!(
+            "source=outline:{}\n",
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [true, true]);
+}
+
+/// A bitmap first font draws `-` and `>`, so a later outline font with
+/// ligatures never draws its arrow among the bitmap font's characters.
+// covers: text.ligatures
+#[test]
+fn a_later_source_never_draws_a_ligature_over_a_bitmap_first_font() {
+    let drawn = arrow_pieces("ligature-bitmap-first", |w| {
+        fs::write(
+            w.path("fonts/b.psf"),
+            psf2(8, 16, 2, Some(&[(0, '-'), (1, '>')])),
+        )
+        .expect("psf");
+        format!(
+            "source=file:{}\nsource=outline:{}\n",
+            w.path("fonts/b.psf").display(),
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [false, false]);
+}
+
+/// DejaVu Sans Mono does not join `->`, so the run draws unjoined, though
+/// the Iosevka Term after it would join it.
+// covers: text.ligatures
+#[test]
+fn a_later_source_never_joins_a_run_the_first_outline_font_leaves_apart() {
+    let drawn = arrow_pieces("ligature-outline-first", |_| {
+        format!(
+            "source=outline:{}\nsource=outline:{}\n",
+            fixture("DejaVuSansMono-ascii.ttf").display(),
+            fixture("IosevkaTerm-ligatures.ttf").display()
+        )
+    });
+    assert_eq!(drawn, [false, false]);
 }

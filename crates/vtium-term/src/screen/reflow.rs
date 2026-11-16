@@ -14,6 +14,17 @@
 //! width's columns (`LineSize::columns`), so it is cut at that half, and
 //! anything anchored past it lands on its last column.
 //!
+//! A sized run, the block of cells that one OSC 66 sequence writes, moves
+//! whole. A run one row high that does not fit in the columns left moves to
+//! the next row, as a wide character does, and leaves pad cells behind it.
+//! A run wider than the new width is erased. A row that holds a row of a
+//! run taller than one row joins nothing and is joined into nothing: it
+//! keeps its columns, and a narrower width that cuts the run there erases
+//! the run.
+//!
+//! References:
+//! - ADR-1308 D6, "Reflow at a width change": the rules above.
+//!
 //! The logical line's first row keeps its `LineId`, and each other row a
 //! rewrap makes takes the next id. The shell-integration marks of its rows
 //! go to its first row: a mark records no column, so no finer place is
@@ -38,7 +49,7 @@ use core::mem;
 use super::Screen;
 use super::selection::Anchor;
 use crate::cell::{Cell, Width};
-use crate::line::{IndexMap, Line, LineFlags, LineId, LineSize};
+use crate::line::{IndexMap, Line, LineFlags, LineId, LineSize, SizedRun};
 use crate::style::Style;
 
 /// A cell a rewrap carries: its row among the rows rewrapped and its
@@ -81,9 +92,12 @@ impl Place {
     }
 }
 
-/// Whether `line` rewraps: written while mode 2028 was set, at single size.
+/// Whether `line` rewraps: written while mode 2028 was set, at single size,
+/// and holding no row of a sized run taller than one row.
 pub(crate) fn rewraps(line: &Line) -> bool {
-    !line.flags().contains(LineFlags::FIXED) && line.flags().size() == LineSize::Single
+    !line.flags().contains(LineFlags::FIXED)
+        && line.flags().size() == LineSize::Single
+        && !line.holds_tall_run()
 }
 
 /// Cuts `line` to at most `width` cells, and a line of double size to the
@@ -102,17 +116,18 @@ pub(crate) fn joins(line: &Line, next: &Line) -> bool {
 }
 
 /// The cells of `line`, trimmed, that are text in its logical line: all of
-/// them but a pad that ends a wrapped line.
+/// them but the pads that end a wrapped line. A wide character leaves one
+/// pad, and a sized run may leave several.
 fn text(line: &Line) -> &[Cell] {
     let cells = line.cells();
-    match cells.split_last() {
-        Some((last, rest))
-            if last.width() == Width::Pad && line.flags().contains(LineFlags::WRAPPED) =>
-        {
-            rest
-        }
-        _ => cells,
+    if !line.flags().contains(LineFlags::WRAPPED) {
+        return cells;
     }
+    let end = cells
+        .iter()
+        .rposition(|c| c.width() != Width::Pad)
+        .map_or(0, |i| i.saturating_add(1));
+    cells.get(..end).unwrap_or(cells)
 }
 
 /// The cells of `line`, trimmed, that are text in its logical line.
@@ -136,9 +151,46 @@ pub(crate) fn row_of<'a>(before: impl Iterator<Item = &'a Line>, width: usize) -
         .unwrap_or(0)
 }
 
-/// The cells the cell at `i` of `text` moves with: a wide character and its
-/// tail are one unit of two.
-fn span(text: &[Cell], i: usize) -> usize {
+/// The sized run that starts at cell `i` of `line`, when it fits in `width`
+/// columns and so moves whole. The cells of a run wider than that are
+/// erased, each an empty cell of its own.
+fn run_unit(line: &Line, i: usize, width: usize) -> Option<SizedRun> {
+    line.run_at(i).filter(|r| r.col() == i && r.cols() <= width)
+}
+
+/// `line` with each sized run wider than `width` columns erased, as a
+/// screen too narrow for a run erases it, and trimmed again when it does
+/// not wrap, so the erased cells at its end leave no text behind.
+///
+/// References:
+/// - ADR-1308 D6: a resize that makes the screen narrower than a run's
+///   columns erases the run.
+fn narrow_runs(mut line: Line, width: usize) -> Line {
+    let wide: Vec<SizedRun> = line
+        .runs()
+        .iter()
+        .copied()
+        .filter(|r| r.cols() > width)
+        .collect();
+    if wide.is_empty() {
+        return line;
+    }
+    for run in wide {
+        line.erase(run.span(), &Style::DEFAULT);
+    }
+    if !line.flags().contains(LineFlags::WRAPPED) {
+        line.trim();
+    }
+    line
+}
+
+/// The cells the cell at `i` of `text`, the text of `line`, moves with: a
+/// wide character and its tail are one unit of two, and a sized run that
+/// fits in `width` columns is one unit of its columns.
+fn span(line: &Line, text: &[Cell], i: usize, width: usize) -> usize {
+    if text.get(i).is_some_and(|c| c.in_run()) {
+        return run_unit(line, i, width).map_or(1, SizedRun::cols);
+    }
     let wide = text.get(i).is_some_and(|c| c.width() == Width::Wide)
         && text
             .get(i.saturating_add(1))
@@ -161,6 +213,15 @@ where
     I: Iterator<Item = &'a Line> + Clone,
 {
     let width = width.max(1);
+    // A run wider than the width is erased before the rewrap, so the
+    // count reads the lines as the rewrap will.
+    if rows
+        .clone()
+        .any(|l| l.runs().iter().any(|r| r.cols() > width))
+    {
+        let narrowed: Vec<Line> = rows.map(|l| narrow_runs(l.clone(), width)).collect();
+        return rows_at(narrowed.iter(), width);
+    }
     let len = rows
         .clone()
         .map(|l| text(l).len())
@@ -176,7 +237,7 @@ where
         let text = text(line);
         let mut i = 0;
         while i < text.len() {
-            let span = span(text, i);
+            let span = span(line, text, i, width);
             let need = columns(span, width);
             if col.saturating_add(need) > width {
                 count = count.saturating_add(1);
@@ -205,7 +266,10 @@ pub(crate) fn rewrap_line(
     let width = width.max(1);
     let last_col = width.saturating_sub(1);
     let start = out.len();
-    let mut rows = rows.into_iter().peekable();
+    let mut rows = rows
+        .into_iter()
+        .map(|line| narrow_runs(line, width))
+        .peekable();
     let Some(mut src) = rows.next() else {
         return 0;
     };
@@ -246,10 +310,15 @@ pub(crate) fn rewrap_line(
         }
         let mut i = 0;
         while let Some(&cell) = text.get(i) {
-            let span = span(text, i);
+            let run = cell.in_run().then(|| run_unit(&src, i, width)).flatten();
+            let span = span(&src, text, i, width);
             let need = columns(span, width);
             if cur.len().saturating_add(need) > width {
-                if need == 2 && cur.len().saturating_add(1) == width {
+                if run.is_some() {
+                    while cur.len() < width {
+                        cur.push_pad(&src, cell);
+                    }
+                } else if need == 2 && cur.len().saturating_add(1) == width {
                     cur.push_pad(&src, cell);
                 }
                 cur.flags_mut().insert(LineFlags::WRAPPED);
@@ -272,10 +341,17 @@ pub(crate) fn rewrap_line(
                     *slot = Some((row, col.saturating_add(d)));
                 }
             }
-            if need < span || cell.width() == Width::Pad {
-                // A wide character on a screen one column wide, or a pad
-                // inside the text, is one empty cell.
+            if need < span || cell.width() == Width::Pad || (cell.in_run() && run.is_none()) {
+                // A wide character on a screen one column wide, a pad
+                // inside the text, or a cell of a run too wide for the
+                // screen, is one empty cell.
                 cur.push_from(&src, cell, Width::Narrow, true, &mut map);
+            } else if let Some(run) = run {
+                let at = cur.len();
+                for &c in text.iter().skip(i).take(span) {
+                    cur.push_from(&src, c, Width::Narrow, false, &mut map);
+                }
+                cur.mark_run(run.at(at));
             } else {
                 for &c in text.iter().skip(i).take(span) {
                     cur.push_from(&src, c, c.width(), false, &mut map);

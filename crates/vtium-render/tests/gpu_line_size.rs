@@ -72,8 +72,9 @@ impl Face for Shades {
 /// [`Shades`], whose glyphs the face also holds rendered at each double
 /// size, as the font helper renders an outline font's: a pattern of its
 /// own over the doubled cell, which no doubling of the normal glyph's
-/// pixels gives. As the console's face does, it holds none for a cluster
-/// or for a superscript or subscript.
+/// pixels gives. As the console's face does, it holds a cluster's glyph
+/// too, keyed on every character of the cluster, and none for a
+/// superscript or subscript.
 struct Rendered;
 
 impl Face for Rendered {
@@ -90,15 +91,13 @@ impl Face for Rendered {
         Shades.draw(cluster, style)
     }
     fn doubled(&self, cluster: &[char], variant: Variant, doubled: Doubled) -> Option<Glyph> {
-        let &[c] = cluster else {
-            return None;
-        };
+        let &c = cluster.first()?;
         if variant.script != Script::Baseline || !self.has_glyph(c) {
             return None;
         }
         let width = Shades.draw(cluster, variant.style)?.cells();
         let (w, h) = (2 * CW * width.cells(), CH * doubled.rows());
-        let k = u32::from(c);
+        let k = cluster.iter().map(|&c| u32::from(c)).sum::<u32>();
         let px = move |x: u32, y: u32| ((x * 13 + y * 7 + k * 3) % 251) as u8;
         let own = (0..h).flat_map(|y| (0..w).map(move |x| px(x, y))).collect();
         Some(Glyph::from_pixels(w, h, FontFormat::Mask, own)?.with_cells(width))

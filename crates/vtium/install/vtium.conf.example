@@ -44,11 +44,20 @@
 #
 ## font-engine: Which kind of font to use. When unset, vtium tries each kind
 ## the build supports, in the order listed.
+#
+## font-ligatures: Draw a programming font's ligatures, such as `->` and `!=`,
+## across the character cells of their characters.
+##
+## Each character keeps its own cell. A ligature splits into its separate
+## characters while the cursor is on one of them, while a selection covers
+## only part of it, or when its characters differ in color or style. Bitmap
+## fonts and the built-in fonts show no ligatures.
 
 #font-name=
 #font-frits=/etc/vtium/fonts
 #font-paths=
 #font-engine=
+#font-ligatures=off
 
 # -- Font size and spacing ---------------------------------------------------
 
@@ -126,8 +135,9 @@
 
 # -- Blinking ----------------------------------------------------------------
 
-## blink: Blink blinking text (SGR 5) and the cursor, every 500 ms. When off,
-## neither blinks.
+## blink: Blink blinking text (SGR 5) and the cursor, every 500 ms. A program
+## can set another pace for the cursor with the Linux console's
+## `CSI 16 ; n ]`. When off, neither blinks.
 #
 ## blink-text: How blinking text (SGR 5 or 6) looks while a blink is off.
 ##
@@ -351,20 +361,18 @@
 # -- Mouse pointer -----------------------------------------------------------
 
 ## mouse: Use mice, touchpads and touchscreens.
-#
 ## natural-scrolling: Reverse the mouse wheel.
-##
-## The wheel then scrolls the other way, both in vtium's scrollback and for
-## programs.
 #
 ## soft-cursor: Draw the mouse pointer in software on every display, never
 ## with the display's hardware cursor.
 #
 ## pointer-char: Show the mouse pointer as this character, drawn with the
 ## console's font.
-##
-## When unset, or when the font cannot display the character, the pointer is
-## an arrow.
+#
+## pointer-theme: The SVG file or cursor theme folder whose pictures the
+## pointer takes.
+#
+## pointer-size: The size of a cursor theme's pointer.
 #
 ## pointer-hide-timeout: Hide the mouse pointer after this long without mouse
 ## activity, until it moves again. 0 never hides it.
@@ -377,6 +385,8 @@
 #no-natural-scrolling
 #no-soft-cursor
 #pointer-char=
+#pointer-theme=
+#pointer-size=
 #pointer-hide-timeout=20
 #no-pointer-hide-while-typing
 
@@ -424,6 +434,15 @@
 #key-page-down=<Shift>Next
 #key-prompt-up=<Ctrl><Shift>Up
 #key-prompt-down=<Ctrl><Shift>Down
+
+# -- Links -------------------------------------------------------------------
+
+## Label each link on the screen with letters, and copy the address of the
+## link whose label you type.
+##
+## When empty, no key labels the links.
+
+#key-link-hints=<Ctrl><Shift>O
 
 # -- Zoom, rotation and reset ------------------------------------------------
 
@@ -531,8 +550,8 @@
 
 #sb-size=1000
 #sb-size-cap=
-#sb-memory=5242880
-# (in a build with images: sb-memory=4653056)
+#sb-memory=5373952
+# (in a build with images: sb-memory=4915200)
 
 # -- Bell --------------------------------------------------------------------
 
@@ -928,6 +947,20 @@
 ## A build without image support accepts this key and starts no helper.
 
 #image-helper=/usr/bin/vtium-image
+
+# -- Login picture -----------------------------------------------------------
+
+## login-image: A PNG or JPEG picture shown at each login prompt.
+## login-image-fit: `contain`, `cover`, `stretch`, `none` or `banner`.
+## login-image-rows: A banner's height in text rows.
+## login-image-position: Where the picture sits: `top-left` to `bottom-right`.
+## login-image-scale: A background's size, in percent of its fit's size.
+
+#login-image=
+#login-image-fit=contain
+#login-image-rows=
+#login-image-position=
+#login-image-scale=100
 
 # == Running vtium ===========================================================
 #

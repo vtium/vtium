@@ -6,6 +6,7 @@ import re
 import subprocess
 
 import t3_bench
+import t3_builtin
 import t3_devices
 import t3_handover
 import t3_heads
@@ -269,6 +270,7 @@ CHECKS = {
     **t3_seat.CHECKS,
     **t3_handover.CHECKS,
     **t3_seat.CAPTIONS,
+    **t3_builtin.CAPTIONS,
 }
 # The checks without a golden: each passes when its capture was taken, or,
 # on a guest with no display to capture, when the scenario reports it
@@ -337,10 +339,15 @@ def header(case, script=None):
     """The leading comment lines of a screen's script, or of `script` in the
     screens' directory, by field: "" for the caption, then the "# look-for:",
     "# wrong-looks-like:", "# screen-text:" and "# kit:" lines (the local VT
-    demo's review kit), and the "# alt:" lines, a showcase scene's alt text
-    (t3_showcase)."""
+    demo's review kit), and a showcase scene's "# alt:" lines, its alt text,
+    and its "# category:" and "# hero:" lines, which sort it on the
+    showcase's pages (t3_showcase). Each keyed line goes to its field and
+    stays out of the caption.
+
+    References:
+    - ADR-1502 D6, "The header lines": the category and hero lines."""
     fields = {"": [], "look-for": [], "wrong-looks-like": [], "screen-text": [], "kit": [],
-              "alt": []}
+              "alt": [], "category": [], "hero": []}
     with open(os.path.join(GUEST, "screens", script or case + ".sh")) as f:
         for line in f:
             if line.startswith("#!"):  # the script's interpreter
@@ -353,6 +360,25 @@ def header(case, script=None):
             else:
                 fields[""].append(line[1:].strip())
     return fields
+
+
+# The login picture's capture, t3_scenario's "login_shot": the login
+# prompt as it first settles, with no script of its own.
+#
+# References:
+# - ADR-1100 D17: the login picture this capture shows.
+LOGIN_SHOTS = {
+    "login-image": (
+        "The login prompt of images-login-640x480, whose vtium.conf names the "
+        "test disc picture as the login picture under cover. Correct: the disc "
+        "picture scaled, keeping its shape, until it covers the 640x480 display "
+        "and centered, cut at the top and bottom, the corners outside its "
+        "disc transparent, so the default background shows there; the login "
+        "prompt's text over it, and the picture behind every cell of the "
+        "default background.",
+        "No picture behind the prompt, a picture stretched out of shape, or "
+        "a picture over the text."),
+}
 
 
 def describe(case):
@@ -373,6 +399,8 @@ def describe(case):
         return CHECKS[case], None
     if case in t3_heads.FIRST:
         return t3_heads.FIRST[case], None
+    if case in LOGIN_SHOTS:
+        return LOGIN_SHOTS[case]
     fields = header(case)
     caption = " ".join(fields[""])
     if fields["look-for"]:

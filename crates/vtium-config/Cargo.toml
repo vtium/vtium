@@ -69,6 +69,19 @@ harfrust = { version = "=0.12.0", default-features = false, features = ["std"] }
 # 2026-11-04): the Linux landlock maintainers' own binding, safe, the
 # version the image helper already builds.
 landlock = "=0.4.7"
+# The SVG pointer file's drawing (ADR-1309 D4), run only in the font
+# helper's sandbox: resvg draws a symbol of the file through tiny-skia,
+# with its default features off, so it builds no text, no fonts and no
+# raster images. resvg and usvg are Apache-2.0 or MIT; tiny-skia is
+# BSD-3-Clause and arrayref BSD-2-Clause, which the maintainer allowed.
+resvg = { version = "=0.50.0", default-features = false }
+# The XML reader usvg already builds, at its version, which finds each
+# symbol, its viewBox and its data-hotspot before resvg draws it.
+roxmltree = "=0.21.1"
+# The pointer's bounds, the cursor theme's and the SVG file's
+# (`POINTER_SIDE_MAX`, `XCURSOR_FILE_MAX` and the rest), and the ten
+# shapes' names, from the crate the console draws the pointer with.
+vtium-render.workspace = true
 
 # The user database's lookup of the name doas hands apply in DOAS_USER
 # (getpwnam), safe; the version calloop already builds, with its `user`

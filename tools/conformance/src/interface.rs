@@ -715,6 +715,10 @@ pub fn controls(spec: &Spec) -> Tally {
             format!("test grid-request 0 80\n{GOOD}"),
         ),
         (
+            "a cursor blink interval of 0 ms",
+            format!("test cursor-blink ms=0\n{GOOD}"),
+        ),
+        (
             "a block cut short",
             format!(
                 "checkpoint 0\n{}checkpoint 1\n{GOOD}",
@@ -804,6 +808,8 @@ pub fn controls(spec: &Spec) -> Tally {
         "test copy 61620a\ntest state margins 0-1 0-3\ntest state tabs none\ntest state modes ansi 12 dec 7,25\ntest state scrollback lines 0 view 0 max 0\ntest state pen fg=1 bold\ntest state colors fg=#e5e5e5 bg=#000000 cursor=default\ntest font-request ter-v16n\ntest font-request none\ntest grid-request 25 80\ntest grid-request keep display\ntest grid-request none\n{}",
         GOOD.replace("flags none\n", "flags none\nreply 41\nbell 2\n")
     );
+    // interface 1.13's cursor-blink lines join the control
+    let good_host = format!("test cursor-blink ms=250\ntest cursor-blink default\n{good_host}");
     let mut tally = Tally {
         count: bad.len().saturating_add(anim.len()).saturating_add(4),
         ..Tally::default()

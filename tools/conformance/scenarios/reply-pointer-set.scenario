@@ -1,0 +1,19 @@
+# OSC 22 sets the pointer's shape. The prefix = and no prefix both set
+# it, and __current__ answers the shape that shows. An empty name resets
+# the pointer to the default shape. A list falls back from name to name,
+# as a CSS cursor list does, so the first name vtium knows wins.
+# spec: kitty's pointer-shapes specification: the escape code's form, "Reset the pointer to default", and the __current__ query; xterm's ctlseqs, OSC Ps = 2 2; ADR-1000 window.pointer-shape
+# covers: window.pointer-shape
+size 10 2
+send "\e]22;pointer\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;pointer\e\\"
+send "\e]22;=text\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;text\e\\"
+send "\e]22;=zoom-in,crosshair\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;crosshair\e\\"
+send "\e]22;\e\\\e]22;?__current__\e\\"
+check
+reply "\e]22;default\e\\"

@@ -9,11 +9,20 @@
 //! (`Damage`), so the scrollback carries none.
 
 /// The bits of `Cell::content`: bits 0-20 a codepoint or a cluster offset,
-/// bit 21 set for a cluster, bits 22-23 the width, bits 24-31 zero.
+/// bit 21 set for a cluster, bits 22-23 the width, bit 24 set for a cell of
+/// a sized run, bits 25-31 zero.
 const VALUE_MASK: u32 = (1 << 21) - 1;
 const CLUSTER: u32 = 1 << 21;
 const WIDTH_SHIFT: u32 = 22;
 const WIDTH_MASK: u32 = 0b11 << WIDTH_SHIFT;
+/// The cell is one of the cells of a sized run, the block of cells that
+/// one OSC 66 sequence writes. The cell's line holds the run's place and
+/// size in its run table ([`crate::Line::runs`]).
+///
+/// References:
+/// - ADR-1308 D3: one of the content word's spare bits marks each cell of
+///   a sized run.
+const RUN: u32 = 1 << 24;
 
 /// How many columns a cell's content takes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -138,6 +147,30 @@ impl Cell {
         self.link
     }
 
+    /// Whether the cell is one of the cells of a sized run, the block of
+    /// cells that one OSC 66 sequence writes. Its line's run table says
+    /// which run ([`crate::Line::run_at`]).
+    pub fn in_run(self) -> bool {
+        self.content & RUN != 0
+    }
+
+    /// The cell, marked as a cell of a sized run when `on` is true, and
+    /// unmarked otherwise.
+    pub(crate) fn with_run(self, on: bool) -> Self {
+        let content = if on {
+            self.content | RUN
+        } else {
+            self.content & !RUN
+        };
+        Self { content, ..self }
+    }
+
+    /// The cell with the style at `style` of its line's style table, and
+    /// everything else as it is.
+    pub(crate) fn with_style(self, style: StyleIndex) -> Self {
+        Self { style, ..self }
+    }
+
     /// Whether the cell is [`Cell::BLANK`]. Trailing blank cells are what
     /// a line drops when it is trimmed.
     pub fn is_blank(self) -> bool {
@@ -177,6 +210,25 @@ mod tests {
                 assert_eq!(cell.link(), LinkIndex(7));
             }
         }
+    }
+
+    #[test]
+    fn the_run_mark_keeps_the_content_the_width_and_the_style() {
+        let cell = Cell::new(
+            Content::Char('\u{10FFFF}'),
+            Width::Pad,
+            StyleIndex(9),
+            LinkIndex(3),
+        );
+        let marked = cell.with_run(true);
+        assert!(marked.in_run());
+        assert!(!cell.in_run());
+        assert_eq!(marked.content(), Content::Char('\u{10FFFF}'));
+        assert_eq!(marked.width(), Width::Pad);
+        assert_eq!(marked.style(), StyleIndex(9));
+        assert_eq!(marked.link(), LinkIndex(3));
+        assert_eq!(marked.with_run(false), cell);
+        assert!(!Cell::BLANK.with_run(true).is_blank());
     }
 
     #[test]

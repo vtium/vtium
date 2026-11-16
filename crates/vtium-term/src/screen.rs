@@ -30,6 +30,7 @@
 //! margin.
 
 mod edit;
+mod hints;
 mod images;
 mod links;
 mod marks;
@@ -135,6 +136,14 @@ pub struct Screen {
     /// last column: the cursor is on the margin's column, and the next
     /// printed character wraps first. Every cursor movement ends it.
     margin_wrap: bool,
+    /// Whether OSC 66 has written a sized run on this screen since it was
+    /// made. It never goes back to false, so while it is false no line of
+    /// either screen or the scrollback holds a run, and the run checks of
+    /// printing and editing stop at it without reading a line.
+    ///
+    /// References:
+    /// - ADR-1009 D9: a line with no run pays no time for runs.
+    sized_runs: bool,
     tabs: Vec<bool>,
     scrollback: Scrollback,
     /// While `sb-memory` follows the grid, the most it may be; `None` once
@@ -192,6 +201,7 @@ impl Screen {
             left: 0,
             right: cols.saturating_sub(1),
             margin_wrap: false,
+            sized_runs: false,
             tabs: default_tabs(cols),
             scrollback: Scrollback::new(scrollback_cap),
             sb_memory_cap: Some(SB_MEMORY_MAX),
@@ -587,7 +597,7 @@ impl Screen {
     /// The view, as the display that last drew at `since` reads it: the
     /// screen, or the scrollback and the screen while scrolled back, with
     /// the cursor in the palette's cursor color, the selection, the
-    /// hovered link and the overlay showing its URI.
+    /// hovered link, the overlay row and the labels of link hints.
     pub fn frame<'a>(&'a self, palette: &'a Palette, since: Age) -> Frame<'a> {
         let lines = self.view();
         let offset = self.scrollback.offset();
@@ -626,12 +636,8 @@ impl Screen {
             self.flags.reverse,
         )
         .with_selection(selected)
-        .with_hover(
-            self.hover.link,
-            self.hover
-                .overlay
-                .zip(self.hover.link.and_then(|l| self.link_uri(l))),
-        );
+        .with_hover(self.hover.link, self.hover.overlay.zip(self.overlay_text()))
+        .with_link_hints(&self.hover.hints, self.labelled_links());
         #[cfg(feature = "images")]
         let frame = frame.with_placements(placements);
         #[cfg(feature = "bidi")]
@@ -786,7 +792,10 @@ impl Screen {
     /// keeping the cursor's line on the screen; with nothing in the
     /// scrollback, or on the alternate screen, it scrolls only as far as
     /// the cursor needs. A taller main screen pulls lines back from the
-    /// scrollback. A host resizes through
+    /// scrollback. Last, each sized run that the screen's new last row
+    /// cuts is erased, on both screens: a shorter screen, or a rewrap that
+    /// moved lines down, can leave part of a run below the screen. A host
+    /// resizes through
     /// [`Terminal::resize`](crate::Terminal::resize), which carries the
     /// saved cursor and reports the resize to a program that set mode
     /// 2048.
@@ -835,6 +844,13 @@ impl Screen {
             if diff > 0 {
                 self.rows = rows;
                 self.bottom = rows.saturating_sub(1);
+                // The rows that come back from the scrollback push the
+                // screen's lines down, and the lines that would come into
+                // view at the bottom go instead: a run with a row on those
+                // lines goes whole first, its rows below them included.
+                for y in rows.saturating_sub(diff)..rows {
+                    self.erase_runs_in(y, 0..cols);
+                }
                 self.rotate_down(diff);
                 self.pull_from_scrollback(diff);
                 self.move_cursor(self.cursor_x, self.cursor_y.saturating_add(diff));
@@ -842,6 +858,7 @@ impl Screen {
         }
         self.rows = rows;
         self.bottom = rows.saturating_sub(1);
+        self.erase_runs_past(rows);
         if self.cursor_y >= rows {
             self.move_cursor(self.cursor_x, rows.saturating_sub(1));
         }

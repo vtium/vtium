@@ -86,6 +86,10 @@ The second is the notice that every screen stopped. Under the closed policy, a l
 
 Under the closed policy with `silent`, the boot display stays dark for every other notice. The display guard is vtium's safeguard that lights the boot display when the rules light none. Under `silent` it lights the boot display only for these two screens. [Heads](heads.md#two-policies-open-and-closed) explains the two policies.
 
+## The font of vtium's messages
+
+vtium draws the OSD, the dots, its notices and the panic screen in a small font built into vtium, whatever font your session uses. So they show even before any font file can be read, or when none is installed. The font holds ASCII, the Latin-1 letters of Western European languages, box drawing, and the few symbols vtium's own messages use. A notice can quote text from outside that list, such as a Chinese file name or a device's name. vtium then shows each character outside the list as a hollow box, as wide as the character.
+
 ## Colors
 
 Six settings set the colors. `notice-foreground`, `notice-background` and `notice-border` set a notice's colors. `osd-foreground`, `osd-background` and `osd-border` set the OSD's colors. By default a notice is dark text on pale red, and the OSD is light text on dark grey. The example configuration carries three other color schemes, for a light terminal, a dark one and color blindness. See [config.md](../config.md#other-color-schemes-for-the-notices-and-the-on-screen-display) for them.

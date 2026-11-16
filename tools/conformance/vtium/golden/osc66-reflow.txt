@@ -1,0 +1,20 @@
+checkpoint 63
+size 10x6
+cursor 0,4
+flags AUTO_WRAP
+row 0 |abcdXYZ  efg|
+row 1 |T uvwxyz12|
+row 2 |T|
+row 3 |W|
+row 4 ||
+row 5 ||
+checkpoint 90
+size 6x6
+cursor 0,5
+flags AUTO_WRAP
+row 0 |abcd|
+row 1 |XYZ  efg|
+row 2 |T uvwx|
+row 3 |T|
+row 4 ||
+row 5 ||

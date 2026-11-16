@@ -6,8 +6,17 @@
 //! rectangle stays inside the margins (xterm's `limitedParseRow` and
 //! `limitedParseCol`); an omitted corner is the screen's edge, or the
 //! margin, and a corner past it is the edge. Each
-//! operation is linear in the rectangle's cells, and DECCRA holds one
-//! source line at a time.
+//! operation is linear in the rectangle's cells. DECCRA holds one source
+//! line at a time, or every source line when a sized run lies in the
+//! source or the target, since erasing a run the target touches can
+//! change source rows before DECCRA reads them.
+//!
+//! A sized run, the block of cells one OSC 66 sequence writes, is one unit
+//! for the rectangle edits: DECCRA, DECFRA, DECERA and DECSERA erase each
+//! run the rectangle touches, on every row of it. DECCRA copies a run only
+//! when the source holds the whole run and the target holds the whole
+//! copy, and the copy is a run of its own. DECCARA and DECRARA change the
+//! style of a run's cells and keep the run.
 //!
 //! A wide character the rectangle's edge cuts goes whole, as an edit's
 //! does (`edit.rs`); DECCARA and DECRARA change it whole. An operation that
@@ -16,9 +25,11 @@
 //! newest line's (`edit.rs`); DECCARA and DECRARA change no text and keep
 //! both.
 
+use super::print::glyph_of;
 use super::{Erase, Screen};
+use crate::bounds::CLUSTER_BYTES_PER_CELL;
 use crate::cell::{Content, Width};
-use crate::line::Glyph;
+use crate::line::{Glyph, Line, SizedRun, run_fit, whole_clusters};
 use crate::style::Style;
 
 /// A rectangle of the screen: rows `top..=bottom` and columns
@@ -42,13 +53,6 @@ pub(crate) enum Extent {
     Stream,
     /// Every cell of the rectangle (DECSACE 2).
     Rectangle,
-}
-
-/// What a cell shows, owned, so a cell can be rewritten from its own line.
-enum Shown {
-    Empty,
-    Char(char),
-    Cluster,
 }
 
 impl Screen {
@@ -123,6 +127,9 @@ impl Screen {
         self.segment = None;
         let (pen, link) = (self.pen, self.link);
         for y in rect.top..=rect.bottom {
+            self.erase_runs_in(y, rect.left..rect.right.saturating_add(1));
+        }
+        for y in rect.top..=rect.bottom {
             self.images_cut(y, rect.left, rect.right);
             self.split_wide(y, rect.left);
             self.split_wide(y, rect.right.saturating_add(1));
@@ -169,10 +176,20 @@ impl Screen {
     /// DECCRA: copies `source` with each cell's style and hyperlink to the
     /// rectangle of its size whose top left is row `top`, column `left`,
     /// counted as a rectangle's corners are and clipped to the screen, or
-    /// the region inside all four margins in origin mode. The copy reads the source as it was
-    /// before any of it is written. Half a wide character the source's
-    /// edge cuts, or the target's clips, arrives as an empty cell in its
-    /// style.
+    /// the region inside all four margins in origin mode. The copy reads the
+    /// source as it was before any of it is written. Half a wide character
+    /// the source's edge cuts, or the target's clips, arrives as an empty
+    /// cell in its style.
+    ///
+    /// Each sized run the target touches is erased first, on every row of
+    /// it. A run that the source holds whole, and whose copy the target
+    /// holds whole, arrives as a run of its own, with the text that the
+    /// target's lines have room for. The cells of any other run arrive as
+    /// empty cells in their style, as half a wide character does.
+    ///
+    /// References:
+    /// - ADR-1308 D5: the rectangle edits erase each run they touch, and
+    ///   DECCRA copies only a whole run.
     pub(crate) fn copy_rect(&mut self, source: Rect, top: usize, left: usize) {
         let (first, last) = self.rect_rows();
         let (first_col, last_col) = self.origin_cols();
@@ -188,13 +205,35 @@ impl Screen {
         };
         self.segment = None;
         let rows = target.bottom.saturating_sub(target.top);
+        let cols = target.left..target.right.saturating_add(1);
+        // With a sized run in the source or the target, the source is read
+        // whole before the runs the target touches are erased, since an
+        // erase reaches every row of a run.
+        let runs = self.rows_have_runs(source.top, source.top.saturating_add(rows))
+            || self.rows_have_runs(target.top, target.bottom);
+        let mut held: Vec<Option<Line>> = Vec::new();
+        let mut copied = Vec::new();
+        if runs {
+            held = (0..=rows)
+                .map(|k| self.line(source.top.saturating_add(k)).cloned())
+                .collect();
+            copied = self.copied_runs(&held, source, target);
+            for y in target.top..=target.bottom {
+                self.erase_runs_in(y, cols.clone());
+            }
+        }
         // Rows go in the order that reads each source row before the copy
         // writes over it.
         let down = target.top > source.top;
         for i in 0..=rows {
             let k = if down { rows.saturating_sub(i) } else { i };
             let y = target.top.saturating_add(k);
-            let Some(from) = self.line(source.top.saturating_add(k)).cloned() else {
+            let from = if runs {
+                held.get_mut(k).and_then(Option::take)
+            } else {
+                self.line(source.top.saturating_add(k)).cloned()
+            };
+            let Some(from) = from else {
                 continue;
             };
             self.images_cut(y, target.left, target.right);
@@ -205,16 +244,17 @@ impl Screen {
             };
             // The target's clusters go before any is written, so a cluster
             // written early does not count against one replaced later.
-            line.erase(target.left..target.right.saturating_add(1), &Style::DEFAULT);
-            for (x, sx) in (target.left..=target.right).zip(source.left..) {
+            line.erase(cols.clone(), &Style::DEFAULT);
+            for (x, sx) in cols.clone().zip(source.left..) {
                 let cell = from.cell(sx);
                 // A pad is copied as the empty cell it draws as, since it
-                // belongs only at the end of a wrapped row.
+                // belongs only at the end of a wrapped row. A cell of a run
+                // arrives empty, and a run copied whole gets its text below.
                 let cut = match cell.width() {
                     Width::Wide => x == target.right,
                     Width::WideTail => x == target.left,
                     Width::Pad => true,
-                    Width::Narrow => false,
+                    Width::Narrow => cell.in_run(),
                 };
                 let style = from.style(cell);
                 let link = from.link(cell);
@@ -224,9 +264,104 @@ impl Screen {
                     line.write(x, from.glyph(cell), cell.width(), &style, link);
                 }
             }
-            self.mark_cells(y, target.left..target.right.saturating_add(1));
+            self.mark_cells(y, cols.clone());
+        }
+        for (y, shares, text) in copied {
+            self.put_copied_run(y, &shares, &text);
         }
         self.end_rect_wraps(target, true);
+    }
+
+    /// The sized runs DECCRA copies whole from `held`, the source's rows as
+    /// they were, into `target`: each run whose rows the source holds all
+    /// of, and whose copy lands inside the target, on lines that can hold
+    /// it. Each comes as the target row of its top, its shares moved to
+    /// their target columns, and its text.
+    fn copied_runs(
+        &self,
+        held: &[Option<Line>],
+        source: Rect,
+        target: Rect,
+    ) -> Vec<(usize, Vec<SizedRun>, String)> {
+        let mut copied = Vec::new();
+        for (k, line) in held.iter().enumerate() {
+            let Some(line) = line else {
+                continue;
+            };
+            for &run in line.runs() {
+                let span = run.span();
+                if run.row() != 0
+                    || span.start < source.left
+                    || span.end > source.right.saturating_add(1)
+                {
+                    continue;
+                }
+                let x = target
+                    .left
+                    .saturating_add(span.start.saturating_sub(source.left));
+                let y = target.top.saturating_add(k);
+                let end = x.saturating_add(run.cols());
+                let bottom = y.saturating_add(run.rows()).saturating_sub(1);
+                if end > target.right.saturating_add(1) || bottom > target.bottom {
+                    continue;
+                }
+                // Every row of the run is in the source, and every target
+                // row has the columns, and the size, to hold it.
+                let whole = (0..run.rows()).all(|r| {
+                    held.get(k.saturating_add(r))
+                        .and_then(Option::as_ref)
+                        .and_then(|l| l.run_at(run.col()))
+                        .is_some_and(|s| s.span() == span && s.size() == run.size() && s.row() == r)
+                });
+                let fits = (y..=bottom).all(|row| {
+                    end <= self.line_cols(row)
+                        && (run.rows() == 1
+                            || self
+                                .line(row)
+                                .is_some_and(|l| !l.flags().size().is_double()))
+                });
+                if !whole || !fits {
+                    continue;
+                }
+                let shares = (0..run.rows())
+                    .map(|r| SizedRun::new(x, run.cols(), r, run.size()))
+                    .collect();
+                let text = match line.glyph(line.cell(run.col())) {
+                    Glyph::Empty => String::new(),
+                    Glyph::Char(c) => c.to_string(),
+                    Glyph::Cluster(s) => s.to_owned(),
+                };
+                copied.push((y, shares, text));
+            }
+        }
+        copied
+    }
+
+    /// Makes the cells that DECCRA copied, from row `y` down, the run whose
+    /// shares are `shares`: the first cell of each row takes `text`, as
+    /// much of it as every row's line has room for, and the cells are
+    /// marked as the run's.
+    fn put_copied_run(&mut self, y: usize, shares: &[SizedRun], text: &str) {
+        let Some(span) = shares.first().map(|s| s.span()) else {
+            return;
+        };
+        let rows = y..y.saturating_add(shares.len());
+        let room = rows
+            .clone()
+            .filter_map(|row| self.line(row).map(|l| l.run_room(span.clone())))
+            .min()
+            .unwrap_or(0);
+        let own = span.len().saturating_mul(CLUSTER_BYTES_PER_CELL);
+        let kept = run_fit(whole_clusters(text, own), room);
+        for (row, &share) in rows.zip(shares) {
+            if let Some(line) = self.line_mut(row) {
+                let cell = line.cell(span.start);
+                let (style, link) = (line.style(cell), line.link(cell));
+                line.write(span.start, glyph_of(kept), Width::Narrow, &style, link);
+                line.mark_run(share);
+            }
+            self.mark_reflow(row);
+        }
     }
 
     /// DECCARA and DECRARA: gives each cell of the rectangle, in DECSACE's
@@ -238,7 +373,6 @@ impl Screen {
         let stream = self.extent == Extent::Stream;
         // Neighbouring cells mostly share a style.
         let mut last: Option<(Style, Style)> = None;
-        let mut cluster = String::new();
         for y in rect.top..=rect.bottom {
             let (mut from, mut to) = if stream {
                 (
@@ -278,22 +412,7 @@ impl Screen {
                 if new == old {
                     continue;
                 }
-                let shown = match line.glyph(cell) {
-                    Glyph::Empty => Shown::Empty,
-                    Glyph::Char(c) => Shown::Char(c),
-                    Glyph::Cluster(s) => {
-                        cluster.clear();
-                        cluster.push_str(s);
-                        Shown::Cluster
-                    }
-                };
-                let glyph = match shown {
-                    Shown::Empty => Glyph::Empty,
-                    Shown::Char(c) => Glyph::Char(c),
-                    Shown::Cluster => Glyph::Cluster(&cluster),
-                };
-                let link = line.link(cell);
-                line.write(x, glyph, cell.width(), &new, link);
+                line.set_style(x, &new);
                 changed = Some(changed.map_or((x, x), |(a, _)| (a, x)));
             }
             if let Some((a, b)) = changed {

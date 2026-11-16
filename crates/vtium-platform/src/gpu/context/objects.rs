@@ -237,7 +237,7 @@ impl Context {
     /// storage of a renderbuffer, and gives a framebuffer that draws into
     /// it. A buffer the driver cannot import, or cannot draw into, is an
     /// error of kind [`ErrorKind::Import`]. The errors GL raises binding the
-    /// image are read at once, as [`bound`] sorts them, so the next check
+    /// image are read at once, as `bound` sorts them, so the next check
     /// does not report them against the frame that follows; the flags an
     /// earlier call left are set aside for that check first, so they fail
     /// no import.

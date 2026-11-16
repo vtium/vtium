@@ -8,7 +8,7 @@
 //!
 //! - **A direct transmission** (`a=t`, `a=T`, `a=f`, or no `a`, sent
 //!   directly) or a query (`a=q`) decodes its payload into a transfer
-//!   ([`upload`]) as the pieces arrive. Raw RGB and RGBA pixels are
+//!   (`upload`) as the pieces arrive. Raw RGB and RGBA pixels are
 //!   converted at once, palette indices are kept as they come, and a PNG or
 //!   zlib payload is kept for the image helper under the budget. When the
 //!   string ends, the handler stores the picture or the frame, or asks the
@@ -22,7 +22,7 @@
 //!   decodes its payload into the object's name, which the helper opens.
 //! - **A put, a delete, an animation control or a composition** acts
 //!   when the string ends, and carries no data.
-//! - **A feature query**, a query with `e` ([`feature`]), is answered when
+//! - **A feature query**, a query with `e` (`feature`), is answered when
 //!   the string ends. `e` on any other action is refused.
 //!
 //! # Uploads in chunks
@@ -576,6 +576,7 @@ impl Kitty {
             pixels: None,
             largest: (max_w, max_h),
             largest_bytes: ctx.store().limit().saturating_sub(IMAGE_OVERHEAD),
+            fit: None,
         };
         if discard.is_none() {
             if named {

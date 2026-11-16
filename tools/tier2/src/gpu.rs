@@ -74,10 +74,14 @@ fn frame<G: Gl, F: Face>(
     pipeline: &mut Pipeline,
     r: &mut Renderer<F>,
     buffers: &mut Buffers,
-    (term, since, phase): (&mut Terminal, &mut Age, draw::Phase),
+    (term, since, phase, arrow): (&mut Terminal, &mut Age, draw::Phase, Option<(u32, u32)>),
     overlays: &[Placed],
 ) -> Result<(), String> {
-    let state = phase.state(term.palette().bg());
+    r.set_pointer_shape(term.pointer_shape());
+    let state = vtium_render::DrawState {
+        pointer: arrow,
+        ..phase.state(term.palette().bg())
+    };
     let age = buffers.age();
     let drew = {
         let frame = term.screen().frame(term.palette(), *since);
@@ -181,7 +185,7 @@ impl<G: Gl> Gpu<'_, G> {
         let font = make_font();
         let made = draw::picture_cell(screen, font.cell());
         let (mut term, w, h) = draw::prepare(screen, &font)?;
-        let mut r = Renderer::new(font, w, h, draw::screen_config(screen, config));
+        let mut r = draw::renderer(screen, font, (w, h), draw::screen_config(screen, config))?;
         let mut since = Age::NEVER;
         let mut step = |gl: &mut G, r: &mut Renderer<F>, term: &mut Terminal, o: &[Placed]| {
             frame(
@@ -189,7 +193,7 @@ impl<G: Gl> Gpu<'_, G> {
                 pipeline,
                 r,
                 buffers,
-                (term, &mut since, screen.phase),
+                (term, &mut since, screen.phase, screen.arrow),
                 o,
             )
         };

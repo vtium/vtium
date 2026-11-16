@@ -17,11 +17,12 @@ use vtium_term::WidthMethod;
 use vtium::config::keys::{self, Scheme};
 
 use crate::draw::{
-    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, Overlay, Screen, Spacing, Take,
-    TestFont, Words,
+    Alone, DecoSpec, Decorations, Feed, FontKind, InkFonts, LinkHints, Overlay, Screen, Spacing,
+    Take, TestFont, Words,
 };
 use crate::notices;
 use crate::pictures;
+use crate::pointers::PointerFile;
 
 /// A screen, whose golden is `tools/tier2/goldens/<name>.ppm`.
 #[derive(Clone, Copy, Debug)]
@@ -244,6 +245,42 @@ bytes on a row of 40 columns. In unifont. Correct: the overlay on the top row, s
 pointer is on the bottom one: the address's first 39 bytes, `https://example.com/a/very/long/path/to`, \
 then `…` in the last column, all in the default colors inverted, over the bold text the \
 program wrote there; the link on the bottom row under a dashed line.";
+
+/// Link hints on a listing with three links, one of them on two rows
+/// (ADR-1002, section 7).
+const LINK_HINTS: &[u8] = concat!(
+    "drwxr-xr-x 2 \x1b]8;;file://pixie/docs\x1b\\docs\x1b]8;;\x1b\\\r\n",
+    "-rw-r--r-- 1 \x1b[1m\x1b]8;;file://pixie/README.md\x1b\\README.md\x1b]8;;\x1b\\\x1b[0m\r\n",
+    "-rw-r--r-- 1 \x1b[32m\x1b]8;;file://pixie/Cargo.toml\x1b\\Cargo.toml\x1b]8;;\x1b\\\x1b[0m\r\n",
+    "plain text, and \x1b]8;;file://pixie/docs\x1b\\docs\x1b]8;;\x1b\\ again",
+)
+.as_bytes();
+
+const LINK_HINTS_DESC: &str = "Link hints (ADR-1002, section 7) on a listing whose names are \
+links (OSC 8): docs, README.md in bold, Cargo.toml in green, and docs again on the fourth row. \
+In unifont. Correct: the letter a on the d of the first docs, s on the R of README.md and d on \
+the C of Cargo.toml, each in the default colors inverted, dark on light; every cell of the \
+three links, the second docs included, under a dashed line in the text's color; no label on \
+the second docs, which is the first link again; the bottom row reads `Type a link's label to \
+copy its address. Press Escape to stop.` from its first column, inverted; the rest as written.";
+
+/// Link hints with 31 links, so each label has two letters, after the
+/// letter s is typed (ADR-1002, section 7).
+const LINK_HINTS_TYPED: &[u8] = concat!(
+    "\x1b]8;;x:00\x1b\\w00\x1b]8;;\x1b\\ \x1b]8;;x:01\x1b\\w01\x1b]8;;\x1b\\ \x1b]8;;x:02\x1b\\w02\x1b]8;;\x1b\\ \x1b]8;;x:03\x1b\\w03\x1b]8;;\x1b\\ \x1b]8;;x:04\x1b\\w04\x1b]8;;\x1b\\ \x1b]8;;x:05\x1b\\w05\x1b]8;;\x1b\\ \x1b]8;;x:06\x1b\\w06\x1b]8;;\x1b\\ \x1b]8;;x:07\x1b\\w07\x1b]8;;\x1b\\ \x1b]8;;x:08\x1b\\w08\x1b]8;;\x1b\\ \x1b]8;;x:09\x1b\\w09\x1b]8;;\x1b\\\r\n",
+    "\x1b]8;;x:10\x1b\\w10\x1b]8;;\x1b\\ \x1b]8;;x:11\x1b\\w11\x1b]8;;\x1b\\ \x1b]8;;x:12\x1b\\w12\x1b]8;;\x1b\\ \x1b]8;;x:13\x1b\\w13\x1b]8;;\x1b\\ \x1b]8;;x:14\x1b\\w14\x1b]8;;\x1b\\ \x1b]8;;x:15\x1b\\w15\x1b]8;;\x1b\\ \x1b]8;;x:16\x1b\\w16\x1b]8;;\x1b\\ \x1b]8;;x:17\x1b\\w17\x1b]8;;\x1b\\ \x1b]8;;x:18\x1b\\w18\x1b]8;;\x1b\\ \x1b]8;;x:19\x1b\\w19\x1b]8;;\x1b\\\r\n",
+    "\x1b]8;;x:20\x1b\\w20\x1b]8;;\x1b\\ \x1b]8;;x:21\x1b\\w21\x1b]8;;\x1b\\ \x1b]8;;x:22\x1b\\w22\x1b]8;;\x1b\\ \x1b]8;;x:23\x1b\\w23\x1b]8;;\x1b\\ \x1b]8;;x:24\x1b\\w24\x1b]8;;\x1b\\ \x1b]8;;x:25\x1b\\w25\x1b]8;;\x1b\\ \x1b]8;;x:26\x1b\\w26\x1b]8;;\x1b\\ \x1b]8;;x:27\x1b\\w27\x1b]8;;\x1b\\ \x1b]8;;x:28\x1b\\w28\x1b]8;;\x1b\\ \x1b]8;;x:29\x1b\\w29\x1b]8;;\x1b\\\r\n",
+    "\x1b[4;64H\x1b]8;;x:30\x1b\\z\x1b]8;;\x1b\\",
+)
+.as_bytes();
+
+const LINK_HINTS_TYPED_DESC: &str = "Link hints (ADR-1002, section 7) on 31 links (OSC 8), \
+w00 to w29 in three rows of ten and z in the last column of the fourth row, after the letter s \
+is typed. In unifont. Correct: only the labels that begin with s draw, each of two letters in \
+the default colors inverted: sa over the w2 of w26, ss over w27, sd over w28, sf over w29, \
+and sg in the last two columns of the fourth row, moved left so that it ends at the row's \
+end; no label on w00 to w25; every link, labelled or not, under a dashed line; the bottom row \
+reads `Type a link's label to copy its address. Press Escape to stop.`, inverted.";
 
 const LINK_HOVER_DESC: &str = "Links (OSC 8) with the pointer over the first, whose pieces on \
 every row share its id: plain, underlined, under a green SGR 58 curl, red on white, reversed, \
@@ -1546,6 +1583,85 @@ const BIDI_SELECTION_DESC: &str = "A selection across a row that mixes direction
 
 const BIDI_UNIFONT_DESC: &str = "Arabic in the built-in font, GNU Unifont, as the console draws it for a display with no font set, 20 by 3 cells at 16 pixels: marhaban bil-alam, a colon and 123; as-salamu alaykum; and lam with alef alone, after beh, and in brackets. Unifont is a bitmap font, which the glyph helper does not shape, so each joined letter draws the glyph Unifont has for the Arabic presentation form of its joined form (ADR-1004 D6). Correct: the words read right to left, each letter in its initial, medial or final form, so each word is joined. Lam with alef draws Unifont's lam-alef ligature, isolated or final, which Unifont draws one cell wide, centred across the ligature's two cells. The brackets round the last lam-alef are mirrored, since they stand in right-to-left text.";
 
+/// The pointer's tip on its screens: the corner where the sixth and
+/// seventh columns meet the first and second rows.
+const POINTER_TIP: (u32, u32) = (48, 16);
+
+/// A screen of 12 by 3 cells in unifont that sets the pointer's shape to
+/// `$shape` with OSC 22, then writes a dark row, a light row in reverse
+/// video and a dark row, and draws the pointer at [`POINTER_TIP`], as a
+/// display without a cursor plane draws it.
+macro_rules! pointer_shape {
+    ($name:literal, $desc:expr, $shape:literal) => {
+        Case {
+            screen: Screen {
+                arrow: Some(POINTER_TIP),
+                ..Screen::new(
+                    $name,
+                    $desc,
+                    concat!(
+                        "\x1b]22;",
+                        $shape,
+                        "\x1b\\abcdefghijkl\r\n\x1b[7mABCDEFGHIJKL\x1b[m\r\n012345678901"
+                    )
+                    .as_bytes(),
+                    12,
+                    3,
+                )
+            },
+        }
+    };
+}
+
+const POINTER_DEFAULT_DESC: &str = "The default shape, OSC 22 default, on a screen of 12 by 3 cells at 8×16 pixels: abcdefghijkl, ABCDEFGHIJKL in reverse video on a light background, and 012345678901. Correct: the arrow, 11×16 pixels, white with a black outline, pointing up and left with its tip at pixel 48,16, over the light second row.";
+
+const POINTER_TEXT_DESC: &str = "The text shape, OSC 22 text. See pointer-default for the screen. Correct: an I-beam 7×16 pixels, a white stem one pixel wide with a bar five pixels wide and two tall across each end, outlined in black, its centre on pixel 48,16, so its top half lies over the dark first row and its bottom half over the light second row.";
+
+const POINTER_HAND_DESC: &str = "The pointer shape, OSC 22 pointer, the hand over a link. See pointer-default for the screen. Correct: a white hand 13×16 pixels with a black outline, its index finger raised with its tip at pixel 48,16, the palm and the three folded fingers below and to the right, and the thumb at the left, over the light row.";
+
+const POINTER_CROSSHAIR_DESC: &str = "The crosshair shape, OSC 22 crosshair. See pointer-default for the screen. Correct: a white cross 16×16 pixels, each arm one pixel wide inside a black outline, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_WAIT_DESC: &str = "The wait shape, OSC 22 wait, an hourglass. See pointer-default for the screen. Correct: a white hourglass 12×16 pixels with a black outline and a bar across its top and its bottom, its waist on pixel 48,16, its top half over the dark first row and its bottom half over the light second row.";
+
+const POINTER_PROGRESS_DESC: &str = "The progress shape, OSC 22 progress. See pointer-default for the screen. Correct: the arrow with a small white hourglass at its lower right, 16×16 pixels together, outlined in black, the arrow's tip at pixel 48,16, over the light second row.";
+
+const POINTER_NOT_ALLOWED_DESC: &str = "The not-allowed shape, OSC 22 not-allowed. See pointer-default for the screen. Correct: a white ring 16×16 pixels with a black outline and a white slash from its upper left to its lower right, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_MOVE_DESC: &str = "The move shape, OSC 22 move. See pointer-default for the screen. Correct: a white cross of four arrows 16×16 pixels, each arrowhead pointing outwards, outlined in black, its centre on pixel 48,16, half over the dark first row and half over the light second row.";
+
+const POINTER_EW_DESC: &str = "The ew-resize shape, OSC 22 ew-resize. See pointer-default for the screen. Correct: a white double arrow pointing left and right, 16 pixels wide and 8 tall, outlined in black, its centre on pixel 48,16, across the boundary of the first two rows.";
+
+const POINTER_NS_DESC: &str = "The ns-resize shape, OSC 22 ns-resize. See pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row.";
+
+const POINTER_CHANGE_DESC: &str = "A change of shape between frames: the program sets wait, two frames are drawn, then it sets pointer and two more frames are drawn into the same two buffers. See pointer-default for the screen. Correct: the same picture as pointer-pointer, the hand with its tip at pixel 48,16, with no part of the hourglass left. Tier 2 also checks that both buffers and a fresh draw end equal.";
+
+/// The `pointer_shape!` screen `$name` with its pointer drawn from
+/// `$file`, the pointer file whose checked pictures the renderer holds, as
+/// the console's renderer holds them once the font helper answers.
+macro_rules! pointer_file_shape {
+    ($name:literal, $desc:expr, $shape:literal, $file:expr) => {
+        Case {
+            screen: Screen {
+                pointer_file: Some($file),
+                ..pointer_shape!($name, $desc, $shape).screen
+            },
+        }
+    };
+}
+
+const POINTER_FILE_DEFAULT_DESC: &str = "The default shape from vtium's own pointer file, crates/vtium/install/pointers.svg, which vtium installs as /usr/share/vtium/pointers.svg. The font helper's SVG code draws each of the file's ten shapes for cells 16 pixels tall, each picture is checked as the console checks the helper's answer, and the renderer draws the default one. See pointer-default for the screen. Correct: the arrow, 11×16 pixels, white with a black outline, pointing up and left, its hotspot on its top left pixel and so its tip on pixel 48,16, over the light second row. It is the picture of pointer-default within a pixel at each edge: the file's outline is thinner in places and its tip starts a pixel further up and left, since the file's outline scales smoothly where the compiled-in outline grows by whole pixels.";
+const POINTER_FILE_TEXT_DESC: &str = "The text shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: an I-beam 8×16 pixels, a white stem with a bar across each end, outlined in black, its centre on pixel 48,16, so its top half lies over the dark first row and its bottom half over the light second row. It is the picture of pointer-text within a pixel at each edge of the outline.";
+const POINTER_FILE_HAND_DESC: &str = "The pointer shape from vtium's pointer file, the hand over a link. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hand 12×16 pixels with a black outline, its index finger raised with its tip at pixel 48,16, the palm and the three folded fingers below and to the right, and the thumb at the left, over the light row. It is the picture of pointer-pointer within a pixel at each edge: the file's hand is one pixel narrower, and its fingertip starts a pixel higher.";
+const POINTER_FILE_CROSSHAIR_DESC: &str = "The crosshair shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross 16×16 pixels, each arm one pixel wide inside a black outline, its centre on pixel 48,16, half over the dark first row and half over the light second row, pixel for pixel the picture of pointer-crosshair.";
+const POINTER_FILE_WAIT_DESC: &str = "The wait shape from vtium's pointer file, an hourglass. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white hourglass 12×16 pixels with a black outline and a bar across its top and its bottom, its waist on pixel 48,16, its top half over the dark first row and its bottom half over the light second row. It is the picture of pointer-wait within a pixel at each edge of the outline.";
+const POINTER_FILE_PROGRESS_DESC: &str = "The progress shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: the arrow with a small white hourglass at its lower right, 16×16 pixels together, outlined in black, the arrow's tip at pixel 48,16, over the light second row. It is the picture of pointer-progress within a pixel at each edge: the file's arrow starts a pixel further up and left, and the outline of its small hourglass differs by a pixel in places.";
+const POINTER_FILE_NOT_ALLOWED_DESC: &str = "The not-allowed shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white ring 16×16 pixels with a black outline and a white slash from its upper left to its lower right, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-not-allowed within a pixel at each edge of the outline.";
+const POINTER_FILE_MOVE_DESC: &str = "The move shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white cross of four arrows 16×16 pixels, each arrowhead pointing outwards, outlined in black, its centre on pixel 48,16, half over the dark first row and half over the light second row. It is the picture of pointer-move within a pixel at each edge of the outline.";
+const POINTER_FILE_EW_DESC: &str = "The ew-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing left and right, 16 pixels wide and 8 tall, outlined in black, its centre on pixel 48,16, across the boundary of the first two rows. It is the picture of pointer-ew-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_NS_DESC: &str = "The ns-resize shape from vtium's pointer file. See pointer-file-default for how the file is drawn and pointer-default for the screen. Correct: a white double arrow pointing up and down, 9 pixels wide and 16 tall, outlined in black, its centre on pixel 48,16, its upper head over the dark first row and its lower head over the light second row. It is the picture of pointer-ns-resize within a pixel at each edge of the outline.";
+const POINTER_FILE_ADWAITA_DESC: &str = "The default shape from a cursor theme: Adwaita 51.0's default cursor file, which tier 2 fetches by its pinned URL and SHA-256. The font helper's Xcursor code reads the file at nominal size 24, as pointer-size=24 asks, the picture is checked as the console checks the helper's answer, and the renderer draws it at its own size, never scaled. See pointer-default for the screen. Correct: Adwaita's arrow, 24×24 pixels, black with a white outline, pointing up and left, with a soft grey shadow below and to the right of it. Its hotspot, the picture's pixel 3,1, lies on pixel 48,16, so the arrow's white tip starts just below that pixel, over the light second row. The half-transparent shadow blends over the text and the rows it covers.";
+const POINTER_FILE_TURNED_DESC: &str = "The default shape from vtium's pointer file, as pointer-file-default draws it, on a display turned right, 48×96 pixels. The text reads from top to bottom, with the first row along the right edge. Correct: the arrow of pointer-file-default turned a quarter turn clockwise with the screen, white with a black outline, its tip on display pixel 31,48, where the grid's pixel 48,16 lands. The arrow's body lies below and to the left of its tip, over the light middle column.";
+
 /// Every case, in the order the report lists them: the screens below,
 /// then the ink screens, then the right-to-left screens.
 pub const CASES: &[Case] =
@@ -1770,6 +1886,104 @@ const BASE: &[Case] = &[
             )
         },
     },
+    pointer_shape!("pointer-default", POINTER_DEFAULT_DESC, "default"),
+    pointer_shape!("pointer-text", POINTER_TEXT_DESC, "text"),
+    pointer_shape!("pointer-pointer", POINTER_HAND_DESC, "pointer"),
+    pointer_shape!("pointer-crosshair", POINTER_CROSSHAIR_DESC, "crosshair"),
+    pointer_shape!("pointer-wait", POINTER_WAIT_DESC, "wait"),
+    pointer_shape!("pointer-progress", POINTER_PROGRESS_DESC, "progress"),
+    pointer_shape!(
+        "pointer-not-allowed",
+        POINTER_NOT_ALLOWED_DESC,
+        "not-allowed"
+    ),
+    pointer_shape!("pointer-move", POINTER_MOVE_DESC, "move"),
+    pointer_shape!("pointer-ew-resize", POINTER_EW_DESC, "ew-resize"),
+    pointer_shape!("pointer-ns-resize", POINTER_NS_DESC, "ns-resize"),
+    Case {
+        screen: Screen {
+            next: Some(b"\x1b]22;pointer\x1b\\"),
+            ..pointer_shape!("pointer-change", POINTER_CHANGE_DESC, "wait").screen
+        },
+    },
+    pointer_file_shape!(
+        "pointer-file-default",
+        POINTER_FILE_DEFAULT_DESC,
+        "default",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-text",
+        POINTER_FILE_TEXT_DESC,
+        "text",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-pointer",
+        POINTER_FILE_HAND_DESC,
+        "pointer",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-crosshair",
+        POINTER_FILE_CROSSHAIR_DESC,
+        "crosshair",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-wait",
+        POINTER_FILE_WAIT_DESC,
+        "wait",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-progress",
+        POINTER_FILE_PROGRESS_DESC,
+        "progress",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-not-allowed",
+        POINTER_FILE_NOT_ALLOWED_DESC,
+        "not-allowed",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-move",
+        POINTER_FILE_MOVE_DESC,
+        "move",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ew-resize",
+        POINTER_FILE_EW_DESC,
+        "ew-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-ns-resize",
+        POINTER_FILE_NS_DESC,
+        "ns-resize",
+        PointerFile::Shipped
+    ),
+    pointer_file_shape!(
+        "pointer-file-adwaita",
+        POINTER_FILE_ADWAITA_DESC,
+        "default",
+        PointerFile::Adwaita
+    ),
+    Case {
+        screen: Screen {
+            orientation: Orientation::Right,
+            ..pointer_file_shape!(
+                "pointer-file-turned",
+                POINTER_FILE_TURNED_DESC,
+                "default",
+                PointerFile::Shipped
+            )
+            .screen
+        },
+    },
     Case {
         screen: Screen {
             pointer: Some((5, 0)),
@@ -1805,6 +2019,37 @@ const BASE: &[Case] = &[
                 LINK_OVERLAY_CUT_DESC,
                 LINK_OVERLAY_CUT,
                 40,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "" }),
+            ..Screen::new("link-hints-unifont", LINK_HINTS_DESC, LINK_HINTS, 64, 6)
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "" }),
+            depth: Depth::One,
+            ..Screen::new(
+                "link-hints-unifont-1bit",
+                "link-hints-unifont on a 1-bit display. Correct: each label lit behind an unlit letter, the dashes under the links lit like their text, and the bottom row's line lit behind unlit letters.",
+                LINK_HINTS,
+                64,
+                6,
+            )
+        },
+    },
+    Case {
+        screen: Screen {
+            link_hints: Some(LinkHints { typed: "s" }),
+            ..Screen::new(
+                "link-hints-typed-unifont",
+                LINK_HINTS_TYPED_DESC,
+                LINK_HINTS_TYPED,
+                64,
                 6,
             )
         },
@@ -2836,6 +3081,12 @@ const BASE: &[Case] = &[
         ),
     },
     Case {
+        screen: ligatures("ligatures", LIGATURES_DESC, &LIGATURE_TAKES, true),
+    },
+    Case {
+        screen: ligatures("ligatures-off", LIGATURES_OFF_DESC, &AT_40, false),
+    },
+    Case {
         screen: shipped(0, "frit-arabic", FRIT_ARABIC_DESC, FRIT_ARABIC, 5),
     },
     Case {
@@ -2943,6 +3194,50 @@ const BASE: &[Case] = &[
         b"\x1b[2;5H\x1b[4 q\x1b[?25h",
         LINES_OUTLINE,
     ),
+    // the line size screens for the characters that are not plain text:
+    // color emoji, marks, Arabic, Indic syllables, the sprites vtium draws
+    // itself, and Powerline's symbols, each on a line of the normal size, a
+    // double-width line and a double-height pair
+    Case {
+        screen: outline("lines-emoji", LINES_EMOJI_DESC, LINES_EMOJI, 36, 4),
+    },
+    Case {
+        screen: outline("lines-marks", LINES_MARKS_DESC, LINES_MARKS, 30, 4),
+    },
+    Case {
+        screen: outline("lines-arabic", LINES_ARABIC_DESC, LINES_ARABIC, 24, 4),
+    },
+    Case {
+        screen: scripts("lines-indic", LINES_INDIC_DESC, LINES_INDIC, (28, 4)),
+    },
+    Case {
+        screen: outline("lines-graphics", LINES_GRAPHICS_DESC, LINES_GRAPHICS, 30, 5),
+    },
+    Case {
+        screen: Screen::new(
+            "lines-graphics-unifont",
+            LINES_GRAPHICS_DESC,
+            LINES_GRAPHICS,
+            30,
+            5,
+        ),
+    },
+    Case {
+        screen: Screen {
+            font: FontKind::Ink {
+                takes: &AT_16_AND_32,
+                spacing: None,
+                fonts: InkFonts::Merged { extra: "" },
+            },
+            ..Screen::new(
+                "lines-powerline",
+                LINES_POWERLINE_DESC,
+                LINES_POWERLINE,
+                32,
+                4,
+            )
+        },
+    },
     Case {
         screen: merged("glyph-fit", GLYPH_FIT_DESC, GLYPH_FIT, None, ""),
     },
@@ -2955,7 +3250,145 @@ const BASE: &[Case] = &[
             "cover=U+1FB00-U+1FBFF\nfit=natural\n",
         ),
     },
+    Case {
+        screen: bitmap_outline("bitmap-outline", BITMAP_OUTLINE_DESC, false),
+    },
+    Case {
+        screen: bitmap_outline("bitmap-outline-smooth", BITMAP_OUTLINE_SMOOTH_DESC, true),
+    },
+    picture(Screen {
+        pictures: Some(login_cover),
+        ..outline("login-cover", LOGIN_COVER_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_contain),
+        display: Some(LOGIN_WIDE),
+        ..outline("login-contain", LOGIN_CONTAIN_DESC, LOGIN_TEXT, 64, 12)
+    }),
+    picture(Screen {
+        pictures: Some(login_rotated),
+        orientation: Orientation::Right,
+        ..outline("login-rotated", LOGIN_ROTATED_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_banner),
+        display: Some(LOGIN_WIDE),
+        ..outline("login-banner", LOGIN_BANNER_DESC, b"", 64, 12)
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_top_left),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-top-left",
+            LOGIN_CONTAIN_TOP_LEFT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-right",
+            LOGIN_CONTAIN_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_contain_bottom),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-contain-bottom",
+            LOGIN_CONTAIN_BOTTOM_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_cover_top),
+        ..outline("login-cover-top", LOGIN_COVER_TOP_DESC, LOGIN_TEXT, 40, 8)
+    }),
+    picture(Screen {
+        pictures: Some(login_none_bottom_left),
+        ..outline(
+            "login-none-bottom-left",
+            LOGIN_NONE_BOTTOM_LEFT_DESC,
+            b"login: ",
+            10,
+            3,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_scale_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-scale-bottom-right",
+            LOGIN_SCALE_BOTTOM_RIGHT_DESC,
+            LOGIN_TEXT,
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_banner_bottom_right),
+        display: Some(LOGIN_WIDE),
+        ..outline(
+            "login-banner-bottom-right",
+            LOGIN_BANNER_BOTTOM_RIGHT_DESC,
+            b"",
+            64,
+            12,
+        )
+    }),
+    picture(Screen {
+        pictures: Some(login_rotated_scale),
+        orientation: Orientation::Right,
+        ..outline(
+            "login-rotated-scale",
+            LOGIN_ROTATED_SCALE_DESC,
+            LOGIN_TEXT,
+            40,
+            8,
+        )
+    }),
 ];
+
+/// The `bitmap-outline` screens: ASCII from the built-in GNU Unifont, a
+/// bitmap font, and around it characters that only the outline fonts
+/// behind it hold: accented Latin and symbols from DejaVu Sans Mono,
+/// Hebrew, CJK and color emoji, in bold and in reverse too, and the box
+/// drawing and blocks that vtium draws itself.
+const BITMAP_OUTLINE: &[u8] = concat!(
+    "ASCII, Unifont: Hamburg 0123 gjpqy\r\n",
+    "DejaVu: \u{e9} \u{f1} \u{fc} \u{df} \u{2605} \u{2200} \u{2211} \u{2260} \u{21d2} \u{2713} \u{266a} \u{222b}\r\n",
+    "Noto: \u{5e9}\u{5dc}\u{5d5}\u{5dd} \u{4e2d}\u{6587}\u{5b57} \u{1f600} \u{1f680}\r\n",
+    "\x1b[1mbold \u{2605}\u{2200} \u{4e2d}\x1b[0m \x1b[7m rev \u{2605} \u{4e2d} \x1b[0m\r\n",
+    "\u{250c}\u{2500}\u{252c}\u{2500}\u{2510} \u{2580}\u{2584}\u{2588} \u{2591}\u{2592}\u{2593}\r\n",
+    "\u{2514}\u{2500}\u{2534}\u{2500}\u{2518} \u{2584}\u{2580}\u{2588} \u{2591}\u{2592}\u{2593}",
+)
+.as_bytes();
+
+const BITMAP_OUTLINE_DESC: &str = "A font set whose first source is the built-in GNU Unifont, limited to ASCII, with outline fonts behind it: DejaVu Sans Mono, Noto Sans Hebrew, Noto Sans Arabic, Noto Sans CJK SC and Noto Color Emoji. No source has a render= line, so each outline source draws 1-bit, as a bitmap font's glyphs draw (ADR-1200 D1). 40 by 6 cells at 16 and 32 pixels. The first row is ASCII from Unifont. The second row has accented Latin letters and symbols from DejaVu Sans Mono, the third Hebrew, Chinese and two color emoji, the fourth bold and reversed text, and the last two rows box drawing and blocks, which vtium draws itself. Correct: every pixel of every glyph from an outline font is fully lit or fully dark, with no grey edge, so the outline glyphs look like Unifont's own. Each glyph keeps its strokes and dots, none broken away. The emoji keep their color. The box lines and blocks fill their cells and join.";
+
+const BITMAP_OUTLINE_SMOOTH_DESC: &str = "The bitmap-outline screen with a render=smooth line under each outline source of the font set, which overrides the 1-bit default (ADR-1200 D1). Correct: Unifont's ASCII stays 1-bit, and the glyphs from the outline fonts are antialiased, with grey pixels along their edges, as an outline font draws behind an outline first source. The emoji keep their color, and the box lines and blocks are as in bitmap-outline.";
+
+/// A screen of [`BITMAP_OUTLINE`], 40 by 6 cells at 16 and 32 pixels, in
+/// the bitmap-first font set ([`InkFonts::Bitmap`]), with `render=smooth`
+/// under each outline source when `smooth` is set.
+const fn bitmap_outline(name: &'static str, desc: &'static str, smooth: bool) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes: &AT_16_AND_32,
+            spacing: None,
+            fonts: InkFonts::Bitmap { smooth },
+        },
+        ..Screen::new(name, desc, BITMAP_OUTLINE, 40, 6)
+    }
+}
 
 /// The `glyph-fit` screens: a Powerline prompt and two icons from the
 /// merged symbol font, Latin letters with combining marks, and the box
@@ -3047,6 +3480,57 @@ const fn scripts(
         ..Screen::new(name, desc, bytes, cols, rows)
     }
 }
+
+/// The ligatures screens' text: operators that Iosevka Term draws as its
+/// ligatures, runs it does not join, and an arrow in two colors, with the
+/// cursor hidden.
+const LIGATURES: &[u8] = concat!(
+    "\x1b[?25l",
+    "a -> b => c != d === e\r\n",
+    "f <= g >= h && i || j /* k */\r\n",
+    "apart: ,- >, \x1b[38;2;255;110;110m-\x1b[38;2;120;210;120m>\x1b[0m",
+)
+.as_bytes();
+
+/// The `ligatures` screen's two drawings, stacked: as written, and with
+/// the cursor shown on the `!` of `!=`.
+const LIGATURE_TAKES: [Take; 2] = [
+    Take::at(crate::fonts::SCRIPTS_HEIGHT),
+    Take {
+        tail: b"\x1b[?25h\x1b[1;13H",
+        ..Take::at(crate::fonts::SCRIPTS_HEIGHT)
+    },
+];
+
+/// A screen of the ligatures text, 30 by 3 cells, drawn in the scripts frit
+/// at 40 pixels in Iosevka Term's 16x40 cell once for each of `takes`, with
+/// `font-ligatures` set as `on` says and the cursor's blink in its shown
+/// phase.
+const fn ligatures(
+    name: &'static str,
+    desc: &'static str,
+    takes: &'static [Take],
+    on: bool,
+) -> Screen {
+    Screen {
+        font: FontKind::Ink {
+            takes,
+            spacing: None,
+            fonts: InkFonts::Scripts,
+        },
+        ligatures: on,
+        phase: crate::draw::Phase {
+            cursor_on: true,
+            blink_hidden: false,
+            rapid_hidden: false,
+        },
+        ..Screen::new(name, desc, LIGATURES, 30, 3)
+    }
+}
+
+const LIGATURES_DESC: &str = "With font-ligatures on, Iosevka Term at 40 pixels in its 16×40 cell draws ->, =>, !=, ===, <=, >=, ||, /* and */ as its ligatures, each across the cells of its characters, so every character keeps its column. The font does not join &&, ,- or >,, so each of their characters draws alone, and so does an arrow whose two characters differ in color. The second drawing shows the cursor on the ! of !=, which then draws as its two characters while the other ligatures stay joined (ADR-1308 D8).";
+
+const LIGATURES_OFF_DESC: &str = "The ligatures screen's text with font-ligatures off, vtium's default: Iosevka Term at 40 pixels draws every character on its own, so ->, !=, === and the other operators show as their separate characters (ADR-1308 D8).";
 
 /// The `scripts-indic` screen: the first sentence of the Universal
 /// Declaration of Human Rights in Hindi, then in Bengali, as the
@@ -3344,3 +3828,378 @@ const LINES_OUTLINE: FontKind = FontKind::Outline {
     color: true,
     spacing: None,
 };
+
+/// The `lines-emoji` screen: color emoji on each line size, a single
+/// emoji, a heart with U+FE0F and a thumb with a skin tone among them.
+const LINES_EMOJI: &[u8] = concat!(
+    "Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#6Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#3Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}\r\n",
+    "\x1b#4Emoji \u{1f600} \u{1f525} \u{2764}\u{fe0f} \u{1f44d}\u{1f3fd}",
+)
+.as_bytes();
+
+const LINES_EMOJI_DESC: &str = "Color emoji on lines of double size, 36 by 4 cells, in the outline test font set with Noto Color Emoji. Each line reads Emoji, then a grinning face, a fire, a red heart written as U+2764 with U+FE0F, and a thumbs up with a medium skin tone. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on the double-width line each emoji is twice as wide as on the normal line and as tall, drawn by the font helper at that size, so its edges stay smooth and show no square steps of doubled pixels. On the double-height pair each emoji is twice as wide and twice as tall, its upper half on the top line and its lower half on the bottom line, joining with no gap. The heart and the toned thumb draw as one emoji each, as on the normal line.";
+
+/// The `lines-marks` screen: letters with combining marks on each line
+/// size, one mark above, one below, and two stacked.
+const LINES_MARKS: &[u8] = concat!(
+    "e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#6e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#3e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}\r\n",
+    "\x1b#4e\u{301} a\u{308} o\u{302} q\u{323} A\u{30a} n\u{303} E\u{323}\u{302}",
+)
+.as_bytes();
+
+const LINES_MARKS_DESC: &str = "Letters with combining marks on lines of double size, 30 by 4 cells, in the outline test font set: e with an acute accent, a with a diaeresis, o with a circumflex, q with a dot below, A with a ring, n with a tilde, and E with a dot below and a circumflex, each written as the letter and its marks. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: each letter and its marks are shaped as one character by the font helper at the line's size, so the marks sit on their letter as on the normal line, with smooth edges and no square steps of doubled pixels. On the double-width line each is twice as wide and as tall. On the double-height pair each is twice as wide and twice as tall, the marks above on the top line, the dots below on the bottom line.";
+
+/// The `lines-arabic` screen: Arabic words on each line size, with the
+/// lam-alef ligature and letters carrying vowel marks.
+const LINES_ARABIC: &[u8] = concat!(
+    "سلام مَرْحَبًا\r\n",
+    "\x1b#6سلام مَرْحَبًا\r\n",
+    "\x1b#3سلام مَرْحَبًا\r\n",
+    "\x1b#4سلام مَرْحَبًا",
+)
+.as_bytes();
+
+const LINES_ARABIC_DESC: &str = "Arabic on lines of double size, 24 by 4 cells, in the outline test font set with Noto Sans Arabic, in left-to-right paragraphs: the word salam, whose lam and alef draw as one ligature, and the word marhaban with its vowel marks, sukun and tanween written. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: on every line the letters join into words as on the normal line, the lam-alef ligature spans its two letters' cells, and each mark sits on its letter. The font helper draws each joined form at the line's size, so the strokes stay smooth, twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
+
+/// The `lines-indic` screen: Hindi and Bengali words on each line size,
+/// with conjuncts, vowel signs and a reph.
+const LINES_INDIC: &[u8] = concat!(
+    "नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#6नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#3नमस्ते क्षत्रिय র্ক্ষ\r\n",
+    "\x1b#4नमस्ते क्षत्रिय র্ক্ষ",
+)
+.as_bytes();
+
+const LINES_INDIC_DESC: &str = "Indic syllables on lines of double size, 28 by 4 cells, in the scripts font set at 40 pixels, Iosevka Term's 16x40 cell with Noto Sans Devanagari and Noto Sans Bengali behind it: the Hindi words namaste and kshatriya, then a Bengali syllable with a reph over a conjunct. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: each syllable joins as on the normal line, its conjuncts formed, its vowel signs before, above and after their consonants, and the reph above. The font helper shapes each syllable at the line's size, so the strokes stay smooth, twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, its upper half on the top line and its lower half on the bottom line.";
+
+/// The `lines-graphics` screens: DEC special graphics, box drawing and
+/// blocks, which vtium draws itself, on each line size.
+const LINES_GRAPHICS: &[u8] = concat!(
+    "\x1b(0lqwqk\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2554}\u{2550}\u{2557}\u{256d}\u{2500}\u{256e}\r\n",
+    "\x1b#6\x1b(0lqwqk\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593}\r\n",
+    "\x1b#6\x1b(0mqvqj\x1b(B \u{255a}\u{2550}\u{255d}\u{2570}\u{2500}\u{256f}\r\n",
+    "\x1b#3\x1b(0tqnqu\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2502}\u{2503}\r\n",
+    "\x1b#4\x1b(0tqnqu\x1b(B \u{2580}\u{2584}\u{2588}\u{2591}\u{2593} \u{2502}\u{2503}",
+)
+.as_bytes();
+
+const LINES_GRAPHICS_DESC: &str = "The characters vtium draws itself on lines of double size, 30 by 5 cells: box corners and lines from the DEC special graphics set, chosen by ESC ( 0, then blocks and shades, then double and rounded box drawing. The first line has the normal size. The second and third are double-width lines whose box lines meet to close the top and the bottom of a box. The last two are a double-height pair with crossing lines, blocks, and a light and a heavy vertical line. Correct: vtium draws each character again in the doubled cell instead of doubling its pixels. On the double-width lines a light line is as thin as on the normal line, and the vertical lines of the two lines meet. On the double-height pair a light line is twice as thick, as for a cell twice as tall, and each vertical line runs through both lines with no gap. Every horizontal line joins the next cell's, and each block fills its doubled cell to the edges.";
+
+/// The `lines-powerline` screen: a prompt of Powerline separators on each
+/// line size, in the merged font set whose symbol font holds them.
+const LINES_POWERLINE: &[u8] = concat!(
+    "\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1} \u{e0b2}\r\n",
+    "\x1b#6\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}\r\n",
+    "\x1b#3\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}\r\n",
+    "\x1b#4\x1b[30;44m vt \x1b[34;42m\u{e0b0}\x1b[30m src \x1b[32;49m\u{e0b0}\x1b[0m \u{e0b1}",
+)
+.as_bytes();
+
+const LINES_POWERLINE_DESC: &str = "Powerline separators on lines of double size, 32 by 4 cells, in the merged font set, DejaVu Sans Mono with the symbol test font behind it for the Private Use Area, drawn at 16 and at 32 pixels and stacked. Each line is a prompt of two colored segments, vt and src, each closed by a solid separator, then a thin separator. The first line has the normal size, the second double width, and the last two are a double-height pair. Correct: the font helper fits each separator to its doubled cell, so on every line a separator runs from the cell's top to its bottom and its point meets the next segment's color with no gap. The separators are twice as wide on the double-width line, and twice as wide and twice as tall on the double-height pair, split across its two lines.";
+// The login picture's screens: the picture made by vtium-image's login
+// module, as the console makes it, and placed as the console places it, a
+// kitty placement with no id at the lowest z, before or below a login
+// prompt's text.
+//
+// References:
+// - ADR-1100 D17: the login picture's forms and its placement.
+
+/// The text of a login prompt over a background: a cell with a background
+/// color of its own, which covers the picture, and reverse video.
+const LOGIN_TEXT: &[u8] = concat!(
+    "vtium 0.1 tty1\r\n",
+    "\r\n",
+    "\x1b[44m blue cells \x1b[0m cover it, \x1b[7mreverse\x1b[0m too\r\n",
+    "login: ",
+)
+.as_bytes();
+
+/// The display of the wide screens: 10 pixel columns and 5 pixel rows more
+/// than a grid of 64×12 cells of the outline font's 9×16 cell.
+const LOGIN_WIDE: (u32, u32) = (64 * 9 + 10, 12 * 16 + 5);
+
+/// The source picture, 96×64 pixels, opaque: a gradient from red at the
+/// left to green at the right and blue at the bottom, a dark blue frame two
+/// pixels wide, and a dark disc in the middle. Its shape, 3:2, is neither
+/// the grid's nor the display's, so cover cuts it and contain leaves bands.
+fn login_source() -> ((u32, u32), Vec<u32>) {
+    let (w, h) = (96u32, 64u32);
+    let px = (0..h)
+        .flat_map(|y| {
+            (0..w).map(move |x| {
+                let (dx, dy) = (i64::from(x) - 48, i64::from(y) - 32);
+                if x < 2 || y < 2 || x >= w - 2 || y >= h - 2 {
+                    0xff10_30c0
+                } else if dx * dx + dy * dy < 14 * 14 {
+                    0xff20_2030
+                } else {
+                    let r = 255 - x * 255 / w;
+                    let g = x * 255 / w;
+                    let b = y * 255 / h;
+                    0xff00_0000 | r << 16 | g << 8 | b
+                }
+            })
+        })
+        .collect();
+    ((w, h), px)
+}
+
+/// Standard base64 of `bytes`, as kitty's payloads take it.
+fn login_base64(bytes: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::new();
+    for c in bytes.chunks(3) {
+        let n = c
+            .iter()
+            .enumerate()
+            .fold(0u32, |n, (i, &b)| n | u32::from(b) << (16 - 8 * i));
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(char::from(A[((n >> (18 - 6 * i)) & 63) as usize]));
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
+/// The picture `form` makes on a screen of `grid` cells of `f`'s cell and
+/// a display of `display`, placed as the console places it: a kitty
+/// transmission with no id at the lowest z that keeps the cursor, at the
+/// top left of the placement's box, and for a banner a cursor move to the
+/// row where the login prompt starts.
+fn login_place(
+    f: &mut Feed,
+    form: vtium_term::images::login::Form,
+    grid: (u32, u32),
+    display: Option<(u32, u32)>,
+) -> Result<(), String> {
+    use vtium_term::images::login::{Geometry, make};
+    let (cw, ch) = f.cell;
+    let geometry = Geometry {
+        display: display.unwrap_or((grid.0 * cw, grid.1 * ch)),
+        cell: f.cell,
+        grid,
+    };
+    let (size, source) = login_source();
+    let made = make(&form, &geometry, size, &source).ok_or("the login picture has no room")?;
+    // every pixel is opaque or wholly transparent, so straight RGBA carries
+    // the premultiplied pixels exactly
+    let mut rgba = Vec::with_capacity(made.pixels.as_slice().len() * 4);
+    for p in made.pixels.as_slice() {
+        let a = p >> 24;
+        if a != 0 && a != 0xff {
+            return Err(format!("a login picture pixel of alpha {a}"));
+        }
+        rgba.extend([(p >> 16) as u8, (p >> 8) as u8, *p as u8, a as u8]);
+    }
+    let boxed = if made.place.cols > 0 {
+        format!(",c={},r={}", made.place.cols, made.place.rows)
+    } else {
+        String::new()
+    };
+    let payload = login_base64(&rgba);
+    let chunks: Vec<&str> = payload
+        .as_bytes()
+        .chunks(4096)
+        .map(|c| std::str::from_utf8(c).unwrap_or(""))
+        .collect();
+    let mut out = format!("\x1b[{};{}H", made.place.row + 1, made.place.col + 1).into_bytes();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let more = u8::from(i + 1 < chunks.len());
+        let keys = if i == 0 {
+            format!(
+                "a=T,f=32,s={},v={}{boxed},z={},C=1,q=2,m={more}",
+                made.width,
+                made.height,
+                vtium_term::images::login::Z
+            )
+        } else {
+            format!("m={more}")
+        };
+        out.extend(format!("\x1b_G{keys};{chunk}\x1b\\").into_bytes());
+    }
+    if let Some(row) = made.prompt_row {
+        out.extend(format!("\x1b[{};1H", row + 1).into_bytes());
+    }
+    f.bytes(&out)
+}
+
+/// `login-cover`: a background under `cover` on a grid of 40×8 cells.
+fn login_cover(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Cover), (40, 8), None)
+}
+
+/// `login-contain`: a background under `contain` on the wide display.
+fn login_contain(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Contain), (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-rotated`: `login-cover` on a display turned a quarter clockwise.
+fn login_rotated(f: &mut Feed) -> Result<(), String> {
+    login_place(f, login_form(Fit::Cover), (40, 8), None)
+}
+
+/// `login-banner`: a banner at its own size, centered, and the login
+/// prompt below it.
+fn login_banner(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Banner, Position::Center, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
+    f.bytes(LOGIN_TEXT)
+}
+
+/// `login-contain-top-left`: `login-contain` at `top-left`.
+fn login_contain_top_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::TopLeft, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-contain-right`: `login-contain` at `right`.
+fn login_contain_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Right, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-contain-bottom`: `login-contain` at `bottom`.
+fn login_contain_bottom(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::Bottom, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-cover-top`: `login-cover` at `top`.
+fn login_cover_top(f: &mut Feed) -> Result<(), String> {
+    login_place(
+        f,
+        login_at(Fit::Cover, Position::Top, SCALE_FULL),
+        (40, 8),
+        None,
+    )
+}
+
+/// `login-none-bottom-left`: the picture at its own size at `bottom-left`
+/// on a grid of 10×3 cells, smaller than the picture.
+fn login_none_bottom_left(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Natural, Position::BottomLeft, SCALE_FULL);
+    login_place(f, form, (10, 3), None)
+}
+
+/// `login-scale-bottom-right`: `login-contain` at 30% and `bottom-right`.
+fn login_scale_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 30);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))
+}
+
+/// `login-banner-bottom-right`: a banner at its own size at
+/// `bottom-right`, and the login prompt above it.
+fn login_banner_bottom_right(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Banner, Position::BottomRight, SCALE_FULL);
+    login_place(f, form, (64, 12), Some(LOGIN_WIDE))?;
+    f.bytes(LOGIN_TEXT)
+}
+
+/// `login-rotated-scale`: `login-rotated` under contain at 50% and
+/// `bottom-right`.
+fn login_rotated_scale(f: &mut Feed) -> Result<(), String> {
+    let form = login_at(Fit::Contain, Position::BottomRight, 50);
+    login_place(f, form, (40, 8), None)
+}
+
+use vtium_term::images::login::{Fit, Position, SCALE_FULL};
+
+/// The form of `fit` with no anchor and the scale at 100, as vtium.conf
+/// gives it when it names only the fit.
+fn login_form(fit: Fit) -> vtium_term::images::login::Form {
+    vtium_term::images::login::Form {
+        fit,
+        rows: None,
+        position: None,
+        scale: SCALE_FULL,
+    }
+}
+
+/// The form of `fit` at `position` and `scale`.
+fn login_at(fit: Fit, position: Position, scale: u8) -> vtium_term::images::login::Form {
+    vtium_term::images::login::Form {
+        position: Some(position),
+        scale,
+        ..login_form(fit)
+    }
+}
+
+const LOGIN_COVER_DESC: &str = concat!(
+    "A login prompt over a login picture as a background under cover, on a grid of 40 by 8 cells of 9 by 16 pixels: the picture scaled until it covers the 360 by 128 display, keeping its shape, and centered (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture's full width fills the screen, its frame at the left and right edges, and its top and bottom cut off equally, so the frame shows at neither; the disc is round, in the middle; the text draws over the picture, the blue cells and the reversed word cover it, and the picture shows through every other cell."
+);
+
+const LOGIN_CONTAIN_DESC: &str = concat!(
+    "A login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels: the picture scaled until it fits inside the display, keeping its shape, and centered. The renderer centers the grid on the display, with 5 spare pixel columns on each side, 2 spare pixel rows above it and 3 below. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture 296 by 197 pixels, centered across the display, its frame at the left and right; its first 2 and last 3 pixel rows, part of its top and bottom frame, fall in the strips above and below the grid, with bands of the default background left and right; the strip outside the grid shows the default background; the disc is round; the text draws over the picture and the bands alike."
+);
+
+const LOGIN_ROTATED_DESC: &str = concat!(
+    "login-cover on a display turned a quarter clockwise, so the text reads from top to bottom: the picture is made for the screen as the text sees it, 360 by 128 pixels, and turns with the text. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the same drawing as login-cover, turned a quarter clockwise as a whole, the picture with the text."
+);
+
+const LOGIN_BANNER_DESC: &str = concat!(
+    "A login picture as a banner at its own size, centered, above a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, and the 53 spare columns put 26 on its left and 27 on its right. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, drawn one to one, starting 26 columns from the left at the top of the screen, its frame on all four sides; the login prompt starts in the first column of the fifth row, below the banner, and its text covers no part of the picture."
+);
+
+const LOGIN_CONTAIN_TOP_LEFT_DESC: &str = concat!(
+    "login-contain with login-image-position=top-left: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's top and left edges (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture starts at the grid's first pixel column and first pixel row, its frame along the left edge and the top edge of the grid; its last 5 pixel rows, the bottom of its frame, are cut off; the default background shows to its right and in the strip outside the grid; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_RIGHT_DESC: &str = concat!(
+    "login-contain with login-image-position=right: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's right edge and centered down the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture ends at the grid's last pixel column, its frame along the grid's right edge, and starts 280 pixels into the grid; down the screen it is placed as in login-contain, its first 2 and last 3 pixel rows in the strips outside the grid; the default background shows to its left; the disc is round; the text draws over the picture and the background alike."
+);
+
+const LOGIN_CONTAIN_BOTTOM_DESC: &str = concat!(
+    "login-contain with login-image-position=bottom: a login prompt over a login picture as a background under contain, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels, the picture against the grid's bottom edge and centered across the display (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, 5 pixel rows taller than the grid of 192. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: across the screen the picture is placed as in login-contain, centered, with bands of the default background left and right; its last pixel row lies on the grid's last pixel row, so the bottom of its frame shows along the grid's bottom edge, and its first 5 pixel rows, the top of its frame, are cut off; the disc is round; the text draws over the picture and the bands alike."
+);
+
+const LOGIN_COVER_TOP_DESC: &str = concat!(
+    "login-cover with login-image-position=top: a login prompt over a login picture as a background under cover, on a grid of 40 by 8 cells of 9 by 16 pixels on a display of 360 by 128 pixels (ADR-1100 D17). Cover scales the picture to 360 by 240 pixels, and the anchor keeps its top. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture's full width fills the screen, its frame at the left and right edges and along the top edge; its bottom 112 pixel rows are cut off, so the frame does not show at the bottom, and the bottom edge cuts the disc just below its middle; the text draws over the picture, the blue cells and the reversed word cover it, and the picture shows through every other cell."
+);
+
+const LOGIN_NONE_BOTTOM_LEFT_DESC: &str = concat!(
+    "A login picture at its own size, login-image-fit=none, at login-image-position=bottom-left, on a grid of 10 by 3 cells of 9 by 16 pixels, 90 by 48 pixels, smaller than the picture (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the picture drawn one to one, its left edge on the grid's left edge and its bottom edge on the grid's bottom edge; its frame shows along the left and the bottom; its rightmost 6 pixel columns and its top 16 pixel rows are cut off, so the frame shows neither on the right nor at the top; the disc sits a little right of the middle and above it, nearly reaching the top; the word login draws over the picture."
+);
+
+const LOGIN_SCALE_BOTTOM_RIGHT_DESC: &str = concat!(
+    "login-contain at login-image-scale=30 and login-image-position=bottom-right: a login prompt over a login picture as a background, on a grid of 64 by 12 cells of 9 by 16 pixels on a display of 586 by 197 pixels (ADR-1100 D17). Contain scales the picture to 296 by 197 pixels, and 30% of that is 89 by 59 pixels. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, small, its frame on all four sides, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, in the bottom right corner of the screen; the default background everywhere else; the disc is round; the text, which ends near the top of the screen, does not reach the picture."
+);
+
+const LOGIN_BANNER_BOTTOM_RIGHT_DESC: &str = concat!(
+    "A login picture as a banner at its own size at login-image-position=bottom-right, below a login prompt, on a grid of 64 by 12 cells of 9 by 16 pixels: the banner is 96 by 64 pixels, so its box is 11 columns by 4 rows, in the last 4 rows and against the right margin, starting in the 54th column (ADR-1100 D17). ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, drawn one to one, its frame on all four sides, at the top left of its box in the last 4 rows, so 3 pixel columns of the box's last cell column stay empty at the screen's right edge; the login prompt starts in the first column of the first row and its text ends above the banner."
+);
+
+const LOGIN_ROTATED_SCALE_DESC: &str = concat!(
+    "A login picture under contain at login-image-scale=50 and login-image-position=bottom-right, on a display turned a quarter clockwise, so the text reads from top to bottom: the picture is made for the screen as the text sees it, a grid of 40 by 8 cells of 9 by 16 pixels, 360 by 128 pixels (ADR-1100 D17). Contain scales the picture to 192 by 128 pixels, and 50% of that is 96 by 64 pixels, the picture's own size. ",
+    "The picture is 96 by 64 pixels: a gradient from red at the left to green at the right, with blue growing toward the bottom, a dark blue frame two pixels wide and a dark disc in the middle. ",
+    "Correct: the whole picture, its frame on all four sides, at the end of the grid's last row as the text reads, its right edge on the grid's last pixel column and its bottom edge on the grid's last pixel row, turned a quarter clockwise with the text; on the panel that is the bottom left corner; the default background everywhere else; the text draws over the picture where they meet."
+);

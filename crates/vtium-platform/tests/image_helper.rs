@@ -391,6 +391,7 @@ fn raw(medium: Medium) -> Request {
         }),
         largest: (100, 100),
         largest_bytes: 1 << 20,
+        fit: None,
     }
 }
 

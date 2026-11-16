@@ -87,6 +87,31 @@ pub struct Overlay<'a> {
     pub uri: &'a str,
 }
 
+/// A link's label while link hints are on: letters drawn over the first
+/// cells of the link where it first appears in the view, so a person can
+/// type them to copy the link's address. A label is no part of the screen:
+/// no cell, selection, copy or reply sees it.
+///
+/// References:
+/// - ADR-1002, section 7: which links get labels, where a label draws, and
+///   that labels are no part of the screen.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LinkHint {
+    pub link: LinkId,
+    /// The label's letters.
+    pub label: String,
+    /// The label begins with the letters typed so far, so it draws. Every
+    /// cell of a labelled link takes the hover's dashed underline either
+    /// way.
+    pub shown: bool,
+    /// Where the label starts in the view: a column and a row. The screen
+    /// sets it where the link first appears. A label that would cover part
+    /// of the label before it shifts right to clear it, and the labels at
+    /// a row's end move left so that the last ends at the row's last
+    /// column.
+    pub at: (usize, usize),
+}
+
 /// One cell of a frame, resolved for drawing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct FrameCell<'a> {
@@ -149,6 +174,11 @@ pub struct Frame<'a> {
     selection: Vec<Range<usize>>,
     hovered: Option<LinkId>,
     overlay: Option<Overlay<'a>>,
+    /// The labels of link hints, while they are on, in the order they lie
+    /// in the view.
+    link_hints: &'a [LinkHint],
+    /// The links that have a label, sorted.
+    labelled: &'a [LinkId],
     /// The image placements with a row in view, in draw order (ADR-1100,
     /// D9).
     #[cfg(feature = "images")]
@@ -183,6 +213,8 @@ impl<'a> Frame<'a> {
             selection: Vec::new(),
             hovered: None,
             overlay: None,
+            link_hints: &[],
+            labelled: &[],
             #[cfg(feature = "images")]
             placements: Vec::new(),
             #[cfg(feature = "bidi")]
@@ -289,6 +321,30 @@ impl<'a> Frame<'a> {
         self.overlay
     }
 
+    /// The frame with the labels of link hints, `hints`, and the links
+    /// that have a label, `labelled`. The labels come in the order they lie
+    /// in the view: row by row from the top, and in each row from left to
+    /// right, a later label drawing over an earlier one where they meet.
+    /// `labelled` is sorted. The renderer looks a cell's label and its
+    /// link up in these lists by binary search, so each cell costs little
+    /// on a screen full of labels.
+    pub fn with_link_hints(mut self, hints: &'a [LinkHint], labelled: &'a [LinkId]) -> Self {
+        self.link_hints = hints;
+        self.labelled = labelled;
+        self
+    }
+
+    /// The labels of link hints, while they are on, in the order they lie
+    /// in the view.
+    pub fn link_hints(&self) -> &'a [LinkHint] {
+        self.link_hints
+    }
+
+    /// The links that have a label, sorted.
+    pub fn labelled_links(&self) -> &'a [LinkId] {
+        self.labelled
+    }
+
     pub fn rows(&self) -> usize {
         self.lines.len()
     }
@@ -330,7 +386,7 @@ impl<'a> Frame<'a> {
     }
 
     /// The other row of the pair of double-height lines that `row` belongs
-    /// to, by [`pair_of`]'s rule over the sizes the rows draw at. A row
+    /// to, by `pair_of`'s rule over the sizes the rows draw at. A row
     /// whose partner the frame does not show, and the overlay row, belong
     /// to no pair. The pair decides where the cursor draws
     /// ([`Frame::cursor_extent`]).
@@ -378,6 +434,20 @@ impl<'a> Frame<'a> {
             return self.paragraph_changed.get(row).copied().unwrap_or(true);
         }
         self.damage.row_changed(row, self.since)
+    }
+
+    /// The share of each sized run that crosses `row`, ordered by column:
+    /// the block of cells that one OSC 66 sequence writes, with the row of
+    /// the run this line holds, the run's columns, its scale, its width,
+    /// its fraction and its alignment. Each cell of a run is marked
+    /// ([`crate::Cell::in_run`]), and the run's first cell on each row
+    /// holds its text.
+    ///
+    /// References:
+    /// - ADR-1308 D9: the renderer draws a run's text whole, at its scale,
+    ///   inside its block.
+    pub fn sized_runs(&self, row: usize) -> &'a [crate::line::SizedRun] {
+        self.line(row).map_or(&[], |l| l.runs())
     }
 
     /// The cell drawn at `row`, column `col` from the left, resolved;

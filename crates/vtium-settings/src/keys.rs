@@ -788,7 +788,7 @@ pub const BLINK: Key = Key {
     scope: Scope::Anywhere,
     levels: TOP,
     reader: "vtium",
-    what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. When off, neither blinks.",
+    what: "Blink blinking text (SGR 5) and the cursor, every 500 ms. A program can set another pace for the cursor with the Linux console's `CSI 16 ; n ]`. When off, neither blinks.",
     cite: "kmscon's `blink` key",
 };
 
@@ -1362,7 +1362,7 @@ pub const NATURAL_SCROLLING: Key = Key {
     levels: TOP,
     reader: "vtium",
     what: "Reverse the mouse wheel.\n\n\
-           The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
+           [docs] The wheel then scrolls the other way, both in vtium's scrollback and for programs.\n\n\
            [docs] This includes the arrow keys vtium sends in full-screen programs (mode 1007). Ctrl with the wheel turned up still zooms in.",
     cite: "kmscon's `natural-scrolling` key",
 };
@@ -1376,9 +1376,41 @@ pub const POINTER_CHAR: Key = Key {
     levels: TOP,
     reader: "vtium-render",
     what: "Show the mouse pointer as this character, drawn with the console's font.\n\n\
-           When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
+           [docs] When unset, or when the font cannot display the character, the pointer is an arrow.\n\n\
            [docs] The character fills the character cell under the pointer, white with a dark outline, like the arrow.",
     cite: "[the pointer options issue](https://github.com/vtium/vtium/issues/102)",
+};
+
+pub const POINTER_THEME: Key = Key {
+    name: "pointer-theme",
+    short: None,
+    kind: Kind::Path,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "The SVG file or cursor theme folder whose pictures the pointer takes.\n\n\
+           [docs] The value is an SVG file in vtium's pointer file format, or the folder of a desktop cursor theme, such as `/usr/share/icons/Adwaita`. vtium installs its own pictures as `/usr/share/vtium/pointers.svg`, which you can copy and edit. The format is described in [the pointer file reference](https://vtium.github.io/vtium/reference/pointer-file/).\n\n\
+           [docs] When unset, vtium draws its own pictures. A shape the file lacks keeps vtium's own picture, and `pointer-char` keeps the default shape. The font helper draws the pictures in its sandbox, so the console never reads a pointer file's contents. vtium searches no icon folder and follows no `Inherits=` line, so name the folder that holds the `cursors` folder.",
+    cite: "the decision on pointer pictures from a file, ADR-1309",
+};
+
+pub const POINTER_SIZE: Key = Key {
+    name: "pointer-size",
+    short: None,
+    kind: Kind::Number {
+        min: 8,
+        max: 64,
+        unit: "pixels",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "The size of a cursor theme's pointer.\n\n\
+           [docs] It is the size a desktop's cursor size setting names. When unset, vtium picks the size nearest the height of a character cell. An SVG pointer file ignores this key, because vtium draws it a cell tall.",
+    cite: "the decision on pointer pictures from a file, ADR-1309",
 };
 
 pub const SOFT_CURSOR: Key = Key {
@@ -1541,6 +1573,19 @@ pub const FONT_LINE_SPACING: Key = Key {
            The value is a whole percentage of the text height, rounded to whole pixels and split above and below each line, so the console has fewer lines. When `font-size` overrides a font set's `cell=` size, the character cell grows by the spacing. When unset, the font set's `line-spacing=` decides, and 0 where it has none.\n\n\
            [docs] Letters keep their size in the middle of the taller line, and line and block characters stretch to fill it. A font set's `fit=` lines choose this for each set of characters.",
     cite: "[the line spacing issue](https://github.com/vtium/vtium/issues/277)",
+};
+
+pub const FONT_LIGATURES: Key = Key {
+    name: "font-ligatures",
+    short: None,
+    kind: Kind::Choice(&["off", "on"]),
+    default: Default::Text("off"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium-render",
+    what: "Draw a programming font's ligatures, such as `->` and `!=`, across the character cells of their characters.\n\n\
+           Each character keeps its own cell. A ligature splits into its separate characters while the cursor is on one of them, while a selection covers only part of it, or when its characters differ in color or style. Bitmap fonts and the built-in fonts show no ligatures.",
+    cite: "[the programming ligatures issue](https://github.com/vtium/vtium/issues/23)",
 };
 
 pub const CELL: Key = Key {
@@ -1929,6 +1974,20 @@ pub const KEY_PROMPT_DOWN: Key = Key {
     cite: "[the OSC 133 prompt marks issue](https://github.com/vtium/vtium/issues/40); [the kitty keyboard issue](https://github.com/vtium/vtium/issues/42)",
 };
 
+pub const KEY_LINK_HINTS: Key = Key {
+    name: "key-link-hints",
+    short: None,
+    kind: Kind::KeyBinding,
+    default: Default::Text("<Ctrl><Shift>O"),
+    scope: Scope::Anywhere,
+    levels: TOP,
+    reader: "vtium",
+    what: "Label each link on the screen with letters, and copy the address of the link whose label you type.\n\n\
+           When empty, no key labels the links.\n\n\
+           [docs] Paste the address with the middle button or Shift+Insert. Escape, or this key again, stops without a copy. Only links that a program marks with OSC 8 get a label, on the main screen and on the alternate screen.",
+    cite: "[the keyboard link mode issue](https://github.com/vtium/vtium/issues/106)",
+};
+
 pub const KEY_ZOOM_IN: Key = Key {
     name: "key-zoom-in",
     short: None,
@@ -2168,9 +2227,101 @@ pub const KITTY_GRAPHICS: Key = Key {
     cite: "[the kitty graphics issue](https://github.com/vtium/vtium/issues/49)",
 };
 
+pub const LOGIN_IMAGE: Key = Key {
+    name: "login-image",
+    short: None,
+    kind: Kind::Path,
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A PNG or JPEG picture shown at each login prompt.\n\n\
+           [docs] `login-image-fit` chooses whether it is a background beneath the text or a banner above or below the prompt. The picture is an ordinary picture on the screen: it scrolls away with the text, and a screen clear removes it. A program can cover or remove the picture, but it can never read it.\n\n\
+           [docs] To remove the picture each time you log in, add one line to your shell's startup file. See [Remove the login picture when you log in](configure.md#remove-the-login-picture-when-you-log-in).\n\n\
+           [docs] vtium reads the file as root and decodes it in the image helper, as the account that runs before login. When vtium cannot read or decode the file, it logs one line and starts the login prompt without the picture. When unset, vtium shows no picture.\n\n\
+           [docs] A head shows the picture of the look it names. A look that sets no picture takes the top level's. A build without image support accepts this key, logs one line, and shows no picture.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image`",
+};
+
+pub const LOGIN_IMAGE_FIT: Key = Key {
+    name: "login-image-fit",
+    short: None,
+    kind: Kind::Choice(&["contain", "cover", "stretch", "none", "banner"]),
+    default: Default::Text("contain"),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "`contain`, `cover`, `stretch`, `none` or `banner`.\n\n\
+           [docs] `contain`, the default, scales the background until it fits inside the display, keeping its shape, and the default background shows in the bands left over. `cover` scales it until it covers the display, keeping its shape, and cuts off what passes the edges. `stretch` fills the display exactly. `none` shows the background at its own size. `login-image-scale` can then shrink the background, and `login-image-position` places it.\n\n\
+           [docs] `banner` shows the picture like a message of the day. It sits at the top of the screen with the login prompt below it, or at the bottom with the prompt above it when `login-image-position` names the bottom.\n\n\
+           [docs] A background shows through every character cell whose background is the default color. Text, colored cells and every picture a program sends cover it.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63); Ghostty's `background-image-fit`",
+};
+
+pub const LOGIN_IMAGE_ROWS: Key = Key {
+    name: "login-image-rows",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: 1000,
+        unit: "rows",
+        word: None,
+    },
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A banner's height in text rows.\n\n\
+           [docs] vtium scales the banner to that height, keeping its shape. When unset, the banner shows at its own size in pixels. A banner is never taller than the screen's rows less two, so the login prompt always has room. A background ignores this key.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
+pub const LOGIN_IMAGE_POSITION: Key = Key {
+    name: "login-image-position",
+    short: None,
+    kind: Kind::Choice(&[
+        "top-left",
+        "top",
+        "top-right",
+        "left",
+        "center",
+        "right",
+        "bottom-left",
+        "bottom",
+        "bottom-right",
+    ]),
+    default: Default::Unset,
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "Where the picture sits: `top-left` to `bottom-right`.\n\n\
+           [docs] vtium places a background against the edges of the text grid that the anchor names, and centers it along a side that the anchor leaves out. For example, `top` puts the picture against the top of the grid, centered across the screen. When unset, a background is centered.\n\n\
+           [docs] A banner sits at the top of the screen, or at the bottom under `bottom-left`, `bottom` or `bottom-right`. The anchor's column places it across the screen, and when unset the banner sits at the top left. A centered banner with an odd number of spare columns leaves the extra column on its right.\n\n\
+           [docs] vtium starts the login prompt on the first row above a banner at the bottom. Text that reaches the banner prints over it, and line feeds then scroll it away.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
+pub const LOGIN_IMAGE_SCALE: Key = Key {
+    name: "login-image-scale",
+    short: None,
+    kind: Kind::Number {
+        min: 1,
+        max: 100,
+        unit: "%",
+        word: None,
+    },
+    default: Default::Number(100),
+    scope: Scope::Anywhere,
+    levels: TOP_LOOK,
+    reader: "vtium",
+    what: "A background's size, in percent of its fit's size.\n\n\
+           [docs] The value is a whole number, written without a `%` sign. At 30, a contained picture fits inside 30% of the display's width and height. The default, 100, keeps the size the fit gives, so no value makes a picture larger. A banner ignores this key, since `login-image-rows` sizes a banner.",
+    cite: "[the login picture issue](https://github.com/vtium/vtium/issues/63)",
+};
+
 /// Every key, in the order the generated files list them. A static, so
 /// each use reads the one table instead of a copy of it.
-pub static KEYS: [Key; 129] = [
+pub static KEYS: [Key; 138] = [
     CONFIGDIR,
     HELP,
     VERSION,
@@ -2244,6 +2395,8 @@ pub static KEYS: [Key; 129] = [
     NATURAL_SCROLLING,
     SOFT_CURSOR,
     POINTER_CHAR,
+    POINTER_THEME,
+    POINTER_SIZE,
     POINTER_HIDE_TIMEOUT,
     POINTER_HIDE_WHILE_TYPING,
     KEY_PASTE,
@@ -2256,6 +2409,7 @@ pub static KEYS: [Key; 129] = [
     KEY_PAGE_DOWN,
     KEY_PROMPT_UP,
     KEY_PROMPT_DOWN,
+    KEY_LINK_HINTS,
     KEY_ZOOM_IN,
     KEY_ZOOM_OUT,
     KEY_ROTATE_CW,
@@ -2275,6 +2429,7 @@ pub static KEYS: [Key; 129] = [
     FONT_SIZE,
     FONT_HINTING,
     FONT_LINE_SPACING,
+    FONT_LIGATURES,
     CELL,
     ALLOW_FONT_OPS,
     ALLOW_WINDOW_OPS,
@@ -2300,6 +2455,11 @@ pub static KEYS: [Key; 129] = [
     NUM_COLOR_REGISTERS,
     PRIVATE_COLOR_REGISTERS,
     IMAGE_HELPER,
+    LOGIN_IMAGE,
+    LOGIN_IMAGE_FIT,
+    LOGIN_IMAGE_ROWS,
+    LOGIN_IMAGE_POSITION,
+    LOGIN_IMAGE_SCALE,
 ];
 
 /// A group of the example vtium.conf: a heading, then one description that
@@ -2333,7 +2493,13 @@ pub const SECTIONS: [Section; 11] = [
         groups: &[
             Group {
                 title: "Font",
-                keys: &[&FONT_NAME, &FONT_FRITS, &FONT_PATHS, &FONT_ENGINE],
+                keys: &[
+                    &FONT_NAME,
+                    &FONT_FRITS,
+                    &FONT_PATHS,
+                    &FONT_ENGINE,
+                    &FONT_LIGATURES,
+                ],
             },
             Group {
                 title: "Font size and spacing",
@@ -2439,6 +2605,8 @@ pub const SECTIONS: [Section; 11] = [
                     &NATURAL_SCROLLING,
                     &SOFT_CURSOR,
                     &POINTER_CHAR,
+                    &POINTER_THEME,
+                    &POINTER_SIZE,
                     &POINTER_HIDE_TIMEOUT,
                     &POINTER_HIDE_WHILE_TYPING,
                 ],
@@ -2463,6 +2631,10 @@ pub const SECTIONS: [Section; 11] = [
                     &KEY_PROMPT_UP,
                     &KEY_PROMPT_DOWN,
                 ],
+            },
+            Group {
+                title: "Links",
+                keys: &[&KEY_LINK_HINTS],
             },
             Group {
                 title: "Zoom, rotation and reset",
@@ -2614,6 +2786,16 @@ pub const SECTIONS: [Section; 11] = [
                 title: "Image helper",
                 keys: &[&IMAGE_HELPER],
             },
+            Group {
+                title: "Login picture",
+                keys: &[
+                    &LOGIN_IMAGE,
+                    &LOGIN_IMAGE_FIT,
+                    &LOGIN_IMAGE_ROWS,
+                    &LOGIN_IMAGE_POSITION,
+                    &LOGIN_IMAGE_SCALE,
+                ],
+            },
         ],
     },
     Section {
@@ -2706,11 +2888,17 @@ mod tests {
         }
     }
 
-    // ADR-1005 D10: the seventeen keys vtium takes for itself, apart from
-    // the VT keys and the rescue key, are key bindings of vtium.conf's top
-    // level, each with the combination vtium took before the keys were
-    // configurable as its built-in default, so vtium with no vtium.conf
-    // takes the same keys.
+    // The eighteen keys vtium takes for itself, apart from the VT keys and
+    // the rescue key, are key bindings of vtium.conf's top level, each
+    // with the combination vtium took before the keys were configurable as
+    // its built-in default, so vtium with no vtium.conf takes the same
+    // keys. The link hints key came later, with its default from its
+    // record.
+    //
+    // References:
+    // - ADR-1005 D10: vtium's own keys as key bindings with built-in
+    //   defaults.
+    // - ADR-1002, section 7: `key-link-hints` and its default.
     #[test]
     fn vtiums_own_keys_are_key_bindings_with_their_built_in_defaults() {
         let want = [
@@ -2720,6 +2908,7 @@ mod tests {
             ("key-page-down", "<Shift>Next"),
             ("key-prompt-up", "<Ctrl><Shift>Up"),
             ("key-prompt-down", "<Ctrl><Shift>Down"),
+            ("key-link-hints", "<Ctrl><Shift>O"),
             ("key-zoom-in", "<Ctrl>plus,<Ctrl>equal"),
             ("key-zoom-out", "<Ctrl>minus"),
             ("key-rotate-cw", "<Logo>plus,<Logo>equal"),
@@ -2845,10 +3034,15 @@ mod tests {
         assert_eq!(MOUSE.what_line(), MOUSE.what);
     }
 
-    // ADR-1403 D5: a look takes the font and display keys ADR-1200 D16
-    // gives a look and its cell, a head takes `login`, every other key is
-    // the top level's alone, and a key the command line alone sets has no
-    // level. `cell` is the one key only a section sets.
+    // A look takes the font and display keys, its cell and the login
+    // picture's keys. A head takes `login`, every other key is the top
+    // level's alone, and a key the command line alone sets has no level.
+    // `cell` is the one key only a section sets.
+    //
+    // References:
+    // - ADR-1403 D5: the three levels of a key.
+    // - ADR-1200 D16: the font and display keys a look takes.
+    // - ADR-1100 D17, "The keys": the login picture's keys are look keys.
     #[test]
     fn each_key_names_the_levels_that_may_set_it() {
         let names = |level| at(level).map(|k| k.name).collect::<Vec<_>>();
@@ -2860,9 +3054,15 @@ mod tests {
                 "font-size",
                 "font-hinting",
                 "font-line-spacing",
+                "font-ligatures",
                 "cell",
                 "display-depth",
                 "display-dpi",
+                "login-image",
+                "login-image-fit",
+                "login-image-rows",
+                "login-image-position",
+                "login-image-scale",
             ]
         );
         assert_eq!(names(Level::Head), ["login"]);

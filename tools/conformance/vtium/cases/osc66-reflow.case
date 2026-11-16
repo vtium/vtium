@@ -1,0 +1,14 @@
+# Reflow at a narrower width. The one-row block XYZ does not fit after abcd
+# at 6 columns, so it moves whole to the next row and pads the cells it
+# leaves. A row that holds a row of the 2-row block T keeps its columns and
+# is cut at the new width. A block 7 columns wide no longer fits the screen,
+# and is erased.
+# spec: ADR-1308 D6, "Reflow at a width change": "A run of one row moves whole to the next row when the row no longer holds it, as a wide character does, and leaves pad cells behind it. A line that holds any row of a run taller than one row does not rewrap"; "A resize that makes the screen too small for a run ... erases the run"
+# covers: text.kitty-sizing
+size 10 6
+send "abcd\e]66;w=3;XYZ\e\\efg"
+send "\r\n\e]66;s=2;T\e\\uvwxyz12"
+send "\e[4;1H\e]66;w=7;W\e\\\r\n"
+dump
+resize 6 6
+dump

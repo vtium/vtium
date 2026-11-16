@@ -225,7 +225,37 @@ fn picture(
     if !request.inflate {
         ignored = pic.rest;
     }
+    if let Some(fitting) = &request.fit {
+        let (width, height, rgba) = fitted(fitting, &pic)?;
+        return Ok((width, height, rgba, ignored));
+    }
     Ok((pic.width, pic.height, pic.rgba, ignored))
+}
+
+/// The login picture `pic` fitted as `fitting` asks: only the pixels the
+/// screen shows, as R, G, B, A bytes, so the console never holds the
+/// picture at its decoded size. The fit reads the decoded bytes in place.
+///
+/// References:
+/// - ADR-1100 D17: the helper scales the picture to the size its form
+///   needs and returns only that.
+fn fitted(
+    fitting: &vtium_image::login::Fitting,
+    pic: &decode::Picture,
+) -> Result<(u32, u32, Vec<u8>), Failure> {
+    let source = vtium_image::login::Source::Rgba(&pic.rgba);
+    let (width, height, pixels) = vtium_image::login::fit(fitting, (pic.width, pic.height), source)
+        .ok_or_else(|| {
+            Failure::new(
+                Status::TooLarge,
+                "the picture cannot be fitted to the screen",
+            )
+        })?;
+    let rgba = pixels
+        .iter()
+        .flat_map(|p| [(p >> 16) as u8, (p >> 8) as u8, *p as u8, (p >> 24) as u8])
+        .collect();
+    Ok((width, height, rgba))
 }
 
 /// Whether `file` begins as a GIF does.
@@ -438,6 +468,7 @@ mod tests {
             }),
             largest: (100, 100),
             largest_bytes: 1 << 20,
+            fit: None,
         }
     }
 
@@ -612,5 +643,91 @@ mod tests {
             &Locked::unsandboxed(),
         );
         assert_eq!((o.status, o.shm), (Status::TooShort, None));
+    }
+
+    // The helper hands back only the pixels the screen shows.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   returns only the fitted picture.
+    #[test]
+    fn a_login_picture_comes_back_fitted_to_the_screen() {
+        use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
+        let fitting = Fitting {
+            form: Form {
+                fit: Fit::Cover,
+                rows: None,
+                position: Some(Position::Left),
+                scale: 100,
+            },
+            geometry: Geometry {
+                display: (80, 48),
+                cell: (8, 16),
+                grid: (10, 3),
+            },
+        };
+        let pic = decode::Picture {
+            width: 160,
+            height: 96,
+            rgba: [0x10, 0x20, 0x30, 0xff].repeat(160 * 96),
+            rest: 0,
+        };
+        let fit = fitted(&fitting, &pic).map_err(|f| f.reason);
+        assert_eq!(fit, Ok((80, 48, [0x10, 0x20, 0x30, 0xff].repeat(80 * 48))));
+    }
+
+    // A request that carries a fit, through the job's entry point as the
+    // serve loop calls it, comes back fitted: a PNG of 160×96 under cover
+    // on a grid of 80×48 pixels is answered with 80×48 pixels, never with
+    // the picture at its decoded size.
+    //
+    // References:
+    // - ADR-1100 D17, "Who reads the file and who decodes it": the helper
+    //   returns only the fitted picture.
+    #[test]
+    fn a_request_with_a_fit_is_answered_with_the_fitted_picture() {
+        use vtium_image::login::{Fit, Fitting, Form, Geometry, Position};
+        let mut png = Vec::new();
+        {
+            let mut encoder = png::Encoder::new(&mut png, 160, 96);
+            encoder.set_color(png::ColorType::Rgba);
+            encoder.set_depth(png::BitDepth::Eight);
+            let mut writer = encoder.write_header().unwrap();
+            writer
+                .write_image_data(&[0x10, 0x20, 0x30, 0xff].repeat(160 * 96))
+                .unwrap();
+        }
+        let mut r = raw(Medium::Direct(Vec::new()), Layout::Rgba, 1, 1);
+        r.pixels = None;
+        r.min = 0;
+        r.any_image = true;
+        r.largest = (8192, 8192);
+        r.largest_bytes = 1 << 24;
+        r.fit = Some(Fitting {
+            form: Form {
+                fit: Fit::Cover,
+                rows: None,
+                position: Some(Position::Left),
+                scale: 100,
+            },
+            geometry: Geometry {
+                display: (80, 48),
+                cell: (8, 16),
+                grid: (10, 3),
+            },
+        });
+        let reply = ReplyFile::Fresh(memory_file("r").unwrap());
+        let source = open(&r, Some(inline(&png)), None).unwrap();
+        let o = finish(&r, source, Some(&reply), &Locked::unsandboxed());
+        assert_eq!(
+            (o.status, o.width, o.height),
+            (Status::Ok, 80, 48),
+            "{}",
+            o.reason
+        );
+        let ReplyFile::Fresh(fd) = &reply else {
+            unreachable!()
+        };
+        assert_eq!(sealed_bytes(fd), [0x10, 0x20, 0x30, 0xff].repeat(80 * 48));
     }
 }

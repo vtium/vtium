@@ -134,6 +134,9 @@ pub enum Command {
     /// `allow-display-ops` sets it.
     DisplayOps(bool),
     DisplayRequest,
+    /// The cursor's blink interval a program set with the Linux console's
+    /// `CSI 16 ; n ]`, printed as a `test cursor-blink` line.
+    CursorBlink,
     Cell {
         width: u32,
         height: u32,
@@ -200,7 +203,7 @@ pub struct Spec {
     pub offered: bool,
 }
 
-/// Every command of interface 1.12, in the order of its describe blocks:
+/// Every command of interface 1.13, in the order of its describe blocks:
 /// INTERFACE.md's, then vtium's additions (INTERFACE-vtium.md). The image
 /// commands are offered in a build with images.
 pub const SPECS: &[Spec] = &[
@@ -274,6 +277,7 @@ pub const SPECS: &[Spec] = &[
     spec("display-ops", Some("display-ops"), &["on"], true),
     spec("display-request", Some("display-ops"), &[], true),
     spec("cluster-width", Some("cluster-width"), &["rule"], true),
+    spec("cursor-blink", Some("cursor-blink"), &[], true),
 ];
 
 const fn spec(
@@ -622,6 +626,7 @@ fn command(f: &Fields<'_>) -> Result<Command, Failure> {
         "grid-request" => Command::GridRequest,
         "display-ops" => Command::DisplayOps(f.flag("on", Some(true))?),
         "display-request" => Command::DisplayRequest,
+        "cursor-blink" => Command::CursorBlink,
         "palette" => Command::Palette(f.name_of("name", &PALETTE_NAMES.map(|n| (n, n)))?),
         "frame-since" => Command::FrameSince(to_u8(f.decimal("caller", 7, None)?)),
         "cell" => Command::Cell {
@@ -879,6 +884,7 @@ mod tests {
         assert_eq!(parse(b"display-ops"), Ok(Command::DisplayOps(true)));
         assert_eq!(parse(b"display-ops;on=0"), Ok(Command::DisplayOps(false)));
         assert_eq!(parse(b"display-request"), Ok(Command::DisplayRequest));
+        assert_eq!(parse(b"cursor-blink"), Ok(Command::CursorBlink));
     }
 
     #[cfg(feature = "images")]
@@ -958,6 +964,7 @@ mod tests {
             "cluster-width",
             "cluster-width;rule=packed",
             "state;x=1",
+            "cursor-blink;ms=250",
         ] {
             assert_eq!(code(text), Some(2), "{text:?}");
         }

@@ -1,6 +1,6 @@
 # Keys
 
-Each session in vtium runs with `TERM=xterm-vtium`. Programs look up that name in terminfo, the database that describes what each kind of terminal can do. Most remote hosts do not have a terminfo entry for `xterm-vtium`. Read [ssh from vtium](https://github.com/vtium/vtium/blob/main/crates/vtium/README.md#ssh-from-vtium) before you ssh from vtium.
+Each session in vtium runs with `TERM=xterm-vtium`. Before you ssh from vtium to another host, read what [Install vtium and give it VTs](install.md#arch-linux) says about `TERM` and ssh.
 
 vtium keeps the keys in the table below for itself. Two words in the table need explaining. A "head" is a terminal that shows on one or more displays. A "console" is one session within a head, with its own login, screen and scrollback.
 
@@ -15,6 +15,7 @@ vtium keeps the keys in the table below for itself. Two words in the table need 
 | Ctrl+Shift+Delete | resets the console on screen, as the `reset` command does | `key-reset` |
 | Shift+Insert, the middle button | pastes the selection | `key-paste` for the key |
 | Ctrl+click on a link | copies the link's address into the selection. vtium does not open the link. | none |
+| Ctrl+Shift+O | labels each link on the screen with letters. Typing a label copies that link's address into the selection. vtium does not open the link. | `key-link-hints` |
 | Ctrl+Super+Right, Ctrl+Super+Left | shows the head's next or previous console | `key-console-next`, `key-console-previous` |
 | Ctrl+Super+Return | opens a new console in the head | `key-console-open` |
 | Ctrl+Super+Backspace | closes the console on screen, unless it is the head's last | `key-console-close` |
@@ -23,6 +24,8 @@ vtium keeps the keys in the table below for itself. Two words in the table need 
 Full-screen programs, such as editors, use a second screen called the alternate screen. While a program shows the alternate screen, vtium passes the scroll keys and the prompt jumps to the program. An editor can then use Shift with the arrows, Page Up and Page Down, for example to select text. On the main screen, where the shell runs, vtium keeps these keys for itself and scrolls.
 
 Sometimes a program ends and leaves the keyboard sending escape codes, so that even Enter stops working. Ctrl+Shift+Delete is the way out. It clears the console's screen and scrollback, and turns off every mode that a program set. It resets only the console on screen.
+
+Ctrl+Shift+O lets you copy a link without the mouse. vtium puts a short label of letters on each link on the screen, and no two labels overlap. A help line at the bottom of the screen tells you to type a label, or press Escape to stop. When a label sits on the bottom row, the help line moves to the top row. When labels sit on both rows, the help line goes away, so it never hides a label. Type a label, and vtium copies that link's address into the selection. See [the keyboard link mode issue](https://github.com/vtium/vtium/issues/106).
 
 When you select text with the pointer, vtium copies it into its selection. The console has no system clipboard. Instead, vtium holds one selection. A program can set the selection with OSC 52, but no program can read it back.
 

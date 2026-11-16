@@ -1,0 +1,10 @@
+# A block of s=2 written on the last row scrolls the region up one row first,
+# and the cursor moves up with the text. A block of s=3 is taller than a
+# scrolling region of two rows, and is discarded.
+# spec: ADR-1308 D4, "At the bottom": "When the block's last row would lie below the scrolling region's bottom margin, vtium first scrolls the region up, as that many line feeds at the bottom margin would, and the cursor moves up with the text. A block taller than the scrolling region is discarded"
+# covers: text.kitty-sizing
+size 6 3
+send "top\r\nmid\r\n\e]66;s=2;A\e\\"
+dump
+send "\e[1;2r\e]66;s=3;B\e\\"
+dump

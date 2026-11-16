@@ -76,6 +76,7 @@ mod route;
 #[cfg(test)]
 mod scratch;
 mod split;
+pub mod translation;
 mod write;
 
 pub use bounds::{
@@ -91,7 +92,7 @@ pub use error::{
     At, AtStart, Drops, Error, Fate, Mend, Note, PolicyFault, Problem, Quoted, Reason, Refusal,
     Rejected, Remark, Renamed, Shown, Stating, Syntax, Warning, at,
 };
-pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, text};
+pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, read_limited, text};
 pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};

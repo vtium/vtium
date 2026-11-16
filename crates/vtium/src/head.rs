@@ -3,7 +3,7 @@
 //! laid out over its own displays by the scaled rule ([`crate::layout`])
 //! at its own density, zoom and rotation.
 //!
-//! [`identity`] maps vtium-platform's identities of a display and of an
+//! [`vtium_devices`] maps vtium-platform's identities of a display and of an
 //! input into the head file's, which the rules walk. The app holds the
 //! heads, places each display in one, and drives each head's session as
 //! it drove the seat's one session before heads: each head is one
@@ -193,6 +193,9 @@ pub struct Head {
     /// When its sessions hang up, while it has no display.
     pub(crate) hangup_due: Option<Instant>,
     pub(crate) views: BTreeMap<(PathBuf, DisplayId), View>,
+    /// What each console's running program was told about 24-bit color
+    /// when it started, which [`session::Colorterm`] keeps.
+    colorterm: session::Colorterm,
     pub(crate) attached: Attached,
     /// Every display of the head draws at once at the end of the turn.
     pub(crate) draw_now: bool,
@@ -237,6 +240,12 @@ pub struct Head {
     /// overrides the frit's `line-spacing=` (ADR-1302 D13); `None` when
     /// neither sets it.
     pub(crate) line_spacing: Option<u32>,
+    /// `font-ligatures`, vtium.conf's or the head's look's: whether a run
+    /// of ASCII symbols draws as the font's ligature.
+    ///
+    /// References:
+    /// - ADR-1308 D8: the programming ligatures and their setting.
+    ligatures: bool,
     /// The base font was found once: a later failure keeps it.
     pub(crate) has_font: bool,
     /// The base font's size step, which a zoom takes.
@@ -258,6 +267,13 @@ pub struct Head {
     named: Option<String>,
     /// The font changed: every display's renderer is rebuilt.
     pub(crate) refont: bool,
+    /// Link hints while they are on, on the shown console: the letters
+    /// typed so far ([`crate::hints`]).
+    pub(crate) hints: Option<crate::hints::Hints>,
+    /// vtium's note on the overlay row shows, that no link is on the
+    /// screen or what a link hint copied, until the next key press or
+    /// pointer movement.
+    note_shows: bool,
     /// OSC 50's refusals since its last switch: only the first is logged.
     pub(crate) font_refused: u64,
     /// The console the last OSC 50 switch came from, while the head draws
@@ -283,6 +299,13 @@ pub struct Head {
     /// What the image keys give the head's consoles (ADR-1100 D11).
     #[cfg(feature = "images")]
     pub(crate) image_settings: images::Settings,
+    /// The login picture the head's look or the top level names.
+    ///
+    /// References:
+    /// - ADR-1100 D17, "The keys": the picture's keys are look keys and
+    ///   top-level keys.
+    #[cfg(feature = "images")]
+    pub(crate) login_image: images::Login,
 }
 
 /// A console's terminal for `config`, on [`GRID`] with the scrollback cap
@@ -460,6 +483,8 @@ impl Head {
                 .map(|s| s.value.clone())
         };
         let font_name = own(&keys::FONT_NAME);
+        #[cfg(not(feature = "images"))]
+        images::login_unsupported(config);
         let bindings = crate::grab::Bindings::of(config);
         let (points, auto_size, sized) = configured_size(config);
         let fit = Fit {
@@ -499,6 +524,7 @@ impl Head {
             when_display_lost: WhenDisplayLost::Keep,
             hangup_due: None,
             views: BTreeMap::new(),
+            colorterm: session::Colorterm::default(),
             attached: Attached::NotYet,
             draw_now: false,
             text_due: None,
@@ -515,6 +541,7 @@ impl Head {
             sized,
             look_cell: look_cell(config),
             line_spacing: config.font_line_spacing().map(u32::from),
+            ligatures: config.font_ligatures(),
             has_font: false,
             step: 16,
             cell: CELL,
@@ -522,6 +549,8 @@ impl Head {
             made: None,
             named: None,
             refont: false,
+            hints: None,
+            note_shows: false,
             font_refused: 0,
             switched: None,
             orientation: Orientation::Normal,
@@ -534,6 +563,8 @@ impl Head {
             report: None,
             #[cfg(feature = "images")]
             image_settings: images::Settings::read(config),
+            #[cfg(feature = "images")]
+            login_image: images::Login::read(config, images::Settings::read(config).graphic),
         }
     }
 
@@ -966,6 +997,10 @@ impl Head {
     /// draws the new one whole, since what each display last drew belongs
     /// to the old console.
     fn swap_shown(&mut self, new: Console, visible: bool, closing: bool) -> Console {
+        // Link hints and vtium's note belong to the console shown, and end
+        // with the switch.
+        self.end_link_hints();
+        self.end_note();
         let fit = self.fit();
         self.grid = new.fit.grid;
         self.font_size = new.fit.font_size;
@@ -1133,6 +1168,7 @@ impl Head {
             pointer: config
                 .char(&keys::POINTER_CHAR)
                 .map_or(PointerShape::Arrow, PointerShape::Glyph),
+            ligatures: self.ligatures,
             ..RenderConfig::default()
         }
     }
@@ -1181,6 +1217,10 @@ impl Head {
     /// the VT is another's or the displays are blanked. Mode 2033's report
     /// goes out at once, to a program that may be waiting in a read.
     pub(crate) fn set_visible(&mut self, visible: bool) {
+        // A switch to another VT ends link hints.
+        if !visible {
+            self.end_link_hints();
+        }
         self.console.term.terminal.set_visible(visible);
         self.send_user_bytes();
     }
@@ -1188,6 +1228,9 @@ impl Head {
     /// The shown console's terminal and pty at `grid`, the pointer's last
     /// pixel the grid's.
     pub(crate) fn resize(&mut self, grid: (usize, usize)) {
+        // A new grid, zoom or rotation puts the labels elsewhere, so link
+        // hints end.
+        self.end_link_hints();
         let (cw, ch) = self.cell;
         let (w, h) = self.pixels(grid);
         self.console.term.terminal.set_cell_size(cw, ch);
@@ -1293,7 +1336,7 @@ impl Head {
             .screen()
             .frame(palette, Age::NEVER);
         let mut all = vec![Shown::default()];
-        crate::deferred::read_shown(&frame, &mut all);
+        crate::deferred::read_shown(&frame, &mut all, self.ligatures);
         crate::deferred::settle(&mut all);
         // the helper places the clusters in the cells this terminal gives
         // them (ADR-1006 D8)
@@ -1356,6 +1399,15 @@ impl Head {
         let terminal = &self.console.term.terminal;
         let shift = mods.contains(Mods::SHIFT) && !terminal.mouse_captures_shift();
         let moved = matches!(event, PointerEvent::Moved { .. });
+        // A click or a scroll ends link hints, and a movement ends vtium's
+        // note.
+        match event {
+            PointerEvent::Button { pressed: true, .. } | PointerEvent::Wheel(_) => {
+                self.end_link_hints();
+            }
+            PointerEvent::Moved { .. } => self.end_note(),
+            _ => {}
+        }
         let mut zoom = None;
         match event {
             PointerEvent::Moved { x, y, held } => {
@@ -1619,6 +1671,107 @@ impl Head {
         *selection = Some(uri.as_bytes().to_vec());
         screen.clear_selection();
         true
+    }
+
+    /// The link hints key (`key-link-hints`): labels each link in the
+    /// shown console's view with letters and shows how to pick one on the
+    /// overlay row, or ends link hints while they are on. With no link in
+    /// the view, no hints start, and the overlay row says so until the next
+    /// key press or pointer movement.
+    ///
+    /// References:
+    /// - ADR-1002, section 7: the key, the labels, and the screen with no
+    ///   links.
+    pub(crate) fn link_hints_key(&mut self) {
+        self.draw_now = true;
+        if self.hints.is_some() {
+            self.end_link_hints();
+            return;
+        }
+        let screen = self.console.term.terminal.screen_mut();
+        let links = screen.view_links();
+        if links.is_empty() {
+            screen.set_overlay_note(Some(crate::hints::NO_LINKS.to_owned()));
+            self.note_shows = true;
+            return;
+        }
+        let labels = crate::hints::labels(links.len());
+        screen.set_link_hints(links.into_iter().zip(labels).collect());
+        screen.set_overlay_note(Some(crate::hints::PROMPT.to_owned()));
+        self.note_shows = false;
+        self.hints = Some(crate::hints::Hints::default());
+    }
+
+    /// A key press while link hints are on, with the keysyms `keysyms`
+    /// and with Ctrl, Alt or Super held when `command`: a letter narrows
+    /// the labels, Backspace takes one back, a whole label copies its
+    /// link's address into the seat's `selection` buffer, and any other key
+    /// ends hints. vtium takes the key, so none reaches the program.
+    /// Returns false, taking nothing, while hints are off.
+    ///
+    /// References:
+    /// - ADR-1002, section 7: typing a label, the copy, and how hints end.
+    pub(crate) fn hint_key(
+        &mut self,
+        keysyms: &[u32],
+        command: bool,
+        selection: &mut Option<Vec<u8>>,
+    ) -> bool {
+        let Some(hints) = self.hints.as_mut() else {
+            return false;
+        };
+        self.draw_now = true;
+        let screen = self.console.term.terminal.screen_mut();
+        let labelled: Vec<_> = screen
+            .link_hints()
+            .iter()
+            .map(|h| (h.link, h.label.clone()))
+            .collect();
+        match hints.key(&labelled, crate::hints::hint_key(keysyms, command)) {
+            crate::hints::Step::Typed => {
+                let hints = hints.clone();
+                screen.show_link_hints(|label| hints.shows(label));
+            }
+            crate::hints::Step::Ignored => {}
+            crate::hints::Step::Picked(link) => {
+                let uri = screen.link_uri(link).map(str::to_owned);
+                self.end_link_hints();
+                if let Some(uri) = uri {
+                    let screen = self.console.term.terminal.screen_mut();
+                    screen.clear_selection();
+                    let note = format!("{}{uri}", crate::hints::COPIED);
+                    screen.set_overlay_note(Some(note));
+                    self.note_shows = true;
+                    *selection = Some(uri.into_bytes());
+                }
+            }
+            crate::hints::Step::End => self.end_link_hints(),
+        }
+        true
+    }
+
+    /// Ends link hints, if they are on: the labels and the overlay row's
+    /// line go.
+    pub(crate) fn end_link_hints(&mut self) {
+        if self.hints.take().is_some() {
+            let screen = self.console.term.terminal.screen_mut();
+            screen.set_link_hints(Vec::new());
+            screen.set_overlay_note(None);
+            self.draw_now = true;
+        }
+    }
+
+    /// Ends vtium's note on the overlay row, if one shows after link
+    /// hints: at a key press or a pointer movement.
+    pub(crate) fn end_note(&mut self) {
+        if std::mem::take(&mut self.note_shows) {
+            self.console
+                .term
+                .terminal
+                .screen_mut()
+                .set_overlay_note(None);
+            self.draw_now = true;
+        }
     }
 
     /// Copies the selected text into the selection buffer; with nothing
@@ -2183,6 +2336,73 @@ mod tests {
             !regular.chars.contains(&ZWJ),
             "U+200D is asked for in keys alone"
         );
+    }
+
+    // ADR-1308 D8: `font-ligatures` in vtium.conf reaches the console. With
+    // it on, the head's renderer draws ligatures and the glyphs the head
+    // asks the helper for hold both pieces of `->`. Off, by default or
+    // under a look that turns it off, the head asks for no piece
+    // covers: text.ligatures
+    #[test]
+    #[cfg(feature = "bidi")]
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn font_ligatures_reaches_the_renderer_and_the_glyphs_asked_for() {
+        let path = std::path::Path::new("/etc/vtium/vtium.conf");
+        let text = "version = 1\nfont-ligatures = on\n[look plain]\nfont-ligatures = off\n\
+                    [head a]\nlook = plain\n[head b]\n";
+        let top = crate::config::load(&[], &mut |p: &std::path::Path| {
+            Ok((p == path).then(|| text.as_bytes().to_vec()))
+        })
+        .config;
+        let rules = vtium_settings::sections(text.as_bytes())
+            .map(|s| s.parsed.config)
+            .unwrap_or_default();
+        let under = |name: &str| {
+            let settings: Vec<vtium_settings::Setting> = rules
+                .head(name)
+                .map(|h| {
+                    rules
+                        .settings(h)
+                        .into_iter()
+                        .map(|(_, s)| s.clone())
+                        .collect()
+                })
+                .unwrap_or_default();
+            top.for_head(path, &settings).0
+        };
+        let none = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let arrow = ['-', '>'];
+        let pieces: Vec<Vec<char>> = (0..2u8)
+            .filter_map(|start| {
+                let mut key = Vec::new();
+                vtium_font::syllable::Piece::new(start, 1, 2)?.key(&arrow, &mut key);
+                Some(key)
+            })
+            .collect();
+        assert_eq!(pieces.len(), 2);
+        for (config, on, what) in [
+            (under("b"), true, "on in vtium.conf"),
+            (under("a"), false, "off in the head's look"),
+            (none, false, "unset"),
+        ] {
+            let clock: Clock = std::rc::Rc::new(Instant::now);
+            let mut head = Head::new(
+                "h",
+                &config,
+                Vec::new(),
+                terminal(&config, (0, 0), 0, clock),
+            );
+            head.console.term.terminal.input(b"a -> b");
+            assert_eq!(head.render_config(&config).ligatures, on, "{what}");
+            let shown = head.visible();
+            let asked = shown
+                .first()
+                .map(|s| s.clusters.clone())
+                .unwrap_or_default();
+            for key in &pieces {
+                assert_eq!(asked.contains(key), on, "{what}: {key:?} in {asked:?}");
+            }
+        }
     }
 
     // ADR-1006 D8: what a head shows carries its terminal's cluster width,
@@ -2784,5 +3004,195 @@ mod tests {
         assert!(head.console.term.blink.fired(Timer::Cursor, true));
         head.console.term.terminal.input(b"\x1b[1 q");
         assert!(head.draw_state().cursor_on);
+    }
+
+    /// A head whose shown console prints three links, `x:a`, `x:b` and
+    /// `x:a` again, and has a second console hidden.
+    #[expect(clippy::disallowed_methods, reason = "a test's clock is the host's")]
+    fn linked_head() -> Head {
+        let config = crate::config::load(&[], &mut |_: &std::path::Path| Ok(None)).config;
+        let clock: Clock = std::rc::Rc::new(Instant::now);
+        let term = || terminal(&config, (0, 0), 0, std::rc::Rc::clone(&clock));
+        let mut head = Head::new("h", &config, Vec::new(), term());
+        head.hidden.push(Console::new(2, term(), head.fresh_fit()));
+        let link = |uri: &str, text: &str| format!("\x1b]8;;{uri}\x1b\\{text}\x1b]8;;\x1b\\");
+        let bytes = format!(
+            "{} {}\r\n{}",
+            link("x:a", "one"),
+            link("x:b", "two"),
+            link("x:a", "one again")
+        );
+        head.console.term.terminal.input(bytes.as_bytes());
+        head
+    }
+
+    /// The letters and shown flags of the shown console's labels.
+    fn labels(head: &Head) -> Vec<(String, bool)> {
+        let screen = head.console.term.terminal.screen();
+        let hints = screen.link_hints();
+        hints.iter().map(|h| (h.label.clone(), h.shown)).collect()
+    }
+
+    /// The keysym of `c`.
+    fn sym(c: char) -> Vec<u32> {
+        vec![u32::from(c)]
+    }
+
+    // ADR-1002, section 7: the key labels each link once, the overlay row
+    // says how to pick one, and typing a label copies its address, which
+    // the overlay row then shows.
+    #[test]
+    fn typing_a_label_copies_its_links_address() {
+        let mut head = linked_head();
+        let mut selection = Some(b"old".to_vec());
+        head.console.term.terminal.screen_mut().select_word(0, 0);
+        head.link_hints_key();
+        assert!(head.hints.is_some());
+        assert_eq!(labels(&head), [("a".into(), true), ("s".into(), true)]);
+        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::PROMPT));
+        assert!(
+            head.hint_key(&sym('m'), false, &mut selection),
+            "taken, ignored"
+        );
+        assert!(head.hints.is_some());
+        assert!(head.hint_key(&sym('s'), false, &mut selection));
+        assert_eq!(selection.as_deref(), Some(&b"x:b"[..]));
+        assert!(head.hints.is_none());
+        assert!(labels(&head).is_empty());
+        assert_eq!(head.link_overlay().as_deref(), Some("Copied: x:b"));
+        let screen = head.console.term.terminal.screen();
+        assert_eq!(screen.selection_text(), None, "the selection is cleared");
+        assert!(
+            !head.hint_key(&sym('a'), false, &mut selection),
+            "hints are off"
+        );
+        head.end_note();
+        assert_eq!(head.link_overlay(), None);
+    }
+
+    // ADR-1002, section 7: with no link in the view no hints start, and the
+    // overlay row says so until the next key press or pointer movement.
+    #[test]
+    fn a_screen_with_no_links_starts_no_hints() {
+        let mut head = linked_head();
+        head.console.term.terminal.input(b"\x1b[2J");
+        head.link_hints_key();
+        assert!(head.hints.is_none());
+        assert_eq!(head.link_overlay().as_deref(), Some(crate::hints::NO_LINKS));
+        head.pointer_event(
+            PointerEvent::Moved {
+                x: 1,
+                y: 1,
+                held: None,
+            },
+            Mods::empty(),
+            false,
+            &mut None,
+        );
+        assert_eq!(head.link_overlay(), None, "a movement ends the note");
+    }
+
+    // ADR-1002, section 7: Escape ends hints with no copy, and so do the
+    // hints key again, a pointer click and a switch to another VT.
+    #[test]
+    fn hints_end_without_a_copy() {
+        let mut head = linked_head();
+        let mut selection = None;
+        type End<'a> = &'a dyn Fn(&mut Head, &mut Option<Vec<u8>>);
+        let ends: [End<'_>; 5] = [
+            &|h, sel| {
+                h.hint_key(&[0xff1b], false, sel);
+            },
+            &|h, sel| {
+                h.hint_key(&sym('a'), true, sel);
+            },
+            &|h, _| h.link_hints_key(),
+            &|h, sel| {
+                let click = PointerEvent::Button {
+                    button: Button::Right,
+                    pressed: true,
+                    double_click: false,
+                };
+                h.pointer_event(click, Mods::empty(), false, sel);
+            },
+            &|h, _| h.set_visible(false),
+        ];
+        for (i, end) in ends.iter().enumerate() {
+            head.link_hints_key();
+            assert!(head.hints.is_some(), "end {i}: hints on");
+            end(&mut head, &mut selection);
+            assert!(head.hints.is_none(), "end {i}");
+            assert!(labels(&head).is_empty(), "end {i}: the labels go");
+            assert_eq!(head.link_overlay(), None, "end {i}: the row's line goes");
+        }
+        assert_eq!(selection, None, "nothing copied");
+    }
+
+    // ADR-1002, section 7: a switch to another console ends hints, and the
+    // console left keeps no label.
+    #[test]
+    fn a_console_switch_ends_hints() {
+        let mut head = linked_head();
+        head.link_hints_key();
+        head.show(1, true);
+        assert!(head.hints.is_none());
+        let left = head.hidden.first().map(|c| c.term.terminal.screen());
+        assert!(left.is_some_and(|s| s.link_hints().is_empty()));
+        assert!(left.is_some_and(|s| {
+            s.frame(&vtium_term::Palette::default(), vtium_term::Age::NEVER)
+                .overlay()
+                .is_none()
+        }));
+    }
+
+    // ADR-1002, section 7: a new grid, zoom or rotation ends hints.
+    #[test]
+    fn a_relayout_ends_hints() {
+        let mut head = linked_head();
+        head.link_hints_key();
+        head.resize((40, 12));
+        assert!(head.hints.is_none());
+        assert!(labels(&head).is_empty());
+        assert_eq!(head.link_overlay(), None);
+    }
+
+    // ADR-1002, section 7: a letter narrows the labels shown, and Backspace
+    // takes it back.
+    #[test]
+    fn letters_narrow_the_labels_and_backspace_takes_one_back() {
+        let mut head = linked_head();
+        let mut bytes = Vec::new();
+        for i in 0..30 {
+            bytes.extend(format!("\x1b]8;;x:{i}\x1b\\{i}\x1b]8;;\x1b\\ ").bytes());
+        }
+        head.console.term.terminal.input(b"\x1b[2J\x1b[H");
+        head.console.term.terminal.input(&bytes);
+        head.link_hints_key();
+        let mut selection = None;
+        head.hint_key(&sym('s'), false, &mut selection);
+        let shown: Vec<String> = labels(&head)
+            .into_iter()
+            .filter(|(_, s)| *s)
+            .map(|(l, _)| l)
+            .collect();
+        assert_eq!(shown, ["sa", "ss", "sd", "sf"]);
+        head.hint_key(&[0xff08], false, &mut selection);
+        assert!(labels(&head).iter().all(|(_, s)| *s));
+        assert_eq!(selection, None);
+    }
+
+    // ADR-1002, section 7: hints end when the shown console's session
+    // ends, under oneshot as well as at a restart.
+    #[test]
+    fn the_sessions_end_ends_hints() {
+        for oneshot in [false, true] {
+            let mut head = linked_head();
+            head.link_hints_key();
+            let id = head.console.id;
+            head.exited(id, Duration::from_secs(60), oneshot);
+            assert!(head.hints.is_none(), "oneshot {oneshot}");
+            assert!(labels(&head).is_empty(), "oneshot {oneshot}");
+            assert_eq!(head.link_overlay(), None, "oneshot {oneshot}");
+        }
     }
 }

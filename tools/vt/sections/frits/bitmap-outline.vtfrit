@@ -1,0 +1,25 @@
+# bitmap-outline: the font set of the bitmap-outline page
+# (tools/vt/sections/57-bitmap-outline.sh). Terminus at 8x16 comes first and
+# draws Latin, Greek and Cyrillic. Outline fonts fill the characters that
+# Terminus lacks: DejaVu Sans Mono for symbols, Noto Sans Hebrew, Noto Sans
+# Devanagari, Noto Sans CJK and Noto Color Emoji, each by its file in Arch
+# Linux's packages, then the built-in GNU Unifont. No source has a render=
+# line, so each outline source draws 1-bit, as a bitmap font's glyphs draw,
+# because the first source is a bitmap font.
+#
+# References:
+# - ADR-1200 D1, the render= row: outline glyphs behind a bitmap first
+#   source draw 1-bit unless render=smooth says otherwise.
+#
+# checks: outline glyphs 1-bit behind a bitmap font
+
+name=bitmap-outline
+license=OFL-1.1 AND Bitstream-Vera
+
+source=file:/usr/share/kbd/consolefonts/ter-v16n.psf.gz
+source=outline:/usr/share/fonts/TTF/DejaVuSansMono.ttf
+source=outline:/usr/share/fonts/noto/NotoSansHebrew-Regular.ttf
+source=outline:/usr/share/fonts/noto/NotoSansDevanagari-Regular.ttf
+source=outline:/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc
+source=outline:/usr/share/fonts/noto/NotoColorEmoji.ttf
+source=builtin:unifont
