@@ -1028,6 +1028,16 @@ GATES_DIR  = $(abspath $(or $(CARGO_TARGET_DIR),target))/gates
 gates: ## Run every gate of the gate line, up to JOBS=N at once (default 8), each to the end, report each exit code and fail if any failed
 	@python3 -I -B tools/gates/run --jobs $(GATES_JOBS) --dir $(GATES_DIR)
 
+# make ci-local runs the tests in a container with the userland of CI's
+# runner, Ubuntu 24.04, so a test that only fails there shows up before a
+# push; tools/ci-local/run describes the run. It caches under
+# $XDG_CACHE_HOME/vtium/ci-local, never in target/.
+BUILDS ?= all-features default
+
+.PHONY: ci-local
+ci-local: ## Run cargo test --workspace, with every feature and with the default build, in a container matching CI's Ubuntu 24.04 runner (needs podman or docker; BUILDS='all-features default', TEST_ARGS='-p CRATE ...')
+	@tools/ci-local/run --builds '$(BUILDS)' $(TEST_ARGS)
+
 # The steering session runs this before it moves stage to a commit of
 # integration (AGENTS.md, "The working loop", step 7). It fetches main from
 # origin and fails unless COMMIT descends from it, which happens when a stage
