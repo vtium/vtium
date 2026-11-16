@@ -119,8 +119,8 @@ impl Desk {
     }
 }
 
-/// The devices the stand-in machine has: a monitor, a keyboard and a
-/// mouse.
+/// The devices the stand-in machine has: a monitor, a keyboard, a mouse,
+/// and a power button, which is neither a keyboard nor a pointer.
 pub fn present() -> Present {
     let mut monitor = Identity::display();
     monitor.edid = Some(vtium_settings::Edid {
@@ -140,6 +140,7 @@ pub fn present() -> Present {
             monitor,
             input(Class::Keyboard, "keyboard", "3.3:1.0"),
             input(Class::Mouse, "mouse", "3.4:1.0"),
+            input(Class::Key, "Power Button", "3.5:1.0"),
         ],
         udev: true,
     }
@@ -217,11 +218,6 @@ impl Sim {
             sim.event(Event::Input(Input::Reply(reply)), &mut did);
         }
         sim
-    }
-
-    /// Sends `key` and answers everything it causes.
-    pub fn key(&mut self, key: Key) -> Did {
-        self.press(Press::Key(key))
     }
 
     /// Does `press` and answers everything it causes.

@@ -104,6 +104,9 @@ fn every_key_in_every_state_keeps_the_rules() {
         let found = checks.found;
         failures.extend(found.failures);
         all.found.reached.extend(found.reached);
+        for (node, keys) in found.nodes {
+            all.found.nodes.entry(node).or_insert(keys);
+        }
         for (view, parts) in found.writes {
             all.found.writes.entry(view).or_default().extend(parts);
         }
@@ -136,6 +139,48 @@ fn every_key_in_every_state_keeps_the_rules() {
         failures.len(),
         failures.join("\n")
     );
+}
+
+/// ADR-1403's interface tree holds together with its key table: every
+/// parent is a node, every key row a node names is a row of the table,
+/// every key row applies in at least one node, and every planned node says
+/// in its `now` column what the TUI does today.
+#[test]
+fn the_interface_tree_and_the_key_table_name_each_other() {
+    let tree = tables::tree();
+    let rows = tables::keys();
+    let mut failures = Vec::new();
+    for node in &tree {
+        if node.parent != "-" && !tree.iter().any(|n| n.id == node.parent) {
+            failures.push(format!("{}'s parent {} is no node", node.id, node.parent));
+        }
+        for key in &node.keys {
+            if !rows.iter().any(|r| r.id == *key) {
+                failures.push(format!(
+                    "{} names the key row {key}, which the key table lacks",
+                    node.id
+                ));
+            }
+        }
+        if node.status == "planned" && node.now.is_empty() {
+            failures.push(format!(
+                "the planned node {} says nothing in its now column",
+                node.id
+            ));
+        }
+    }
+    for row in &rows {
+        if !tree.iter().any(|n| n.keys.contains(&row.id)) {
+            failures.push(format!("the key row {} applies in no node", row.id));
+        }
+    }
+    assert!(
+        tree.len() > 20 && rows.len() > 50,
+        "{} nodes, {} rows",
+        tree.len(),
+        rows.len()
+    );
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// The 1-switch run over questions, typing and leaving: from the state
@@ -216,17 +261,16 @@ fn press(sim: &mut Sim, keys: &[&str]) {
 }
 
 /// The leave question of #411: with a font set marked for removal and a
-/// change not saved, `q` asks the leave question. The question names the
-/// change, `y` saves the change into the draft before the TUI quits, Esc
-/// and Ctrl-C cancel the question, and every other key, `l` and `i`
-/// among them, leaves it open.
+/// change not saved, `q` asks the leave question, which names the change.
+/// `y` saves the change and installs before the TUI quits, `n` saves the
+/// change and quits without installing, Esc and Ctrl-C cancel the
+/// question, and every other key, `l` and `i` among them, leaves it open.
 ///
 /// References:
 /// - ADR-1403 D7, "The same keys in every view": the answer keys of every
-///   question, and the leave question naming its unsaved changes and
-///   saving them on y.
+///   question, and the leave question's `y` and `n`.
 #[test]
-fn the_leave_question_names_the_unsaved_change_and_y_saves_it() {
+fn the_leave_question_names_the_unsaved_change_and_both_answers_save_it() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     // in Fonts: proof as the font, one change; tiny5 marked for removal
     press(&mut sim, &["Up", "Up", "Enter", "Down", "r", "q"]);
@@ -239,8 +283,10 @@ fn the_leave_question_names_the_unsaved_change_and_y_saves_it() {
         .expect("the leave question")
         .question;
     assert!(question.contains("the removal of tiny5"), "{question}");
-    assert!(question.contains("1 change is not saved"), "{question}");
-    // a stray key leaves the question open, and Esc and Ctrl-C cancel it
+    assert!(
+        question.contains("the 1 change that is not saved"),
+        "{question}"
+    );
     for stray in ["l", "i", "z", "Tab"] {
         let mut asked = sim.clone();
         asked.press(press_of(stray));
@@ -253,24 +299,22 @@ fn the_leave_question_names_the_unsaved_change_and_y_saves_it() {
         asked.press(press_of(no));
         assert_eq!(asked.exited, None, "{no} left");
         assert!(asked.app.confirm.is_none(), "{no} kept the question open");
-        assert_eq!(asked.desk.writes, 0, "{no} saved");
-        assert_eq!(asked.app.unsaved, 1, "{no} dropped the change");
+        assert_eq!((asked.desk.writes, asked.app.unsaved), (0, 1), "{no}");
     }
-    sim.key(Key::Char('y'));
-    assert_eq!(sim.exited, Some(0));
-    assert_eq!(sim.desk.writes, 1);
-    assert_eq!(
-        vtium_settings::setting(&sim.desk.draft, "font-name").as_deref(),
-        Some("proof"),
-        "{}",
-        sim.desk.draft
-    );
+    let mut n = sim.clone();
+    n.press(press_of("n"));
+    assert_eq!((n.exited, n.desk.writes), (Some(0), 1));
+    assert_eq!(n.desk.installed, sim.desk.installed, "n installed");
+    sim.press(press_of("y"));
+    assert_eq!((sim.exited, sim.desk.writes), (Some(0), 1));
+    let font = vtium_settings::setting(&sim.desk.installed, "font-name");
+    assert_eq!(font.as_deref(), Some("proof"), "{}", sim.desk.installed);
 }
 
-/// Without a change waiting, the leave question says that `y` quits and
-/// writes nothing.
+/// Without a change waiting, the leave question's `y` installs the font
+/// set's removal and quits, and saves nothing.
 #[test]
-fn the_leave_question_with_nothing_unsaved_quits_on_y() {
+fn the_leave_question_with_nothing_unsaved_installs_on_y() {
     let mut sim = Sim::start(Term::Vtium, 80, 25);
     press(&mut sim, &["Up", "r", "q"]);
     let question = sim
@@ -280,9 +324,10 @@ fn the_leave_question_with_nothing_unsaved_quits_on_y() {
         .expect("the leave question")
         .question;
     assert!(!question.contains("not saved"), "{question}");
-    sim.key(Key::Char('y'));
+    let did = sim.press(press_of("y"));
     assert_eq!(sim.exited, Some(0));
     assert_eq!(sim.desk.writes, 0);
+    assert!(did.effects.iter().any(|e| e == "install"), "{did:?}");
 }
 
 /// Below the minimum size, `q` with a change not saved asks the quit

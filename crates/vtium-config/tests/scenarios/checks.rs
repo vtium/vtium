@@ -271,7 +271,43 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("y.question.quit", (save_quit, no_today));
-    m.insert("y.question.leave", (save_quit, Some(|s| s.answers_no())));
+    m.insert(
+        "y.question.leave",
+        (
+            |s| {
+                // an install refused or failed keeps the TUI, which says why
+                if !s.exited() {
+                    return if s.has("install") || s.after.app.message.is_none() {
+                        Err("the TUI stays after an install, or says nothing".into())
+                    } else {
+                        Ok(())
+                    };
+                }
+                s.exits(0)?;
+                if s.has("install") && s.saved() {
+                    Ok(())
+                } else {
+                    Err("expected a save and an install before the TUI quits".into())
+                }
+            },
+            no_today,
+        ),
+    );
+    m.insert(
+        "n.question.leave",
+        (
+            |s| {
+                s.exits(0)?;
+                if s.saved() && !s.has("install") {
+                    Ok(())
+                } else {
+                    Err("expected a save and no install".into())
+                }
+            },
+            no_today,
+        ),
+    );
+    m.insert("n.question", (nothing, no_today));
     m.insert(
         "n.question.quit",
         (
@@ -338,7 +374,73 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             no_today,
         ),
     );
-    m.insert("action.layer", (|_| Ok(()), None));
+    m.insert("action.layer", (nothing, None));
+    // the shared list: the keys move inside it, and Enter and Esc leave it
+    for id in [
+        "up.layer.list",
+        "down.layer.list",
+        "home.layer.list",
+        "end.layer.list",
+        "pgup.layer.list",
+        "pgdn.layer.list",
+    ] {
+        m.insert(
+            id,
+            (
+                |s| {
+                    if s.exited() || s.step.from.node() != s.step.to.node() || !s.kept() {
+                        Err("the key left the list or changed something".into())
+                    } else {
+                        Ok(())
+                    }
+                },
+                None,
+            ),
+        );
+    }
+    let leaves_list: Check = |s| {
+        if s.exited() || s.step.from.node() == s.step.to.node() {
+            Err("the list stays open".into())
+        } else {
+            Ok(())
+        }
+    };
+    m.insert("enter.layer.list", (leaves_list, None));
+    m.insert("esc.layer.list", (leaves_list, None));
+    // rows of what is not built yet, whose nodes the walk reaches in
+    // another shape today: what the key does there today is not pinned
+    let not_built: Check = |_| Err("not built".into());
+    for id in [
+        "list.settings-values",
+        "list.flow-card",
+        "list.filter-picker",
+        "list.font-set-files",
+        "list.terminals",
+        "list.font-sets",
+        "list.font-sizes",
+        "enter.view.settings",
+        "enter.layer.settings-section",
+        "esc.layer.settings-section",
+        "enter.view.looks",
+    ] {
+        m.insert(id, (not_built, None));
+    }
+    // the Looks view lists sizes today, where p and w do nothing
+    m.insert("p.view.looks", (not_built, Some(nothing)));
+    m.insert("window-ops.view.looks", (not_built, Some(nothing)));
+    m.insert(
+        "enter.typing.settings",
+        (
+            |s| {
+                if s.after.app.editing.is_none() && !s.exited() {
+                    Ok(())
+                } else {
+                    Err("the value is still typed".into())
+                }
+            },
+            no_today,
+        ),
+    );
     m.insert("r.view.flow", (|s| s.opens("question:revert"), no_today));
     m.insert("n.view.flow", (|s| s.opens("question:new"), no_today));
     m.insert("v.view.flow", (|s| s.opens("layer:file-view"), no_today));
@@ -364,7 +466,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
             s.nothing()
         }
     };
-    m.insert("o.view.looks", (ops_on, Some(ops_on)));
+    m.insert("o.view.looks", (nothing, Some(ops_on)));
     m.insert("o.view", (nothing, Some(ops_on)));
     m.insert(
         "t.layer.flow-card",
@@ -411,19 +513,7 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         ),
     );
     m.insert("other.too-small", (nothing, no_today));
-    m.insert(
-        "updown.typing.settings",
-        (
-            |_| Ok(()),
-            Some(|s| {
-                if s.after.app.editing.is_none() && s.after.app.message == s.before.app.message {
-                    Ok(())
-                } else {
-                    Err("expected the value dropped silently".into())
-                }
-            }),
-        ),
-    );
+    m.insert("updown.typing.settings", (nothing, None));
     m
 }
 
@@ -476,6 +566,9 @@ pub struct Findings {
     pub failures: Vec<String>,
     /// The key table's rows some transition reached.
     pub reached: BTreeSet<String>,
+    /// The tree's nodes the walk reached, each with the keys that first
+    /// reach it.
+    pub nodes: BTreeMap<String, String>,
     /// What each view wrote, by the views table's names.
     pub writes: BTreeMap<&'static str, BTreeSet<String>>,
     /// The actions each view's tab bar showed.
@@ -485,6 +578,7 @@ pub struct Findings {
 /// The checks, with the tables read once.
 pub struct Checks {
     rows: Vec<KeyRow>,
+    tree: Vec<tables::TreeNode>,
     checks: BTreeMap<&'static str, (Check, Option<Check>)>,
     pub found: Findings,
 }
@@ -493,6 +587,7 @@ impl Checks {
     pub fn new() -> Checks {
         Checks {
             rows: tables::keys(),
+            tree: tables::tree(),
             checks: row_checks(),
             found: Findings::default(),
         }
@@ -517,12 +612,34 @@ impl Checks {
         if let Err(e) = self.invariants(&seen) {
             self.fail(step, e);
         }
+        // every state the walk reaches is a node of the interface tree
+        let node_id = step.from.node();
+        let to_id = step.to.node();
+        for (id, abs) in [(&node_id, &step.from), (&to_id, &step.to)] {
+            if id != "left" && !self.found.nodes.contains_key(id) {
+                let path = if std::ptr::eq(abs, &step.to) {
+                    step.scenario()
+                } else {
+                    let (term, cols, rows) = step.start;
+                    format!("{} {cols}×{rows}: {}", term.name(), step.path.join(" "))
+                };
+                self.found.nodes.insert(id.clone(), path);
+            }
+        }
+        let Some(node) = self.tree.iter().find(|n| n.id == node_id).cloned() else {
+            return self.views(&seen);
+        };
         // a resize is no key, so the key table says nothing about it
         let resize = matches!(step.key, "Shrink" | "Grow");
-        if let Some(row) = tables::row_for(&self.rows, &step.from, step.key)
-            .filter(|_| !resize)
-            .cloned()
-        {
+        let rows: Vec<KeyRow> = if resize {
+            Vec::new()
+        } else {
+            tables::rows_for(&self.rows, &node, step.key)
+                .into_iter()
+                .cloned()
+                .collect()
+        };
+        for row in rows {
             self.found.reached.insert(row.id.clone());
             let check = self.checks.get(row.id.as_str()).copied();
             let verdict = match (check, row.status.as_str()) {
@@ -578,9 +695,8 @@ impl Checks {
             if app.view != View::Flow || app.confirm.is_some() {
                 let shown = screen.join("\n");
                 let line = vtium_config::tui::view::key_line(app);
-                if s.step.to.kind != StateKind::TooSmall
-                    && let Some(key) = line.split("  ").find(|k| !shown.contains(k))
-                {
+                let small = vtium_config::tui::view::too_small(app) && app.confirm.is_none();
+                if !small && let Some(key) = line.split("  ").find(|k| !shown.contains(k)) {
                     return Err(format!("the key line leaves out {key:?}"));
                 }
             }
@@ -647,14 +763,26 @@ impl Checks {
     /// The checks after the walk: every row of the key table reached and
     /// checked, and the views table met.
     pub fn finish(&mut self, views: &[ViewRow]) {
+        // each key row is checked in every node the walk reaches that
+        // lists it
         for row in &self.rows {
-            if !row.key_line && !self.found.reached.contains(&row.id) {
+            let listing: Vec<&str> = self
+                .tree
+                .iter()
+                .filter(|n| n.keys.contains(&row.id) && self.found.nodes.contains_key(&n.id))
+                .map(|n| n.id.as_str())
+                .collect();
+            if !row.key_line && !listing.is_empty() && !self.found.reached.contains(&row.id) {
                 self.found.failures.push(format!(
-                    "the key table's row {} matched no transition",
-                    row.id
+                    "the key table's row {} matched no transition in {}",
+                    row.id,
+                    listing.join(", ")
                 ));
             }
         }
+        self.found
+            .failures
+            .extend(walk_against_tree(&self.tree, &self.found.nodes));
         for (i, tab) in View::TABS.iter().enumerate() {
             let name = view_name(*tab);
             match views.iter().find(|v| v.id == name) {
@@ -754,4 +882,74 @@ fn written(before: &str, after: &str) -> BTreeSet<String> {
         .filter(|k| a.get(*k) != b.get(*k))
         .map(|(part, _)| part.clone())
         .collect()
+}
+
+/// The supported nodes the walk does not reach yet. The stand-in machine
+/// has a power button, which is neither a keyboard nor a pointer, yet the
+/// Flow view shows no box of other inputs for it to the walk, so
+/// `flow.others` stays out of reach until the stand-in's devices show one.
+const WALK_GAPS: &[&str] = &["flow.others"];
+
+/// Whether the walk reaches each planned node of the tree today, by the
+/// node's `now` column. A planned node is checked in reverse, as a planned
+/// key row is: the check expects what vtium-config does today, so it fails
+/// once the work lands and the node still says planned.
+fn reached_today(id: &str) -> Option<bool> {
+    Some(match id {
+        // the view, the tab or the form exists today in another shape
+        "looks" | "fonts" | "settings" | "looks.new-frit" | "looks.new-frit.typing" => true,
+        "settings.section.typing" | "any.question.leave" => true,
+        // nothing like it exists today
+        "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
+        "settings.section" | "settings.section.list" | "any.question.window-ops" => false,
+        _ => return None,
+    })
+}
+
+/// The walk and the tree meet in the middle: every state the walk reaches
+/// is a node of the tree, and every supported node is reached. `tui` and
+/// `any` group the other nodes and are no state of their own.
+pub fn walk_against_tree(
+    tree: &[tables::TreeNode],
+    reached: &BTreeMap<String, String>,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    for (id, keys) in reached {
+        if !tree.iter().any(|n| n.id == *id) {
+            out.push(format!(
+                "the walk reaches {id}, which the tree has no node for: {keys}"
+            ));
+        }
+    }
+    for node in tree
+        .iter()
+        .filter(|n| !matches!(n.id.as_str(), "tui" | "any"))
+    {
+        let is = reached.contains_key(&node.id);
+        let want = match node.status.as_str() {
+            // a node the walk cannot reach yet is named here, and the
+            // check fails once the walk reaches it, so the name goes
+            "supported" if WALK_GAPS.contains(&node.id.as_str()) => false,
+            "supported" => true,
+            _ => match reached_today(&node.id) {
+                Some(want) => want,
+                None => {
+                    out.push(format!(
+                        "the planned node {} has no check of what the TUI does today",
+                        node.id
+                    ));
+                    continue;
+                }
+            },
+        };
+        if is != want {
+            out.push(format!(
+                "the tree's node {} is {}, and the walk {} it",
+                node.id,
+                node.status,
+                if is { "reaches" } else { "never reaches" }
+            ));
+        }
+    }
+    out
 }

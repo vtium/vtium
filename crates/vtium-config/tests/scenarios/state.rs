@@ -62,6 +62,39 @@ pub struct Abs {
 }
 
 impl Abs {
+    /// The node of ADR-1403's interface tree, `ADR-1403-tree.tsv`, that
+    /// this state is: `flow.card`, `any.question.quit`, `settings`. The
+    /// walk and the tree meet here: every state the explorer reaches names
+    /// a node, and the test fails on one that does not.
+    pub fn node(&self) -> String {
+        let n = |s: &str| s.to_owned();
+        match (&self.kind, self.narrow.as_str()) {
+            (StateKind::Left, _) => n("left"),
+            (StateKind::TooSmall, _) => n("any.too-small"),
+            (StateKind::Trial, _) => n("any.trial"),
+            (StateKind::Question, "quit") => n("any.question.quit"),
+            (StateKind::Question, "leave") => n("any.question.leave"),
+            (StateKind::Question, _) => n("any.question.confirm"),
+            (StateKind::Typing, "flow-name") => n("flow.card.typing"),
+            (StateKind::Typing, "flow-label") => n("flow.detail.typing"),
+            (StateKind::Typing, "flow-value") => n("flow.maker.picker.typing"),
+            (StateKind::Typing, "settings") => n("settings.section.typing"),
+            (StateKind::Typing, "new-frit") => n("looks.new-frit.typing"),
+            (StateKind::Layer, "new-frit") => n("looks.new-frit"),
+            (StateKind::Layer, "file-view") => n("flow.file"),
+            (StateKind::Layer, "restore") => n("flow.restore"),
+            (StateKind::Layer, "picker") => n("flow.maker.picker"),
+            (StateKind::Layer, "flow-card") => n("flow.card"),
+            (StateKind::Layer, "flow-maker") => n("flow.maker"),
+            (StateKind::Layer, "flow-others") => n("flow.others"),
+            (StateKind::Layer, "flow-detail" | "flow-choice") => n("flow.detail"),
+            (StateKind::View, view) => n(view),
+            (kind, narrow) => format!("{}:{narrow}", kind.name()),
+        }
+    }
+}
+
+impl Abs {
     /// The state as the key table writes it: `view`, `view:flow`,
     /// `question:leave`.
     pub fn table_state(&self) -> String {
@@ -78,11 +111,18 @@ impl std::fmt::Display for Abs {
         if self.kind == StateKind::Left {
             return write!(f, "{} left", self.term);
         }
-        write!(f, "{} {}", self.term, self.view)?;
+        write!(f, "{} {}", self.term, self.node())?;
+        // a part's choices and a part's detail are one node of the tree
+        if self.narrow == "flow-choice" {
+            f.write_str("[choices]")?;
+        }
         if !self.focus.is_empty() {
             write!(f, "({})", self.focus)?;
         }
-        write!(f, " {}", self.table_state())?;
+        // below the minimum size, a question asked there or the trial
+        if self.view.is_empty() && self.kind != StateKind::TooSmall {
+            f.write_str(" below 80×25")?;
+        }
         if self.unsaved {
             f.write_str(" +unsaved")?;
         }
@@ -140,6 +180,11 @@ pub fn of(sim: &Sim) -> Abs {
     abs.narrow = narrow.to_owned();
     // the highlight matters only to the keys of a view with nothing open
     // over it, and a view's own name narrows it, as in `view:flow`
+    // a part maker's line, and the picker's, decide what Enter opens: a
+    // part, the picker, or the value typed after Other…
+    if matches!(abs.narrow.as_str(), "flow-maker" | "picker") {
+        abs.focus = format!("line {}", app.flow_view.line);
+    }
     if abs.kind == StateKind::View {
         abs.focus = focus(app);
         abs.narrow = abs.view.to_owned();
@@ -171,7 +216,17 @@ fn open(app: &App) -> (StateKind, &'static str) {
         return (StateKind::Trial, "");
     }
     if app.view == View::Flow && app.flow_view.typing.is_some() {
-        return (StateKind::Typing, "flow-name");
+        let field = if app.flow_view.picker.is_some() {
+            "flow-value"
+        } else if matches!(
+            app.flow_view.layer,
+            Some(Obj::Doc(_, Slot::Terminal) | Obj::New(Slot::Terminal))
+        ) {
+            "flow-name"
+        } else {
+            "flow-label"
+        };
+        return (StateKind::Typing, field);
     }
     match app.view {
         View::Settings if app.editing.is_some() => return (StateKind::Typing, "settings"),
@@ -193,7 +248,7 @@ fn open(app: &App) -> (StateKind, &'static str) {
         return (StateKind::Layer, "restore");
     }
     if app.flow_view.picker.is_some() {
-        return (StateKind::Layer, "flow-picker");
+        return (StateKind::Layer, "picker");
     }
     match &app.flow_view.layer {
         None => (StateKind::View, ""),

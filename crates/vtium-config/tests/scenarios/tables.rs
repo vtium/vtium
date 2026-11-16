@@ -7,8 +7,6 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-use super::state::{Abs, StateKind};
-
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
@@ -40,31 +38,7 @@ pub struct KeyRow {
     pub keys: Vec<&'static str>,
     pub other: bool,
     pub key_line: bool,
-    /// The state's kind and the name that narrows it, `any` matching
-    /// every kind.
-    pub kind: String,
-    pub narrow: String,
     pub status: String,
-}
-
-impl KeyRow {
-    /// Whether the row's state holds for `abs`, and how narrow it is: 2
-    /// for a narrowed state, 1 for a kind, 0 for `any`.
-    pub fn fits(&self, abs: &Abs) -> Option<u8> {
-        if abs.kind == StateKind::Left {
-            return None;
-        }
-        if self.kind == "any" {
-            return Some(0);
-        }
-        if self.kind != abs.kind.name() {
-            return None;
-        }
-        if self.narrow.is_empty() {
-            return Some(1);
-        }
-        (self.narrow == abs.narrow).then_some(2)
-    }
 }
 
 /// The alphabet's name for the table's name of a key.
@@ -81,13 +55,9 @@ pub fn keys() -> Vec<KeyRow> {
         .map(|r| {
             let col = |c: &str| r.get(c).cloned().unwrap_or_default();
             let key = col("key");
-            let state = col("state");
-            let (kind, narrow) = match state.split_once(':') {
-                Some((k, n)) => (k.to_owned(), n.to_owned()),
-                None => (state.clone(), String::new()),
-            };
             let other = key == "any other key";
-            let key_line = key == "key line";
+            // rows about what the screen shows, not about a key
+            let key_line = matches!(key.as_str(), "key line" | "Help and key line");
             let keys = if other || key_line {
                 Vec::new()
             } else {
@@ -108,33 +78,58 @@ pub fn keys() -> Vec<KeyRow> {
                 keys,
                 other,
                 key_line,
-                kind,
-                narrow,
                 status: col("status"),
             }
         })
         .collect()
 }
 
-/// The row that decides what `key` means in `abs`: of the rows that name
-/// the key and fit the state, the narrowest; else the narrowest `any
-/// other key` row that fits.
-pub fn row_for<'a>(rows: &'a [KeyRow], abs: &Abs, key: &str) -> Option<&'a KeyRow> {
-    let narrowest = |named: bool| {
+/// The rows that say what `key` means in the tree node `node`: every row
+/// the node lists that names the key, else the node's `any other key`
+/// row. Several rows can name one key in a node, such as Enter on a card,
+/// which opens a list for each kind of field; each of them is checked.
+pub fn rows_for<'a>(rows: &'a [KeyRow], node: &TreeNode, key: &str) -> Vec<&'a KeyRow> {
+    let listed = || {
         rows.iter()
-            .filter(|r| !r.key_line)
-            .filter(|r| {
-                if named {
-                    r.keys.contains(&key)
-                } else {
-                    r.other
-                }
-            })
-            .filter_map(|r| r.fits(abs).map(|n| (n, r)))
-            .max_by_key(|(n, _)| *n)
-            .map(|(_, r)| r)
+            .filter(|r| !r.key_line && node.keys.iter().any(|k| *k == r.id))
     };
-    narrowest(true).or_else(|| narrowest(false))
+    let named: Vec<&KeyRow> = listed().filter(|r| r.keys.contains(&key)).collect();
+    if named.is_empty() {
+        listed().filter(|r| r.other).collect()
+    } else {
+        named
+    }
+}
+
+/// A node of ADR-1403's interface tree, `ADR-1403-tree.tsv`.
+#[derive(Clone, Debug)]
+pub struct TreeNode {
+    pub id: String,
+    pub parent: String,
+    /// The ids of the key table's rows that apply in the node.
+    pub keys: Vec<String>,
+    pub status: String,
+    pub now: String,
+}
+
+pub fn tree() -> Vec<TreeNode> {
+    read("docs/architecture/platform/ADR-1403-tree.tsv")
+        .into_iter()
+        .map(|r| {
+            let col = |c: &str| r.get(c).cloned().unwrap_or_default();
+            TreeNode {
+                id: col("id"),
+                parent: col("parent"),
+                keys: col("keys")
+                    .split(", ")
+                    .filter(|k| !k.is_empty() && *k != "-")
+                    .map(str::to_owned)
+                    .collect(),
+                status: col("status"),
+                now: col("now"),
+            }
+        })
+        .collect()
 }
 
 /// A row of the views table, with the `now` column's values in place of
