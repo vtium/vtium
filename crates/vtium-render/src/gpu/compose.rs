@@ -1551,8 +1551,9 @@ impl<'a, G: Gl> GpuBack<'a, G> {
 
     /// Takes the cell `job` of grid row `row`, whose glyph lies at
     /// `place`, apart into its layers when pictures reach it, as the CPU
-    /// path's `pictured` composes it: no picture under a block cursor, and
-    /// none hidden beneath the last opaque picture over the whole cell. Its
+    /// path's `pictured` composes it: no picture under a block cursor, none
+    /// that the cell's own background hides, and none hidden beneath the
+    /// last opaque picture over the whole cell. Its
     /// text layer takes the ink it receives, as `ink` flags it. Says
     /// whether it did.
     #[cfg(feature = "images")]
@@ -1570,10 +1571,18 @@ impl<'a, G: Gl> GpuBack<'a, G> {
         }
         let pictures = &compose.pictures;
         pictures.meeting(&job.r, &mut self.meeting);
-        if self.meeting.is_empty() {
+        // A cell with a background color of its own hides each picture
+        // below backgrounds. When it hides every picture that meets it, it
+        // draws through the cell program alone, as a cell with no picture
+        // does, so its text rounds as that cell's text does.
+        let shows = |l: Layer| l != Layer::BelowBackground || job.under.default_bg;
+        if !self
+            .meeting
+            .iter()
+            .any(|&i| pictures.pic(i).is_some_and(|p| shows(p.layer())))
+        {
             return false;
         }
-        let shows = |l: Layer| l != Layer::BelowBackground || job.under.default_bg;
         let top = self.meeting.iter().rposition(|&i| {
             pictures
                 .pic(i)

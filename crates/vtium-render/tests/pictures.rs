@@ -8,7 +8,7 @@
 
 mod common;
 
-use common::{Screen, WriteOnly, arrow_over, psf, rgb, style, unifont};
+use common::{Screen, Shade, WriteOnly, arrow_over, psf, rgb, style, unifont};
 use vtium_font::{Face, Font};
 use vtium_image::{
     FramePlacement, ImageKey, LineKey, NewImage, Pixels, Place, Protocol, Rows, Screens, Store,
@@ -1362,6 +1362,43 @@ fn a_run_of_covered_cells_stops_at_another_picture() {
             );
             let b = ramp(x + 100, y - 16 + 50) & 0xff_ffff;
             assert_eq!(c.pixel(x + 24, y), Some(b), "b at {x},{y}");
+        }
+    }
+}
+
+// A picture below backgrounds lies under each cell's background, and a
+// cell whose own background is not the default hides it. Such a cell's
+// text then draws exactly as it does with no picture there, partly covered
+// pixels included.
+// covers: image.compositor
+#[test]
+fn a_cell_whose_background_hides_the_picture_draws_as_with_no_picture() {
+    let mut s = Screen::new(10, 4, rgb("c0c0c0"), rgb("000000"));
+    let st = style(rgb("d0d0d0"), rgb("2050a0"));
+    s.text(0, 1, "ab", st);
+    let mut under = st;
+    under
+        .attrs
+        .set_underline(vtium_term::UnderlineStyle::Single);
+    s.text(2, 1, "c", under);
+    let size = (80, 64);
+    let font = || Font::new(Shade);
+    let (plain, _) = draw_with(font(), &s, Vec::new(), size, Config::default());
+    let mut con = Console::new(10, 4, 0);
+    let img = con.image(Protocol::KITTY, 1, (24, 16), ramp);
+    con.place(
+        img,
+        Place {
+            col: 0,
+            row: 1,
+            z: i32::MIN,
+            ..Place::default()
+        },
+    );
+    let (c, _) = draw_with(font(), &s, con.frame(0), size, Config::default());
+    for y in 0..64 {
+        for x in 0..80 {
+            assert_eq!(c.pixel(x, y), plain.pixel(x, y), "{x},{y}");
         }
     }
 }
