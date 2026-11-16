@@ -529,9 +529,7 @@ impl State {
             Mode::NormalMouse => m.tracking == MouseTracking::Normal,
             Mode::ButtonMouse => m.tracking == MouseTracking::Button,
             Mode::AnyMouse => m.tracking == MouseTracking::Any,
-            // The cursor blinks when the host blinks it and its style is
-            // one that blinks.
-            Mode::CursorBlink => self.host.cursor_blink && self.cursor_style.blinks(),
+            Mode::CursorBlink => self.cursor_blinks(),
             Mode::Dectcem => s.cursor_visible(),
             Mode::ReverseWrap => m.reverse_wrap,
             Mode::Decnkm => m.keypad,
@@ -980,11 +978,12 @@ pub(super) fn restore(state: &mut State, number: Option<u32>) {
 }
 
 impl CursorStyle {
-    /// Whether the style blinks: the default one blinks as the host says.
-    fn blinks(self) -> bool {
+    /// Whether a style DECSCUSR chose blinks. The default style blinks as
+    /// the host says, which `State::cursor_blinks` reads.
+    pub(super) fn blinks(self) -> bool {
         matches!(
             self,
-            Self::Default | Self::BlockBlink | Self::UnderlineBlink | Self::BarBlink
+            Self::BlockBlink | Self::UnderlineBlink | Self::BarBlink
         )
     }
 

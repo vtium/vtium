@@ -171,16 +171,14 @@ fn decarm_tells_the_host_to_repeat_keys() {
 }
 
 // ctlseqs, cursor blink (mode 12): under a DECSCUSR style, set makes the
-// cursor blink and reset steady, in the same shape; under the default
-// style the host's blink holds, and DECRQM reports it.
+// cursor blink and reset steady, in the same shape, and DECRQM reports
+// what the console shows. A style a program chose blinks as its number
+// says, whatever the host's blink.
 // covers: DEC-12
 #[test]
 fn mode_12_blinks_a_chosen_cursor_style() {
     let mut t = term(4, 2, b"");
     t.set_cursor_blink(true);
-    assert_eq!(rqm(&mut t, true, 12), 1);
-    t.input(b"\x1b[?12l");
-    assert_eq!(t.cursor_style(), CursorStyle::Default);
     assert_eq!(rqm(&mut t, true, 12), 1);
     t.input(b"\x1b[4 q");
     assert_eq!(rqm(&mut t, true, 12), 2);
@@ -194,6 +192,11 @@ fn mode_12_blinks_a_chosen_cursor_style() {
     toggles(&mut t, true, 12);
     t.set_cursor_blink(false);
     t.input(b"\x1b[?12h");
+    assert_eq!(rqm(&mut t, true, 12), 1);
+    t.input(b"\x1b[1 q");
+    assert!(drawn(&t).blink);
+    assert_eq!(rqm(&mut t, true, 12), 1);
+    t.input(b"\x1b[2 q");
     assert_eq!(rqm(&mut t, true, 12), 2);
 }
 

@@ -523,6 +523,13 @@ impl Terminal {
         self.state.cursor_style
     }
 
+    /// Whether the cursor blinks, which DECRQM reports for mode 12: a
+    /// style DECSCUSR chose blinks as its number says, and the default
+    /// style blinks as the host's cursor blink says.
+    pub fn cursor_blinks(&self) -> bool {
+        self.state.cursor_blinks()
+    }
+
     /// The host's cursor blink: whether the default cursor style blinks,
     /// mode 12's initial state.
     pub fn set_cursor_blink(&mut self, on: bool) {
@@ -736,6 +743,15 @@ impl State {
             .get(i)
             .and_then(|n| usize::try_from(n).ok())
             .unwrap_or(0)
+    }
+
+    /// Whether the cursor blinks: a style DECSCUSR chose blinks as its
+    /// number says, and the default style blinks as the host says.
+    fn cursor_blinks(&self) -> bool {
+        match self.cursor_style {
+            CursorStyle::Default => self.host.cursor_blink,
+            style => style.blinks(),
+        }
     }
 
     /// Sets DECSCUSR's style, and draws it: the default style is a block
