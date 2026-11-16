@@ -59,9 +59,10 @@ pub const ALPHABET: &[(&str, Press)] = &[
     ("y", Press::Key(Key::Char('y'))),
     ("z", Press::Key(Key::Char('z'))),
     // the mouse, which the Flow view reads: a click on the Looks tab's
-    // name, a click on the first box of CONFIGURATION, and the wheel
+    // name, a click on the desk terminal's box in CONFIGURATION, and the
+    // wheel
     ("Click tab", Press::Mouse(Button::Press(0), 8, 0)),
-    ("Click box", Press::Mouse(Button::Press(0), 3, 5)),
+    ("Click box", Press::Mouse(Button::Press(0), 30, 8)),
     ("Wheel up", Press::Mouse(Button::WheelUp, 3, 5)),
     ("Wheel down", Press::Mouse(Button::WheelDown, 3, 5)),
     ("Shrink", Press::Resize(79, 24)),

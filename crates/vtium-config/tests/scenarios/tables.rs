@@ -43,6 +43,20 @@ pub struct KeyRow {
     pub status: String,
 }
 
+/// The alphabet's names for one of the table's names of keys: a mouse
+/// action by its words, such as `Click on a box`, or the keys a space
+/// separates, such as `s i r n v o`.
+fn mouse_names(part: &str) -> Vec<&str> {
+    match part {
+        "Click on a view's name" => vec!["Click tab"],
+        "Click on a box" => vec!["Click box"],
+        "Wheel up" | "Wheel down" => vec![part],
+        "Click" => vec!["Click tab", "Click box"],
+        "Click or wheel" => vec!["Click tab", "Click box", "Wheel up", "Wheel down"],
+        _ => part.split(' ').collect(),
+    }
+}
+
 /// The alphabet's name for the table's name of a key.
 fn key_name(key: &str) -> Option<&'static str> {
     super::explore::ALPHABET
@@ -64,7 +78,8 @@ pub fn keys() -> Vec<KeyRow> {
             let keys = if other || letters || key_line {
                 Vec::new()
             } else {
-                key.split([' ', ','])
+                key.split(", ")
+                    .flat_map(mouse_names)
                     .filter(|k| !k.is_empty())
                     .map(|k| {
                         key_name(k).unwrap_or_else(|| {

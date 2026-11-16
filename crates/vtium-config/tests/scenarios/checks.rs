@@ -406,9 +406,34 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
         }
     };
     m.insert("enter.layer.list", (leaves_list, None));
-    // the new-frit form's Up and Down move between its rows, onto a field
+    // the mouse: over a question, a layer or a value being typed it does
+    // nothing, and at the trial it puts the font back
+    for id in ["click.layer", "click.typing", "wheel.typing"] {
+        m.insert(id, (nothing, None));
+    }
+    // under a question the highlight stays too, which the abstract state
+    // of a question does not show
+    let still: Check = |s| {
+        s.nothing()?;
+        if s.before.app.flow_view.at == s.after.app.flow_view.at && s.after.app.confirm.is_some() {
+            Ok(())
+        } else {
+            Err("the highlight moved under the question, or it closed".into())
+        }
+    };
+    m.insert("click.question", (still, None));
+    m.insert("wheel.question", (still, None));
+    m.insert("mouse.trial", (back, no_today));
+    // the new-frit form's moving keys move between its rows, onto a field
     // whose text is typed or onto the row that adds the font set
-    for id in ["up.layer.new-frit", "down.layer.new-frit"] {
+    for id in [
+        "up.layer.new-frit",
+        "down.layer.new-frit",
+        "home.layer.new-frit",
+        "end.layer.new-frit",
+        "pgup.layer.new-frit",
+        "pgdn.layer.new-frit",
+    ] {
         m.insert(
             id,
             (
