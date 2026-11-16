@@ -162,15 +162,56 @@ fn in_background(tty: &File) -> bool {
 /// Writes all of `bytes` to the non-blocking `tty`. When the terminal takes
 /// nothing, the program waits until it can write again, but gives up once
 /// the terminal has taken no byte for `stall`.
-fn write_all(mut tty: &File, bytes: &[u8], stall: Duration) -> Result<(), Failed> {
+#[expect(
+    clippy::disallowed_methods,
+    reason = "the write gives up once the terminal has taken nothing for WRITE_STALL (ADR-1007 D2)"
+)]
+fn write_all(tty: &File, bytes: &[u8], stall: Duration) -> Result<(), Failed> {
+    let mut out = tty;
+    let start = Instant::now();
+    write_with(
+        bytes,
+        stall,
+        |rest| out.write(rest),
+        |wait| ready(tty, PollFlags::OUT, wait),
+        || start.elapsed(),
+    )
+}
+
+/// The loop of [`write_all`], with the terminal's write, the wait until it
+/// can write again, and the clock passed in, so that a test can play a
+/// terminal whose room turns up only as a wait runs out. The clock gives the
+/// time since the write began.
+///
+/// The program gives up at a fixed time: `stall` after the last byte the
+/// terminal took. Each wait lasts only for the time left until then, so a
+/// signal that ends a wait early adds no time. When a wait ends at that time
+/// and reports room, the program gives up all the same. A pty's buffer can
+/// make room without waking the program, when the kernel hands buffered
+/// bytes on to the terminal's side late, as under load, and the wait then
+/// sees the room only as it runs out. The terminal has still taken nothing
+/// for the whole wait, and writing into that room would give the write a
+/// second `stall` from a terminal that reads nothing.
+fn write_with(
+    bytes: &[u8],
+    stall: Duration,
+    mut write: impl FnMut(&[u8]) -> io::Result<usize>,
+    mut wait: impl FnMut(Duration) -> bool,
+    now: impl Fn() -> Duration,
+) -> Result<(), Failed> {
     let mut rest = bytes;
+    let mut give_up = now() + stall;
     while !rest.is_empty() {
-        match tty.write(rest) {
+        match write(rest) {
             Ok(0) => return Err(Failed::Write(ErrorKind::WriteZero.into())),
-            Ok(n) => rest = rest.get(n..).unwrap_or_default(),
+            Ok(n) => {
+                rest = rest.get(n..).unwrap_or_default();
+                give_up = now() + stall;
+            }
             Err(e) if e.kind() == ErrorKind::Interrupted => {}
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                if !ready(tty, PollFlags::OUT, stall) {
+                let left = give_up.saturating_sub(now());
+                if left.is_zero() || !wait(left) || now() >= give_up {
                     return Err(Failed::Stalled);
                 }
             }
@@ -252,6 +293,121 @@ mod tests {
             left.extend_from_slice(&buf[..n]);
         }
         left
+    }
+
+    /// A terminal that a test plays for [`write_with`], on a clock that
+    /// moves only while the program waits. It takes `room` bytes and then
+    /// refuses more.
+    #[derive(Default)]
+    struct Played {
+        elapsed: Duration,
+        room: usize,
+        taken: usize,
+        /// Room that turns up just after the program starts to wait,
+        /// without waking it, as a pty does when it hands its buffered bytes
+        /// on to the terminal's side. The wait sees this room only once it
+        /// runs out.
+        silent: usize,
+        /// How many waits a signal ends halfway, with no new room.
+        interrupts: u32,
+        /// One byte of room turns up this often and wakes the program, as
+        /// when the terminal reads.
+        trickle: Option<Duration>,
+    }
+
+    impl Played {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.room == 0 {
+                return Err(ErrorKind::WouldBlock.into());
+            }
+            let n = bytes.len().min(self.room);
+            self.room -= n;
+            self.taken += n;
+            Ok(n)
+        }
+
+        fn wait(&mut self, wait: Duration) -> bool {
+            if let Some(every) = self.trickle.filter(|every| *every < wait) {
+                self.elapsed += every;
+                self.room += 1;
+                return true;
+            }
+            if self.interrupts > 0 {
+                self.interrupts -= 1;
+                self.elapsed += wait / 2;
+                return true;
+            }
+            self.elapsed += wait;
+            self.room += std::mem::take(&mut self.silent);
+            self.room > 0
+        }
+    }
+
+    /// Runs [`write_with`] for `bytes` against `played` with `stall`, and
+    /// returns what came of it and the terminal as it was left.
+    fn play(played: Played, bytes: &[u8], stall: Duration) -> (Result<(), Failed>, Played) {
+        let played = std::cell::RefCell::new(played);
+        let result = write_with(
+            bytes,
+            stall,
+            |rest| played.borrow_mut().write(rest),
+            |wait| played.borrow_mut().wait(wait),
+            || played.borrow().elapsed,
+        );
+        (result, played.into_inner())
+    }
+
+    // Room that the terminal makes without waking the program, and that the
+    // wait reports only as it runs out, does not buy the write another
+    // WRITE_STALL: the terminal has taken nothing for the whole wait, so the
+    // write gives up then. A pty that nobody reads does this when the kernel
+    // hands its buffered bytes on to the terminal's side late, as under load.
+    #[test]
+    fn room_seen_only_as_the_wait_runs_out_ends_the_write() {
+        let stall = Duration::from_secs(5);
+        let played = Played {
+            room: 4,
+            silent: 3,
+            ..Played::default()
+        };
+        let (result, played) = play(played, b"0123456789", stall);
+        assert!(matches!(result, Err(Failed::Stalled)), "{result:?}");
+        assert_eq!(played.taken, 4, "nothing written once the stall ran out");
+        assert_eq!(played.elapsed, stall);
+    }
+
+    // A signal that ends a wait early gives the write no more time: the
+    // write still gives up once the terminal has taken nothing for
+    // WRITE_STALL in all.
+    #[test]
+    fn a_wait_cut_short_by_a_signal_keeps_its_end() {
+        let stall = Duration::from_secs(5);
+        let played = Played {
+            room: 4,
+            interrupts: 3,
+            ..Played::default()
+        };
+        let (result, played) = play(played, b"0123456789", stall);
+        assert!(matches!(result, Err(Failed::Stalled)), "{result:?}");
+        assert_eq!(played.taken, 4);
+        assert_eq!(played.elapsed, stall);
+    }
+
+    // A terminal that takes a byte now and then, each within WRITE_STALL of
+    // the last, gets the whole copy however long that takes, as over a slow
+    // line: only a terminal that takes nothing for WRITE_STALL stops it.
+    #[test]
+    fn a_terminal_that_keeps_taking_bytes_gets_them_all() {
+        let stall = Duration::from_secs(5);
+        let played = Played {
+            room: 4,
+            trickle: Some(Duration::from_secs(4)),
+            ..Played::default()
+        };
+        let (result, played) = play(played, b"0123456789", stall);
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(played.taken, 10);
+        assert_eq!(played.elapsed, Duration::from_secs(24));
     }
 
     // A reply that comes after the wait has run out is discarded, so that
