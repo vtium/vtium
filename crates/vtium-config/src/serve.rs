@@ -1464,16 +1464,23 @@ fn outline_face<'a>(font: &'a [u8], family: &str) -> Result<swash::FontRef<'a>, 
         .ok_or_else(|| format!("the font holds no face of family {family}"))
 }
 
-/// The version string of the face of `family` in `font`, from its name
-/// table's version entry (name ID 5), in English where the font gives
-/// one; `None` when the font states none.
+/// The version string of the face of `family` in `font` (its first face
+/// for an empty family), from its name table's version entry (name ID 5),
+/// in English where the font gives one; `None` when the font states none.
+/// It reads the name table with read-fonts, as the search for a family
+/// does, which checks each offset against the file, so a malformed file
+/// has no version rather than a panic.
+///
+/// References:
+/// - ADR-1204 D7: `version=` is matched against the font's version.
 pub fn outline_version(font: &[u8], family: &str) -> Option<String> {
-    let face = outline_face(font, family).ok()?;
-    let strings = face.localized_strings();
-    strings
-        .find_by_id(swash::StringId::Version, Some("en"))
-        .or_else(|| strings.find_by_id(swash::StringId::Version, None))
-        .map(|s| s.to_string())
+    let faces = crate::names::faces(font).ok()?;
+    let face = if family.is_empty() {
+        faces.first()
+    } else {
+        crate::names::choose(&faces, family)
+    }?;
+    face.version.clone()
 }
 
 /// The codepoints `font` maps in the face of `family` (its first face for
@@ -5384,6 +5391,26 @@ mod tests {
         assert_eq!(differs(font.build_with_version("Version 2.304")), []);
         assert_eq!(outline_version(&font.build(), ""), None);
         assert_eq!(differs(font.build()), []);
+    }
+
+    // The version reader reads a font's name table with read-fonts, which
+    // checks every offset, so a file whose table directory points past its
+    // end has no version and never panics. The bytes are the fuzz input
+    // that found swash's range check subtracting past zero, as the names
+    // target ran outline_version.
+    //
+    // References:
+    // - ADR-1204 D7: the helper reads an outline font's version from its
+    //   name table.
+    #[test]
+    fn a_font_whose_tables_point_past_its_end_has_no_version() {
+        let cut: &[u8] = &[
+            0x4f, 0x54, 0x54, 0x4f, 0x00, 0x01, 0x0a, 0x00, 0x00, 0x00, 0x00, 0x4d, 0x6e, 0x61,
+            0x6d, 0x65, 0x54, 0x56, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04,
+            0x00,
+        ];
+        assert_eq!(outline_version(cut, ""), None);
+        assert_eq!(outline_version(cut, "Mname"), None);
     }
 
     // A font of a lower version than version= asks for, and a file whose
