@@ -6,6 +6,10 @@
 |---|---|
 | `CSI Ps ; Ps ; Ps ; Ps ; Ps T` | XTHIMOUSE: the program's answer to hilite mouse tracking |
 
+## Parameters
+
+- `Ps ; Ps ; Ps ; Ps ; Ps`: In order: whether to start highlighting, the start's column and row, and the first and last rows the highlight may cover.
+
 ## What vtium does
 
 vtium does nothing with this sequence. It refuses hilite mouse tracking, mode 1001, so there is no question for a program to answer. The five parameters keep the sequence apart from SD, which takes one.

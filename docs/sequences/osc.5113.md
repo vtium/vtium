@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 5113 ; Pt ST` | kitty's file transfer |
 
+## Parameters
+
+- `Pt`: kitty's metadata for the transfer, as `key=value` pairs, and the data.
+
 ## What vtium does
 
 vtium does nothing with this string. It would read and write files on the host at the request of whatever wrote to the terminal.

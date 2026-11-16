@@ -6,6 +6,10 @@
 |---|---|
 | `CSI > Ps p` | XTSMPOINTER: hide the pointer while typing |
 
+## Parameters
+
+- `Ps`: 0 never hides the pointer, 1 hides it while no mouse tracking mode is set, and 2 and 3 always hide it.
+
 ## What vtium does
 
 vtium reads the sequence and does nothing. It follows its own rule for hiding the pointer while you type.

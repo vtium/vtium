@@ -7,6 +7,10 @@
 | `DCS + p Pt ST` | XTSETTCAP: set a terminfo capability |
 | `DCS + Q Pt ST` | XTGETXRES: request X resources |
 
+## Parameters
+
+- `Pt`: For XTSETTCAP, the name of a terminfo entry, written in hex. For XTGETXRES, the names of xterm resources, each written in hex and separated by `;`.
+
 ## What vtium does
 
 vtium reads these strings, changes nothing and sends no reply.

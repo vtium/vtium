@@ -19,7 +19,7 @@ Data that is not base64 sets nothing, where ctlseqs clears the selection. See [O
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs such as tmux and vim copy text to the clipboard with it.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
 

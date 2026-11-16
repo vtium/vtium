@@ -5,7 +5,7 @@
 | Sequence | What it does |
 |---|---|
 | `CSI > 4 ; Pv m` | XTMODKEYS: set the modifyOtherKeys level |
-| `CSI > 4 n` | XTMODKEYS: turn modifyOtherKeys off |
+| `CSI > 4 n` | turn modifyOtherKeys off |
 | `CSI ? 4 m` | XTQMODKEYS: ask for the modifyOtherKeys level |
 
 ## Parameters

@@ -6,6 +6,10 @@
 |---|---|
 | `DCS 1000 p Pt ST` | tmux's control mode |
 
+## Parameters
+
+- `Pt`: tmux's control mode output, which starts with `%begin`.
+
 ## What vtium does
 
 vtium reads the string and does nothing with it. tmux runs on the console as a plain program.
@@ -14,7 +18,7 @@ vtium reads the string and does nothing with it. tmux runs on the console as a p
 
 - **Status:** ignored. vtium reads the sequence and does nothing with it.
 - **Why:** only WezTerm documents its use of it, and tmux runs on a console as a plain program.
-- **Specifications:** WezTerm es
+- **Specifications:** iTerm2 tmux integration; WezTerm es
 
 ## Tests
 

@@ -13,11 +13,11 @@ DECSTR returns the modes, the pen, the cursor's style, the character sets, the s
 
 RIS does all of that, then erases the screen and the scrollback and moves the cursor home. It also sets a tab stop every 8 columns, returns every color a program set, and empties the SGR and color stacks.
 
-DECSTR sets autowrap, although the VT510 manual's table of what DECSTR resets gives no autowrap. Terminfo entries that say the terminal wraps send DECSTR to reset it, so autowrap has to stay on. See [Resets in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#resets).
+DECSTR turns autowrap on, where the VT510 manual's DECSTR table turns it off ("No autowrap"). Terminfo entries that say the terminal wraps send DECSTR to reset it, so autowrap has to stay on. See [Resets in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#resets).
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs and the reset command put the terminal back in a known state.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
 

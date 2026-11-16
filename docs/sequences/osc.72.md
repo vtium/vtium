@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 72 ; Pt ST` | kitty's drag and drop |
 
+## Parameters
+
+- `Pt`: kitty's metadata for the drag and drop, then `;` and the payload.
+
 ## What vtium does
 
 vtium reads the string and does nothing with it.

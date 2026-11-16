@@ -7,6 +7,11 @@
 | `CSI Ps $ w` | DECRQPSR: report the cursor (DECCIR) or the tab stops (DECTABSR) |
 | `DCS Ps $ t Pt ST` | DECRSPS: restore the cursor or the tab stops |
 
+## Parameters
+
+- `Ps`: Which report: 1 for the cursor's state (DECCIR), and 2 for the tab stops (DECTABSR). DECRQPSR takes 0 as an error.
+- `Pt`: For DECRSPS, the report's data, as DECRQPSR's reply carried it.
+
 ## What vtium does
 
 vtium reads these sequences, changes nothing and sends no reply.

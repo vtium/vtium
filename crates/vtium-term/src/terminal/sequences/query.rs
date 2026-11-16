@@ -83,7 +83,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[],
         does: &[
-            "vtium answers `CSI 5 n` with `CSI 0 n`, which means the terminal works. It answers `CSI 6 n` with `CSI Pr ; Pc R`, the cursor's row and column counted from 1. DECXCPR adds the page, which is always 1: `CSI ? Pr ; Pc ; 1 R`.",
+            "vtium answers `CSI 5 n` with `CSI 0 n`, which means the terminal works. It answers `CSI 6 n` with `CSI Pr ; Pc R`, the cursor's row and column counted from 1. DECXCPR adds the page, which is always 1: `CSI ? Pr ; Pc ; 1 R`. The page parameter follows the VT510 manual's DECXCPR, since xterm's control sequences give the reply as `CSI ? Pr ; Pc R`.",
             "In origin mode, the row counts from the top of the scrolling region and the column from the left margin. While a wrap is pending, the cursor stands on the last column, and vtium reports that column.",
         ],
         departure: None,
@@ -103,10 +103,6 @@ pub(super) const ENTRIES: &[Entry] = &[
             Form {
                 form: "CSI ? 26 n",
                 name: "keyboard status",
-            },
-            Form {
-                form: "CSI ? 53 n",
-                name: "locator status",
             },
             Form {
                 form: "CSI ? 55 n",
@@ -163,7 +159,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             },
         ],
         does: &[
-            "vtium answers `CSI Pa ; Ps $ y`, or `CSI ? Pd ; Ps $ y` for a DEC private mode. `Ps` is 1 when the mode is set and 2 when it is reset. It is 3 for a mode that is always set and 4 for one that is always reset, such as a mode vtium ignores or refuses. It is 0 for a number vtium does not recognize.",
+            "vtium answers `CSI Pa ; Ps $ y`, or `CSI ? Pd ; Ps $ y` for a DEC private mode. `Ps` is 1 when the mode is set and 2 when it is reset. It is 3 for a mode that is always set and 4 for one that is always reset. A mode vtium ignores or refuses reports its fixed state: 3 when set, 4 when reset. It is 0 for a number vtium does not recognize.",
             "vtium answers from its mode table, which [Modes](../modes.md) lists.",
         ],
         departure: None,
@@ -212,8 +208,8 @@ pub(super) const ENTRIES: &[Entry] = &[
             default: None,
         }],
         does: &[
-            "vtium looks each name up in the terminfo entry that `TERM` names, and answers `DCS 1 + r Pt ST`. In the reply, `Pt` holds `name=value` for each capability, both in uppercase hex, or the name alone for a boolean capability.",
-            "vtium stops at the first name it does not know. If it knows none of the names, it answers `DCS 0 + r ST`. Each name in the reply comes from vtium's table, never from the request.",
+            "vtium answers from tables compiled from the terminfo entries it installs, `xterm-vtium` and `kmscon`, each under its own entry's name. It answers `DCS 1 + r Pt ST`. In the reply, `Pt` holds `name=value` for each capability, both in uppercase hex, or the name alone for a boolean capability.",
+            "vtium stops at the first name it does not know. If it knows none of the names, it answers `DCS 0 + r ST`. While `TERM` names any other entry, vtium knows no name, so it answers `DCS 0 + r ST` to every request. Each name in the reply comes from vtium's table, never from the request.",
             "vtium answers a bounded number of names in one request, and keeps the reply under a bounded length.",
         ],
         departure: None,
@@ -234,7 +230,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "XTGETXRES: request X resources",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "For XTSETTCAP, the name of a terminfo entry, written in hex. For XTGETXRES, the names of xterm resources, each written in hex and separated by `;`.",
+            default: None,
+        }],
         does: &["vtium reads these strings, changes nothing and sends no reply."],
         departure: None,
         record: TARGET_SET,
@@ -251,11 +251,15 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "XTQDISALLOWED: list the disallowed features",
             },
             Form {
-                form: "OSC 62 ST",
+                form: "OSC 62 ; Pt ST",
                 name: "XTQALLOWABLE: list the features that may be allowed",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "A main feature category, one of the resource names that OSC 60 lists, such as `allowColorOps` or `allowWindowOps`.",
+            default: None,
+        }],
         does: &["vtium reads these strings and sends no reply."],
         departure: None,
         record: TARGET_SET,
@@ -310,7 +314,23 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECRQCRA: report the checksum of an area",
             },
         ],
-        params: &[],
+        params: &[
+            Param {
+                name: "Pt ; Pl ; Pb ; Pr",
+                meaning: "The area's top row, left column, bottom row and right column.",
+                default: None,
+            },
+            Param {
+                name: "Ps",
+                meaning: "For XTCHECKSUM, bits that change how DECRQCRA computes its checksum.",
+                default: Some("0"),
+            },
+            Param {
+                name: "Pi ; Pg",
+                meaning: "For DECRQCRA, an id that the reply repeats, and the page number.",
+                default: None,
+            },
+        ],
         does: &["vtium reads these sequences and sends no reply."],
         departure: None,
         record: TARGET_SET,
@@ -327,7 +347,18 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECRSPS: restore the cursor or the tab stops",
             },
         ],
-        params: &[],
+        params: &[
+            Param {
+                name: "Ps",
+                meaning: "Which report: 1 for the cursor's state (DECCIR), and 2 for the tab stops (DECTABSR). DECRQPSR takes 0 as an error.",
+                default: None,
+            },
+            Param {
+                name: "Pt",
+                meaning: "For DECRSPS, the report's data, as DECRQPSR's reply carried it.",
+                default: None,
+            },
+        ],
         does: &["vtium reads these sequences, changes nothing and sends no reply."],
         departure: None,
         record: TARGET_SET,
@@ -352,7 +383,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECRQTSR: report the terminal's state",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "For DECREQTPARM, 0 or 1, which says whether the terminal may send the report unasked. For DECRQTSR, which state to report: 1 for the terminal's whole state, and 2 for its color table.",
+            default: Some("0 for DECREQTPARM"),
+        }],
         does: &["vtium reads these sequences and sends no reply."],
         departure: None,
         record: TARGET_SET,
@@ -377,7 +412,28 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECRQLP: request the locator's position",
             },
         ],
-        params: &[],
+        params: &[
+            Param {
+                name: "Ps",
+                meaning: "For DECELR, 0 turns locator reports off, 1 turns them on, and 2 turns them on for one report. For DECRQLP, 0, 1 or nothing asks for one report.",
+                default: Some("0"),
+            },
+            Param {
+                name: "Pu",
+                meaning: "For DECELR, the unit of the reports: 1 for pixels, and 0 or 2 for character cells.",
+                default: Some("0, character cells"),
+            },
+            Param {
+                name: "Pm",
+                meaning: "For DECSLE, the events to report: 0 only reports the program asks for, 1 and 2 turn reports of a button going down on and off, and 3 and 4 turn reports of a button going up on and off.",
+                default: Some("0"),
+            },
+            Param {
+                name: "Pt ; Pl ; Pb ; Pr",
+                meaning: "For DECEFR, the filter rectangle's top, left, bottom and right. An omitted one is the locator's position.",
+                default: None,
+            },
+        ],
         does: &[
             "vtium reads these sequences, changes nothing and sends no reply. A program that wants the pointer's position turns on mouse reporting through the mouse modes, which [Modes](../modes.md) lists.",
         ],

@@ -80,15 +80,15 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[Param {
             name: "C",
-            meaning: "The set: `B` for ASCII, `0` for DEC special graphics, and `<` for DEC supplemental graphics, which vtium designates only in 8-bit input.",
+            meaning: "The set: `B` for ASCII, `0` for DEC special graphics, and `<` for DEC supplemental graphics, which vtium designates only in 8-bit input and takes as ASCII otherwise. The national replacement sets' finals `A`, `4`, `C`, `5`, `R`, `Q`, `K`, `Y`, `E`, `6`, `Z`, `H`, `7` and `=` designate ASCII. vtium ignores any other final, such as the national sets' `f`, `9`, `%2`, `%6`, `%=`, `\"4` and `\"?`.",
             default: None,
         }],
         does: &[
-            "vtium keeps four character sets, G0 to G3. GL maps the ASCII graphic characters, and GR maps the bytes 0xA1 to 0xFE of 8-bit input. At the start G0 to G3 hold ASCII, GL holds G0 and GR holds G2.",
+            "vtium keeps four character sets, G0 to G3. GL maps the ASCII graphic characters, and GR maps the bytes 0xA1 to 0xFE of 8-bit input. At the start G0 and G1 hold ASCII, and G2 and G3 hold ASCII, or DEC supplemental graphics in 8-bit input. GL holds G0 and GR holds G2.",
             "DEC special graphics draws lines and boxes in place of letters, which programs such as ncurses use. A character decoded from UTF-8 prints as itself, whatever G1 to G3 hold. A single shift applies to the next printed character only. DECSC saves the sets and a waiting single shift.",
         ],
         departure: Some(Departure {
-            says: "The finals of the national replacement sets designate ASCII, since vtium does not implement national replacement sets.",
+            says: "The finals `A`, `4`, `C`, `5`, `R`, `Q`, `K`, `Y`, `E`, `6`, `Z`, `H`, `7` and `=` of the national replacement sets designate ASCII, since vtium does not implement national replacement sets. vtium ignores the other national sets' finals.",
             readme: "crates/vtium-term/README.md",
             section: "Character sets",
         }),
@@ -121,14 +121,14 @@ pub(super) const ENTRIES: &[Entry] = &[
     Entry {
         id: "text.kitty-sizing",
         forms: &[Form {
-            form: "OSC 66 ; Pm ; Pt ST",
+            form: "OSC 66 ; metadata ; Pt ST",
             name: "write text at a larger size",
         }],
         params: &[
             Param {
-                name: "Pm",
+                name: "metadata",
                 meaning: "`key=value` pairs separated by `:`. `s` is the scale, 1 to 7, and `w` the width in cells, 0 to 7. `n` over `d` is a fraction of the scale, each 0 to 15. `v` and `h` align the text vertically and horizontally, each 0 to 2.",
-                default: Some("an empty list, which writes the text at its normal size"),
+                default: Some("empty, which writes the text at its normal size"),
             },
             Param {
                 name: "Pt",
@@ -138,7 +138,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         does: &[
             "vtium stores the block of cells that one sequence writes as one unit, so an edit that would move, clear or overwrite only part of it erases it whole. vtium ignores a key it does not know. A known key with a value out of its range discards the whole sequence, text included.",
-            "The renderer does not draw a block at its size yet. OSC 66 has no reply.",
+            "The renderer draws each run at its scale, fraction and alignment across its block, from the font's glyphs at the normal size scaled up, and a cursor on a run covers the whole block. OSC 66 has no reply.",
         ],
         departure: None,
         record: Record {
@@ -192,7 +192,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             default: None,
         }],
         does: &[
-            "vtium switches to the font set that Pt names, and resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.",
+            "vtium switches to the font set that Pt names. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.",
         ],
         departure: Some(Departure {
             says: "vtium takes only the name of one of its font sets, and ignores anything else, such as a path or an X font name. It also ignores a Pt that starts with `#`, the form that picks from a font menu.",
@@ -210,7 +210,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 60 ; Pt ST",
             name: "contour's font settings",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "The font settings, in the form contour defines.",
+            default: None,
+        }],
         does: &[
             "vtium takes OSC 60 as XTQALLOWED, the meaning in xterm's control sequences, and ignores it. So a string meant to change the fonts changes nothing and gets no reply.",
         ],

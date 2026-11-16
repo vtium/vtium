@@ -4,7 +4,12 @@
 
 | Sequence | What it does |
 |---|---|
-| `CSI > Ps ; Pm SP q` | add or remove extra cursors |
+| `CSI > Ps ; Pt SP q` | add or remove extra cursors |
+
+## Parameters
+
+- `Ps`: The shape of the extra cursors: 0 none, which removes them, 1 a block, 2 a bar, 3 an underline, and 29 the main cursor's shape. kitty's specification gives 30, 40 and 100 other uses: the colors of the extra cursors, and a query.
+- `Pt`: Where the cursors go, as groups separated by `;`. Each group is a coordinate type and its coordinates, joined by `:`: 0 for the main cursor's cell, 2 for cells written as row and column pairs, and 4 for rectangles written as top, left, bottom and right.
 
 ## What vtium does
 

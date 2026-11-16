@@ -247,10 +247,10 @@ impl Group {
                 "An ESC sequence is ESC followed by a few bytes, the last of which says what the sequence does."
             }
             Group::Csi => {
-                "A CSI sequence is ESC [ followed by numeric parameters and a final byte that says what the sequence does. The sequences below are sorted by their final byte."
+                "A CSI sequence is ESC [ followed by numeric parameters and a final byte that says what the sequence does. A private marker such as `?` or `>` can come before the parameters, and intermediate bytes such as `$` or a space can come before the final byte. Either one makes the sequence a different function. The sequences below are sorted by their final byte."
             }
             Group::Osc => {
-                "An OSC string is ESC ] followed by a number, the text the number gives a meaning to, and ST or BEL to end it. The strings below are sorted by their number."
+                "An OSC string is ESC ] followed by text, and ST or BEL ends it. Most strings start with a number that gives the text its meaning. A few start with a word or a letter instead, such as `setBackground` or `l`. The strings below are sorted by their number."
             }
             Group::Dcs => {
                 "A DCS string is ESC P followed by parameters, a final byte, the data, and ST to end it."
@@ -463,9 +463,14 @@ fn spec(text: &str) -> String {
     text.to_owned()
 }
 
-/// What a status means, as the page says it.
-fn status_meaning(status: &str) -> &'static str {
+/// What a status means, as the page says it. A supported row whose entry
+/// records a departure says that vtium follows the specifications apart
+/// from it.
+fn status_meaning(status: &str, departs: bool) -> &'static str {
     match status {
+        "supported" if departs => {
+            "vtium implements this as the specifications below define it, apart from the departure above."
+        }
         "supported" => "vtium implements this as the specifications below define it.",
         "partial" => "vtium implements part of this. The note says what is missing.",
         "planned" => "vtium does not implement this yet. The issue below tracks the work.",
@@ -574,7 +579,7 @@ fn page(entry: &Entry, row: &Row) -> Result<String, String> {
         out,
         "- **Status:** {}. {}",
         row.status,
-        status_meaning(&row.status)
+        status_meaning(&row.status, entry.departure.is_some())
     );
     if !row.reason.is_empty() {
         let _ = writeln!(out, "- **Why:** {}", sentence(&row.reason));
@@ -780,4 +785,16 @@ fn a_form_in_a_table_cell_keeps_its_bars_and_backticks() {
         "<code>DCS Ps ; Ps &#124; Pt ST</code>"
     );
     assert_eq!(code("CSI > Ps | x"), "<code>CSI &gt; Ps &#124; x</code>");
+}
+
+#[test]
+fn a_supported_row_with_a_departure_says_so_in_its_status() {
+    assert_eq!(
+        status_meaning("supported", false),
+        "vtium implements this as the specifications below define it."
+    );
+    assert_eq!(
+        status_meaning("supported", true),
+        "vtium implements this as the specifications below define it, apart from the departure above."
+    );
 }

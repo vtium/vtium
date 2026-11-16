@@ -32,7 +32,9 @@
 
 ## Parameters
 
-- `Ps`: How many rows, columns, characters or lines the function acts on. A count of 0 counts as 1. The default is 1.
+- `Ps`: In CUU, CUD, CUF, CUB, CNL, CPL, HPR, VPR, ECH, ICH, DCH, IL, DL, SU and SD, how many rows, columns, characters or lines the function acts on. A count of 0 counts as 1. The default is 1.
+- `Ps`: In ED and EL, which part to erase: 0 from the cursor to the end, 1 from the start to the cursor, and 2 all of it. ED 3 has a page of its own, ctl.ed3. The default is 0.
+- `Ps`: In CHA and HPA, the column, and in VPA, the row, counted from 1. A value of 0 counts as 1. The default is 1.
 - `Ps ; Ps`: In CUP and HVP, the row and then the column, both counted from 1. An omitted or 0 row or column is 1. The default is 1 ; 1, the top left corner.
 
 ## What vtium does
@@ -41,7 +43,7 @@ These functions move the cursor, erase text, and insert or delete characters and
 
 ED 0 erases from the cursor to the end of the screen, ED 1 from the start of the screen to the cursor, and ED 2 the whole screen. EL 0, 1 and 2 erase the same parts of the cursor's line. An erased cell is empty and takes the pen's background color.
 
-IL, DL, SU, SD, IND, RI and NEL move lines only inside the scroll region that DECSTBM sets. When text scrolls up on the main screen, the line that leaves the region's top enters the scrollback. The 8-bit controls 0x84, 0x8D and 0x85 work as IND, RI and NEL.
+IL, DL, SU, SD, IND, RI and NEL move lines only inside the scroll region that DECSTBM sets. When text scrolls up on the main screen, the line that leaves the region's top enters the scrollback. While left and right margins narrower than the screen are set, only the cells between them move, and nothing enters the scrollback. The 8-bit controls 0x84, 0x8D and 0x85 work as IND, RI and NEL.
 
 ## Status
 

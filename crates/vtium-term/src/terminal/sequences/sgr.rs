@@ -325,7 +325,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             },
         ],
         does: &[
-            "vtium reads both the colon forms above and the semicolon forms that most programs send, `CSI 38 ; 5 ; Ps m` and `CSI 38 ; 2 ; Pr ; Pg ; Pb m`. In the semicolon forms the color space's id is left out. A direct color is kept as it is, and a palette index is looked up when the cell is drawn.",
+            "vtium reads both the colon forms above and the semicolon forms that most programs send, `CSI 38 ; 5 ; Ps m` and `CSI 38 ; 2 ; Pr ; Pg ; Pb m`. In the semicolon forms the color space's id is left out. vtium also reads `CSI 38 : 2 : Pr : Pg : Pb m`, which some programs send, with no field for the color space's id, and tells it apart by its count of fields. A direct color is kept as it is, and a palette index is looked up when the cell is drawn.",
         ],
         departure: None,
         record: TARGET_SET,
@@ -334,19 +334,30 @@ pub(super) const ENTRIES: &[Entry] = &[
         id: "sgr.rgba",
         forms: &[
             Form {
-                form: "CSI 38 : 6 : Pr : Pg : Pb : Pa m",
+                form: "CSI 38 : 6 : : Pr : Pg : Pb : Pa m",
                 name: "foreground with an alpha value",
             },
             Form {
-                form: "CSI 48 : 6 : Pr : Pg : Pb : Pa m",
+                form: "CSI 48 : 6 : : Pr : Pg : Pb : Pa m",
                 name: "background with an alpha value",
             },
             Form {
-                form: "CSI 58 : 6 : Pr : Pg : Pb : Pa m",
+                form: "CSI 58 : 6 : : Pr : Pg : Pb : Pa m",
                 name: "underline color with an alpha value",
             },
         ],
-        params: &[],
+        params: &[
+            Param {
+                name: "Pr, Pg, Pb",
+                meaning: "The red, green and blue values, each from 0 to 255. The empty field before them is the color space's id, which is left out.",
+                default: None,
+            },
+            Param {
+                name: "Pa",
+                meaning: "The alpha value, from 0 to 255.",
+                default: None,
+            },
+        ],
         does: &[
             "vtium reads these forms and leaves the colors as they were. The rest of the SGR sequence still applies.",
         ],

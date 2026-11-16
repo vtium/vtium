@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 46 ; Pt ST` | change the log file |
 
+## Parameters
+
+- `Pt`: The name of the file xterm logs to.
+
 ## What vtium does
 
 vtium does nothing with this string. It would write a file on the host at a program's request.

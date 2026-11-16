@@ -1,6 +1,6 @@
 //! The entries of the `cursor` rows: the cursor's style and color.
 
-use super::{Entry, Form, Other, Param, TARGET_SET};
+use super::{Departure, Entry, Form, Other, Param, TARGET_SET};
 
 pub(super) const ENTRIES: &[Entry] = &[
     Entry {
@@ -11,14 +11,18 @@ pub(super) const ENTRIES: &[Entry] = &[
         }],
         params: &[Param {
             name: "Ps",
-            meaning: "The style: 0 the default style, 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar.",
+            meaning: "The style: 0 vtium's default style, 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar and 6 a steady bar.",
             default: Some("0"),
         }],
         does: &[
             "vtium draws the cursor in the style DECSCUSR sets. The default style is a block that blinks while the `blink` key is on. vtium ignores a value past 6 and keeps the style it has.",
             "DECSC does not save the cursor style, so DECRC leaves it as it is. DECRQSS reports the style that DECSCUSR set.",
         ],
-        departure: None,
+        departure: Some(Departure {
+            says: "`CSI 0 SP q` and `CSI SP q` select vtium's default style, a block that blinks only while the `blink` key is on. The VT510 manual and xterm's control sequences make both a blinking block.",
+            readme: "crates/vtium-term/README.md",
+            section: "Replies and the cursor",
+        }),
         record: TARGET_SET,
     },
     Entry {
@@ -51,10 +55,21 @@ pub(super) const ENTRIES: &[Entry] = &[
     Entry {
         id: "cursor.kitty-multiple",
         forms: &[Form {
-            form: "CSI > Ps ; Pm SP q",
+            form: "CSI > Ps ; Pt SP q",
             name: "add or remove extra cursors",
         }],
-        params: &[],
+        params: &[
+            Param {
+                name: "Ps",
+                meaning: "The shape of the extra cursors: 0 none, which removes them, 1 a block, 2 a bar, 3 an underline, and 29 the main cursor's shape. kitty's specification gives 30, 40 and 100 other uses: the colors of the extra cursors, and a query.",
+                default: None,
+            },
+            Param {
+                name: "Pt",
+                meaning: "Where the cursors go, as groups separated by `;`. Each group is a coordinate type and its coordinates, joined by `:`: 0 for the main cursor's cell, 2 for cells written as row and column pairs, and 4 for rectangles written as top, left, bottom and right.",
+                default: None,
+            },
+        ],
         does: &[
             "vtium reads the sequence and does nothing with it. The screen keeps its one cursor.",
         ],

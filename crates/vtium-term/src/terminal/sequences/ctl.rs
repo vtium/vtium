@@ -4,10 +4,24 @@
 
 use super::{Departure, Entry, Form, Other, Param, Record, TARGET_SET};
 
-/// A count that most control functions take.
+/// The count of the cursor movement and editing functions that take one.
 const COUNT: Param = Param {
     name: "Ps",
-    meaning: "How many rows, columns, characters or lines the function acts on. A count of 0 counts as 1.",
+    meaning: "In CUU, CUD, CUF, CUB, CNL, CPL, HPR, VPR, ECH, ICH, DCH, IL, DL, SU and SD, how many rows, columns, characters or lines the function acts on. A count of 0 counts as 1.",
+    default: Some("1"),
+};
+
+/// ED's and EL's choice of what to erase.
+const ERASE_PART: Param = Param {
+    name: "Ps",
+    meaning: "In ED and EL, which part to erase: 0 from the cursor to the end, 1 from the start to the cursor, and 2 all of it. ED 3 has a page of its own, ctl.ed3.",
+    default: Some("0"),
+};
+
+/// The column of CHA and HPA, and the row of VPA.
+const POSITION: Param = Param {
+    name: "Ps",
+    meaning: "In CHA and HPA, the column, and in VPA, the row, counted from 1. A value of 0 counts as 1.",
     default: Some("1"),
 };
 
@@ -124,6 +138,8 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[
             COUNT,
+            ERASE_PART,
+            POSITION,
             Param {
                 name: "Ps ; Ps",
                 meaning: "In CUP and HVP, the row and then the column, both counted from 1. An omitted or 0 row or column is 1.",
@@ -133,7 +149,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         does: &[
             "These functions move the cursor, erase text, and insert or delete characters and lines. vtium acts on each only when it has no private marker such as `?` and no intermediate byte, since those make a different function.",
             "ED 0 erases from the cursor to the end of the screen, ED 1 from the start of the screen to the cursor, and ED 2 the whole screen. EL 0, 1 and 2 erase the same parts of the cursor's line. An erased cell is empty and takes the pen's background color.",
-            "IL, DL, SU, SD, IND, RI and NEL move lines only inside the scroll region that DECSTBM sets. When text scrolls up on the main screen, the line that leaves the region's top enters the scrollback. The 8-bit controls 0x84, 0x8D and 0x85 work as IND, RI and NEL.",
+            "IL, DL, SU, SD, IND, RI and NEL move lines only inside the scroll region that DECSTBM sets. When text scrolls up on the main screen, the line that leaves the region's top enters the scrollback. While left and right margins narrower than the screen are set, only the cells between them move, and nothing enters the scrollback. The 8-bit controls 0x84, 0x8D and 0x85 work as IND, RI and NEL.",
         ],
         departure: None,
         record: TARGET_SET,
@@ -262,7 +278,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECFI: forward index",
             },
         ],
-        params: &[COUNT],
+        params: &[Param {
+            name: "Ps",
+            meaning: "How many columns DECIC inserts or DECDC deletes. A count of 0 counts as 1.",
+            default: Some("1"),
+        }],
         does: &[
             "DECIC and DECDC insert and delete columns at the cursor's column. They act on each row from the top margin to the bottom margin, up to the right margin, and do nothing while the cursor is outside those margins.",
             "DECBI and DECFI move the cursor one column left or right. At the left or right margin, they move the columns between the margins instead.",
@@ -308,7 +328,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             "RIS does all of that, then erases the screen and the scrollback and moves the cursor home. It also sets a tab stop every 8 columns, returns every color a program set, and empties the SGR and color stacks.",
         ],
         departure: Some(Departure {
-            says: "DECSTR sets autowrap, although the VT510 manual's table of what DECSTR resets gives no autowrap. Terminfo entries that say the terminal wraps send DECSTR to reset it, so autowrap has to stay on.",
+            says: "DECSTR turns autowrap on, where the VT510 manual's DECSTR table turns it off (\"No autowrap\"). Terminfo entries that say the terminal wraps send DECSTR to reset it, so autowrap has to stay on.",
             readme: "crates/vtium-term/README.md",
             section: "Resets",
         }),
@@ -433,12 +453,12 @@ pub(super) const ENTRIES: &[Entry] = &[
             },
             Param {
                 name: "Pc",
-                meaning: "The code of the character that DECFRA fills with. vtium takes a character one cell wide, and 0 means a space.",
+                meaning: "The code of the character that DECFRA fills with, 32 to 126 or 160 to 255, through the character sets in use. Past 255, vtium also takes any printable character one cell wide. It ignores DECFRA for any other code, and for 0 or a code left out.",
                 default: None,
             },
             Param {
                 name: "Pm",
-                meaning: "For DECCARA, SGR codes, which it applies as SGR applies them to the pen. For DECRARA, the attributes to reverse: 1 bold, 4 underline, 5 blink, 7 inverse and 8 conceal, or 0 for the first four.",
+                meaning: "For DECCARA, SGR codes, which it applies as SGR applies them to the pen, so 0 turns every attribute off. For DECRARA, the attributes to reverse: 1 bold, 4 underline, 5 blink, 7 inverse and 8 conceal, or 0 for the first four. With no Pm, both act as for 0.",
                 default: Some("0"),
             },
             Param {
@@ -498,7 +518,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "CSI Ps + T",
             name: "unscroll: bring lines back from the scrollback",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "How many lines to bring back, as SD counts the lines it scrolls.",
+            default: Some("1"),
+        }],
         does: &["vtium reads the sequence and does nothing with it."],
         departure: None,
         record: TARGET_SET,
@@ -540,7 +564,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECSASD: select the active display",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "For DECSSDT, the status line's type: 0 none, 1 the terminal's indicator line, and 2 a line the program writes. For DECSASD, where text goes: 0 the main display, and 1 the status line.",
+            default: Some("0, as the VT510 manual gives it for both"),
+        }],
         does: &[
             "vtium reads these sequences and does nothing with them, since it draws no status line of its own.",
         ],
@@ -563,7 +591,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECSNLS: set lines per screen",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "For DECSCPP, the columns per page: 80 or 132, where 0 means 80. For DECSLPP, the lines per page, 24 or more. A smaller value is an XTWINOPS operation, on the page window.manipulate. For DECSNLS, the lines on the screen.",
+            default: Some("80 for DECSCPP"),
+        }],
         does: &[
             "vtium reads these sequences and does nothing with them. The screen's size comes from the display and the font.",
         ],
@@ -576,7 +608,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "CSI Ps q",
             name: "DECLL: load the keyboard's LEDs",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "0 turns every light off. 1, 2 and 3 light Num Lock, Caps Lock and Scroll Lock, and 21, 22 and 23 turn them off.",
+            default: Some("0"),
+        }],
         does: &[
             "vtium reads the sequence and does nothing with it. The keyboard's lights stay as the user set them.",
         ],
@@ -595,7 +631,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "DECSMBV: set the margin bell's volume",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "The volume. For DECSWBV, 0 and 1 are off, 2 to 4 low, and 5 to 8 high. For DECSMBV, 1 is off, 2 to 4 low, and 0 and 5 to 8 high.",
+            default: None,
+        }],
         does: &[
             "vtium reads these sequences and does nothing with them. vtium rings the VT bell, whose volume the kernel and the hardware set.",
         ],
@@ -630,7 +670,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[],
         does: &[
-            "The two strings set and reset mode 2026. While an update is open, vtium holds its frames, so the display keeps showing the last whole picture until the program ends the update. vtium also ends an update that stays open too long.",
+            "The two strings set and reset mode 2026. While an update is open, vtium holds its frames, so the display keeps showing the last whole picture until the program ends the update. vtium also ends an update that stays open longer than `sync-timeout`, 200 ms by default. A `sync-timeout` of 0 turns mode 2026 off.",
         ],
         departure: None,
         record: TARGET_SET,
@@ -671,7 +711,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "CSI 14 ; Ps ]",
             name: "set the VESA powerdown interval",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "The minutes of idle time before the display powers down.",
+            default: None,
+        }],
         does: &[
             "vtium reads the sequence and does nothing with it. vtium has one blanking step, which `CSI 9 ; Ps ]` times.",
         ],

@@ -8,6 +8,12 @@
 | `CSI Ps # y` | XTCHECKSUM: choose how DECRQCRA computes its checksum |
 | `CSI Pi ; Pg ; Pt ; Pl ; Pb ; Pr * y` | DECRQCRA: report the checksum of an area |
 
+## Parameters
+
+- `Pt ; Pl ; Pb ; Pr`: The area's top row, left column, bottom row and right column.
+- `Ps`: For XTCHECKSUM, bits that change how DECRQCRA computes its checksum. The default is 0.
+- `Pi ; Pg`: For DECRQCRA, an id that the reply repeats, and the page number.
+
 ## What vtium does
 
 vtium reads these sequences and sends no reply.

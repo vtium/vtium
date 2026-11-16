@@ -11,7 +11,7 @@
 
 ## Parameters
 
-- `Ps`: How many rows, columns, characters or lines the function acts on. A count of 0 counts as 1. The default is 1.
+- `Ps`: How many columns DECIC inserts or DECDC deletes. A count of 0 counts as 1. The default is 1.
 
 ## What vtium does
 

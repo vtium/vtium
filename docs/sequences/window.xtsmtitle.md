@@ -8,6 +8,10 @@
 | `CSI > Pm T` | XTRMTITLE: reset the title's encoding features |
 | `CSI # S` | XTTITLEPOS: report the title stack's position |
 
+## Parameters
+
+- `Pm`: The title features to set or reset: 0 sets the labels in hex, 1 reports them in hex, 2 sets them in UTF-8, and 3 reports them in UTF-8. With none, every feature returns to its default.
+
 ## What vtium does
 
 vtium keeps no title, so it reads these sequences, does nothing and sends no reply.

@@ -59,7 +59,7 @@ An ESC sequence is ESC followed by a few bytes, the last of which says what the 
 
 ## CSI sequences
 
-A CSI sequence is ESC [ followed by numeric parameters and a final byte that says what the sequence does. The sequences below are sorted by their final byte.
+A CSI sequence is ESC [ followed by numeric parameters and a final byte that says what the sequence does. A private marker such as `?` or `>` can come before the parameters, and intermediate bytes such as `$` or a space can come before the final byte. Either one makes the sequence a different function. The sequences below are sorted by their final byte.
 
 | Sequence | What it does | Status | Page |
 |---|---|---|---|
@@ -109,8 +109,8 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI Ps d` | VPA: cursor to a row | supported | [ctl.edit](ctl.edit.md) |
 | `CSI Ps e` | VPR: cursor down, as CUD does | supported | [ctl.edit](ctl.edit.md) |
 | `CSI > Pp ; Pv f` | XTFMTKEYS: choose the format of modified keys | ignored | [input.format-other-keys](input.format-other-keys.md) |
-| `CSI ? Pp f` | XTQFMTKEYS: ask for that format | ignored | [input.format-other-keys](input.format-other-keys.md) |
 | `CSI Ps ; Ps f` | HVP: cursor to a row and column, as CUP does | supported | [ctl.edit](ctl.edit.md) |
+| `CSI ? Pp g` | XTQFMTKEYS: ask for that format | ignored | [input.format-other-keys](input.format-other-keys.md) |
 | `CSI Ps g` | TBC: clear tab stops | supported | [ctl.tabs](ctl.tabs.md) |
 | `CSI Ps ; Ps SP k` | SCP: select the character path | supported | [ctl.scp](ctl.scp.md) |
 | `CSI ? 2 l` | DECANM reset: enter VT52 mode | ignored | [ctl.vt52](ctl.vt52.md) |
@@ -145,12 +145,12 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI 30 m to CSI 37 m` | foreground from palette colors 0 to 7 | supported | [sgr.palette](sgr.palette.md) |
 | `CSI 38 : 2 : Pi : Pr : Pg : Pb m` | foreground as red, green and blue | supported | [sgr.extended-color](sgr.extended-color.md) |
 | `CSI 38 : 5 : Ps m` | foreground from the 256-color palette | supported | [sgr.extended-color](sgr.extended-color.md) |
-| `CSI 38 : 6 : Pr : Pg : Pb : Pa m` | foreground with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
+| `CSI 38 : 6 : : Pr : Pg : Pb : Pa m` | foreground with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
 | `CSI 39 m` | default foreground | supported | [sgr.palette](sgr.palette.md) |
 | `CSI 40 m to CSI 47 m` | background from palette colors 0 to 7 | supported | [sgr.palette](sgr.palette.md) |
 | `CSI 48 : 2 : Pi : Pr : Pg : Pb m` | background as red, green and blue | supported | [sgr.extended-color](sgr.extended-color.md) |
 | `CSI 48 : 5 : Ps m` | background from the 256-color palette | supported | [sgr.extended-color](sgr.extended-color.md) |
-| `CSI 48 : 6 : Pr : Pg : Pb : Pa m` | background with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
+| `CSI 48 : 6 : : Pr : Pg : Pb : Pa m` | background with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
 | `CSI 49 m` | default background | supported | [sgr.palette](sgr.palette.md) |
 | `CSI 50 m to CSI 52 m` | no proportional spacing, framed and encircled | ignored | [sgr.ecma-other](sgr.ecma-other.md) |
 | `CSI 53 m` | overline | supported | [sgr.overline](sgr.overline.md) |
@@ -158,7 +158,7 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI 55 m` | no overline | supported | [sgr.overline](sgr.overline.md) |
 | `CSI 58 : 2 : : Pr : Pg : Pb m` | underline color as red, green and blue | supported | [sgr.underline-color](sgr.underline-color.md) |
 | `CSI 58 : 5 : Ps m` | underline color from the 256-color palette | supported | [sgr.underline-color](sgr.underline-color.md) |
-| `CSI 58 : 6 : Pr : Pg : Pb : Pa m` | underline color with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
+| `CSI 58 : 6 : : Pr : Pg : Pb : Pa m` | underline color with an alpha value | ignored | [sgr.rgba](sgr.rgba.md) |
 | `CSI 59 m` | underline in the text's color | supported | [sgr.underline-color](sgr.underline-color.md) |
 | `CSI 60 m to CSI 65 m` | ideogram underlines, overlines and stress marks | ignored | [sgr.ecma-other](sgr.ecma-other.md) |
 | `CSI 73 m` | superscript | supported | [sgr.script](sgr.script.md) |
@@ -168,14 +168,13 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI 100 m to CSI 107 m` | background from the bright palette colors 8 to 15 | supported | [sgr.palette](sgr.palette.md) |
 | `CSI 221 m` | turn off bold alone | ignored | [sgr.bold-faint-reset](sgr.bold-faint-reset.md) |
 | `CSI 222 m` | turn off dim alone | ignored | [sgr.bold-faint-reset](sgr.bold-faint-reset.md) |
-| `CSI > 4 n` | XTMODKEYS: turn modifyOtherKeys off | supported | [input.modify-other-keys](input.modify-other-keys.md) |
+| `CSI > 4 n` | turn modifyOtherKeys off | supported | [input.modify-other-keys](input.modify-other-keys.md) |
 | `CSI 5 n` | DSR: device status report | supported | [query.dsr](query.dsr.md) |
 | `CSI 6 n` | CPR: report the cursor's position | supported | [query.dsr](query.dsr.md) |
 | `CSI ? 6 n` | DECXCPR: report the cursor's position and page | supported | [query.dsr](query.dsr.md) |
 | `CSI ? 15 n` | printer status | ignored | [query.dsr-other](query.dsr-other.md) |
 | `CSI ? 25 n` | user-defined keys status | ignored | [query.dsr-other](query.dsr-other.md) |
 | `CSI ? 26 n` | keyboard status | ignored | [query.dsr-other](query.dsr-other.md) |
-| `CSI ? 53 n` | locator status | ignored | [query.dsr-other](query.dsr-other.md) |
 | `CSI ? 55 n` | locator status | ignored | [query.dsr-other](query.dsr-other.md) |
 | `CSI ? 56 n` | locator type | ignored | [query.dsr-other](query.dsr-other.md) |
 | `CSI ? 62 n` | macro space report | ignored | [query.dsr-other](query.dsr-other.md) |
@@ -190,7 +189,7 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI Pl ; Pc " p` | DECSCL: set the conformance level | supported | [ctl.decscl](ctl.decscl.md) |
 | `CSI Pm # p` | XTPUSHSGR, the other form | supported | [sgr.stack](sgr.stack.md) |
 | `CSI # q` | XTPOPSGR, the other form | supported | [sgr.stack](sgr.stack.md) |
-| `CSI > Ps ; Pm SP q` | add or remove extra cursors | ignored | [cursor.kitty-multiple](cursor.kitty-multiple.md) |
+| `CSI > Ps ; Pt SP q` | add or remove extra cursors | ignored | [cursor.kitty-multiple](cursor.kitty-multiple.md) |
 | `CSI > Ps q` | XTVERSION: report the terminal's name and version | supported | [query.xtversion](query.xtversion.md) |
 | `CSI Ps " q` | DECSCA: protect the characters printed next | supported | [ctl.protect](ctl.protect.md) |
 | `CSI Ps SP q` | DECSCUSR: set the cursor style | supported | [cursor.style](cursor.style.md) |
@@ -204,7 +203,6 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 | `CSI s` | SCOSC: save the cursor, while mode 69 is reset | supported | [ctl.decslrm](ctl.decslrm.md) |
 | `CSI > Pm t` | XTSMTITLE: set the title's encoding features | ignored | [window.xtsmtitle](window.xtsmtitle.md) |
 | `CSI Ps SP t` | DECSWBV: set the warning bell's volume | ignored | [ctl.bell-volume](ctl.bell-volume.md) |
-| `CSI Ps t` | DECSLPP: lines per screen, for Ps of 24 or more | refused | [window.manipulate](window.manipulate.md) |
 | `CSI Ps t` | DECSLPP: set lines per page, for Ps of 24 or more | ignored | [ctl.page-size](ctl.page-size.md) |
 | `CSI Pt ; Pl ; Pb ; Pr ; Pm $ t` | DECRARA: reverse the attributes of a rectangle | supported | [ctl.rect](ctl.rect.md) |
 | `CSI 1 t` | XTWINOPS: de-iconify the window | refused | [window.manipulate](window.manipulate.md) |
@@ -264,7 +262,7 @@ A CSI sequence is ESC [ followed by numeric parameters and a final byte that say
 
 ## OSC strings
 
-An OSC string is ESC ] followed by a number, the text the number gives a meaning to, and ST or BEL to end it. The strings below are sorted by their number.
+An OSC string is ESC ] followed by text, and ST or BEL ends it. Most strings start with a number that gives the text its meaning. A few start with a word or a letter instead, such as `setBackground` or `l`. The strings below are sorted by their number.
 
 | Sequence | What it does | Status | Page |
 |---|---|---|---|
@@ -311,8 +309,8 @@ An OSC string is ESC ] followed by a number, the text the number gives a meaning
 | `OSC 60 ; Pt ST` | contour's font settings | ignored | [text.contour-fonts](text.contour-fonts.md) |
 | `OSC 60 ST` | XTQALLOWED: list the allowed features | ignored | [query.xtqallowed](query.xtqallowed.md) |
 | `OSC 61 ; Pt ST` | XTQDISALLOWED: list the disallowed features | ignored | [query.xtqallowed](query.xtqallowed.md) |
-| `OSC 62 ST` | XTQALLOWABLE: list the features that may be allowed | ignored | [query.xtqallowed](query.xtqallowed.md) |
-| `OSC 66 ; Pm ; Pt ST` | write text at a larger size | partial | [text.kitty-sizing](text.kitty-sizing.md) |
+| `OSC 62 ; Pt ST` | XTQALLOWABLE: list the features that may be allowed | ignored | [query.xtqallowed](query.xtqallowed.md) |
+| `OSC 66 ; metadata ; Pt ST` | write text at a larger size | partial | [text.kitty-sizing](text.kitty-sizing.md) |
 | `OSC 72 ; Pt ST` | kitty's drag and drop | ignored | [osc.72](osc.72.md) |
 | `OSC 99 ; Pt ST` | kitty's notifications | ignored | [osc.notify](osc.notify.md) |
 | `OSC 104 ; c ST` | reset palette color c | supported | [color.palette.set](color.palette.set.md) |
@@ -369,10 +367,10 @@ A DCS string is ESC P followed by parameters, a final byte, the data, and ST to 
 | `DCS + q Pt ST` | XTGETTCAP: request terminfo capabilities | supported | [query.xtgettcap](query.xtgettcap.md) |
 | `DCS @kitty-cmd Pt ST` | kitty's remote control | refused | [dcs.kitty-cmd](dcs.kitty-cmd.md) |
 | `DCS P1 ; P2 ; P3 q Pt ST` | a sixel picture | supported | [image.sixel](image.sixel.md) |
+| `DCS Pm p Pt ST` | a ReGIS drawing | ignored | [image.regis](image.regis.md) |
 | `DCS Pm { Pt ST` | DECDLD: load a soft font | ignored | [image.decdld](image.decdld.md) |
 | `DCS Ps $ t Pt ST` | DECRSPS: restore the cursor or the tab stops | ignored | [query.decrqpsr](query.decrqpsr.md) |
 | <code>DCS Ps ; Ps &#124; Pt ST</code> | DECUDK: define user-defined keys | refused | [input.decudk](input.decudk.md) |
-| `DCS p Pt ST` | a ReGIS drawing | ignored | [image.regis](image.regis.md) |
 | `DCS = 1 s ST` | begin a synchronized update | supported | [ctl.sync-update](ctl.sync-update.md) |
 | `DCS = 2 s ST` | end a synchronized update | supported | [ctl.sync-update](ctl.sync-update.md) |
 | `DCS 1000 p Pt ST` | tmux's control mode | ignored | [dcs.tmux](dcs.tmux.md) |

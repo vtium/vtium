@@ -18,7 +18,7 @@ vtium leaves out of its reply a key that it does not know, instead of answering 
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs written for kitty set and read colors through it, and Ghostty shares it.
 - **Note:** kitty's meaning; a key vtium does not know is left out of the reply, where kitty answers `unknown=` with its name in base64 (a departure from kitty, by the reply rule).
 - **Specifications:** kitty color-stack; Ghostty ext

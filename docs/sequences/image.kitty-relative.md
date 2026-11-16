@@ -10,7 +10,7 @@
 
 - `P`: The parent's image id.
 - `Q`: The parent's placement id. Without it, vtium takes the parent image's placement made last that has no placement id.
-- `H, V`: How many cells the placement sits to the right of and below its parent. The default is 0.
+- `H, V`: How many cells the placement sits to the right of and below its parent. A negative value moves it left or up. The default is 0.
 
 ## What vtium does
 

@@ -16,8 +16,8 @@
 
 - `Pt ; Pl ; Pb ; Pr`: The rectangle's top row, left column, bottom row and right column, counted from 1. In origin mode they count from the margins. DECCRA's second Pt and Pl give the top left corner it copies to. The default is the whole screen.
 - `Pp`: A page number. vtium has one page, so DECCRA's page numbers change nothing. The default is 1.
-- `Pc`: The code of the character that DECFRA fills with. vtium takes a character one cell wide, and 0 means a space.
-- `Pm`: For DECCARA, SGR codes, which it applies as SGR applies them to the pen. For DECRARA, the attributes to reverse: 1 bold, 4 underline, 5 blink, 7 inverse and 8 conceal, or 0 for the first four. The default is 0.
+- `Pc`: The code of the character that DECFRA fills with, 32 to 126 or 160 to 255, through the character sets in use. Past 255, vtium also takes any printable character one cell wide. It ignores DECFRA for any other code, and for 0 or a code left out.
+- `Pm`: For DECCARA, SGR codes, which it applies as SGR applies them to the pen, so 0 turns every attribute off. For DECRARA, the attributes to reverse: 1 bold, 4 underline, 5 blink, 7 inverse and 8 conceal, or 0 for the first four. With no Pm, both act as for 0. The default is 0.
 - `Ps`: For DECSACE, 2 makes DECCARA and DECRARA act on the rectangle, and any other value on the stream of text from the first corner to the last. The default is 0, the stream.
 
 ## What vtium does
@@ -41,6 +41,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_rectangle_marks_only_its_cells` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
 - `a_rectangle_over_the_last_column_ends_the_wrap` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
 - `a_wide_character_cut_at_a_rectangle_edge_goes_whole` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
+- `deccara_and_decrara_with_no_attribute_take_0` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
 - `deccara_sets_attributes_in_a_rectangle_or_a_stream` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
 - `deccara_takes_every_sgr_attribute` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)
 - `deccra_copies_a_rectangle_whole` in [crates/vtium-term/tests/rect.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-term/tests/rect.rs)

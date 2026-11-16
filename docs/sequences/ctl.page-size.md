@@ -8,6 +8,10 @@
 | `CSI Ps t` | DECSLPP: set lines per page, for Ps of 24 or more |
 | <code>CSI Ps * &#124;</code> | DECSNLS: set lines per screen |
 
+## Parameters
+
+- `Ps`: For DECSCPP, the columns per page: 80 or 132, where 0 means 80. For DECSLPP, the lines per page, 24 or more. A smaller value is an XTWINOPS operation, on the page window.manipulate. For DECSNLS, the lines on the screen. The default is 80 for DECSCPP.
+
 ## What vtium does
 
 vtium reads these sequences and does nothing with them. The screen's size comes from the display and the font.

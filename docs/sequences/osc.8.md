@@ -22,7 +22,7 @@ vtium refuses a space in a URI, which the specification allows, so that the addr
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs such as ls and gcc print links the user can copy.
 - **Note:** links are kept in their cells, underlined while the pointer is over them, copied with Ctrl+click, and, while Ctrl is held, shown with their address on the overlay row.
 - **Specifications:** VTE and iTerm2 spec (Ghostty ext); contour clickable-links

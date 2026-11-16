@@ -6,7 +6,11 @@
 |---|---|
 | `OSC 60 ST` | XTQALLOWED: list the allowed features |
 | `OSC 61 ; Pt ST` | XTQDISALLOWED: list the disallowed features |
-| `OSC 62 ST` | XTQALLOWABLE: list the features that may be allowed |
+| `OSC 62 ; Pt ST` | XTQALLOWABLE: list the features that may be allowed |
+
+## Parameters
+
+- `Pt`: A main feature category, one of the resource names that OSC 60 lists, such as `allowColorOps` or `allowWindowOps`.
 
 ## What vtium does
 

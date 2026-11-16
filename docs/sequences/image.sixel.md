@@ -8,7 +8,7 @@
 
 ## Parameters
 
-- `P1`: The pixel aspect ratio. vtium reads it and draws each dot as one square pixel. The default is 0.
+- `P1`: The pixel aspect ratio. vtium reads it and draws each dot as one square pixel, whatever P1 asks for. The default is 0.
 - `P2`: 1 leaves the pixels that no dot sets transparent. Any other value fills them with color register 0. The default is 0.
 - `P3`: The horizontal grid size, which vtium ignores.
 - `Pt`: The picture: sixel characters, color register commands, repeats and raster attributes.
@@ -21,11 +21,11 @@ vtium decodes the picture as it arrives and places it at the cursor. The cursor 
 
 vtium reserves a picture's memory under the console's image budget before it decodes the pixels. A picture that cannot fit is refused.
 
-vtium draws each sixel dot as one square pixel, where DEC's VT340 manual draws a dot twice as tall as it is wide. See [How sixel works in vtium-image's README](https://github.com/vtium/vtium/blob/main/crates/vtium-image/README.md#how-sixel-works).
+vtium draws each sixel dot as one square pixel, whatever P1 or the raster attributes' Pan;Pad ask for. DEC's VT340 manual draws a dot 2:1 by default, and P1 and Pan;Pad choose other shapes. See [How sixel works in vtium-image's README](https://github.com/vtium/vtium/blob/main/crates/vtium-image/README.md#how-sixel-works).
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs such as img2sixel, mpv and lsix show pictures in sixel.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); VT330/VT340 graphics manual
 

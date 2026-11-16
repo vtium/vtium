@@ -4,9 +4,14 @@
 
 | Sequence | What it does |
 |---|---|
-| `CSI 38 : 6 : Pr : Pg : Pb : Pa m` | foreground with an alpha value |
-| `CSI 48 : 6 : Pr : Pg : Pb : Pa m` | background with an alpha value |
-| `CSI 58 : 6 : Pr : Pg : Pb : Pa m` | underline color with an alpha value |
+| `CSI 38 : 6 : : Pr : Pg : Pb : Pa m` | foreground with an alpha value |
+| `CSI 48 : 6 : : Pr : Pg : Pb : Pa m` | background with an alpha value |
+| `CSI 58 : 6 : : Pr : Pg : Pb : Pa m` | underline color with an alpha value |
+
+## Parameters
+
+- `Pr, Pg, Pb`: The red, green and blue values, each from 0 to 255. The empty field before them is the color space's id, which is left out.
+- `Pa`: The alpha value, from 0 to 255.
 
 ## What vtium does
 

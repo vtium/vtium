@@ -6,6 +6,10 @@
 |---|---|
 | `CSI Ps q` | DECLL: load the keyboard's LEDs |
 
+## Parameters
+
+- `Ps`: 0 turns every light off. 1, 2 and 3 light Num Lock, Caps Lock and Scroll Lock, and 21, 22 and 23 turn them off. The default is 0.
+
 ## What vtium does
 
 vtium reads the sequence and does nothing with it. The keyboard's lights stay as the user set them.

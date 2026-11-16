@@ -17,7 +17,7 @@
 
 ## What vtium does
 
-vtium reads both the colon forms above and the semicolon forms that most programs send, `CSI 38 ; 5 ; Ps m` and `CSI 38 ; 2 ; Pr ; Pg ; Pb m`. In the semicolon forms the color space's id is left out. A direct color is kept as it is, and a palette index is looked up when the cell is drawn.
+vtium reads both the colon forms above and the semicolon forms that most programs send, `CSI 38 ; 5 ; Ps m` and `CSI 38 ; 2 ; Pr ; Pg ; Pb m`. In the semicolon forms the color space's id is left out. vtium also reads `CSI 38 : 2 : Pr : Pg : Pb m`, which some programs send, with no field for the color space's id, and tells it apart by its count of fields. A direct color is kept as it is, and a palette index is looked up when the cell is drawn.
 
 ## Status
 

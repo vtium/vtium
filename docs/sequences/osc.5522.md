@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 5522 ; Pt ST` | kitty's clipboard with several types |
 
+## Parameters
+
+- `Pt`: kitty's metadata for the clipboard request, then `;` and the payload.
+
 ## What vtium does
 
 vtium reads the string and does nothing with it, and a read gets no reply. Its reads would hand clipboard data to the program.

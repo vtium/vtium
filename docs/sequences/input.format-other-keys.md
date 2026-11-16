@@ -5,7 +5,12 @@
 | Sequence | What it does |
 |---|---|
 | `CSI > Pp ; Pv f` | XTFMTKEYS: choose the format of modified keys |
-| `CSI ? Pp f` | XTQFMTKEYS: ask for that format |
+| `CSI ? Pp g` | XTQFMTKEYS: ask for that format |
+
+## Parameters
+
+- `Pp`: The resource: 0 formatKeyboard, 1 formatCursorKeys, 2 formatFunctionKeys, 3 formatKeypadKeys, 4 formatOtherKeys, 6 formatModifierKeys, and 7 formatSpecialKeys.
+- `Pv`: The value XTFMTKEYS gives the resource. Without it, the resource returns to its initial value.
 
 ## What vtium does
 

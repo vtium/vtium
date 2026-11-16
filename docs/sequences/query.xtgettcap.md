@@ -12,9 +12,9 @@
 
 ## What vtium does
 
-vtium looks each name up in the terminfo entry that `TERM` names, and answers `DCS 1 + r Pt ST`. In the reply, `Pt` holds `name=value` for each capability, both in uppercase hex, or the name alone for a boolean capability.
+vtium answers from tables compiled from the terminfo entries it installs, `xterm-vtium` and `kmscon`, each under its own entry's name. It answers `DCS 1 + r Pt ST`. In the reply, `Pt` holds `name=value` for each capability, both in uppercase hex, or the name alone for a boolean capability.
 
-vtium stops at the first name it does not know. If it knows none of the names, it answers `DCS 0 + r ST`. Each name in the reply comes from vtium's table, never from the request.
+vtium stops at the first name it does not know. If it knows none of the names, it answers `DCS 0 + r ST`. While `TERM` names any other entry, vtium knows no name, so it answers `DCS 0 + r ST` to every request. Each name in the reply comes from vtium's table, never from the request.
 
 vtium answers a bounded number of names in one request, and keeps the reply under a bounded length.
 

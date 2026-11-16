@@ -57,7 +57,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 5522 ; Pt ST",
             name: "kitty's clipboard with several types",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "kitty's metadata for the clipboard request, then `;` and the payload.",
+            default: None,
+        }],
         does: &[
             "vtium reads the string and does nothing with it, and a read gets no reply. Its reads would hand clipboard data to the program.",
         ],
@@ -176,7 +180,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "kitty's notifications",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "For OSC 9, the notification's text. For OSC 777, the title and the body, separated by `;`. For OSC 99, kitty's metadata, then `;` and the payload.",
+            default: None,
+        }],
         does: &[
             "vtium reads these strings and does nothing with them. OSC 99's queries get no reply.",
         ],
@@ -189,7 +197,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 9 ; 4 ; Ps ; Ps ST",
             name: "report progress",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps ; Ps",
+            meaning: "The state, then the progress from 0 to 100. The state is 0 to remove the progress, 1 to set it, 2 for an error, 3 for progress of unknown length, and 4 for paused.",
+            default: None,
+        }],
         does: &["vtium reads the string and does nothing with it."],
         departure: None,
         record: TARGET_SET,
@@ -200,7 +212,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 1337 ; Pt ST",
             name: "iTerm2's other strings, such as SetUserVar",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "A command's name, `=` and its argument, such as `SetUserVar=name=value`, where the value is in base64.",
+            default: None,
+        }],
         does: &[
             "vtium reads these strings and does nothing with them. The strings that carry pictures, `File=`, `MultipartFile=`, `FilePart=` and `FileEnd`, have a page of their own, image.iterm2.",
         ],
@@ -213,7 +229,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 46 ; Pt ST",
             name: "change the log file",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "The name of the file xterm logs to.",
+            default: None,
+        }],
         does: &[
             "vtium does nothing with this string. It would write a file on the host at a program's request.",
         ],
@@ -244,7 +264,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "report a program's status",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "The string's text, in the form that the program or terminal that defines the number gives it.",
+            default: None,
+        }],
         does: &["vtium reads these strings and does nothing with them."],
         departure: None,
         record: TARGET_SET,
@@ -255,7 +279,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 5113 ; Pt ST",
             name: "kitty's file transfer",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "kitty's metadata for the transfer, as `key=value` pairs, and the data.",
+            default: None,
+        }],
         does: &[
             "vtium does nothing with this string. It would read and write files on the host at the request of whatever wrote to the terminal.",
         ],
@@ -268,7 +296,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "OSC 72 ; Pt ST",
             name: "kitty's drag and drop",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "kitty's metadata for the drag and drop, then `;` and the payload.",
+            default: None,
+        }],
         does: &["vtium reads the string and does nothing with it."],
         departure: None,
         record: TARGET_SET,
@@ -279,7 +311,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "DCS @kitty-cmd Pt ST",
             name: "kitty's remote control",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "A JSON object that names the command and its arguments.",
+            default: None,
+        }],
         does: &[
             "vtium does nothing with this string, so program output never drives the terminal.",
         ],
@@ -292,7 +328,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "DCS 1000 p Pt ST",
             name: "tmux's control mode",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "tmux's control mode output, which starts with `%begin`.",
+            default: None,
+        }],
         does: &[
             "vtium reads the string and does nothing with it. tmux runs on the console as a plain program.",
         ],

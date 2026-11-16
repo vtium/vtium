@@ -13,13 +13,18 @@
 | `CSI 7 t` | XTWINOPS: refresh the window |
 | `CSI 9 ; Ps t` | XTWINOPS: maximize or restore the window |
 | `CSI 10 ; Ps t` | XTWINOPS: full screen |
-| `CSI Ps t` | DECSLPP: lines per screen, for Ps of 24 or more |
+
+## Parameters
+
+- `Px ; Py`: Where to move the window, in pixels from the screen's top left corner.
+- `Ph ; Pw`: The window's height and width in pixels. An omitted value keeps that side, and 0 takes the display's.
+- `Ps`: For `CSI 9`, 0 restores the window, 1 maximizes it, and 2 and 3 maximize it vertically and horizontally. For `CSI 10`, 0 leaves full screen, 1 enters it, and 2 toggles it.
 
 ## What vtium does
 
 vtium fills the whole screen and has no window, so these sequences have nothing to act on. vtium reads them and does nothing.
 
-A program that wants a grid of a given size in characters sends `CSI 8 ; Ph ; Pw t`, which vtium supports when the configuration allows it.
+A program that wants a grid of a given size in characters sends `CSI 8 ; Ph ; Pw t`, which vtium supports when the configuration allows it. `CSI Ps t` with a Ps of 24 or more is DECSLPP, on the page ctl.page-size.
 
 ## Status
 

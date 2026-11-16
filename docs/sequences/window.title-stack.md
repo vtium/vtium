@@ -7,6 +7,10 @@
 | `CSI 22 ; Ps t` | XTWINOPS: push the title on a stack |
 | `CSI 23 ; Ps t` | XTWINOPS: pop the title from the stack |
 
+## Parameters
+
+- `Ps`: Which title: 0 both the icon name and the window title, 1 the icon name, and 2 the window title. An optional third parameter from 1 to 10 names a stack entry to store into or restore from. The default is 0.
+
 ## What vtium does
 
 vtium keeps no title, so it reads these sequences and does nothing.

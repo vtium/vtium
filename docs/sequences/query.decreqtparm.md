@@ -9,6 +9,10 @@
 | `CSI & u` | DECRQUPSS: report the user-preferred character set |
 | `CSI Ps $ u` | DECRQTSR: report the terminal's state |
 
+## Parameters
+
+- `Ps`: For DECREQTPARM, 0 or 1, which says whether the terminal may send the report unasked. For DECRQTSR, which state to report: 1 for the terminal's whole state, and 2 for its color table. The default is 0 for DECREQTPARM.
+
 ## What vtium does
 
 vtium reads these sequences and sends no reply.

@@ -14,7 +14,7 @@
 
 ## What vtium does
 
-vtium answers `CSI Pa ; Ps $ y`, or `CSI ? Pd ; Ps $ y` for a DEC private mode. `Ps` is 1 when the mode is set and 2 when it is reset. It is 3 for a mode that is always set and 4 for one that is always reset, such as a mode vtium ignores or refuses. It is 0 for a number vtium does not recognize.
+vtium answers `CSI Pa ; Ps $ y`, or `CSI ? Pd ; Ps $ y` for a DEC private mode. `Ps` is 1 when the mode is set and 2 when it is reset. It is 3 for a mode that is always set and 4 for one that is always reset. A mode vtium ignores or refuses reports its fixed state: 3 when set, 4 when reset. It is 0 for a number vtium does not recognize.
 
 vtium answers from its mode table, which [Modes](../modes.md) lists.
 

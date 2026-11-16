@@ -9,7 +9,7 @@
 
 ## What vtium does
 
-The two strings set and reset mode 2026. While an update is open, vtium holds its frames, so the display keeps showing the last whole picture until the program ends the update. vtium also ends an update that stays open too long.
+The two strings set and reset mode 2026. While an update is open, vtium holds its frames, so the display keeps showing the last whole picture until the program ends the update. vtium also ends an update that stays open longer than `sync-timeout`, 200 ms by default. A `sync-timeout` of 0 turns mode 2026 off.
 
 ## Status
 

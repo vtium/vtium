@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 1337 ; Pt ST` | iTerm2's other strings, such as SetUserVar |
 
+## Parameters
+
+- `Pt`: A command's name, `=` and its argument, such as `SetUserVar=name=value`, where the value is in base64.
+
 ## What vtium does
 
 vtium reads these strings and does nothing with them. The strings that carry pictures, `File=`, `MultipartFile=`, `FilePart=` and `FileEnd`, have a page of their own, image.iterm2.

@@ -20,7 +20,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             },
             Form {
                 form: "CSI > 4 n",
-                name: "XTMODKEYS: turn modifyOtherKeys off",
+                name: "turn modifyOtherKeys off",
             },
             Form {
                 form: "CSI ? 4 m",
@@ -47,11 +47,22 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "XTFMTKEYS: choose the format of modified keys",
             },
             Form {
-                form: "CSI ? Pp f",
+                form: "CSI ? Pp g",
                 name: "XTQFMTKEYS: ask for that format",
             },
         ],
-        params: &[],
+        params: &[
+            Param {
+                name: "Pp",
+                meaning: "The resource: 0 formatKeyboard, 1 formatCursorKeys, 2 formatFunctionKeys, 3 formatKeypadKeys, 4 formatOtherKeys, 6 formatModifierKeys, and 7 formatSpecialKeys.",
+                default: None,
+            },
+            Param {
+                name: "Pv",
+                meaning: "The value XTFMTKEYS gives the resource. Without it, the resource returns to its initial value.",
+                default: None,
+            },
+        ],
         does: &["vtium reads both sequences and does nothing with them. XTQFMTKEYS gets no reply."],
         departure: None,
         record: TARGET_SET,
@@ -131,7 +142,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "CSI Ps ; Ps ; Ps ; Ps ; Ps T",
             name: "XTHIMOUSE: the program's answer to hilite mouse tracking",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps ; Ps ; Ps ; Ps ; Ps",
+            meaning: "In order: whether to start highlighting, the start's column and row, and the first and last rows the highlight may cover.",
+            default: None,
+        }],
         does: &[
             "vtium does nothing with this sequence. It refuses hilite mouse tracking, mode 1001, so there is no question for a program to answer. The five parameters keep the sequence apart from SD, which takes one.",
         ],

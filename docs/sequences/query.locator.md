@@ -9,6 +9,13 @@
 | `CSI Pt ; Pl ; Pb ; Pr ' w` | DECEFR: enable a filter rectangle |
 | <code>CSI Ps ' &#124;</code> | DECRQLP: request the locator's position |
 
+## Parameters
+
+- `Ps`: For DECELR, 0 turns locator reports off, 1 turns them on, and 2 turns them on for one report. For DECRQLP, 0, 1 or nothing asks for one report. The default is 0.
+- `Pu`: For DECELR, the unit of the reports: 1 for pixels, and 0 or 2 for character cells. The default is 0, character cells.
+- `Pm`: For DECSLE, the events to report: 0 only reports the program asks for, 1 and 2 turn reports of a button going down on and off, and 3 and 4 turn reports of a button going up on and off. The default is 0.
+- `Pt ; Pl ; Pb ; Pr`: For DECEFR, the filter rectangle's top, left, bottom and right. An omitted one is the locator's position.
+
 ## What vtium does
 
 vtium reads these sequences, changes nothing and sends no reply. A program that wants the pointer's position turns on mouse reporting through the mouse modes, which [Modes](../modes.md) lists.

@@ -7,6 +7,10 @@
 | `CSI Ps SP t` | DECSWBV: set the warning bell's volume |
 | `CSI Ps SP u` | DECSMBV: set the margin bell's volume |
 
+## Parameters
+
+- `Ps`: The volume. For DECSWBV, 0 and 1 are off, 2 to 4 low, and 5 to 8 high. For DECSMBV, 1 is off, 2 to 4 low, and 0 and 5 to 8 high.
+
 ## What vtium does
 
 vtium reads these sequences and does nothing with them. vtium rings the VT bell, whose volume the kernel and the hardware set.

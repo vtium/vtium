@@ -7,6 +7,10 @@
 | `CSI Ps $ ~` | DECSSDT: select the status line's type |
 | `CSI Ps $ }` | DECSASD: select the active display |
 
+## Parameters
+
+- `Ps`: For DECSSDT, the status line's type: 0 none, 1 the terminal's indicator line, and 2 a line the program writes. For DECSASD, where text goes: 0 the main display, and 1 the status line. The default is 0, as the VT510 manual gives it for both.
+
 ## What vtium does
 
 vtium reads these sequences and does nothing with them, since it draws no status line of its own.

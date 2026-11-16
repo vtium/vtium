@@ -6,6 +6,10 @@
 |---|---|
 | `DCS @kitty-cmd Pt ST` | kitty's remote control |
 
+## Parameters
+
+- `Pt`: A JSON object that names the command and its arguments.
+
 ## What vtium does
 
 vtium does nothing with this string, so program output never drives the terminal.
@@ -14,7 +18,7 @@ vtium does nothing with this string, so program output never drives the terminal
 
 - **Status:** refused. vtium deliberately does not implement this.
 - **Why:** program output would drive the terminal.
-- **Specifications:** kitty misc-protocol
+- **Specifications:** kitty rc_protocol
 
 ## Tests
 

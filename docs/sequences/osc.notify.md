@@ -8,6 +8,10 @@
 | `OSC 777 ; notify ; Pt ST` | show a notification with a title |
 | `OSC 99 ; Pt ST` | kitty's notifications |
 
+## Parameters
+
+- `Pt`: For OSC 9, the notification's text. For OSC 777, the title and the body, separated by `;`. For OSC 99, kitty's metadata, then `;` and the payload.
+
 ## What vtium does
 
 vtium reads these strings and does nothing with them. OSC 99's queries get no reply.

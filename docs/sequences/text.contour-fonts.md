@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 60 ; Pt ST` | contour's font settings |
 
+## Parameters
+
+- `Pt`: The font settings, in the form contour defines.
+
 ## What vtium does
 
 vtium takes OSC 60 as XTQALLOWED, the meaning in xterm's control sequences, and ignores it. So a string meant to change the fonts changes nothing and gets no reply.

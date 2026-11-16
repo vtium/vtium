@@ -13,13 +13,13 @@
 
 ## What vtium does
 
-vtium switches to the font set that Pt names, and resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.
+vtium switches to the font set that Pt names. When the new font's character cell has another size, vtium resizes the grid to fit it. The query gets `OSC 50 ; NAME`, ended as it was asked, where NAME is the set in use. While the `allow-font-ops` key is off, vtium ignores both forms.
 
 vtium takes only the name of one of its font sets, and ignores anything else, such as a path or an X font name. It also ignores a Pt that starts with `#`, the form that picks from a font menu. See [OSC strings and the Linux console's sequences in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#osc-strings-and-the-linux-consoles-sequences).
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** programs and users change the font and zoom while the console runs.
 - **Note:** late; a program setting the grid's size is the XTWINOPS 8 row.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)

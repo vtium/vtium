@@ -6,6 +6,10 @@
 |---|---|
 | `OSC 9 ; 4 ; Ps ; Ps ST` | report progress |
 
+## Parameters
+
+- `Ps ; Ps`: The state, then the progress from 0 to 100. The state is 0 to remove the progress, 1 to set it, 2 for an error, 3 for progress of unknown length, and 4 for paused.
+
 ## What vtium does
 
 vtium reads the string and does nothing with it.

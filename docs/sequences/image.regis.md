@@ -4,7 +4,12 @@
 
 | Sequence | What it does |
 |---|---|
-| `DCS p Pt ST` | a ReGIS drawing |
+| `DCS Pm p Pt ST` | a ReGIS drawing |
+
+## Parameters
+
+- `Pm`: 0 resumes the command in progress and 1 starts a new one, both in full-screen mode. 2 and 3 do the same in command display mode.
+- `Pt`: The ReGIS commands.
 
 ## What vtium does
 

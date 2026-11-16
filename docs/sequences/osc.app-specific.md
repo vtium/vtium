@@ -10,6 +10,10 @@
 | `OSC 3008 ; Pt ST` | report a context |
 | `OSC 7501 ; Pt ST` | report a program's status |
 
+## Parameters
+
+- `Pt`: The string's text, in the form that the program or terminal that defines the number gives it.
+
 ## What vtium does
 
 vtium reads these strings and does nothing with them.

@@ -4,18 +4,18 @@
 
 | Sequence | What it does |
 |---|---|
-| `OSC 66 ; Pm ; Pt ST` | write text at a larger size |
+| `OSC 66 ; metadata ; Pt ST` | write text at a larger size |
 
 ## Parameters
 
-- `Pm`: `key=value` pairs separated by `:`. `s` is the scale, 1 to 7, and `w` the width in cells, 0 to 7. `n` over `d` is a fraction of the scale, each 0 to 15. `v` and `h` align the text vertically and horizontally, each 0 to 2. The default is an empty list, which writes the text at its normal size.
+- `metadata`: `key=value` pairs separated by `:`. `s` is the scale, 1 to 7, and `w` the width in cells, 0 to 7. `n` over `d` is a fraction of the scale, each 0 to 15. `v` and `h` align the text vertically and horizontally, each 0 to 2. The default is empty, which writes the text at its normal size.
 - `Pt`: The text, at most 4096 bytes of UTF-8.
 
 ## What vtium does
 
 vtium stores the block of cells that one sequence writes as one unit, so an edit that would move, clear or overwrite only part of it erases it whole. vtium ignores a key it does not know. A known key with a value out of its range discards the whole sequence, text included.
 
-The renderer does not draw a block at its size yet. OSC 66 has no reply.
+The renderer draws each run at its scale, fraction and alignment across its block, from the font's glyphs at the normal size scaled up, and a cursor on a run covers the whole block. OSC 66 has no reply.
 
 ## Status
 

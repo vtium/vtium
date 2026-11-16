@@ -9,6 +9,10 @@
 | `OSC l Pt ST` | set the title, in Sun's form |
 | `OSC L Pt ST` | set the icon name, in Sun's form |
 
+## Parameters
+
+- `Pt`: For OSC 3, an X property as `name=value`, or `name` alone to delete it. For OSC I, the name of an icon file. For OSC l and OSC L, the title and the icon name.
+
 ## What vtium does
 
 vtium has no X window, so it reads these strings and does nothing.

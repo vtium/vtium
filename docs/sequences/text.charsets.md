@@ -20,19 +20,19 @@
 
 ## Parameters
 
-- `C`: The set: `B` for ASCII, `0` for DEC special graphics, and `<` for DEC supplemental graphics, which vtium designates only in 8-bit input.
+- `C`: The set: `B` for ASCII, `0` for DEC special graphics, and `<` for DEC supplemental graphics, which vtium designates only in 8-bit input and takes as ASCII otherwise. The national replacement sets' finals `A`, `4`, `C`, `5`, `R`, `Q`, `K`, `Y`, `E`, `6`, `Z`, `H`, `7` and `=` designate ASCII. vtium ignores any other final, such as the national sets' `f`, `9`, `%2`, `%6`, `%=`, `"4` and `"?`.
 
 ## What vtium does
 
-vtium keeps four character sets, G0 to G3. GL maps the ASCII graphic characters, and GR maps the bytes 0xA1 to 0xFE of 8-bit input. At the start G0 to G3 hold ASCII, GL holds G0 and GR holds G2.
+vtium keeps four character sets, G0 to G3. GL maps the ASCII graphic characters, and GR maps the bytes 0xA1 to 0xFE of 8-bit input. At the start G0 and G1 hold ASCII, and G2 and G3 hold ASCII, or DEC supplemental graphics in 8-bit input. GL holds G0 and GR holds G2.
 
 DEC special graphics draws lines and boxes in place of letters, which programs such as ncurses use. A character decoded from UTF-8 prints as itself, whatever G1 to G3 hold. A single shift applies to the next printed character only. DECSC saves the sets and a waiting single shift.
 
-The finals of the national replacement sets designate ASCII, since vtium does not implement national replacement sets. See [Character sets in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#character-sets).
+The finals `A`, `4`, `C`, `5`, `R`, `Q`, `K`, `Y`, `E`, `6`, `Z`, `H`, `7` and `=` of the national replacement sets designate ASCII, since vtium does not implement national replacement sets. vtium ignores the other national sets' finals. See [Character sets in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#character-sets).
 
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** ncurses draws lines and boxes with DEC special graphics, and old programs switch character sets.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); [the VT510 reference manual](https://vt100.net/docs/vt510-rm/contents.html)
 

@@ -7,7 +7,6 @@
 | `CSI ? 15 n` | printer status |
 | `CSI ? 25 n` | user-defined keys status |
 | `CSI ? 26 n` | keyboard status |
-| `CSI ? 53 n` | locator status |
 | `CSI ? 55 n` | locator status |
 | `CSI ? 56 n` | locator type |
 | `CSI ? 62 n` | macro space report |

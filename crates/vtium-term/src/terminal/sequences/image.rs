@@ -32,7 +32,7 @@ pub(super) const ENTRIES: &[Entry] = &[
         params: &[
             Param {
                 name: "P1",
-                meaning: "The pixel aspect ratio. vtium reads it and draws each dot as one square pixel.",
+                meaning: "The pixel aspect ratio. vtium reads it and draws each dot as one square pixel, whatever P1 asks for.",
                 default: Some("0"),
             },
             Param {
@@ -57,7 +57,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             "vtium reserves a picture's memory under the console's image budget before it decodes the pixels. A picture that cannot fit is refused.",
         ],
         departure: Some(Departure {
-            says: "vtium draws each sixel dot as one square pixel, where DEC's VT340 manual draws a dot twice as tall as it is wide.",
+            says: "vtium draws each sixel dot as one square pixel, whatever P1 or the raster attributes' Pan;Pad ask for. DEC's VT340 manual draws a dot 2:1 by default, and P1 and Pan;Pad choose other shapes.",
             readme: "crates/vtium-image/README.md",
             section: "How sixel works",
         }),
@@ -129,7 +129,7 @@ pub(super) const ENTRIES: &[Entry] = &[
             },
             Param {
                 name: "H, V",
-                meaning: "How many cells the placement sits to the right of and below its parent.",
+                meaning: "How many cells the placement sits to the right of and below its parent. A negative value moves it left or up.",
                 default: Some("0"),
             },
         ],
@@ -223,10 +223,21 @@ pub(super) const ENTRIES: &[Entry] = &[
     Entry {
         id: "image.regis",
         forms: &[Form {
-            form: "DCS p Pt ST",
+            form: "DCS Pm p Pt ST",
             name: "a ReGIS drawing",
         }],
-        params: &[],
+        params: &[
+            Param {
+                name: "Pm",
+                meaning: "0 resumes the command in progress and 1 starts a new one, both in full-screen mode. 2 and 3 do the same in command display mode.",
+                default: None,
+            },
+            Param {
+                name: "Pt",
+                meaning: "The ReGIS commands.",
+                default: None,
+            },
+        ],
         does: &["vtium reads the string and does nothing with it."],
         departure: None,
         record: TARGET_SET,

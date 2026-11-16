@@ -6,6 +6,10 @@
 |---|---|
 | `CSI Ps + T` | unscroll: bring lines back from the scrollback |
 
+## Parameters
+
+- `Ps`: How many lines to bring back, as SD counts the lines it scrolls. The default is 1.
+
 ## What vtium does
 
 vtium reads the sequence and does nothing with it.

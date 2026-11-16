@@ -6,6 +6,10 @@
 |---|---|
 | `CSI 14 ; Ps ]` | set the VESA powerdown interval |
 
+## Parameters
+
+- `Ps`: The minutes of idle time before the display powers down.
+
 ## What vtium does
 
 vtium reads the sequence and does nothing with it. vtium has one blanking step, which `CSI 9 ; Ps ]` times.

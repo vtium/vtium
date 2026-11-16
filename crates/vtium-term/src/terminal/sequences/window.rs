@@ -43,15 +43,27 @@ pub(super) const ENTRIES: &[Entry] = &[
                 form: "CSI 10 ; Ps t",
                 name: "XTWINOPS: full screen",
             },
-            Form {
-                form: "CSI Ps t",
-                name: "DECSLPP: lines per screen, for Ps of 24 or more",
+        ],
+        params: &[
+            Param {
+                name: "Px ; Py",
+                meaning: "Where to move the window, in pixels from the screen's top left corner.",
+                default: None,
+            },
+            Param {
+                name: "Ph ; Pw",
+                meaning: "The window's height and width in pixels. An omitted value keeps that side, and 0 takes the display's.",
+                default: None,
+            },
+            Param {
+                name: "Ps",
+                meaning: "For `CSI 9`, 0 restores the window, 1 maximizes it, and 2 and 3 maximize it vertically and horizontally. For `CSI 10`, 0 leaves full screen, 1 enters it, and 2 toggles it.",
+                default: None,
             },
         ],
-        params: &[],
         does: &[
             "vtium fills the whole screen and has no window, so these sequences have nothing to act on. vtium reads them and does nothing.",
-            "A program that wants a grid of a given size in characters sends `CSI 8 ; Ph ; Pw t`, which vtium supports when the configuration allows it.",
+            "A program that wants a grid of a given size in characters sends `CSI 8 ; Ph ; Pw t`, which vtium supports when the configuration allows it. `CSI Ps t` with a Ps of 24 or more is DECSLPP, on the page ctl.page-size.",
         ],
         departure: None,
         record: REFUSALS,
@@ -180,7 +192,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "XTWINOPS: pop the title from the stack",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "Which title: 0 both the icon name and the window title, 1 the icon name, and 2 the window title. An optional third parameter from 1 to 10 names a stack entry to store into or restore from.",
+            default: Some("0"),
+        }],
         does: &["vtium keeps no title, so it reads these sequences and does nothing."],
         departure: None,
         record: TARGET_SET,
@@ -201,7 +217,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "XTTITLEPOS: report the title stack's position",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pm",
+            meaning: "The title features to set or reset: 0 sets the labels in hex, 1 reports them in hex, 2 sets them in UTF-8, and 3 reports them in UTF-8. With none, every feature returns to its default.",
+            default: None,
+        }],
         does: &[
             "vtium keeps no title, so it reads these sequences, does nothing and sends no reply.",
         ],
@@ -255,7 +275,11 @@ pub(super) const ENTRIES: &[Entry] = &[
                 name: "set the icon name, in Sun's form",
             },
         ],
-        params: &[],
+        params: &[Param {
+            name: "Pt",
+            meaning: "For OSC 3, an X property as `name=value`, or `name` alone to delete it. For OSC I, the name of an icon file. For OSC l and OSC L, the title and the icon name.",
+            default: None,
+        }],
         does: &["vtium has no X window, so it reads these strings and does nothing."],
         departure: None,
         record: TARGET_SET,
@@ -304,7 +328,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             form: "CSI > Ps p",
             name: "XTSMPOINTER: hide the pointer while typing",
         }],
-        params: &[],
+        params: &[Param {
+            name: "Ps",
+            meaning: "0 never hides the pointer, 1 hides it while no mouse tracking mode is set, and 2 and 3 always hide it.",
+            default: None,
+        }],
         does: &[
             "vtium reads the sequence and does nothing. It follows its own rule for hiding the pointer while you type.",
         ],

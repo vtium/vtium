@@ -10,7 +10,7 @@
 
 ## What vtium does
 
-vtium answers `CSI 5 n` with `CSI 0 n`, which means the terminal works. It answers `CSI 6 n` with `CSI Pr ; Pc R`, the cursor's row and column counted from 1. DECXCPR adds the page, which is always 1: `CSI ? Pr ; Pc ; 1 R`.
+vtium answers `CSI 5 n` with `CSI 0 n`, which means the terminal works. It answers `CSI 6 n` with `CSI Pr ; Pc R`, the cursor's row and column counted from 1. DECXCPR adds the page, which is always 1: `CSI ? Pr ; Pc ; 1 R`. The page parameter follows the VT510 manual's DECXCPR, since xterm's control sequences give the reply as `CSI ? Pr ; Pc R`.
 
 In origin mode, the row counts from the top of the scrolling region and the column from the left margin. While a wrap is pending, the cursor stands on the last column, and vtium reports that column.
 
@@ -18,7 +18,7 @@ In origin mode, the row counts from the top of the scrolling region and the colu
 
 - **Status:** supported. vtium implements this as the specifications below define it.
 - **Why:** programs ask whether the terminal is ready and where the cursor is.
-- **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
+- **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); [the VT510 reference manual](https://vt100.net/docs/vt510-rm/contents.html)
 
 ## Tests
 
