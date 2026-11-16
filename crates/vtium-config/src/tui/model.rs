@@ -1075,6 +1075,11 @@ impl App {
         if self.trial.is_some() && self.leaving.is_none() && !self.installing {
             return self.put_back();
         }
+        // a question takes only its answer keys, so a click or the wheel
+        // leaves it open and changes nothing under it
+        if self.confirm.is_some() {
+            return Vec::new();
+        }
         if self.view != View::Flow
             || self.leaving.is_some()
             || self.installing
