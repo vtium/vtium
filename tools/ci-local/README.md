@@ -43,4 +43,4 @@ Everything the runs keep is under `$XDG_CACHE_HOME/vtium/ci-local` (`~/.cache/vt
 
 ## How long it takes
 
-On the maintainer's machine, the first run takes about 13 minutes: about 3 minutes to build the image and about 10 to build and run both builds. A later run with nothing to rebuild takes about 9 minutes, almost all of it running the tests.
+On the maintainer's machine, the first run takes about 10 minutes: half a minute to build the image, and about 9 minutes to compile and run both builds. A later run with nothing to compile takes about 8 minutes and 40 seconds, almost all of it running the tests.
