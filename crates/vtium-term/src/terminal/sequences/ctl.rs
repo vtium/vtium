@@ -324,7 +324,8 @@ pub(super) const ENTRIES: &[Entry] = &[
         ],
         params: &[],
         does: &[
-            "DECSTR returns the modes, the pen, the cursor's style, the character sets, the saved cursors, the top and bottom margins, and the 256 palette colors to their initial state. The mouse modes and mode 1004 are among the modes it resets. It keeps the text, the cursor's position, the tab stops, and the left and right margins.",
+            "DECSTR returns the pen, the cursor's style, the character sets, the saved cursors, the top and bottom margins, and the 256 palette colors to their initial state. It resets the modes that a soft reset covers, the mouse modes and mode 1004 among them, and [Modes](../modes.md) lists which those are.",
+            "DECSTR keeps the text, the cursor's position, the tab stops, mode 69 and the left and right margins, and the colors OSC 10 to 19 set. It also keeps what XTSAVE saved, XTSHIFTESCAPE's setting, the SGR and color stacks, and the cursor's blink interval.",
             "RIS does all of that, then erases the screen and the scrollback and moves the cursor home. It also sets a tab stop every 8 columns, returns every color a program set, and empties the SGR and color stacks.",
         ],
         departure: Some(Departure {
