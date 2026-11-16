@@ -45,16 +45,18 @@ fn conf(paths: &Paths) -> Result<(PathBuf, Option<String>), String> {
 }
 
 /// `fonts`: each frit and built-in font, one line each, tab-separated: its
-/// name, its state, and the sources this machine lacks or refuses, which
-/// the glyph helper finds under its own sandbox, so this process parses
-/// no font (ADR-1201 D3). After the list, a report in sentences names each
-/// font a set needs and this machine lacks, each installed font of a lower
-/// version than the set asks for, and each font file whose SHA-256
-/// differs, with the font's upstream page where the set gives one. A last
-/// line points to the help page on installing fonts. A line of the report
-/// holds no tab, so it never reads as a font's line.
+/// name, its state, and the sources this machine lacks or refuses. The
+/// glyph helper finds those sources under its own sandbox, so this process
+/// parses no font. After the list, a report in sentences names each font a
+/// set needs and this machine lacks, also for a set with no font left,
+/// each installed font of a lower version than the set asks for, and each
+/// font file whose SHA-256 differs, with the font's upstream page where
+/// the set gives one. A last line points to the help page on installing
+/// fonts. A line of the report holds no tab, so it never reads as a font's
+/// line.
 ///
 /// References:
+/// - ADR-1201 D3: vtium-config reads a font only through the sandboxed helper.
 /// - ADR-1204 D7: what the report names, and the page it points to.
 pub fn fonts(words: &[String], paths: &Paths, out: &mut dyn Write, err: &mut dyn Write) -> u8 {
     if !words.is_empty() {
