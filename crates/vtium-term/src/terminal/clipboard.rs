@@ -52,18 +52,33 @@ impl State {
 /// `bytes` read as UTF-8, each ill-formed sequence replaced by one U+FFFD
 /// for each maximal subpart (Unicode 16.0, 3.9, "U+FFFD Substitution of
 /// Maximal Subparts", as `String::from_utf8_lossy` replaces them), or
-/// `None` when the text would pass `max` bytes. Each U+FFFD takes three
-/// bytes, so the text's length is counted before it is built.
+/// `None` when the text would pass `max` bytes. The text's length is
+/// counted with [`clipboard_len`] before the text is built.
 fn text(bytes: Vec<u8>, max: usize) -> Option<String> {
     let bytes = match String::from_utf8(bytes) {
         Ok(text) => return (text.len() <= max).then_some(text),
         Err(e) => e.into_bytes(),
     };
-    let len = bytes.utf8_chunks().try_fold(0usize, |len, chunk| {
+    (clipboard_len(&bytes) <= max).then(|| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The length in bytes of `bytes` once vtium has replaced what is not valid
+/// UTF-8, which is the length the selection holds when OSC 52 sets it.
+/// vtium puts one U+FFFD in place of each maximal subpart that is not valid
+/// UTF-8, as `String::from_utf8_lossy` does. U+FFFD takes 3 bytes in UTF-8,
+/// so one byte that is not valid UTF-8 becomes 3, and valid UTF-8 keeps its
+/// length. `str::Utf8Chunks` splits the bytes at those same subparts. The
+/// count saturates at `usize::MAX`, which passes every bound.
+///
+/// vtium drops a copy whose length then passes [`CLIPBOARD_MAX`].
+/// vtium-clipboard counts a text's length with this function too, so it
+/// refuses exactly the texts that vtium would drop.
+pub fn clipboard_len(bytes: &[u8]) -> usize {
+    bytes.utf8_chunks().fold(0, |len, chunk| {
         let replaced = if chunk.invalid().is_empty() { 0 } else { 3 };
-        len.checked_add(chunk.valid().len())?.checked_add(replaced)
-    })?;
-    (len <= max).then(|| String::from_utf8_lossy(&bytes).into_owned())
+        len.saturating_add(chunk.valid().len())
+            .saturating_add(replaced)
+    })
 }
 
 /// The bytes `text` encodes in base64 (RFC 4648, section 4), or `None`

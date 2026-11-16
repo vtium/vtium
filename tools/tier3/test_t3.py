@@ -1155,19 +1155,29 @@ class VtiumGoldenTest(unittest.TestCase):
         return path
 
     def test_shipped(self):
-        # The maintainer reviewed every provisional golden on 2026-11-05, the
-        # four notice goldens recaptured with the reworded notices on
-        # 2026-11-06, and the ten screens of each default 2D variant
-        # re-baselined on vtium's captures with the font set tier3-text
-        # (vtium/vtium#275) on 2026-11-06, and the three sgr goldens of the
-        # minimal variants recaptured with ADR-1302 D4's italic bands of
-        # 2026-11-07 (vtium/vtium#273) on 2026-11-08, and card 1b's
-        # kernel-message golden on 2026-11-11, and the four panic goldens of
-        # the maintainer's drawing of Tux (ADR-1401 D7) and the img-delete
-        # golden of kitty 0.50.0's replies (ADR-1100 D15) on 2026-11-13, and
-        # the login picture's capture (ADR-1100 D17) on 2026-11-15, and the
-        # built-in font's two captures (ADR-1204 D1) on 2026-11-15. The list
-        # in the tree is empty; a golden it names must be one a case draws.
+        # The maintainer has reviewed every golden that tier 3 has listed as
+        # provisional, so the list in the tree is empty. The reviews ran from
+        # 2026-11-05 to 2026-11-15:
+        # - 2026-11-05: every provisional golden at that date.
+        # - 2026-11-06: the four notice goldens, recaptured with the reworded
+        #   notices, and the ten screens of each default 2D variant,
+        #   re-baselined on vtium's captures with the font set tier3-text
+        #   (vtium/vtium#275).
+        # - 2026-11-08: the three sgr goldens of the minimal variants,
+        #   recaptured with the italic bands of 2026-11-07 (vtium/vtium#273).
+        # - 2026-11-11: card 1b's kernel-message golden.
+        # - 2026-11-13: the four panic goldens with the maintainer's drawing
+        #   of Tux, and the img-delete golden with kitty 0.50.0's replies.
+        # - 2026-11-15: the login picture's capture and the built-in font's
+        #   two captures.
+        # A golden that the list names must also be one that a case draws.
+        #
+        # References:
+        # - ADR-1302 D4: the italic bands that the sgr goldens show.
+        # - ADR-1401 D7: the panic screen that the panic goldens show.
+        # - ADR-1100 D15: kitty's replies that the img-delete golden follows.
+        # - ADR-1100 D17: the login picture.
+        # - ADR-1204 D1: the built-in font.
         prov = t3_evaluate.read_provisional()
         self.assertEqual(sorted(prov), [])
         self.assertEqual(t3_evaluate.check_goldens(t3_scenario.golden_cases(),

@@ -7,13 +7,12 @@ FROM docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d5
 # the tests and build scripts reach: a C toolchain for linking, pkg-config,
 # python3, curl, zip, X11's Compose tables that xkbcommon reads, the Noto
 # Color Emoji font and a few more. The runner image installs these before any
-# job runs. Its awk is gawk, where Ubuntu's container image has mawk: the
-# key tests' shell scripts read a terminal with awk, and mawk holds back
-# what it reads until more input comes, so those tests fail under mawk.
+# job runs. The runner's awk is gawk, and this image keeps Ubuntu's mawk: the
+# tests work with any POSIX awk.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       libudev-dev libxkbcommon-dev libsystemd-dev libseat-dev libegl1 libegl-mesa0 libgl1-mesa-dri libgbm1 \
-      build-essential pkg-config ca-certificates curl git python3 python-is-python3 zip unzip xz-utils file libx11-data fonts-noto-color-emoji gawk \
+      build-essential pkg-config ca-certificates curl git python3 python-is-python3 zip unzip xz-utils file libx11-data fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
 
 # CI's jobs run as a user named runner, with bash running each step. Here the
