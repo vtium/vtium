@@ -96,6 +96,8 @@ pub use file::{CONF_FILE, Inspected, Trust, Untrusted, inspect, read, read_limit
 pub use findings::{Against, remarks, warnings};
 pub use identity::{Class, Classes, Edid, Identity, Kind, UsbSerial};
 pub use matching::{Match, Token, glob};
+/// The report of `vtium config fonts` on the fonts each font set needs.
+pub use messages::fonts as fonts_report;
 pub use outcome::{
     DisplayWait, Fallback, Kept, Line, Lit, Outcome, Policy, PolicyLine, Read, Rescue, Rest, Runs,
     Scope, Stated, Switch, SwitchKey, Trusted, Unplaced, Within, resolve, scope,
