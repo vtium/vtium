@@ -605,3 +605,87 @@ fn a_color_glyph_in_a_run_with_text_keeps_its_colors() {
         );
     }
 }
+
+/// A face of 8x16 cells whose letters each draw a block inside the cell,
+/// and whose V also draws an accent 6 pixels into the row above.
+struct Accent;
+
+impl vtium_font::Face for Accent {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: CW,
+            height: CH,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        1
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c.is_ascii_graphic()
+    }
+    fn draw(&self, text: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        use vtium_font::{Format, Glyph};
+        let body = |x: u32, y: u32| (1..7).contains(&x) && (6..14).contains(&y);
+        let own = (0..CH)
+            .flat_map(|y| (0..CW).map(move |x| if body(x, y) { 0xff } else { 0 }))
+            .collect();
+        let g = Glyph::from_pixels(CW, CH, Format::Mask, own)?;
+        if text != ['V'] {
+            return Some(g);
+        }
+        // the ink from 6 rows above the cell to its bottom
+        let ink = (-6..CH as i32)
+            .flat_map(|y| {
+                (0..CW).map(move |x| {
+                    let accent = y < 0 && (3..6).contains(&x);
+                    if accent || (y >= 0 && body(x, y as u32)) {
+                        0xff
+                    } else {
+                        0
+                    }
+                })
+            })
+            .collect();
+        g.with_ink((0, -6), (CW, CH + 6), ink)
+    }
+}
+
+// A run whose cells the ink of a letter on the row below reaches draws
+// its pieces when the renderer draws those cells again after the letter's
+// row: a V written under a run of scale 2 sends its accent 6 pixels up
+// into the run's bottom row. The run's bottom row above the accent draws
+// as it does with no V, and the frame drawn after the V equals a whole
+// drawing
+// covers: text.kitty-sizing
+#[test]
+fn a_run_that_ink_from_the_row_below_reaches_draws_its_pieces_again() {
+    let draw_accent = |t: &Terminal, r: &mut Renderer<Accent>, c: &mut Canvas, since, age| {
+        r.draw(&t.screen().frame(t.palette(), since), c, age, &state(t));
+    };
+    let whole = |t: &Terminal| {
+        let mut r = Renderer::new(vtium_font::Font::new(Accent), W, H, Config::default());
+        let mut c = Canvas::new(W, H, 0);
+        draw_accent(t, &mut r, &mut c, Age::NEVER, 0);
+        c
+    };
+    // a V lower down has the font draw a glyph whose ink passes its cells
+    let mut t = term(b"\x1b[7;8HV\x1b[1;1H\x1b]66;s=2;AB\x07");
+    let no_v = whole(&t);
+    let mut r = Renderer::new(vtium_font::Font::new(Accent), W, H, Config::default());
+    let mut c = Canvas::new(W, H, 0);
+    draw_accent(&t, &mut r, &mut c, Age::NEVER, 0);
+    let since = t.screen_mut().checkpoint();
+    t.input(b"\x1b[3;1HV");
+    draw_accent(&t, &mut r, &mut c, since, 1);
+    // the run's bottom row, above the 6 rows the accent reaches
+    let above_accent = |c: &Canvas| area(c, (0, CH), (4 * CW, CH - 6));
+    let want = above_accent(&no_v);
+    assert!(
+        want.iter().flatten().any(|&p| p != want[0][0]),
+        "the run draws its letters there"
+    );
+    assert_eq!(above_accent(&c), want, "the frame after the V");
+    let with_v = whole(&t);
+    assert_eq!(above_accent(&with_v), want, "a whole drawing with the V");
+    assert_eq!(area(&c, (0, 0), (W, H)), area(&with_v, (0, 0), (W, H)));
+}

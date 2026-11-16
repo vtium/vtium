@@ -45,6 +45,7 @@ These tests check what vtium does with the sequences on this page.
 - `a_run_of_scale_3_multiplies_each_pixel_by_3` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_run_on_a_double_height_pair_draws_its_text_once_across_both_lines` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_run_on_a_double_width_line_draws_its_text_once_across_its_cells` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
+- `a_run_that_ink_from_the_row_below_reaches_draws_its_pieces_again` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_run_with_a_width_draws_its_whole_text_in_one_block` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_runs_decorations_on_a_line_of_double_size_match_printed_cells` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
 - `a_runs_decorations_scale_with_its_text` in [crates/vtium-render/tests/sized_runs.rs](https://github.com/vtium/vtium/blob/main/crates/vtium-render/tests/sized_runs.rs)
