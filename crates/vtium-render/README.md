@@ -275,6 +275,22 @@ A line of double size keeps its glyphs' ink in their cells. It sends no ink to i
 
 Tests: `tests/line_size.rs` and `tests/gpu_line_size.rs`, `each_piece_of_a_doubled_glyph_is_a_glyph_of_its_own` in `src/cache.rs`, and the unit tests in `src/renderer/double.rs`. Among those, `a_box_drawing_line_on_a_double_width_line_keeps_its_weight`, `a_box_drawing_line_on_a_double_height_pair_takes_the_taller_cells_weight` and `a_block_fills_each_piece_of_its_doubled_cell` cover the sprites, and `a_letter_of_a_bitmap_font_still_doubles_its_pixels` covers a bitmap font. `a_glyph_rendered_at_double_size_draws_its_pieces_as_they_are` and `every_gpu_frame_of_rendered_double_size_glyphs_matches_a_whole_draw` draw from a face that holds double-size glyphs. `the_cursor_covers_both_lines_of_a_double_height_pair`, `the_cursor_covers_the_wide_characters_columns_on_the_other_line`, `the_cursor_on_a_line_with_no_partner_covers_its_own_line` and `each_frame_of_the_cursor_on_a_pair_matches_a_whole_draw` cover the cursor on a pair. Tier 2's `lines-` screens draw each size in unifont and in the outline test font set.
 
+### Sized runs (OSC 66)
+
+kitty's text sizing protocol, OSC 66, lets a program write a block of text at a larger size, such as a heading. vtium-term stores the block one sequence writes as one character, a sized run, that covers `s` rows and as many columns as the run takes. The first cell of each of the run's rows holds the run's text, and `Frame::sized_runs` gives each row's share of each run.
+
+The renderer draws each run's text once into a block the size of the run's cells. It then cuts the block into one piece for each cell, as a line of double size cuts its doubled glyphs. Every piece is the size of a narrow glyph. The glyph cache keys a piece on the run's text, its size, and the cell's row and column in the block. The cache keeps the block it drew last, so the cells of one run draw their block once. The GPU path keeps each piece in a one-cell slot, and the cell shader draws it as any narrow glyph. `src/renderer/sized.rs` draws the block and cuts the pieces.
+
+The text is drawn from the font's glyphs at the normal size, one grapheme cluster after another, and scaled into the block. A mask takes the nearest pixel, so a bitmap font's pixels multiply by whole factors and stay fully on or off. A color glyph scales smoothly. Text with no fraction draws at `s` times its size and is centred across its block. Text with a fraction draws at `s` times n/d of its size. `v` places it at the block's top, bottom or middle, and `h` at its left, right or middle. Text wider than its block draws smaller, keeping its shape, until it fits, and stands on the block's baseline. ADR-1308 D9 decides this drawing.
+
+An outline font's run draws from its glyphs at the normal size, scaled up, so its pixels show at large scales. ADR-1308 D9 asks the font helper to render such a run at its true size, and the helper does not do that yet. vtium-term cuts a run's text into grapheme clusters by UAX #29, and it does not export that cut. The renderer starts a new cluster at each character that takes cells of its own. The two cuts differ only for a run given `w` whose text holds clusters that this cut splits.
+
+The cursor on any cell of a run covers the whole block. A block cursor reverses every cell of it, and a bar stands along the block's left edge on all its rows, `s` times as thick. An underline cursor lies under the block's bottom row, at the normal thickness. A run's cells keep their glyphs' ink in their cells, so a run sends no ink to its neighbours. When a font's glyphs for the run's text arrive, every cell of the run draws again.
+
+A run on a line of double size, which ADR-1308 D7 makes one row high, draws its text in its first cell, as a character of that line draws.
+
+Tests: `tests/sized_runs.rs`, `tests/gpu_sized_runs.rs` and the unit tests in `src/renderer/sized.rs`. Tier 2's `runs-scale` and `runs-fraction` screens draw runs at four scales and at fractions, in unifont and in the outline test font set.
+
 ### Right-to-left text
 
 The `bidi` feature draws right-to-left text (ADR-1004 D6, D7, D9). It draws from the order, the joining sides and the mirrored characters that vtium-term's frame gives each row. The minspec build leaves the feature out. Each letter of a joining script is looked up by its key. The key is the letter and its marks, with U+200D on each side that the letter joins (`joined::text`).
