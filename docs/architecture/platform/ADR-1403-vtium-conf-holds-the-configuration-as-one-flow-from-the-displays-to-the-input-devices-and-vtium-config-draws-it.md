@@ -483,6 +483,10 @@ considered:
   - operator: aaronsb
     said: "this also makes it possible to offer a help interface that is honest"
     via: relayed by the steering session, 2026-11-16, with the interface tree of vtium-config's TUI
+  - operator: aaronsb
+    said: "The tree and its diagram go into vtium-config's ongoing docs, not only the record: the site's reference page on vtium-config's screens and keys is generated from the tree and the key table, with a test that fails when it is stale, and docs/configure.md links to it."
+    via: relayed by the steering session, 2026-11-16; the wording is the steering session's
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -914,7 +918,7 @@ The key table, `ADR-1403-keys.tsv` beside this record, says what each key means 
 | `note` | what vtium-config does today where that differs, or why the row is an exception |
 | `decided` | the decisions that set the meaning |
 | `issue` | the issue that carries a planned or weighed row |
-| `label` | the short word or two a key line shows for the key, empty where the key does nothing and the key line leaves it out |
+| `label` | the short word or two a key line shows for the key, or `-` where the key does nothing and the key line leaves it out |
 
 The kinds of state:
 
@@ -999,6 +1003,10 @@ The tree is the hand-built half of the map. The scenarios that drive the TUI by 
 **The contract.** Once the maintainer has decided the differences between the walk and the hand-built tree, the tree, the key table and the views table are the TUI's contract, and the scenario test enforces it. The maintainer: "the result of this compromise is the contract that we can then use moving forward. altering the contract allows us to 'break' the code, allowing us to update the code to again be conforming of the contract". So a change to the TUI starts as a change to the contract. The work's first commit moves the rows it delivers to `supported`, or edits a supported row, and the scenario test turns red. The code then changes until the test passes again. A planned row records what the code does today and is checked in reverse, so the contract can describe future work while the test stays green, until a change claims the row.
 
 **Help that matches the code.** The Help tab and every view's key line are generated from the contract. The maintainer: "this also makes it possible to offer a help interface that is honest". For the node the person is on, the tree and the key table give the keys that act there and what each does. So help says only what the contract says, and the scenario test proves that the code does the same. The key table's `means` column is therefore the help text a person reads: whole short sentences that follow the rules for strings on screen. Its `label` column is the shorter name a key line shows. The hand-written help and key lines in vtium-config's word catalog go once the generated ones are built, which the key table's row `help.generated` tracks.
+
+The site's reference page for people who use vtium-config, "vtium-config's screens and keys", is generated from the tree and the key table too (the maintainer, 2026-11-16). The page opens with the tree as a Mermaid diagram. Then it has one section for each node, with how you reach and leave the node, and each key's label and meaning. A test fails when the page is stale, as ADR-1507 decides for the reference pages on escape sequences. docs/configure.md keeps a short introduction to the TUI and links to that page, where it listed keys by hand before. The row `help.generated` tracks this page with the generated help.
+
+> Edited 2026-11-16: the maintainer asked that the tree and its diagram go into vtium-config's docs for its users, not only into this record (`considered`, 2026-11-16). The paragraph above was added. In the same round every key that acts gained a row in the key table: the Flow view's movement keys, Enter, Space, `a`, `e`, `d`, `p` and `t`; the movement keys of the other views, of each card, detail, part maker and form, and of the file view, `j`, `k`, `h`, `l`, `g`, `G`, Ctrl-D and Ctrl-U included; and the keys of typing. Every row's `label` is filled, with `-` where the key does nothing.
 
 > Edited 2026-11-16: the maintainer made the tree and the two tables the TUI's contract, and had help and the key lines generated from it (`considered`, 2026-11-16). The two paragraphs above were added, and the key table gained its `label` column. Its `means` column was rewritten as text a person reads on screen, with the same meaning in each row.
 
