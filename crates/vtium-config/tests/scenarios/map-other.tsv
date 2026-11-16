@@ -5,20 +5,20 @@ other  too-small	q	other left	exit 0
 other flow layer:file-view	Ctrl-C	other left	mouse off, exit 130
 other flow layer:file-view	Esc	other flow(doc display) view:flow	
 other flow layer:file-view	i	other flow layer:file-view	prepare
-other flow layer:file-view	q	other flow(doc display) view:flow	
+other flow layer:file-view	q	other left	mouse off, exit 0
 other flow layer:file-view +pending	Ctrl-C	other left	mouse off, exit 130
 other flow layer:file-view +pending	Esc	other flow(doc display) view:flow +pending	
 other flow layer:file-view +pending	i	other flow question:install +pending	prepare
-other flow layer:file-view +pending	q	other flow(doc display) view:flow +pending	
+other flow layer:file-view +pending	q	other flow question:leave +pending	
 other flow layer:file-view +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow layer:file-view +unsaved	Esc	other flow(doc display) view:flow +unsaved	
 other flow layer:file-view +unsaved	i	other flow layer:file-view	save, prepare
-other flow layer:file-view +unsaved	q	other flow(doc display) view:flow +unsaved	
+other flow layer:file-view +unsaved	q	other flow question:quit +unsaved	
 other flow layer:file-view +unsaved	s	other flow layer:file-view	save
 other flow layer:file-view +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow layer:file-view +unsaved +pending	Esc	other flow(doc display) view:flow +unsaved +pending	
 other flow layer:file-view +unsaved +pending	i	other flow layer:file-view +pending	save, prepare
-other flow layer:file-view +unsaved +pending	q	other flow(doc display) view:flow +unsaved +pending	
+other flow layer:file-view +unsaved +pending	q	other flow question:leave +unsaved +pending	
 other flow layer:file-view +unsaved +pending	s	other flow layer:file-view +pending	save
 other flow layer:flow-card	Ctrl-C	other left	mouse off, exit 130
 other flow layer:flow-card	Enter	other flow typing:flow-name	
@@ -91,21 +91,21 @@ other flow layer:flow-maker +unsaved +pending	q	other flow question:leave +unsav
 other flow layer:restore	Ctrl-C	other left	mouse off, exit 130
 other flow layer:restore	Enter	other flow question:restore	
 other flow layer:restore	Esc	other flow(doc display) view:flow	
-other flow layer:restore	q	other flow(doc display) view:flow	
+other flow layer:restore	q	other left	mouse off, exit 0
 other flow layer:restore +pending	Ctrl-C	other left	mouse off, exit 130
 other flow layer:restore +pending	Enter	other flow question:restore +pending	
 other flow layer:restore +pending	Esc	other flow(doc display) view:flow +pending	
-other flow layer:restore +pending	q	other flow(doc display) view:flow +pending	
+other flow layer:restore +pending	q	other flow question:leave +pending	
 other flow layer:restore +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow layer:restore +unsaved	Enter	other flow question:restore +unsaved	
 other flow layer:restore +unsaved	Esc	other flow(doc display) view:flow +unsaved	
-other flow layer:restore +unsaved	q	other flow(doc display) view:flow +unsaved	
+other flow layer:restore +unsaved	q	other flow question:quit +unsaved	
 other flow layer:restore +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow layer:restore +unsaved +pending	Enter	other flow question:restore +unsaved +pending	
 other flow layer:restore +unsaved +pending	Esc	other flow(doc display) view:flow +unsaved +pending	
-other flow layer:restore +unsaved +pending	q	other flow(doc display) view:flow +unsaved +pending	
+other flow layer:restore +unsaved +pending	q	other flow question:leave +unsaved +pending	
 other flow question:install +pending	Backspace	other flow(doc display) view:flow +pending	
-other flow question:install +pending	Ctrl-C	other flow(doc display) view:flow +pending	
+other flow question:install +pending	Ctrl-C	other left	mouse off, exit 130
 other flow question:install +pending	Ctrl-D	other flow(doc display) view:flow +pending	
 other flow question:install +pending	Down	other flow(doc display) view:flow +pending	
 other flow question:install +pending	End	other flow(doc display) view:flow +pending	
@@ -138,7 +138,7 @@ other flow question:install +pending	x	other flow(doc display) view:flow +pendin
 other flow question:install +pending	y	other flow(doc display) view:flow	install
 other flow question:install +pending	z	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	Backspace	other flow(doc display) view:flow +pending	
-other flow question:leave +pending	Ctrl-C	other flow(doc display) view:flow +pending	
+other flow question:leave +pending	Ctrl-C	other left	mouse off, exit 130
 other flow question:leave +pending	Ctrl-D	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	Down	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	End	other flow(doc display) view:flow +pending	
@@ -155,9 +155,9 @@ other flow question:leave +pending	Up	other flow(doc display) view:flow +pending
 other flow question:leave +pending	a	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	d	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	e	other flow(doc display) view:flow +pending	
-other flow question:leave +pending	i	other flow question:install +pending	prepare
+other flow question:leave +pending	i	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	k	other flow(doc display) view:flow +pending	
-other flow question:leave +pending	l	other left	mouse off, exit 0
+other flow question:leave +pending	l	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	n	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	o	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	p	other flow(doc display) view:flow +pending	
@@ -168,10 +168,10 @@ other flow question:leave +pending	t	other flow(doc display) view:flow +pending
 other flow question:leave +pending	u	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	v	other flow(doc display) view:flow +pending	
 other flow question:leave +pending	x	other flow(doc display) view:flow +pending	
-other flow question:leave +pending	y	other flow(doc display) view:flow +pending	
+other flow question:leave +pending	y	other left	mouse off, exit 0
 other flow question:leave +pending	z	other flow(doc display) view:flow +pending	
 other flow question:leave +unsaved +pending	Backspace	other flow(doc display) view:flow +unsaved +pending	
-other flow question:leave +unsaved +pending	Ctrl-C	other flow(doc display) view:flow +unsaved +pending	
+other flow question:leave +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:leave +unsaved +pending	Ctrl-D	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	Down	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	End	other flow(doc display) view:flow +unsaved +pending	
@@ -188,9 +188,9 @@ other flow question:leave +unsaved +pending	Up	other flow(doc display) view:flow
 other flow question:leave +unsaved +pending	a	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	d	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	e	other flow(doc display) view:flow +unsaved +pending	
-other flow question:leave +unsaved +pending	i	other flow(doc display) view:flow +pending	save, prepare
+other flow question:leave +unsaved +pending	i	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	k	other flow(doc display) view:flow +unsaved +pending	
-other flow question:leave +unsaved +pending	l	other left	mouse off, exit 0
+other flow question:leave +unsaved +pending	l	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	n	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	o	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	p	other flow(doc display) view:flow +unsaved +pending	
@@ -201,10 +201,10 @@ other flow question:leave +unsaved +pending	t	other flow(doc display) view:flow 
 other flow question:leave +unsaved +pending	u	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	v	other flow(doc display) view:flow +unsaved +pending	
 other flow question:leave +unsaved +pending	x	other flow(doc display) view:flow +unsaved +pending	
-other flow question:leave +unsaved +pending	y	other flow(doc display) view:flow +unsaved +pending	
+other flow question:leave +unsaved +pending	y	other left	save, mouse off, exit 0
 other flow question:leave +unsaved +pending	z	other flow(doc display) view:flow +unsaved +pending	
 other flow question:new	Backspace	other flow(doc display) view:flow	
-other flow question:new	Ctrl-C	other flow(doc display) view:flow	
+other flow question:new	Ctrl-C	other left	mouse off, exit 130
 other flow question:new	Ctrl-D	other flow(doc display) view:flow	
 other flow question:new	Down	other flow(doc display) view:flow	
 other flow question:new	End	other flow(doc display) view:flow	
@@ -237,7 +237,7 @@ other flow question:new	x	other flow(doc display) view:flow
 other flow question:new	y	other flow(new empty) view:flow	new
 other flow question:new	z	other flow(doc display) view:flow	
 other flow question:new +pending	Backspace	other flow(doc display) view:flow +pending	
-other flow question:new +pending	Ctrl-C	other flow(doc display) view:flow +pending	
+other flow question:new +pending	Ctrl-C	other left	mouse off, exit 130
 other flow question:new +pending	Ctrl-D	other flow(doc display) view:flow +pending	
 other flow question:new +pending	Down	other flow(doc display) view:flow +pending	
 other flow question:new +pending	End	other flow(doc display) view:flow +pending	
@@ -270,7 +270,7 @@ other flow question:new +pending	x	other flow(doc display) view:flow +pending
 other flow question:new +pending	y	other flow(new empty) view:flow +pending	new
 other flow question:new +pending	z	other flow(doc display) view:flow +pending	
 other flow question:new +unsaved	Backspace	other flow(doc display) view:flow +unsaved	
-other flow question:new +unsaved	Ctrl-C	other flow(doc display) view:flow +unsaved	
+other flow question:new +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:new +unsaved	Ctrl-D	other flow(doc display) view:flow +unsaved	
 other flow question:new +unsaved	Down	other flow(doc display) view:flow +unsaved	
 other flow question:new +unsaved	End	other flow(doc display) view:flow +unsaved	
@@ -303,7 +303,7 @@ other flow question:new +unsaved	x	other flow(doc display) view:flow +unsaved
 other flow question:new +unsaved	y	other flow(new empty) view:flow	new
 other flow question:new +unsaved	z	other flow(doc display) view:flow +unsaved	
 other flow question:new +unsaved +pending	Backspace	other flow(doc display) view:flow +unsaved +pending	
-other flow question:new +unsaved +pending	Ctrl-C	other flow(doc display) view:flow +unsaved +pending	
+other flow question:new +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:new +unsaved +pending	Ctrl-D	other flow(doc display) view:flow +unsaved +pending	
 other flow question:new +unsaved +pending	Down	other flow(doc display) view:flow +unsaved +pending	
 other flow question:new +unsaved +pending	End	other flow(doc display) view:flow +unsaved +pending	
@@ -336,7 +336,7 @@ other flow question:new +unsaved +pending	x	other flow(doc display) view:flow +u
 other flow question:new +unsaved +pending	y	other flow(new empty) view:flow +pending	new
 other flow question:new +unsaved +pending	z	other flow(doc display) view:flow +unsaved +pending	
 other flow question:quit +unsaved	Backspace	other flow(doc display) view:flow +unsaved	
-other flow question:quit +unsaved	Ctrl-C	other flow(doc display) view:flow +unsaved	
+other flow question:quit +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:quit +unsaved	Ctrl-D	other flow(doc display) view:flow +unsaved	
 other flow question:quit +unsaved	Down	other flow(doc display) view:flow +unsaved	
 other flow question:quit +unsaved	End	other flow(doc display) view:flow +unsaved	
@@ -369,7 +369,7 @@ other flow question:quit +unsaved	x	other flow(doc display) view:flow +unsaved
 other flow question:quit +unsaved	y	other left	save, mouse off, exit 0
 other flow question:quit +unsaved	z	other flow(doc display) view:flow +unsaved	
 other flow question:restore	Backspace	other flow(doc display) view:flow	
-other flow question:restore	Ctrl-C	other flow(doc display) view:flow	
+other flow question:restore	Ctrl-C	other left	mouse off, exit 130
 other flow question:restore	Ctrl-D	other flow(doc display) view:flow	
 other flow question:restore	Down	other flow(doc display) view:flow	
 other flow question:restore	End	other flow(doc display) view:flow	
@@ -402,7 +402,7 @@ other flow question:restore	x	other flow(doc display) view:flow
 other flow question:restore	y	other flow(doc display) view:flow	restore
 other flow question:restore	z	other flow(doc display) view:flow	
 other flow question:restore +pending	Backspace	other flow(doc display) view:flow +pending	
-other flow question:restore +pending	Ctrl-C	other flow(doc display) view:flow +pending	
+other flow question:restore +pending	Ctrl-C	other left	mouse off, exit 130
 other flow question:restore +pending	Ctrl-D	other flow(doc display) view:flow +pending	
 other flow question:restore +pending	Down	other flow(doc display) view:flow +pending	
 other flow question:restore +pending	End	other flow(doc display) view:flow +pending	
@@ -435,7 +435,7 @@ other flow question:restore +pending	x	other flow(doc display) view:flow +pendin
 other flow question:restore +pending	y	other flow(doc display) view:flow +pending	restore
 other flow question:restore +pending	z	other flow(doc display) view:flow +pending	
 other flow question:restore +unsaved	Backspace	other flow(doc display) view:flow +unsaved	
-other flow question:restore +unsaved	Ctrl-C	other flow(doc display) view:flow +unsaved	
+other flow question:restore +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:restore +unsaved	Ctrl-D	other flow(doc display) view:flow +unsaved	
 other flow question:restore +unsaved	Down	other flow(doc display) view:flow +unsaved	
 other flow question:restore +unsaved	End	other flow(doc display) view:flow +unsaved	
@@ -468,7 +468,7 @@ other flow question:restore +unsaved	x	other flow(doc display) view:flow +unsave
 other flow question:restore +unsaved	y	other flow(doc display) view:flow	restore
 other flow question:restore +unsaved	z	other flow(doc display) view:flow +unsaved	
 other flow question:restore +unsaved +pending	Backspace	other flow(doc display) view:flow +unsaved +pending	
-other flow question:restore +unsaved +pending	Ctrl-C	other flow(doc display) view:flow +unsaved +pending	
+other flow question:restore +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:restore +unsaved +pending	Ctrl-D	other flow(doc display) view:flow +unsaved +pending	
 other flow question:restore +unsaved +pending	Down	other flow(doc display) view:flow +unsaved +pending	
 other flow question:restore +unsaved +pending	End	other flow(doc display) view:flow +unsaved +pending	
@@ -501,7 +501,7 @@ other flow question:restore +unsaved +pending	x	other flow(doc display) view:flo
 other flow question:restore +unsaved +pending	y	other flow(doc display) view:flow +pending	restore
 other flow question:restore +unsaved +pending	z	other flow(doc display) view:flow +unsaved +pending	
 other flow question:revert	Backspace	other flow(doc display) view:flow	
-other flow question:revert	Ctrl-C	other flow(doc display) view:flow	
+other flow question:revert	Ctrl-C	other left	mouse off, exit 130
 other flow question:revert	Ctrl-D	other flow(doc display) view:flow	
 other flow question:revert	Down	other flow(doc display) view:flow	
 other flow question:revert	End	other flow(doc display) view:flow	
@@ -534,7 +534,7 @@ other flow question:revert	x	other flow(doc display) view:flow
 other flow question:revert	y	other flow(doc display) view:flow	revert
 other flow question:revert	z	other flow(doc display) view:flow	
 other flow question:revert +pending	Backspace	other flow(doc display) view:flow +pending	
-other flow question:revert +pending	Ctrl-C	other flow(doc display) view:flow +pending	
+other flow question:revert +pending	Ctrl-C	other left	mouse off, exit 130
 other flow question:revert +pending	Ctrl-D	other flow(doc display) view:flow +pending	
 other flow question:revert +pending	Down	other flow(doc display) view:flow +pending	
 other flow question:revert +pending	End	other flow(doc display) view:flow +pending	
@@ -567,7 +567,7 @@ other flow question:revert +pending	x	other flow(doc display) view:flow +pending
 other flow question:revert +pending	y	other flow(doc display) view:flow +pending	revert
 other flow question:revert +pending	z	other flow(doc display) view:flow +pending	
 other flow question:revert +unsaved	Backspace	other flow(doc display) view:flow +unsaved	
-other flow question:revert +unsaved	Ctrl-C	other flow(doc display) view:flow +unsaved	
+other flow question:revert +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:revert +unsaved	Ctrl-D	other flow(doc display) view:flow +unsaved	
 other flow question:revert +unsaved	Down	other flow(doc display) view:flow +unsaved	
 other flow question:revert +unsaved	End	other flow(doc display) view:flow +unsaved	
@@ -600,7 +600,7 @@ other flow question:revert +unsaved	x	other flow(doc display) view:flow +unsaved
 other flow question:revert +unsaved	y	other flow(doc display) view:flow	revert
 other flow question:revert +unsaved	z	other flow(doc display) view:flow +unsaved	
 other flow question:revert +unsaved +pending	Backspace	other flow(doc display) view:flow +unsaved +pending	
-other flow question:revert +unsaved +pending	Ctrl-C	other flow(doc display) view:flow +unsaved +pending	
+other flow question:revert +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow question:revert +unsaved +pending	Ctrl-D	other flow(doc display) view:flow +unsaved +pending	
 other flow question:revert +unsaved +pending	Down	other flow(doc display) view:flow +unsaved +pending	
 other flow question:revert +unsaved +pending	End	other flow(doc display) view:flow +unsaved +pending	
@@ -632,12 +632,16 @@ other flow question:revert +unsaved +pending	v	other flow(doc display) view:flow
 other flow question:revert +unsaved +pending	x	other flow(doc display) view:flow +unsaved +pending	
 other flow question:revert +unsaved +pending	y	other flow(doc display) view:flow +pending	revert
 other flow question:revert +unsaved +pending	z	other flow(doc display) view:flow +unsaved +pending	
+other flow typing:flow-name	Ctrl-C	other left	mouse off, exit 130
 other flow typing:flow-name	Enter	other flow layer:flow-card	
 other flow typing:flow-name	Esc	other flow layer:flow-card	
+other flow typing:flow-name +pending	Ctrl-C	other left	mouse off, exit 130
 other flow typing:flow-name +pending	Enter	other flow layer:flow-card +pending	
 other flow typing:flow-name +pending	Esc	other flow layer:flow-card +pending	
+other flow typing:flow-name +unsaved	Ctrl-C	other left	save, mouse off, exit 130
 other flow typing:flow-name +unsaved	Enter	other flow layer:flow-card +unsaved	
 other flow typing:flow-name +unsaved	Esc	other flow layer:flow-card +unsaved	
+other flow typing:flow-name +unsaved +pending	Ctrl-C	other left	save, mouse off, exit 130
 other flow typing:flow-name +unsaved +pending	Enter	other flow layer:flow-card +unsaved +pending	
 other flow typing:flow-name +unsaved +pending	Esc	other flow layer:flow-card +unsaved +pending	
 other flow(doc display) view:flow	Ctrl-C	other left	mouse off, exit 130
@@ -1341,7 +1345,7 @@ other flow(parts template) view:flow +unsaved +pending	r	other flow question:rev
 other flow(parts template) view:flow +unsaved +pending	s	other flow(parts template) view:flow +pending	save
 other flow(parts template) view:flow +unsaved +pending	v	other flow layer:file-view +unsaved +pending	
 other fonts question:install	Backspace	other fonts(frit) view:fonts	
-other fonts question:install	Ctrl-C	other fonts(frit) view:fonts	
+other fonts question:install	Ctrl-C	other left	exit 130
 other fonts question:install	Ctrl-D	other fonts(frit) view:fonts	
 other fonts question:install	Down	other fonts(frit) view:fonts	
 other fonts question:install	End	other fonts(frit) view:fonts	
@@ -1374,7 +1378,7 @@ other fonts question:install	x	other fonts(frit) view:fonts
 other fonts question:install	y	other fonts(frit) view:fonts	install
 other fonts question:install	z	other fonts(frit) view:fonts	
 other fonts question:install +pending	Backspace	other fonts(marked) view:fonts +pending	
-other fonts question:install +pending	Ctrl-C	other fonts(marked) view:fonts +pending	
+other fonts question:install +pending	Ctrl-C	other left	exit 130
 other fonts question:install +pending	Ctrl-D	other fonts(marked) view:fonts +pending	
 other fonts question:install +pending	Down	other fonts(marked) view:fonts +pending	
 other fonts question:install +pending	End	other fonts(marked) view:fonts +pending	
@@ -1407,7 +1411,7 @@ other fonts question:install +pending	x	other fonts(marked) view:fonts +pending
 other fonts question:install +pending	y	other fonts(builtin) view:fonts	install
 other fonts question:install +pending	z	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	Backspace	other fonts(marked) view:fonts +pending	
-other fonts question:leave +pending	Ctrl-C	other fonts(marked) view:fonts +pending	
+other fonts question:leave +pending	Ctrl-C	other left	exit 130
 other fonts question:leave +pending	Ctrl-D	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	Down	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	End	other fonts(marked) view:fonts +pending	
@@ -1424,9 +1428,9 @@ other fonts question:leave +pending	Up	other fonts(marked) view:fonts +pending
 other fonts question:leave +pending	a	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	d	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	e	other fonts(marked) view:fonts +pending	
-other fonts question:leave +pending	i	other fonts question:install +pending	prepare
+other fonts question:leave +pending	i	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	k	other fonts(marked) view:fonts +pending	
-other fonts question:leave +pending	l	other left	exit 0
+other fonts question:leave +pending	l	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	n	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	o	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	p	other fonts(marked) view:fonts +pending	
@@ -1437,10 +1441,10 @@ other fonts question:leave +pending	t	other fonts(marked) view:fonts +pending
 other fonts question:leave +pending	u	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	v	other fonts(marked) view:fonts +pending	
 other fonts question:leave +pending	x	other fonts(marked) view:fonts +pending	
-other fonts question:leave +pending	y	other fonts(marked) view:fonts +pending	
+other fonts question:leave +pending	y	other left	exit 0
 other fonts question:leave +pending	z	other fonts(marked) view:fonts +pending	
 other fonts question:leave +unsaved +pending	Backspace	other fonts(marked) view:fonts +unsaved +pending	
-other fonts question:leave +unsaved +pending	Ctrl-C	other fonts(marked) view:fonts +unsaved +pending	
+other fonts question:leave +unsaved +pending	Ctrl-C	other left	save, exit 130
 other fonts question:leave +unsaved +pending	Ctrl-D	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	Down	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	End	other fonts(marked) view:fonts +unsaved +pending	
@@ -1457,9 +1461,9 @@ other fonts question:leave +unsaved +pending	Up	other fonts(marked) view:fonts +
 other fonts question:leave +unsaved +pending	a	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	d	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	e	other fonts(marked) view:fonts +unsaved +pending	
-other fonts question:leave +unsaved +pending	i	other fonts(marked) view:fonts +pending	save, prepare
+other fonts question:leave +unsaved +pending	i	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	k	other fonts(marked) view:fonts +unsaved +pending	
-other fonts question:leave +unsaved +pending	l	other left	exit 0
+other fonts question:leave +unsaved +pending	l	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	n	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	o	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	p	other fonts(marked) view:fonts +unsaved +pending	
@@ -1470,10 +1474,10 @@ other fonts question:leave +unsaved +pending	t	other fonts(marked) view:fonts +u
 other fonts question:leave +unsaved +pending	u	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	v	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:leave +unsaved +pending	x	other fonts(marked) view:fonts +unsaved +pending	
-other fonts question:leave +unsaved +pending	y	other fonts(marked) view:fonts +unsaved +pending	
+other fonts question:leave +unsaved +pending	y	other left	save, exit 0
 other fonts question:leave +unsaved +pending	z	other fonts(marked) view:fonts +unsaved +pending	
 other fonts question:quit +unsaved	Backspace	other fonts(builtin) view:fonts +unsaved	
-other fonts question:quit +unsaved	Ctrl-C	other fonts(builtin) view:fonts +unsaved	
+other fonts question:quit +unsaved	Ctrl-C	other left	save, exit 130
 other fonts question:quit +unsaved	Ctrl-D	other fonts(builtin) view:fonts +unsaved	
 other fonts question:quit +unsaved	Down	other fonts(builtin) view:fonts +unsaved	
 other fonts question:quit +unsaved	End	other fonts(builtin) view:fonts +unsaved	
@@ -1651,41 +1655,8 @@ other fonts(refused) view:fonts +unsaved +pending	Tab	other settings(value) view
 other fonts(refused) view:fonts +unsaved +pending	i	other fonts(refused) view:fonts +pending	save, prepare
 other fonts(refused) view:fonts +unsaved +pending	n	other new-frit typing:new-frit +unsaved +pending	
 other fonts(refused) view:fonts +unsaved +pending	q	other fonts question:leave +unsaved +pending	
-other help question:install +pending	Backspace	other help(help) view:help +pending	
-other help question:install +pending	Ctrl-C	other help(help) view:help +pending	
-other help question:install +pending	Ctrl-D	other help(help) view:help +pending	
-other help question:install +pending	Down	other help(help) view:help +pending	
-other help question:install +pending	End	other help(help) view:help +pending	
-other help question:install +pending	Enter	other help(help) view:help +pending	
-other help question:install +pending	Esc	other help(help) view:help +pending	
-other help question:install +pending	Home	other help(help) view:help +pending	
-other help question:install +pending	Left	other help(help) view:help +pending	
-other help question:install +pending	PgDn	other help(help) view:help +pending	
-other help question:install +pending	Right	other help(help) view:help +pending	
-other help question:install +pending	Shift-Tab	other help(help) view:help +pending	
-other help question:install +pending	Space	other help(help) view:help +pending	
-other help question:install +pending	Tab	other help(help) view:help +pending	
-other help question:install +pending	Up	other help(help) view:help +pending	
-other help question:install +pending	a	other help(help) view:help +pending	
-other help question:install +pending	d	other help(help) view:help +pending	
-other help question:install +pending	e	other help(help) view:help +pending	
-other help question:install +pending	i	other help(help) view:help +pending	
-other help question:install +pending	k	other help(help) view:help +pending	
-other help question:install +pending	l	other help(help) view:help +pending	
-other help question:install +pending	n	other help(help) view:help +pending	
-other help question:install +pending	o	other help(help) view:help +pending	
-other help question:install +pending	p	other help(help) view:help +pending	
-other help question:install +pending	q	other help(help) view:help +pending	
-other help question:install +pending	r	other help(help) view:help +pending	
-other help question:install +pending	s	other help(help) view:help +pending	
-other help question:install +pending	t	other help(help) view:help +pending	
-other help question:install +pending	u	other help(help) view:help +pending	
-other help question:install +pending	v	other help(help) view:help +pending	
-other help question:install +pending	x	other help(help) view:help +pending	
-other help question:install +pending	y	other help(help) view:help	install
-other help question:install +pending	z	other help(help) view:help +pending	
 other help question:leave +pending	Backspace	other help(help) view:help +pending	
-other help question:leave +pending	Ctrl-C	other help(help) view:help +pending	
+other help question:leave +pending	Ctrl-C	other left	exit 130
 other help question:leave +pending	Ctrl-D	other help(help) view:help +pending	
 other help question:leave +pending	Down	other help(help) view:help +pending	
 other help question:leave +pending	End	other help(help) view:help +pending	
@@ -1702,9 +1673,9 @@ other help question:leave +pending	Up	other help(help) view:help +pending
 other help question:leave +pending	a	other help(help) view:help +pending	
 other help question:leave +pending	d	other help(help) view:help +pending	
 other help question:leave +pending	e	other help(help) view:help +pending	
-other help question:leave +pending	i	other help question:install +pending	prepare
+other help question:leave +pending	i	other help(help) view:help +pending	
 other help question:leave +pending	k	other help(help) view:help +pending	
-other help question:leave +pending	l	other left	exit 0
+other help question:leave +pending	l	other help(help) view:help +pending	
 other help question:leave +pending	n	other help(help) view:help +pending	
 other help question:leave +pending	o	other help(help) view:help +pending	
 other help question:leave +pending	p	other help(help) view:help +pending	
@@ -1715,10 +1686,10 @@ other help question:leave +pending	t	other help(help) view:help +pending
 other help question:leave +pending	u	other help(help) view:help +pending	
 other help question:leave +pending	v	other help(help) view:help +pending	
 other help question:leave +pending	x	other help(help) view:help +pending	
-other help question:leave +pending	y	other help(help) view:help +pending	
+other help question:leave +pending	y	other left	exit 0
 other help question:leave +pending	z	other help(help) view:help +pending	
 other help question:leave +unsaved +pending	Backspace	other help(help) view:help +unsaved +pending	
-other help question:leave +unsaved +pending	Ctrl-C	other help(help) view:help +unsaved +pending	
+other help question:leave +unsaved +pending	Ctrl-C	other left	save, exit 130
 other help question:leave +unsaved +pending	Ctrl-D	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	Down	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	End	other help(help) view:help +unsaved +pending	
@@ -1735,9 +1706,9 @@ other help question:leave +unsaved +pending	Up	other help(help) view:help +unsav
 other help question:leave +unsaved +pending	a	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	d	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	e	other help(help) view:help +unsaved +pending	
-other help question:leave +unsaved +pending	i	other help(help) view:help +pending	save, prepare
+other help question:leave +unsaved +pending	i	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	k	other help(help) view:help +unsaved +pending	
-other help question:leave +unsaved +pending	l	other left	exit 0
+other help question:leave +unsaved +pending	l	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	n	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	o	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	p	other help(help) view:help +unsaved +pending	
@@ -1748,10 +1719,10 @@ other help question:leave +unsaved +pending	t	other help(help) view:help +unsave
 other help question:leave +unsaved +pending	u	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	v	other help(help) view:help +unsaved +pending	
 other help question:leave +unsaved +pending	x	other help(help) view:help +unsaved +pending	
-other help question:leave +unsaved +pending	y	other help(help) view:help +unsaved +pending	
+other help question:leave +unsaved +pending	y	other left	save, exit 0
 other help question:leave +unsaved +pending	z	other help(help) view:help +unsaved +pending	
 other help question:quit +unsaved	Backspace	other help(help) view:help +unsaved	
-other help question:quit +unsaved	Ctrl-C	other help(help) view:help +unsaved	
+other help question:quit +unsaved	Ctrl-C	other left	save, exit 130
 other help question:quit +unsaved	Ctrl-D	other help(help) view:help +unsaved	
 other help question:quit +unsaved	Down	other help(help) view:help +unsaved	
 other help question:quit +unsaved	End	other help(help) view:help +unsaved	
@@ -1788,59 +1759,51 @@ other help(about) view:help	Left	other help(help) view:help
 other help(about) view:help	Right	other help(help) view:help	
 other help(about) view:help	Shift-Tab	other settings(value) view:settings	
 other help(about) view:help	Tab	other flow(doc display) view:flow	mouse on
-other help(about) view:help	i	other help(about) view:help	prepare
 other help(about) view:help	q	other left	exit 0
 other help(about) view:help +pending	Ctrl-C	other left	exit 130
 other help(about) view:help +pending	Left	other help(help) view:help +pending	
 other help(about) view:help +pending	Right	other help(help) view:help +pending	
 other help(about) view:help +pending	Shift-Tab	other settings(value) view:settings +pending	
 other help(about) view:help +pending	Tab	other flow(doc display) view:flow +pending	mouse on
-other help(about) view:help +pending	i	other help question:install +pending	prepare
 other help(about) view:help +pending	q	other help question:leave +pending	
 other help(about) view:help +unsaved	Ctrl-C	other left	save, exit 130
 other help(about) view:help +unsaved	Left	other help(help) view:help +unsaved	
 other help(about) view:help +unsaved	Right	other help(help) view:help +unsaved	
 other help(about) view:help +unsaved	Shift-Tab	other settings(value) view:settings +unsaved	
 other help(about) view:help +unsaved	Tab	other flow(doc display) view:flow +unsaved	mouse on
-other help(about) view:help +unsaved	i	other help(about) view:help	save, prepare
 other help(about) view:help +unsaved	q	other help question:quit +unsaved	
 other help(about) view:help +unsaved +pending	Ctrl-C	other left	save, exit 130
 other help(about) view:help +unsaved +pending	Left	other help(help) view:help +unsaved +pending	
 other help(about) view:help +unsaved +pending	Right	other help(help) view:help +unsaved +pending	
 other help(about) view:help +unsaved +pending	Shift-Tab	other settings(value) view:settings +unsaved +pending	
 other help(about) view:help +unsaved +pending	Tab	other flow(doc display) view:flow +unsaved +pending	mouse on
-other help(about) view:help +unsaved +pending	i	other help(about) view:help +pending	save, prepare
 other help(about) view:help +unsaved +pending	q	other help question:leave +unsaved +pending	
 other help(help) view:help	Ctrl-C	other left	exit 130
 other help(help) view:help	Left	other help(about) view:help	
 other help(help) view:help	Right	other help(about) view:help	
 other help(help) view:help	Shift-Tab	other settings(value) view:settings	
 other help(help) view:help	Tab	other flow(doc display) view:flow	mouse on
-other help(help) view:help	i	other help(help) view:help	prepare
 other help(help) view:help	q	other left	exit 0
 other help(help) view:help +pending	Ctrl-C	other left	exit 130
 other help(help) view:help +pending	Left	other help(about) view:help +pending	
 other help(help) view:help +pending	Right	other help(about) view:help +pending	
 other help(help) view:help +pending	Shift-Tab	other settings(value) view:settings +pending	
 other help(help) view:help +pending	Tab	other flow(doc display) view:flow +pending	mouse on
-other help(help) view:help +pending	i	other help question:install +pending	prepare
 other help(help) view:help +pending	q	other help question:leave +pending	
 other help(help) view:help +unsaved	Ctrl-C	other left	save, exit 130
 other help(help) view:help +unsaved	Left	other help(about) view:help +unsaved	
 other help(help) view:help +unsaved	Right	other help(about) view:help +unsaved	
 other help(help) view:help +unsaved	Shift-Tab	other settings(value) view:settings +unsaved	
 other help(help) view:help +unsaved	Tab	other flow(doc display) view:flow +unsaved	mouse on
-other help(help) view:help +unsaved	i	other help(help) view:help	save, prepare
 other help(help) view:help +unsaved	q	other help question:quit +unsaved	
 other help(help) view:help +unsaved +pending	Ctrl-C	other left	save, exit 130
 other help(help) view:help +unsaved +pending	Left	other help(about) view:help +unsaved +pending	
 other help(help) view:help +unsaved +pending	Right	other help(about) view:help +unsaved +pending	
 other help(help) view:help +unsaved +pending	Shift-Tab	other settings(value) view:settings +unsaved +pending	
 other help(help) view:help +unsaved +pending	Tab	other flow(doc display) view:flow +unsaved +pending	mouse on
-other help(help) view:help +unsaved +pending	i	other help(help) view:help +pending	save, prepare
 other help(help) view:help +unsaved +pending	q	other help question:leave +unsaved +pending	
 other looks question:install +pending	Backspace	other looks view:looks +pending	
-other looks question:install +pending	Ctrl-C	other looks view:looks +pending	
+other looks question:install +pending	Ctrl-C	other left	exit 130
 other looks question:install +pending	Ctrl-D	other looks view:looks +pending	
 other looks question:install +pending	Down	other looks view:looks +pending	
 other looks question:install +pending	End	other looks view:looks +pending	
@@ -1873,7 +1836,7 @@ other looks question:install +pending	x	other looks view:looks +pending
 other looks question:install +pending	y	other looks view:looks	install
 other looks question:install +pending	z	other looks view:looks +pending	
 other looks question:leave +pending	Backspace	other looks view:looks +pending	
-other looks question:leave +pending	Ctrl-C	other looks view:looks +pending	
+other looks question:leave +pending	Ctrl-C	other left	exit 130
 other looks question:leave +pending	Ctrl-D	other looks view:looks +pending	
 other looks question:leave +pending	Down	other looks view:looks +pending	
 other looks question:leave +pending	End	other looks view:looks +pending	
@@ -1890,9 +1853,9 @@ other looks question:leave +pending	Up	other looks view:looks +pending
 other looks question:leave +pending	a	other looks view:looks +pending	
 other looks question:leave +pending	d	other looks view:looks +pending	
 other looks question:leave +pending	e	other looks view:looks +pending	
-other looks question:leave +pending	i	other looks question:install +pending	prepare
+other looks question:leave +pending	i	other looks view:looks +pending	
 other looks question:leave +pending	k	other looks view:looks +pending	
-other looks question:leave +pending	l	other left	exit 0
+other looks question:leave +pending	l	other looks view:looks +pending	
 other looks question:leave +pending	n	other looks view:looks +pending	
 other looks question:leave +pending	o	other looks view:looks +pending	
 other looks question:leave +pending	p	other looks view:looks +pending	
@@ -1903,10 +1866,10 @@ other looks question:leave +pending	t	other looks view:looks +pending
 other looks question:leave +pending	u	other looks view:looks +pending	
 other looks question:leave +pending	v	other looks view:looks +pending	
 other looks question:leave +pending	x	other looks view:looks +pending	
-other looks question:leave +pending	y	other looks view:looks +pending	
+other looks question:leave +pending	y	other left	exit 0
 other looks question:leave +pending	z	other looks view:looks +pending	
 other looks question:leave +unsaved +pending	Backspace	other looks view:looks +unsaved +pending	
-other looks question:leave +unsaved +pending	Ctrl-C	other looks view:looks +unsaved +pending	
+other looks question:leave +unsaved +pending	Ctrl-C	other left	save, exit 130
 other looks question:leave +unsaved +pending	Ctrl-D	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	Down	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	End	other looks view:looks +unsaved +pending	
@@ -1923,9 +1886,9 @@ other looks question:leave +unsaved +pending	Up	other looks view:looks +unsaved 
 other looks question:leave +unsaved +pending	a	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	d	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	e	other looks view:looks +unsaved +pending	
-other looks question:leave +unsaved +pending	i	other looks view:looks +pending	save, prepare
+other looks question:leave +unsaved +pending	i	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	k	other looks view:looks +unsaved +pending	
-other looks question:leave +unsaved +pending	l	other left	exit 0
+other looks question:leave +unsaved +pending	l	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	n	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	o	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	p	other looks view:looks +unsaved +pending	
@@ -1936,10 +1899,10 @@ other looks question:leave +unsaved +pending	t	other looks view:looks +unsaved +
 other looks question:leave +unsaved +pending	u	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	v	other looks view:looks +unsaved +pending	
 other looks question:leave +unsaved +pending	x	other looks view:looks +unsaved +pending	
-other looks question:leave +unsaved +pending	y	other looks view:looks +unsaved +pending	
+other looks question:leave +unsaved +pending	y	other left	save, exit 0
 other looks question:leave +unsaved +pending	z	other looks view:looks +unsaved +pending	
 other looks question:quit +unsaved	Backspace	other looks view:looks +unsaved	
-other looks question:quit +unsaved	Ctrl-C	other looks view:looks +unsaved	
+other looks question:quit +unsaved	Ctrl-C	other left	save, exit 130
 other looks question:quit +unsaved	Ctrl-D	other looks view:looks +unsaved	
 other looks question:quit +unsaved	Down	other looks view:looks +unsaved	
 other looks question:quit +unsaved	End	other looks view:looks +unsaved	
@@ -2022,7 +1985,7 @@ other new-frit layer:new-frit +unsaved +pending	Up	other new-frit typing:new-fri
 other new-frit layer:new-frit +unsaved +pending	i	other new-frit layer:new-frit +pending	save, prepare
 other new-frit layer:new-frit +unsaved +pending	q	other new-frit question:leave +unsaved +pending	
 other new-frit question:install +pending	Backspace	other new-frit layer:new-frit +pending	
-other new-frit question:install +pending	Ctrl-C	other new-frit layer:new-frit +pending	
+other new-frit question:install +pending	Ctrl-C	other left	exit 130
 other new-frit question:install +pending	Ctrl-D	other new-frit layer:new-frit +pending	
 other new-frit question:install +pending	Down	other new-frit layer:new-frit +pending	
 other new-frit question:install +pending	End	other new-frit layer:new-frit +pending	
@@ -2055,7 +2018,7 @@ other new-frit question:install +pending	x	other new-frit layer:new-frit +pendin
 other new-frit question:install +pending	y	other new-frit layer:new-frit	install
 other new-frit question:install +pending	z	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	Backspace	other new-frit layer:new-frit +pending	
-other new-frit question:leave +pending	Ctrl-C	other new-frit layer:new-frit +pending	
+other new-frit question:leave +pending	Ctrl-C	other left	exit 130
 other new-frit question:leave +pending	Ctrl-D	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	Down	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	End	other new-frit layer:new-frit +pending	
@@ -2072,9 +2035,9 @@ other new-frit question:leave +pending	Up	other new-frit layer:new-frit +pending
 other new-frit question:leave +pending	a	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	d	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	e	other new-frit layer:new-frit +pending	
-other new-frit question:leave +pending	i	other new-frit question:install +pending	prepare
+other new-frit question:leave +pending	i	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	k	other new-frit layer:new-frit +pending	
-other new-frit question:leave +pending	l	other left	exit 0
+other new-frit question:leave +pending	l	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	n	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	o	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	p	other new-frit layer:new-frit +pending	
@@ -2085,10 +2048,10 @@ other new-frit question:leave +pending	t	other new-frit layer:new-frit +pending
 other new-frit question:leave +pending	u	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	v	other new-frit layer:new-frit +pending	
 other new-frit question:leave +pending	x	other new-frit layer:new-frit +pending	
-other new-frit question:leave +pending	y	other new-frit layer:new-frit +pending	
+other new-frit question:leave +pending	y	other left	exit 0
 other new-frit question:leave +pending	z	other new-frit layer:new-frit +pending	
 other new-frit question:leave +unsaved +pending	Backspace	other new-frit layer:new-frit +unsaved +pending	
-other new-frit question:leave +unsaved +pending	Ctrl-C	other new-frit layer:new-frit +unsaved +pending	
+other new-frit question:leave +unsaved +pending	Ctrl-C	other left	save, exit 130
 other new-frit question:leave +unsaved +pending	Ctrl-D	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	Down	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	End	other new-frit layer:new-frit +unsaved +pending	
@@ -2105,9 +2068,9 @@ other new-frit question:leave +unsaved +pending	Up	other new-frit layer:new-frit
 other new-frit question:leave +unsaved +pending	a	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	d	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	e	other new-frit layer:new-frit +unsaved +pending	
-other new-frit question:leave +unsaved +pending	i	other new-frit layer:new-frit +pending	save, prepare
+other new-frit question:leave +unsaved +pending	i	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	k	other new-frit layer:new-frit +unsaved +pending	
-other new-frit question:leave +unsaved +pending	l	other left	exit 0
+other new-frit question:leave +unsaved +pending	l	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	n	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	o	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	p	other new-frit layer:new-frit +unsaved +pending	
@@ -2118,10 +2081,10 @@ other new-frit question:leave +unsaved +pending	t	other new-frit layer:new-frit 
 other new-frit question:leave +unsaved +pending	u	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	v	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:leave +unsaved +pending	x	other new-frit layer:new-frit +unsaved +pending	
-other new-frit question:leave +unsaved +pending	y	other new-frit layer:new-frit +unsaved +pending	
+other new-frit question:leave +unsaved +pending	y	other left	save, exit 0
 other new-frit question:leave +unsaved +pending	z	other new-frit layer:new-frit +unsaved +pending	
 other new-frit question:quit +unsaved	Backspace	other new-frit layer:new-frit +unsaved	
-other new-frit question:quit +unsaved	Ctrl-C	other new-frit layer:new-frit +unsaved	
+other new-frit question:quit +unsaved	Ctrl-C	other left	save, exit 130
 other new-frit question:quit +unsaved	Ctrl-D	other new-frit layer:new-frit +unsaved	
 other new-frit question:quit +unsaved	Down	other new-frit layer:new-frit +unsaved	
 other new-frit question:quit +unsaved	End	other new-frit layer:new-frit +unsaved	
@@ -2170,7 +2133,7 @@ other new-frit typing:new-frit +unsaved +pending	End	other new-frit layer:new-fr
 other new-frit typing:new-frit +unsaved +pending	Esc	other fonts(marked) view:fonts +unsaved +pending	
 other new-frit typing:new-frit +unsaved +pending	PgDn	other new-frit layer:new-frit +unsaved +pending	
 other settings question:install +pending	Backspace	other settings(value) view:settings +pending	
-other settings question:install +pending	Ctrl-C	other settings(value) view:settings +pending	
+other settings question:install +pending	Ctrl-C	other left	exit 130
 other settings question:install +pending	Ctrl-D	other settings(value) view:settings +pending	
 other settings question:install +pending	Down	other settings(value) view:settings +pending	
 other settings question:install +pending	End	other settings(value) view:settings +pending	
@@ -2203,7 +2166,7 @@ other settings question:install +pending	x	other settings(value) view:settings +
 other settings question:install +pending	y	other settings(value) view:settings	install
 other settings question:install +pending	z	other settings(value) view:settings +pending	
 other settings question:leave +pending	Backspace	other settings(value) view:settings +pending	
-other settings question:leave +pending	Ctrl-C	other settings(value) view:settings +pending	
+other settings question:leave +pending	Ctrl-C	other left	exit 130
 other settings question:leave +pending	Ctrl-D	other settings(value) view:settings +pending	
 other settings question:leave +pending	Down	other settings(value) view:settings +pending	
 other settings question:leave +pending	End	other settings(value) view:settings +pending	
@@ -2220,9 +2183,9 @@ other settings question:leave +pending	Up	other settings(value) view:settings +p
 other settings question:leave +pending	a	other settings(value) view:settings +pending	
 other settings question:leave +pending	d	other settings(value) view:settings +pending	
 other settings question:leave +pending	e	other settings(value) view:settings +pending	
-other settings question:leave +pending	i	other settings question:install +pending	prepare
+other settings question:leave +pending	i	other settings(value) view:settings +pending	
 other settings question:leave +pending	k	other settings(value) view:settings +pending	
-other settings question:leave +pending	l	other left	exit 0
+other settings question:leave +pending	l	other settings(value) view:settings +pending	
 other settings question:leave +pending	n	other settings(value) view:settings +pending	
 other settings question:leave +pending	o	other settings(value) view:settings +pending	
 other settings question:leave +pending	p	other settings(value) view:settings +pending	
@@ -2233,10 +2196,10 @@ other settings question:leave +pending	t	other settings(value) view:settings +pe
 other settings question:leave +pending	u	other settings(value) view:settings +pending	
 other settings question:leave +pending	v	other settings(value) view:settings +pending	
 other settings question:leave +pending	x	other settings(value) view:settings +pending	
-other settings question:leave +pending	y	other settings(value) view:settings +pending	
+other settings question:leave +pending	y	other left	exit 0
 other settings question:leave +pending	z	other settings(value) view:settings +pending	
 other settings question:leave +unsaved +pending	Backspace	other settings(value) view:settings +unsaved +pending	
-other settings question:leave +unsaved +pending	Ctrl-C	other settings(value) view:settings +unsaved +pending	
+other settings question:leave +unsaved +pending	Ctrl-C	other left	save, exit 130
 other settings question:leave +unsaved +pending	Ctrl-D	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	Down	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	End	other settings(value) view:settings +unsaved +pending	
@@ -2253,9 +2216,9 @@ other settings question:leave +unsaved +pending	Up	other settings(value) view:se
 other settings question:leave +unsaved +pending	a	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	d	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	e	other settings(value) view:settings +unsaved +pending	
-other settings question:leave +unsaved +pending	i	other settings(value) view:settings +pending	save, prepare
+other settings question:leave +unsaved +pending	i	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	k	other settings(value) view:settings +unsaved +pending	
-other settings question:leave +unsaved +pending	l	other left	exit 0
+other settings question:leave +unsaved +pending	l	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	n	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	o	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	p	other settings(value) view:settings +unsaved +pending	
@@ -2266,10 +2229,10 @@ other settings question:leave +unsaved +pending	t	other settings(value) view:set
 other settings question:leave +unsaved +pending	u	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	v	other settings(value) view:settings +unsaved +pending	
 other settings question:leave +unsaved +pending	x	other settings(value) view:settings +unsaved +pending	
-other settings question:leave +unsaved +pending	y	other settings(value) view:settings +unsaved +pending	
+other settings question:leave +unsaved +pending	y	other left	save, exit 0
 other settings question:leave +unsaved +pending	z	other settings(value) view:settings +unsaved +pending	
 other settings question:quit +unsaved	Backspace	other settings(value) view:settings +unsaved	
-other settings question:quit +unsaved	Ctrl-C	other settings(value) view:settings +unsaved	
+other settings question:quit +unsaved	Ctrl-C	other left	save, exit 130
 other settings question:quit +unsaved	Ctrl-D	other settings(value) view:settings +unsaved	
 other settings question:quit +unsaved	Down	other settings(value) view:settings +unsaved	
 other settings question:quit +unsaved	End	other settings(value) view:settings +unsaved	

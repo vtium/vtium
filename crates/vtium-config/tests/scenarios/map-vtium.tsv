@@ -5,20 +5,20 @@ vtium  too-small	q	vtium left	exit 0
 vtium flow layer:file-view	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:file-view	Esc	vtium flow(doc display) view:flow	
 vtium flow layer:file-view	i	vtium flow layer:file-view	prepare
-vtium flow layer:file-view	q	vtium flow(doc display) view:flow	
+vtium flow layer:file-view	q	vtium left	mouse off, exit 0
 vtium flow layer:file-view +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:file-view +pending	Esc	vtium flow(doc display) view:flow +pending	
 vtium flow layer:file-view +pending	i	vtium flow question:install +pending	prepare
-vtium flow layer:file-view +pending	q	vtium flow(doc display) view:flow +pending	
+vtium flow layer:file-view +pending	q	vtium flow question:leave +pending	
 vtium flow layer:file-view +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow layer:file-view +unsaved	Esc	vtium flow(doc display) view:flow +unsaved	
 vtium flow layer:file-view +unsaved	i	vtium flow layer:file-view	save, prepare
-vtium flow layer:file-view +unsaved	q	vtium flow(doc display) view:flow +unsaved	
+vtium flow layer:file-view +unsaved	q	vtium flow question:quit +unsaved	
 vtium flow layer:file-view +unsaved	s	vtium flow layer:file-view	save
 vtium flow layer:file-view +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow layer:file-view +unsaved +pending	Esc	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow layer:file-view +unsaved +pending	i	vtium flow layer:file-view +pending	save, prepare
-vtium flow layer:file-view +unsaved +pending	q	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow layer:file-view +unsaved +pending	q	vtium flow question:leave +unsaved +pending	
 vtium flow layer:file-view +unsaved +pending	s	vtium flow layer:file-view +pending	save
 vtium flow layer:flow-card	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:flow-card	Enter	vtium flow typing:flow-name	
@@ -91,21 +91,21 @@ vtium flow layer:flow-maker +unsaved +pending	q	vtium flow question:leave +unsav
 vtium flow layer:restore	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:restore	Enter	vtium flow question:restore	
 vtium flow layer:restore	Esc	vtium flow(doc display) view:flow	
-vtium flow layer:restore	q	vtium flow(doc display) view:flow	
+vtium flow layer:restore	q	vtium left	mouse off, exit 0
 vtium flow layer:restore +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:restore +pending	Enter	vtium flow question:restore +pending	
 vtium flow layer:restore +pending	Esc	vtium flow(doc display) view:flow +pending	
-vtium flow layer:restore +pending	q	vtium flow(doc display) view:flow +pending	
+vtium flow layer:restore +pending	q	vtium flow question:leave +pending	
 vtium flow layer:restore +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow layer:restore +unsaved	Enter	vtium flow question:restore +unsaved	
 vtium flow layer:restore +unsaved	Esc	vtium flow(doc display) view:flow +unsaved	
-vtium flow layer:restore +unsaved	q	vtium flow(doc display) view:flow +unsaved	
+vtium flow layer:restore +unsaved	q	vtium flow question:quit +unsaved	
 vtium flow layer:restore +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow layer:restore +unsaved +pending	Enter	vtium flow question:restore +unsaved +pending	
 vtium flow layer:restore +unsaved +pending	Esc	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow layer:restore +unsaved +pending	q	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow layer:restore +unsaved +pending	q	vtium flow question:leave +unsaved +pending	
 vtium flow question:install +pending	Backspace	vtium flow(doc display) view:flow +pending	
-vtium flow question:install +pending	Ctrl-C	vtium flow(doc display) view:flow +pending	
+vtium flow question:install +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:install +pending	Ctrl-D	vtium flow(doc display) view:flow +pending	
 vtium flow question:install +pending	Down	vtium flow(doc display) view:flow +pending	
 vtium flow question:install +pending	End	vtium flow(doc display) view:flow +pending	
@@ -138,7 +138,7 @@ vtium flow question:install +pending	x	vtium flow(doc display) view:flow +pendin
 vtium flow question:install +pending	y	vtium flow(doc display) view:flow	install
 vtium flow question:install +pending	z	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	Backspace	vtium flow(doc display) view:flow +pending	
-vtium flow question:leave +pending	Ctrl-C	vtium flow(doc display) view:flow +pending	
+vtium flow question:leave +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:leave +pending	Ctrl-D	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	Down	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	End	vtium flow(doc display) view:flow +pending	
@@ -155,9 +155,9 @@ vtium flow question:leave +pending	Up	vtium flow(doc display) view:flow +pending
 vtium flow question:leave +pending	a	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	d	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	e	vtium flow(doc display) view:flow +pending	
-vtium flow question:leave +pending	i	vtium flow question:install +pending	prepare
+vtium flow question:leave +pending	i	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	k	vtium flow(doc display) view:flow +pending	
-vtium flow question:leave +pending	l	vtium left	mouse off, exit 0
+vtium flow question:leave +pending	l	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	n	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	o	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	p	vtium flow(doc display) view:flow +pending	
@@ -168,10 +168,10 @@ vtium flow question:leave +pending	t	vtium flow(doc display) view:flow +pending
 vtium flow question:leave +pending	u	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	v	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +pending	x	vtium flow(doc display) view:flow +pending	
-vtium flow question:leave +pending	y	vtium flow(doc display) view:flow +pending	
+vtium flow question:leave +pending	y	vtium left	mouse off, exit 0
 vtium flow question:leave +pending	z	vtium flow(doc display) view:flow +pending	
 vtium flow question:leave +unsaved +pending	Backspace	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:leave +unsaved +pending	Ctrl-C	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow question:leave +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:leave +unsaved +pending	Ctrl-D	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	Down	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	End	vtium flow(doc display) view:flow +unsaved +pending	
@@ -188,9 +188,9 @@ vtium flow question:leave +unsaved +pending	Up	vtium flow(doc display) view:flow
 vtium flow question:leave +unsaved +pending	a	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	d	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	e	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:leave +unsaved +pending	i	vtium flow(doc display) view:flow +pending	save, prepare
+vtium flow question:leave +unsaved +pending	i	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	k	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:leave +unsaved +pending	l	vtium left	mouse off, exit 0
+vtium flow question:leave +unsaved +pending	l	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	n	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	o	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	p	vtium flow(doc display) view:flow +unsaved +pending	
@@ -201,10 +201,10 @@ vtium flow question:leave +unsaved +pending	t	vtium flow(doc display) view:flow 
 vtium flow question:leave +unsaved +pending	u	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	v	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:leave +unsaved +pending	x	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:leave +unsaved +pending	y	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow question:leave +unsaved +pending	y	vtium left	save, mouse off, exit 0
 vtium flow question:leave +unsaved +pending	z	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:new	Backspace	vtium flow(doc display) view:flow	
-vtium flow question:new	Ctrl-C	vtium flow(doc display) view:flow	
+vtium flow question:new	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:new	Ctrl-D	vtium flow(doc display) view:flow	
 vtium flow question:new	Down	vtium flow(doc display) view:flow	
 vtium flow question:new	End	vtium flow(doc display) view:flow	
@@ -237,7 +237,7 @@ vtium flow question:new	x	vtium flow(doc display) view:flow
 vtium flow question:new	y	vtium flow(new empty) view:flow	new
 vtium flow question:new	z	vtium flow(doc display) view:flow	
 vtium flow question:new +pending	Backspace	vtium flow(doc display) view:flow +pending	
-vtium flow question:new +pending	Ctrl-C	vtium flow(doc display) view:flow +pending	
+vtium flow question:new +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:new +pending	Ctrl-D	vtium flow(doc display) view:flow +pending	
 vtium flow question:new +pending	Down	vtium flow(doc display) view:flow +pending	
 vtium flow question:new +pending	End	vtium flow(doc display) view:flow +pending	
@@ -270,7 +270,7 @@ vtium flow question:new +pending	x	vtium flow(doc display) view:flow +pending
 vtium flow question:new +pending	y	vtium flow(new empty) view:flow +pending	new
 vtium flow question:new +pending	z	vtium flow(doc display) view:flow +pending	
 vtium flow question:new +unsaved	Backspace	vtium flow(doc display) view:flow +unsaved	
-vtium flow question:new +unsaved	Ctrl-C	vtium flow(doc display) view:flow +unsaved	
+vtium flow question:new +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:new +unsaved	Ctrl-D	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:new +unsaved	Down	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:new +unsaved	End	vtium flow(doc display) view:flow +unsaved	
@@ -303,7 +303,7 @@ vtium flow question:new +unsaved	x	vtium flow(doc display) view:flow +unsaved
 vtium flow question:new +unsaved	y	vtium flow(new empty) view:flow	new
 vtium flow question:new +unsaved	z	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:new +unsaved +pending	Backspace	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:new +unsaved +pending	Ctrl-C	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow question:new +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:new +unsaved +pending	Ctrl-D	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:new +unsaved +pending	Down	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:new +unsaved +pending	End	vtium flow(doc display) view:flow +unsaved +pending	
@@ -336,7 +336,7 @@ vtium flow question:new +unsaved +pending	x	vtium flow(doc display) view:flow +u
 vtium flow question:new +unsaved +pending	y	vtium flow(new empty) view:flow +pending	new
 vtium flow question:new +unsaved +pending	z	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:quit +unsaved	Backspace	vtium flow(doc display) view:flow +unsaved	
-vtium flow question:quit +unsaved	Ctrl-C	vtium flow(doc display) view:flow +unsaved	
+vtium flow question:quit +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:quit +unsaved	Ctrl-D	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:quit +unsaved	Down	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:quit +unsaved	End	vtium flow(doc display) view:flow +unsaved	
@@ -369,7 +369,7 @@ vtium flow question:quit +unsaved	x	vtium flow(doc display) view:flow +unsaved
 vtium flow question:quit +unsaved	y	vtium left	save, mouse off, exit 0
 vtium flow question:quit +unsaved	z	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:restore	Backspace	vtium flow(doc display) view:flow	
-vtium flow question:restore	Ctrl-C	vtium flow(doc display) view:flow	
+vtium flow question:restore	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:restore	Ctrl-D	vtium flow(doc display) view:flow	
 vtium flow question:restore	Down	vtium flow(doc display) view:flow	
 vtium flow question:restore	End	vtium flow(doc display) view:flow	
@@ -402,7 +402,7 @@ vtium flow question:restore	x	vtium flow(doc display) view:flow
 vtium flow question:restore	y	vtium flow(doc display) view:flow	restore
 vtium flow question:restore	z	vtium flow(doc display) view:flow	
 vtium flow question:restore +pending	Backspace	vtium flow(doc display) view:flow +pending	
-vtium flow question:restore +pending	Ctrl-C	vtium flow(doc display) view:flow +pending	
+vtium flow question:restore +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:restore +pending	Ctrl-D	vtium flow(doc display) view:flow +pending	
 vtium flow question:restore +pending	Down	vtium flow(doc display) view:flow +pending	
 vtium flow question:restore +pending	End	vtium flow(doc display) view:flow +pending	
@@ -435,7 +435,7 @@ vtium flow question:restore +pending	x	vtium flow(doc display) view:flow +pendin
 vtium flow question:restore +pending	y	vtium flow(doc display) view:flow +pending	restore
 vtium flow question:restore +pending	z	vtium flow(doc display) view:flow +pending	
 vtium flow question:restore +unsaved	Backspace	vtium flow(doc display) view:flow +unsaved	
-vtium flow question:restore +unsaved	Ctrl-C	vtium flow(doc display) view:flow +unsaved	
+vtium flow question:restore +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:restore +unsaved	Ctrl-D	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:restore +unsaved	Down	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:restore +unsaved	End	vtium flow(doc display) view:flow +unsaved	
@@ -468,7 +468,7 @@ vtium flow question:restore +unsaved	x	vtium flow(doc display) view:flow +unsave
 vtium flow question:restore +unsaved	y	vtium flow(doc display) view:flow	restore
 vtium flow question:restore +unsaved	z	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:restore +unsaved +pending	Backspace	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:restore +unsaved +pending	Ctrl-C	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow question:restore +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:restore +unsaved +pending	Ctrl-D	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:restore +unsaved +pending	Down	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:restore +unsaved +pending	End	vtium flow(doc display) view:flow +unsaved +pending	
@@ -501,7 +501,7 @@ vtium flow question:restore +unsaved +pending	x	vtium flow(doc display) view:flo
 vtium flow question:restore +unsaved +pending	y	vtium flow(doc display) view:flow +pending	restore
 vtium flow question:restore +unsaved +pending	z	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:revert	Backspace	vtium flow(doc display) view:flow	
-vtium flow question:revert	Ctrl-C	vtium flow(doc display) view:flow	
+vtium flow question:revert	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:revert	Ctrl-D	vtium flow(doc display) view:flow	
 vtium flow question:revert	Down	vtium flow(doc display) view:flow	
 vtium flow question:revert	End	vtium flow(doc display) view:flow	
@@ -534,7 +534,7 @@ vtium flow question:revert	x	vtium flow(doc display) view:flow
 vtium flow question:revert	y	vtium flow(doc display) view:flow	revert
 vtium flow question:revert	z	vtium flow(doc display) view:flow	
 vtium flow question:revert +pending	Backspace	vtium flow(doc display) view:flow +pending	
-vtium flow question:revert +pending	Ctrl-C	vtium flow(doc display) view:flow +pending	
+vtium flow question:revert +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow question:revert +pending	Ctrl-D	vtium flow(doc display) view:flow +pending	
 vtium flow question:revert +pending	Down	vtium flow(doc display) view:flow +pending	
 vtium flow question:revert +pending	End	vtium flow(doc display) view:flow +pending	
@@ -567,7 +567,7 @@ vtium flow question:revert +pending	x	vtium flow(doc display) view:flow +pending
 vtium flow question:revert +pending	y	vtium flow(doc display) view:flow +pending	revert
 vtium flow question:revert +pending	z	vtium flow(doc display) view:flow +pending	
 vtium flow question:revert +unsaved	Backspace	vtium flow(doc display) view:flow +unsaved	
-vtium flow question:revert +unsaved	Ctrl-C	vtium flow(doc display) view:flow +unsaved	
+vtium flow question:revert +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:revert +unsaved	Ctrl-D	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:revert +unsaved	Down	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:revert +unsaved	End	vtium flow(doc display) view:flow +unsaved	
@@ -600,7 +600,7 @@ vtium flow question:revert +unsaved	x	vtium flow(doc display) view:flow +unsaved
 vtium flow question:revert +unsaved	y	vtium flow(doc display) view:flow	revert
 vtium flow question:revert +unsaved	z	vtium flow(doc display) view:flow +unsaved	
 vtium flow question:revert +unsaved +pending	Backspace	vtium flow(doc display) view:flow +unsaved +pending	
-vtium flow question:revert +unsaved +pending	Ctrl-C	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow question:revert +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow question:revert +unsaved +pending	Ctrl-D	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:revert +unsaved +pending	Down	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:revert +unsaved +pending	End	vtium flow(doc display) view:flow +unsaved +pending	
@@ -632,12 +632,16 @@ vtium flow question:revert +unsaved +pending	v	vtium flow(doc display) view:flow
 vtium flow question:revert +unsaved +pending	x	vtium flow(doc display) view:flow +unsaved +pending	
 vtium flow question:revert +unsaved +pending	y	vtium flow(doc display) view:flow +pending	revert
 vtium flow question:revert +unsaved +pending	z	vtium flow(doc display) view:flow +unsaved +pending	
+vtium flow typing:flow-name	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow typing:flow-name	Enter	vtium flow layer:flow-card	
 vtium flow typing:flow-name	Esc	vtium flow layer:flow-card	
+vtium flow typing:flow-name +pending	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow typing:flow-name +pending	Enter	vtium flow layer:flow-card +pending	
 vtium flow typing:flow-name +pending	Esc	vtium flow layer:flow-card +pending	
+vtium flow typing:flow-name +unsaved	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow typing:flow-name +unsaved	Enter	vtium flow layer:flow-card +unsaved	
 vtium flow typing:flow-name +unsaved	Esc	vtium flow layer:flow-card +unsaved	
+vtium flow typing:flow-name +unsaved +pending	Ctrl-C	vtium left	save, mouse off, exit 130
 vtium flow typing:flow-name +unsaved +pending	Enter	vtium flow layer:flow-card +unsaved +pending	
 vtium flow typing:flow-name +unsaved +pending	Esc	vtium flow layer:flow-card +unsaved +pending	
 vtium flow(doc display) view:flow	Ctrl-C	vtium left	mouse off, exit 130
@@ -1341,7 +1345,7 @@ vtium flow(parts template) view:flow +unsaved +pending	r	vtium flow question:rev
 vtium flow(parts template) view:flow +unsaved +pending	s	vtium flow(parts template) view:flow +pending	save
 vtium flow(parts template) view:flow +unsaved +pending	v	vtium flow layer:file-view +unsaved +pending	
 vtium fonts question:install	Backspace	vtium fonts(frit) view:fonts	
-vtium fonts question:install	Ctrl-C	vtium fonts(frit) view:fonts	
+vtium fonts question:install	Ctrl-C	vtium left	exit 130
 vtium fonts question:install	Ctrl-D	vtium fonts(frit) view:fonts	
 vtium fonts question:install	Down	vtium fonts(frit) view:fonts	
 vtium fonts question:install	End	vtium fonts(frit) view:fonts	
@@ -1374,7 +1378,7 @@ vtium fonts question:install	x	vtium fonts(frit) view:fonts
 vtium fonts question:install	y	vtium fonts(frit) view:fonts	install
 vtium fonts question:install	z	vtium fonts(frit) view:fonts	
 vtium fonts question:install +pending	Backspace	vtium fonts(marked) view:fonts +pending	
-vtium fonts question:install +pending	Ctrl-C	vtium fonts(marked) view:fonts +pending	
+vtium fonts question:install +pending	Ctrl-C	vtium left	exit 130
 vtium fonts question:install +pending	Ctrl-D	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:install +pending	Down	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:install +pending	End	vtium fonts(marked) view:fonts +pending	
@@ -1407,7 +1411,7 @@ vtium fonts question:install +pending	x	vtium fonts(marked) view:fonts +pending
 vtium fonts question:install +pending	y	vtium fonts(builtin) view:fonts	install
 vtium fonts question:install +pending	z	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	Backspace	vtium fonts(marked) view:fonts +pending	
-vtium fonts question:leave +pending	Ctrl-C	vtium fonts(marked) view:fonts +pending	
+vtium fonts question:leave +pending	Ctrl-C	vtium left	exit 130
 vtium fonts question:leave +pending	Ctrl-D	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	Down	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	End	vtium fonts(marked) view:fonts +pending	
@@ -1424,9 +1428,9 @@ vtium fonts question:leave +pending	Up	vtium fonts(marked) view:fonts +pending
 vtium fonts question:leave +pending	a	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	d	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	e	vtium fonts(marked) view:fonts +pending	
-vtium fonts question:leave +pending	i	vtium fonts question:install +pending	prepare
+vtium fonts question:leave +pending	i	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	k	vtium fonts(marked) view:fonts +pending	
-vtium fonts question:leave +pending	l	vtium left	exit 0
+vtium fonts question:leave +pending	l	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	n	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	o	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	p	vtium fonts(marked) view:fonts +pending	
@@ -1437,10 +1441,10 @@ vtium fonts question:leave +pending	t	vtium fonts(marked) view:fonts +pending
 vtium fonts question:leave +pending	u	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	v	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +pending	x	vtium fonts(marked) view:fonts +pending	
-vtium fonts question:leave +pending	y	vtium fonts(marked) view:fonts +pending	
+vtium fonts question:leave +pending	y	vtium left	exit 0
 vtium fonts question:leave +pending	z	vtium fonts(marked) view:fonts +pending	
 vtium fonts question:leave +unsaved +pending	Backspace	vtium fonts(marked) view:fonts +unsaved +pending	
-vtium fonts question:leave +unsaved +pending	Ctrl-C	vtium fonts(marked) view:fonts +unsaved +pending	
+vtium fonts question:leave +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium fonts question:leave +unsaved +pending	Ctrl-D	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	Down	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	End	vtium fonts(marked) view:fonts +unsaved +pending	
@@ -1457,9 +1461,9 @@ vtium fonts question:leave +unsaved +pending	Up	vtium fonts(marked) view:fonts +
 vtium fonts question:leave +unsaved +pending	a	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	d	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	e	vtium fonts(marked) view:fonts +unsaved +pending	
-vtium fonts question:leave +unsaved +pending	i	vtium fonts(marked) view:fonts +pending	save, prepare
+vtium fonts question:leave +unsaved +pending	i	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	k	vtium fonts(marked) view:fonts +unsaved +pending	
-vtium fonts question:leave +unsaved +pending	l	vtium left	exit 0
+vtium fonts question:leave +unsaved +pending	l	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	n	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	o	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	p	vtium fonts(marked) view:fonts +unsaved +pending	
@@ -1470,10 +1474,10 @@ vtium fonts question:leave +unsaved +pending	t	vtium fonts(marked) view:fonts +u
 vtium fonts question:leave +unsaved +pending	u	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	v	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:leave +unsaved +pending	x	vtium fonts(marked) view:fonts +unsaved +pending	
-vtium fonts question:leave +unsaved +pending	y	vtium fonts(marked) view:fonts +unsaved +pending	
+vtium fonts question:leave +unsaved +pending	y	vtium left	save, exit 0
 vtium fonts question:leave +unsaved +pending	z	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium fonts question:quit +unsaved	Backspace	vtium fonts(builtin) view:fonts +unsaved	
-vtium fonts question:quit +unsaved	Ctrl-C	vtium fonts(builtin) view:fonts +unsaved	
+vtium fonts question:quit +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium fonts question:quit +unsaved	Ctrl-D	vtium fonts(builtin) view:fonts +unsaved	
 vtium fonts question:quit +unsaved	Down	vtium fonts(builtin) view:fonts +unsaved	
 vtium fonts question:quit +unsaved	End	vtium fonts(builtin) view:fonts +unsaved	
@@ -1572,7 +1576,7 @@ vtium fonts trial +pending	x	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	y	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	z	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +unsaved	Backspace	vtium fonts(frit) view:fonts +unsaved	switch
-vtium fonts trial +unsaved	Ctrl-C	vtium left	switch, exit 130
+vtium fonts trial +unsaved	Ctrl-C	vtium left	save, switch, exit 130
 vtium fonts trial +unsaved	Ctrl-D	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	Down	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	End	vtium fonts(frit) view:fonts +unsaved	switch
@@ -1605,7 +1609,7 @@ vtium fonts trial +unsaved	x	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	y	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	z	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved +pending	Backspace	vtium fonts(marked) view:fonts +unsaved +pending	switch
-vtium fonts trial +unsaved +pending	Ctrl-C	vtium left	switch, exit 130
+vtium fonts trial +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
 vtium fonts trial +unsaved +pending	Ctrl-D	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	Down	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	End	vtium fonts(marked) view:fonts +unsaved +pending	switch
@@ -1789,41 +1793,8 @@ vtium fonts(refused) view:fonts +unsaved +pending	Tab	vtium settings(value) view
 vtium fonts(refused) view:fonts +unsaved +pending	i	vtium fonts(refused) view:fonts +pending	save, prepare
 vtium fonts(refused) view:fonts +unsaved +pending	n	vtium new-frit typing:new-frit +unsaved +pending	
 vtium fonts(refused) view:fonts +unsaved +pending	q	vtium fonts question:leave +unsaved +pending	
-vtium help question:install +pending	Backspace	vtium help(help) view:help +pending	
-vtium help question:install +pending	Ctrl-C	vtium help(help) view:help +pending	
-vtium help question:install +pending	Ctrl-D	vtium help(help) view:help +pending	
-vtium help question:install +pending	Down	vtium help(help) view:help +pending	
-vtium help question:install +pending	End	vtium help(help) view:help +pending	
-vtium help question:install +pending	Enter	vtium help(help) view:help +pending	
-vtium help question:install +pending	Esc	vtium help(help) view:help +pending	
-vtium help question:install +pending	Home	vtium help(help) view:help +pending	
-vtium help question:install +pending	Left	vtium help(help) view:help +pending	
-vtium help question:install +pending	PgDn	vtium help(help) view:help +pending	
-vtium help question:install +pending	Right	vtium help(help) view:help +pending	
-vtium help question:install +pending	Shift-Tab	vtium help(help) view:help +pending	
-vtium help question:install +pending	Space	vtium help(help) view:help +pending	
-vtium help question:install +pending	Tab	vtium help(help) view:help +pending	
-vtium help question:install +pending	Up	vtium help(help) view:help +pending	
-vtium help question:install +pending	a	vtium help(help) view:help +pending	
-vtium help question:install +pending	d	vtium help(help) view:help +pending	
-vtium help question:install +pending	e	vtium help(help) view:help +pending	
-vtium help question:install +pending	i	vtium help(help) view:help +pending	
-vtium help question:install +pending	k	vtium help(help) view:help +pending	
-vtium help question:install +pending	l	vtium help(help) view:help +pending	
-vtium help question:install +pending	n	vtium help(help) view:help +pending	
-vtium help question:install +pending	o	vtium help(help) view:help +pending	
-vtium help question:install +pending	p	vtium help(help) view:help +pending	
-vtium help question:install +pending	q	vtium help(help) view:help +pending	
-vtium help question:install +pending	r	vtium help(help) view:help +pending	
-vtium help question:install +pending	s	vtium help(help) view:help +pending	
-vtium help question:install +pending	t	vtium help(help) view:help +pending	
-vtium help question:install +pending	u	vtium help(help) view:help +pending	
-vtium help question:install +pending	v	vtium help(help) view:help +pending	
-vtium help question:install +pending	x	vtium help(help) view:help +pending	
-vtium help question:install +pending	y	vtium help(help) view:help	install
-vtium help question:install +pending	z	vtium help(help) view:help +pending	
 vtium help question:leave +pending	Backspace	vtium help(help) view:help +pending	
-vtium help question:leave +pending	Ctrl-C	vtium help(help) view:help +pending	
+vtium help question:leave +pending	Ctrl-C	vtium left	exit 130
 vtium help question:leave +pending	Ctrl-D	vtium help(help) view:help +pending	
 vtium help question:leave +pending	Down	vtium help(help) view:help +pending	
 vtium help question:leave +pending	End	vtium help(help) view:help +pending	
@@ -1840,9 +1811,9 @@ vtium help question:leave +pending	Up	vtium help(help) view:help +pending
 vtium help question:leave +pending	a	vtium help(help) view:help +pending	
 vtium help question:leave +pending	d	vtium help(help) view:help +pending	
 vtium help question:leave +pending	e	vtium help(help) view:help +pending	
-vtium help question:leave +pending	i	vtium help question:install +pending	prepare
+vtium help question:leave +pending	i	vtium help(help) view:help +pending	
 vtium help question:leave +pending	k	vtium help(help) view:help +pending	
-vtium help question:leave +pending	l	vtium left	exit 0
+vtium help question:leave +pending	l	vtium help(help) view:help +pending	
 vtium help question:leave +pending	n	vtium help(help) view:help +pending	
 vtium help question:leave +pending	o	vtium help(help) view:help +pending	
 vtium help question:leave +pending	p	vtium help(help) view:help +pending	
@@ -1853,10 +1824,10 @@ vtium help question:leave +pending	t	vtium help(help) view:help +pending
 vtium help question:leave +pending	u	vtium help(help) view:help +pending	
 vtium help question:leave +pending	v	vtium help(help) view:help +pending	
 vtium help question:leave +pending	x	vtium help(help) view:help +pending	
-vtium help question:leave +pending	y	vtium help(help) view:help +pending	
+vtium help question:leave +pending	y	vtium left	exit 0
 vtium help question:leave +pending	z	vtium help(help) view:help +pending	
 vtium help question:leave +unsaved +pending	Backspace	vtium help(help) view:help +unsaved +pending	
-vtium help question:leave +unsaved +pending	Ctrl-C	vtium help(help) view:help +unsaved +pending	
+vtium help question:leave +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium help question:leave +unsaved +pending	Ctrl-D	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	Down	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	End	vtium help(help) view:help +unsaved +pending	
@@ -1873,9 +1844,9 @@ vtium help question:leave +unsaved +pending	Up	vtium help(help) view:help +unsav
 vtium help question:leave +unsaved +pending	a	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	d	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	e	vtium help(help) view:help +unsaved +pending	
-vtium help question:leave +unsaved +pending	i	vtium help(help) view:help +pending	save, prepare
+vtium help question:leave +unsaved +pending	i	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	k	vtium help(help) view:help +unsaved +pending	
-vtium help question:leave +unsaved +pending	l	vtium left	exit 0
+vtium help question:leave +unsaved +pending	l	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	n	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	o	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	p	vtium help(help) view:help +unsaved +pending	
@@ -1886,10 +1857,10 @@ vtium help question:leave +unsaved +pending	t	vtium help(help) view:help +unsave
 vtium help question:leave +unsaved +pending	u	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	v	vtium help(help) view:help +unsaved +pending	
 vtium help question:leave +unsaved +pending	x	vtium help(help) view:help +unsaved +pending	
-vtium help question:leave +unsaved +pending	y	vtium help(help) view:help +unsaved +pending	
+vtium help question:leave +unsaved +pending	y	vtium left	save, exit 0
 vtium help question:leave +unsaved +pending	z	vtium help(help) view:help +unsaved +pending	
 vtium help question:quit +unsaved	Backspace	vtium help(help) view:help +unsaved	
-vtium help question:quit +unsaved	Ctrl-C	vtium help(help) view:help +unsaved	
+vtium help question:quit +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium help question:quit +unsaved	Ctrl-D	vtium help(help) view:help +unsaved	
 vtium help question:quit +unsaved	Down	vtium help(help) view:help +unsaved	
 vtium help question:quit +unsaved	End	vtium help(help) view:help +unsaved	
@@ -1926,59 +1897,51 @@ vtium help(about) view:help	Left	vtium help(help) view:help
 vtium help(about) view:help	Right	vtium help(help) view:help	
 vtium help(about) view:help	Shift-Tab	vtium settings(value) view:settings	
 vtium help(about) view:help	Tab	vtium flow(doc display) view:flow	mouse on
-vtium help(about) view:help	i	vtium help(about) view:help	prepare
 vtium help(about) view:help	q	vtium left	exit 0
 vtium help(about) view:help +pending	Ctrl-C	vtium left	exit 130
 vtium help(about) view:help +pending	Left	vtium help(help) view:help +pending	
 vtium help(about) view:help +pending	Right	vtium help(help) view:help +pending	
 vtium help(about) view:help +pending	Shift-Tab	vtium settings(value) view:settings +pending	
 vtium help(about) view:help +pending	Tab	vtium flow(doc display) view:flow +pending	mouse on
-vtium help(about) view:help +pending	i	vtium help question:install +pending	prepare
 vtium help(about) view:help +pending	q	vtium help question:leave +pending	
 vtium help(about) view:help +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium help(about) view:help +unsaved	Left	vtium help(help) view:help +unsaved	
 vtium help(about) view:help +unsaved	Right	vtium help(help) view:help +unsaved	
 vtium help(about) view:help +unsaved	Shift-Tab	vtium settings(value) view:settings +unsaved	
 vtium help(about) view:help +unsaved	Tab	vtium flow(doc display) view:flow +unsaved	mouse on
-vtium help(about) view:help +unsaved	i	vtium help(about) view:help	save, prepare
 vtium help(about) view:help +unsaved	q	vtium help question:quit +unsaved	
 vtium help(about) view:help +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium help(about) view:help +unsaved +pending	Left	vtium help(help) view:help +unsaved +pending	
 vtium help(about) view:help +unsaved +pending	Right	vtium help(help) view:help +unsaved +pending	
 vtium help(about) view:help +unsaved +pending	Shift-Tab	vtium settings(value) view:settings +unsaved +pending	
 vtium help(about) view:help +unsaved +pending	Tab	vtium flow(doc display) view:flow +unsaved +pending	mouse on
-vtium help(about) view:help +unsaved +pending	i	vtium help(about) view:help +pending	save, prepare
 vtium help(about) view:help +unsaved +pending	q	vtium help question:leave +unsaved +pending	
 vtium help(help) view:help	Ctrl-C	vtium left	exit 130
 vtium help(help) view:help	Left	vtium help(about) view:help	
 vtium help(help) view:help	Right	vtium help(about) view:help	
 vtium help(help) view:help	Shift-Tab	vtium settings(value) view:settings	
 vtium help(help) view:help	Tab	vtium flow(doc display) view:flow	mouse on
-vtium help(help) view:help	i	vtium help(help) view:help	prepare
 vtium help(help) view:help	q	vtium left	exit 0
 vtium help(help) view:help +pending	Ctrl-C	vtium left	exit 130
 vtium help(help) view:help +pending	Left	vtium help(about) view:help +pending	
 vtium help(help) view:help +pending	Right	vtium help(about) view:help +pending	
 vtium help(help) view:help +pending	Shift-Tab	vtium settings(value) view:settings +pending	
 vtium help(help) view:help +pending	Tab	vtium flow(doc display) view:flow +pending	mouse on
-vtium help(help) view:help +pending	i	vtium help question:install +pending	prepare
 vtium help(help) view:help +pending	q	vtium help question:leave +pending	
 vtium help(help) view:help +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium help(help) view:help +unsaved	Left	vtium help(about) view:help +unsaved	
 vtium help(help) view:help +unsaved	Right	vtium help(about) view:help +unsaved	
 vtium help(help) view:help +unsaved	Shift-Tab	vtium settings(value) view:settings +unsaved	
 vtium help(help) view:help +unsaved	Tab	vtium flow(doc display) view:flow +unsaved	mouse on
-vtium help(help) view:help +unsaved	i	vtium help(help) view:help	save, prepare
 vtium help(help) view:help +unsaved	q	vtium help question:quit +unsaved	
 vtium help(help) view:help +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium help(help) view:help +unsaved +pending	Left	vtium help(about) view:help +unsaved +pending	
 vtium help(help) view:help +unsaved +pending	Right	vtium help(about) view:help +unsaved +pending	
 vtium help(help) view:help +unsaved +pending	Shift-Tab	vtium settings(value) view:settings +unsaved +pending	
 vtium help(help) view:help +unsaved +pending	Tab	vtium flow(doc display) view:flow +unsaved +pending	mouse on
-vtium help(help) view:help +unsaved +pending	i	vtium help(help) view:help +pending	save, prepare
 vtium help(help) view:help +unsaved +pending	q	vtium help question:leave +unsaved +pending	
 vtium looks question:install +pending	Backspace	vtium looks view:looks +pending	
-vtium looks question:install +pending	Ctrl-C	vtium looks view:looks +pending	
+vtium looks question:install +pending	Ctrl-C	vtium left	exit 130
 vtium looks question:install +pending	Ctrl-D	vtium looks view:looks +pending	
 vtium looks question:install +pending	Down	vtium looks view:looks +pending	
 vtium looks question:install +pending	End	vtium looks view:looks +pending	
@@ -2011,7 +1974,7 @@ vtium looks question:install +pending	x	vtium looks view:looks +pending
 vtium looks question:install +pending	y	vtium looks view:looks	install
 vtium looks question:install +pending	z	vtium looks view:looks +pending	
 vtium looks question:leave +pending	Backspace	vtium looks view:looks +pending	
-vtium looks question:leave +pending	Ctrl-C	vtium looks view:looks +pending	
+vtium looks question:leave +pending	Ctrl-C	vtium left	exit 130
 vtium looks question:leave +pending	Ctrl-D	vtium looks view:looks +pending	
 vtium looks question:leave +pending	Down	vtium looks view:looks +pending	
 vtium looks question:leave +pending	End	vtium looks view:looks +pending	
@@ -2028,9 +1991,9 @@ vtium looks question:leave +pending	Up	vtium looks view:looks +pending
 vtium looks question:leave +pending	a	vtium looks view:looks +pending	
 vtium looks question:leave +pending	d	vtium looks view:looks +pending	
 vtium looks question:leave +pending	e	vtium looks view:looks +pending	
-vtium looks question:leave +pending	i	vtium looks question:install +pending	prepare
+vtium looks question:leave +pending	i	vtium looks view:looks +pending	
 vtium looks question:leave +pending	k	vtium looks view:looks +pending	
-vtium looks question:leave +pending	l	vtium left	exit 0
+vtium looks question:leave +pending	l	vtium looks view:looks +pending	
 vtium looks question:leave +pending	n	vtium looks view:looks +pending	
 vtium looks question:leave +pending	o	vtium looks view:looks +pending	
 vtium looks question:leave +pending	p	vtium looks view:looks +pending	
@@ -2041,10 +2004,10 @@ vtium looks question:leave +pending	t	vtium looks view:looks +pending
 vtium looks question:leave +pending	u	vtium looks view:looks +pending	
 vtium looks question:leave +pending	v	vtium looks view:looks +pending	
 vtium looks question:leave +pending	x	vtium looks view:looks +pending	
-vtium looks question:leave +pending	y	vtium looks view:looks +pending	
+vtium looks question:leave +pending	y	vtium left	exit 0
 vtium looks question:leave +pending	z	vtium looks view:looks +pending	
 vtium looks question:leave +unsaved +pending	Backspace	vtium looks view:looks +unsaved +pending	
-vtium looks question:leave +unsaved +pending	Ctrl-C	vtium looks view:looks +unsaved +pending	
+vtium looks question:leave +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium looks question:leave +unsaved +pending	Ctrl-D	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	Down	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	End	vtium looks view:looks +unsaved +pending	
@@ -2061,9 +2024,9 @@ vtium looks question:leave +unsaved +pending	Up	vtium looks view:looks +unsaved 
 vtium looks question:leave +unsaved +pending	a	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	d	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	e	vtium looks view:looks +unsaved +pending	
-vtium looks question:leave +unsaved +pending	i	vtium looks view:looks +pending	save, prepare
+vtium looks question:leave +unsaved +pending	i	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	k	vtium looks view:looks +unsaved +pending	
-vtium looks question:leave +unsaved +pending	l	vtium left	exit 0
+vtium looks question:leave +unsaved +pending	l	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	n	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	o	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	p	vtium looks view:looks +unsaved +pending	
@@ -2074,10 +2037,10 @@ vtium looks question:leave +unsaved +pending	t	vtium looks view:looks +unsaved +
 vtium looks question:leave +unsaved +pending	u	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	v	vtium looks view:looks +unsaved +pending	
 vtium looks question:leave +unsaved +pending	x	vtium looks view:looks +unsaved +pending	
-vtium looks question:leave +unsaved +pending	y	vtium looks view:looks +unsaved +pending	
+vtium looks question:leave +unsaved +pending	y	vtium left	save, exit 0
 vtium looks question:leave +unsaved +pending	z	vtium looks view:looks +unsaved +pending	
 vtium looks question:quit +unsaved	Backspace	vtium looks view:looks +unsaved	
-vtium looks question:quit +unsaved	Ctrl-C	vtium looks view:looks +unsaved	
+vtium looks question:quit +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium looks question:quit +unsaved	Ctrl-D	vtium looks view:looks +unsaved	
 vtium looks question:quit +unsaved	Down	vtium looks view:looks +unsaved	
 vtium looks question:quit +unsaved	End	vtium looks view:looks +unsaved	
@@ -2160,7 +2123,7 @@ vtium new-frit layer:new-frit +unsaved +pending	Up	vtium new-frit typing:new-fri
 vtium new-frit layer:new-frit +unsaved +pending	i	vtium new-frit layer:new-frit +pending	save, prepare
 vtium new-frit layer:new-frit +unsaved +pending	q	vtium new-frit question:leave +unsaved +pending	
 vtium new-frit question:install +pending	Backspace	vtium new-frit layer:new-frit +pending	
-vtium new-frit question:install +pending	Ctrl-C	vtium new-frit layer:new-frit +pending	
+vtium new-frit question:install +pending	Ctrl-C	vtium left	exit 130
 vtium new-frit question:install +pending	Ctrl-D	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:install +pending	Down	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:install +pending	End	vtium new-frit layer:new-frit +pending	
@@ -2193,7 +2156,7 @@ vtium new-frit question:install +pending	x	vtium new-frit layer:new-frit +pendin
 vtium new-frit question:install +pending	y	vtium new-frit layer:new-frit	install
 vtium new-frit question:install +pending	z	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	Backspace	vtium new-frit layer:new-frit +pending	
-vtium new-frit question:leave +pending	Ctrl-C	vtium new-frit layer:new-frit +pending	
+vtium new-frit question:leave +pending	Ctrl-C	vtium left	exit 130
 vtium new-frit question:leave +pending	Ctrl-D	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	Down	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	End	vtium new-frit layer:new-frit +pending	
@@ -2210,9 +2173,9 @@ vtium new-frit question:leave +pending	Up	vtium new-frit layer:new-frit +pending
 vtium new-frit question:leave +pending	a	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	d	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	e	vtium new-frit layer:new-frit +pending	
-vtium new-frit question:leave +pending	i	vtium new-frit question:install +pending	prepare
+vtium new-frit question:leave +pending	i	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	k	vtium new-frit layer:new-frit +pending	
-vtium new-frit question:leave +pending	l	vtium left	exit 0
+vtium new-frit question:leave +pending	l	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	n	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	o	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	p	vtium new-frit layer:new-frit +pending	
@@ -2223,10 +2186,10 @@ vtium new-frit question:leave +pending	t	vtium new-frit layer:new-frit +pending
 vtium new-frit question:leave +pending	u	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	v	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +pending	x	vtium new-frit layer:new-frit +pending	
-vtium new-frit question:leave +pending	y	vtium new-frit layer:new-frit +pending	
+vtium new-frit question:leave +pending	y	vtium left	exit 0
 vtium new-frit question:leave +pending	z	vtium new-frit layer:new-frit +pending	
 vtium new-frit question:leave +unsaved +pending	Backspace	vtium new-frit layer:new-frit +unsaved +pending	
-vtium new-frit question:leave +unsaved +pending	Ctrl-C	vtium new-frit layer:new-frit +unsaved +pending	
+vtium new-frit question:leave +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium new-frit question:leave +unsaved +pending	Ctrl-D	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	Down	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	End	vtium new-frit layer:new-frit +unsaved +pending	
@@ -2243,9 +2206,9 @@ vtium new-frit question:leave +unsaved +pending	Up	vtium new-frit layer:new-frit
 vtium new-frit question:leave +unsaved +pending	a	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	d	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	e	vtium new-frit layer:new-frit +unsaved +pending	
-vtium new-frit question:leave +unsaved +pending	i	vtium new-frit layer:new-frit +pending	save, prepare
+vtium new-frit question:leave +unsaved +pending	i	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	k	vtium new-frit layer:new-frit +unsaved +pending	
-vtium new-frit question:leave +unsaved +pending	l	vtium left	exit 0
+vtium new-frit question:leave +unsaved +pending	l	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	n	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	o	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	p	vtium new-frit layer:new-frit +unsaved +pending	
@@ -2256,10 +2219,10 @@ vtium new-frit question:leave +unsaved +pending	t	vtium new-frit layer:new-frit 
 vtium new-frit question:leave +unsaved +pending	u	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	v	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:leave +unsaved +pending	x	vtium new-frit layer:new-frit +unsaved +pending	
-vtium new-frit question:leave +unsaved +pending	y	vtium new-frit layer:new-frit +unsaved +pending	
+vtium new-frit question:leave +unsaved +pending	y	vtium left	save, exit 0
 vtium new-frit question:leave +unsaved +pending	z	vtium new-frit layer:new-frit +unsaved +pending	
 vtium new-frit question:quit +unsaved	Backspace	vtium new-frit layer:new-frit +unsaved	
-vtium new-frit question:quit +unsaved	Ctrl-C	vtium new-frit layer:new-frit +unsaved	
+vtium new-frit question:quit +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium new-frit question:quit +unsaved	Ctrl-D	vtium new-frit layer:new-frit +unsaved	
 vtium new-frit question:quit +unsaved	Down	vtium new-frit layer:new-frit +unsaved	
 vtium new-frit question:quit +unsaved	End	vtium new-frit layer:new-frit +unsaved	
@@ -2308,7 +2271,7 @@ vtium new-frit typing:new-frit +unsaved +pending	End	vtium new-frit layer:new-fr
 vtium new-frit typing:new-frit +unsaved +pending	Esc	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium new-frit typing:new-frit +unsaved +pending	PgDn	vtium new-frit layer:new-frit +unsaved +pending	
 vtium settings question:install +pending	Backspace	vtium settings(value) view:settings +pending	
-vtium settings question:install +pending	Ctrl-C	vtium settings(value) view:settings +pending	
+vtium settings question:install +pending	Ctrl-C	vtium left	exit 130
 vtium settings question:install +pending	Ctrl-D	vtium settings(value) view:settings +pending	
 vtium settings question:install +pending	Down	vtium settings(value) view:settings +pending	
 vtium settings question:install +pending	End	vtium settings(value) view:settings +pending	
@@ -2341,7 +2304,7 @@ vtium settings question:install +pending	x	vtium settings(value) view:settings +
 vtium settings question:install +pending	y	vtium settings(value) view:settings	install
 vtium settings question:install +pending	z	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	Backspace	vtium settings(value) view:settings +pending	
-vtium settings question:leave +pending	Ctrl-C	vtium settings(value) view:settings +pending	
+vtium settings question:leave +pending	Ctrl-C	vtium left	exit 130
 vtium settings question:leave +pending	Ctrl-D	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	Down	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	End	vtium settings(value) view:settings +pending	
@@ -2358,9 +2321,9 @@ vtium settings question:leave +pending	Up	vtium settings(value) view:settings +p
 vtium settings question:leave +pending	a	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	d	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	e	vtium settings(value) view:settings +pending	
-vtium settings question:leave +pending	i	vtium settings question:install +pending	prepare
+vtium settings question:leave +pending	i	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	k	vtium settings(value) view:settings +pending	
-vtium settings question:leave +pending	l	vtium left	exit 0
+vtium settings question:leave +pending	l	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	n	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	o	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	p	vtium settings(value) view:settings +pending	
@@ -2371,10 +2334,10 @@ vtium settings question:leave +pending	t	vtium settings(value) view:settings +pe
 vtium settings question:leave +pending	u	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	v	vtium settings(value) view:settings +pending	
 vtium settings question:leave +pending	x	vtium settings(value) view:settings +pending	
-vtium settings question:leave +pending	y	vtium settings(value) view:settings +pending	
+vtium settings question:leave +pending	y	vtium left	exit 0
 vtium settings question:leave +pending	z	vtium settings(value) view:settings +pending	
 vtium settings question:leave +unsaved +pending	Backspace	vtium settings(value) view:settings +unsaved +pending	
-vtium settings question:leave +unsaved +pending	Ctrl-C	vtium settings(value) view:settings +unsaved +pending	
+vtium settings question:leave +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium settings question:leave +unsaved +pending	Ctrl-D	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	Down	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	End	vtium settings(value) view:settings +unsaved +pending	
@@ -2391,9 +2354,9 @@ vtium settings question:leave +unsaved +pending	Up	vtium settings(value) view:se
 vtium settings question:leave +unsaved +pending	a	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	d	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	e	vtium settings(value) view:settings +unsaved +pending	
-vtium settings question:leave +unsaved +pending	i	vtium settings(value) view:settings +pending	save, prepare
+vtium settings question:leave +unsaved +pending	i	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	k	vtium settings(value) view:settings +unsaved +pending	
-vtium settings question:leave +unsaved +pending	l	vtium left	exit 0
+vtium settings question:leave +unsaved +pending	l	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	n	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	o	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	p	vtium settings(value) view:settings +unsaved +pending	
@@ -2404,10 +2367,10 @@ vtium settings question:leave +unsaved +pending	t	vtium settings(value) view:set
 vtium settings question:leave +unsaved +pending	u	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	v	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:leave +unsaved +pending	x	vtium settings(value) view:settings +unsaved +pending	
-vtium settings question:leave +unsaved +pending	y	vtium settings(value) view:settings +unsaved +pending	
+vtium settings question:leave +unsaved +pending	y	vtium left	save, exit 0
 vtium settings question:leave +unsaved +pending	z	vtium settings(value) view:settings +unsaved +pending	
 vtium settings question:quit +unsaved	Backspace	vtium settings(value) view:settings +unsaved	
-vtium settings question:quit +unsaved	Ctrl-C	vtium settings(value) view:settings +unsaved	
+vtium settings question:quit +unsaved	Ctrl-C	vtium left	save, exit 130
 vtium settings question:quit +unsaved	Ctrl-D	vtium settings(value) view:settings +unsaved	
 vtium settings question:quit +unsaved	Down	vtium settings(value) view:settings +unsaved	
 vtium settings question:quit +unsaved	End	vtium settings(value) view:settings +unsaved	
