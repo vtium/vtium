@@ -325,6 +325,7 @@ The renderer draws a double-size line at its size, and the pointer's columns on 
 - **A resize erases each run that the screen's new last row cuts,** on both screens. That includes the rows a shorter screen keeps below its last row, so a screen that grows again shows no part of the run.
 - **A run's text keeps whole grapheme clusters** within the cluster bytes its line has left, and every row of the run keeps the same text. When not even the first cluster fits, the run keeps the first codepoints of that cluster that fit, as printed text does.
 - **vtium ignores `CSI 22 J`,** which kitty documents as copying the screen into the scrollback, as ADR-1000's row `ctl.kitty-clear` decides.
+- **A selection that touches any cell of a run selects the whole run,** on every row of it, and a copy gives the run's text once, from its top row. The run's other cells copy as nothing, so a selection on a run's lower row alone copies the text from the run's top row. On each row, the selection covers one stretch of columns from its first selected cell to its last. So a run that the selection reaches from another row also selects the cells between the run and the rest of that row's selection. Spec: ADR-1308 D6. Tests: `a_selection_over_part_of_a_run_selects_and_copies_it_whole`, `a_selection_on_one_row_of_a_run_selects_its_other_rows`.
 
 ### Change tracking and the frame
 
