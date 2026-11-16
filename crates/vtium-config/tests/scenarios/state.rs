@@ -125,9 +125,9 @@ pub fn of(sim: &Sim) -> Abs {
         return abs;
     }
     // below the minimum size no view shows, and only a question asked
-    // there changes what the keys do
+    // there or the live trial's countdown changes what the keys do
     let small = too_small(app);
-    if small && app.confirm.is_none() {
+    if small && app.confirm.is_none() && app.trial.is_none() {
         abs.kind = StateKind::TooSmall;
         abs.view = "";
         return abs;
@@ -147,21 +147,9 @@ pub fn of(sim: &Sim) -> Abs {
     abs
 }
 
-/// What is open over the view, in the order `App::key` reads the keys.
+/// What is open over the view, in the order `App::key` reads the keys: a
+/// question first, then the live trial, then a value being typed.
 fn open(app: &App) -> (StateKind, &'static str) {
-    if app.trial.is_some() {
-        return (StateKind::Trial, "");
-    }
-    if app.view == View::Flow && app.flow_view.typing.is_some() {
-        return (StateKind::Typing, "flow-name");
-    }
-    match app.view {
-        View::Settings if app.editing.is_some() => return (StateKind::Typing, "settings"),
-        View::New if app.new_frit.at < vtium_config::tui::model::NEW_FIELDS => {
-            return (StateKind::Typing, "new-frit");
-        }
-        _ => {}
-    }
     if let Some(confirm) = &app.confirm {
         return (
             StateKind::Question,
@@ -178,6 +166,19 @@ fn open(app: &App) -> (StateKind, &'static str) {
                 },
             },
         );
+    }
+    if app.trial.is_some() {
+        return (StateKind::Trial, "");
+    }
+    if app.view == View::Flow && app.flow_view.typing.is_some() {
+        return (StateKind::Typing, "flow-name");
+    }
+    match app.view {
+        View::Settings if app.editing.is_some() => return (StateKind::Typing, "settings"),
+        View::New if app.new_frit.at < vtium_config::tui::model::NEW_FIELDS => {
+            return (StateKind::Typing, "new-frit");
+        }
+        _ => {}
     }
     if app.view == View::New {
         return (StateKind::Layer, "new-frit");
