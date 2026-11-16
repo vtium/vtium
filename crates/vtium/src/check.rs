@@ -15,6 +15,7 @@
 //! the status, so a file can be checked away from its machine, and the
 //! notes end on what a start does with the file and the policy it states.
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
 use vtium_settings::{
@@ -462,14 +463,47 @@ pub fn outcome(loaded: &Loaded, host: &Host) -> Outcome {
 }
 
 /// [`outcome`], asking the glyph helper through `squeeze` which letters of
-/// the locale's everyday letters each look's font set covers (ADR-1401 D7),
-/// and through `sources` which fonts each font set lacks (ADR-1204 D7).
+/// the locale's everyday letters each look's font set covers, and through
+/// `sources` which fonts each font set lacks. Each distinct font set is
+/// asked each question once, however many looks name it, and `font-name`
+/// as well, since each question starts or waits on a helper.
+///
+/// References:
+/// - ADR-1401 D7: the note on the letters a look's font set leaves to the
+///   squeeze.
+/// - ADR-1204 D7: check-config names each font a set lacks.
 fn outcome_with(
     loaded: &Loaded,
     host: &Host,
     squeeze: Option<Squeeze<'_>>,
     sources: Option<FontSources<'_>>,
 ) -> Outcome {
+    type Covered = Result<(Vec<u32>, Option<String>), String>;
+    type Asked = Vec<((helper::FritText, Vec<u32>), Covered)>;
+    let covered: RefCell<Asked> = RefCell::default();
+    let cover_once = |frit: &helper::FritText, letters: &[u32]| -> Covered {
+        let key = (frit.clone(), letters.to_vec());
+        if let Some((_, answer)) = covered.borrow().iter().find(|(k, _)| *k == key) {
+            return answer.clone();
+        }
+        let answer = squeeze.map_or_else(|| Err(String::new()), |sq| (sq.ask)(frit, letters));
+        covered.borrow_mut().push((key, answer.clone()));
+        answer
+    };
+    let lacked: RefCell<Vec<(helper::FritText, Result<String, String>)>> = RefCell::default();
+    let sources_once = |frit: &helper::FritText| -> Result<String, String> {
+        if let Some((_, answer)) = lacked.borrow().iter().find(|(k, _)| k == frit) {
+            return answer.clone();
+        }
+        let answer = sources.map_or_else(|| Err(String::new()), |s| (s.ask)(frit));
+        lacked.borrow_mut().push((frit.clone(), answer.clone()));
+        answer
+    };
+    let squeeze = squeeze.map(|sq| Squeeze {
+        locale: sq.locale,
+        ask: &cover_once,
+    });
+    let sources = sources.map(|_| FontSources { ask: &sources_once });
     let (stderr, _) = run(loaded);
     if loaded.config.switch(&keys::HELP) {
         return Outcome {
@@ -546,44 +580,20 @@ fn outcome_with(
 pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
     let env: Vec<_> = std::env::vars_os().collect();
     let locale = crate::app::locale(&env);
+    let helpers = Helpers {
+        launcher: helper::Launcher::configured(&loaded.config).map(|l| l.with_locale(&locale)),
+        clock,
+        started: RefCell::default(),
+    };
     let ask = |frit: &helper::FritText, letters: &[u32]| {
-        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
-        let mut helper = helper::Helper::new(
-            launcher,
-            std::sync::Arc::new(|| {}),
-            clock(),
-            frit.clone(),
-            None,
-            crate::deferred::Shared::default(),
-            0,
-        );
-        // check-config names each missing font itself, so the helper logs
-        // none of the frit's warnings on standard error
-        helper.quiet();
-        let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
-        helper.coverage(letters, wait, clock)
+        helpers.ask(frit, |helper, wait| helper.coverage(letters, wait, clock))
     };
     let squeeze = Squeeze {
         locale: &locale,
         ask: &ask,
     };
-    let ask_sources = |frit: &helper::FritText| {
-        let launcher = helper::Launcher::configured(&loaded.config)?.with_locale(&locale);
-        let mut helper = helper::Helper::new(
-            launcher,
-            std::sync::Arc::new(|| {}),
-            clock(),
-            frit.clone(),
-            None,
-            crate::deferred::Shared::default(),
-            0,
-        );
-        // check-config names each missing font itself, so the helper logs
-        // none of the frit's warnings on standard error
-        helper.quiet();
-        let wait = std::time::Duration::from_millis(helper::REQUEST_MS);
-        helper.sources(wait, clock)
-    };
+    let ask_sources =
+        |frit: &helper::FritText| helpers.ask(frit, |helper, wait| helper.sources(wait, clock));
     let sources = FontSources { ask: &ask_sources };
     let out = outcome_with(
         loaded,
@@ -598,6 +608,49 @@ pub fn main(loaded: &Loaded, clock: &dyn Fn() -> std::time::Instant) -> u8 {
         println!("{line}");
     }
     out.status
+}
+
+/// The glyph helpers `vtium check-config` starts: one for each distinct
+/// font set, started the first time a question names the set and asked
+/// every later question on it, so each start, which loads every font of
+/// the set, happens once. Each helper logs none of the frit's warnings,
+/// since check-config names each missing font itself.
+struct Helpers<'a> {
+    /// What starts each helper, or why none can start.
+    launcher: Result<helper::Launcher, String>,
+    clock: &'a dyn Fn() -> std::time::Instant,
+    started: RefCell<Vec<(helper::FritText, helper::Helper)>>,
+}
+
+impl Helpers<'_> {
+    /// Asks the helper of `frit`, started if it is not yet, the
+    /// `question`, which waits at most `helper::REQUEST_MS` for its answer.
+    fn ask<T>(
+        &self,
+        frit: &helper::FritText,
+        question: impl FnOnce(&mut helper::Helper, std::time::Duration) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let launcher = self.launcher.as_ref().map_err(Clone::clone)?;
+        let mut started = self.started.borrow_mut();
+        if !started.iter().any(|(f, _)| f == frit) {
+            let mut helper = helper::Helper::new(
+                launcher.clone(),
+                std::sync::Arc::new(|| {}),
+                (self.clock)(),
+                frit.clone(),
+                None,
+                crate::deferred::Shared::default(),
+                0,
+            );
+            helper.quiet();
+            started.push((frit.clone(), helper));
+        }
+        let (_, helper) = started
+            .iter_mut()
+            .find(|(f, _)| f == frit)
+            .ok_or_else(|| "the font helper did not start".to_owned())?;
+        question(helper, std::time::Duration::from_millis(helper::REQUEST_MS))
+    }
 }
 
 /// What the check of vtium.conf's sections found.
@@ -3550,6 +3603,52 @@ mod tests {
                 "{named:?}"
             );
         }
+    }
+
+    // Each question to the glyph helper starts or waits on a helper, so
+    // check-config asks it once for each distinct font set, though
+    // font-name and two looks name the same set.
+    #[test]
+    #[expect(clippy::unwrap_used, reason = "a test fails by panicking")]
+    fn each_font_set_is_asked_each_question_once() {
+        let text = "font-name=desk\nversion = 1\n[look big]\nfont-name = desk\n[look small]\nfont-name = desk\n[head a]\nlook = big\n[head b]\nlook = small\n[rules]\ndisplay * -> a\ndisplay * -> b\n";
+        let (_dir, file, _) = heads_fixture("asked-once", text, 0o644);
+        let frits = file.with_file_name("frits");
+        std::fs::create_dir_all(&frits).unwrap();
+        std::fs::write(frits.join("desk.vtfrit"), "source=builtin:unscii-8\n").unwrap();
+        let host = Host {
+            conf_file: file.with_file_name("absent.conf"),
+            udev_control: file.clone(),
+            roots: nowhere(),
+            frits: frits.clone(),
+            frit_trust: font::trust().below(file.parent().unwrap()),
+            systemd_root: PathBuf::from("/nonexistent/vtium/root"),
+        };
+        let (covered, lacked) = (std::cell::Cell::new(0), std::cell::Cell::new(0));
+        let cover = |_: &helper::FritText, _: &[u32]| {
+            covered.set(covered.get() + 1);
+            Ok((Vec::new(), None))
+        };
+        let sources = |_: &helper::FritText| {
+            lacked.set(lacked.get() + 1);
+            Ok(String::new())
+        };
+        let args: Vec<OsString> = [SUBCOMMAND, "--no-devices", file.to_str().unwrap()]
+            .iter()
+            .map(OsString::from)
+            .collect();
+        let out = outcome_with(
+            &config::load(&args, &mut config::read_bytes),
+            &host,
+            Some(Squeeze {
+                locale: "hi_IN.UTF-8",
+                ask: &cover,
+            }),
+            Some(FontSources { ask: &sources }),
+        );
+        let squeezed = out.stdout.iter().filter(|l| l.contains("squeezed")).count();
+        assert_eq!(squeezed, 2, "a note for each look: {:#?}", out.stdout);
+        assert_eq!((covered.get(), lacked.get()), (1, 1));
     }
 
     // heads.md: each file docs/heads holds checks with exit status 0, the
