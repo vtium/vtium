@@ -26,9 +26,11 @@ vtium clips each rectangle to the screen, or in origin mode to the region inside
 
 DECERA and DECSERA erase as ED does, to empty cells in the pen's background color, and DECSERA leaves the cells that DECSCA protects. When a rectangle's edge cuts a wide character, the whole character goes.
 
+DECCARA applies every SGR code, colors included, as SGR applies it to the pen. The VT510 manual and ctlseqs give DECCARA only the codes for bold, underline, blink, inverse, and their resets. See [Behaviour in vtium-term's README](https://github.com/vtium/vtium/blob/main/crates/vtium-term/README.md#behaviour).
+
 ## Status
 
-- **Status:** supported. vtium implements this as the specifications below define it.
+- **Status:** supported. vtium implements this as the specifications below define it, apart from the departure above.
 - **Why:** editors and vttest copy, fill and erase rectangles of the screen.
 - **Specifications:** [xterm's control sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html); [foot-ctlseqs(7)](https://codeberg.org/dnkl/foot/src/branch/master/doc/foot-ctlseqs.7.scd); kitty deccara (DECCARA for every SGR attribute)
 

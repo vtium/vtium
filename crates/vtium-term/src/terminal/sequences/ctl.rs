@@ -472,7 +472,11 @@ pub(super) const ENTRIES: &[Entry] = &[
             "vtium clips each rectangle to the screen, or in origin mode to the region inside all four margins. It ignores a rectangle whose top is below its bottom or whose left is right of its right.",
             "DECERA and DECSERA erase as ED does, to empty cells in the pen's background color, and DECSERA leaves the cells that DECSCA protects. When a rectangle's edge cuts a wide character, the whole character goes.",
         ],
-        departure: None,
+        departure: Some(Departure {
+            says: "DECCARA applies every SGR code, colors included, as SGR applies it to the pen. The VT510 manual and ctlseqs give DECCARA only the codes for bold, underline, blink, inverse, and their resets.",
+            readme: "crates/vtium-term/README.md",
+            section: "Behaviour",
+        }),
         record: TARGET_SET,
     },
     Entry {
