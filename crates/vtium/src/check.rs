@@ -958,8 +958,9 @@ struct Needs {
 /// `sha256=`, are notes, because vtium still uses the font. Each line
 /// names the font set, the font and the version the set asks for, then the
 /// font's page where the set gives `url=`, then the help page on
-/// installing fonts. A source the helper refused, and one that names the
-/// system's font rather than a font of its own, gets no line. When the
+/// installing fonts. A font this machine has and the helper refused to
+/// read is a note that says why. A source that names the system's font
+/// rather than a font of its own gets no line. When the
 /// helper gives no answer, as when it cannot start, stalls or cannot read
 /// the font set, one note says so and why, so the check never passes in
 /// silence. Nothing when the check asks the helper nothing, or when the
@@ -1001,6 +1002,12 @@ fn font_needs(name: &str, file: &Path, settings: &Settings) -> Needs {
         let Some((font, named)) = font_of(spelling) else {
             continue;
         };
+        // a font this machine has and cannot read is no font to install:
+        // a note that says why, with no page
+        if kind == "refused" {
+            out.notes.push(font_needs::refused(name, font, value));
+            continue;
+        }
         let (version, url) = needs_of(&frit.text, line, spelling);
         let version = version.as_deref();
         let (said, missing) = match kind {
@@ -3758,6 +3765,17 @@ mod tests {
             [format!(
                 "Font set desk needs the font /nonexistent/gone.bdf, and there is no file at that path. {page}"
             )]
+        );
+        // a font this machine has and vtium cannot read is a note, with why
+        let refused = check("refused\t1\tfont:Gone Mono\tthe file is not a font");
+        assert_eq!(
+            (refused.status, refused.stderr.clone()),
+            (0, Vec::<String>::new())
+        );
+        assert!(
+            refused.stdout.contains(&"Font set desk: vtium cannot use the font Gone Mono: the file is not a font. It draws that font's characters from the next font that has them.".to_owned()),
+            "{:#?}",
+            refused.stdout
         );
         let older = check("older\t2\tfont:Old Mono\t3.000");
         assert_eq!((older.status, older.stderr), (0, Vec::<String>::new()));
