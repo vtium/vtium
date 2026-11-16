@@ -781,15 +781,14 @@ fn a_cell_under_a_picture_drawn_twice_in_a_frame_draws_each_layer_once() {
         };
         let (layers, pictures) = (drawn(&["under_at", "ink"]), drawn(&["picture"]));
         assert_eq!(at(&g.cells(), 0, 2).len(), 1, "z {z}: one background");
-        // the cell's own background hides a picture below the backgrounds
+        // the cell's own background hides a picture below the backgrounds,
+        // so the cell draws as one with no picture: its one quad of the
+        // cell program draws its text and receives, with no text layer
         let shows = usize::from(z >= -1_073_741_824);
         assert_eq!(at(&pictures, 0, 2).len(), shows, "z {z}: the picture");
-        assert_eq!(at(&layers, 0, 2).len(), 1, "z {z}: one text layer");
-        assert_eq!(
-            flags(&layers, 0, 2) & 1,
-            1,
-            "z {z}: the text layer receives"
-        );
+        assert_eq!(at(&layers, 0, 2).len(), shows, "z {z}: one text layer");
+        let text = if shows == 1 { layers } else { g.cells() };
+        assert_eq!(flags(&text, 0, 2) & 1, 1, "z {z}: the text receives");
     }
 }
 
