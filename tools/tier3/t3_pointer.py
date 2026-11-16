@@ -15,9 +15,17 @@ The position is worked out as vtium works it out (vtium-platform's absolute
 axis, vtium's grid and the renderer's arrow): the mouse's axis scaled to the
 grid's pixels, the grid centred on the display, and the arrow's corner its
 hotspot up and left of the pointer.
+
+The showcase draws the pointer into a scene's picture the same way the
+display shows it. A scene asks for the pointer on a cell (`pointed`), and the
+driver moves it there with QMP (`aim`). It then reads where the cursor plane
+is from the guest's DRM state and the plane's image from QEMU's VNC server,
+and lays the image over the screendump (`compose`).
 """
 
 import re
+
+import t3img
 
 CASE = "pointer-plane"
 
@@ -80,6 +88,77 @@ def corner(at, display, cell):
         p = min(2 * v * grid // DEVICE_MAX, grid - 1)
         out.append((side - grid) // 2 + p - hot)
     return tuple(out)
+
+
+def aim(target, display, cell):
+    """QMP's absolute axis values that put the pointer on the middle pixel
+    of the character cell `target` (column, row from 0) of a `display` (w,
+    h) in `cell` (w, h) cells: corner's scaling run backwards, each value
+    the smallest that reaches the pixel."""
+    out = []
+    for n, side, c in zip(target, display, cell):
+        grid = side // c * c
+        p = n * c + c // 2
+        out.append(-(-p * DEVICE_MAX // (2 * grid)))
+    return tuple(out)
+
+
+# A showcase scene that wants the pointer reports, on the event port, the
+# cell to point at and its cell size (screens/showcase.inc, point_at).
+_POINT = re.compile(r"^T3-POINT (\d+) (\d+) cell=(\d+)x(\d+)$")
+
+
+def pointed(events, name):
+    """((column, row), (cell w, cell h)) that screen `name` asked the
+    pointer onto, from the event port's lines `events` after the screen
+    before it ended and up to its own T3-DONE; None when it asked for
+    none."""
+    seen = None
+    for e in events:
+        if e == "T3-DONE %s" % name:
+            return seen
+        if e.startswith("T3-DONE "):
+            seen = None
+        m = _POINT.match(e)
+        if m:
+            g = [int(v) for v in m.groups()]
+            seen = ((g[0], g[1]), (g[2], g[3]))
+    return None
+
+
+def cursor_plane(state, display):
+    """The cursor plane of `state` while it shows the pointer, as `planes`
+    gives it, its "pos" (w, h, x, y) on the display; None while no plane
+    besides the primary shows a framebuffer, and an error when more than one
+    does."""
+    seen = shown(state, display)
+    if len(seen) > 1:
+        raise RuntimeError("%d planes besides the primary show a framebuffer, not 1: %s"
+                           % (len(seen), [(p["name"], p["pos"]) for p in seen]))
+    return seen[0] if seen else None
+
+
+def compose(img, cursor, at):
+    """`img`, the primary plane's capture, with the cursor plane's image
+    `cursor` over it, its corner at `at` (x, y), as the display shows the
+    two planes. `cursor` is (width, height, pixels), each pixel 4 bytes B,
+    G, R, A of the premultiplied ARGB8888 vtium writes to the cursor plane,
+    so a pixel's color is its own plus what lies under it scaled by 255 less
+    its alpha. The parts of the image off the display are left out."""
+    w, h, pixels = cursor
+    if len(pixels) != w * h * 4:
+        raise ValueError("cursor image does not match %dx%d" % (w, h))
+    data = bytearray(img.data)
+    x0, y0 = at
+    for y in range(max(0, -y0), min(h, img.height - y0)):
+        for x in range(max(0, -x0), min(w, img.width - x0)):
+            b, g, r, a = pixels[(y * w + x) * 4:(y * w + x) * 4 + 4]
+            if a == 0 and not (r or g or b):
+                continue
+            o = ((y0 + y) * img.width + x0 + x) * 3
+            for i, c in enumerate((r, g, b)):
+                data[o + i] = min(255, c + (data[o + i] * (255 - a) + 127) // 255)
+    return t3img.Image(img.width, img.height, bytes(data))
 
 
 def planes(state):

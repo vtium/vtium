@@ -93,6 +93,12 @@
 #                    waits until it is active; answers the PID of vtium
 #                    before, "gone PATH" or "kept PATH" for each path, the
 #                    unit's state, and the new vtium's PID and age
+#   planes           prints the display's DRM atomic state, which the
+#                    kernel keeps in debugfs (/sys/kernel/debug/dri/N/state),
+#                    one line of it a line of the answer, so the showcase
+#                    reads where the cursor plane shows the pointer without
+#                    typing on the console (t3_pointer.py); mounts debugfs
+#                    first if the guest has not
 # Any other request, spelled even one character differently, answers
 # "T3-AGENT N refused REQUEST" and runs nothing. T3_AGENT_PORT names another
 # port, as the harness's self-test does with a pty.
@@ -122,6 +128,8 @@ held=/run/t3-agent/seat.held
 # installs font files for vtium; and the font helper. T3_AGENT_ROOT puts
 # them below another directory, for the self-test.
 bare_root=${T3_AGENT_ROOT:-}
+# The kernel's debugfs, which `planes` reads, below T3_AGENT_ROOT too.
+debugfs=${T3_AGENT_ROOT:-}/sys/kernel/debug
 bare_paths=(/etc/vtium /usr/local/share/tier3-fonts /usr/local/share/fonts/vtium-tier3
             /usr/local/share/fonts/vtium-showcase /usr/bin/vtium-config)
 
@@ -540,6 +548,14 @@ while True:
             touch /tmp/t3-hand-over.done
             chmod 644 /tmp/t3-hand-over.done
             echo "shown $(fgconsole)"
+            ;;
+        planes)
+            [ -d "$debugfs/dri" ] || mount -t debugfs debugfs "$debugfs"
+            state=
+            for f in "$debugfs"/dri/*/state; do
+                [ -r "$f" ] && { state=$f; break; }
+            done
+            if [ -n "$state" ]; then cat "$state"; else echo "no readable $debugfs/dri/*/state"; fi
             ;;
         *) echo "refused $request" ;;
     esac 2>&1 | while IFS= read -r line; do echo "T3-AGENT $n $line"; done

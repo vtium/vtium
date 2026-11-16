@@ -61,7 +61,7 @@ class Qemu:
 
     def __init__(self, workdir, disks, device, log, display="none", net=False,
                  capture="screendump", cpus=CPUS, memory_mb=MEMORY_MB, extra=(), heads=(),
-                 agent=False):
+                 agent=False, cursor=False):
         os.makedirs(workdir, exist_ok=True)
         self.workdir = workdir
         self.log = log
@@ -71,12 +71,14 @@ class Qemu:
         # removes the socket directory, as does a start that fails.
         self.sockets = socket_dir()
         try:
-            self._start(disks, device, display, net, cpus, memory_mb, extra, heads, agent)
+            self._start(disks, device, display, net, cpus, memory_mb, extra, heads, agent,
+                        cursor)
         except BaseException:
             shutil.rmtree(self.sockets, ignore_errors=True)
             raise
 
-    def _start(self, disks, device, display, net, cpus, memory_mb, extra, heads, agent):
+    def _start(self, disks, device, display, net, cpus, memory_mb, extra, heads, agent,
+               cursor):
         workdir, log, capture = self.workdir, self.log, self.capture
         self.sock_path = os.path.join(self.sockets, "qmp.sock")
         self.vnc_path = os.path.join(self.sockets, "vnc.sock")
@@ -117,7 +119,10 @@ class Qemu:
             args += ["-drive", "file=%s,if=virtio,format=%s%s"
                      % (path, fmt, ",readonly=on" if ro else "")]
         args += ["-nic", "user,model=virtio-net-pci"] if net else ["-nic", "none"]
-        if capture == "vnc":
+        # A screendump leaves the cursor plane out, so a variant that shows
+        # the pointer (`cursor`) reads the plane's image over VNC
+        # (VncCursor), beside its screendumps.
+        if capture == "vnc" or cursor:
             args += ["-vnc", "unix:%s" % self.vnc_path]
         for dev, head, _, path in heads:
             args += ["-vnc", "unix:%s,id=vnc-%s-%d,display=%s,head=%d" % (path, dev, head, dev, head)]
@@ -535,6 +540,67 @@ def vnc_capture(path):
         return t3img.Image(w, h, bytes(frame))
     finally:
         s.close()
+
+
+# RFB's Cursor With Alpha pseudo-encoding, by which QEMU's VNC server sends
+# the image of the display's cursor with its alpha channel: the rectangle
+# is the cursor's hotspot and size, followed by the encoding of the pixels
+# and the pixels. QEMU sends them raw, as the 32-bit ARGB words of its
+# cursor in the host's byte order. A client that does not take it gets
+# RFB's rich cursor, whose one-bit mask leaves out every pixel that is not
+# fully opaque, such as the pointer's dark outline.
+ALPHA_CURSOR = -314
+
+
+class VncCursor:
+    """A connection to QEMU's VNC server on the unix socket `path` that
+    takes the alpha cursor pseudo-encoding, so the server sends the image of
+    the display's cursor each time the guest defines one. QEMU sends no image
+    for a cursor defined before the connection, so it is opened before the
+    guest shows the pointer. A context manager, which closes the connection."""
+
+    def __init__(self, path):
+        self.sock, _, _ = _vnc_open(path, [0, ALPHA_CURSOR])
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.sock.close()
+
+    def read(self):
+        """The next cursor image the server sends: (width, height, pixels),
+        the pixels in raw encoding, 4 bytes each, B, G, R, A of the ARGB
+        word on this little-endian host. For virtio-gpu these are the
+        guest's cursor plane's ARGB8888 pixels as the guest wrote them.
+        Raises when none comes within the connection's timeout."""
+        s = self.sock
+        try:
+            while True:
+                kind = _recv_exact(s, 1)[0]
+                if kind == 2:  # bell
+                    continue
+                if kind == 3:  # cut text
+                    _recv_exact(s, 3)
+                    _recv_exact(s, struct.unpack(">I", _recv_exact(s, 4))[0])
+                    continue
+                if kind != 0:
+                    raise RuntimeError("unexpected VNC message %d" % kind)
+                _recv_exact(s, 1)
+                (nrects,) = struct.unpack(">H", _recv_exact(s, 2))
+                for _ in range(nrects):
+                    _, _, rw, rh, enc = struct.unpack(">HHHHi", _recv_exact(s, 12))
+                    if enc == ALPHA_CURSOR:
+                        (inner,) = struct.unpack(">i", _recv_exact(s, 4))
+                        if inner != 0:
+                            raise RuntimeError("the cursor came in encoding %d, not raw"
+                                               % inner)
+                        return rw, rh, _recv_exact(s, rw * rh * 4)
+                    if enc != 0:
+                        raise RuntimeError("unexpected VNC encoding %d" % enc)
+                    _recv_exact(s, rw * rh * 4)
+        except TimeoutError:
+            raise RuntimeError("QEMU's VNC server sent no cursor image") from None
 
 
 def write_ppm(path, img):

@@ -9,13 +9,16 @@
 # The others are a circle with a slash, four arrows for a move, and double
 # arrows for resizing sideways and up and down.
 # alt: A console screen in a smooth monospaced font: a heading, a list of
-# alt: four underlined web addresses, and a line that names the ten pointer
-# alt: shapes vtium draws. The mouse pointer, a white hand with a raised
-# alt: finger and a dark outline, points at the second address.
+# alt: four web addresses, and a line that names the ten pointer shapes
+# alt: vtium draws. The mouse pointer, a white hand with a raised finger and
+# alt: a dark outline, points at the second address, which has a dashed
+# alt: underline while the pointer is over it.
 
-# The capture shows the pointer only when the showcase variant moves the
-# mouse onto the second address and draws the pointer in software: QEMU's
-# screendump leaves the display's cursor plane out.
+# The scene asks for the mouse pointer on the second address (point_at).
+# Once the scene ends, the driver moves the pointer there, and vtium shows it
+# on the display's cursor plane. QEMU's screendump leaves that plane out, so
+# the driver lays the plane's image over the capture where the plane shows it
+# (t3_pointer.py).
 
 # shellcheck source=tools/tier3/guest/screens/showcase.inc
 . "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/showcase.inc"
@@ -31,3 +34,4 @@ printf '\n  %sThe pointer over a link is the hand, which the program sets with O
 printf '  %sShapes vtium draws: default, text, pointer, crosshair, wait, progress,%s\n' "$d" "$o"
 printf '  %snot-allowed, move, ew-resize and ns-resize.%s\n' "$d" "$o"
 printf '%s]22;pointer%s%s' "$esc" "$esc" "\\"
+point_at 24 4
