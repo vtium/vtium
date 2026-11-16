@@ -91,7 +91,7 @@ pub fn keys() -> Vec<KeyRow> {
 pub fn rows_for<'a>(rows: &'a [KeyRow], node: &TreeNode, key: &str) -> Vec<&'a KeyRow> {
     let listed = || {
         rows.iter()
-            .filter(|r| !r.key_line && node.keys.iter().any(|k| *k == r.id))
+            .filter(|r| !r.key_line && node.keys.contains(&r.id))
     };
     let named: Vec<&KeyRow> = listed().filter(|r| r.keys.contains(&key)).collect();
     if named.is_empty() {
