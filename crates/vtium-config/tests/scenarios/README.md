@@ -18,7 +18,11 @@ VTIUM_CONFIG_BLESS=1 cargo test -p vtium-config --test scenarios every_key
 
 After every key, `checks.rs` checks the rules the records set:
 
-- Each key does what ADR-1403's key table, `docs/architecture/platform/ADR-1403-keys.tsv`, says it means in that kind of state. A planned or weighed row is checked in reverse: the check expects what vtium-config does today, so it fails once the work lands while the row still says planned.
+- Each key does what ADR-1403's key table, `docs/architecture/platform/ADR-1403-keys.tsv`, says it means in that kind of state. The check runs in each node of the tree that lists the row, and the walk must reach the row in every such node.
+- A row that `row_checks` in `checks.rs` names has a check of its own, which tests what the row means. A row it does not name gets a check by the kind of key, which proves less. A key that moves must stay in its node and change nothing the person made. A letter typed into a value must stay in the typing, and any other key must not leave the TUI.
+- When rows of one node share a key, each row says which states it applies in, and it counts only there. For example, Enter on a terminal's card sets the line under the cursor today, and each planned list that Enter is to open belongs to one kind of line.
+- The abstract state does not tell a terminal card's lines apart. So after the walk, the test moves down each line of each card it reached, NEW PATH's card included, and presses Enter, Left and Right on it. The map records none of those keys.
+- A planned or weighed row with a check of today is checked in reverse. The check expects what vtium-config does today, so it fails once the work lands while the row still says planned. A planned or weighed row with no check of today only records that the walk reached it.
 - No key leaves the TUI with changes that are not saved, unless the person answered a question that named them.
 - Tab and Shift-Tab change the view exactly when nothing is open over it.
 - Mouse reporting is on exactly while the Flow view is in front, and off once the TUI leaves.

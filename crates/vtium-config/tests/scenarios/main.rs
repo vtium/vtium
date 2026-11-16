@@ -73,6 +73,50 @@ fn unreachable_exits(map: &Map) -> Vec<String> {
         .collect()
 }
 
+/// The keys a terminal's card acts on its line with, which do something
+/// else on each kind of line.
+const CARD_KEYS: [&str; 3] = ["Enter", "Left", "Right"];
+
+/// The lines of each terminal card the walk opens, which its abstract
+/// state does not tell apart: from the TUI that stands for each card, and
+/// from NEW PATH's terminal box opened with Enter, Down to each line in
+/// turn, then each of [`CARD_KEYS`] on it, each
+/// transition checked as the walk's are. The map records none of them, so
+/// it stays one line for each abstract state and key.
+fn card_lines(map: &Map, checks: &mut Checks) {
+    for (abs, (sim, path, start)) in &map.reps {
+        let mut at = sim.clone();
+        let mut keys = path.clone();
+        // NEW PATH's card, which has lines of its own, opens from its box
+        if abs.node() == "flow" && abs.focus == "new terminal" {
+            at.press(press_of("Enter"));
+            keys.push("Enter");
+        } else if abs.node() != "flow.card" {
+            continue;
+        }
+        let lines = Checks::card_line_count(&at);
+        for line in 0..lines {
+            if line > 0 {
+                at.press(press_of("Down"));
+                keys.push("Down");
+            }
+            for key in CARD_KEYS {
+                let mut after = at.clone();
+                let did = after.press(press_of(key));
+                let step = explore::Step {
+                    from: state::of(&at),
+                    key,
+                    to: state::of(&after),
+                    did,
+                    path: keys.clone(),
+                    start: *start,
+                };
+                checks.see(&step, &at, &after);
+            }
+        }
+    }
+}
+
 /// The 0-switch run: every key in every state of every kind of terminal,
 /// each terminal on a thread of its own, with every check after every
 /// key, the map compared with the committed one, and the tables met.
@@ -87,6 +131,7 @@ fn every_key_in_every_state_keeps_the_rules() {
                     let map = explore::explore(term, |step, before, after| {
                         checks.see(step, before, after);
                     });
+                    card_lines(&map, &mut checks);
                     (term, map, checks)
                 })
             })
