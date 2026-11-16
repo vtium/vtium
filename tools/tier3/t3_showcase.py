@@ -757,9 +757,10 @@ def faults(events, name):
     """What showcase screen `name` reported wrong on the event port, after
     the screen before it ended and before it ended itself: a font switch
     vtium did not take (T3-FONT-REFUSED FRIT NAMED, showcase.inc), pictures
-    missing from the disc (T3-NO-PICTURES) and a gallery the gallery tool
-    did not draw (T3-NO-GALLERY, showcase-shell.sh). The scenario fails the
-    case on any of them."""
+    missing from the disc (T3-NO-PICTURES), a gallery the gallery tool did
+    not draw (T3-NO-GALLERY, showcase-shell.sh), and a pointer the scene
+    could not aim (T3-NO-POINT, showcase.inc). The scenario fails the case
+    on any of them."""
     seen = []
     for e in events:
         if e == "T3-DONE %s" % name:
@@ -773,6 +774,9 @@ def faults(events, name):
             seen.append("the showcase's pictures are not on the disc")
         elif e == "T3-NO-GALLERY":
             seen.append("the gallery tool drew no gallery")
+        elif e == "T3-NO-POINT":
+            seen.append("the scene asked for the pointer, and the terminal did not report "
+                        "its cell size, so the pointer was not moved")
     return []
 
 

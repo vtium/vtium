@@ -2588,6 +2588,159 @@ class PointerTest(unittest.TestCase):
                          [{"type": "abs", "data": {"axis": "x", "value": 1}},
                           {"type": "abs", "data": {"axis": "y", "value": 2}}])
 
+    def test_aim_puts_the_pointer_on_the_middle_of_the_cell(self):
+        # aim runs corner's scaling backwards: the pointer lands on the
+        # cell's middle pixel, whose corner is the hotspot up and left of it
+        for display, cell, target in (((1920, 1080), (16, 40), (24, 4)),
+                                      ((1920, 1080), (16, 40), (119, 26)),
+                                      (self.DISPLAY, (8, 16), (0, 0)),
+                                      (self.DISPLAY, (8, 16), (100, 30))):
+            with self.subTest(display=display, cell=cell, target=target):
+                at = t3_pointer.aim(target, display, cell)
+                self.assertTrue(all(0 <= v <= t3_pointer.ABS_MAX for v in at), at)
+                hot = t3_pointer.hotspot(cell[1])
+                off = [(side - side // c * c) // 2 for side, c in zip(display, cell)]
+                want = tuple(o + n * c + c // 2 - hot
+                             for o, n, c in zip(off, target, cell))
+                self.assertEqual(t3_pointer.corner(at, display, cell), want)
+                # each value is the smallest that reaches the pixel
+                self.assertNotEqual(t3_pointer.corner((at[0] - 1, at[1]), display, cell)[0],
+                                    want[0])
+        self.assertEqual(t3_pointer.aim((24, 4), (1920, 1080), (16, 40)), (6691, 5462))
+
+    def test_a_scene_asks_for_the_pointer_on_the_event_port(self):
+        events = ["T3-POINT 1 2 cell=8x16", "T3-DONE showcase-shell",
+                  "T3-RSS showcase-pointer 1", "T3-POINT 24 4 cell=16x40",
+                  "T3-DONE showcase-pointer", "T3-DONE showcase-other",
+                  "T3-POINT 3 x cell=16x40", "T3-DONE showcase-bad"]
+        self.assertEqual(t3_pointer.pointed(events, "showcase-pointer"),
+                         ((24, 4), (16, 40)))
+        self.assertEqual(t3_pointer.pointed(events, "showcase-shell"), ((1, 2), (8, 16)))
+        # a screen that asked for none, a malformed line, a screen not drawn
+        self.assertIsNone(t3_pointer.pointed(events, "showcase-other"))
+        self.assertIsNone(t3_pointer.pointed(events, "showcase-bad"))
+        self.assertIsNone(t3_pointer.pointed(events, "showcase-missing"))
+
+    def test_the_cursor_plane_is_the_one_plane_besides_the_primary(self):
+        plane = t3_pointer.cursor_plane(self.STATE, self.DISPLAY)
+        self.assertEqual((plane["name"], plane["fb"], plane["pos"]),
+                         ("plane-1", 41, (64, 64, 342, -1)))
+        self.assertIsNone(t3_pointer.cursor_plane(self.HIDDEN, self.DISPLAY))
+        self.assertIsNone(t3_pointer.cursor_plane("no readable state", self.DISPLAY))
+        two = self.STATE + "plane[38]: plane-2\n\tcrtc=crtc-0\n\tfb=42\n\tcrtc-pos=8x8+0+0\n"
+        with self.assertRaisesRegex(RuntimeError, "2 planes besides the primary"):
+            t3_pointer.cursor_plane(two, self.DISPLAY)
+
+    def test_compose_lays_the_premultiplied_cursor_over_the_capture(self):
+        # a 4x3 capture of gray 100, and a 2x2 cursor: opaque white, the
+        # outline's black at 220, half-covered white, and transparent
+        img = t3img.Image(4, 3, bytes([100]) * 36)
+        px = [(255, 255, 255, 255), (0, 0, 0, 220), (128, 128, 128, 128), (0, 0, 0, 0)]
+        cursor = (2, 2, b"".join(bytes(p) for p in px))
+        out = t3_pointer.compose(img, cursor, (1, 1))
+
+        def at(x, y):
+            return tuple(out.data[(y * 4 + x) * 3:(y * 4 + x) * 3 + 3])
+        self.assertEqual(at(1, 1), (255, 255, 255))
+        # 0 + 100 * 35 / 255, rounded
+        self.assertEqual(at(2, 1), (14, 14, 14))
+        # 128 + 100 * 127 / 255, rounded
+        self.assertEqual(at(1, 2), (178, 178, 178))
+        self.assertEqual(at(2, 2), (100, 100, 100))
+        self.assertEqual(at(0, 0), (100, 100, 100))
+        # B, G, R, A: the blue byte comes first
+        blue = t3_pointer.compose(img, (1, 1, bytes((255, 0, 0, 255))), (0, 0))
+        self.assertEqual(tuple(blue.data[:3]), (0, 0, 255))
+        # the parts off the display are left out, on every side
+        out = t3_pointer.compose(img, cursor, (-1, -1))
+        self.assertEqual(tuple(out.data[:3]), (100, 100, 100))
+        self.assertEqual(out.data[3:], img.data[3:])
+        out = t3_pointer.compose(img, cursor, (3, 2))
+        self.assertEqual(tuple(out.data[-3:]), (255, 255, 255))
+        self.assertEqual(out.data[:-3], img.data[:-3])
+        with self.assertRaises(ValueError):
+            t3_pointer.compose(img, (2, 2, bytes(12)), (0, 0))
+
+    def test_the_cursor_image_comes_over_vnc_with_its_alpha(self):
+        # A VNC server that sends a framebuffer rectangle, then the cursor
+        # with alpha (RFB's -314), raw; the client asked for both encodings.
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "vnc.sock")
+            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            srv.bind(path)
+            srv.listen(1)
+            got = {}
+            pixels = bytes(range(2 * 3 * 4))
+
+            def recv(c, n):
+                buf = b""
+                while len(buf) < n:
+                    buf += c.recv(n - len(buf))
+                return buf
+
+            def serve(update):
+                c, _ = srv.accept()
+                with c:
+                    c.sendall(b"RFB 003.008\n")
+                    recv(c, 12)
+                    c.sendall(b"\x01\x01")
+                    recv(c, 1)
+                    c.sendall(struct.pack(">I", 0))
+                    recv(c, 1)
+                    c.sendall(struct.pack(">HH", 640, 480) + bytes(16)
+                              + struct.pack(">I", 1) + b"q")
+                    recv(c, 20)
+                    _, n = struct.unpack(">BxH", recv(c, 4))
+                    got["encodings"] = list(struct.unpack(">%di" % n, recv(c, 4 * n)))
+                    c.sendall(update)
+                    c.recv(1)  # until the client closes
+
+            update = (b"\x02" + b"\x00\x00" + struct.pack(">H", 2)
+                      + struct.pack(">HHHHi", 0, 0, 1, 1, 0) + bytes(4)
+                      + struct.pack(">HHHHi", 12, 2, 2, 3, -314) + struct.pack(">i", 0)
+                      + pixels)
+            t = threading.Thread(target=serve, args=(update,))
+            t.start()
+            with t3_qemu.VncCursor(path) as vnc:
+                self.assertEqual(vnc.read(), (2, 3, pixels))
+            t.join()
+            self.assertEqual(got["encodings"], [0, -314])
+            # a server that sends no cursor: the read gives up
+            t = threading.Thread(target=serve, args=(b"",))
+            t.start()
+            with t3_qemu.VncCursor(path) as vnc:
+                vnc.sock.settimeout(0.2)
+                with self.assertRaisesRegex(RuntimeError, "sent no cursor image"):
+                    vnc.read()
+            t.join()
+            srv.close()
+
+    def test_the_showcase_reads_the_pointer(self):
+        # the showcase runs the agent, which reads the cursor plane, and a
+        # VNC server beside its screendumps, which gives the plane's image
+        v = t3_scenario.VARIANTS["showcase-1920x1080"]
+        self.assertTrue(v["agent"])
+        self.assertTrue(v["cursor"])
+        self.assertEqual(v.get("capture", "screendump"), "screendump")
+        self.assertEqual(t3_scenario.display_size("showcase-1920x1080"), (1920, 1080))
+
+        class Started(Exception):
+            pass
+
+        def popen(args, **kwargs):
+            raise Started(args)
+
+        with mock.patch.object(t3_qemu.subprocess, "Popen", popen), \
+                tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(Started) as cm:
+                t3_qemu.Qemu(d, [], "virtio-vga", lambda msg: None, cursor=True)
+            args = cm.exception.args[0]
+            self.assertEqual(args.count("-vnc"), 1)
+            self.assertTrue(args[args.index("-vnc") + 1].endswith("/vnc.sock"))
+        # the pointer scene asks for the pointer on its second address
+        with open(os.path.join(t3_common.GUEST, "screens", "showcase-pointer.sh")) as f:
+            self.assertRegex(f.read(), r"(?m)^point_at 24 4$")
+
     def test_only_the_pointer_variant_has_the_case(self):
         for name in t3_scenario.VARIANTS:
             with self.subTest(name):
@@ -3962,6 +4115,24 @@ class HeadsTest(unittest.TestCase):
                     if l.startswith("T3-AGENT %d " % n)]
         return ask
 
+    def test_the_agent_prints_the_drm_state(self):
+        # planes prints the kernel's DRM state from debugfs, each line kept
+        # with its indent, below T3_AGENT_ROOT as in the guest; a guest with
+        # no state file says so
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        dri = os.path.join(d.name, "sys", "kernel", "debug", "dri")
+        os.makedirs(os.path.join(dri, "0"))
+        state = "plane[31]: plane-0\n\tcrtc=crtc-0\n\tfb=40\n\t\tsize=64x64\n"
+        with open(os.path.join(dri, "0", "state"), "w") as f:
+            f.write(state)
+        ask = self.start_agent(d.name, {"T3_AGENT_ROOT": d.name})
+        self.assertEqual(ask(1, "planes"),
+                         ["plane[31]: plane-0", "\tcrtc=crtc-0", "\tfb=40", "\t\tsize=64x64"])
+        os.unlink(os.path.join(dri, "0", "state"))
+        self.assertEqual(ask(2, "planes"),
+                         ["no readable %s/*/state" % dri])
+
     def test_the_agent_refuses_every_other_request(self):
         # The agent on a pty in place of ttyS2: each request it does not
         # know, spelled even one character differently, is refused and runs
@@ -3979,7 +4150,8 @@ class HeadsTest(unittest.TestCase):
                     "seat-hold 8", "seat-hold;id", "Seat-hold", "seat-release",
                     "chvt", "chvt 3", "chvt 12", "Chvt 1", "chvt 1;id", "chvt 2 now",
                     "chvt 1 && touch pwned-chvt", "chvt $(touch %s/pwned-chvt)" % d.name,
-                    "bare now", "Bare", "bare;id", "bare && touch pwned-bare"]
+                    "bare now", "Bare", "bare;id", "bare && touch pwned-bare",
+                    "planes now", "Planes", "planes;id", "planes && touch pwned-planes"]
         for n, request in enumerate(requests, 1):
             with self.subTest(request):
                 self.assertEqual(ask(n, request), ["refused %s" % request.strip()])
@@ -6500,7 +6672,8 @@ class ShowcaseTest(unittest.TestCase):
                   "T3-BAND showcase-terminus rows=8 cell=16x32",
                   "T3-DONE showcase-fonts-terminus", "T3-FONT-REFUSED showcase-unifont",
                   "T3-NO-PICTURES", "T3-DONE showcase-fonts-unifont",
-                  "T3-DONE showcase-fonts-jetbrains"]
+                  "T3-DONE showcase-fonts-jetbrains", "T3-NO-POINT",
+                  "T3-DONE showcase-pointer"]
         self.assertEqual(t3_showcase.faults(events, "showcase-shell"),
                          ["the gallery tool drew no gallery"])
         self.assertEqual(t3_showcase.faults(events, "showcase-fonts-terminus"),
@@ -6511,6 +6684,9 @@ class ShowcaseTest(unittest.TestCase):
                           "none", "the showcase's pictures are not on the disc"])
         self.assertEqual(t3_showcase.faults(events, "showcase-fonts-jetbrains"), [])
         self.assertEqual(t3_showcase.faults(events, "showcase-text"), [])
+        self.assertEqual(t3_showcase.faults(events, "showcase-pointer"),
+                         ["the scene asked for the pointer, and the terminal did not report "
+                          "its cell size, so the pointer was not moved"])
         with open(os.path.join(t3_common.HERE, "t3_scenario.py")) as f:
             self.assertIn("why = t3_showcase.faults(events, name)", f.read())
 

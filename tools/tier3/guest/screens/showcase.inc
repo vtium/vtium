@@ -51,3 +51,21 @@ switch_font() {
 	# shellcheck disable=SC2034
 	read -r rows cols < <(stty size </dev/tty)
 }
+
+# Asks the driver to put the mouse pointer on the middle of the character
+# cell at column $1 and row $2, counted from 0. Once the scene ends, the
+# driver moves the pointer there with QMP and lays the pointer, as the
+# display's cursor plane shows it, over the scene's capture (t3_pointer.py).
+# The driver aims by the cell's size, which the terminal reports (CSI 16 t).
+# Under tier 3 a scene whose cell size does not come reports T3-NO-POINT,
+# and its case fails.
+point_at() {
+	local cell
+	[ -n "${T3_EVENTS:-}" ] || return 0
+	cell=$(ask "${esc}[16t" t)
+	if [[ $cell =~ \[6\;([0-9]+)\;([0-9]+)$ ]]; then
+		echo "T3-POINT $1 $2 cell=${BASH_REMATCH[2]}x${BASH_REMATCH[1]}" >"$T3_EVENTS"
+	else
+		echo "T3-NO-POINT" >"$T3_EVENTS"
+	fi
+}
