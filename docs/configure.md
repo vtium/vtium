@@ -382,6 +382,33 @@ A draft that was made before such an edit shows `made before the installed file 
 # vtium blank --vt 3
 ```
 
+## Keep your own cursor style
+
+A session starts with the cursor that vtium.conf sets: a block, which blinks while `blink` is on. A program can change the cursor's style, and many programs reset it when they exit. Programs such as vim send terminfo's `Se` capability as they exit, and vtium's terminfo entry makes `Se` a steady block. So after you quit vim, the cursor stays a steady block until something sets it again.
+
+To keep a style of your own, have your shell send it each time it shows a prompt. The sequence is `ESC [ N SP q`. N picks the style: 0 or 1 a blinking block, 2 a steady block, 3 a blinking underline, 4 a steady underline, 5 a blinking bar, 6 a steady bar. With `blink` off, no style blinks.
+
+For bash, this line in `~/.bashrc` asks for a blinking bar at each prompt:
+
+```sh
+PROMPT_COMMAND="printf '\e[5 q'; $PROMPT_COMMAND"
+```
+
+For zsh, these lines go in `~/.zshrc`:
+
+```zsh
+cursor_bar() { printf '\e[5 q' }
+precmd_functions+=(cursor_bar)
+```
+
+For fish, these lines go in `~/.config/fish/config.fish`:
+
+```fish
+function cursor_bar --on-event fish_prompt
+    printf '\e[5 q'
+end
+```
+
 ## Remove the login picture when you log in
 
 A picture that `login-image` names stays on the screen after you log in, until it scrolls away or a screen clear removes it. To remove it as soon as you log in, add one line to the startup file that your login shell reads.
