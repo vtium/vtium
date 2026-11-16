@@ -81,6 +81,142 @@ vtium  too-small +unsaved	q	vtium  question:quit +unsaved
 vtium  too-small +unsaved +pending	Ctrl-C	vtium left	save, exit 130
 vtium  too-small +unsaved +pending	Grow	vtium fonts(marked) view:fonts +unsaved +pending	
 vtium  too-small +unsaved +pending	q	vtium  question:leave +unsaved +pending	
+vtium  trial	Backspace	vtium  too-small	switch
+vtium  trial	Ctrl-C	vtium left	switch, exit 130
+vtium  trial	Ctrl-D	vtium  too-small	switch
+vtium  trial	Down	vtium  too-small	switch
+vtium  trial	End	vtium  too-small	switch
+vtium  trial	Enter	vtium  too-small	switch
+vtium  trial	Esc	vtium  too-small	switch
+vtium  trial	Grow	vtium fonts trial	
+vtium  trial	Home	vtium  too-small	switch
+vtium  trial	Left	vtium  too-small	switch
+vtium  trial	PgDn	vtium  too-small	switch
+vtium  trial	Right	vtium  too-small	switch
+vtium  trial	Shift-Tab	vtium  too-small	switch
+vtium  trial	Space	vtium  too-small	switch
+vtium  trial	Tab	vtium  too-small	switch
+vtium  trial	Up	vtium  too-small	switch
+vtium  trial	a	vtium  too-small	switch
+vtium  trial	d	vtium  too-small	switch
+vtium  trial	e	vtium  too-small	switch
+vtium  trial	i	vtium  too-small	switch
+vtium  trial	k	vtium  too-small	
+vtium  trial	l	vtium  too-small	switch
+vtium  trial	n	vtium  too-small	switch
+vtium  trial	o	vtium  too-small	switch
+vtium  trial	p	vtium  too-small	switch
+vtium  trial	q	vtium  too-small	switch
+vtium  trial	r	vtium  too-small	switch
+vtium  trial	s	vtium  too-small	switch
+vtium  trial	t	vtium  too-small	switch
+vtium  trial	u	vtium  too-small	switch
+vtium  trial	v	vtium  too-small	switch
+vtium  trial	x	vtium  too-small	switch
+vtium  trial	y	vtium  too-small	switch
+vtium  trial	z	vtium  too-small	switch
+vtium  trial +pending	Backspace	vtium  too-small +pending	switch
+vtium  trial +pending	Ctrl-C	vtium left	switch, exit 130
+vtium  trial +pending	Ctrl-D	vtium  too-small +pending	switch
+vtium  trial +pending	Down	vtium  too-small +pending	switch
+vtium  trial +pending	End	vtium  too-small +pending	switch
+vtium  trial +pending	Enter	vtium  too-small +pending	switch
+vtium  trial +pending	Esc	vtium  too-small +pending	switch
+vtium  trial +pending	Grow	vtium fonts trial +pending	
+vtium  trial +pending	Home	vtium  too-small +pending	switch
+vtium  trial +pending	Left	vtium  too-small +pending	switch
+vtium  trial +pending	PgDn	vtium  too-small +pending	switch
+vtium  trial +pending	Right	vtium  too-small +pending	switch
+vtium  trial +pending	Shift-Tab	vtium  too-small +pending	switch
+vtium  trial +pending	Space	vtium  too-small +pending	switch
+vtium  trial +pending	Tab	vtium  too-small +pending	switch
+vtium  trial +pending	Up	vtium  too-small +pending	switch
+vtium  trial +pending	a	vtium  too-small +pending	switch
+vtium  trial +pending	d	vtium  too-small +pending	switch
+vtium  trial +pending	e	vtium  too-small +pending	switch
+vtium  trial +pending	i	vtium  too-small +pending	switch
+vtium  trial +pending	k	vtium  too-small +pending	
+vtium  trial +pending	l	vtium  too-small +pending	switch
+vtium  trial +pending	n	vtium  too-small +pending	switch
+vtium  trial +pending	o	vtium  too-small +pending	switch
+vtium  trial +pending	p	vtium  too-small +pending	switch
+vtium  trial +pending	q	vtium  too-small +pending	switch
+vtium  trial +pending	r	vtium  too-small +pending	switch
+vtium  trial +pending	s	vtium  too-small +pending	switch
+vtium  trial +pending	t	vtium  too-small +pending	switch
+vtium  trial +pending	u	vtium  too-small +pending	switch
+vtium  trial +pending	v	vtium  too-small +pending	switch
+vtium  trial +pending	x	vtium  too-small +pending	switch
+vtium  trial +pending	y	vtium  too-small +pending	switch
+vtium  trial +pending	z	vtium  too-small +pending	switch
+vtium  trial +unsaved	Backspace	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Ctrl-C	vtium left	save, switch, exit 130
+vtium  trial +unsaved	Ctrl-D	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Down	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	End	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Enter	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Esc	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Grow	vtium fonts trial +unsaved	
+vtium  trial +unsaved	Home	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Left	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	PgDn	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Right	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Shift-Tab	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Space	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Tab	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	Up	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	a	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	d	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	e	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	i	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	k	vtium  too-small +unsaved	
+vtium  trial +unsaved	l	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	n	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	o	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	p	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	q	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	r	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	s	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	t	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	u	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	v	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	x	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	y	vtium  too-small +unsaved	switch
+vtium  trial +unsaved	z	vtium  too-small +unsaved	switch
+vtium  trial +unsaved +pending	Backspace	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Ctrl-C	vtium left	save, switch, exit 130
+vtium  trial +unsaved +pending	Ctrl-D	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Down	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	End	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Enter	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Esc	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Grow	vtium fonts trial +unsaved +pending	
+vtium  trial +unsaved +pending	Home	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Left	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	PgDn	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Right	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Shift-Tab	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Space	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Tab	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	Up	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	a	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	d	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	e	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	i	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	k	vtium  too-small +unsaved +pending	
+vtium  trial +unsaved +pending	l	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	n	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	o	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	p	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	q	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	r	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	s	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	t	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	u	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	v	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	x	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	y	vtium  too-small +unsaved +pending	switch
+vtium  trial +unsaved +pending	z	vtium  too-small +unsaved +pending	switch
 vtium flow layer:file-view	Ctrl-C	vtium left	mouse off, exit 130
 vtium flow layer:file-view	Esc	vtium flow(doc display) view:flow	
 vtium flow layer:file-view	Shrink	vtium  too-small	
@@ -1061,7 +1197,7 @@ vtium fonts trial	Left	vtium fonts(frit) view:fonts	switch
 vtium fonts trial	PgDn	vtium fonts(frit) view:fonts	switch
 vtium fonts trial	Right	vtium fonts(frit) view:fonts	switch
 vtium fonts trial	Shift-Tab	vtium fonts(frit) view:fonts	switch
-vtium fonts trial	Shrink	vtium  too-small	
+vtium fonts trial	Shrink	vtium  trial	
 vtium fonts trial	Space	vtium fonts(frit) view:fonts	switch
 vtium fonts trial	Tab	vtium fonts(frit) view:fonts	switch
 vtium fonts trial	Up	vtium fonts(frit) view:fonts	switch
@@ -1095,7 +1231,7 @@ vtium fonts trial +pending	Left	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	PgDn	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	Right	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	Shift-Tab	vtium fonts(marked) view:fonts +pending	switch
-vtium fonts trial +pending	Shrink	vtium  too-small +pending	
+vtium fonts trial +pending	Shrink	vtium  trial +pending	
 vtium fonts trial +pending	Space	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	Tab	vtium fonts(marked) view:fonts +pending	switch
 vtium fonts trial +pending	Up	vtium fonts(marked) view:fonts +pending	switch
@@ -1129,7 +1265,7 @@ vtium fonts trial +unsaved	Left	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	PgDn	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	Right	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	Shift-Tab	vtium fonts(frit) view:fonts +unsaved	switch
-vtium fonts trial +unsaved	Shrink	vtium  too-small +unsaved	
+vtium fonts trial +unsaved	Shrink	vtium  trial +unsaved	
 vtium fonts trial +unsaved	Space	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	Tab	vtium fonts(frit) view:fonts +unsaved	switch
 vtium fonts trial +unsaved	Up	vtium fonts(frit) view:fonts +unsaved	switch
@@ -1163,7 +1299,7 @@ vtium fonts trial +unsaved +pending	Left	vtium fonts(marked) view:fonts +unsaved
 vtium fonts trial +unsaved +pending	PgDn	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	Right	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	Shift-Tab	vtium fonts(marked) view:fonts +unsaved +pending	switch
-vtium fonts trial +unsaved +pending	Shrink	vtium  too-small +unsaved +pending	
+vtium fonts trial +unsaved +pending	Shrink	vtium  trial +unsaved +pending	
 vtium fonts trial +unsaved +pending	Space	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	Tab	vtium fonts(marked) view:fonts +unsaved +pending	switch
 vtium fonts trial +unsaved +pending	Up	vtium fonts(marked) view:fonts +unsaved +pending	switch
