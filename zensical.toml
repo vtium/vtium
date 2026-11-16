@@ -78,6 +78,11 @@ nav = [
       { "Architecture" = "architecture.md" },
       { "The VT review" = "vt-review.md" },
       { "The Linux console's unverified rows" = "vt-review-linux.md" },
+      { "The crates' interfaces" = [
+          "api/index.md",
+          { "Getting started" = "api/getting-started.md" },
+          { "Conventions" = "api/conventions.md" },
+      ] },
       { "AGENTS.md" = "https://github.com/vtium/vtium/blob/main/AGENTS.md" },
       { "CONTRIBUTING.md" = "https://github.com/vtium/vtium/blob/main/CONTRIBUTING.md" },
       { "The crates" = "https://github.com/vtium/vtium/tree/main/crates" },
@@ -88,14 +93,7 @@ nav = [
 # for agents that work under docs/ (AGENTS.md and CLAUDE.md), the tables (a
 # page links a TSV by its GitHub address), and the notes on how each figure
 # is made. The patterns are read as a .gitignore's are.
-#
-# The pages under api/ link each crate's reference, which rustdoc builds
-# under /api/. The docs workflow does not build that reference yet, so the
-# site leaves the pages out until it does. The site work adds make site-api
-# to the docs workflow, gives the index a place in the menu under "For
-# contributors", and lists the other two pages in not_in_nav.
 exclude_docs = """
-/api/
 /scripts/
 /AGENTS.md
 /CLAUDE.md
