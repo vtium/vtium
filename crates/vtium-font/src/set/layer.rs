@@ -76,8 +76,15 @@ impl fmt::Display for Role {
 }
 
 /// The keys that describe the `source=` line above them, which a layer
-/// holds besides its sources.
-pub const SOURCE_KEYS: [&str; 5] = ["cover", "fit", "render", "style", "strike"];
+/// holds besides its sources: how the source draws, and which font it
+/// needs.
+///
+/// References:
+/// - ADR-1204 D7: `version=`, `check=`, `sha256=` and `url=` follow a
+///   source in a set or in a layer.
+pub const SOURCE_KEYS: [&str; 9] = [
+    "cover", "fit", "render", "style", "strike", "version", "check", "sha256", "url",
+];
 
 /// The keys that describe a frit's own `source=` line and that a layer's
 /// source does not take: a console font's Unicode table, a CPI font's
@@ -208,7 +215,7 @@ pub fn parse(text: &str) -> Result<Layer, LayerError> {
                 return Err(err(
                     n,
                     format!(
-                        "a layer's source does not take {k}=. It takes cover=, fit=, render=, style= and strike="
+                        "a layer's source does not take {k}=. It takes cover=, fit=, render=, style=, strike=, version=, check=, sha256= and url="
                     ),
                 ));
             }
@@ -730,9 +737,9 @@ mod tests {
                 "a layer cannot add another layer",
             ),
             (
-                "role=emoji\nsource=font:A\nversion=2.0\n",
-                3,
-                "unknown key version",
+                "role=emoji\nversion=2.0\nsource=font:A\n",
+                2,
+                "version= comes before any source= line",
             ),
             (
                 "role=emoji\nfit=natural\n",
@@ -750,13 +757,14 @@ mod tests {
             assert_eq!(
                 e.why,
                 format!(
-                    "a layer's source does not take {key}=. It takes cover=, fit=, render=, style= and strike="
+                    "a layer's source does not take {key}=. It takes cover=, fit=, render=, style=, strike=, version=, check=, sha256= and url="
                 )
             );
         }
-        for key in ["check", "sha256", "url"] {
-            let e = refused(&format!("role=symbols\nsource=font:A\n{key}=x\n"));
-            assert_eq!(e.why, format!("unknown key {key}"));
+        // the keys that say which font a source needs follow a layer's
+        // source as a set's, and the frit reader checks their values
+        for key in ["version", "check", "sha256", "url"] {
+            assert!(parse(&format!("role=symbols\nsource=font:A\n{key}=x\n")).is_ok());
         }
         assert_eq!(refused("# nothing\n").why, "the layer has no role= line");
         assert_eq!(

@@ -2002,8 +2002,8 @@ mod tests {
             ),
             ("source=font:S\n", "line 1: a layer starts with role="),
             (
-                "role=symbols\nsource=font:S\nversion=1.0\n",
-                "line 3: unknown key version",
+                "role=symbols\nsource=font:S\npackage=x\n",
+                "line 3: unknown key package",
             ),
         ] {
             std::fs::write(&bad, text).expect("the layer");
@@ -2308,6 +2308,45 @@ mod tests {
                 )
             );
         }
+    }
+
+    // A layer's source says which font it needs as a set's own source
+    // does, and a bad value there names the layer's file and line.
+    //
+    // References:
+    // - ADR-1204 D7: the four keys follow a source in a set or in a layer.
+    #[test]
+    fn a_layers_source_says_which_font_it_needs() {
+        let dir = crate::scratch::Scratch::new("frit-layer-needs");
+        let layers = dir.join("layers");
+        std::fs::create_dir_all(&layers).expect("the layers' folder");
+        let set = dir.join("set.vtfrit");
+        std::fs::write(&set, "source=font:Text\nlayer=nerd\n").expect("the frit");
+        std::fs::write(
+            layers.join("nerd.vtlayer"),
+            "role=symbols\nsource=font:Symbols Nerd Font Mono\nversion=3.4.0\ncheck=U+E0B0\nurl=https://example.org/nerd\n",
+        )
+        .expect("a layer");
+        let frit = Frit::load(&set).expect("the frit");
+        let needs = &frit.sources[1].needs;
+        assert_eq!(frit.sources[1].layer.as_deref(), Some("nerd"));
+        assert_eq!(needs.version, Version::parse("3.4.0"));
+        assert_eq!(needs.check, [(0xe0b0, 0xe0b0)]);
+        assert_eq!(needs.url.as_deref(), Some("https://example.org/nerd"));
+        std::fs::write(
+            layers.join("nerd.vtlayer"),
+            "role=symbols\nsource=font:Symbols Nerd Font Mono\nsha256=00\n",
+        )
+        .expect("a layer");
+        let e = Frit::load(&set).expect_err("refused");
+        assert_eq!(e.file, layers.join("nerd.vtlayer"));
+        assert_eq!(e.line, 3);
+        assert!(
+            e.why
+                .starts_with("sha256= is for a source named by its path"),
+            "{}",
+            e.why
+        );
     }
 
     // A version compares number by number, a missing number counting as
