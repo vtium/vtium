@@ -1181,6 +1181,16 @@ pub mod fonts {
         )
     }
 
+    /// `vtium check-config`'s line on the font set `set` when the font
+    /// helper gives no answer on its fonts, with the reason `why`, so the
+    /// check never passes in silence on fonts it could not ask about.
+    pub fn not_checked(set: &str, why: &str) -> String {
+        let why = why.trim().trim_end_matches('.');
+        format!(
+            "Font set {set}: vtium cannot check whether the fonts it needs are installed: {why}."
+        )
+    }
+
     /// The font's upstream page, `url`, after a report on the font.
     pub fn page(url: &str) -> String {
         format!("You can get the font from {url}.")

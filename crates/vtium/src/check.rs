@@ -940,8 +940,11 @@ fn look_frits(out: &mut HeadCheck, path: &Path, parsed: &Parsed, settings: &Sett
 /// set asks for, then the font's page where the set gives `url=`, then the
 /// help page on installing fonts. A source the helper refused, and one
 /// that names the system's font rather than a font of its own, gets no
-/// note. None when the check asks the helper nothing, or the helper
-/// cannot answer.
+/// note. When the helper gives no answer, as when it cannot start, stalls
+/// or cannot read the font set, one note says so and why, so the check
+/// never passes in silence. None when the check asks the helper nothing,
+/// or when the font set's file is refused, which the check reports on its
+/// own.
 ///
 /// References:
 /// - ADR-1204 D7: `vtium check-config` names each missing font with its
@@ -955,8 +958,9 @@ fn font_needs_notes(name: &str, file: &Path, settings: &Settings) -> Vec<String>
     let Ok((frit, _)) = helper::FritText::read_noting(file, settings.frits, &settings.trust) else {
         return Vec::new();
     };
-    let Ok(answer) = (ask.ask)(&frit) else {
-        return Vec::new();
+    let answer = match (ask.ask)(&frit) {
+        Ok(answer) => answer,
+        Err(why) => return vec![font_needs::not_checked(name, &why)],
     };
     let lines: Vec<[&str; 4]> = answer
         .lines()
@@ -2384,7 +2388,7 @@ mod tests {
     // the font's page and the help page on installing fonts, as the glyph
     // helper answers. The notes do not count against the file, because
     // the set still draws. A source that names the system's font gets no
-    // note, and a helper that cannot answer gives none.
+    // note, and a helper that cannot answer gives one line that says so.
     //
     // References:
     // - ADR-1204 D7: check-config names each missing font as vtium config
@@ -2450,9 +2454,22 @@ mod tests {
         assert_eq!(noted, want.iter().collect::<Vec<_>>(), "{:#?}", out.notes);
         let none = check(None);
         assert!(!none.notes.iter().any(|n| n.contains("Font set desk")));
+        // a helper that gives no answer is said, so the check never passes
+        // in silence on fonts it could not ask about
         let failing = |_: &helper::FritText| Err("the helper did not start".to_owned());
         let failed = check(Some(FontSources { ask: &failing }));
-        assert!(!failed.notes.iter().any(|n| n.contains("Font set desk")));
+        let named: Vec<&String> = failed
+            .notes
+            .iter()
+            .chain(&failed.counted)
+            .filter(|n| n.contains("Font set desk"))
+            .collect();
+        assert_eq!(
+            named,
+            [&format!(
+                "{f}:3: Font set desk: vtium cannot check whether the fonts it needs are installed: the helper did not start."
+            )]
+        );
     }
 
     /// The glyph helper's answer to a sources query for `frit`:
