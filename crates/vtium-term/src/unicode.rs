@@ -130,6 +130,14 @@ impl Props {
         self.0 & data::PICT != 0
     }
 
+    /// Whether the codepoint takes part in no segmentation rule of its
+    /// own: Grapheme_Cluster_Break Other, not Extended_Pictographic, and
+    /// Indic_Conjunct_Break None. Most letters, digits and punctuation are
+    /// such codepoints.
+    fn plain(self) -> bool {
+        self.0 & (data::GCB | data::PICT | data::INCB) == 0
+    }
+
     fn incb(self) -> InCb {
         match self.0 & data::INCB {
             data::INCB_LINKER => InCb::Linker,
@@ -267,6 +275,13 @@ impl Segmenter {
         };
 
         let p = Props::of(c);
+        if p.plain() {
+            // Only GB9b joins a plain codepoint to the cluster before it,
+            // and after it the state is that of a cluster it starts.
+            let joins = self.last == Gcb::Prepend;
+            *self = Self::default();
+            return joins;
+        }
         let next = p.gcb();
         let joins = match (self.last, next) {
             (Cr, Lf) => true,                                         // GB3
@@ -291,6 +306,11 @@ impl Segmenter {
 
     /// Moves the state past a codepoint of the cluster.
     fn advance(&mut self, p: Props) {
+        if p.plain() {
+            // a plain codepoint ends every rule a later codepoint reads
+            *self = Self::default();
+            return;
+        }
         let gcb = p.gcb();
         self.pict = match (self.pict, gcb) {
             _ if p.pict() => Pict::Extending,
