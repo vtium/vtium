@@ -1038,8 +1038,17 @@ fn check(entry: &Entry, name: &str, cap: &Cap) {
                 t.input(&s(&[N(4)]));
                 assert_eq!(t.cursor_style(), CursorStyle::UnderlineSteady);
             } else {
+                // Se resets the cursor: vtium's entry to a steady block,
+                // `CSI 2 SP q`, as xterm's entry does; kmscon's published
+                // entry to `CSI 0 SP q`, which DECSCUSR makes a blinking
+                // block.
                 t.input(&s(&[]));
-                assert_eq!(t.cursor_style(), CursorStyle::Default);
+                let reset = if entry.term == super::KMSCON {
+                    CursorStyle::BlockBlink
+                } else {
+                    CursorStyle::BlockSteady
+                };
+                assert_eq!(t.cursor_style(), reset, "{}: Se", entry.term);
             }
         }
         ("Cs", _) => {

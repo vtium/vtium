@@ -186,19 +186,20 @@ fn xtpushcolors_and_xtpopcolors_restore_the_palette() {
     assert!(!t.screen().frame(&palette, since).row_changed(0));
 }
 
-// ctlseqs, XTREPORTCOLORS: `CSI ? Pu ; Ps # Q`, the current entry and the
-// palettes stored, the form XTPOPCOLORS takes.
+// ctlseqs, XTREPORTCOLORS: "the current entry on the palette stack, and
+// the number of palettes stored on the stack, using the same form as
+// XTPOPCOLORS", which is `CSI Pm # Q`: `CSI Pc ; Ps # Q`, with no `?`.
 // covers: color.stack
 #[test]
 fn xtreportcolors_reports_the_entry_and_the_palettes_stored() {
     let mut t = term(4, 1, b"");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?0;0#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[0;0#Q");
     t.input(b"\x1b[#P\x1b[#P");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?2;2#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[2;2#Q");
     t.input(b"\x1b[#Q");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?1;2#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[1;2#Q");
     // its parameters are ignored
-    assert_eq!(reply(&mut t, b"\x1b[5;7#R"), b"\x1b[?1;2#Q");
+    assert_eq!(reply(&mut t, b"\x1b[5;7#R"), b"\x1b[1;2#Q");
 }
 
 // ctlseqs, XTPUSHCOLORS and XTPOPCOLORS: a parameter of 1 to 10 stores
@@ -213,24 +214,24 @@ fn a_color_stack_entry_is_stored_and_restored_by_number() {
         1,
         b"\x1b]4;1;#030303\x07\x1b[3#P\x1b]4;1;#050505\x07\x1b[5#P",
     );
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?5;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[5;5#Q");
     t.input(b"\x1b]4;1;#ffffff\x07\x1b[3#Q");
     assert_eq!(red(&t), Rgb::new(3, 3, 3));
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?2;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[2;5#Q");
     // an entry never stored restores nothing and moves nothing
     t.input(b"\x1b[#Q");
     assert_eq!(red(&t), Rgb::new(3, 3, 3));
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?2;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[2;5#Q");
     t.input(b"\x1b[5#Q");
     assert_eq!(red(&t), Rgb::new(5, 5, 5));
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?4;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[4;5#Q");
     // 0 pushes, a parameter past 10 does nothing, and each acts in turn
     t.input(b"\x1b]4;1;#070707\x07\x1b[0;11;1#P");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?1;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[1;5#Q");
     t.input(b"\x1b]4;1;#ffffff\x07\x1b[5#Q");
     assert_eq!(red(&t), Rgb::new(7, 7, 7), "the 0 stored entry 5");
     t.input(b"\x1b[11#Q");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?4;5#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[4;5#Q");
 }
 
 // ctlseqs, XTPUSHCOLORS: entries 1 through 10. A push with the stack full
@@ -243,14 +244,14 @@ fn a_push_past_the_color_bound_keeps_nothing() {
     let mut t = term(4, 1, b"");
     t.input(b"\x1b[#Q");
     assert_eq!(t.palette(), &Palette::default());
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?0;0#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[0;0#Q");
     for i in 1..=COLOR_STACK_MAX + 2 {
         t.input(format!("\x1b]4;1;rgb:{i:02x}/00/00\x07\x1b[#P").as_bytes());
     }
     let max = COLOR_STACK_MAX;
     assert_eq!(
         reply(&mut t, b"\x1b[#R"),
-        format!("\x1b[?{max};{max}#Q").into_bytes()
+        format!("\x1b[{max};{max}#Q").into_bytes()
     );
     for i in (1..=COLOR_STACK_MAX).rev() {
         t.input(b"\x1b[#Q");
@@ -263,7 +264,7 @@ fn a_push_past_the_color_bound_keeps_nothing() {
     assert_eq!(t.palette().color(1), Rgb::new(255, 255, 255));
     assert_eq!(
         reply(&mut t, b"\x1b[#R"),
-        format!("\x1b[?0;{max}#Q").into_bytes()
+        format!("\x1b[0;{max}#Q").into_bytes()
     );
 }
 
@@ -277,7 +278,7 @@ fn osc_30001_and_30101_push_and_pop_the_colors() {
     let saved = t.palette().clone();
     t.input(b"\x1b]30001\x1b\\\x1b]104\x07\x1b]110;111\x07");
     assert_ne!(t.palette(), &saved);
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?1;1#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[1;1#Q");
     t.input(b"\x1b]30101\x07");
     assert_eq!(t.palette(), &saved);
     t.input(b"\x1b[#P\x1b]104\x07\x1b]30101\x1b\\");
@@ -294,7 +295,7 @@ fn osc_30001_and_30101_push_and_pop_the_colors() {
     );
     // with anything after the number they are other strings
     t.input(b"\x1b]30001;1\x07\x1b]30001;\x07");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?0;1#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[0;1#Q");
 }
 
 // RIS returns the terminal to its initial state, so it empties both
@@ -311,7 +312,7 @@ fn ris_empties_the_stacks_and_decstr_keeps_them() {
     assert_eq!(t.palette(), &saved_palette, "DECSTR keeps the color stack");
 
     t.input(b"\x1b[#{\x1b[#P\x1bc");
-    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[?0;0#Q");
+    assert_eq!(reply(&mut t, b"\x1b[#R"), b"\x1b[0;0#Q");
     t.input(b"\x1b[#}\x1b[#Q");
     assert_eq!(pen(&t), Style::DEFAULT, "RIS empties the SGR stack");
     assert_eq!(
@@ -332,7 +333,7 @@ fn a_flood_of_pushes_and_pops_stays_at_the_bounds() {
     let max = COLOR_STACK_MAX;
     assert_eq!(
         reply(&mut t, b"\x1b[#R"),
-        format!("\x1b[?{max};{max}#Q").into_bytes()
+        format!("\x1b[{max};{max}#Q").into_bytes()
     );
     t.input(b"\x1b[m\x1b]104\x07");
     t.input(&b"\x1b[#}\x1b[#Q".repeat(n));
@@ -340,7 +341,7 @@ fn a_flood_of_pushes_and_pops_stays_at_the_bounds() {
     assert_eq!(t.palette().color(1), Rgb::new(1, 1, 1));
     assert_eq!(
         reply(&mut t, b"\x1b[#R"),
-        format!("\x1b[?0;{max}#Q").into_bytes()
+        format!("\x1b[0;{max}#Q").into_bytes()
     );
     // the stacks are empty, and work again
     t.input(b"\x1b[m\x1b[#}");
