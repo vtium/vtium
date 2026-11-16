@@ -1210,9 +1210,10 @@ impl App {
     /// key and the word `default` returns it to its default. Esc drops
     /// what is typed.
     fn settings_key(&mut self, key: Key) -> Vec<Effect> {
-        // Up and Down do nothing while a value is typed: Enter keeps the
-        // value, and Esc drops it
-        if self.editing.is_some() && matches!(key, Key::Up | Key::Down) {
+        // while a value is typed, only Enter and Esc act on it: Enter
+        // keeps the value and Esc drops it, and the arrows and the other
+        // moving keys do nothing
+        if self.editing.is_some() && !matches!(key, Key::Enter | Key::Escape) {
             return Vec::new();
         }
         let all = setting_keys();
