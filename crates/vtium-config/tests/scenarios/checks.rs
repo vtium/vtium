@@ -931,7 +931,7 @@ fn reached_today(id: &str) -> Option<bool> {
     Some(match id {
         // the view, the tab or the form exists today in another shape
         "looks" | "fonts" | "settings" | "looks.new-frit" | "looks.new-frit.typing" => true,
-        "settings.section.typing" | "any.question.leave" => true,
+        "settings.section.typing" => true,
         // nothing like it exists today
         "flow.card.list" | "looks.list" | "looks.new-frit.list" => false,
         "settings.section" | "settings.section.list" | "any.question.window-ops" => false,
