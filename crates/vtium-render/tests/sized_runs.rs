@@ -424,3 +424,31 @@ fn a_runs_decorations_on_a_line_of_double_size_match_printed_cells() {
         }
     }
 }
+
+/// The rows of `pixels` that hold any pixel other than the background.
+fn inked_rows(pixels: &[Vec<u32>]) -> Vec<usize> {
+    let bg = background();
+    (0..pixels.len())
+        .filter(|&y| pixels[y].iter().any(|&p| p != bg))
+        .collect()
+}
+
+// Text drawn smaller to fit its block stands on the block's baseline,
+// which lies s times the font's baseline below the block's top: capitals
+// squeezed into a run of s=4 end above it, as a printed A ends above the
+// font's baseline, and not on the underline's row below it
+// covers: text.kitty-sizing
+#[test]
+fn text_drawn_smaller_stands_on_the_blocks_baseline() {
+    let a = inked_rows(&normal("A", 1));
+    let baseline = a.last().unwrap() + 1;
+    let t = term(b"\x1b]66;s=4:w=1;ABCD\x07");
+    let rows = inked_rows(&area(&draw(&t), (0, 0), (CW, 4 * CH)));
+    assert!(!rows.is_empty(), "the text draws");
+    let last = *rows.last().unwrap();
+    assert!(
+        last < 4 * baseline && last + 4 >= 4 * baseline,
+        "the squeezed capitals end just above row {}: {rows:?}",
+        4 * baseline
+    );
+}

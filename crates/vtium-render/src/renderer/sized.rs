@@ -249,8 +249,9 @@ fn ratio(v: u32, num: u32, den: u32) -> u32 {
 }
 
 /// Where a run of size `size` draws its text in its block, in cells of
-/// `cell`, for text `natural` columns wide at its own size, whose baseline
-/// lies `baseline` pixels below the top of a cell. `None` when the text
+/// `cell`, for text `natural` columns wide at its own size, whose baseline,
+/// the row under its letters, lies `baseline` pixels below the top of a
+/// cell. `None` when the text
 /// draws at no size, as at a fraction of 0.
 ///
 /// The text draws at `s` times its own size, times n/d with a fraction.
@@ -522,7 +523,16 @@ impl Block {
         let width = u32::from(size.cols).checked_mul(cell.width)?;
         let height = u32::from(size.scale.max(1)).checked_mul(cell.height)?;
         let mut pixels = vec![0u8; len(width, height)?];
-        let baseline = font.decorations().underline.min(cell.height);
+        // the text stands on the font's baseline, which a face gives for a
+        // bitmap glyph; for a face that gives none, the row the font's
+        // underline lies on stands in for it
+        let first = clusters(text).next().unwrap_or_default();
+        let baseline = font
+            .face()
+            .origin(first, variant.style)
+            .baseline
+            .unwrap_or(font.decorations().underline)
+            .min(cell.height);
         if let Some(area) = place(size, cell, cells, baseline) {
             scale_into(
                 (&natural, nw, cell.height),
