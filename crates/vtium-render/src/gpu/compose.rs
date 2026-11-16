@@ -2038,7 +2038,11 @@ pub(crate) fn cell_quad(
                 col,
                 row,
             ],
-            if p.color { 2 } else { 1 },
+            match (p.mixed, p.color) {
+                (true, _) => 3,
+                (false, true) => 2,
+                (false, false) => 1,
+            },
         ),
         None => ([0, 0, col, row], 0),
     };

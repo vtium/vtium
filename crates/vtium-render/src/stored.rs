@@ -39,6 +39,10 @@ pub(crate) struct Stored {
     at: (i32, i32),
     /// How many cells its ink reaches past its own on each side, upright.
     reach: Reach,
+    /// A color layer drawn over this mask, the same size: the color glyphs
+    /// of a sized run whose text mixes them with text, which keep their
+    /// own colors over the text the mask draws.
+    layer: Option<Box<Stored>>,
 }
 
 /// `width` by `height` pixels of `bpp` bytes turned by `o`: the pixel at
@@ -300,6 +304,7 @@ impl Stored {
                 data: packed,
                 at: (0, 0),
                 reach: Reach::NONE,
+                layer: None,
             };
         }
         Stored {
@@ -311,12 +316,29 @@ impl Stored {
             data,
             at: (0, 0),
             reach: Reach::NONE,
+            layer: None,
         }
     }
 
-    /// Bytes its pixels take: what the cache's byte ceilings count.
+    /// Bytes its pixels take, its color layer's included: what the cache's
+    /// byte ceilings count.
     pub(crate) fn bytes(&self) -> usize {
-        self.data.len()
+        self.data
+            .len()
+            .saturating_add(self.layer.as_ref().map_or(0, |l| l.bytes()))
+    }
+
+    /// This mask with `layer`, a color image of the same size, drawn over
+    /// it: a cell of a sized run whose text mixes text with color glyphs
+    /// draws the text's mask, then the color glyphs in their own colors.
+    pub(crate) fn with_layer(mut self, layer: Stored) -> Stored {
+        self.layer = Some(Box::new(layer));
+        self
+    }
+
+    /// The color layer drawn over this mask, if it has one.
+    pub(crate) fn layer(&self) -> Option<&Stored> {
+        self.layer.as_deref()
     }
 
     pub(crate) fn is_rgba(&self) -> bool {

@@ -344,6 +344,10 @@ pub(crate) struct Block {
     height: u32,
     format: Format,
     pixels: Vec<u8>,
+    /// For text that mixes text with color glyphs, the color glyphs drawn
+    /// in their own colors, a color image the block's size, which each
+    /// cell draws over its piece of `pixels`, the text's mask.
+    color: Option<Vec<u8>>,
     /// Whether any of its clusters drew the font's missing glyph.
     pub(crate) missing: bool,
 }
@@ -477,8 +481,13 @@ impl Block {
     ///
     /// Each grapheme cluster draws in the cells its width gives it, one
     /// after the other. The block is a color image when every cluster
-    /// draws a color glyph, and a mask otherwise, in which a color glyph
-    /// gives its alpha.
+    /// draws a color glyph, and a mask when none does. Text that mixes
+    /// text with color glyphs draws in two layers: the text in the mask,
+    /// and the color glyphs in a color image over it, so they keep their
+    /// colors and scale smoothly.
+    ///
+    /// References:
+    /// - ADR-1308 D9, "A color glyph": scaled smoothly to the block.
     pub(crate) fn draw<F: Face>(
         font: &Font<F>,
         (text, variant): (&[char], Variant),
@@ -503,26 +512,35 @@ impl Block {
             }
             cells = cells.saturating_add(width.cells());
         }
-        let format =
-            match glyphs.iter().all(|(g, _)| g.format() == Format::Rgba) && !glyphs.is_empty() {
-                true => Format::Rgba,
-                false => Format::Mask,
-            };
-        let bpp = usize::try_from(format.bytes_per_pixel()).ok()?;
-        let len = |w: u32, h: u32| -> Option<usize> {
+        let colored = glyphs
+            .iter()
+            .filter(|(g, _)| g.format() == Format::Rgba)
+            .count();
+        let format = match colored == glyphs.len() && colored > 0 {
+            true => Format::Rgba,
+            false => Format::Mask,
+        };
+        let mixed = format == Format::Mask && colored > 0;
+        let len = |w: u32, h: u32, format: Format| -> Option<usize> {
             usize::try_from(w)
                 .ok()?
                 .checked_mul(usize::try_from(h).ok()?)?
-                .checked_mul(bpp)
+                .checked_mul(usize::try_from(format.bytes_per_pixel()).ok()?)
         };
         let nw = cells.checked_mul(cell.width)?;
-        let mut natural = vec![0u8; len(nw, cell.height)?];
-        for (glyph, x) in &glyphs {
-            blit(glyph, (&mut natural, nw, format), *x);
-        }
+        // the clusters of one layer at their own size, side by side
+        let natural = |format: Format, rgba: Option<bool>| -> Option<Vec<u8>> {
+            let mut out = vec![0u8; len(nw, cell.height, format)?];
+            let layer = glyphs
+                .iter()
+                .filter(|(g, _)| rgba.is_none_or(|c| (g.format() == Format::Rgba) == c));
+            for (glyph, x) in layer {
+                blit(glyph, (&mut out, nw, format), *x);
+            }
+            Some(out)
+        };
         let width = u32::from(size.cols).checked_mul(cell.width)?;
         let height = u32::from(size.scale.max(1)).checked_mul(cell.height)?;
-        let mut pixels = vec![0u8; len(width, height)?];
         // the text stands on the font's baseline, which a face gives for a
         // bitmap glyph; for a face that gives none, the row the font's
         // underline lies on stands in for it
@@ -533,28 +551,51 @@ impl Block {
             .baseline
             .unwrap_or(font.decorations().underline)
             .min(cell.height);
-        if let Some(area) = place(size, cell, cells, baseline) {
-            scale_into(
-                (&natural, nw, cell.height),
-                (&mut pixels, width),
-                area,
-                format,
-            );
-        }
+        let area = place(size, cell, cells, baseline);
+        // one layer drawn at its size in the block
+        let layer = |format: Format, rgba: Option<bool>| -> Option<Vec<u8>> {
+            let mut out = vec![0u8; len(width, height, format)?];
+            if let Some(area) = area {
+                let natural = natural(format, rgba)?;
+                scale_into((&natural, nw, cell.height), (&mut out, width), area, format);
+            }
+            Some(out)
+        };
+        let (pixels, color) = match mixed {
+            true => (
+                layer(Format::Mask, Some(false))?,
+                Some(layer(Format::Rgba, Some(true))?),
+            ),
+            false => (layer(format, None)?, None),
+        };
         Some(Block {
             width,
             height,
             format,
             pixels,
+            color,
             missing,
         })
     }
 
     /// The piece of the block at the cell `piece` names, as one narrow
-    /// glyph of `cell`; `None` when the piece lies outside the block.
-    pub(crate) fn piece(&self, cell: Cell, piece: RunPiece) -> Option<Glyph> {
+    /// glyph of `cell`, and for text that mixes text with color glyphs the
+    /// piece of the color layer drawn over it; `None` when the piece lies
+    /// outside the block.
+    pub(crate) fn piece(&self, cell: Cell, piece: RunPiece) -> Option<(Glyph, Option<Glyph>)> {
+        let glyph = self.cut(&self.pixels, self.format, cell, piece)?;
+        let color = match &self.color {
+            Some(c) => Some(self.cut(c, Format::Rgba, cell, piece)?),
+            None => None,
+        };
+        Some((glyph, color))
+    }
+
+    /// The piece `piece` of `pixels`, an image the block's size in
+    /// `format`, as one narrow glyph of `cell`.
+    fn cut(&self, pixels: &[u8], format: Format, cell: Cell, piece: RunPiece) -> Option<Glyph> {
         let (cw, ch) = (cell.width, cell.height);
-        let bpp = usize::try_from(self.format.bytes_per_pixel()).ok()?;
+        let bpp = usize::try_from(format.bytes_per_pixel()).ok()?;
         let x = u32::from(piece.column).checked_mul(cw)?;
         let y = u32::from(piece.row).checked_mul(ch)?;
         // a double-width line shows every other row of a block drawn twice
@@ -576,9 +617,9 @@ impl Block {
                 .ok()?
                 .checked_mul(row)?
                 .checked_add(left)?;
-            out.extend_from_slice(self.pixels.get(at..at.checked_add(out_row)?)?);
+            out.extend_from_slice(pixels.get(at..at.checked_add(out_row)?)?);
         }
-        Some(Glyph::from_pixels(cw, ch, self.format, out)?.with_cells(Width::Narrow))
+        Some(Glyph::from_pixels(cw, ch, format, out)?.with_cells(Width::Narrow))
     }
 }
 
@@ -789,6 +830,7 @@ mod tests {
             height: 4,
             format: Format::Mask,
             pixels: (0..16).collect(),
+            color: None,
             missing: false,
         };
         let cell = Cell {
@@ -801,7 +843,8 @@ mod tests {
             column,
             line: LineSize::Single,
         };
-        let g = block.piece(cell, piece(1, 1)).unwrap();
+        let (g, color) = block.piece(cell, piece(1, 1)).unwrap();
+        assert_eq!(color, None);
         assert_eq!(g.pixels(), [10, 11, 14, 15]);
         assert_eq!(g.cells(), Width::Narrow);
         assert_eq!(block.piece(cell, piece(2, 0)), None);

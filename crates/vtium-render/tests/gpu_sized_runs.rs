@@ -239,3 +239,87 @@ fn a_run_on_a_normal_line_uploads_no_doubled_sprites() {
         "the double-width line's frame makes the doubled sprites"
     );
 }
+
+/// A face whose E is a color glyph, an opaque gradient, and whose every
+/// other character is a mask that fills its cell.
+struct Mixed;
+
+impl vtium_font::Face for Mixed {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: CW,
+            height: CH,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        CH
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c != ' '
+    }
+    fn draw(&self, text: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        use vtium_font::{Format, Glyph};
+        if text == ['E'] {
+            let px = (0..CH)
+                .flat_map(|y| (0..CW).map(move |x| [(x * 32) as u8, (y * 16) as u8, 0x40, 0xff]))
+                .flatten()
+                .collect();
+            Glyph::from_pixels(CW, CH, Format::Rgba, px)
+        } else {
+            Glyph::from_pixels(CW, CH, Format::Mask, vec![0xff; (CW * CH) as usize])
+        }
+    }
+}
+
+// A run that mixes text with a color glyph draws on the GPU path as on
+// the CPU path, its text's mask and its color layer over it, plain, under
+// an underline and selected-looking in reverse video, at every turn of the
+// display
+// covers: text.kitty-sizing
+#[test]
+fn a_run_of_text_and_a_color_glyph_draws_on_the_gpu_as_on_the_cpu() {
+    let bytes = b"\x1b]66;s=2:w=2;AE\x07\x1b[3;1H\x1b[4;31m\x1b]66;s=2:w=3;EAE\x07\x1b[m\x1b[1;9H\x1b[7m\x1b]66;s=2:w=2;EA\x07\x1b[m";
+    for o in [
+        Orientation::Normal,
+        Orientation::UpsideDown,
+        Orientation::Right,
+        Orientation::Left,
+    ] {
+        let size = display(o);
+        let mut t = Terminal::new(COLS, ROWS, 0);
+        t.input(b"\x1b[?25l");
+        t.input(bytes);
+        let frame = t.screen().frame(t.palette(), Age::NEVER);
+        let mut cpu = Renderer::new(
+            vtium_font::Font::new(Mixed),
+            size.width,
+            size.height,
+            config(o),
+        );
+        let mut canvas = Canvas::new(size.width, size.height, 0);
+        cpu.draw(&frame, &mut canvas, 0, &state(&t));
+        let mut gl = StandIn::new();
+        let mut pipeline =
+            Pipeline::new(&mut gl, size, vtium_render::gpu::Config::default()).unwrap();
+        let buffer: DrawTarget = gl.import_buffer(&size).unwrap();
+        let mut r = Renderer::new(
+            vtium_font::Font::new(Mixed),
+            size.width,
+            size.height,
+            config(o),
+        );
+        r.draw_gpu(&mut gl, &mut pipeline, &frame, &buffer, 1, &state(&t), &[])
+            .unwrap();
+        let gpu = gpu_pixel(&gl, o, size);
+        let differ: Vec<(u32, u32)> = (0..canvas.height())
+            .flat_map(|y| (0..canvas.width()).map(move |x| (x, y)))
+            .filter(|&(x, y)| canvas.pixel(x, y) != Some(gpu(x, y)))
+            .collect();
+        assert!(
+            differ.is_empty(),
+            "{o:?}: {} pixels differ, the first {:?}",
+            differ.len(),
+            differ.first()
+        );
+    }
+}

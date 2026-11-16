@@ -129,7 +129,7 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
         row.saturating_mul(ch).saturating_add(local.1),
     );
     let a = if kind == 1 { i.masks.byte(at, 0) } else { 0 };
-    let mut one = ul == 0 && st == 0;
+    let mut one = ul == 0 && st == 0 && kind != 3;
     let mut recv = 0;
     if i.with_ink && flags & RECEIVES != 0 && line_inked(i, &job, px, flags & DOWN != 0) {
         recv = received(i, &job, px);
@@ -178,6 +178,13 @@ pub(super) fn cell(q: &Quad, i: &Inputs<'_>, (x, y): (i64, i64)) -> u32 {
     match kind {
         1 => p = tint_over(p, a, fg),
         2 => p = argb_over(p, i.colors.argb(at)),
+        // a sized run's piece: the text's mask in the alpha one cell to the
+        // right, then the color layer over it
+        3 => {
+            let mask = i.colors.byte((at.0.saturating_add(cw), at.1), 3);
+            p = tint_over(p, mask, fg);
+            p = argb_over(p, i.colors.argb(at));
+        }
         _ => {}
     }
     if st != 0 {

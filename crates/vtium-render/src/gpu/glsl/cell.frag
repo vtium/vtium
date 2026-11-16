@@ -20,7 +20,9 @@
 // cell in the grid, the row in the low 16 bits of src.w; and params its
 // colors, 0xRRGGBB, each with a kind in
 // its top byte: x the foreground and the glyph's kind (0 none, 1 a mask
-// from masks, 2 a premultiplied color glyph from colors), y the
+// from masks, 2 a premultiplied color glyph from colors, 3 a sized run's
+// piece of text and color glyphs from colors: its color layer at the
+// texel, and the text's mask in the alpha one cell to the right), y the
 // background and the job's flags (RECEIVES, MARKED and DOWN below), z the
 // underline's color and its sprite, w the color and sprite of the lines
 // over the glyph (the strike, the overline or both),
@@ -268,7 +270,7 @@ void main() {
     bool layer = false;
 #endif
     float a = kind == 1u ? byte(texelFetch(masks, at, 0).r) : 0.0;
-    bool one = !layer && ul == 0u && st == 0u;
+    bool one = !layer && ul == 0u && st == 0u && kind != 3u;
     vec4 recv = vec4(0.0);
 #ifdef INK
     uint flags = params.y >> 24u;
@@ -319,6 +321,13 @@ void main() {
         if (kind == 1u) {
             p = tint_over(p, a, fg);
         } else if (kind == 2u) {
+            vec4 s = floor(texelFetch(colors, at, 0) * 255.0 + 0.5);
+            if (s.a != 0.0) {
+                p = over(p, s);
+            }
+        } else if (kind == 3u) {
+            // the text's mask, then the color layer over it
+            p = tint_over(p, byte(texelFetch(colors, at + ivec2(cell.x, 0), 0).a), fg);
             vec4 s = floor(texelFetch(colors, at, 0) * 255.0 + 0.5);
             if (s.a != 0.0) {
                 p = over(p, s);

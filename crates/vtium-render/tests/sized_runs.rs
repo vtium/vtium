@@ -534,3 +534,74 @@ fn an_underline_cursor_on_a_run_draws_the_whole_scaled_line() {
     let cursor = draw(b"\x1b]66;s=4;A\x07\x1b[4 q\x1b[1;1H\x1b[?25h");
     assert_eq!(cursor, underlined);
 }
+
+/// A face whose E is a color glyph, an opaque gradient, and whose every
+/// other character is a mask that fills its cell.
+struct Mixed;
+
+impl vtium_font::Face for Mixed {
+    fn cell(&self) -> vtium_font::Cell {
+        vtium_font::Cell {
+            width: CW,
+            height: CH,
+        }
+    }
+    fn size_step(&self) -> u32 {
+        CH
+    }
+    fn has_glyph(&self, c: char) -> bool {
+        c != ' '
+    }
+    fn draw(&self, text: &[char], _: vtium_font::Style) -> Option<vtium_font::Glyph> {
+        use vtium_font::{Format, Glyph};
+        if text == ['E'] {
+            let px = (0..CH)
+                .flat_map(|y| (0..CW).map(move |x| [(x * 32) as u8, (y * 16) as u8, 0x40, 0xff]))
+                .flatten()
+                .collect();
+            Glyph::from_pixels(CW, CH, Format::Rgba, px)
+        } else {
+            Glyph::from_pixels(CW, CH, Format::Mask, vec![0xff; (CW * CH) as usize])
+        }
+    }
+}
+
+/// `bytes` drawn whole in the face [`Mixed`].
+fn draw_mixed(bytes: &[u8]) -> Canvas {
+    let t = term(bytes);
+    let mut r = Renderer::new(vtium_font::Font::new(Mixed), W, H, Config::default());
+    let mut c = Canvas::new(W, H, 0);
+    r.draw(
+        &t.screen().frame(t.palette(), Age::NEVER),
+        &mut c,
+        0,
+        &state(&t),
+    );
+    c
+}
+
+// A color glyph in a run that mixes it with text keeps its own colors and
+// scales smoothly: E after A in a run of s=2 draws as E alone in a run of
+// s=2, and A draws in the text's color beside it. The color layer scales
+// as one image, so on the column where A and E meet each takes a quarter
+// of the other: E's first column fades by a quarter into the clear space
+// over A, and A's last column takes a quarter of E's color
+// covers: text.kitty-sizing
+#[test]
+fn a_color_glyph_in_a_run_with_text_keeps_its_colors() {
+    let alone = area(&draw_mixed(b"\x1b]66;s=2;E\x07"), (0, 0), (2 * CW, 2 * CH));
+    let mixed = draw_mixed(b"\x1b]66;s=2:w=2;AE\x07");
+    let e = area(&mixed, (2 * CW, 0), (2 * CW, 2 * CH));
+    for (y, (got, want)) in e.iter().zip(&alone).enumerate() {
+        assert_eq!(got[1..], want[1..], "E's row {y}");
+        assert_ne!(got[0], want[0], "E's first column fades on row {y}");
+    }
+    let fg = 0xe5e5e5;
+    let a = area(&mixed, (0, 0), (2 * CW, 2 * CH));
+    for (y, row) in a.iter().enumerate() {
+        assert!(
+            row[..2 * CW as usize - 1].iter().all(|&p| p == fg),
+            "A fills its half in the text's color, row {y}"
+        );
+    }
+}
