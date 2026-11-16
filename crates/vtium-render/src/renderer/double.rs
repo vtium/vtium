@@ -42,18 +42,26 @@ use vtium_font::{Doubled, Face, Font, Format, Glyph, Script, Variant, Width, spr
 use vtium_term::LineSize;
 
 use crate::mono::Fallback;
+use crate::renderer::sized::RunPiece;
 
 /// Which piece of a glyph or decoration a display cell draws: the glyph
-/// itself, or one cell of it doubled. A doubled piece holds the line's
-/// size and the piece's column in the doubled glyph, from 0 at its left:
-/// 0 and 1 for a narrow glyph, 0 to 3 for a wide one.
+/// itself, one cell of it doubled, or one cell of a sized run. A doubled
+/// piece holds the line's size and the piece's column in the doubled
+/// glyph, from 0 at its left: 0 and 1 for a narrow glyph, 0 to 3 for a
+/// wide one, in its low 4 bits. A sized run's piece sets the top bit and
+/// holds the run's size and the cell's place in the run below it
+/// ([`RunPiece`]).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub(crate) struct Piece(u8);
+pub(crate) struct Piece(u32);
 
-/// The kinds of doubled piece, as the top bits of a [`Piece`] hold them.
-const WIDTH: u8 = 1;
-const TOP: u8 = 2;
-const BOTTOM: u8 = 3;
+/// The kinds of doubled piece, as bits 2 and 3 of a [`Piece`] hold them.
+const WIDTH: u32 = 1;
+const TOP: u32 = 2;
+const BOTTOM: u32 = 3;
+/// The kind of a sized run's piece, which no doubled piece has.
+const RUN: u32 = 4;
+/// The bit that marks a sized run's piece.
+const RUN_BIT: u32 = 1 << 31;
 
 /// How many sets of decoration sprites there are: the normal set, then
 /// the left and right pieces of each of the three doubled kinds.
@@ -72,8 +80,21 @@ impl Piece {
             LineSize::DoubleHeightTop => TOP,
             LineSize::DoubleHeightBottom => BOTTOM,
         };
-        let column = u8::try_from(column.min(3)).unwrap_or(3);
+        let column = u32::try_from(column.min(3)).unwrap_or(3);
         Piece(kind << 2 | column)
+    }
+
+    /// The piece of a sized run that the cell at row `row` and column
+    /// `column` of the run's block draws, both counted from 0 at the
+    /// block's top left.
+    pub(crate) fn of_run(run: RunPiece) -> Piece {
+        Piece(RUN_BIT | run.bits())
+    }
+
+    /// The sized run's piece this is, or `None` for the whole glyph and a
+    /// doubled piece.
+    pub(crate) fn run(self) -> Option<RunPiece> {
+        (self.0 & RUN_BIT != 0).then(|| RunPiece::from_bits(self.0 & !RUN_BIT))
     }
 
     /// Whether this is the glyph itself.
@@ -81,7 +102,10 @@ impl Piece {
         self.0 == 0
     }
 
-    fn kind(self) -> u8 {
+    fn kind(self) -> u32 {
+        if self.0 & RUN_BIT != 0 {
+            return RUN;
+        }
         self.0 >> 2
     }
 
@@ -97,11 +121,12 @@ impl Piece {
     }
 
     fn column(self) -> u32 {
-        u32::from(self.0 & 3)
+        self.0 & 3
     }
 
     /// Its own number, which the glyph cache keys and hashes on: 0 for the
-    /// whole glyph, and below 16 for every piece.
+    /// whole glyph, below 16 for a doubled piece, and 2^31 or more for a
+    /// sized run's piece.
     pub(crate) fn bits(self) -> u64 {
         u64::from(self.0)
     }
@@ -110,13 +135,14 @@ impl Piece {
     /// normal set; otherwise its kind's left or right piece, by the parity
     /// of its column. A decoration spans one cell, so a wide cell's
     /// second cell draws the same sprite as its first, as on a line of the
-    /// normal size.
+    /// normal size. A sized run's cell draws the normal set.
     pub(crate) fn sprite_set(self) -> usize {
         match self.kind() {
-            0 => 0,
-            kind => usize::from(kind.saturating_sub(1))
+            0 | RUN => 0,
+            kind => usize::try_from(kind.saturating_sub(1))
+                .unwrap_or(0)
                 .saturating_mul(2)
-                .saturating_add(usize::from(self.0 & 1))
+                .saturating_add(usize::from(self.0 & 1 == 1))
                 .saturating_add(1),
         }
     }
@@ -125,11 +151,11 @@ impl Piece {
     /// [`SPRITE_SETS`] less one.
     pub(crate) fn of_sprite_set(set: usize) -> Piece {
         let index = set.saturating_sub(1);
-        let kind = u8::try_from(index / 2)
+        let kind = u32::try_from(index / 2)
             .unwrap_or(0)
             .saturating_add(1)
             .min(3);
-        let column = u8::try_from(index % 2).unwrap_or(0);
+        let column = u32::try_from(index % 2).unwrap_or(0);
         Piece(kind << 2 | column)
     }
 }
