@@ -1,0 +1,65 @@
+id	key	state	means	status	note	decided	issue
+q.view	q	view	Quits. While changes are not saved, it asks the quit question first, and while font set changes wait for an install, it asks the leave question first.	supported		ADR-1403 D7	
+q.layer	q	layer	Quits or asks, as in a view.	supported	a card, detail, part maker or picker of the Flow view, and the new-frit form's last row	ADR-1403 D7	
+q.layer.file-view	q	layer:file-view	Quits or asks, as in a view. Only Esc goes back to the configuration.	planned	today q goes back to the configuration	ADR-1403 D7	#412
+q.layer.restore	q	layer:restore	Quits or asks, as in a view. Only Esc closes the list.	planned	today q closes the list	ADR-1403 D7	#412
+q.typing	q	typing	Types the letter q into the value.	supported	a value being typed takes every letter	ADR-1403 D7	
+q.question	q	question	Answers no, as every key but y does.	supported		ADR-1403 D7	
+q.trial	q	trial	Puts the console's font back and does nothing else, as every key but k does.	supported		ADR-1201 D4	
+q.too-small	q	too-small	Quits, or asks first while changes are not saved.	weighed	today q leaves at once, and the changes that are not saved are lost; whether the screen below the minimum size asks a question is open	ADR-1201 D3	#412
+esc.view	Esc	view	Does nothing, since nothing is open to go back from.	supported		ADR-1403 D7	
+esc.view.flow	Esc	view:flow	Clears NEW PATH. A path that Revise put there leaves the configuration.	supported	the one view where Esc acts with nothing open	ADR-1403 D7	
+esc.layer	Esc	layer	Closes what is open and goes back to the view under it, with the same item highlighted.	supported	the file view and Restore's list included	ADR-1403 D7	
+esc.typing	Esc	typing	Drops the value being typed and goes back.	supported	on a field of the new-frit form, Esc closes the form	ADR-1403 D7	
+esc.question	Esc	question	Answers no.	supported		ADR-1403 D7	
+esc.trial	Esc	trial	Puts the console's font back and does nothing else.	supported		ADR-1201 D4	
+esc.too-small	Esc	too-small	Does nothing.	supported		ADR-1201 D3	
+tab.view	Tab	view	Moves to the next view, and from the last view to the first.	supported		ADR-1403 D7	
+tab.layer	Tab	layer	Does nothing.	supported		ADR-1403 D7	
+tab.typing	Tab	typing	Does nothing.	supported		ADR-1403 D7	
+tab.question	Tab	question	Answers no.	supported		ADR-1403 D7	
+tab.trial	Tab	trial	Puts the console's font back and does nothing else.	supported		ADR-1201 D4	
+tab.too-small	Tab	too-small	Does nothing.	supported		ADR-1201 D3	
+shift-tab.view	Shift-Tab	view	Moves to the view before, and from the first view to the last.	supported		ADR-1403 D7	
+shift-tab.layer	Shift-Tab	layer	Does nothing.	supported		ADR-1403 D7	
+shift-tab.typing	Shift-Tab	typing	Does nothing.	supported		ADR-1403 D7	
+shift-tab.question	Shift-Tab	question	Answers no.	supported		ADR-1403 D7	
+shift-tab.trial	Shift-Tab	trial	Puts the console's font back and does nothing else.	supported		ADR-1201 D4	
+shift-tab.too-small	Shift-Tab	too-small	Does nothing.	supported		ADR-1201 D3	
+ctrl-c.any	Ctrl-C	any	Saves the changes that are not saved into the draft, gives the console its start font back, and quits, without a question.	supported		ADR-1403 D7; ADR-1201 D4	
+ctrl-c.question	Ctrl-C	question	Saves, gives the start font back and quits, as in every other state.	planned	today Ctrl-C answers a question no, and the TUI stays	ADR-1403 D7	#412
+ctrl-c.trial	Ctrl-C	trial	Saves, gives the start font back and quits, as in every other state.	planned	today Ctrl-C quits without saving the changes that are not saved	ADR-1403 D7; ADR-1201 D4	#412
+ctrl-c.too-small	Ctrl-C	too-small	Saves, gives the start font back and quits, as in every other state.	planned	today Ctrl-C quits without saving the changes that are not saved	ADR-1403 D7; ADR-1201 D3	#412
+y.question	y	question	Answers yes: the TUI does what the question asks.	supported		ADR-1403 D7	
+y.question.quit	y	question:quit	Saves the changes that are not saved into the draft and quits.	supported		ADR-1403 D7	
+y.question.leave	y	question:leave	Saves the changes that are not saved into the draft and quits. The font set changes that the question names are lost.	planned	today y goes back; i installs and l quits without saving	ADR-1403 D7	#411
+n.question.quit	n	question:quit	Quits without saving the changes that are not saved.	weighed	the quit question offers n as a third answer; whether n keeps that meaning, or answers no as every key but y does, is open	ADR-1403 D7	#412
+i.question.leave	i	question:leave	Answers no, as every key but y does.	planned	today i installs	ADR-1403 D7	#411
+l.question.leave	l	question:leave	Answers no, as every key but y does.	planned	today l quits, and the changes that are not saved are lost	ADR-1403 D7	#411
+other.question	any other key	question	Answers no: the question closes and nothing changes.	supported		ADR-1403 D7	
+s.view	s	view	Saves the changes that are not saved into the draft. It acts in Flow, Looks and Settings, whose tab bars show Save.	supported		ADR-1403 D7	
+s.view.fonts	s	view:fonts	The Fonts view goes into the Looks tab, where s saves.	planned	today the Fonts view's tab bar shows Save, but outside a vtium console s switches the preview between the specimen and the picture of the console	ADR-1201 D3; ADR-1403 D7	#379
+s.view.help	s	view:help	Does nothing.	supported	Help's tab bar shows no action	ADR-1403 D7	
+s.layer.file-view	s	layer:file-view	Saves. The file view stays open and shows the file as it now stands.	supported		ADR-1403 D7	
+i.view	i	view	Saves, then asks to install the draft. It acts in Flow, Looks and Settings, whose tab bars show Install.	supported		ADR-1403 D7	
+i.view.help	i	view:help	Does nothing.	planned	today i saves and asks to install	ADR-1403 D7	#412
+i.layer.file-view	i	layer:file-view	Saves, then asks to install. The file view stays open.	supported		ADR-1403 D7	
+action.layer	s i r n v o	layer	Whether the action keys act while a card, detail, part maker, picker or the new-frit form is open is open.	weighed	the file view's s and i are decided above	ADR-1403 D7	#412
+r.view.flow	r	view:flow	Asks to revert the draft to the installed file.	supported		ADR-1403 D7	
+n.view.flow	n	view:flow	Asks to start a new configuration.	supported		ADR-1403 D7	
+v.view.flow	v	view:flow	Opens the file view.	supported		ADR-1403 D7	
+o.view.flow	o	view:flow	Opens Restore's list of the installed history.	supported	Restore is on o and in the key line, not in the tab bar	ADR-1201 D3; ADR-1403 D7	
+r.view.looks	r	view:looks	Marks the highlighted font set for removal, or takes the mark back. It is the view's own key, not Revert.	planned	today in the Fonts view	ADR-1201 D3	#379
+n.view.looks	n	view:looks	Opens the form for a new font set. It is the view's own key, not New.	planned	today in the Fonts view	ADR-1201 D3	#379
+t.view.looks	t	view:looks	Tries the highlighted font set on the live console, with the countdown.	planned	today in the Fonts view	ADR-1201 D4	#379
+t.layer.flow-card	t	layer:flow-card	Tries the font set on a look card's font set field on the live console, with the countdown.	supported		ADR-1201 D4	
+o.view.looks	o	view:looks	While a vtium console has allow-font-ops off, turns it on as a change like any other.	planned	today o does this in every view but Flow; the notice that the live trial is off names the Fonts view	ADR-1201 D4	#379
+o.view	o	view	Does nothing outside Flow and Looks.	planned	today o turns on allow-font-ops in Help and Settings too	ADR-1403 D7	#412
+k.trial	k	trial	Keeps the tried font.	supported		ADR-1201 D4	
+other.trial	any other key	trial	Puts the console's font back and does nothing else.	supported		ADR-1201 D4	
+u.too-small	u	too-small	Puts back the font the console had when the TUI started.	supported		ADR-1201 D3	
+other.too-small	any other key	too-small	Does nothing.	supported		ADR-1201 D3	
+updown.typing.settings	Up, Down	typing:settings	Drop the value being typed, and the key line says so.	weighed	the value is dropped with no message, and the Flow view's name field drops a value on Esc alone; whether the arrows keep this meaning is open	ADR-1201 D3	#412
+key-line.any	key line	any	Shows every key it lists, and wraps onto a second row before it drops one.	supported		ADR-1403 D7	
+key-line.view.flow	key line	view:flow	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it ends with v view file and q quit, and leaves out Esc clear, i install, o restore and n new	ADR-1403 D7	#412
+key-line.layer.file-view	key line	layer:file-view	Shows every key it lists, and wraps onto a second row before it drops one.	planned	at 80×25 it leaves out ^D ^U half page	ADR-1403 D7	#412

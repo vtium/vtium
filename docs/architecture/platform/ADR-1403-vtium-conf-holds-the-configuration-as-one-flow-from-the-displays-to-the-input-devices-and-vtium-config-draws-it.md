@@ -424,6 +424,10 @@ considered:
   - operator: aaronsb
     said: "toggling around to 'try different fonts' tends to just accumulate unnecessary configuration lines … only what's set"
     via: quoted by the steering session, 2026-11-12, in the fix round of the card that adds switch-on-enter to vtium-config
+  - operator: aaronsb
+    said: "(3) `q` always quits or asks, and Esc always goes back; the file view and Restore's list keep Esc alone. (4) Every question takes `y` for yes, and Esc or any other key for no; the leave question names its unsaved changes and saves them on `y`, like the quit question. (5) The action keys act only in the views whose tab bar shows them. (6) Every key line shows every key it lists, and wraps onto a second row before it drops a key."
+    via: the maintainer's answers of 2026-11-16 to the decisions that the work on scripted scenarios for vtium-config's TUI put to the maintainer, recorded in that work's issue; the maintainer took each lean as proposed, and the wording is the steering session's
+    paraphrase: true
 status: accepted
 date: 2026-11-04
 deciders:
@@ -788,7 +792,7 @@ vtium-config takes these colors by role from a file of the person's own, `$XDG_C
 
 #### The keys
 
-The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run and `PgUp PgDn scroll` where there is room.
+The key line shows only the keys that fit what the person is doing now (the maintainer, 2026-11-09). With nothing open, it reads `↑↓←→ move  Space pick  Enter open  a add path  e revise  v view file  Esc clear  i install  o restore  n new  q quit`, and it adds `p preview` where a preview can run, and `PgUp PgDn scroll`. When the keys do not fit on one row, the key line wraps onto a second row (below).
 
 - **Moving.** The arrow keys move the highlight from box to box in reading order. Left and Right move along a line of boxes and on to the next line. Up and Down move to the box above or below that is nearest in column. Home and End go to the first and the last box. PgUp and PgDn scroll by a window. Tab moves to the next view of the TUI and Shift-Tab to the view before, wherever the highlight is, as in every other view (the maintainer, 2026-11-07). While a detail, a part maker, a picker, the file view or a question is open, Tab and Shift-Tab do nothing, and Esc closes it. Coming back to the Flow view keeps the box that was highlighted.
 - **Space** picks the highlighted part into NEW PATH, or takes it out.
@@ -797,13 +801,55 @@ The key line shows only the keys that fit what the person is doing now (the main
 - **`v`** views the file (below).
 - **`s`** saves, **`i`** installs, **`r`** reverts, **`o`** restores and **`n`** starts a new configuration (below). **`d`** reads the devices again.
 - **`p`** previews a complete path (above), and **`t`** tries a font on the live console (ADR-1201 D4). The notice that the live trial is off shows only when the person presses `t`.
-- **`q`** quits.
+- **`q`** quits, or asks first (below).
 
 The mouse selects a box with a click and opens it with a second click, and a click on a view's name in the tab bar switches to that view while nothing is open (the maintainer, 2026-11-04). The view turns on mouse reporting, modes 1000 and 1006, which vtium supports (ADR-1000 `DEC-1000`, `DEC-1006`), and turns it off when the TUI leaves the view. In a terminal without mouse reporting, the keys do everything.
 
+#### The same keys in every view
+
+> Edited 2026-11-16: the maintainer set four rules for the keys of every view (`considered`, 2026-11-16), in answer to the work that drives vtium-config's TUI by script and checks how it responds after each key. That work found the same key doing different things in different places: `q` quit from a card but went back from the file view, and the three questions took three sets of answer keys. This subsection and the key table were added. The key line's paragraph above ended "and `PgUp PgDn scroll` where there is room.", the bullet on `q` read "**`q`** quits.", and the file view's paragraph read "and `q` or Esc go back to the configuration with the same box highlighted."
+
+These rules hold in every view of the TUI (the maintainer, 2026-11-16):
+
+- **`q` always quits or asks, and Esc always goes back.** `q` quits from a view and from anything open over it: a card, a detail, a part maker, a picker, the new-frit form, the file view and Restore's list. Where changes are not saved, it asks the quit question first. While new or removed font sets wait in memory for an install, it asks the leave question instead. The TUI asks that question until it keeps font set changes in the draft's folder, as D8 decides. Esc closes what is open and goes back to what is under it. The file view and Restore's list go back on Esc alone, where `q` closed them before. A value being typed takes `q` as a letter, as it takes every letter.
+- **Every question takes `y` for yes, and Esc or any other key for no.** No closes the question and changes nothing. The leave question names the changes that are not saved beside the font set changes. Its `y` saves those changes into the draft before the TUI quits, as the quit question's `y` does. The font set changes it names are then lost. `i` and `l` no longer answer it. The quit question also offers `n`, which quits without saving. Whether `n` keeps that meaning, or answers no as every other key does, is open, and the maintainer settles it.
+- **The action keys act only in the views whose tab bar shows them.** `s` saves only where the tab bar shows Save, and `i` installs only where it shows Install. Help's tab bar shows no action, so neither key acts there. The file view saves and installs as the Flow view does (below). Restore, on `o`, belongs to the Flow view, whose key line names it beside the tab bar's actions. A view's own key on the same letter is that view's, as `r` marks a font set for removal in the Looks view, and the view's key line names it.
+- **Every key line shows every key it lists.** When the keys do not fit on one row, the key line wraps onto a second row before it drops a key. This holds at the minimum size of 80×25 too.
+
+Ctrl-C and the signals keep the meaning that **What carries over** gives them in every state: they save the changes that are not saved and leave, without a question. The live trial's countdown keeps its own keys, which ADR-1201 D4 decides: `k` keeps the font, and any other key puts it back. So does the screen below the minimum size, where only `q`, `u` and Ctrl-C act (ADR-1201 D3).
+
+#### The key table
+
+The key table, `ADR-1403-keys.tsv` beside this record, says what each key means in each kind of state, and names each exception. It is laid out as ADR-1000's tables are, one row for a key in a state:
+
+| Column | What it holds |
+|---|---|
+| `id` | the key and the state, such as `q.layer.file-view`. An id does not change once it is committed. |
+| `key` | the key, or `key line` for a row about the key line |
+| `state` | the kind of state, below |
+| `means` | what the key does in that state |
+| `status` | `supported` where vtium-config does this now; `planned` where it will, and the issue says how; `weighed` where the issue decides what the key does |
+| `note` | what vtium-config does today where that differs, or why the row is an exception |
+| `decided` | the decisions that set the meaning |
+| `issue` | the issue that carries a planned or weighed row |
+
+The kinds of state:
+
+- `view`: a view with nothing open over it.
+- `layer`: something open over a view that Esc closes, such as a card, a picker, the new-frit form, the file view or Restore's list.
+- `typing`: a value being typed.
+- `question`: a question that waits for an answer.
+- `trial`: the live trial's countdown (ADR-1201 D4).
+- `too-small`: the screen below 80×25 (ADR-1201 D3).
+- `any`: every state.
+
+A name after a colon narrows a state to one view, layer or question, as in `view:flow`, `layer:file-view` or `question:leave`. Where several rows match, the row with the narrowest state decides.
+
+A change to what a key means edits this record and the table in one commit. The scenarios that drive the TUI by script read the table and check every key against it. They check a planned row in reverse: they expect what vtium-config does today, so the check fails once the work lands and the row still says `planned`.
+
 #### `v` views the file
 
-`v` shows the draft's vtium.conf as text, read-only, with the unsaved changes applied, exactly what Install would write (the maintainer, 2026-11-10: "we could drop the rules view and use the same key (v) to view the configuration file. (I don't see an obvious way to just view the file as it is configured)"). It opens at the line of the highlighted box's rule and marks each line the check complains about. `j` and `k` or Up and Down scroll by lines, `h` and `l` or Left and Right scroll sideways, `g` and `G` go to the top and the bottom, Ctrl-d and Ctrl-u move half a page, and `q` or Esc go back to the configuration with the same box highlighted. The file view saves and installs too (the maintainer, 2026-11-10: "in the viewing config file, we should allow to install/save as well."): `s` and `i` act as they do in the configuration, and the file view then stays open and shows the file as it now stands. The view of six columns, which drew each rule as an item, is gone. The rule order shows in the file, and vtium-config sets that order itself (D8).
+`v` shows the draft's vtium.conf as text, read-only, with the unsaved changes applied, exactly what Install would write (the maintainer, 2026-11-10: "we could drop the rules view and use the same key (v) to view the configuration file. (I don't see an obvious way to just view the file as it is configured)"). It opens at the line of the highlighted box's rule and marks each line the check complains about. `j` and `k` or Up and Down scroll by lines, `h` and `l` or Left and Right scroll sideways, `g` and `G` go to the top and the bottom, Ctrl-d and Ctrl-u move half a page, and Esc goes back to the configuration with the same box highlighted. `q` quits or asks, as it does everywhere (above). The file view saves and installs too (the maintainer, 2026-11-10: "in the viewing config file, we should allow to install/save as well."): `s` and `i` act as they do in the configuration, and the file view then stays open and shows the file as it now stands. The view of six columns, which drew each rule as an item, is gone. The rule order shows in the file, and vtium-config sets that order itself (D8).
 
 #### Editing an added path, and Revise
 
