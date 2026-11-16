@@ -36,7 +36,7 @@ A failure names the scenario that shows it: the kind of terminal, the grid and t
 
 `every_key_in_every_state_keeps_the_rules` is the 0-switch run: every key in every state once. It runs with the crate's tests, one thread for each kind of terminal.
 
-`every_pair_of_keys_through_questions_typing_and_leaving_keeps_the_rules` is the 1-switch run: every pair of keys where the first opens a question or starts typing, and `q` and Ctrl-C after every key. It takes minutes, so it runs at the end of a card that changes the TUI:
+`every_pair_of_keys_through_questions_typing_and_leaving_keeps_the_rules` is the 1-switch run: every pair of keys where the first opens a question or starts typing, and `q` and Ctrl-C after every key. It needs a release build to run in seconds, so it runs at the end of a card that changes the TUI:
 
 ```sh
 cargo test --release -p vtium-config --test scenarios -- --ignored

@@ -144,7 +144,7 @@ fn every_key_in_every_state_keeps_the_rules() {
 /// at the end of a card that changes the TUI, in a release build:
 /// `cargo test --release -p vtium-config --test scenarios -- --ignored`.
 #[test]
-#[ignore = "the 1-switch run takes minutes; it runs at the end of a card"]
+#[ignore = "the 1-switch run needs a release build; it runs at the end of a card"]
 fn every_pair_of_keys_through_questions_typing_and_leaving_keeps_the_rules() {
     let failures: Vec<String> = std::thread::scope(|scope| {
         let handles: Vec<_> = Term::ALL
