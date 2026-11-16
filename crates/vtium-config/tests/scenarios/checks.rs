@@ -162,7 +162,14 @@ fn row_checks() -> BTreeMap<&'static str, (Check, Option<Check>)> {
     let ctrl_c: Check = |s| s.saves_and_quits();
     let back: Check = |s| s.puts_back();
     // today, Ctrl-C leaves at once, without saving
-    let leaves: Check = |s| s.exits(130);
+    let leaves: Check = |s| {
+        s.exits(130)?;
+        if s.has("save") {
+            Err("Ctrl-C saved".into())
+        } else {
+            Ok(())
+        }
+    };
     m.insert("q.view", (quit, no_today));
     m.insert("q.layer", (quit, no_today));
     m.insert("q.layer.file-view", (quit, Some(|s| s.opens("view:flow"))));

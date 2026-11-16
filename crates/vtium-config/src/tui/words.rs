@@ -612,9 +612,8 @@ pub const KEYS_TYPING: &str = "type the value  Enter keep  Esc cancel";
 pub const KEYS_CONFIRM: &str = "y yes  any other key no";
 pub const KEYS_LEAVE: &str = "y quit  any other key back";
 pub const KEYS_LEAVE_SAVE: &str = "y save and quit  any other key back";
-pub const KEYS_PAGER: &str =
-    "s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q back";
-pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  q back";
+pub const KEYS_PAGER: &str = "Esc back  s save  i install  j k ↑↓ lines  h l ←→ sideways  g G top bottom  ^D ^U half page  q quit";
+pub const KEYS_RESTORE: &str = "↑↓ choose  Enter restore  Esc back  q quit";
 /// The question `q` asks while font sets wait for an install: what
 /// leaving loses, and the `unsaved` changes that `y` saves first.
 pub fn leave_question(added: &[String], removed: &[String], unsaved: usize) -> String {

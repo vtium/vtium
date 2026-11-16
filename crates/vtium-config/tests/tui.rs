@@ -3597,9 +3597,10 @@ mod draft_flow {
         let screen = ran.screen();
         assert!(screen.contains(words::PAGER_TITLE), "{screen}");
         assert!(screen.contains("▸   9 display * -> desk"), "{screen}");
-        assert!(screen.contains("q back"), "{screen}");
-        // q goes back to the flow, and leaving still works
-        let ran = run(&b, &[b"v", b"j", b"G", b"\x04", b"q"]);
+        assert!(screen.contains("Esc back  s save"), "{screen}");
+        assert!(screen.contains("q quit"), "{screen}");
+        // Esc goes back to the flow
+        let ran = run(&b, &[b"v", b"j", b"G", b"\x04", ESC]);
         assert!(!ran.screen().contains(words::PAGER_TITLE));
     }
 

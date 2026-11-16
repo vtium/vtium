@@ -375,7 +375,7 @@ impl App {
 
     /// A key in the pager: `j` `k` and the arrows scroll, `h` `l`
     /// sideways, `g` `G` to the top and the bottom, Ctrl-d Ctrl-u by half a
-    /// page, `q` and Esc back to the flow.
+    /// page, and Esc back to the flow. `q` quits, as it does everywhere.
     pub(crate) fn pager_key(&mut self, key: Key) {
         let lines = self.draft.as_ref().map_or(0, |d| d.text.lines().count());
         // the draft's lines run from row 4 to the row above the key line
@@ -386,7 +386,7 @@ impl App {
             return;
         };
         match key {
-            Key::Char('q') | Key::Escape => self.pager = None,
+            Key::Escape => self.pager = None,
             Key::Char('j') | Key::Down => p.top = p.top.saturating_add(1).min(last),
             Key::Char('k') | Key::Up => p.top = p.top.saturating_sub(1),
             Key::Char('l') | Key::Right => p.left = p.left.saturating_add(8),
@@ -400,13 +400,14 @@ impl App {
     }
 
     /// A key on Restore's list of the installed history: Up and Down move,
-    /// Enter asks to copy the file into the draft, Esc and `q` close it.
+    /// Enter asks to copy the file into the draft, and Esc closes it. `q`
+    /// quits, as it does everywhere.
     pub(crate) fn restore_key(&mut self, key: Key) -> Vec<Effect> {
         let Some((kept, at)) = self.restore.as_mut() else {
             return Vec::new();
         };
         match key {
-            Key::Char('q') | Key::Escape => self.restore = None,
+            Key::Escape => self.restore = None,
             Key::Enter => {
                 let n = at.saturating_add(1);
                 let restored = kept.get(*at).map(|k| k.text.clone()).unwrap_or_default();

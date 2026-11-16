@@ -930,6 +930,12 @@ impl App {
         if self.leaving.is_some() || self.installing {
             return Vec::new();
         }
+        // Ctrl-C saves and leaves from every state, a question, the live
+        // trial, a value being typed and the screen below the minimum
+        // size included
+        if key == Key::Interrupt {
+            return self.save_and_leave(130);
+        }
         if self.trial.is_some() {
             return self.trial_key(key);
         }
@@ -948,10 +954,10 @@ impl App {
         if self.confirm.is_some() {
             return self.confirm_key(key);
         }
-        let modal = self.view == View::Flow && (self.pager.is_some() || self.restore.is_some());
         match key {
-            Key::Interrupt => return self.save_and_leave(130),
-            Key::Char('q') if !modal => return self.quit(0),
+            // `q` quits or asks from a view and from what is open over
+            // it, the file view and Restore's list included
+            Key::Char('q') => return self.quit(0),
             // Tab and Shift-Tab step the views wherever the selection is,
             // and the arrows move inside a view (#355)
             Key::Tab | Key::BackTab if self.holds_view() => return Vec::new(),
@@ -962,7 +968,11 @@ impl App {
             return self.flow_key(key);
         }
         match key {
-            Key::Char('i') if !self.typing() => return self.action('i'),
+            // Install acts where the tab bar shows it, and Help's shows
+            // no action
+            Key::Char('i') if !self.typing() && self.view != View::Help => {
+                return self.action('i');
+            }
             // Save in the views whose own keys leave `s` free (ADR-1403 D7)
             Key::Char('s')
                 if matches!(self.view, View::Looks | View::Settings) && !self.typing() =>
@@ -1011,10 +1021,10 @@ impl App {
 
     /// A key below the TUI's minimum size, where no view is drawn: `q`
     /// leaves, and `u` puts back the font the console had when the TUI
-    /// started, where a preview changed it (ADR-1201 D3).
+    /// started, where a preview changed it (ADR-1201 D3). Ctrl-C saves
+    /// and leaves, as it does everywhere.
     fn small_key(&mut self, key: Key) -> Vec<Effect> {
         match key {
-            Key::Interrupt => self.leave(130),
             Key::Char('q') => self.leave(0),
             Key::Char('u') => {
                 let Some(start) = self.start_font.clone() else {
